@@ -6,7 +6,6 @@ from pathlib import Path
 
 from argus.engineer.external_work import (
     ExternalWorkState,
-    parse_external_wait_request,
     render_external_work_advisory,
     scan_external_work,
 )
@@ -62,8 +61,3 @@ def test_terminal_subagent_is_omitted_from_advisory(tmp_path: Path) -> None:
     assert status.state is ExternalWorkState.TERMINAL
     assert render_external_work_advisory(tmp_path) == ""
 
-
-def test_structured_subagent_wait_request() -> None:
-    request = '{"wait_for": "subagent", "wait_id": "train-1"}'
-    assert parse_external_wait_request(request) == ("subagent", "train-1")
-    assert parse_external_wait_request("WAIT_FOR_SUBAGENT: train-1") is None

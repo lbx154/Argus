@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +22,6 @@ from argus.core import process_stop
 from argus.daemon.config import config_payload as _config_payload
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus.engineer.external_work import ExternalWorkState, inspect_external_work
-from argus.life.memory import BacklogItem, LifeMemory
 from argus.team import curator as cur
 from argus.team import external_work as team_work
 from argus.team import pool, registry, task_board
@@ -317,24 +315,20 @@ def _team(project: Path, *states: str, team_id: str = "t") -> Path:
         changes: dict[str, Any] = {"state": state}
         if state in {"claimed", "running"}:
             changes.update(owner=f"w{index}", claim_ts=1_000.0, heartbeat_ts=1_500.0)
-        if state == "waiting_external":
-            changes.update(
-                external_wait={"kind": "subagent", "work_id": "job", "workdir": str(project)},
-                finished_ts=1_500.0,
-            )
         task_board._mutate(root, f"{team_id}-{index}", **changes)
     pool.update(root, width=1, state="running")
     registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=900.0)
     return root
 
 
-def test_team_with_only_waiting_tasks_is_not_terminal(tmp_path: Path) -> None:
+def test_team_with_an_old_external_wait_is_not_terminal(tmp_path: Path) -> None:
+    # An older runtime parked a task on a job it watched; it reads as pending.
     _team(tmp_path, "waiting_external", "done")
     status = inspect_external_work(tmp_path, "team:t", now=time.time())
 
     assert status is not None
     assert status.state is ExternalWorkState.RUNNING_HEALTHY
-    assert "1 waiting on external work" in status.description
+    assert "1 pending" in status.description
 
 
 def test_team_board_stale_past_its_limit_is_stalled(tmp_path: Path) -> None:
@@ -345,15 +339,10 @@ def test_team_board_stale_past_its_limit_is_stalled(tmp_path: Path) -> None:
 
     assert status is not None and status.state is ExternalWorkState.STALLED
     assert "has not changed" in status.reason
-    # A parked task's own work has its own staleness; the board does not judge it.
-    _team(tmp_path, "waiting_external", "done", team_id="p")
-    parked = inspect_external_work(tmp_path, "team:p", now=later)
-    assert parked is not None and parked.state is ExternalWorkState.RUNNING_HEALTHY
-    # Nor does a parked or finished sibling vouch for a wedged running task,
-    # however fresh its own stamps are.
-    root = _team(tmp_path, "running", "waiting_external", "done", team_id="w")
-    task_board._mutate(root, "w-2", heartbeat_ts=later, finished_ts=later)
-    task_board._mutate(root, "w-3", finished_ts=later)
+    # A finished sibling does not vouch for a wedged running task, however
+    # fresh its own stamps are.
+    root = _team(tmp_path, "running", "done", team_id="w")
+    task_board._mutate(root, "w-2", finished_ts=later)
     masked = inspect_external_work(tmp_path, "team:w", now=later)
     assert masked is not None and masked.state is ExternalWorkState.STALLED
     # Pending work queues for the Curator (its in-flight cap, a daemon
@@ -402,50 +391,6 @@ def test_clean_stop_requeue_and_lead_retry_do_not_spend_the_orphan_budget(
     task_board._mutate(tmp_path, "a", state="failed", orphan_retries=4)
     assert task_board.retry_terminal(tmp_path, "a", reason="redo")
     assert task_board.snapshot(tmp_path)[0]["orphan_retries"] == 0
-
-
-# ---------------------------------------------------------------------------
-# R5 — the daemon recognizes the terminal states subagent writers write
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("terminal_state", ["early_stopped", "crashed"])
-def test_parent_is_requeued_after_owned_subagent_settles(
-    tmp_path: Path, terminal_state: str,
-) -> None:
-    project = tmp_path / "project"
-    subagents = project / ".argus_subagents"
-    subagents.mkdir(parents=True)
-    memory = LifeMemory.open(tmp_path)
-    memory.init()
-    item = BacklogItem.new(title="stalled", objective="collect the result")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    (subagents / "job.json").write_text(json.dumps({
-        "task_id": "job",
-        "state": terminal_state,
-        "owner_mission_id": item.id,
-        "completed_at": time.time(),
-    }), encoding="utf-8")
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path, backend="memory", project_workdir=project,
-    ))
-    dead_executor = threading.Thread(target=lambda: None)
-    dead_executor.start()
-    dead_executor.join()
-    worker._supervisor_execution_threads = {"primary": dead_executor}
-    state = SimpleNamespace(
-        cfg=worker.config,
-        mem=memory,
-        runtime_root=tmp_path,
-        sink=SimpleNamespace(handle_event=lambda _event: None),
-    )
-
-    assert worker._recover_stalled_running_items(state) == [item.id]
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.outcome["external_wait"]["work_id"] == "job"
 
 
 # ---------------------------------------------------------------------------

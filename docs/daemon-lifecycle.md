@@ -31,11 +31,9 @@ of further work; `--resume-continuous` restores an already armed, persisted
 campaign. A background worker does not require a connected human, but still
 honors explicit pauses and operator decisions.
 
-Registered background work normally finishes before independent Reviewer
-evaluation. Waiting does not approve the result: the Engineer consumes the
-terminal output and the Reviewer still decides whether the task is complete.
-Set `ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES=1` before starting the worker only
-when a separate launch review is needed; it does not replace result review.
+A long job runs inside the Engineer's own turn: the Engineer starts it, waits
+for it with blocking commands, reads the result, and only then hands off. The
+Reviewer judges the finished result, never a launch.
 
 ## Linux service supervision
 

@@ -443,7 +443,7 @@ def test_preparation_exposes_the_only_canonical_portfolio_to_engineer(
     assert f".argus/teams/{TEAM_ID}-g1" in prompt_blocks[0]
     assert "only authorized Idea portfolio" in prompt_blocks[0]
     assert "Do not call `team form`" in prompt_blocks[0]
-    assert "Do not launch a shell command or background subagent" in prompt_blocks[0]
+    assert "block with `sleep 590`" in prompt_blocks[0]
 
 
 def test_skill_library_state_includes_vertical_prompt_blocks() -> None:

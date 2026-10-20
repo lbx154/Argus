@@ -343,10 +343,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('planner', 'role.planner', '⏭', localized(context, 'skipped the plan preview: the research Planner owns the campaign plan', '跳过了计划预览:研究规划师负责整个计划'), 'dim');
     case 'life.planner.normalized':
       return model('planner', 'role.planner', '≋', `${localized(context, 'tidied the plan', '整理了计划')} · ${clean(stringField(event, 'diagnostic'), 180)}`, 'dim');
-    case 'life.planner.waiting':
-      return model('planner', 'role.planner', '⌛', `${localized(context, 'waiting', '等待中')} · ${clean(stringField(event, 'reason'), 180)}`, 'info');
-    case 'life.planner.waiting_woken':
-      return model('planner', 'role.planner', '↻', `${localized(context, 'resumed', '已唤醒')} · ${clean(stringField(event, 'wake_reason'), 180)}`, 'info');
+    case 'life.planner.idle':
+      return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'nothing new to start', '暂无新工作')} · ${clean(stringField(event, 'reason'), 180)}`, 'info');
     case 'life.planner.terminal_idle':
       return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'nothing left to plan', '暂时没有要规划的')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim');
     case 'life.planner.verification_probe':
@@ -368,8 +366,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('reviewer', 'role.reviewer', '🔄', localized(context, `the Reviewer checks round ${roundNumber(event)}`, `审阅者检查第 ${roundNumber(event)} 轮`), 'info');
     case 'round.review.deferred':
       return model('engineer', 'role.engineer', '↪', localized(context, `carries on into the next round without a review · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`, `不经审阅直接进入下一轮 · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`), 'info');
-    case 'round.review.skipped_unchanged':
-      return model('reviewer', 'role.reviewer', '⏸', localized(context, 'nothing changed since the last review; waiting on the background work', '上次审阅后没有变化，继续等后台任务'), 'dim');
     case 'round.main.completed':
       return model('engineer', 'role.engineer', '✅', localized(context, `finished round ${roundNumber(event)} of work`, `第 ${roundNumber(event)} 轮工作已完成`), 'info');
     case 'round.review.completed': {
@@ -509,8 +505,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('planner', 'role.planner', '↻', localized(context, 'finished one increment; the standing objective continues', '完成了一个增量；长期目标继续推进'), 'dim');
     case 'life.planner.superseded':
       return model('planner', 'role.planner', '↷', localized(context, 'dropped an outdated planning pass after a newer instruction', '收到更新的指令，放弃了过时的规划'), 'dim');
-    case 'life.planner.wait_overridden':
-      return model('planner', 'role.planner', '＋', `${localized(context, 'scheduled independent work instead of waiting', '不再干等，安排了独立的工作')} · ${clean(stringField(event, 'task_title'), 140)}`, 'info');
     case 'life.daemon.degraded':
       return model('system', 'role.system', '⚠', `${localized(context, 'Argus started, but the objective did not reach the Manager', 'Argus 已启动，但目标没有交到管理者手上')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'round.orphan_process_group': {
@@ -547,14 +541,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const said = clean(stringField(event, 'text'), 200);
       return model('reviewer', 'role.reviewer', '⏳', said || localized(context, `the Reviewer's model service is unavailable — retrying in ${seconds}s`, `审阅者的模型服务不可用 — ${seconds} 秒后重试`), 'warn');
     }
-    case 'round.external_work_wait.started':
-      return model('engineer', 'role.engineer', '⌛', `${localized(context, 'waiting for background work to report', '等待后台工作汇报')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
-    case 'round.external_work_wait.completed':
-      return model('engineer', 'role.engineer', '↻', localized(context, 'background work reported — resuming', '后台工作已汇报 — 继续'), 'dim');
-    case 'round.external_work_review.required':
-      return model('reviewer', 'role.reviewer', '⌛', `${localized(context, 'background work finished — an independent review of its result is required before resuming', '后台工作已结束 — 恢复前需要对其结果做一次独立审阅')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
-    case 'round.external_work_review.completed':
-      return model('reviewer', 'role.reviewer', '✓', `${localized(context, 'background work result reviewed', '后台工作结果已审阅')} · ${clean(stringField(event, 'review_status'), 40)}`, 'dim');
     case 'plan.draft.failed':
       return model('planner', 'role.planner', '⚠', `${localized(context, 'could not draft the plan', '未能起草计划')} · ${clean(stringField(event, 'reason'), 140)}`, 'err');
     case 'plan.draft.done': {
@@ -645,7 +631,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.verdict.discarded': case 'life.manager.feedback.unresolved':
     case 'life.manager.project_report': case 'life.plan.revision.rolled_back':
     case 'life.planner.completion_circuit.notify_failed': case 'life.planner.completion_circuit_holding':
-    case 'life.planner.external_poll_suppressed': case 'life.planner.waiting_contract.normalized':
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
     case 'manager.live_view.updated': case 'manager.live_view.rejected': case 'idea.portfolio.nested_skipped':

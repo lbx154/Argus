@@ -71,11 +71,10 @@ def _render_revision_request(
         "validators are revisable working choices. Compare the proposed alternative "
         "against the user objective instead of preserving stale mission wording. "
         "Do not return project_done. Exception: if "
-        "current_stage itself makes the prerequisite repair illegal, return "
-        "waiting=true with a waiting_contract whose "
-        "stage_reconciliation_required=true; emit no replacement tasks and let the "
-        "Manager decide HOLD versus ROLLBACK. Never use this exception for polling "
-        "or an ordinary implementation blocker."
+        "current_stage itself makes the prerequisite repair illegal, emit no "
+        "replacement tasks and end with `→ manager` so the Manager decides HOLD "
+        "versus ROLLBACK. Never use this exception for an ordinary "
+        "implementation blocker."
     )
     return "\n".join(lines)
 
@@ -451,10 +450,6 @@ class _PlanCycleState:
         # Set by the unchanged-input gate in the intake phase; empty when the
         # cycle's inputs could not be fingerprinted (skip stays disabled).
         self.planner_input_signature: str = ""
-        # Set when the Planner declared a wait alongside concrete tasks and
-        # the wait carries an operator or stage-reconciliation fact; the
-        # tasks are enqueued and this wait is recorded beside them.
-        self.carried_wait: Any = None
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []

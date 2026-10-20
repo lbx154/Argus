@@ -2,10 +2,10 @@
 
 The 48-hour billing forensics counted 1,237 ``life.planner.start`` events with
 45% producing nothing: the run loop re-asked the Planner after every backoff
-even when the backlog, journal, research plan, operator context, and persisted
-wait were byte-identical to the previous call — one project asked every 107
+even when the backlog, journal, research plan and operator context were
+byte-identical to the previous call — one project asked every 107
 seconds. The intake now fingerprints exactly those inputs after every real
-Planner call that answered with an intentional wait, and an unchanged
+Planner call that added no work and named who acts next, and an unchanged
 fingerprint keeps that answer instead of buying it again. Elapsed time alone is
 not an input: a call on the same inputs can only repeat its answer.
 """
@@ -25,7 +25,7 @@ from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
 from argus.messaging.inbox import PeerAwareInbox
-from argus.planner import PlannerVerdict, WaitingContract
+from argus.planner import PlannerVerdict
 from argus.skills.vertical_select import persist_vertical
 
 
@@ -57,12 +57,11 @@ def _supervisor(project: Path, life: Path, **config_overrides) -> LifeSupervisor
     return supervisor
 
 
-def _waiting_verdict() -> PlannerVerdict:
+def _idle_verdict() -> PlannerVerdict:
     return PlannerVerdict(
         project_done=False,
         reason="the long training run is still producing its result",
-        waiting=True,
-        waiting_reason="the long training run is still producing its result",
+        handoff="engineer",
     )
 
 
@@ -73,7 +72,7 @@ def _install_planner(monkeypatch, verdicts=None):
         calls["count"] += 1
         if verdicts:
             return verdicts.pop(0)
-        return _waiting_verdict()
+        return _idle_verdict()
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     return calls
@@ -108,7 +107,7 @@ def test_unchanged_inputs_skip_the_model_call(tmp_path: Path, monkeypatch) -> No
     skipped = [
         event
         for event in _events(life)
-        if event.get("type") == "life.planner.waiting"
+        if event.get("type") == "life.planner.idle"
         and event.get("model_call_skipped") is True
     ]
     assert skipped, "the skipped cycle must still be visible in the event log"
@@ -233,56 +232,6 @@ def test_subagent_report_does_not_bypass_the_skip(
     receiver.release_pending()
 
 
-def test_operator_wait_turn_regrant_beats_the_skip(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A turn the wait machinery grants is never answered from memory.
-
-    The event-wait path re-grants one Planner call on an operator-only wait
-    when the Planner's inputs have changed since its last turn. That grant IS
-    the decision to spend a model call; the unchanged-input skip, armed on the
-    previous answer, must stand aside.
-    """
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = {"count": 0}
-
-    def _plan_next(_planner, **_kwargs):
-        calls["count"] += 1
-        return PlannerVerdict(
-            project_done=False,
-            reason="venue submission needs operator authorization",
-            waiting=True,
-            waiting_reason="venue submission needs operator authorization",
-            waiting_contract=WaitingContract(
-                blocker_fingerprint="submission_needs_operator_8d2b840c",
-                recheck_condition="operator authorizes venue submission",
-                recheck_token="token-v1",
-                wake_on=("authorization",),
-                operator_action_required=True,
-            ),
-        )
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
-    supervisor = _supervisor(project, life)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
-    # The contract's one idle-capacity turn.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 2
-    # Turn spent, nothing new: the wait machinery itself declines.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 2
-
-    monkeypatch.setattr(
-        supervisor, "_current_planner_input_signature", lambda: "something-moved"
-    )
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 3, "the re-granted turn must reach the model"
-
-
 def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -295,7 +244,7 @@ def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
                 reason="backend failed",
                 error="backend exit 1",
             ),
-            _waiting_verdict(),
+            _idle_verdict(),
         ],
     )
     supervisor = _supervisor(project, life)
@@ -314,9 +263,9 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
     tmp_path: Path, monkeypatch, declared: bool
 ) -> None:
     """The daemon returns at least every IDLE_BACKOFF_CAP_SECONDS while a
-    mission waits on the operator's answer. A return is not news: on unchanged
-    inputs it buys no Planner turn, whether the Planner waits plainly or
-    declares the operator wait (which earns one idle-capacity turn)."""
+    question waits on the operator. A return is not news: on unchanged inputs it
+    buys no Planner turn, whether a mission asked or the Planner asked itself
+    (its new card is read once, then the same question changes nothing)."""
     from argus.life.supervisor._constants import IDLE_BACKOFF_CAP_SECONDS
 
     project = tmp_path / "project"
@@ -324,19 +273,13 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
     verdict = PlannerVerdict(
         project_done=False,
         reason="the dataset choice is the operator's",
-        waiting=True,
-        waiting_reason="the dataset choice is the operator's",
-        waiting_contract=WaitingContract(
-            blocker_fingerprint="dataset-choice",
-            recheck_condition="the operator picks a dataset",
-            recheck_token="dataset-choice",
-            operator_action_required=True,
-        ),
-    ) if declared else _waiting_verdict()
+        handoff="operator",
+        operator_question="Which dataset should I use?",
+    ) if declared else _idle_verdict()
     calls = _install_planner(monkeypatch, verdicts=[verdict] * 36)
     supervisor = _supervisor(project, tmp_path / "life")
     if not declared:
-        # A mission parked on its card; a declared wait parks the plan itself.
+        # A mission parked on its card; a declared question parks the plan itself.
         item = supervisor.memory.backlog.add(BacklogItem.new(
             title="Choose the dataset", objective="Train on the dataset the operator picks.",
         ))

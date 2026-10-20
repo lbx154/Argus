@@ -101,17 +101,13 @@ class RoundLoopState:
     pending_round_evidence: list[str] = field(default_factory=list)
     pending_round_evidence_engineer_note: str = ""
     round_evidence_state: dict[str, dict] = field(default_factory=dict)
-    # A completed requested job gets one result-consumption turn per run,
-    # including when it finished before the harness could enter its wait.
-    external_work_resumptions: set[tuple[str, str, str]] = field(default_factory=set)
-    pending_external_work_followup: str = ""
+    # Host text for the next Engineer prompt (the round-evidence note).
+    pending_engineer_followup: str = ""
     engineer_session: RoleSessionCapsule | None = None
     # Every Engineer provider thread seen in this run (seed, each turn, each
     # wind-down). The Reviewer must never resume any of them.
     engineer_thread_ids: set[str] = field(default_factory=set)
     reviewer_session: RoleSessionCapsule | None = None
-    reviewed_external_waits: set[str] = field(default_factory=set)
-    pending_external_wait_review: str | None = None
 
 
 @dataclass

@@ -468,7 +468,7 @@ class EventJournal:
         EventType.LIFE_MISSION_COMPLETED,
         EventType.LIFE_PLANNER_VERDICT,
         EventType.LIFE_PLANNER_ERROR,
-        EventType.LIFE_PLANNER_WAITING,
+        EventType.LIFE_PLANNER_IDLE,
         EventType.LIFE_BUDGET_PAUSE,
         EventType.LIFE_LIFECYCLE_BLOCK,
         "user.note",
@@ -558,7 +558,7 @@ class EventJournal:
                 ),
                 EventType.LIFE_PLANNER_VERDICT: "planner_cycle",
                 EventType.LIFE_PLANNER_ERROR: "planner_error",
-                EventType.LIFE_PLANNER_WAITING: "planner_waiting",
+                EventType.LIFE_PLANNER_IDLE: "planner_idle",
                 EventType.LIFE_BUDGET_PAUSE: "budget_pause",
                 EventType.LIFE_LIFECYCLE_BLOCK: "lifecycle_block",
                 "user.note": "user_note",
@@ -822,11 +822,8 @@ def park_reason(item: Any) -> str | None:
 
 
 def _holds_resources(item: Any) -> bool:
-    """Running work, and a park that keeps its reservations, holds GPUs and paths."""
-    if getattr(item, "status", "") == "running":
-        return True
-    reason = park_reason(item)
-    return reason is not None and park_rule(reason).holds_resources
+    """Running work holds its GPUs and paths; parked work holds nothing."""
+    return getattr(item, "status", "") == "running"
 
 
 def planner_may_retire_park(item: Any) -> bool:
@@ -926,7 +923,7 @@ def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
 
 
 def gpu_reservation(items: Iterable[Any]) -> int:
-    """GPUs held by running tasks and by tasks parked on their own jobs."""
+    """GPUs held by running tasks."""
     return sum(
         max(0, int(getattr(item, "gpu_count", 0) or 0))
         for item in items
@@ -983,7 +980,7 @@ def task_cpu_count(item: Any, usable: int) -> int:
 
 
 def cpu_reservation(items: Iterable[Any], usable: int) -> int:
-    """Cores declared by running tasks and by tasks parked on their own jobs."""
+    """Cores declared by running tasks."""
     return sum(
         task_cpu_count(item, usable)
         for item in items
@@ -1728,8 +1725,7 @@ class Backlog:
 
         A continuation that keeps the origin's ``node_key``, or uses the
         origin's id as its node key, is the same unit of campaign work. While
-        any such row is running or parked on external work, a second worker
-        must not start it in parallel; it becomes claimable once the active
+        any such row is running, a second worker must not start it in parallel; it becomes claimable once the active
         row settles. (Same-origin claim exclusion from #133.)
         """
         aliases = {candidate.id, str(candidate.node_key or "").strip()} - {""}
@@ -1795,16 +1791,11 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
-        parked = [
-            item for item in items if item.status != "running" and _holds_resources(item)
-        ]
         if any(not item.parallel_safe or not item.owns_paths for item in running):
-            return False
-        if any(not item.owns_paths for item in parked):
             return False
         return not any(
             cls._paths_overlap(candidate_path, active_path)
-            for item in (*running, *parked)
+            for item in running
             for candidate_path in candidate.owns_paths
             for active_path in item.owns_paths
         )

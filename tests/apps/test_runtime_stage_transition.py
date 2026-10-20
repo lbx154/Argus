@@ -37,7 +37,7 @@ def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, a
     assert read_pipeline_state(state)["current_stage"] == stage
 
 
-def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
+def test_stale_stage_verdict_preserves_new_campaign_head(tmp_path) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
     from argus.manager._core import StageTransition
@@ -45,8 +45,8 @@ def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
 
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity(objective="replacement objective", campaign_epoch=2)
-    original_head = control.activate_wait(
-        identity=identity, wait_id="new-wait", blocker_fingerprint="new-blocker", recheck_token="new-evidence"
+    original_head, _ = control.commit_revision(
+        identity=identity, updates={"stage_projection": {"marker": "new"}}, reason="new campaign"
     )
 
     class Manager:
@@ -68,7 +68,7 @@ def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
 
     assert result["source"] == "stale_stage_context_hold"
     assert control.read_head() == original_head
-    assert control.read_snapshot()["active_wait"]["wait_id"] == "new-wait"
+    assert control.read_snapshot()["stage_projection"] == {"marker": "new"}
 
 
 @pytest.mark.parametrize("initial_head", [False, True])
@@ -88,7 +88,7 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
     control = CampaignControlStore(state)
     identity = control.campaign_identity()
     if initial_head:
-        control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="evidence")
+        control.commit_revision(identity=identity, updates={}, reason="earlier revision")
     manager = Manager(project_root=state, execution_workdir=work, runner=object())
 
     result = StageTransitionMixin._decide_stage_transition(
@@ -104,12 +104,11 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
     assert head.campaign_id == identity.campaign_id
     assert head.state_revision == (2 if initial_head else 1)
     assert result["state_revision"] == head.state_revision
-    assert snapshot["active_wait"] is None
     assert snapshot["stage_projection"]["target_stage"] == "optimize"
     assert snapshot["terminal_evidence"][0]["reason"] == "verified"
 
 
-@pytest.mark.parametrize("change", ["new_wait", "replacement", "generation_only"])
+@pytest.mark.parametrize("change", ["new_revision", "replacement", "generation_only"])
 def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_path, change) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
@@ -123,7 +122,7 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
     write_continuous_config(tmp_path, enabled=True, objective="old objective")
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity()
-    control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="old")
+    control.commit_revision(identity=identity, updates={"stage_projection": {"marker": "old"}}, reason="old")
     changed_head = []
 
     class CommittedDecision:
@@ -145,9 +144,9 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
                             objective="old objective" if change == "generation_only" else "new objective",
                         )
                     if change != "generation_only":
-                        control.activate_wait(
-                            identity=control.campaign_identity(), wait_id="new-wait",
-                            blocker_fingerprint="new", recheck_token="new",
+                        control.commit_revision(
+                            identity=control.campaign_identity(),
+                            updates={"stage_projection": {"marker": "new"}}, reason="new",
                         )
                     changed_head.append(control.read_head())
             return "old objective verified"
@@ -172,7 +171,7 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
     assert "state_revision" not in result
     assert control.read_head() == changed_head[0]
     snapshot = control.read_snapshot()
-    assert snapshot["active_wait"]["wait_id"] == ("old-wait" if change == "generation_only" else "new-wait")
+    assert snapshot["stage_projection"] == {"marker": "old" if change == "generation_only" else "new"}
     assert snapshot["terminal_evidence"] == []
 
 

@@ -21,7 +21,6 @@ from argus.engineer.round_stop_signals import (
     idle_termination_review_decision,
     provider_turn_cap_review_decision,
 )
-from argus.engineer.runner import hold_review_for_pending_background_run
 from argus.life.context_packet import render_mission_brief
 from argus.reviewer import Reviewer
 
@@ -263,23 +262,6 @@ def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
     assert not findings.has_reviewer_findings
     assert "Operator questions are forbidden" not in findings.text
     assert "the host replaced the review because operator questions" in findings.text
-
-
-def test_background_wait_hold_keeps_the_reviewer_words_and_labels_the_host_change() -> None:
-    approved = ReviewDecision(
-        status="done", reason="REAL: the launch is correct.", next_action="",
-        reviewer_authored=True,
-    )
-    held = hold_review_for_pending_background_run(approved)
-    assert held.status == "continue" and held.reviewer_authored
-    text = render_previous_findings([_record(1, held)], round_index=2).text
-    findings, host = text.split("## Host facts since then (not your words)\n", 1)
-    assert "Your judgment in round 1 (`done`):\nREAL: the launch is correct." in findings
-    assert "still has no terminal result" not in findings
-    assert "Await the declared background run" not in findings
-    assert "held open because a declared background run is still pending" in host
-    summary = _previous_review_summary(RoundLoopState(rounds=[_record(1, held)]))
-    assert summary == "Round 1 — done: REAL: the launch is correct."
 
 
 def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(

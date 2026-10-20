@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -693,192 +692,17 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
     assert completed["recoverable"] is True
 
 
-def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False,
-            status="paused_external_work",
-            stop_reason="healthy external work is still running",
-            summary='{"wait_for":"external_work","wait_id":"job-1"}',
-        ),
-    )
-    workdir = supervisor._project_workdir()
-    registry = workdir / ".argus_external_work"
-    registry.mkdir(parents=True)
-    status_path = registry / "job-1.json"
-    status_path.write_text(json.dumps({
-        "version": 1,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": time.time(),
-        "stale_after_seconds": 300,
-        "poll_after_seconds": 30,
-        "description": "long benchmark",
-    }), encoding="utf-8")
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(
-            title="benchmark",
-            objective="launch and evaluate the benchmark",
-            owns_paths=["evidence/control"],
-        )
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None and result["status"] == "paused_external_work"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_external_work"
-    assert stored.outcome["external_wait"]["work_id"] == "job-1"
-    waiting_event = _completed_event(sink)
-    assert waiting_event["external_wait"]["work_id"] == "job-1"
-    assert waiting_event["title"] == "benchmark"
-
-    from argus.core.transcript import read_turns
-
-    # The lifecycle releases a slot, but the conversation must not declare the
-    # still-running work failed or complete. Redelivery remains idempotent.
-    supervisor._publish_mission_completion_message(waiting_event)
-    supervisor._publish_mission_completion_message(waiting_event)
-    messages = [
-        row for row in read_turns(supervisor.memory.root)
-        if str(row.get("message_id") or "").startswith("mission-wait-")
-    ]
-    assert len(messages) == 1
-    message = messages[0]
-    assert message["mission_result"] is False
-    assert "success" not in message
-    assert "benchmark" in message["text"]
-    assert "automatically" in message["text"]
-    assert "Could not complete" not in message["text"]
-    live_message = next(
-        row for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
-        if (row := json.loads(line)).get("message_id") == message["message_id"]
-    )
-    assert live_message["status"] == "paused_external_work"
-    assert live_message["user_action_required"] is False
-    assert live_message["external_wait"]["work_id"] == "job-1"
-    assert supervisor._resume_automatic_pauses() == []
-    assert next(row for row in supervisor.memory.backlog.all() if row.id == item.id).status == (
-        "paused_external_work"
-    )
-
-    status_path.write_text(json.dumps({
-        "version": 1,
-        "work_id": "job-1",
-        "state": "terminal",
-        "outcome": "done",
-        "heartbeat_at": time.time(),
-        "stale_after_seconds": 300,
-        "poll_after_seconds": 30,
-        "description": "long benchmark",
-    }), encoding="utf-8")
-    resumed = supervisor._resume_automatic_pauses()
-
-    assert [row.id for row in resumed] == [item.id]
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.attempt == 2
-
-
-def test_runtime_preserves_long_external_wait_message_for_lifecycle_pause(
-    tmp_path,
-) -> None:
-    final_message = (
-        "x" * 1300
-        + '\n{"wait_for":"external_work","wait_id":"job-1"}'
-    )
-    loop_outcome = LoopOutcome(
-        status="paused_external_work",
-        rounds=[],
-        final_message=final_message,
-        reason="healthy external work is still running",
-        workdir=str(tmp_path),
-        recoverable=True,
-    )
-    execute_state = _ExecuteState()
-    execute_state.outcome = loop_outcome
-    execute_state.effective_status = "paused_external_work"
-    execute_state.effective_recoverable = True
-    execute_state.effective_reason = loop_outcome.reason
-    runtime_outcome = _SkillLoopRunner.__new__(
-        _SkillLoopRunner
-    )._build_execute_outcome(execute_state)
-    supervisor, sink = _make_supervisor(tmp_path, runtime_outcome)
-    workdir = supervisor._project_workdir()
-    registry = workdir / ".argus_external_work"
-    registry.mkdir(parents=True)
-    (registry / "job-1.json").write_text(json.dumps({
-        "version": 1,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": time.time(),
-        "stale_after_seconds": 300,
-        "poll_after_seconds": 30,
-        "description": "long benchmark",
-    }), encoding="utf-8")
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="benchmark", objective="wait on external work")
-    )
-
-    result = supervisor.tick()
-
-    assert runtime_outcome.final_message == final_message
-    assert result is not None and result["status"] == "paused_external_work"
-    assert result["recoverable"] is True
-    assert result["external_wait"]["work_id"] == "job-1"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_external_work"
-    assert stored.outcome["external_wait"]["work_id"] == "job-1"
-    assert _completed_event(sink)["external_wait"]["work_id"] == "job-1"
-
-
-def test_runtime_summary_omits_role_and_external_wait_control_lines() -> None:
+def test_runtime_summary_omits_role_control_lines() -> None:
     final_message = "\n".join([
-        "Started the durable job.",
+        "Finished the benchmark.",
         'ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done"}}',
-        '{"wait_for":"external_work","wait_id":"job-1"}',
     ])
     loop_outcome = LoopOutcome(
-        status="paused_external_work",
+        status="done",
         rounds=[],
         final_message=final_message,
-        reason="healthy external work is still running",
-        workdir="/tmp/project",
-        recoverable=True,
-    )
-    execute_state = _ExecuteState()
-    execute_state.outcome = loop_outcome
-    execute_state.effective_status = "paused_external_work"
-    execute_state.effective_recoverable = True
-    execute_state.effective_reason = loop_outcome.reason
-
-    runtime_outcome = _SkillLoopRunner.__new__(
-        _SkillLoopRunner
-    )._build_execute_outcome(execute_state)
-
-    assert runtime_outcome.final_message == final_message
-    assert runtime_outcome.summary == "Started the durable job."
-
-
-def test_runtime_summary_preserves_nonfinal_wait_protocol_example() -> None:
-    engineer_message = (
-        'For reference, use {"wait_for":"external_work","wait_id":"job-1"}.\n'
-        "The job has now completed."
-    )
-    loop_outcome = LoopOutcome(
-        status="done",
-        rounds=[
-            RoundRecord(
-                round_index=1,
-                engineer_message=engineer_message,
-                engineer_exit_code=0,
-                review=None,
-            )
-        ],
-        final_message=engineer_message,
         reason="",
-        workdir=".",
+        workdir="/tmp/project",
     )
     execute_state = _ExecuteState()
     execute_state.outcome = loop_outcome
@@ -888,10 +712,8 @@ def test_runtime_summary_preserves_nonfinal_wait_protocol_example() -> None:
         _SkillLoopRunner
     )._build_execute_outcome(execute_state)
 
-    assert runtime_outcome.summary == (
-        'For reference, use {"wait_for":"external_work","wait_id":"job-1"}. '
-        "The job has now completed."
-    )
+    assert runtime_outcome.final_message == final_message
+    assert runtime_outcome.summary == "Finished the benchmark."
 
 
 def test_daemon_reconciles_project_registry_from_unrelated_cwd(
@@ -926,52 +748,6 @@ def test_daemon_reconciles_project_registry_from_unrelated_cwd(
     assert reconciled["state"] == "done"
     assert reconciled["exit_code"] == 0
     assert not (elsewhere / ".argus_subagents").exists()
-
-
-def test_paused_external_work_leaves_the_primary_free_to_plan(tmp_path) -> None:
-    supervisor, _sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False,
-            status="paused_external_work",
-            stop_reason="healthy external work is still running",
-            final_message='{"wait_for":"external_work","wait_id":"job-1"}',
-        ),
-    )
-    workdir = supervisor._project_workdir()
-    registry = workdir / ".argus_external_work"
-    registry.mkdir(parents=True)
-    (registry / "job-1.json").write_text(json.dumps({
-        "version": 1,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": time.time(),
-        "stale_after_seconds": 300,
-        "poll_after_seconds": 30,
-        "description": "long benchmark",
-    }), encoding="utf-8")
-    supervisor.memory.backlog.add(
-        BacklogItem.new(
-            title="benchmark",
-            objective="launch and evaluate the benchmark",
-            owns_paths=["evidence/control"],
-        )
-    )
-    assert supervisor.tick()["status"] == "paused_external_work"
-    supervisor.config.continuous = True
-    supervisor.config.continuous_objective = "keep optimizing"
-    planned: list[bool] = []
-
-    def plan_next_work():
-        planned.append(True)
-        return "awaiting_external"
-
-    supervisor._plan_next_work = plan_next_work
-
-    summary = supervisor.run()
-
-    assert planned == [True]
-    assert summary["stopped_by"] == "awaiting_external"
 
 
 def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:
@@ -1134,3 +910,21 @@ def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
         "outcome": {"execution_status": "paused", "resumable": True},
     })
     assert _is_recent_no_progress_failure(outcome_only) is False
+
+
+def test_an_old_background_job_pause_resumes_without_being_watched(tmp_path) -> None:
+    """An older release parked a mission on a job it watched for the Engineer.
+    The Engineer now waits on its own jobs, so the row simply runs again."""
+    supervisor, _sink = _make_supervisor(tmp_path, _Outcome(success=True, status="done"))
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(title="benchmark", objective="evaluate the benchmark")
+    )
+    supervisor.memory.backlog.update(
+        item.id,
+        status="paused_external_work",
+        outcome={"external_wait": {"kind": "subagent", "work_id": "job-1"}},
+    )
+
+    assert [row.id for row in supervisor._resume_automatic_pauses()] == [item.id]
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == "pending"

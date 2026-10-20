@@ -219,17 +219,6 @@ def test_submission_records_reason_and_prerequisite_without_new_identifiers(monk
     assert "previous_run_id" not in new
 
 
-def test_shared_role_rule_covers_both_shells(monkeypatch):
-    from argus.roles.prompts import engineer
-
-    for native in ("", "Windows PowerShell"):
-        monkeypatch.setattr(engineer, "native_shell_contract", lambda: native)
-        rule = engineer._long_experiment_rule()
-        assert "--depends-on" in rule
-        assert "--rerun-reason" in rule
-        assert "readiness never replaces required independent validation" in rule
-
-
 @pytest.mark.parametrize("round_index", [1, 2])
 def test_independent_evidence_rule_applies_from_first_review(round_index):
     from argus.reviewer import Reviewer

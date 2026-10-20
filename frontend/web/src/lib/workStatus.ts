@@ -69,30 +69,14 @@ export function activeProviderRequest(events: EventMsg[], notBefore = 0): EventM
   return [...calls.values()].at(-1) ?? null;
 }
 
-const WAIT_EVENTS = new Set(['round.external_work_wait.started', 'round.external_work_wait.completed']);
-
-/** The background work the task waits on: the wait parked on the backlog item,
- * or the in-round wait the journal records for a running task; its progress
- * comes from the snapshot, which read the team board once for every surface. */
+/** The background work an older runtime parked the task on; its progress comes
+ * from the snapshot, which read the team board once for every surface. */
 export function backgroundWait(
   snapshot: Snapshot | undefined,
   task: BacklogItem | undefined,
-  events: EventMsg[],
-  started = 0,
 ): BackgroundWait | null {
-  if (!snapshot || !task || !snapshot.daemon.alive) return null;
-  let workId = '';
-  let over = false;
-  if (backlogParkReason(task) === 'external_work') {
-    workId = String(task.outcome?.external_wait?.work_id || '');
-  } else if (ACTIVE.has(task.status)) {
-    // The page keeps a longer journal than the snapshot: what it saw last wins.
-    const latest = [...events].reverse().find(event => WAIT_EVENTS.has(String(event.type || ''))
-      && eventTaskId(event) === task.id && Number(event.ts || 0) >= started);
-    if (latest?.type === 'round.external_work_wait.started') workId = String(latest.work_id || '');
-    over = latest?.type === 'round.external_work_wait.completed';
-  } else return null;
-  if (over) return null;
+  if (!snapshot || !task || !snapshot.daemon.alive || backlogParkReason(task) !== 'external_work') return null;
+  const workId = String(task.outcome?.external_wait?.work_id || '');
   const entry = (snapshot.background_work || []).find(candidate =>
     (workId && candidate.work_id === workId) || candidate.waited_by?.includes(task.id));
   if (!entry) return workId ? { workId, parts: [], done: 0, total: 0, lastProgressAt: null } : null;
@@ -181,7 +165,7 @@ export function currentWorkStatus(
   }
   // A task waiting on its own background team is neither stalled nor paused:
   // one sentence, with the team's progress, wherever the status is shown.
-  const wait = backgroundWait(snapshot, task, events, started);
+  const wait = backgroundWait(snapshot, task);
   if (wait) {
     const at = wait.lastProgressAt ?? activityAt;
     return {

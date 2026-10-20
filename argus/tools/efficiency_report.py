@@ -8,12 +8,9 @@ nothing; the round handoff files carry no fact the round events lack.
 
 A call is a ``usage.recorded`` row; its role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
-that only concluded to keep waiting, a Manager supervision whose decision was
-never applied or kept the course, and a Reviewer called while the task's
-background work was still running. ``avoided`` counts the calls the
-change-facts ledger skipped because nothing had changed; the ledger keeps only
-the latest facts, so its verdicts are counted from their events
-(``round.review.skipped_unchanged``, ``model_call_skipped``).
+that added no new work, and a Manager supervision whose decision was never
+applied or kept the course. ``avoided`` counts the Planner calls skipped because
+nothing it reads had changed (``model_call_skipped``).
 """
 from __future__ import annotations
 
@@ -25,6 +22,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+from ..core.event_catalog import canonical_event_type
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import retained_jsonl_paths
 
@@ -85,13 +83,10 @@ def _context(rows: list[dict[str, Any]], turns: dict[str, list[int]]) -> dict[st
 def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     calls: dict[str, dict[str, Any]] = {}  # call_id -> usage row
     planner_cycle: list[str] = []  # this Planner cycle's calls, until its outcome
-    planner_waits: list[str] = []
+    planner_idle: list[str] = []
     planner_skipped = 0
     supervisions: dict[str, tuple[str, str]] = {}  # supervision_id -> (call_id, action)
     applied: set[str] = set()
-    last_review: dict[str, str] = {}  # task -> its Reviewer call awaiting the verdict
-    running: defaultdict[str, set[str]] = defaultdict(set)  # task -> unfinished background work
-    reviews_while_running: list[str] = []
     reasons: Counter[str] = Counter()
     tasks: defaultdict[str, Counter[str]] = defaultdict(Counter)
     passed: dict[str, bool] = {}
@@ -99,7 +94,7 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     session_turns: defaultdict[str, defaultdict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
 
     for event in _events(Path(life_dir)):
-        kind = event.get("type")
+        kind = canonical_event_type(event.get("type"))
         task = str(event.get("item_id") or "")
         if kind == "usage.recorded":
             call = str(event.get("call_id") or f"#{len(calls)}")
@@ -107,14 +102,12 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
             role = role_of(event.get("run_label"))
             if role == "planner":
                 planner_cycle.append(call)
-            elif role == "reviewer" and task_of(event):
-                last_review[task_of(event)] = call
         elif kind in ("life.planner.start", "life.planner.verdict"):
             planner_cycle = []
-        elif kind == "life.planner.waiting":
+        elif kind == "life.planner.idle":
             if event.get("model_call_skipped"):
                 planner_skipped += 1
-            planner_waits += planner_cycle
+            planner_idle += planner_cycle
             planner_cycle = []
         elif kind == "life.manager.supervision.issued":
             supervisions[str(event.get("supervision_id"))] = (
@@ -122,20 +115,10 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
             )
         elif kind == "life.manager.supervision.applied":
             applied.add(str(event.get("supervision_id")))
-        elif kind == "round.external_work_wait.started":
-            running[task].add(str(event.get("work_id")))
-        elif kind == "round.external_work_wait.completed" and event.get("reason") == "terminal":
-            running[task].discard(str(event.get("work_id")))
-        elif kind == "round.review.skipped_unchanged":
-            tasks[task]["unchanged"] += 1
         elif kind == "round.review.completed":
-            call = last_review.pop(task, "")
-            if call and running[task]:
-                reviews_while_running.append(call)
-                tasks[task]["while_running"] += 1
             if event.get("status") == "continue":
                 tasks[task]["continue"] += 1
-                reasons["background_running" if running[task] else str(event.get("frontier_change") or "unspecified")] += 1
+                reasons[str(event.get("frontier_change") or "unspecified")] += 1
         elif kind == "life.mission.completed":
             elapsed[task] += float(event.get("elapsed_seconds") or 0)
             passed[task] = event.get("success") is True
@@ -163,8 +146,8 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
             for role, tally in roles
         },
         "no_new_information": {
-            "planner_kept_waiting": _tally(
-                picked(planner_waits), of_calls=len(by_role["planner"]), avoided=planner_skipped,
+            "planner_no_new_work": _tally(
+                picked(planner_idle), of_calls=len(by_role["planner"]), avoided=planner_skipped,
             ),
             "manager_not_applied": _tally(
                 picked(call for sid, (call, _) in supervisions.items() if sid not in applied),
@@ -174,17 +157,11 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
                 picked(call for sid, (call, action) in supervisions.items() if sid in applied and action == "continue"),
                 of_calls=len(supervisions), avoided=0,
             ),
-            "reviewer_while_running": _tally(
-                picked(reviews_while_running), of_calls=len(by_role["reviewer"]),
-                avoided=sum(counts["unchanged"] for counts in tasks.values()),
-            ),
         },
         "passed_tasks": [
             {
                 "task": task,
                 "reviewer_calls": sum(role_of(row.get("run_label")) == "reviewer" for row in by_task[task]),
-                "unchanged": tasks[task]["unchanged"],
-                "while_running": tasks[task]["while_running"],
                 "continue": tasks[task]["continue"],
                 "elapsed_s": round(elapsed[task], 1),
                 **_tally(by_task[task]),
@@ -228,9 +205,9 @@ def render(report: dict[str, Any]) -> str:
         [name.replace("_", " "), row["calls"], row["of_calls"], row["cost_usd"], row["avoided"]]
         for name, row in report["no_new_information"].items()
     ])
-    lines += _table("Passed tasks", ["task", "reviews", "unchanged", "while running", "continue", "elapsed s",
+    lines += _table("Passed tasks", ["task", "reviews", "continue", "elapsed s",
                                      "calls", "input", "output", "cost $"], [
-        [row[key] for key in ("task", "reviewer_calls", "unchanged", "while_running", "continue", "elapsed_s",
+        [row[key] for key in ("task", "reviewer_calls", "continue", "elapsed_s",
                               "calls", "input_tokens", "output_tokens", "cost_usd")]
         for row in report["passed_tasks"]
     ])

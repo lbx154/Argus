@@ -47,12 +47,11 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
     return supervisor
 
 
-def _waiting_verdict(error: str = "") -> PlannerVerdict:
+def _idle_verdict(error: str = "") -> PlannerVerdict:
     return PlannerVerdict(
         project_done=False,
         reason="the long training run is still producing its result",
-        waiting=not error,
-        waiting_reason="the long training run is still producing its result",
+        handoff="" if error else "engineer",
         error=error,
     )
 
@@ -64,7 +63,7 @@ def _install_recording_planner(monkeypatch, verdicts=None):
         calls.append(kwargs)
         if verdicts:
             return verdicts.pop(0)
-        return _waiting_verdict()
+        return _idle_verdict()
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     return calls
@@ -148,9 +147,9 @@ def test_failed_call_keeps_the_older_entries_in_the_next_delta(
     calls = _install_recording_planner(
         monkeypatch,
         verdicts=[
-            _waiting_verdict(),
-            _waiting_verdict(error="backend exit 1"),
-            _waiting_verdict(),
+            _idle_verdict(),
+            _idle_verdict(error="backend exit 1"),
+            _idle_verdict(),
         ],
     )
 

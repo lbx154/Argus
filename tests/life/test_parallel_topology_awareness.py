@@ -158,30 +158,6 @@ def test_digest_shows_declared_ownership_without_the_advisory(
     assert "analysis/lane-a" in owned_line
 
 
-def test_digest_flags_paused_external_work_without_ownership(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(
-        project, tmp_path / "life", _PlannerBackend([]), mission_slots=2
-    )
-    backlog = supervisor.memory.backlog
-    paused = BacklogItem.new(
-        title="waiting on the training run",
-        objective="resume once the external job lands",
-    )
-    backlog.add(paused)
-    backlog.update(paused.id, status="paused_external_work")
-
-    note = supervisor._planner_current_reality_note()
-
-    # The claim gate refuses every candidate while a paused external job has
-    # no owned paths; advertising the slot as usable would mislead the plan.
-    assert "runs or waits without declared path ownership" in note
-    assert "can run now" not in note
-
-
 def test_enqueue_reports_dropped_parallel_flags_once(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()

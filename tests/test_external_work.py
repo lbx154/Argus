@@ -10,10 +10,8 @@ from argus.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     ExternalWorkState,
     inspect_external_work,
-    parse_external_wait_request,
     render_external_work_advisory,
     scan_external_work,
-    wait_for_external_work_cadence,
 )
 
 
@@ -72,11 +70,6 @@ def test_invalid_heartbeat_cannot_keep_a_job_waitable(tmp_path: Path, heartbeat)
     assert statuses["invalid"].state is ExternalWorkState.STALLED
     assert not statuses["invalid"].waitable
     assert statuses["healthy"].waitable
-    slept = []
-    reason, waited = wait_for_external_work_cadence(
-        tmp_path, "invalid", sleep=slept.append, now=lambda: 110,
-    )
-    assert (reason, waited, slept) == ("stalled", 0.0, [])
 
 
 @pytest.mark.parametrize("duration", [float("nan"), float("inf"), "1e400", 10 ** 400])
@@ -143,42 +136,6 @@ def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
     assert status.state is ExternalWorkState.RUNNING_HEALTHY
     assert status.waitable is True
     assert status.activity_silence_seconds == 20
-
-
-def test_external_wait_keeps_waiting_when_activity_is_quiet_with_fresh_heartbeat(
-    tmp_path: Path,
-) -> None:
-    path = _write_external(
-        tmp_path,
-        "job-1",
-        heartbeat_at=100,
-        stale_after_seconds=60,
-        activity_stale_after_seconds=10,
-        poll_after_seconds=30,
-        started_at=100,
-    )
-    progress = tmp_path / "experiments" / "progress.jsonl"
-    progress.parent.mkdir(exist_ok=True)
-    progress.write_text("loading\n", encoding="utf-8")
-    os.utime(progress, (100, 100))
-    clock = [100.0]
-
-    def sleep(seconds: float) -> None:
-        clock[0] += seconds
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["heartbeat_at"] = clock[0]
-        path.write_text(json.dumps(payload), encoding="utf-8")
-
-    reason, waited = wait_for_external_work_cadence(
-        tmp_path,
-        "job-1",
-        sleep=sleep,
-        poll_interval=15,
-        now=lambda: clock[0],
-    )
-
-    assert reason == "cadence_elapsed"
-    assert waited == 30
 
 
 def test_paths_are_project_relative_and_lookup_uses_declared_id(tmp_path: Path) -> None:
@@ -489,42 +446,13 @@ def test_direct_subagent_exit_receipt_is_terminal(tmp_path: Path) -> None:
     assert status.waitable is False
 
 
-def test_wait_wakes_on_terminal_without_claiming_success(tmp_path: Path) -> None:
-    path = _write_external(tmp_path, "job-1")
-    clock = [100.0]
-
-    def sleep(seconds: float) -> None:
-        clock[0] += seconds
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["state"] = "terminal"
-        payload["outcome"] = "failed"
-        path.write_text(json.dumps(payload), encoding="utf-8")
-
-    reason, waited = wait_for_external_work_cadence(
-        tmp_path,
-        "job-1",
-        sleep=sleep,
-        poll_interval=5,
-        now=lambda: clock[0],
-    )
-
-    assert reason == "terminal"
-    assert waited == 5
-    assert inspect_external_work(tmp_path, "job-1", now=clock[0]).outcome == "failed"
-
-
 def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) -> None:
     _write_external(tmp_path, "job-1")
 
     advisory = render_external_work_advisory(tmp_path, now=110)
 
     assert "not scientific evidence" in advisory
-    assert '"wait_for": "external_work"' in advisory
-    assert "WAIT_FOR_EXTERNAL_WORK:" not in advisory
-    assert parse_external_wait_request(
-        'summary\n{"wait_for": "external_work", "wait_id": "job-1"}'
-    ) == ("external_work", "job-1")
-    assert parse_external_wait_request("WAIT_FOR_EXTERNAL_WORK: job-1") is None
+    assert "wait_for" not in advisory
 
 
 def test_advisory_keeps_quiet_live_activity_waitable(tmp_path: Path) -> None:

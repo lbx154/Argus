@@ -963,9 +963,6 @@ def test_reading_external_work_leaves_the_project_tree_byte_identical(
     assert list(external_work.scan_external_work(tmp_path, now=110))
     assert external_work.inspect_external_work(tmp_path, "job-1", now=110) is not None
     assert external_work.render_external_work_advisory(tmp_path, now=110)
-    external_work.wait_for_external_work_cadence(
-        tmp_path, "job-1", sleep=lambda seconds: None, poll_interval=1, now=lambda: 200.0
-    )
 
     assert snapshot() == before
 
@@ -1197,8 +1194,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "life/supervisor/_core.py -> daemon",
     "life/supervisor/_idle_cycle.py -> apps",
     "life/supervisor/_idle_cycle.py -> daemon",
-    "life/supervisor/_planning_context.py -> <root>",
-    "life/supervisor/_planning_context.py -> apps",
     "life/supervisor/_planning_cycle_intake.py -> apps",
     "life/supervisor/_planning_cycle_verdict.py -> daemon",
     "manager/_session_ops.py -> daemon",
@@ -1993,7 +1988,7 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 76
+MEMORY_ROOT_READS = 72
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

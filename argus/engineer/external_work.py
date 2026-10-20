@@ -1,21 +1,18 @@
 """Generic external-work liveness protocol for long-running jobs.
 
-The harness uses this protocol only to decide whether an explicit wait can pause
-mission progress clocks. External liveness never implies scientific progress or
-acceptance.
+It reports what registered background work is doing; it never waits on it.
+External liveness never implies scientific progress or acceptance.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
 from ..core.json_codec import is_finite_number
 from ..core.process_identity import process_identity_is_running
@@ -28,7 +25,6 @@ _SUBAGENT_INFLIGHT_STATES = frozenset({
     "running", "starting", "preflight", "waiting_resource", "discussing",
 })
 _SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
-_CADENCE_FLOOR_SECONDS = 30.0
 # This caps time between observable facts, never the duration of external work.
 _CADENCE_CAP_SECONDS = 900.0
 # A direct subagent launched without a timeout whose command has written no
@@ -552,18 +548,6 @@ def scan_external_work(
     return [statuses[key] for key in sorted(statuses)]
 
 
-def names_external_work(text: str, work_id: str) -> bool:
-    """Whether ``text`` names this registered work: its id as a word of its own.
-
-    A team is also named by its bare id; ``team:`` is the protocol's spelling.
-    The text is only compared with ids the registry already holds.
-    """
-    words = {word.strip("`'\"()[]{}<>,;:!?。，；：").rstrip(".") for word in str(text or "").split()}
-    return bool(work_id) and (
-        work_id in words or (work_id.startswith("team:") and work_id[5:] in words)
-    )
-
-
 def external_work_rows(statuses: Iterable[ExternalWorkStatus]) -> list[dict[str, str]]:
     """Work as ``(work_id, run_id, state)`` rows.
 
@@ -588,110 +572,6 @@ def inspect_external_work(
          if status.work_id == target),
         None,
     )
-
-
-def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
-    """The wait the Engineer asked for: ``→ wait: <task-id>``, or the older JSON line.
-
-    The baton line names a submitted job by its id, the whole argument or the
-    first backticked token in it, exactly as the JSON line's ``wait_id`` did.
-    """
-    if not message:
-        return None
-    from ..core.role_handoff import read_baton_line
-
-    baton = read_baton_line(message)
-    if baton is not None and baton.next_owner == "wait":
-        quoted = re.findall(r"`([^`\s]+)`", baton.waits_on)
-        words = baton.waits_on.split()
-        wait_id = quoted[0] if quoted else (words[0] if len(words) == 1 else "")
-        return ("subagent", wait_id) if wait_id else None
-    non_empty = [line.strip() for line in message.splitlines() if line.strip()]
-    if not non_empty:
-        return None
-    final = non_empty[-1]
-    candidates = [final]
-    marker = final.rfind('{"wait_for"')
-    if marker > 0:
-        candidates.append(final[marker:])
-    payload = None
-    for candidate in candidates:
-        try:
-            value = json.loads(candidate)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(value, dict):
-            payload = value
-            break
-    if not isinstance(payload, dict):
-        return None
-    wait_for = str(payload.get("wait_for") or "").strip()
-    wait_id = str(payload.get("wait_id") or "").strip()
-    if wait_for not in {"external_work", "subagent"} or not wait_id:
-        return None
-    return wait_for, wait_id
-
-
-def strip_external_wait_footer(message: str) -> str:
-    """Remove an active structured wait footer while preserving preceding prose."""
-    if parse_external_wait_request(message) is None:
-        return message
-    lines = message.splitlines()
-    for index in range(len(lines) - 1, -1, -1):
-        if not lines[index].strip():
-            continue
-        marker = lines[index].rfind('{"wait_for"')
-        if marker >= 0:
-            lines[index] = lines[index][:marker].rstrip()
-        break
-    return "\n".join(lines)
-
-
-def cadence_seconds(status: ExternalWorkStatus) -> float:
-    return min(
-        _CADENCE_CAP_SECONDS,
-        max(_CADENCE_FLOOR_SECONDS, status.poll_after_seconds),
-    )
-
-
-def wait_for_external_work_cadence(
-    workdir: Path | str,
-    work_id: str,
-    *,
-    sleep: Callable[[float], None] | None = None,
-    poll_interval: float = 15.0,
-    now: Callable[[], float] | None = None,
-) -> tuple[str, float]:
-    """Wait one cadence while healthy, waking on any explicit state transition."""
-    clock = now if now is not None else time.time
-    target = inspect_external_work(workdir, work_id, now=clock())
-    if target is None:
-        return ("unknown", 0.0)
-    if not target.waitable:
-        return (target.state.value, 0.0)
-    budget = cadence_seconds(target)
-    step = max(1.0, min(float(poll_interval), budget))
-    waited = 0.0
-    while waited < budget:
-        chunk = min(step, budget - waited)
-        if sleep is None:
-            started = time.monotonic()
-            process_stop.wait_for_stop(chunk)
-            waited += min(chunk, max(0.0, time.monotonic() - started))
-        else:
-            sleep(chunk)
-            waited += chunk
-        # Read the work first: if it finished during that sleep, that outcome is
-        # what the round needs to hear. A pending stop still ends the wait, but
-        # it must not overwrite a result that already arrived.
-        current = inspect_external_work(workdir, work_id, now=clock())
-        if current is None:
-            return ("unknown", waited)
-        if not current.waitable:
-            return (current.state.value, waited)
-        if process_stop.stop_requested():
-            return ("stop_requested", waited)
-    return ("cadence_elapsed", waited)
 
 
 def render_external_work_advisory(
@@ -728,13 +608,6 @@ def render_external_work_advisory(
         for fact in status.facts:
             if fact != detail:
                 lines.append(f"  - fact: {fact}")
-    if any(status.waitable for status in statuses):
-        lines.extend([
-            "If all remaining work depends on one RUNNING_HEALTHY item, end your response with one JSON line:",
-            '    {"wait_for": "external_work", "wait_id": "<work_id>"}',
-            'Use "subagent" instead of "external_work" for a listed subagent; a team keeps "external_work".',
-            "Argus will monitor it without spending another Engineer round. File growth alone never counts as progress.",
-        ])
     if any(
         status.state in {
             ExternalWorkState.NEEDS_ATTENTION,
@@ -743,7 +616,7 @@ def render_external_work_advisory(
         for status in statuses
     ):
         lines.extend([
-            "A NEEDS_ATTENTION or STALLED item must not be waited on or foreground-polled.",
+            "A NEEDS_ATTENTION or STALLED item will not finish on its own.",
             "Diagnose it now from the declared activity/evidence paths and owner state; then repair, cancel, or restart it with a concrete check.",
         ])
     return "\n".join(lines)

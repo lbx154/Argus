@@ -132,7 +132,7 @@ def test_event_journal_projects_canonical_lifecycle_events(tmp_path: Path) -> No
     ]
 
 
-def test_event_journal_projects_legacy_team_waiting_as_planner_waiting(
+def test_event_journal_projects_legacy_team_waiting_as_planner_idle(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "events.jsonl"
@@ -149,7 +149,7 @@ def test_event_journal_projects_legacy_team_waiting_as_planner_waiting(
     entries = EventJournal(path).all()
 
     assert len(entries) == 1
-    assert entries[0].kind == "planner_waiting"
+    assert entries[0].kind == "planner_idle"
 
 
 def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
@@ -586,43 +586,6 @@ def test_parallel_claims_require_disjoint_explicit_ownership(tmp_path: Path) -> 
     assert backlog.claim_next(
         parallel_only=True,
         expected_id=glob_alias.id,
-    ) is None
-    assert backlog.claim_next(
-        parallel_only=True,
-        expected_id=disjoint.id,
-    ) is not None
-
-
-def test_paused_external_work_keeps_paths_owned_without_blocking_disjoint_work(
-    tmp_path: Path,
-) -> None:
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    paused = backlog.add(BacklogItem.new(
-        title="long benchmark",
-        objective="wait for the benchmark",
-        owns_paths=["results/control"],
-    ))
-    overlap = backlog.add(BacklogItem.new(
-        title="overlap",
-        objective="touch the control",
-        parallel_safe=True,
-        owns_paths=["results"],
-    ))
-    disjoint = backlog.add(BacklogItem.new(
-        title="kernel",
-        objective="build the next kernel",
-        parallel_safe=True,
-        owns_paths=["kernels"],
-    ))
-    backlog.update(paused.id, status="paused_external_work")
-
-    # Selection and atomic claim must use the same active-path rule. They used
-    # to disagree only for paused external work: preview returned ``overlap``,
-    # claim rejected it, and the supervisor emitted claim_lost forever.
-    assert backlog.next_pending(respect_running=True).id == disjoint.id
-    assert backlog.claim_next(
-        parallel_only=True,
-        expected_id=overlap.id,
     ) is None
     assert backlog.claim_next(
         parallel_only=True,
@@ -1192,8 +1155,6 @@ def test_a_task_is_claimable_only_while_its_declared_cores_are_free(tmp_path, mo
     ))
     claimed = backlog.claim_next(parallel_only=True)
     assert claimed is not None and claimed.id == sweep.id
-    # Parked on its own background job, the sweep still holds its cores.
-    backlog.update(sweep.id, status="paused_external_work")
     wide = backlog.add(BacklogItem.new(
         title="arm b sweep", objective="fit", cpu_count=4,
         parallel_safe=True, owns_paths=["arms/b"],

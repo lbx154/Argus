@@ -93,14 +93,6 @@ class TeammateMissionResult:
             "paused_operator",
         }
 
-    @property
-    def external_wait(self) -> tuple[str, str] | None:
-        if self.status != "paused_external_work":
-            return None
-        from ..engineer.external_work import parse_external_wait_request
-
-        return parse_external_wait_request(self.final_message)
-
     def __bool__(self) -> bool:
         return self.success
 
@@ -543,14 +535,6 @@ def main(argv: list[str] | None = None) -> int:
             + operator_answer
             + "\nContinue the same task from its persisted artifacts."
         )
-    external_wait = task.get("external_wait")
-    if isinstance(external_wait, dict) and external_wait.get("resume_state"):
-        objective = (
-            objective
-            + "\n\nThe external work previously requested by this task is no longer "
-            "running. Inspect its durable record and continue from persisted artifacts:\n"
-            + json.dumps(external_wait, sort_keys=True)
-        )
     member_safe = args.member_id.replace(":", "_")
 
     (root / "shards").mkdir(parents=True, exist_ok=True)
@@ -602,17 +586,6 @@ def main(argv: list[str] | None = None) -> int:
             reason=mission.reason or "teammate mission is waiting for an operator decision",
             last_thread_id=mission.last_thread_id,
         )
-    elif mission.external_wait is not None:
-        wait_kind, work_id = mission.external_wait
-        task_board.wait_for_external_work(
-            root,
-            task_id,
-            kind=wait_kind,
-            work_id=work_id,
-            workdir=cwd,
-            reason=mission.reason or "teammate mission is waiting for external work",
-            last_thread_id=mission.last_thread_id,
-        )
     elif mission.paused_externally:
         # The provider or the budget turned this worker away before it could
         # judge anything. The task goes back to the queue with a backoff, and
@@ -649,7 +622,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if (
         mission.success
         or mission.waits_for_operator
-        or mission.external_wait is not None
         or mission.paused_externally
     ) else 1
 

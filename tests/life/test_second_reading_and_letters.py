@@ -406,7 +406,7 @@ def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_pa
         "ts": time.time() - 30,
     })
     live = BacklogItem.new(title="Improve the paper", objective="Complete the causal experiment")
-    live.status = "paused_external_work"
+    live.status = "running"
     live.acceptance_check = "Independent ICLR strong accept on the actual revised paper."
     stub.memory.backlog.add(live)
     checkpoint = life_dir / "handoffs" / live.id / "CHECKPOINT.md"
@@ -425,7 +425,7 @@ def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_pa
     assert facts["latest_review"] == current_review
     assert "eight-family job is running" in facts["current_work"]
     assert live.acceptance_check in facts["current_work"]
-    assert "automatically" in facts["running"]
+    assert "Improve the paper (running)" in facts["running"]
     assert facts["questions"] == ""
     assert "former acceptance contract" in facts["missions"]
     assert "former acceptance contract" not in facts["latest_review"]

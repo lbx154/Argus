@@ -108,21 +108,6 @@ def dispose_maintenance_worktree(
     sidecar.unlink(missing_ok=True)
 
 
-def _mission_may_hold_external_wait(memory: Any) -> bool:
-    """May a mission keep its slot while the work it started runs?
-
-    Yes while no other mission is claimable: the slot would only be released
-    to a Planner turn with nothing to schedule and a session restart minutes
-    later. Anything claimable is a reason to pause the mission and let the
-    daemon act. The runner adds the inbox to this answer, since operator
-    messages are its boundary.
-    """
-    try:
-        return not memory.backlog.ready()
-    except Exception:  # noqa: BLE001 - when in doubt, release the slot
-        return False
-
-
 def _refreshes_mission_prelude(runner: Any) -> bool:
     """Only an explicit runner capability may replace snapshot context."""
     from inspect import signature
@@ -611,9 +596,6 @@ class MissionExecutionRuntimeMixin:
     # Phase: runner invocation (+ restricted validator-repair capability)
     # ------------------------------------------------------------------
 
-    def _external_wait_hold(self) -> bool:
-        return _mission_may_hold_external_wait(self.memory)
-
     def _invoke_mission_runner(self, state: _MissionRunState) -> None:
         """Call ``self.runner.execute(...)`` and record the raw outcome.
 
@@ -789,8 +771,6 @@ class MissionExecutionRuntimeMixin:
                         ) if block)
 
                     execute_kwargs["prelude_context_provider"] = current_prelude
-                if "external_wait_hold" in params:
-                    execute_kwargs["external_wait_hold"] = self._external_wait_hold
                 if "planner_context_provider" in params:
                     execute_kwargs["planner_context_provider"] = (
                         lambda: self._build_planner_continuation_context(item)
@@ -1066,105 +1046,12 @@ class MissionExecutionRuntimeMixin:
     ) -> dict[str, Any] | None:
         """Persist a recoverable stop and return its public result, if handled.
 
-        A valid pause owns its backlog write and completion event. External
-        work that already changed is requeued without a completion event;
-        repeated permanent provider failures are parked for an operator answer.
-        An invalid external wait becomes an error for ordinary settlement.
+        A valid pause owns its backlog write and completion event; repeated
+        permanent provider failures are parked for an operator answer.
         ``None`` means the caller must continue through repair/stage settlement.
         """
         outcome = state.outcome
         item = state.item
-        if state.status == "paused_external_work":
-            from ...engineer.external_work import (
-                inspect_external_work,
-                parse_external_wait_request,
-            )
-
-            wait_request = parse_external_wait_request(
-                str(
-                    getattr(outcome, "final_message", "")
-                    or getattr(outcome, "summary", "")
-                    or ""
-                )
-            )
-            if wait_request is None:
-                state.status = "error"
-                state.stop_reason = "external-work pause lacks a structured wait request"
-                return None
-            wait_kind, work_id = wait_request
-            workdir = state.execution_workdir
-            assert workdir is not None, "external-work pause requires prepared workdir"
-            external_work = inspect_external_work(workdir, work_id)
-            if external_work is None or not external_work.waitable:
-                self.memory.backlog.update(
-                    item.id,
-                    status="pending",
-                    started_ts=None,
-                    running_owner="",
-                    last_error="external work changed before pause settlement",
-                )
-                return {
-                    "success": False,
-                    "status": "external_work_changed",
-                    "item_id": item.id,
-                    "external_wait": {
-                        "kind": wait_kind,
-                        "work_id": work_id,
-                        "workdir": str(workdir),
-                    },
-                }
-            usage_summary = state.usage_summary
-            assert usage_summary is not None, "pause settlement requires metered outcome"
-            pause_outcome = mission_outcome_dimensions(
-                status=state.status,
-                success=False,
-                review_status="",
-                stop_kind=None,
-                resumable=True,
-            )
-            pause_outcome["external_wait"] = {
-                "kind": wait_kind,
-                "work_id": work_id,
-                "workdir": str(workdir),
-            }
-            self.memory.backlog.update(
-                item.id,
-                status=state.status,
-                started_ts=None,
-                finished_ts=time.time(),
-                running_owner="",
-                last_error=state.stop_reason,
-                outcome=pause_outcome,
-            )
-            self._emit({
-                "type": EventType.LIFE_MISSION_COMPLETED,
-                "item_id": item.id,
-                "title": item.title,
-                "success": False,
-                "status": state.status,
-                "outcome_class": mission_outcome_class(
-                    status=state.status,
-                    success=False,
-                ),
-                "outcome": pause_outcome,
-                "stop_kind": None,
-                "recoverable": True,
-                "external_wait": pause_outcome["external_wait"],
-                "cost_usd": state.usd,
-                "known_cost_usd": state.known_usd,
-                "pricing_status": usage_summary.pricing_status,
-                "spent_usd": state.known_usd,
-            })
-            return {
-                "success": False,
-                "status": state.status,
-                "item_id": item.id,
-                "recoverable": True,
-                "external_wait": pause_outcome["external_wait"],
-                "cost_usd": state.usd,
-                "known_cost_usd": state.known_usd,
-                "pricing_status": usage_summary.pricing_status,
-            }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
         if not pause_status and state.status in _TYPED_PAUSE_STATUSES:
             # The round loop already named a typed, resumable pause. Its stop

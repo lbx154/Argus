@@ -96,10 +96,8 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    configuration's logical index to it. Merely writing that environment prefix
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
-   A prompt's machine inventory is a snapshot, not a reservation. Launch long
-   GPU jobs through the durable runner with its accelerator/count/peak-memory/
-   duration/intent flags so other cooperating projects share the same resource
-   queue. Honor the assigned visibility mask inside the command. Inspect
+   A prompt's machine inventory is a snapshot, not a reservation. Honor the
+   assigned visibility mask inside the command. Inspect
    unmanaged device processes too: available memory and momentary zero GPU
    utilization do not establish an uncontended measurement window.
 4. Implement against `tests/spec`. Write the method card and the executable
@@ -203,14 +201,14 @@ confirm that every producer for its output has exited; use a separate attempt
 directory and preserve the old observations. Low GPU utilization while the CPU
 is working, or output buffered until completion, does not establish failure.
 Let healthy attempts finish before applying optional performance optimizations.
-Launch long CPU analyses as well as GPU experiments through the available Argus
-durable job interface, with an actual task record, project environment, explicit
-command and separate attempt output. A provider's native background shell can
-be owned by that CLI invocation; its promise of a completion notification does
-not ensure survival after the model call ends. While the durable job runs,
-continue independent scientific work and preserve its task identity in the
-existing checkpoint. Check the real producer and completed outputs at the next
-decision point. A wait response or an empty model answer does not make the
+Launch long CPU analyses as well as GPU experiments detached, with the project
+environment, an explicit command, its exit code and a separate attempt output,
+so they survive the model call. A provider's native background shell can be
+owned by that CLI invocation; its promise of a completion notification does
+not ensure survival after the model call ends. While the job runs, continue
+independent scientific work and record it in the existing checkpoint; then
+wait for it in the turn with blocking calls, never short polls, and check the
+real producer and completed outputs. An empty model answer does not make the
 scientific batch ready for review.
 When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and

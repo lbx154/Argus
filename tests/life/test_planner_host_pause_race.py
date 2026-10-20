@@ -26,7 +26,7 @@ def _supervisor(tmp_path, monkeypatch):
         config=LifeSupervisorConfig(continuous=True, continuous_objective="original campaign"),
     )
     for name in (
-        "_render_research_plan_for_planner", "_planner_runtime_with_idle_note",
+        "_render_research_plan_for_planner", "_planner_runtime_notes",
         "_stuck_subagent_families_note", "_manager_intent_prompt_block",
         "_planner_authorization_prompt_block",
     ):

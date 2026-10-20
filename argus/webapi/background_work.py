@@ -1,14 +1,11 @@
-"""What a mission is waiting on, read once for the project snapshot.
+"""The team boards an open mission's work runs on, read once for the snapshot.
 
-When the runtime forms an idea portfolio, the lead Engineer waits for the
-team instead of spending model rounds (``engineer.round_waits``): first inside
-its round, then by parking the mission as ``paused_external_work`` so the
-daemon resumes it when the board settles. The snapshot used to say only
-"running" or "paused". The sidebar, the map card, the task internals and the
-conversation header each drew their own conclusion from that and, on the
-2026-09-30 trial, four of them contradicted one another on one screen. This
-module reads each team board the project waits on and reports how far it has
-come and which missions wait on it, so every surface can say the same thing.
+The sidebar, the map card, the task internals and the conversation header each
+drew their own conclusion from "running" or "paused" and, on the 2026-09-30
+trial, four of them contradicted one another on one screen. This module reads
+each team board in the project and reports how far it has come, so every
+surface can say the same thing. A mission an older runtime parked as
+``paused_external_work`` is still named as waiting on its board.
 """
 from __future__ import annotations
 
@@ -16,8 +13,6 @@ import math
 import time
 from pathlib import Path
 from typing import Any
-
-from ..core.event_catalog import EventType
 
 WAITING_STATUSES = frozenset({"paused_external_work", "running"})
 TEAM_WORK_PREFIX = "team:"
@@ -37,41 +32,19 @@ def _number(value: Any) -> float:
     return result if math.isfinite(result) and result >= 0 else 0.0
 
 
-def waited_work_ids(items: list[dict], recent_events: list[dict]) -> dict[str, list[str]]:
-    """Which mission waits on which work: the parked wait on the backlog item,
-    or the in-round wait the journal tail records for a running mission."""
-    latest: dict[str, tuple[float, str, str]] = {}
-    for event in recent_events:
-        if not isinstance(event, dict):
-            continue
-        kind = str(event.get("type") or "")
-        if kind not in (
-            EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
-            EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
-        ):
-            continue
-        item_id = str(event.get("item_id") or "")
-        ts = _number(event.get("ts"))
-        if item_id and ts >= latest.get(item_id, (0.0, "", ""))[0]:
-            latest[item_id] = (ts, kind, str(event.get("work_id") or ""))
+def waited_work_ids(items: list[dict]) -> dict[str, list[str]]:
+    """Which mission an older runtime parked on which work, read from the item."""
     waits: dict[str, list[str]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         item_id = str(item.get("id") or "")
         status = str(item.get("status") or "")
-        if not item_id or status not in WAITING_STATUSES:
+        if not item_id or status != "paused_external_work":
             continue
-        work_id = ""
-        if status == "paused_external_work":
-            outcome = item.get("outcome")
-            wait = outcome.get("external_wait") if isinstance(outcome, dict) else None
-            if isinstance(wait, dict):
-                work_id = str(wait.get("work_id") or "")
-        else:
-            ts, kind, recorded = latest.get(item_id, (0.0, "", ""))
-            if kind == EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED and ts >= _number(item.get("started_ts")):
-                work_id = recorded
+        outcome = item.get("outcome")
+        wait = outcome.get("external_wait") if isinstance(outcome, dict) else None
+        work_id = str(wait.get("work_id") or "") if isinstance(wait, dict) else ""
         if work_id:
             waits.setdefault(work_id, []).append(item_id)
     return waits
@@ -139,7 +112,6 @@ def team_progress(board: Path, marker: dict | None = None, *, now: float | None 
 def background_work(
     workdir: Path | str | None,
     items: list[dict],
-    recent_events: list[dict],
     *,
     now: float | None = None,
 ) -> list[dict[str, Any]]:
@@ -160,7 +132,7 @@ def background_work(
     from ..team import registry
 
     root = Path(str(workdir)).expanduser()
-    waits = waited_work_ids(items, recent_events)
+    waits = waited_work_ids(items)
     markers: dict[str, dict] = {}
     try:
         for marker in registry.list_markers(root):

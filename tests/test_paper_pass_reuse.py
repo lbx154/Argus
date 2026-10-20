@@ -360,7 +360,6 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
     for label in ("reviewer-scientific", "reviewer-language"):
         assert account in prompts[label]
         assert "replacement-panel" in prompts[label]
-        assert "RUNNING_HEALTHY" in prompts[label]
         assert "ICLR strong accept" in prompts[label]
     assert account not in prompts["reviewer-visual"]
     assert "replacement-panel" not in prompts["reviewer-visual"]

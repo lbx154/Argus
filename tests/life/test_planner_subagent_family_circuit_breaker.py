@@ -113,7 +113,7 @@ def _make_supervisor(
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
     monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_final_certification_gate", lambda *_a, **_k: False)
-    monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(sup, "_planner_runtime_notes", lambda: "")
     return sup
 
 

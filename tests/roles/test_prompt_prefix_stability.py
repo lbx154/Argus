@@ -71,7 +71,7 @@ def test_engineer_static_rules_precede_every_mission_specific_line(monkeypatch, 
         cycle=2,
     )
 
-    static_end = _end_of(first, "(submitted job).")
+    static_end = _end_of(first, "`→ operator: <one question>`.")
     assert _lcp(first, second) >= static_end
     # The recalled Skills, the request and the task follow the static rules.
     assert first.index("## Skill libraries") > static_end
@@ -85,7 +85,7 @@ def test_engineer_compact_team_prompt_keeps_the_same_shape(monkeypatch, tmp_path
     first = _engineer(monkeypatch, tmp_path, task="Fix the prefix.", next_action=None, cycle=1, compact_team=True)
     second = _engineer(monkeypatch, tmp_path, task="Fix the suffix instead.", next_action=None, cycle=2, compact_team=True)
 
-    static_end = _end_of(first, "(submitted job).")
+    static_end = _end_of(first, "`→ operator: <one question>`.")
     assert _lcp(first, second) >= static_end
     assert first.index("## Skill libraries") > static_end
     assert first.index("Fix the prefix.") > first.index("## Skill libraries")
@@ -209,7 +209,7 @@ def test_reviewer_static_is_identical_and_delta_opens_with_the_mission(tmp_path)
 # --- Manager ----------------------------------------------------------------
 
 
-def _stage_decision(status: str, reason: str, *, waiting: bool) -> str:
+def _stage_decision(status: str, reason: str) -> str:
     return build_stage_decision_prompt(
         current_stage="experiment",
         next_stage="paper",
@@ -217,25 +217,17 @@ def _stage_decision(status: str, reason: str, *, waiting: bool) -> str:
         earlier_stages=("idea",),
         checklist_md="- [ ] experiment.result — the decisive run exists",
         review=SimpleNamespace(status=status, reason=reason),
-        planner_verdict=SimpleNamespace(
-            waiting=waiting,
-            waiting_reason="waiting on the run",
-            waiting_contract=None,
-            reason="hold",
-        ),
+        planner_verdict=SimpleNamespace(reason="hold"),
         continuous_objective="Write the paper.",
     )
 
 
 def test_manager_stage_prompt_keeps_objective_and_checklist_ahead_of_the_evidence() -> None:
-    first = _stage_decision("continue", "Round 1: the run is half done.", waiting=False)
-    second = _stage_decision("done", "Round 2: the run finished.", waiting=True)
+    first = _stage_decision("continue", "Round 1: the run is half done.")
+    second = _stage_decision("done", "Round 2: the run finished.")
 
     checklist_end = _end_of(first, "## What the current stage requires\n- [ ] experiment.result — the decisive run exists")
     assert _lcp(first, second) >= checklist_end
-    assert second.index("## Planner-wait reconciliation") > checklist_end
-    assert "Include `resolves_wait` when the Planner is waiting" in second
-    assert "Include `resolves_wait`" not in first
     assert first.index("## Latest completion evidence") > checklist_end
 
 

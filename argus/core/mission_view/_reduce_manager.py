@@ -300,16 +300,16 @@ def reduce_planner_event(
             status="done" if project_done else "planned",
         )
 
-    elif event_type == EventType.LIFE_PLANNER_WAITING:
-        label = say("planner_waiting", chinese)
-        _set_role(view, "planner", "waiting", label, ts, kind="planner_waiting")
+    elif event_type == EventType.LIFE_PLANNER_IDLE:
+        label = say("planner_no_new_work", chinese)
+        _set_role(view, "planner", "waiting", label, ts, kind="planner_no_new_work")
         _timeline(
             view,
             event,
             role="planner",
-            kind="planner_waiting",
+            kind="planner_no_new_work",
             title=label,
-            detail=_text(event, "reason") or _text(event, "waiting_reason"),
+            detail=_text(event, "reason"),
         )
         _role_work(
             view,
@@ -317,8 +317,7 @@ def reduce_planner_event(
             role="planner",
             kind="waiting",
             title=label,
-            detail=_text(event, "reason", 4000)
-            or _text(event, "waiting_reason", 4000),
+            detail=_text(event, "reason", 4000),
             status="waiting",
         )
 

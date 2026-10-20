@@ -22,7 +22,6 @@ _ACTIVE_TASK_STATES = frozenset({
     "pending",
     "claimed",
     "running",
-    "waiting_external",
 })
 
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..core.knobs import env_int
 from ..core.role_session import (
@@ -397,9 +397,6 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
-    review_background_launches: bool = field(
-        default_factory=lambda: _env_bool("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", False)
-    )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
     # A Reviewer stall ends the mission with a question to the operator
@@ -410,12 +407,6 @@ class SupervisedConfig:
     # tripped stall guard asks it instead of ending the mission. Teammate and
     # CLI runs have nobody above them, so there the guard still ends the run.
     manager_supervised: bool = False
-    # While the Engineer waits on work it started itself, the round keeps the
-    # mission slot for as long as this answers True, instead of pausing after
-    # one cadence and paying a Planner turn and a session restart to be resumed
-    # minutes later. The daemon answers from its backlog and inbox. None keeps
-    # the single-cadence pause for callers that run one mission at a time.
-    external_wait_hold: Callable[[], bool] | None = None
 
     def __post_init__(self) -> None:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.

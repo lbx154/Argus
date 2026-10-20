@@ -4124,7 +4124,7 @@
         }
       }
     },
-    "life.planner.waiting": {
+    "life.planner.idle": {
       "version": 1,
       "properties": {
         "cycle": {
@@ -4134,7 +4134,14 @@
         "reason": {
           "type": "string"
         },
+        "handoff": {
+          "type": "string"
+        },
         "consecutive_idle_cycles": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consecutive_failures": {
           "type": "integer",
           "minimum": 0
         },
@@ -4144,67 +4151,6 @@
         },
         "model_call_skipped": {
           "type": "boolean"
-        },
-        "wait_mode": {
-          "type": "string"
-        },
-        "waiting_contract_persisted": {
-          "type": "boolean"
-        },
-        "waiting_contract": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "wait_id": {
-              "type": "string"
-            },
-            "recheck_condition": {
-              "type": "string"
-            },
-            "wait_mode": {
-              "type": "string"
-            },
-            "wake_on": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "observed_revision": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }
-      }
-    },
-    "life.planner.waiting_woken": {
-      "version": 1,
-      "properties": {
-        "blocker_fingerprint": {
-          "type": "string"
-        },
-        "recheck_token": {
-          "type": "string"
-        },
-        "wake_reason": {
-          "type": "string"
-        },
-        "observed_revision": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "current_revision": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
       }
     },
@@ -5044,88 +4990,6 @@
         }
       }
     },
-    "life.planner.wait_overridden": {
-      "version": 1,
-      "required": [
-        "cycle",
-        "task_title"
-      ],
-      "properties": {
-        "cycle": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "task_title": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        }
-      }
-    },
-    "life.planner.waiting_contract.normalized": {
-      "version": 1,
-      "required": [
-        "reasons"
-      ],
-      "properties": {
-        "blocker_fingerprint": {
-          "type": "string"
-        },
-        "recheck_token": {
-          "type": "string"
-        },
-        "reasons": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "degraded": {
-          "type": "boolean"
-        },
-        "wait_mode": {
-          "type": "string"
-        },
-        "wake_on": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "life.planner.external_poll_suppressed": {
-      "version": 1,
-      "required": [
-        "cycle",
-        "work_ids"
-      ],
-      "properties": {
-        "cycle": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "source": {
-          "type": "string"
-        },
-        "work_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "recheck_token": {
-          "type": "string"
-        },
-        "suppressed_task_titles": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "life.planner.verdict.discarded": {
       "version": 1,
       "required": [
@@ -5630,136 +5494,6 @@
         "operator_alert": {
           "type": "boolean",
           "const": true
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_wait.started": {
-      "version": 1,
-      "required": [
-        "round_index",
-        "work_id"
-      ],
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "round_max": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "waited_total_s": {
-          "type": "number",
-          "minimum": 0
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_wait.completed": {
-      "version": 1,
-      "required": [
-        "round_index",
-        "work_id"
-      ],
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "round_max": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string"
-        },
-        "waited_total_s": {
-          "type": "number",
-          "minimum": 0
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_review.required": {
-      "version": 1,
-      "required": [
-        "review_key"
-      ],
-      "properties": {
-        "review_key": {
-          "type": "string",
-          "minLength": 1
-        },
-        "work_id": {
-          "type": "string"
-        },
-        "run_id": {
-          "type": "string"
-        },
-        "started_at": {
-          "type": [
-            "number",
-            "string",
-            "null"
-          ]
-        },
-        "phase": {
-          "type": "string"
-        },
-        "outcome": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_review.completed": {
-      "version": 1,
-      "required": [
-        "review_key"
-      ],
-      "properties": {
-        "review_key": {
-          "type": "string",
-          "minLength": 1
-        },
-        "review_status": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.review.skipped_unchanged": {
-      "version": 1,
-      "required": [
-        "work_id"
-      ],
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1
         },
         "text": {
           "type": "string"

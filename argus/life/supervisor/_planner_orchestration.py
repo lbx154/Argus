@@ -75,8 +75,7 @@ class PlannerOrchestrationMixin:
         if not ids:
             return ""
         lines = [
-            "- live_subagent_work_ids (copy one exactly into any subagent or "
-            "team event wait): " + ", ".join(ids)
+            "- live_subagent_work_ids: " + ", ".join(ids)
         ]
         # A team's board is already read here; saying so spares the Planner
         # the tool turns it otherwise spends re-reading tasks, pool and logs.
@@ -89,8 +88,8 @@ class PlannerOrchestrationMixin:
             lines.append(
                 f"- live_team_status ({job.work_id}): {summary}"
                 + (f" — {detail}" if detail else "")
-                + ". The Host watches this board; wait on the team id rather "
-                "than re-reading its files."
+                + ". This is the board's current state; there is no need to "
+                "re-read its files."
             )
         return "\n".join(lines)
 
@@ -105,46 +104,15 @@ class PlannerOrchestrationMixin:
             return ""
         return str(reason or "").strip()
 
-    def _planner_runtime_with_idle_note(self) -> str:
-        """Prefix repeated idle cycles with a current-reality check."""
-        base = self._planner_current_reality_note()
-        resolution_note = self._planner_wait_resolution_runtime_note()
-        contract_note = self._planner_waiting_contract_runtime_note()
-        manager_feedback = self._manager_planner_feedback_runtime_note()
-        dropped_deps = self._planner_dropped_dependency_runtime_note()
-        dropped_parallel = self._planner_dropped_parallel_runtime_note()
-        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
-        if n < 2:
-            return "\n\n".join(
-                part
-                for part in (
-                    resolution_note,
-                    manager_feedback,
-                    dropped_deps,
-                    dropped_parallel,
-                    contract_note,
-                    base,
-                )
-                if part
-            )
-        note = (
-            "CURRENT-REALITY CHECK (read before trusting the journal below): you "
-            f"have had {n} consecutive idle or paused cycle(s). This does not mean "
-            "a prior waiting verdict was rejected. Before concluding `waiting`, compare CURRENT "
-            "evidence to your persisted recheck condition. Reuse the same contract "
-            "token while it is unchanged; the harness permits at most one probe for "
-            "each Planner-authored fingerprint/token pair."
-        )
+    def _planner_runtime_notes(self) -> str:
+        """The runtime notes the Planner reads before the journal."""
         return "\n\n".join(
             part
             for part in (
-                resolution_note,
-                manager_feedback,
-                dropped_deps,
-                dropped_parallel,
-                contract_note,
-                note,
-                base,
+                self._manager_planner_feedback_runtime_note(),
+                self._planner_dropped_dependency_runtime_note(),
+                self._planner_dropped_parallel_runtime_note(),
+                self._planner_current_reality_note(),
             )
             if part
         )
@@ -281,16 +249,11 @@ class PlannerOrchestrationMixin:
                     getattr(item, "parallel_safe", False)
                     and getattr(item, "owns_paths", None)
                 )
-            ] + [
-                item
-                for item in backlog_rows
-                if item.status == "paused_external_work"
-                and not getattr(item, "owns_paths", None)
             ]
             if free_slots and unowned:
                 slot_lines.append(
                     "- parallel_slot: a spare mission slot sits idle while "
-                    f"task {unowned[0].id} runs or waits without declared "
+                    f"task {unowned[0].id} runs without declared "
                     "path ownership. Tasks share slots only when every "
                     "co-running task sets TASK_PARALLEL_SAFE=true with "
                     "disjoint TASK_OWNS_PATHS — literal relative paths, no "
@@ -450,7 +413,7 @@ class PlannerOrchestrationMixin:
                 *(
                     _active_item_line(item)
                     for item in backlog_rows
-                    if item.status in {"pending", "running", "paused_external_work"}
+                    if item.status in {"pending", "running"}
                 ),
                 *parked_lines,
                 *([live_subagent_line] if live_subagent_line else []),

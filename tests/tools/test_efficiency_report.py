@@ -25,8 +25,8 @@ def _supervision(outcome: str, sid: str, **fields) -> dict:
     return {"type": f"life.manager.supervision.{outcome}", "supervision_id": sid, **fields}
 
 
-# The older generation: one Planner turn that only kept waiting, then two
-# waits the ledger answered without a model call.
+# The older generation: one Planner turn that added no work, then two
+# turns the ledger answered without a model call (logged under the old name).
 OLDER = [
     {"type": "life.planner.start"},
     _usage("p1", "planner.cycle0", 1.0, 100, cached_input_tokens=80, cache_write_tokens=20),
@@ -37,7 +37,7 @@ OLDER = [
 ]
 
 CURRENT = [
-    # A Planner turn (and its repair) that scheduled work, then one that waited.
+    # A Planner turn (and its repair) that scheduled work, then one that added none.
     {"type": "life.planner.start"},
     _usage("p2", "planner.cycle1", 2.0, 300),
     _usage("p3", "planner.cycle1.repair1", 0.5, 50),
@@ -46,7 +46,7 @@ CURRENT = [
     {"type": "life.planner.start"},
     _usage("p4", "planner.cycle2", 1.0, 500),
     _turn("planner", 9, 500),
-    {"type": "life.planner.waiting"},
+    {"type": "life.planner.idle"},
     # Supervision: one kept the course, one steered, one was superseded.
     _usage("m1", "manager-supervision", 0.25, 10),
     _supervision("issued", "s1", call_id="m1", action="continue"),
@@ -57,19 +57,14 @@ CURRENT = [
     _usage("m3", "manager-supervision", 0.5, 10),
     _supervision("issued", "s3", call_id="m3", action="continue"),
     _supervision("failed", "s3", action="continue"),
-    # Task aaa: reviewed once on new work, once while its job still ran, then
-    # skipped once as unchanged, and passed on the job's result.
+    # Task aaa: reviewed twice on new work and passed on the job's result.
     {"type": "life.mission.started", "item_id": "aaa"},
     _usage("e1", "engineer-r1", 3.0, 1000, task="aaa:attempt:1"),
     _usage("r1", "reviewer", 1.0, 400, task="aaa:attempt:1"),
     _review("aaa", "continue", frontier_change="artifact_improved"),
-    {"type": "round.external_work_wait.started", "item_id": "aaa", "work_id": "job-1"},
-    {"type": "round.external_work_wait.completed", "item_id": "aaa", "work_id": "job-1", "reason": "cadence_elapsed"},
     _usage("e2", "engineer-r2", 1.0, 2000, task="aaa:attempt:1"),
     _usage("r2", "reviewer", 1.0, 400, task="aaa:attempt:1"),
     _review("aaa", "continue", frontier_change="uncertainty_reduced"),
-    {"type": "round.review.skipped_unchanged", "item_id": "aaa", "round_index": 3},
-    {"type": "round.external_work_wait.completed", "item_id": "aaa", "work_id": "job-1", "reason": "terminal"},
     _usage("r3", "reviewer", 1.0, 400, task="aaa:attempt:1"),
     _review("aaa", "done"),
     {"type": "life.mission.completed", "item_id": "aaa", "success": True, "elapsed_seconds": 120.5},
@@ -110,23 +105,22 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
 
     waste = report["no_new_information"]
     assert {name: (row["calls"], row["of_calls"], row["cost_usd"], row["avoided"]) for name, row in waste.items()} == {
-        "planner_kept_waiting": (2, 4, 2.0, 2),
+        "planner_no_new_work": (2, 4, 2.0, 2),
         "manager_not_applied": (1, 3, 0.5, 0),
         "manager_kept_course": (1, 3, 0.25, 0),
-        "reviewer_while_running": (1, 4, 1.0, 1),
     }
 
     assert [
-        {key: row[key] for key in ("task", "reviewer_calls", "unchanged", "while_running", "continue",
+        {key: row[key] for key in ("task", "reviewer_calls", "continue",
                                    "elapsed_s", "calls", "input_tokens", "cost_usd")}
         for row in report["passed_tasks"]
     ] == [
-        {"task": "aaa", "reviewer_calls": 3, "unchanged": 1, "while_running": 1, "continue": 2,
+        {"task": "aaa", "reviewer_calls": 3, "continue": 2,
          "elapsed_s": 120.5, "calls": 5, "input_tokens": 4200, "cost_usd": 7.0},
-        {"task": "bbb", "reviewer_calls": 1, "unchanged": 0, "while_running": 0, "continue": 1,
+        {"task": "bbb", "reviewer_calls": 1, "continue": 1,
          "elapsed_s": 90.0, "calls": 3, "input_tokens": 2400, "cost_usd": 4.0},
     ]
-    assert report["continue_reasons"] == {"artifact_improved": 1, "background_running": 1, "unspecified": 1}
+    assert report["continue_reasons"] == {"artifact_improved": 1, "uncertainty_reduced": 1, "unspecified": 1}
     assert report["context"]["planner"] == {
         "p50": 100, "p90": 500, "max": 500, "mean_by_session_turn": {"1": 100, "2-3": 300, "8-15": 500},
     }
@@ -138,7 +132,7 @@ def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture
     assert main([str(project)]) == 0
     table = capsys.readouterr().out
     assert table.startswith(f"{project}: 17 calls, $17.50")
-    assert "planner kept waiting        2   4    2.00        2" in table
+    assert "planner no new work      2   4    2.00        2" in table
 
     assert main([str(project), "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == efficiency_report(project)

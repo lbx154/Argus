@@ -73,8 +73,8 @@ def _render_filtered_task_feedback(state: _PlanCycleState) -> str:
     lines.append(
         "Return a materially different executable plan that addresses these "
         "reasons; do not repeat an unchanged filtered proposal. If nothing is "
-        "startable because pending tasks depend on in-flight work, return "
-        "waiting=true with a waiting contract naming that work and no new tasks."
+        "startable because pending tasks depend on in-flight work, add no tasks "
+        "and end with `→ engineer`."
     )
     return "\n".join(lines)
 

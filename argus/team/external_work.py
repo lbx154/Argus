@@ -27,8 +27,6 @@ from ..engineer.external_work import (
 TEAM_WORK_PREFIX = "team:"
 RUNTIME_OWNER = "runtime"
 _IN_FLIGHT_STATES = frozenset({"claimed", "running"})
-# Parked on its own external work; the Curator requeues it when that ends.
-_WAITING_STATES = frozenset({"waiting_external"})
 _ATTENTION_STATES = frozenset({"failed", "blocked"})
 # The Curator lives inside the daemon: while the daemon runs, the team is
 # staffed, so a quiet task board is patience, not a dead owner — up to this
@@ -97,7 +95,6 @@ def team_work_status(
     pool_state = str(pool_doc.get("state") or "running")
     counts = Counter(str(task.get("state") or "") for task in tasks)
     in_flight = sum(counts[state] for state in _IN_FLIGHT_STATES)
-    waiting = sum(counts[state] for state in _WAITING_STATES)
     pending = counts.get("pending", 0)
     attention = sum(counts[state] for state in _ATTENTION_STATES)
     done = counts.get("done", 0)
@@ -125,7 +122,6 @@ def team_work_status(
     )
     description = (
         f"team {team_id}: {in_flight} running, {pending} pending, {done} done"
-        + (f", {waiting} waiting on external work" if waiting else "")
         + (f", {attention} need attention" if attention else "")
     )
     ordered = sorted(
@@ -151,16 +147,15 @@ def team_work_status(
         )
     elif in_flight and observed_at - in_flight_heartbeat > _TEAM_STALE_AFTER_SECONDS:
         # Only claimed or running work can be wedged. Pending work queues for
-        # the Curator (behind its in-flight cap, or a daemon restart), and a
-        # parked task's liveness belongs to the work it waits on, which has
-        # its own staleness; neither is judged here, nor hides a wedged one.
+        # the Curator (behind its in-flight cap, or a daemon restart); it is
+        # not judged here, nor does it hide a wedged one.
         state = ExternalWorkState.STALLED
         reason = (
             "claimed or running work has not changed for "
             f"{int((observed_at - in_flight_heartbeat) // 60)}m; no teammate "
             "heartbeat or Curator claim reached it"
         )
-    elif in_flight or waiting or (pending and staffed):
+    elif in_flight or (pending and staffed):
         state = ExternalWorkState.RUNNING_HEALTHY
     elif pending:
         state = ExternalWorkState.NEEDS_ATTENTION

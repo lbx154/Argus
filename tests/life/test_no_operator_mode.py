@@ -502,91 +502,109 @@ class _ProxyManager:
         return "\n".join(f"{key}: {value}" for key, value in self.fields.items())
 
 
-def _operator_wait():
-    from argus.planner import PlannerVerdict, WaitingContract
+def _planner_question():
+    from argus.planner import PlannerVerdict
 
     return PlannerVerdict(
         project_done=False,
         reason="the operator decides which release rule wins",
-        waiting=True,
-        waiting_reason="the operator decides which release rule wins",
-        waiting_contract=WaitingContract(
-            blocker_fingerprint="release-rule-conflict",
-            recheck_condition="the operator decides which release rule wins",
-            recheck_token="release-rule-conflict",
-            wake_on=("authorization",),
-            operator_action_required=True,
+        handoff="operator",
+        operator_question="Which release rule wins?",
+    )
+
+
+def _proxy_supervisor(tmp_path, manager: _ProxyManager) -> LifeSupervisor:
+    from argus.apps._runtime_construction import _pending_question_resolver_for
+
+    # The web answer path a Manager's choice takes reads a registered project.
+    life = tmp_path / "projects" / "s-proxy"
+    life.mkdir(parents=True)
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(life),
+        runner=object(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=2),
+            poll_interval_seconds=0.01,
+            pending_question_resolver=_pending_question_resolver_for(life),
         ),
     )
+    supervisor._bound_manager = lambda: manager
+    return supervisor
+
+
+def _card(supervisor: LifeSupervisor):
+    [card] = [
+        row for row in supervisor.memory.backlog.active() if row.status == "paused_operator"
+    ]
+    return card
 
 
 @pytest.mark.parametrize("mode", ["no_operator", "forbid"])
-def test_manager_decides_a_planner_wait_in_the_operators_place(
+def test_manager_decides_a_planner_question_in_the_operators_place(
     tmp_path, monkeypatch, mode
 ) -> None:
+    """The Planner's question goes on a card like any other; with nobody to
+    ask, the Manager answers it there."""
     from argus.core.autonomy import read_autonomous_assumptions
-    from argus.life.supervisor._constants import PLAN_RETRY
+    from argus.life.supervisor._constants import PLAN_AWAITING
     from argus.manager.directive import set_active_manager_directive
 
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
     monkeypatch.setenv(
         "ARGUS_SKILL_OPERATOR_AVAILABLE", "false" if mode == "no_operator" else "true"
     )
+    manager = _ProxyManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
     if mode == "forbid":
         set_active_manager_directive(
             supervisor._project_state_root(), "Do not ask me.",
             operator_question_policy="forbid",
         )
-    manager = _ProxyManager(
-        DECISION_ID="decision-planner-wait",
-        OPTION="custom",
-        NOTE="The release rule wins.",
-        REASON="It is the stricter of the two.",
-        EVIDENCE_REFS="spec.md",
-    )
-    supervisor._bound_manager = lambda: manager
 
-    assert supervisor._record_planner_waiting(_operator_wait()) == PLAN_RETRY
-    feedback = supervisor._load_manager_planner_feedback()
-    assert "the Manager decided in their place: The release rule wins." in " ".join(
-        feedback["reason"].split()
-    )
+    assert supervisor._record_planner_handoff(_planner_question()) == PLAN_AWAITING
+    card = _card(supervisor)
+    assert card.pending_question == "Which release rule wins?"
+    manager.fields = {
+        "DECISION_ID": card.operator_decision["id"],
+        "OPTION": "custom",
+        "NOTE": "The release rule wins.",
+        "REASON": "It is the stricter of the two.",
+        "EVIDENCE_REFS": "spec.md",
+    }
+
+    assert supervisor._decide_parked_questions() is True
     row = read_autonomous_assumptions(supervisor._project_state_root())[-1]
     assert row["source"] == "manager_decision"
     assert row["evidence_refs"] == ["spec.md"]
     assert "The release rule wins." in row["reading"]
-    # The same blocker again is a wait; the Manager is not asked twice.
-    assert supervisor._record_planner_waiting(_operator_wait()) != PLAN_RETRY
-    assert len(manager.prompts) == 1
 
 
-def test_a_planner_wait_the_manager_names_no_decision_for_stays_a_wait(
+def test_a_planner_question_the_manager_names_no_decision_for_stays_open(
     tmp_path, monkeypatch
 ) -> None:
     from argus.core.autonomy import read_autonomous_assumptions
-    from argus.life.supervisor._constants import PLAN_RETRY
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
-    supervisor._bound_manager = lambda: _ProxyManager(
+    supervisor = _proxy_supervisor(tmp_path, _ProxyManager(
         DECISION_ID="decision-other", OPTION="custom", NOTE="x", REASON="y",
-    )
+    ))
 
-    assert supervisor._record_planner_waiting(_operator_wait()) != PLAN_RETRY
+    supervisor._record_planner_handoff(_planner_question())
+    assert supervisor._decide_parked_questions() is False
+    assert _card(supervisor).pending_question == "Which release rule wins?"
     assert read_autonomous_assumptions(supervisor._project_state_root()) == []
 
 
 def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_operator(
     tmp_path, monkeypatch
 ) -> None:
-    """The host's own wait for operator-supplied artifacts has a decider too:
-    with nobody to ask, the Manager answers it like a Planner's operator wait."""
+    """The host's own question about operator-supplied artifacts has a decider
+    too: with nobody to ask, the Manager answers its card."""
     import json
 
-    from argus.life.supervisor._constants import PLAN_RETRY
-
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
+    manager = _ProxyManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
     project = tmp_path / "project"
     (project / "diagnosis").mkdir(parents=True)
     (project / "diagnosis" / "operator_only_external_blocker.json").write_text(
@@ -596,18 +614,18 @@ def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_
         }),
         encoding="utf-8",
     )
-    manager = _ProxyManager(
-        DECISION_ID="decision-planner-wait",
-        OPTION="custom",
-        NOTE="Evaluate on the public split and say so in the report.",
-        REASON="The held-out set will not arrive in this run.",
-    )
-    supervisor._bound_manager = lambda: manager
 
-    wait = supervisor._operator_external_blocker_short_circuit_decision(project_root=project)
+    question = supervisor._operator_external_blocker_short_circuit_decision(project_root=project)
 
-    assert wait.waiting_contract.operator_action_required
-    assert supervisor._record_planner_waiting(wait) == PLAN_RETRY
+    assert question.handoff == "operator"
+    supervisor._record_planner_handoff(question)
+    manager.fields = {
+        "DECISION_ID": _card(supervisor).operator_decision["id"],
+        "OPTION": "custom",
+        "NOTE": "Evaluate on the public split and say so in the report.",
+        "REASON": "The held-out set will not arrive in this run.",
+    }
+    assert supervisor._decide_parked_questions() is True
     assert len(manager.prompts) == 1
 
 

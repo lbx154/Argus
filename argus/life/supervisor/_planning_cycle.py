@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ._constants import (
-    PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
-    UNOBSERVED_WAIT,
 )
 from ._planner_failure_backoff import PlannerFailureBackoffMixin
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
@@ -27,46 +26,9 @@ from ._planning_cycle_verdict import PlanningCycleVerdictMixin
 
 log = logging.getLogger(__name__)
 
-_LIVE_WAIT_OBSERVE_MARKERS = (
-    "observe only",
-    "observe the existing",
-    "observe the current",
-    "只观察",
-    "观察现有",
-)
-_LIVE_WAIT_STOP_MARKERS = (
-    "remains live, stop",
-    "still running, stop",
-    "stop without",
-    "record current live status and stop",
-    "仍在运行则停止",
-)
-_INDEPENDENT_WORK_MARKERS = (
-    "independently implement",
-    "independently continue",
-    "regardless of",
-    "in parallel",
-    "while the task runs",
-    "while the job runs",
-    "同时",
-    "并行",
-    "无论",
-)
-_OPERATOR_WAIT_MARKERS = (
-    "operator",
-    "credential",
-    "authorization",
-    "approval",
-    "human input",
-    "人工",
-    "凭据",
-    "授权",
-    "批准",
-)
-
-
-# External-work sources whose state the Host can observe for a Planner wait.
+# External-work sources whose state the Planner sees.
 HOST_OBSERVED_WAIT_SOURCES = frozenset({"subagent", "team"})
+
 
 class PlanningCycleMixin(
     PlanningCycleIntakeMixin,
@@ -76,14 +38,7 @@ class PlanningCycleMixin(
     PlannerFailureBackoffMixin,
 ):
     def _waitable_subagent_jobs(self) -> list[Any]:
-        """Live work the Host observes and the Planner may wait on.
-
-        Subagent jobs and, since the team projection, runtime-owned and
-        lead-formed teams (``team:<id>``): a Planner that waited for route
-        workers by name had its wait degraded to a poll and re-ran every
-        backoff tick, eighteen tool turns a time, on the stable web trial
-        (2026-09-16).
-        """
+        """Live background work: subagent jobs and teams (``team:<id>``)."""
         try:
             from ...engineer.external_work import scan_external_work
 
@@ -95,153 +50,6 @@ class PlanningCycleMixin(
         except Exception:  # noqa: BLE001 - liveness discovery is fail-soft
             log.debug("failed to inspect waitable subagents", exc_info=True)
             return []
-
-    @staticmethod
-    def _text_references_live_subagents(text: str, jobs: list[Any]) -> bool:
-        text = " ".join(str(text or "").split()).casefold()
-        for job in jobs:
-            work_id = str(job.work_id or "").casefold()
-            if work_id and work_id in text:
-                return True
-            # A team is named by its id in prose; the ``team:`` prefix is the
-            # protocol's spelling, not the Planner's.
-            if job.source == "team" and work_id.startswith("team:") and work_id[5:] in text:
-                return True
-        return False
-
-    @staticmethod
-    def _text_is_monitor_only(text: str) -> bool:
-        text = " ".join(str(text or "").split()).casefold()
-        if any(marker in text for marker in _OPERATOR_WAIT_MARKERS):
-            return False
-        if any(marker in text for marker in _INDEPENDENT_WORK_MARKERS):
-            return False
-        if any(marker in text for marker in _LIVE_WAIT_OBSERVE_MARKERS):
-            return True
-        has_status_probe = (
-            "argus.tools.subagent status" in text
-            or "argus_skill.tools.subagent status" in text  # pre-rename spelling
-            or "subagent status --task-id" in text
-            or "check its status" in text
-            or "检查其状态" in text
-        )
-        return has_status_probe and any(
-            marker in text for marker in _LIVE_WAIT_STOP_MARKERS
-        )
-
-    @classmethod
-    def _task_only_waits_for_live_subagents(
-        cls,
-        task: Any,
-        jobs: list[Any],
-    ) -> bool:
-        reference_text = " ".join(
-            str(value or "")
-            for value in (
-                getattr(task, "title", ""),
-                getattr(task, "objective", ""),
-                getattr(task, "acceptance_check", ""),
-            )
-        )
-        monitor_text = " ".join(
-            str(value or "")
-            for value in (
-                getattr(task, "objective", ""),
-                getattr(task, "acceptance_check", ""),
-            )
-        )
-        return cls._text_references_live_subagents(
-            reference_text,
-            jobs,
-        ) and cls._text_is_monitor_only(monitor_text)
-
-    def _live_subagent_event_wait_contract(
-        self,
-        jobs: list[Any],
-    ) -> Any | None:
-        if not jobs:
-            return None
-        from ...planner import WaitingContract
-
-        rows = sorted(
-            (
-                job.work_id,
-                job.run_id or f"started:{job.started_at:.6f}",
-            )
-            for job in jobs
-        )
-        job_ids = ", ".join(row[0] for row in rows)
-        observed_revision = self._planner_waiting_observed_revision(
-            wake_on=["subagent_state"],
-            watched_paths=[],
-        )
-        revalidated_rows = sorted(
-            (
-                job.work_id,
-                job.run_id or f"started:{job.started_at:.6f}",
-            )
-            for job in self._waitable_subagent_jobs()
-        )
-        if rows != revalidated_rows:
-            return None
-        return WaitingContract(
-            recheck_condition=f"durable task state changes: {job_ids}",
-            blocker_fingerprint=f"live-subagents:{','.join(row[0] for row in rows)}",
-            recheck_token=",".join(f"{work_id}@{run}" for work_id, run in rows),
-            wake_on=("subagent_state",),
-            observed_revision=observed_revision,
-        )
-
-    def _normalize_live_subagent_wait(self, verdict: Any) -> Any:
-        """Fold tasks that only probe live work into a wait on that work.
-
-        A Planner wait that names live work is already bound to it
-        (``_bind_planner_wait``); this catches the other spelling of the same
-        intent, status-probe tasks for jobs the host already watches.
-        """
-        if bool(getattr(verdict, "waiting", False)):
-            return verdict
-        jobs = self._waitable_subagent_jobs()
-        tasks = list(getattr(verdict, "new_tasks", []) or [])
-        if not jobs or not tasks or not all(
-            self._task_only_waits_for_live_subagents(task, jobs) for task in tasks
-        ):
-            return verdict
-        contract = self._live_subagent_event_wait_contract(jobs)
-        if contract is None:
-            return verdict
-        reason = (
-            "healthy durable work is already self-watched, so this cycle's "
-            "status-probe tasks were dropped rather than run. Waiting is not "
-            "the only move left: a mission that does not need this job's result "
-            "— a baseline to reproduce, analysis written against the agreed "
-            "schema, a section the paper already owes — would be scheduled "
-            "normally and run beside it. Only status probes are suppressed here."
-        )
-        self._emit(
-            {
-                "type": "life.planner.external_poll_suppressed",
-                "cycle": self._planning_cycles,
-                "source": "status_only_task",
-                "work_ids": [job.work_id for job in jobs],
-                "recheck_token": contract.recheck_token,
-                "suppressed_task_titles": [
-                    str(getattr(task, "title", "") or "")
-                    for task in list(getattr(verdict, "new_tasks", []) or [])
-                ],
-            }
-        )
-        from dataclasses import replace
-
-        return replace(
-            verdict,
-            project_done=False,
-            reason=reason,
-            new_tasks=[],
-            waiting=True,
-            waiting_reason=reason,
-            waiting_contract=contract,
-        )
 
     def _emit_planner_verdict(
         self,
@@ -574,84 +382,36 @@ class PlanningCycleMixin(
         self._reset_idle_backoff()
         return decision.action
 
-    def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
-        """Let the Manager repair a stage/Planner mutual wait.
+    def _reconcile_planner_handoff(self, verdict: Any) -> str:
+        """Put a stage the Planner handed to the Manager (``→ manager``) to it.
 
-        Open-ended campaigns review every new non-operator wait; bounded
-        campaigns review explicit stage-reconciliation requests and waits the
-        host cannot observe, which climb here instead of being asked again.
-        Each wait is reviewed once: the same wait returned again is recorded,
-        not re-adjudicated, and wakes only when something it depends on moves.
-        The Manager alone decides HOLD versus ROLLBACK.
+        Each request is put to the Manager once per stage; the same request
+        returned unchanged is recorded, not adjudicated again. The Manager alone
+        decides HOLD versus ROLLBACK, and a HOLD's reason reaches the Planner
+        as feedback for its next turn.
         """
-        if not bool(getattr(verdict, "waiting", False)):
+        if getattr(verdict, "handoff", "") != "manager" or verdict.project_done:
             return ""
-        if bool(getattr(verdict, "project_done", False)):
-            return ""
-        if list(getattr(verdict, "new_tasks", []) or []):
-            return ""
-
-        contract = self._bind_planner_wait(getattr(verdict, "waiting_contract", None))
-        if contract is None:
-            return ""
-        explicitly_requested = bool(contract.stage_reconciliation_required)
-        unobserved = contract.blocker_fingerprint == UNOBSERVED_WAIT
-        if not (
-            getattr(self.config, "open_ended", False)
-            or explicitly_requested
-            or unobserved
-        ):
-            return ""
-        # A wait gated on operator input is not a stage question: the operator
-        # decides it while they can be asked, and otherwise the Manager decides
-        # it in their place (_settle_operator_wait_without_operator), not here.
-        if contract.operator_action_required:
-            return ""
-        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        if (
-            not explicitly_requested
-            and blocker_fingerprint.startswith("live-subagents:")
-        ):
-            return ""
-
+        verdict = replace(verdict, new_tasks=[])
         root = self._artifact_root()
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        key = (stage, blocker_fingerprint, recheck_token, explicitly_requested)
-        if key == getattr(self, "_last_planner_wait_reconciliation_key", None):
+        key = (stage, " ".join(str(verdict.reason or "").split()))
+        if key == getattr(self, "_last_planner_handoff_key", None):
             return ""
-        contract_state = self._load_planner_waiting_contract_state()
-        if (
-            contract_state is None
-            or contract_state.get("blocker_fingerprint") != blocker_fingerprint
-            or contract_state.get("recheck_token") != recheck_token
-        ):
-            # Persist first so an authoritative Manager resolution has durable
-            # state to update and the next Planner call receives it.
-            contract_state = self._persist_planner_waiting_contract(contract)
-            if contract_state is None:
-                self._emit_status(
-                    "failed to persist Planner wait before Manager reconciliation"
-                )
-                return ""
-        elif isinstance(contract_state.get("manager_resolution"), dict):
-            # The Manager already ruled on this wait; returning it unchanged is
-            # not news, so it is recorded rather than adjudicated again.
-            return ""
-        self._last_planner_wait_reconciliation_key = key
+        self._last_planner_handoff_key = key
 
         try:
             manager = self._bound_manager()
         except RuntimeError:
             # Without a Manager there is nobody above the Planner to climb to.
             return ""
-        on_event = getattr(self.sink, "handle_event", None)
         decision = manager.decide_stage_transition(
             review=None,
             planner_verdict=verdict,
             project_root=root,
-            on_event=on_event,
+            on_event=getattr(self.sink, "handle_event", None),
             open_ended=bool(self.config.open_ended),
             continuous_objective=self.config.continuous_objective,
         )
@@ -663,98 +423,41 @@ class PlanningCycleMixin(
             "current_stage": decision.current_stage,
             "source": decision.source,
             "diagnostic": decision.diagnostic,
-            "trigger": "planner_waiting_reconciliation",
-            "resolves_wait": bool(getattr(decision, "resolves_wait", False)),
+            "trigger": "planner_handoff",
         })
-
         if decision.source != "manager_llm" and decision.action != "rollback":
-            # Backend/failsafe HOLDs are not authoritative; the next wait asks again.
-            self._last_planner_wait_reconciliation_key = None
+            # Backend/failsafe HOLDs are not authoritative; the next handoff asks again.
+            self._last_planner_handoff_key = None
 
-        if decision.diagnostic == "planner_wait_advance_rejected":
-            persisted = self._persist_manager_planner_feedback(
-                stage=stage,
-                reason=decision.reason,
-                diagnostic=decision.diagnostic,
-            )
-            if not persisted:
-                self._emit_status(
-                    "failed to persist Manager feedback for Planner; retry later"
-                )
-                return False
-            self._deactivate_planner_waiting_contract()
-            self._last_planner_wait_reconciliation_key = None
-            self._last_open_ended_project_done_signature = ""
-            self._reset_idle_backoff()
-            self._emit({
-                "type": "life.manager.feedback.persisted",
-                "stage": stage,
-                "reason": decision.reason,
-                "diagnostic": decision.diagnostic,
-            })
-            self._emit_status(
-                f"Manager rejection returned to Planner for {stage} replanning"
-            )
-            return "hold"
-
-        if (
-            decision.action == "hold"
-            and decision.source == "manager_llm"
-            and not bool(getattr(decision, "resolves_wait", False))
-            and (unobserved or explicitly_requested)
-        ):
-            persisted = self._persist_manager_planner_feedback(
-                stage=stage,
-                reason=decision.reason,
-                diagnostic="manager_hold_requires_stage_repair",
-            )
-            if not persisted:
-                self._emit_status(
-                    "failed to persist Manager HOLD repair; retry later"
-                )
+        diagnostic = decision.diagnostic
+        if decision.action == "hold" and decision.source == "manager_llm":
+            diagnostic = diagnostic or "manager_hold_requires_stage_repair"
+        if diagnostic in {
+            "planner_handoff_advance_rejected", "manager_hold_requires_stage_repair",
+        }:
+            if not self._persist_manager_planner_feedback(
+                stage=stage, reason=decision.reason, diagnostic=diagnostic,
+            ):
+                self._emit_status("failed to persist Manager feedback for Planner; retry later")
                 return ""
-            self._deactivate_planner_waiting_contract()
-            self._clear_planner_wait_resolution()
-            self._last_planner_wait_reconciliation_key = None
+            self._last_planner_handoff_key = None
             self._reset_idle_backoff()
             self._emit({
                 "type": "life.manager.feedback.persisted",
                 "stage": stage,
                 "reason": decision.reason,
-                "diagnostic": "manager_hold_requires_stage_repair",
+                "diagnostic": diagnostic,
             })
-            self._emit_status(
-                f"Manager HOLD converted to one bounded {stage} repair"
-            )
-            return "hold"
-
-        if (
-            decision.action == "hold"
-            and decision.source == "manager_llm"
-            and bool(getattr(decision, "resolves_wait", False))
-        ):
-            self._resolve_planner_waiting_contract(
-                manager_reason=decision.reason,
-                target_stage=decision.target_stage,
-            )
-            self._last_planner_wait_reconciliation_key = None
-            self._reset_idle_backoff()
-            self._emit_status(
-                "manager resolved planner wait while holding "
-                f"current stage {decision.target_stage}"
-            )
+            self._emit_status(f"Manager HOLD returned to Planner for {stage} replanning")
             return "hold"
 
         if decision.action != "rollback":
             return ""
-
-        self._deactivate_planner_waiting_contract()
-        self._clear_planner_wait_resolution()
-        self._last_planner_wait_reconciliation_key = None
+        self._last_planner_handoff_key = None
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
         self._emit_status(
-            "manager resolved planner wait by reopening "
+            "manager answered the Planner's handoff by reopening "
             f"{decision.target_stage}"
         )
         return "rollback"
@@ -874,7 +577,7 @@ class PlanningCycleMixin(
 
         This orchestrates the planning-cycle lifecycle phases in order: intake
         gating, preflight short-circuits, reviewed-stage reconciliation,
-        planner invocation, verdict normalization, waiting handling,
+        planner invocation, verdict normalization, handoff handling,
         project_done normalization, the no-new-tasks rejection, and finally
         backlog dedupe/enqueue/commit. Each phase mutates a shared
         ``_PlanCycleState`` scratch object and returns ``None`` to continue the
@@ -887,7 +590,7 @@ class PlanningCycleMixin(
             self._pc_reconcile_reviewed_stage,
             self._pc_invoke_planner,
             self._pc_normalize_verdict,
-            self._pc_handle_waiting,
+            self._pc_handle_handoff,
             self._pc_normalize_project_done,
             self._pc_reject_if_no_tasks,
             self._pc_build_dedupe_index,
@@ -902,24 +605,13 @@ class PlanningCycleMixin(
         if result is None:
             result = self._pc_emit_final_verdict(state)
         # Reading a prompt is not handling its input. Checkpoint only committed
-        # work or an accepted durable decision; a plain wait can use the
+        # work or an accepted completion; a turn without new work can use the
         # unchanged-input skip but must be reconsidered after restart.
         if (
             state.planner_invoked
             and state.verdict is not None
             and not state.verdict.error
-            and (
-                state.added_titles
-                or (
-                    result == PLAN_AWAITING
-                    and state.verdict.waiting
-                    and state.verdict.waiting_contract is not None
-                    and bool(
-                        (self._load_planner_waiting_contract_state() or {}).get("active")
-                    )
-                )
-                or state.completion_accepted
-            )
+            and (state.added_titles or state.completion_accepted)
         ):
             from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
@@ -957,9 +649,6 @@ class PlanningCycleMixin(
         if (
             not state.had_operator_messages
             and not state.has_unhandled_operator_input
-            and not bool(
-                (self._load_planner_waiting_contract_state() or {}).get("active")
-            )
             and not any(
                 item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
                 for item in self.memory.backlog.active()
@@ -971,7 +660,6 @@ class PlanningCycleMixin(
 
             state.verdict = PlannerVerdict(
                 project_done=True,
-                waiting=False,
                 new_tasks=[],
                 reason="independent final certification is current",
             )

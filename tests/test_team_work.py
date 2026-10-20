@@ -11,8 +11,6 @@ from argus.engineer.external_work import (
     render_external_work_advisory,
     scan_external_work,
 )
-from argus.engineer.round_waits import lead_auto_wait_enabled, runtime_team_wait_target
-from argus.team import external_work as team_work
 from argus.team import pool, registry, task_board
 
 TEAM = "research-idea-pipeline-v8-g1"
@@ -52,7 +50,6 @@ def test_running_team_is_waitable_external_work(tmp_path: Path) -> None:
     assert inspect_external_work(tmp_path, f"team:{TEAM}", now=2_000.0) is not None
     advisory = render_external_work_advisory(tmp_path, now=2_000.0)
     assert f"`team:{TEAM}` (team): running_healthy" in advisory
-    assert '"wait_for": "external_work"' in advisory
 
 
 def test_pending_tasks_with_a_staffed_pool_are_patience_not_a_problem(tmp_path: Path) -> None:
@@ -93,28 +90,6 @@ def test_dissolved_team_and_empty_boards_do_not_appear(tmp_path: Path) -> None:
     empty.mkdir(parents=True)
     registry.write_marker(tmp_path, team_id="empty", team_root=empty, cwd=tmp_path, now=1.0)
     assert [s.work_id for s in scan_external_work(tmp_path, now=2_000.0)] == [f"team:{TEAM}"]
-
-
-def test_only_runtime_owned_teams_are_auto_wait_targets(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    monkeypatch.delenv("ARGUS_TEAM_LEAD_AUTO_WAIT", raising=False)
-    _team(tmp_path, "figure-studio-1", "running", owner="lead")
-    assert runtime_team_wait_target(tmp_path) is None
-    _team(tmp_path, TEAM, "running")
-    target = runtime_team_wait_target(tmp_path)
-    assert target is not None and target.work_id == f"team:{TEAM}"
-    assert team_work.RUNTIME_OWNER == "runtime"
-
-
-def test_workers_and_operators_can_switch_the_lead_wait_off(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    monkeypatch.delenv("ARGUS_TEAM_LEAD_AUTO_WAIT", raising=False)
-    assert lead_auto_wait_enabled()
-    monkeypatch.setenv("ARGUS_TEAM_LEAD_AUTO_WAIT", "off")
-    assert not lead_auto_wait_enabled()
-    monkeypatch.delenv("ARGUS_TEAM_LEAD_AUTO_WAIT")
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", f"{TEAM}-route-01")
-    assert not lead_auto_wait_enabled()
 
 
 def test_the_portfolio_forms_its_teams_as_runtime_owned(tmp_path: Path) -> None:
