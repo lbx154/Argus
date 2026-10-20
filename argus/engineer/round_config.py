@@ -19,10 +19,6 @@ from pathlib import Path
 from typing import Any
 
 from ..core.knobs import env_int
-from ..core.role_session import (
-    ROLE_SESSION_POLICIES,
-    configured_role_session_policy,
-)
 
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
@@ -31,8 +27,6 @@ _ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
 #: that cannot already hold it; ``legacy`` also re-sends it on every round 1
 #: (the historical behavior, kept for rollback).
 ENGINEER_FULL_ROUND_POLICIES = frozenset({"session", "legacy"})
-_ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
-_ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
 _ENGINEER_LEAN_TOOLS_ENV = "ARGUS_SKILL_ENGINEER_LEAN_TOOLS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
@@ -272,19 +266,11 @@ class SupervisedConfig:
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
-    # Product-wide policy: ``auto`` selects bounded rolling sessions for
-    # resumable native CLIs and fresh turns for others. Explicit fresh/mission/
-    # rolling values remain available for rollback and evaluation.
-    role_session_policy: str = field(default_factory=configured_role_session_policy)
-    role_session_max_turns: int = field(
-        default_factory=lambda: env_int(_ROLE_SESSION_MAX_TURNS_ENV, 6)
-    )
-    role_session_max_input_tokens: int = field(
-        default_factory=lambda: env_int(
-            _ROLE_SESSION_MAX_INPUT_TOKENS_ENV,
-            120_000,
-        )
-    )
+    # Read only by round_reviewer.py; nothing rotates on them. Delete them with
+    # that call site.
+    role_session_policy: str = "auto"
+    role_session_max_turns: int = 0
+    role_session_max_input_tokens: int = 0
     role_session_dir: Path | None = None
     # Absolute path to THIS mission's engineer execution log (the per-project
     # ``<life_dir>/events.jsonl``). The reviewer runs in the project work-tree
@@ -324,7 +310,5 @@ class SupervisedConfig:
     manager_supervised: bool = False
 
     def __post_init__(self) -> None:
-        if self.role_session_policy not in ROLE_SESSION_POLICIES:
-            raise ValueError("role_session_policy must be auto, fresh, mission, or rolling")
         if self.engineer_full_round_policy not in ENGINEER_FULL_ROUND_POLICIES:
             raise ValueError("engineer_full_round_policy must be session or legacy")

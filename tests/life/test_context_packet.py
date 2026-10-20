@@ -453,7 +453,6 @@ def test_public_skill_loop_brief_preserves_contract_and_advances_current_work(
                 max_rounds=1,
                 backend_failure_backoff_seconds=0,
                 context_packet_path=context_packet_path,
-                role_session_policy="fresh",
             ),
         ).run("Exercise the public SkillLoop entry point.", workdir=workdir)
         return outcome, backend.history

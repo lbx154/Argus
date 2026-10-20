@@ -21,7 +21,7 @@ from .manager_pending_question import (
     _emit_ui_turn,
     _resolve_pending_question_with_manager,
 )
-from .manager_state import _chat_state_for, _lock_for, _rotate_after, manager_control_generation
+from .manager_state import _chat_state_for, _lock_for, manager_control_generation
 
 _NO_DISPATCH_FALLBACK = (
     "[not dispatched] The Manager kept this request inline as instructed, but "
@@ -241,14 +241,14 @@ def _item_to_dict(item: Any, fallback_title: str) -> dict[str, Any] | None:
 
 
 def _build_handoff(life_dir: Any) -> str:
-    """A STRUCTURED handoff seeded as the first message of a fresh Manager
-    session when the old one's context fills. Minimal by design (the operator's
-    rule: don't pre-chew — give the identity + where the logs live, and let the
-    Manager read them itself): who it is, the project path, and the last few
-    turns for continuity. Everything else it self-serves.
+    """A STRUCTURED handoff seeded as the first message of the Manager session
+    a new web process starts for an existing conversation. Minimal by design
+    (the operator's rule: don't pre-chew — give the identity + where the logs
+    live, and let the Manager read them itself): who it is, the project path,
+    and the last few turns for continuity. Everything else it self-serves.
     """
     lines = [
-        "[SESSION HANDOFF — the previous Manager session filled its context and was rotated.",
+        "[SESSION HANDOFF — this Manager session starts after a restart.",
         "You are the Argus Manager for this project — the SINGLE interface between the operator",
         "and the autonomous research system (a black box to them). You reply to chat, dispatch",
         "real work to the planner/engineer/reviewer team, and answer 'what's happening' by",
@@ -634,8 +634,8 @@ def _handle_pending_question_turn(
 @dataclass
 class _ClassifyResult:
     """Outcome of the merged front-door classify call, plus the values later
-    manager_message phases need (the rotated ``send_body``/root task id, and
-    any inline greeting/failure the classifier already resolved)."""
+    manager_message phases need (the handoff-prefixed ``send_body``/root task
+    id, and any inline greeting/failure the classifier already resolved)."""
 
     intent: Any
     control: Any
@@ -667,7 +667,7 @@ def _classify_operator_turn(
     cancelled: Callable[[], bool],
     route_override: str = "",
 ) -> "_ClassifyResult | dict[str, Any]":
-    """Run rotation bookkeeping + the merged front-door classify call.
+    """Run turn bookkeeping + the merged front-door classify call.
 
     Returns a ``_ClassifyResult`` normally, or a terminal ``{"kind":
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
@@ -701,35 +701,14 @@ def _classify_operator_turn(
             else "Understanding your request…"
         )
 
-    # Persistent Manager session with context-rotation: it stays alive (the
-    # codex/copilot thread is resumed via last_thread_id each turn) and is
-    # only ROTATED when its context fills — a fresh thread seeded with a
-    # STRUCTURED handoff (identity + project path + recent turns), so the
-    # operator never notices the seam. Turn count is a cheap proxy for "full".
+    # Persistent Manager session: the codex/copilot thread is resumed via
+    # last_thread_id each turn, and the backend compacts its own context.
     chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
     dispatch_body = str(
         chat_state.pop("_frontdoor_dispatch_body", "") or body
     )
     handoff = startup_handoff
     root_task_id = BacklogItem.new_id()
-    if chat_state["turns"] > _rotate_after():
-        handoff = _build_handoff(life_dir)
-        chat_state["last_thread_id"] = None  # start a fresh session thread
-        # The cached runner keeps its OWN copy of the session id
-        # (``_next_seed_thread_id``); ``_simple_quick_reply`` falls back to it
-        # when ``seed_thread_id`` is None, so clearing only ``last_thread_id``
-        # here let the runner RESURRECT the just-rotated thread — rotation never
-        # took and the codex/copilot session grew unbounded (its resume cost
-        # climbing every turn). Reset the runner's memory too so the fresh
-        # thread is genuinely fresh.
-        _runner = chat_state.get("manager_runner")
-        if _runner is not None and hasattr(_runner, "reset_chat_session"):
-            try:
-                _runner.reset_chat_session()
-            except Exception:  # noqa: BLE001 — rotation must never break the turn
-                pass
-        chat_state["turns"] = 1
-        chat_state["rotations"] = int(chat_state.get("rotations", 0)) + 1
 
     # ONE merged front-door call decides config, control, route, TEAM
     # lifetime, title, and a strict pure-greeting token. A natural-language
@@ -740,7 +719,7 @@ def _classify_operator_turn(
     # message reaches the actual Manager model.
     # Classification is stateless. The caller normally passes only the current
     # message, but may attach a small, explicitly bounded transcript block when
-    # the turn is clearly referential. Never feed the full startup/rotation
+    # the turn is clearly referential. Never feed the full startup
     # handoff here: that can make a greeting look like a systems task.
     classify_kwargs: dict[str, Any] = (
         {"root_task_id": root_task_id}
@@ -819,7 +798,7 @@ def _classify_operator_turn(
     ):
         # A stateless classifier cannot apply profile terminology/preferences or
         # prior conversation. Route follow-ups through the persistent SELF runner
-        # even when startup/rotation resets the in-memory turn count.
+        # even when a startup resets the in-memory turn count.
         fast_reply = ""
         self_mode = "inspect"
         chat_state["_frontdoor_self_mode"] = "inspect"
@@ -828,7 +807,7 @@ def _classify_operator_turn(
     ).strip()
     if greeting_reply and handoff:
         # A pure greeting does not need the persistent worker. Defer its
-        # restart/rotation handoff until a substantive turn actually uses it.
+        # restart handoff until a substantive turn actually uses it.
         chat_state["needs_startup_handoff"] = True
     frontdoor_failure = str(
         chat_state.pop("_frontdoor_failure", "") or ""

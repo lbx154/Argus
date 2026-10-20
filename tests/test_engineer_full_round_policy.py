@@ -177,12 +177,12 @@ def test_a_rotated_session_gets_the_full_text_and_names_the_reason(
         round_index=4,
         workdir=tmp_path,
         action="rotated",
-        rotation_reason="context_limit",
+        rotation_reason="branch_changed",
         events=events,
     )
 
     assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "session_rotated:context_limit")
+    assert _mode(events) == ("full", "session_rotated:branch_changed")
 
 
 def test_fresh_policy_sends_the_full_text_every_round(tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
-"""Bounded, role-isolated coding-agent sessions.
+"""Role-isolated coding-agent sessions.
 
-The production default is backend-aware ``auto``: resumable native CLIs use
-bounded rolling sessions while fresh-only runners remain fresh. ``mission`` and
-``rolling`` stay explicit controls for evaluation and rollback. Each role owns
+A role resumes its provider thread whenever the backend can resume one; other
+runners stay fresh. The backend owns its context window and compaction, so a
+session is replaced only when what it was opened for changes. Each role owns
 one small durable capsule; no transcript or other role's private context is
 copied into it.
 """
@@ -20,11 +20,9 @@ from typing import Any
 
 from .secret_guard import known_secret_values, redact_secrets_text
 
-ROLE_SESSION_POLICIES = frozenset({"auto", "fresh", "mission", "rolling"})
 _RESUMABLE_ROLE_SESSION_BACKENDS = frozenset({
     "codex", "claude", "copilot", "cursor", "grok", "opencode", "pi", "qoder",
 })
-_NON_RESUMABLE_ROLE_SESSION_BACKENDS = frozenset({"dsh"})
 ROLE_SESSION_SIGNALS = frozenset({
     "repeated_contradiction",
     "reviewer_confusion",
@@ -36,43 +34,14 @@ _SEEN_THREAD_IDS_LIMIT = 64
 log = logging.getLogger(__name__)
 
 
-def configured_role_session_policy() -> str:
-    """Return the product-wide requested session policy.
+def role_session_policy(backend: object, *, allow_resume: bool = True) -> str:
+    """``rolling`` resumes the role's thread; ``fresh`` starts one per turn.
 
-    ``auto`` is intentionally the default across Windows Desktop, pip installs,
-    source checkouts, and CI.  It is resolved against the selected backend at
-    the role boundary rather than relying on a machine-local Pi setting.
+    Backend names are persisted in role capsules, while test and third-party
+    runners often expose only a class name, so an unknown backend stays fresh.
     """
-    policy = os.environ.get("ARGUS_SKILL_ROLE_SESSION_POLICY", "auto").strip().lower()
-    if policy not in ROLE_SESSION_POLICIES:
-        raise ValueError(
-            "ARGUS_SKILL_ROLE_SESSION_POLICY must be auto, fresh, mission, or rolling"
-        )
-    return policy
-
-
-def effective_role_session_policy(
-    policy: str,
-    backend: object,
-    *,
-    allow_resume: bool = True,
-) -> str:
-    """Resolve ``auto`` to a safe concrete per-role policy.
-
-    Backend names are persisted in role capsules, while a number of test and
-    third-party runner implementations expose only a class name.  Unknown
-    backends therefore stay fresh under ``auto`` but continue honoring an
-    explicit mission/rolling request for backwards-compatible adapters.
-    """
-    requested = str(policy or "").strip().lower() or "auto"
-    if requested not in ROLE_SESSION_POLICIES:
-        raise ValueError("role session policy must be auto, fresh, mission, or rolling")
     name = str(backend or "").strip().lower()
-    if not allow_resume or name in _NON_RESUMABLE_ROLE_SESSION_BACKENDS:
-        return "fresh"
-    if requested == "auto":
-        return "rolling" if name in _RESUMABLE_ROLE_SESSION_BACKENDS else "fresh"
-    return requested
+    return "rolling" if allow_resume and name in _RESUMABLE_ROLE_SESSION_BACKENDS else "fresh"
 
 
 def objective_revision(objective: str) -> str:
@@ -204,9 +173,6 @@ class RoleSessionCapsule:
     mission_context_path: str = ""
     thread_id: str = ""
     turns: int = 0
-    # Non-cached input tokens accumulated on the current thread; the rotation
-    # budget in ``prepare`` compares against this, not the raw billed input.
-    input_tokens: int = 0
     repository_map: list[str] = field(default_factory=list)
     inspected_paths: list[str] = field(default_factory=list)
     decisive_output: str = ""
@@ -241,8 +207,8 @@ class RoleSessionCapsule:
         seed_thread_id: str | None = None,
         mission_context_path: str = "",
     ) -> "RoleSessionCapsule":
-        if policy not in {"fresh", "mission", "rolling"}:
-            raise ValueError("role session capsule policy must be fresh, mission, or rolling")
+        if policy not in {"fresh", "rolling"}:
+            raise ValueError("role session capsule policy must be fresh or rolling")
         branch = "" if policy == "fresh" else _worktree_branch(workdir)
         payload: dict[str, Any] = {}
         if policy != "fresh" and path is not None and path.is_file():
@@ -274,7 +240,6 @@ class RoleSessionCapsule:
         if payload and not changed:
             capsule.thread_id = str(payload.get("thread_id") or "")
             capsule.turns = int(payload.get("turns") or 0)
-            capsule.input_tokens = int(payload.get("input_tokens") or 0)
             capsule.repository_map = list(payload.get("repository_map") or [])
             capsule.inspected_paths = list(payload.get("inspected_paths") or [])
             capsule.decisive_output = str(payload.get("decisive_output") or "")
@@ -324,7 +289,9 @@ class RoleSessionCapsule:
         capsule.save()
         return capsule
 
-    def prepare(self, *, max_turns: int, max_input_tokens: int) -> str | None:
+    def prepare(self, *, max_turns: int = 0, max_input_tokens: int = 0) -> str | None:
+        # The limits are ignored: the backend compacts its own context. They
+        # remain only while round_reviewer.py still passes them.
         if self.policy == "fresh":
             self.thread_id = ""
             self.action = "fresh"
@@ -334,15 +301,7 @@ class RoleSessionCapsule:
         if branch != self.branch:
             self.branch = branch
             self.rotate("branch_changed")
-        if self.policy == "rolling" and self.thread_id:
-            if max_turns > 0 and self.turns >= max_turns:
-                self.rotate("turn_limit")
-            elif max_input_tokens > 0 and self.input_tokens >= max_input_tokens:
-                self.rotate("context_limit")
-            else:
-                self.action = "resumed"
-                self.rotation_reason = ""
-        elif self.thread_id:
+        if self.thread_id:
             self.action = "resumed"
             self.rotation_reason = ""
         elif self.action != "rotated":
@@ -377,18 +336,7 @@ class RoleSessionCapsule:
             resumed_thread = self.thread_id if self.action == "resumed" else ""
             if self.action != "resumed":
                 self.turns = 0
-                self.input_tokens = 0
             self.turns += 1
-            # The rotation budget counts only the input the provider actually
-            # had to read fresh. Cached prefix tokens are billed at a small
-            # fraction of the fresh rate and grow with every resumed turn, so
-            # counting them rotated sessions five to ten times too early — and
-            # each rotation discards the provider cache and re-pays the whole
-            # static prompt. A result that reports no cache usage counts in
-            # full, which errs toward rotating sooner rather than later.
-            raw_input = int(getattr(result, "input_tokens", 0) or 0)
-            cached_input = int(getattr(result, "cached_input_tokens", 0) or 0)
-            self.input_tokens += max(0, raw_input - max(0, cached_input))
             result_thread = str(getattr(result, "thread_id", "") or "")
             if result_thread and result_thread not in self.seen_thread_ids:
                 self.seen_thread_ids = [
@@ -439,7 +387,6 @@ class RoleSessionCapsule:
     def rotate(self, reason: str) -> None:
         self.thread_id = ""
         self.turns = 0
-        self.input_tokens = 0
         self.last_prompt = ""
         self.action = "rotated"
         self.rotation_reason = reason
@@ -484,7 +431,6 @@ class RoleSessionCapsule:
                 "mission_context_path": self.mission_context_path,
                 "thread_id": self.thread_id,
                 "turns": self.turns,
-                "input_tokens": self.input_tokens,
                 "repository_map": self.repository_map,
                 "inspected_paths": self.inspected_paths,
                 "decisive_output": self.decisive_output,
@@ -543,7 +489,6 @@ def signal_role_session_file(path: Path | str, kind: str, detail: str = "") -> b
         "schema_version": ROLE_SESSION_SCHEMA_VERSION,
         "thread_id": "",
         "turns": 0,
-        "input_tokens": 0,
         "signal_kind": normalized,
         "signal_detail": redact_secrets_text(
             str(detail or "")[:1000], known_values=known_secret_values()
@@ -560,11 +505,9 @@ def signal_role_session_file(path: Path | str, kind: str, detail: str = "") -> b
 
 
 __all__ = [
-    "ROLE_SESSION_POLICIES",
     "ROLE_SESSION_SIGNALS",
     "RoleSessionCapsule",
-    "configured_role_session_policy",
-    "effective_role_session_policy",
+    "role_session_policy",
     "signal_role_session_file",
     "objective_revision",
 ]

@@ -37,7 +37,6 @@ from typing import Any, Callable
 from .core.event_catalog import EventType
 from .core.models import LoopOutcome, LoopStatus, RoundRecord
 from .core.ports import RunnerBackend
-from .core.role_session import configured_role_session_policy
 from .engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -53,13 +52,6 @@ from .skills.missions import EngineerMission
 from .skills.store import SkillStore
 
 log = logging.getLogger(__name__)
-
-def _env_int_setting(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
 
 def _knob_bool_setting(name: str, default: bool) -> bool:
     from .core.knobs import resolve_knob
@@ -109,17 +101,6 @@ class SkillLoopConfig:
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
-    role_session_policy: str = field(default_factory=configured_role_session_policy)
-    role_session_max_turns: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS", 6
-        )
-    )
-    role_session_max_input_tokens: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", 120_000
-        )
-    )
     # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
     # Explicit Manager-routed vertical for isolated worktrees that intentionally
@@ -397,9 +378,6 @@ class SkillLoop(
             backend_failure_threshold=self.config.backend_failure_threshold,
             backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
             session_id=self.config.session_id,
-            role_session_policy=self.config.role_session_policy,
-            role_session_max_turns=self.config.role_session_max_turns,
-            role_session_max_input_tokens=self.config.role_session_max_input_tokens,
             role_session_dir=(
                 Path(self.config.context_packet_path).expanduser().resolve().parent / "role-sessions"
                 if self.config.context_packet_path else None

@@ -11,7 +11,6 @@ from .planner import (
     PlannerConfig,
     PlannerVerdict,
     TaskSpec,
-    configured_role_session_max_input_tokens,
     parse_planner_text,
 )
 
@@ -23,6 +22,5 @@ __all__ = [
     "OPEN_ENDED_PROJECT_DONE_ERROR",
     "PLANNER_SUPERSEDED_ERROR",
     "TaskSpec",
-    "configured_role_session_max_input_tokens",
     "parse_planner_text",
 ]

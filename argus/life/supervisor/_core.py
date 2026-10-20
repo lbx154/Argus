@@ -374,10 +374,7 @@ class LifeSupervisor(
     def _planner_config(self):
         from ...core.knobs import resolve_knob, resolve_role_model
         from ...daemon.state import read_continuous_state
-        from ...planner import (
-            PlannerConfig,
-            configured_role_session_max_input_tokens,
-        )
+        from ...planner import PlannerConfig
 
         continuous_root = Path(
             getattr(self.memory, "project_root", self.memory.root)
@@ -431,11 +428,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            # The same environment knob that budgets Engineer sessions budgets
-            # the Planner's rolling session, so one setting moves every role.
-            role_session_max_input_tokens=(
-                configured_role_session_max_input_tokens()
-            ),
             objective_revision=(
                 f"{expected.generation}:"
                 f"{objective_revision(expected.objective)}"

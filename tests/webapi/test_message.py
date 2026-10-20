@@ -782,20 +782,14 @@ def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
     assert classify_calls == 2
 
 
-@pytest.mark.parametrize("rotation", [False, True])
-def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch, rotation):
+def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch):
     sid = "s-greeting-handoff"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
     append_turn(life, "operator", "Explain the binary search invariant.")
     append_turn(life, "argus", "The target remains in the search interval.")
     state = manager_state._chat_state_for(sid)
-    if rotation:
-        state["turns"] = 100
-        monkeypatch.setattr(manager_dispatch, "_rotate_after", lambda: 100)
-        state.pop("needs_startup_handoff", None)
-    else:
-        state["needs_startup_handoff"] = True
+    state["needs_startup_handoff"] = True
 
     def classify(mem, text, chat_state, **kwargs):
         if text == "你好":

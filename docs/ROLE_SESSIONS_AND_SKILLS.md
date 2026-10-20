@@ -1,34 +1,20 @@
 # Role sessions and on-demand Skills
 
-## Session experiment
+## Sessions
 
-Production uses a backend-aware default on every supported platform:
+The backend decides how a role session is kept. Resumable native CLIs (Pi,
+Codex, Claude/Qoder, Copilot, OpenCode, and Grok) resume each role's provider
+thread (`rolling`); fresh-only runners such as DeepSeek Harness start a `fresh`
+session per role turn. There is no policy to configure.
 
-```text
-ARGUS_SKILL_ROLE_SESSION_POLICY=auto
-```
+The backend owns its context window and compacts it itself, so Argus never
+rotates a session for its turn count or size. Only a branch, objective revision,
+backend, or model change, or an explicit Reviewer signal, starts a new thread.
+Backend resume failure drops that role's thread and retries from durable state.
+This covers Planner, Engineer, and Reviewer autonomous turns; the persistent
+Manager follows the same rule.
 
-`auto` selects bounded `rolling` sessions for resumable native CLIs (Pi, Codex,
-Claude/Qoder, Copilot, OpenCode, and Grok) and remains `fresh` for fresh-only
-runners such as DeepSeek Harness. This is an Argus runtime default, not a
-machine-local Pi setting.
-
-The same mission can also be run with explicit policies:
-
-- `fresh`: one provider session per role turn;
-- `mission`: one isolated provider session per mission and role;
-- `rolling`: resume per mission and role, then rotate at six turns or 120,000
-  observed input tokens by default.
-
-The rolling limits are configurable with
-`ARGUS_SKILL_ROLE_SESSION_MAX_TURNS` and
-`ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS`. A branch, objective revision,
-backend, or model change also rotates the session. Backend resume failure drops
-that role's thread and retries from durable state. Manager conversation sessions
-keep their existing daemon-generation lifecycle; this experiment covers Planner,
-Engineer, and Reviewer autonomous turns.
-
-With `mission` or `rolling`, each role has a separate JSON capsule under the
+With a resumable backend, each role has a separate JSON capsule under the
 mission state directory's `role-sessions/`. A capsule contains only the objective
 revision, repository map, referenced/inspected paths, latest decisive output,
 open checkpoint items, checkpoint pointer, provider thread id, and counters. It
@@ -46,12 +32,9 @@ action, rotation reason, prompt size, token usage, wall time, and capsule path.
 Correlate these events with `agent.io.*` file-tool events and
 `round.review.completed` to compare repeated reads, repository remapping,
 Reviewer acceptance, and correctness on matched task replays. The focused test
-`tests/test_role_session_lifecycle.py` verifies all three policies, restart
-recovery, role isolation, bounded rotation, and lower Reviewer prompt bytes with
-an unchanged verdict.
-
-Rollback is immediate: set the policy to `fresh`. Existing capsules are ignored
-and may be deleted after no old daemon uses them.
+`tests/test_role_session_lifecycle.py` verifies fresh and resumed sessions,
+restart recovery, role isolation, and lower Reviewer prompt bytes with an
+unchanged verdict.
 
 ## Skill discovery contract
 
