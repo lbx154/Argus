@@ -200,7 +200,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 - Reviewer 提示词中解释 harness 机制的段落；
 - `review_objective` 拼接，由通过引用读取任务契约替代；
 - `reviewer/_parsing.py` 中没有生产调用方的散文解析路径；
-- 其余用来代替“原样退回即上交”的循环计数器：空回合与停滞连击、`replan_rejections`、Planner 的探针任务及其固定的重新授权节奏；
+- 其余用来代替“原样退回即上交”的循环计数器：空回合与停滞连击、Planner 的探针任务及其固定的重新授权节奏；
 - 作为独立状态的十一种 `paused_*`，由一种挂起记录替代；
 - Planner 的等待契约字段和 Engineer 的 footer 键，由那一行交接替代。
 

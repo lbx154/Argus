@@ -41,7 +41,6 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
         task=object(),
         existing_items=(),
         semantic_duplicate=None,
-        stage_reviewed_at=None,
     ) is None
 
 

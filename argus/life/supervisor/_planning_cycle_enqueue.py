@@ -14,7 +14,6 @@ import logging
 import os
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from ...core.event_catalog import EventType
@@ -23,15 +22,12 @@ from ..memory import BacklogItem, planner_may_retire_park
 from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
-    PLAN_TERMINAL_IDLE,
     PLANNER_DEDUP_STATUSES,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
-    REPLAN_FILTER_REJECTION_LIMIT,
 )
 from ._helpers import (
-    _normalize_blocker_fingerprint,
     _normalize_task_dep_key,
     _planner_task_signature,
     _resolve_task_dep_ids,
@@ -188,18 +184,6 @@ def _apply_planner_stage_request(
 class PlanningCycleEnqueueMixin:
     """Dedupe index, pending-item construction, commit, and final emission."""
 
-    @staticmethod
-    def _terminal_blocker_is_dedupable(item: BacklogItem) -> bool:
-        """Return whether an unchanged failed task is known to be unrecoverable."""
-        outcome = item.outcome if isinstance(item.outcome, dict) else {}
-        return bool(
-            item.status == "failed"
-            and not item.pending_question
-            and outcome.get("execution_status") == "blocked"
-            and outcome.get("review_status") == "blocked"
-            and outcome.get("resumable") is False
-        )
-
     def _pc_build_dedupe_index(self, state: _PlanCycleState) -> Any | None:
         try:
             # Archived rows still name node ids/keys later tasks may depend on.
@@ -209,9 +193,7 @@ class PlanningCycleEnqueueMixin:
             state.existing_items = []
 
         seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
-        active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
         active_node_keys: dict[str, BacklogItem] = {}
-        terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
         # Retirement is applied after the commit. A row this same verdict
         # retires is not a live duplicate of its replacement; counting it
@@ -249,25 +231,8 @@ class PlanningCycleEnqueueMixin:
                 existing.status == "pending" or planner_may_retire_park(existing)
             ):
                 continue
-            terminal_blocker = self._terminal_blocker_is_dedupable(existing)
-            if (
-                existing.status not in PLANNER_DEDUP_STATUSES
-                and not terminal_blocker
-            ):
+            if existing.status not in PLANNER_DEDUP_STATUSES:
                 continue
-            if terminal_blocker:
-                terminal_blocker_fingerprints.setdefault(
-                    f"item:{existing.id.lower()}",
-                    existing,
-                )
-                blocker_fingerprint = _normalize_blocker_fingerprint(
-                    existing.blocker_fingerprint
-                )
-                if blocker_fingerprint:
-                    terminal_blocker_fingerprints.setdefault(
-                        blocker_fingerprint,
-                        existing,
-                    )
             signature = _planner_task_signature(
                 existing.title,
                 existing.objective,
@@ -284,20 +249,13 @@ class PlanningCycleEnqueueMixin:
                 skip_stage_transition=self._item_skips_stage_transition(existing),
                 execution_workdir=str(existing.execution_workdir or ""),
             )
-            base_signature = signature
-            if not terminal_blocker:
-                active_base_signatures[base_signature] = existing
-                seen_signatures[signature] = existing
-                node_key = str(existing.node_key or "").strip()
-                if node_key:
-                    active_node_keys[node_key] = existing
-            elif signature not in seen_signatures:
-                seen_signatures[signature] = existing
+            seen_signatures[signature] = existing
+            node_key = str(existing.node_key or "").strip()
+            if node_key:
+                active_node_keys[node_key] = existing
 
         state.seen_signatures = seen_signatures
-        state.active_base_signatures = active_base_signatures
         state.active_node_keys = active_node_keys
-        state.terminal_blocker_fingerprints = terminal_blocker_fingerprints
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
         state.new_plan_version = (
             state.expected_plan_version + 1 if state.revision_request is not None else 1
@@ -312,93 +270,6 @@ class PlanningCycleEnqueueMixin:
             if tag.startswith("stage:"):
                 return tag.split(":", 1)[1].strip()
         return ""
-
-    def _stage_closing_reproposal_blocker(
-        self, task: Any,
-    ) -> tuple[Any, str, float] | None:
-        """Reject certification churn until substantive repair intervenes.
-
-        A completed independently reviewed stage-closing mission is one review
-        attempt.  If the Manager kept the same stage open, immediately asking a
-        fresh Engineer and Reviewer to package the same gate again cannot change
-        that decision.  The next accepted unit must be a non-stage-closing repair
-        on the same stage; after such a repair, one new certification attempt is
-        legal.
-
-        Older backlog rows have no ``stage:<name>`` tag and intentionally keep
-        their historical behaviour.  This makes the guard migration-safe.
-        """
-        if not bool(getattr(task, "stage_closing", False)):
-            return None
-        if bool(getattr(task, "stage_repair", False)):
-            return None
-        stage_reader = getattr(self, "_current_pipeline_stage", None)
-        if not callable(stage_reader):
-            return None
-        try:
-            current_stage = str(stage_reader() or "").strip().lower()
-            rows = list(self.memory.backlog.history())
-        except Exception:  # noqa: BLE001 - dedupe remains fail-open
-            return None
-        if not current_stage:
-            return None
-
-        def finished_at(item: Any) -> float:
-            return float(
-                getattr(item, "finished_ts", 0.0)
-                or getattr(item, "started_ts", 0.0)
-                or getattr(item, "ts", 0.0)
-                or 0.0
-            )
-
-        latest = None
-        cutoff = 0.0
-        try:
-            from ...core.stage_certificate import latest_stage_review
-
-            certificate = latest_stage_review(self.memory.root, current_stage)
-        except Exception:  # noqa: BLE001 - backlog fallback remains available
-            certificate = None
-        if certificate and certificate.get("review_status") == "done":
-            task_id = str(certificate.get("task_id") or "")
-            latest = next((item for item in rows if item.id == task_id), None)
-            if latest is None:
-                latest = SimpleNamespace(id=task_id or "stage-review", status="done")
-            cutoff = float(certificate.get("recorded_at") or 0.0)
-        else:
-            reviewed: list[Any] = []
-            for item in rows:
-                if self._item_pipeline_stage(item) != current_stage:
-                    continue
-                if not self._item_is_stage_closing(item) or item.status != "done":
-                    continue
-                outcome = getattr(item, "outcome", {}) or {}
-                if str(outcome.get("review_status") or "").strip().lower() != "done":
-                    continue
-                reviewed.append(item)
-            if not reviewed:
-                return None
-            latest = max(reviewed, key=finished_at)
-            cutoff = finished_at(latest)
-
-        # A successful ordinary mission after the review is the evidence delta
-        # that unlocks one new stage-closing attempt.  Merely renaming or
-        # repackaging another certification does not.
-        for item in rows:
-            if self._item_pipeline_stage(item) != current_stage:
-                continue
-            if self._item_is_stage_closing(item) or item.status != "done":
-                continue
-            if finished_at(item) > cutoff:
-                return None
-
-        reason = (
-            f"stage {current_stage!r} already has a completed independent "
-            f"certification attempt ({latest.id}); run a non-stage-closing "
-            "repair that changes the stage evidence before requesting another "
-            "certification"
-        )
-        return latest, reason, cutoff
 
     def _gate_reproposal_is_not_a_duplicate(self, task: Any, duplicate_item: Any) -> bool:
         """Whether a stage-closing proposal escapes the duplicate filter.
@@ -560,7 +431,6 @@ class PlanningCycleEnqueueMixin:
             ]
             canonical_stage_closing = bool(
                 canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
-                or getattr(task, "stage_repair", False)
                 or _stage_closing_forced()
                 or host_stage_closing
             )
@@ -600,9 +470,6 @@ class PlanningCycleEnqueueMixin:
                 acceptance_check=canonical_acceptance,
                 context_refs=canonical_context_refs,
                 stage_closing=canonical_stage_closing,
-                blocker_fingerprint=_normalize_blocker_fingerprint(
-                    getattr(task, "blocker_fingerprint", "")
-                ),
                 require_independent_review=canonical_require_review,
                 skip_stage_transition=False,
                 allow_skill_changes=False,
@@ -665,7 +532,6 @@ class PlanningCycleEnqueueMixin:
                 })
                 continue
 
-            certification_blocker = self._stage_closing_reproposal_blocker(task)
             signature = _planner_task_signature(
                 task.title,
                 task.objective,
@@ -681,75 +547,19 @@ class PlanningCycleEnqueueMixin:
                     getattr(task, "execution_workdir", "") or ""
                 ),
             )
-            base_signature = signature
-            terminal_duplicate = None
-            if task.blocker_fingerprint:
-                terminal_duplicate = state.terminal_blocker_fingerprints.get(
-                    task.blocker_fingerprint
-                )
             planner_node_key = str(getattr(task, "key", "") or "").strip()
             node_key_duplicate = (
                 state.active_node_keys.get(planner_node_key)
                 if planner_node_key
                 else None
             )
-            duplicate_item = (
-                node_key_duplicate
-                or terminal_duplicate
-                or state.active_base_signatures.get(
-                    base_signature
-                )
-                or state.seen_signatures.get(signature)
-            )
-            terminal_fingerprint_match = terminal_duplicate is not None
+            duplicate_item = node_key_duplicate or state.seen_signatures.get(signature)
             review_purchase = policy_contract.review_purchase(
                 project_root=policy_root,
                 task=task,
                 existing_items=state.existing_items,
                 semantic_duplicate=duplicate_item,
-                stage_reviewed_at=(
-                    certification_blocker[2]
-                    if certification_blocker is not None
-                    else None
-                ),
             )
-            if certification_blocker is not None and not (
-                review_purchase is not None
-                and review_purchase.release_stage_closing_blocker
-            ):
-                prior_item, blocker_reason, _reviewed_at = certification_blocker
-                state.skipped_certification_reproposal_titles.append(task.title)
-                state.skipped_certification_reproposal_reasons.append(blocker_reason)
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="stage_closing_requires_intervening_repair",
-                    reason=blocker_reason,
-                )
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                        "cycle": self._planning_cycles,
-                        "title": task.title,
-                        "objective": task.objective,
-                        "impact_score": task.impact_score,
-                        "impact_area": task.impact_area,
-                        "evidence": task.evidence,
-                        "matched_item_id": prior_item.id,
-                        "matched_status": prior_item.status,
-                        "matched_stage": self._item_pipeline_stage(prior_item),
-                        "skip_category": (
-                            "stage_closing_requires_intervening_repair"
-                        ),
-                        "reason": blocker_reason,
-                    }
-                )
-                continue
-            if (
-                review_purchase is not None
-                and review_purchase.discard_semantic_duplicate
-            ):
-                duplicate_item = None
             review_purchase_reason = (
                 review_purchase.defer_reason if review_purchase is not None else ""
             )
@@ -778,7 +588,6 @@ class PlanningCycleEnqueueMixin:
             if (
                 duplicate_item is not None
                 and node_key_duplicate is None
-                and not terminal_fingerprint_match
                 and self._gate_reproposal_is_not_a_duplicate(task, duplicate_item)
             ):
                 duplicate_item = None
@@ -786,11 +595,7 @@ class PlanningCycleEnqueueMixin:
                 if getattr(task, "key", ""):
                     key_map[task.key] = duplicate_item.id
                 state.skipped_duplicate_titles.append(task.title)
-                duplicate_reason = (
-                    "duplicate terminal blocker"
-                    if self._terminal_blocker_is_dedupable(duplicate_item)
-                    else "duplicate pending/running task"
-                )
+                duplicate_reason = "duplicate pending/running task"
                 _record_filtered_task(
                     state,
                     title=task.title,
@@ -951,9 +756,6 @@ class PlanningCycleEnqueueMixin:
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
                 context_refs=task_context_refs,
-                blocker_fingerprint=str(
-                    getattr(task, "blocker_fingerprint", "") or ""
-                ),
                 acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
                 plan_hypothesis=str(getattr(task, "hypothesis", "") or ""),
                 goal_contribution=str(
@@ -1024,57 +826,6 @@ class PlanningCycleEnqueueMixin:
         evidence["routed"] = True
         return evidence
 
-    def _pc_record_revision_rejection(
-        self,
-        state: _PlanCycleState,
-        *,
-        reason: str,
-        nonterminal_result: Any | None,
-    ) -> Any | None:
-        revision_request = state.revision_request or {}
-        requested_item_id = str(revision_request.get("item_id") or "")
-        requested_item = next(
-            (
-                item
-                for item in state.revision_active_items
-                if item.id == requested_item_id
-            ),
-            None,
-        )
-        attempts = int(getattr(requested_item, "replan_rejections", 0) or 0) + 1
-        if requested_item is not None:
-            self.memory.backlog.update(
-                requested_item.id,
-                replan_rejections=attempts,
-                last_error=f"{reason} (attempt {attempts})",
-            )
-        terminal = attempts >= REPLAN_FILTER_REJECTION_LIMIT
-        self._emit(
-            {
-                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                "reason": reason,
-                "expected_plan_id": state.expected_plan_id,
-                "expected_plan_version": state.expected_plan_version,
-                "attempts": attempts,
-                "terminal": terminal,
-            }
-        )
-        if terminal and requested_item is not None:
-            self.memory.backlog.mark_failed(
-                requested_item.id,
-                error=(
-                    f"filtered replacement circuit breaker opened after {attempts} attempts"
-                ),
-            )
-            sleep_s = self._enter_idle_backoff()
-            self._emit_status(
-                "planner replacement remained invalid after bounded retries; "
-                "current node failed closed and awaits new evidence"
-            )
-            self._suggested_sleep_s = max(self._suggested_sleep_s, sleep_s)
-            return PLAN_TERMINAL_IDLE
-        return nonterminal_result
-
     def _pc_split_external_work_deps(
         self, keys: list[str]
     ) -> tuple[list[str], list[tuple[str, str]]]:
@@ -1126,7 +877,7 @@ class PlanningCycleEnqueueMixin:
         """Hold back tasks whose in-batch parent was filtered out of this batch.
 
         A dependency key that names a sibling task of the same verdict is real,
-        required work. When a filter (policy, certification guard,
+        required work. When a filter (policy, review purchase,
         authorization) removed that sibling, its key never reached ``key_map``
         and pass 2 dropped it like a hallucinated key, so the child ran without
         its parent. Hold the child (and, transitively, whatever needs it) with
@@ -1439,10 +1190,13 @@ class PlanningCycleEnqueueMixin:
             )
 
         if revision_request is not None and not state.pending_items:
-            return self._pc_record_revision_rejection(
-                state,
-                reason="all replacement tasks were filtered",
-                nonterminal_result=None,
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "all replacement tasks were filtered",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                }
             )
         return None
 
@@ -1525,12 +1279,7 @@ class PlanningCycleEnqueueMixin:
                     )
                     return PLAN_ERROR
             self._enter_idle_backoff()
-            if state.skipped_certification_reproposal_reasons:
-                self._emit_status(
-                    "planner: repeated stage certification rejected; a substantive "
-                    "same-stage repair must complete before recertification"
-                )
-            elif verdict.retire_tasks and not verdict.new_tasks:
+            if verdict.retire_tasks and not verdict.new_tasks:
                 self._emit_status("planner: processed task retirements; retrying after backoff")
             else:
                 self._emit_status(

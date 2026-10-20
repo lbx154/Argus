@@ -228,9 +228,3 @@ def _planner_task_signature(
         "stage_transition_skipped" if skip_stage_transition else "stage_transition_allowed",
         str(execution_workdir or "").strip(),
     )
-
-
-def _normalize_blocker_fingerprint(value: object) -> str:
-    """Normalize a Planner-authored blocker identity without using task prose."""
-    return " ".join(str(value or "").strip().lower().split())[:500]
-

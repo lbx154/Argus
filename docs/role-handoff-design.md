@@ -355,8 +355,8 @@ Removed once the replacement is in place, each in its own roadmap item:
 - the prose-parsing paths in `reviewer/_parsing.py` that have no production
   callers;
 - the remaining per-loop counters that stand in for the unchanged-return rule:
-  the empty-turn and stall streaks, `replan_rejections`, the Planner's probe
-  missions, and its fixed re-grant cadence;
+  the empty-turn and stall streaks, the Planner's probe missions, and its
+  fixed re-grant cadence;
 - the eleven `paused_*` statuses as separate states, replaced by one park
   record;
 - the Planner's wait-contract fields and the Engineer's footer keys, replaced

@@ -145,8 +145,6 @@ class PlannerReviewPurchaseDecision:
     """A vertical-owned decision about a proposed review purchase."""
 
     defer_reason: str = ""
-    discard_semantic_duplicate: bool = False
-    release_stage_closing_blocker: bool = False
 
 
 @dataclass(frozen=True)
@@ -461,7 +459,6 @@ class VerticalContract:
         task: Any,
         existing_items: Iterable[Any],
         semantic_duplicate: Any | None,
-        stage_reviewed_at: float | None,
     ) -> PlannerReviewPurchaseDecision | None:
         if self.review_purchase_policy is None:
             return None
@@ -470,7 +467,6 @@ class VerticalContract:
             task=task,
             existing_items=existing_items,
             semantic_duplicate=semantic_duplicate,
-            stage_reviewed_at=stage_reviewed_at,
         )
         if isinstance(value, PlannerReviewPurchaseDecision):
             return value

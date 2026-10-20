@@ -426,7 +426,7 @@ def _make_supervisor(
     return supervisor, backend, sink
 
 
-def test_review_purchase_hook_releases_stage_blocker_before_deferring(
+def test_review_purchase_hook_defers_the_task(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -446,13 +446,8 @@ def test_review_purchase_hook_releases_stage_blocker_before_deferring(
     monkeypatch.setattr(
         VerticalContract, "review_purchase",
         lambda self, **kwargs: PlannerReviewPurchaseDecision(
-            defer_reason="current review exists", release_stage_closing_blocker=True,
+            defer_reason="current review exists",
         ),
-    )
-    monkeypatch.setattr(
-        supervisor,
-        "_stage_closing_reproposal_blocker",
-        lambda _task: (SimpleNamespace(), "needs repair", 1.0),
     )
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(

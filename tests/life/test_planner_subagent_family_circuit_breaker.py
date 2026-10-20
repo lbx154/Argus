@@ -17,16 +17,11 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from argus.core.models import RunnerResult
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor._config import LifeSupervisorConfig
-from argus.life.supervisor._constants import (
-    PLAN_ERROR,
-    PLAN_RETRY,
-    PLAN_TERMINAL_IDLE,
-)
+from argus.life.supervisor._constants import PLAN_RETRY
 from argus.life.supervisor._core import LifeSupervisor
 
 
@@ -319,49 +314,6 @@ def test_planner_stage_closing_flag_does_not_force_review_or_dedup(
     newest = items[-1]
     assert "stage_closing" not in newest.tags
     assert "review:required" not in newest.tags
-
-
-def test_revision_rejection_helper_opens_existing_circuit_breaker(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    supervisor = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        "PROJECT_DONE=true\nREASON=unused",
-        project_worktree=project_root,
-    )
-    item = BacklogItem.new(
-        title="Revise failed node",
-        objective="Replace the invalid plan node.",
-        plan_id="plan-old",
-        plan_version=1,
-    )
-    item.replan_rejections = 2
-    supervisor.memory.backlog.add(item)
-    state = SimpleNamespace(
-        revision_request={"item_id": item.id},
-        revision_active_items=[item],
-        expected_plan_id="plan-old",
-        expected_plan_version=1,
-    )
-
-    result = supervisor._pc_record_revision_rejection(
-        state,
-        reason="replacement DAG has unresolved dependencies",
-        nonterminal_result=PLAN_ERROR,
-    )
-    updated = next(
-        stored
-        for stored in supervisor.memory.backlog.all()
-        if stored.id == item.id
-    )
-
-    assert result == PLAN_TERMINAL_IDLE
-    assert updated.replan_rejections == 3
-    assert updated.status == "failed"
 
 
 def test_dedup_uses_canonical_scope_and_acceptance_metadata(

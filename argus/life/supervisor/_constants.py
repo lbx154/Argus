@@ -41,7 +41,6 @@ FILE_WAIT_CLIMB_SECONDS = 1800.0
 # The binding of a Planner wait the host cannot observe; it climbs to the Manager.
 UNOBSERVED_WAIT = "unobserved"
 STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
-REPLAN_FILTER_REJECTION_LIMIT = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
 # Consecutive planner completion attempts turned back for the SAME reason
 # before the supervisor stops asking and tells the operator. This is keyed on
@@ -83,7 +82,6 @@ __all__ = [
     "FILE_WAIT_CLIMB_SECONDS",
     "UNOBSERVED_WAIT",
     "STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS",
-    "REPLAN_FILTER_REJECTION_LIMIT",
     "MANAGER_FEEDBACK_REPLAN_LIMIT",
     "COMPLETION_REJECTION_CIRCUIT_THRESHOLD",
     "PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT",

@@ -638,6 +638,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         new_tasks=[SimpleNamespace(title="Refresh paper review")],
         project_done=False,
         reason="the existing review is stale",
+        retire_tasks=[],
     )
     state.skipped_certification_reproposal_titles = ["Refresh paper review"]
     state.skipped_certification_reproposal_reasons = [
@@ -645,7 +646,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
     ]
     state.skipped_task_feedback = [{
         "title": "Refresh paper review",
-        "category": "stage_closing_requires_intervening_repair",
+        "category": "paper_review_purchase_deferred",
         "reason": "manuscript is unfrozen; staleness is a planning fact",
     }]
 
@@ -654,7 +655,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         "stage": "analysis",
         "reason": (
             "Supervisor filtered every task in the previous Planner proposal:\n"
-            "- [stage_closing_requires_intervening_repair] Refresh paper review: "
+            "- [paper_review_purchase_deferred] Refresh paper review: "
             "manuscript is unfrozen; staleness is a planning fact"
         ),
         "diagnostic": "planner_tasks_filtered",
