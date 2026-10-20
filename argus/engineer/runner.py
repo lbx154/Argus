@@ -276,9 +276,9 @@ class SupervisedEngineer(
                 return paused
             turn = state.snapshots is not None and state.snapshots.take("turn")
             state.handed_inputs = outside_inputs(state) if turn else None
-            climbed = turn and returned_unchanged("engineer", state, "turn")
+            climbed = turn and not state.review_unseen and returned_unchanged("engineer", state, "turn")
             if climbed:
-                # The Engineer already had the work as it is now: no turn.
+                # The Engineer already had the work as it is now, and no review it has not read: no turn.
                 outcome = no_turn(state)
             else:
                 control = self._take_engineer_turn(
@@ -349,6 +349,7 @@ class SupervisedEngineer(
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
             )
+            state.review_unseen = bool(state.reviewer_next_action)
             if control.action == "return":
                 return control.terminal
             if control.action == "continue_loop":

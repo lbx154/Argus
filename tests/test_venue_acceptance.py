@@ -406,9 +406,9 @@ def _final_review(paper: Path, state: Path):
 
 
 def test_an_unchanged_paper_is_not_reviewed_again(paper, tmp_path_factory):
-    # The baton's third invariant: neither the Engineer nor the Reviewer gets
-    # the paper back as they last held it; it climbs to the Planner.
+    # The baton's third invariant: the Engineer reads the review once; the
+    # paper coming back unchanged passes the Reviewer and climbs to the Planner.
     status, reason, engineer_calls, reviewer_calls = _final_review(paper, tmp_path_factory.mktemp("state"))
-    assert (engineer_calls, reviewer_calls) == (1, 1)
+    assert (engineer_calls, reviewer_calls) == (2, 1)
     assert status == "replan_requested"
-    assert "Nothing changed since the engineer and the reviewer" in reason
+    assert "Nothing changed since the reviewer" in reason

@@ -282,7 +282,9 @@ invariants, and together they are the whole state machine:
    Instead the item moves one rung up the ladder Engineer → Reviewer → Planner →
    Manager → operator. "Changed" is a mechanical fact read from the candidate
    snapshot and the event log. It is counted on the mission's lineage, so
-   resuming, replanning, or rewording does not reset it.
+   resuming, replanning, or rewording does not reset it. For the Engineer, a
+   review handed to it that it has not yet worked on is new input; the next
+   unchanged return still stops at the Reviewer.
 4. **Authority never vanishes.** Every decision type has an owner. When the
    owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator

@@ -44,6 +44,9 @@ class RoundLoopState:
     # The outside inputs (``round_self_review.outside_inputs``) the current
     # holder was handed the work under; recorded beside its hold.
     handed_inputs: list[object] | None = None
+    # A Reviewer's verdict handed the work back to the Engineer, which has not
+    # yet completed a turn on it: new input, so the Engineer's turn runs.
+    review_unseen: bool = False
     # Accounts of Engineer turns that continued without any review, newest
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.

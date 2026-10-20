@@ -89,6 +89,23 @@ def test_an_unchanged_candidate_is_not_reviewed_again(tmp_path: Path) -> None:
     assert "reviewer" in climbed.reason and "planner" in climbed.reason
 
 
+def test_a_review_the_engineer_has_not_read_is_new_input(tmp_path: Path) -> None:
+    _state(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="Read the parser; nothing to change.\n→ reviewer"))
+    backend.queue("reviewer", _review("The empty-date case still fails.\n→ engineer"))
+    backend.queue("engineer-r2", CannedResponse(message="Looked again; it holds.\n→ reviewer"))
+
+    status, rounds, labels = _run(tmp_path, backend)
+
+    # The Engineer reads the review once; returning the work unchanged again
+    # passes the Reviewer, who already judged it, and reaches the Planner.
+    assert labels == ["engineer-r1", "reviewer", "engineer-r2"]
+    assert status == "replan_requested"
+    assert rounds[-1].review.review_source == "unchanged_return"
+    assert "reviewer" in rounds[-1].review.reason
+
+
 def test_a_changed_candidate_is_new_work(tmp_path: Path) -> None:
     _state(tmp_path)
     backend = MemoryBackend()

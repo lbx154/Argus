@@ -152,6 +152,8 @@ class RoundSelfReviewMixin:
         # outage and open the hold on an isolated accident.
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
+        if not climbed:
+            state.review_unseen = False
         if state.snapshots is not None:
             # The Engineer held the work as its turn began.
             state.snapshots.hold("engineer", "turn", state.handed_inputs)
