@@ -570,16 +570,16 @@ def test_a_tool_capable_spawn_is_never_lean(monkeypatch) -> None:
     assert "view,grep,glob" in commands[0]
 
 
-def test_new_session_rejects_a_different_selected_model(monkeypatch) -> None:
+def test_new_session_runs_on_the_model_copilot_selected(monkeypatch) -> None:
+    """A model the account no longer offers is not a failure: usage names the one used."""
     proc = _FakeAcpProc(_multi_session_script)
     monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
     client = CopilotAcpClient("copilot-bin", "requested-model", "xhigh")
     client._ensure_started()
 
-    with pytest.raises(RuntimeError, match="selected 'small', expected 'requested-model'"):
-        client._new_session("/workspace")
+    sid = client._new_session("/workspace")
 
-    assert "sess-1" not in client._sessions
+    assert sid in client._sessions and client._session_models[sid] == "small"
 
 
 def test_manager_chat_is_isolated_then_resumed_on_same_process(monkeypatch) -> None:
