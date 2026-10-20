@@ -31,10 +31,11 @@ _SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
 _CADENCE_FLOOR_SECONDS = 30.0
 # This caps time between observable facts, never the duration of external work.
 _CADENCE_CAP_SECONDS = 900.0
-# A direct subagent launched without a timeout whose command has written no
-# output for this long is reported stalled: a hung command otherwise looks
-# healthy for as long as its process lives, and a wait on it never ends.
-_DIRECT_SILENCE_STALE_SECONDS = 6 * 3600.0
+# A direct subagent whose command has neither used CPU nor written anything for
+# this long is reported stalled, the rule a stuck Engineer turn follows: a hung
+# command otherwise looks healthy for as long as its process lives, and a wait
+# on it never ends. The report stops nothing.
+_DIRECT_SILENCE_STALE_SECONDS = 30 * 60.0
 
 
 class ExternalWorkState(str, Enum):
@@ -304,11 +305,12 @@ def _canonical_status(
 
 
 def _direct_silence(record: dict[str, Any], now: float) -> float:
-    """How long a direct subagent's command has written nothing; 0 without logs.
+    """How long a direct subagent's command has done nothing visible; 0 without logs.
 
-    Writing is judged from the output logs the worker records and from the run
+    Activity is a write to the output logs the worker records or to the run
     directory and its entries -- a training step that checkpoints without
-    printing is busy, not hung -- starting no earlier than the launch.
+    printing is busy, not hung -- or CPU use its worker noted
+    (``cpu_progress_at``), counted no earlier than the launch.
     """
     logs = [record.get(key) for key in ("stdout_log", "stderr_log") if record.get(key)]
     if not logs:
@@ -321,7 +323,7 @@ def _direct_silence(record: dict[str, Any], now: float) -> float:
             paths.extend(run_dir.iterdir())
         except OSError:
             pass
-    stamps = [_coerce_float(record.get("started_at"), 0.0)]
+    stamps = [_coerce_float(record.get(key), 0.0) for key in ("started_at", "cpu_progress_at")]
     for path in paths:
         try:
             stamps.append(path.stat().st_mtime)
@@ -431,9 +433,7 @@ def _subagent_status(
             pass
     if state_value not in _SUBAGENT_INFLIGHT_STATES:
         state = ExternalWorkState.TERMINAL
-        reason = str(record.get("timeout_message") or "").strip() or (
-            f"subagent state={state_value or 'unknown'}"
-        )
+        reason = f"subagent state={state_value or 'unknown'}"
     elif state_value == "waiting_resource" and worker_alive and not heartbeat_stale:
         state = ExternalWorkState.RUNNING_HEALTHY
         reason = resource_facts[0] if resource_facts else "waiting for a resource grant"
@@ -446,15 +446,11 @@ def _subagent_status(
     elif mode != "direct" and not worker_alive:
         state = ExternalWorkState.STALLED
         reason = "subagent worker process is not alive"
-    elif (
-        mode == "direct"
-        and record.get("timeout_seconds") is None
-        and _direct_silence(record, now) > _DIRECT_SILENCE_STALE_SECONDS
-    ):
+    elif mode == "direct" and _direct_silence(record, now) > _DIRECT_SILENCE_STALE_SECONDS:
         state = ExternalWorkState.STALLED
         reason = (
-            "direct subagent has no timeout and its command has written no "
-            f"output for {int(_direct_silence(record, now))}s; it may be hung"
+            "direct subagent's command has used no CPU and written nothing for "
+            f"{int(_direct_silence(record, now))}s; it may be hung"
         )
     elif heartbeat_stale:
         state = ExternalWorkState.STALLED

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from ..core import process_stop
 from ..core.event_catalog import EventType
 from ..core.models import ReviewDecision
 from ..core.secret_guard import (
@@ -96,57 +97,27 @@ def _pause_decision_clock(last_progress_at: float, waited_seconds: float) -> flo
     return float(last_progress_at) + max(0.0, float(waited_seconds or 0.0))
 
 
-def _waited_so_far(seconds: float) -> str:
-    """Compact total for a wait that only ever reports one cadence tick.
-
-    Each tick emitted the same two lines, so an eighteen-hour wait and a
-    two-minute one were indistinguishable in the timeline -- five hundred
-    identical "resumed after 120s" lines and nothing saying how long this had
-    been going on.
-    """
-    minutes = int(max(0.0, seconds)) // 60
-    if minutes < 60:
-        return f"{minutes}m"
-    return f"{minutes // 60}h{minutes % 60:02d}m"
-
-
 def _run_external_work_wait(
     *,
     workdir: Path,
     work_id: str,
-    round_index: int,
-    round_max: int,
-    on_event: Callable[[dict], None] | None,
-    waited_total_s: float = 0.0,
+    keep_waiting: Callable[[], bool],
 ) -> tuple[str, float]:
-    if on_event:
-        on_event({
-            "type": "round.external_work_wait.started",
-            "round_index": round_index,
-            "round_max": round_max,
-            "work_id": work_id,
-            "waited_total_s": round(waited_total_s, 1),
-            "text": f"yielding to external-work cadence: {work_id}",
-        })
-    try:
-        wait_reason, waited_s = wait_for_external_work_cadence(workdir, work_id)
-    except Exception as exc:  # noqa: BLE001
-        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
-    total = waited_total_s + waited_s
-    if on_event:
-        on_event({
-            "type": "round.external_work_wait.completed",
-            "round_index": round_index,
-            "round_max": round_max,
-            "work_id": work_id,
-            "reason": wait_reason,
-            "waited_total_s": round(total, 1),
-            "text": (
-                f"resumed after {waited_s:.0f}s ({wait_reason}); "
-                f"{_waited_so_far(total)} on {work_id}"
-            ),
-        })
-    return wait_reason, waited_s
+    """Wait on external work until it changes state or ``keep_waiting`` says stop.
+
+    Waiting writes no events: it used to log a started/completed pair every
+    two minutes for as long as a job ran. What the wait led to -- the next
+    round, or the mission's pause -- is what the journal records.
+    """
+    waited = 0.0
+    while True:
+        try:
+            reason, seconds = wait_for_external_work_cadence(workdir, work_id)
+        except Exception as exc:  # noqa: BLE001
+            reason, seconds = f"error:{type(exc).__name__}", 0.0
+        waited += seconds
+        if reason != "cadence_elapsed" or process_stop.stop_requested() or not keep_waiting():
+            return reason, waited
 
 
 __all__ = [

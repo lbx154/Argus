@@ -26,7 +26,6 @@ _ACTIVE_EVENTS = frozenset({
     EventType.LIFE_PLANNER_START,
     EventType.LOOP_START,
     EventType.PROVIDER_REQUEST_STARTED,
-    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
     EventType.ROUND_REVIEW_STARTED,
     EventType.ROUND_START,
 })
@@ -42,9 +41,6 @@ _WAITING_EVENTS = frozenset({
     EventType.LIFE_OPERATOR_QUESTION_PENDING,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_WAITING,
-    # The lead is watching its own team's task board instead of spending a
-    # model round: a quiet hour here is patience, not a stall.
-    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
 })
 _DEGRADED_EVENTS = frozenset({
     EventType.LIFE_DAEMON_DEGRADED,
@@ -64,8 +60,6 @@ _PROGRESS_EVENTS = frozenset({
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLANNER_VERDICT,
     EventType.PROVIDER_REQUEST_COMPLETED,
-    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
-    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
     EventType.ROUND_MAIN_COMPLETED,
     EventType.ROUND_REVIEW_COMPLETED,
 })
@@ -182,14 +176,31 @@ class DaemonHealthTracker:
         self.observe({"type": EventType.LIFE_DAEMON_READY, "ts": time.time()})
 
 
+def _waits_on_healthy_work(workdir: Path | str | None) -> bool:
+    if not workdir:
+        return False
+    from .. import team  # noqa: F401 - registers the team projection
+    from ..engineer.external_work import scan_external_work
+
+    try:
+        return any(status.waitable for status in scan_external_work(workdir))
+    except Exception:  # noqa: BLE001 - an unreadable registry is no excuse
+        return False
+
+
 def read_daemon_health(
     life_dir: Path | str,
     *,
     pid: int | None,
     alive: bool,
     now: float | None = None,
+    workdir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Return health separately from process liveness."""
+    """Return health separately from process liveness.
+
+    A round holding its slot for healthy background work in ``workdir`` writes
+    nothing while it waits; that quiet is waiting, not a stall.
+    """
     if not alive:
         return {
             "state": "stopped",
@@ -217,6 +228,8 @@ def read_daemon_health(
     age = max(0.0, float(now if now is not None else time.time()) - last_progress)
     phase = str(payload.get("phase") or "unknown")
     stalled = phase == "active" and age >= _stall_seconds()
+    if stalled and _waits_on_healthy_work(workdir):
+        phase, stalled = "waiting", False
     return {
         "state": "stalled" if stalled else phase,
         "stalled": stalled,

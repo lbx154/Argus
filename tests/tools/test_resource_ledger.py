@@ -158,7 +158,6 @@ def _submit_args(**updates: object) -> argparse.Namespace:
         "description": "test",
         "command": "echo ok",
         "mode": "direct",
-        "timeout": 10,
         "monitor_interval": 120,
         "model": None,
         "run_dir": None,
@@ -236,7 +235,6 @@ def test_direct_worker_exports_grant_env_and_releases(
         "env-task",
         command,
         "env",
-        timeout=10,
         cwd=str(tmp_path),
     )
     record = _read_task("env-task") or {}
@@ -471,7 +469,7 @@ def test_unknown_card_memory_never_makes_a_demand_unsatisfiable(tmp_path: Path) 
     assert result["state"] != "unsatisfiable"
 
 
-def test_a_long_queue_wait_is_told_once_and_ends_at_the_job_timeout(
+def test_a_long_queue_wait_is_told_once_and_lasts_until_the_grant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from types import SimpleNamespace
@@ -487,10 +485,14 @@ def test_a_long_queue_wait_is_told_once_and_ends_at_the_job_timeout(
     assert holder["state"] == "granted"
     monkeypatch.setattr(_resource_admission, "ResourceLedger", lambda: ledger)
     base, elapsed = time.time(), [0.0]
+
+    def sleep(seconds: float) -> None:
+        elapsed[0] += seconds
+        if elapsed[0] >= 3 * 3600 and ledger.status(refresh_probe=False)["grants"]:
+            ledger.release(holder["id"])  # the holder finishes three hours in
+
     monkeypatch.setattr(_resource_admission, "time", SimpleNamespace(
-        monotonic=lambda: elapsed[0],
-        time=lambda: base + elapsed[0],
-        sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+        monotonic=lambda: elapsed[0], time=lambda: base + elapsed[0], sleep=sleep,
     ))
     life = tmp_path / "life"
     _write_task("waiter", {
@@ -502,12 +504,11 @@ def test_a_long_queue_wait_is_told_once_and_ends_at_the_job_timeout(
         "resource_demand": dict(_demand("eval"), expected_duration_seconds=60),
     })
 
-    with pytest.raises(_resource_admission.ResourceQueueTimeout, match="--timeout"):
-        _resource_admission.acquire_for_task(
-            "waiter", mode="direct", project_root=tmp_path, timeout=7200,
-        )
+    lease = _resource_admission.acquire_for_task("waiter", mode="direct", project_root=tmp_path)
 
-    assert 7200 <= elapsed[0] < 7300
+    # No clock ends the wait: it lasts until the card is free, and is told once.
+    assert lease is not None and 3 * 3600 <= elapsed[0] < 3 * 3600 + 100
+    lease.release()
     assert ledger.status(refresh_probe=False)["queue"] == []
     notices = [turn for turn in read_turns(life) if turn.get("message_id") == "gpu-queue-wait-waiter"]
     assert len(notices) == 1

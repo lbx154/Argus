@@ -547,10 +547,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const said = clean(stringField(event, 'text'), 200);
       return model('reviewer', 'role.reviewer', '⏳', said || localized(context, `the Reviewer's model service is unavailable — retrying in ${seconds}s`, `审阅者的模型服务不可用 — ${seconds} 秒后重试`), 'warn');
     }
-    case 'round.external_work_wait.started':
-      return model('engineer', 'role.engineer', '⌛', `${localized(context, 'waiting for background work to report', '等待后台工作汇报')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
-    case 'round.external_work_wait.completed':
-      return model('engineer', 'role.engineer', '↻', localized(context, 'background work reported — resuming', '后台工作已汇报 — 继续'), 'dim');
     case 'round.external_work_review.required':
       return model('reviewer', 'role.reviewer', '⌛', `${localized(context, 'background work finished — an independent review of its result is required before resuming', '后台工作已结束 — 恢复前需要对其结果做一次独立审阅')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
     case 'round.external_work_review.completed':

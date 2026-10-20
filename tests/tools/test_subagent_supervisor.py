@@ -590,23 +590,6 @@ def test_direct_report_never_calls_llm(monkeypatch) -> None:
     assert "plain background command" in report
 
 
-def test_timeout_report_does_not_misclassify_timeout_as_failure() -> None:
-    report = _build_report(
-        "bounded-search",
-        "TIMEOUT",
-        {
-            "description": "bounded solver run",
-            "command": "solver problem.cnf",
-            "mode": "direct",
-            "elapsed_seconds": 3600,
-        },
-    )
-
-    assert "treat the result as inconclusive" in report
-    assert "Do not infer a workload failure from the timeout alone" in report
-    assert "inspect stderr for root cause" not in report
-
-
 def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
     # The summary + next step must be authored from the supervisor's own
     # diagnosis, not a signal-blind summarizer that only sees stdout.
@@ -1261,7 +1244,6 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
         "train-1",
         f"{shlex.quote(sys.executable)} -c pass",
         "demo",
-        timeout=999,
         monitor_interval=1,
         model="gpt-5.5",
         cwd=str(tmp_path),
@@ -1320,7 +1302,7 @@ def _supervisor_looks(
     monkeypatch.setattr(_sub._supervised_run, "_supervisor_inputs", lambda paths: inputs_at(clock[0]))
     start = clock[0]
     _sub._run_supervised(
-        "train-quiet", "python train.py", "demo", timeout=10**7,
+        "train-quiet", "python train.py", "demo",
         monitor_interval=120, model="gpt-5.5", cwd=str(tmp_path), preflight=False,
     )
     return [look - start for look in looks]
@@ -1396,7 +1378,7 @@ def test_open_discussion_blockers_use_process_identity_not_heartbeat_age(
 
 def _submit_args(**kw) -> argparse.Namespace:
     base = dict(task_id="x", description="d", command="echo hi", mode="direct",
-                timeout=10, monitor_interval=120, model="gpt-5.5", run_dir=None,
+                monitor_interval=120, model="gpt-5.5", run_dir=None,
                 cwd=None, override_discussion=None, clear_stop=False,
                 no_preflight=False, cpu_count=0, cpu_ids=None)
     base.update(kw)
@@ -1748,34 +1730,28 @@ def test_cmd_submit_normalizes_relative_cwd_and_run_dir(
 
 
 @requires_fork
-def test_experiment_submit_without_timeout_records_no_timeout(
-    monkeypatch,
-    tmp_path,
-    capsys,
-) -> None:
+def test_submit_takes_no_time_limit(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
 
-    rc = _sub.cmd_submit(_submit_args(
-        task_id="default-timeout",
-        run_dir="experiments/run-1",
-        timeout=None,
-    ))
+    rc = _sub.cmd_submit(_submit_args(task_id="untimed", run_dir="experiments/run-1"))
     output = json.loads(capsys.readouterr().out)
-    record = _sub._read_task("default-timeout")
+    record = _sub._read_task("untimed")
 
     assert rc == 0
-    assert record is not None
-    assert record["timeout_seconds"] is None
-    assert output["timeout_seconds"] is None
-    assert "timeout_notice" not in output
+    assert record is not None and "timeout_seconds" not in record
+    assert "timeout_seconds" not in output
     assert record["worker_process_identity"]["pid"] == 4242
+    monkeypatch.setattr(sys, "argv", [
+        "subagent", "submit", "--task-id", "t", "--command", "true", "--timeout", "1200",
+    ])
+    with pytest.raises(SystemExit):
+        _sub._cli.main()
 
 
-def test_submit_without_timeout_survives_past_old_default(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def test_a_job_outlives_the_old_timeout_and_is_never_killed(monkeypatch, tmp_path) -> None:
+    """The 1200 s an old record asked for is ignored: the run lasts two hours,
+    ends on its own, and its worker notes the CPU it used along the way."""
     from argus.tools.subagent import _direct_run
 
     monkeypatch.chdir(tmp_path)
@@ -1784,7 +1760,7 @@ def test_submit_without_timeout_survives_past_old_default(
         "state": "starting",
         "task_id": "timed",
         "run_id": "timed-run-1",
-        "timeout_seconds": None,
+        "timeout_seconds": 1200,
     })
 
     class _Proc:
@@ -1792,57 +1768,58 @@ def test_submit_without_timeout_survives_past_old_default(
         returncode = None
 
         def wait(self, timeout=None):
-            assert timeout is None
-            clock[0] += 7201
+            clock[0] += timeout
+            if clock[0] < 100.0 + 7200:
+                raise subprocess.TimeoutExpired("train", timeout)
             self.returncode = 0
+            return 0
+
+        def poll(self):
+            return self.returncode
 
     proc = _Proc()
     writes: list[dict] = []
     alerts: list[str] = []
+    terminated: list[object] = []
     real_write = _sub._registry._write_task
 
     def record_write(task_id, data):
         writes.append(dict(data))
         real_write(task_id, data)
 
-    monkeypatch.setattr(
-        _direct_run,
-        "experiment_launch_preflight",
-        lambda **_kwargs: (False, ""),
-    )
-    monkeypatch.setattr(
-        _direct_run,
-        "release_experiment_launch_claim",
-        lambda **_kwargs: None,
-    )
+    cpu = [0.0]
+
+    def busy(_pid):
+        cpu[0] += 20.0
+        return cpu[0]
+
+    monkeypatch.setattr(_direct_run, "experiment_launch_preflight", lambda **_kwargs: (False, ""))
+    monkeypatch.setattr(_direct_run, "release_experiment_launch_claim", lambda **_kwargs: None)
     monkeypatch.setattr(_direct_run, "_launch_durable_command", lambda **_kwargs: proc)
     monkeypatch.setattr(_direct_run, "acquire_for_task", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_direct_run, "process_tree_cpu_seconds", busy)
+    monkeypatch.setattr(_direct_run, "_terminate_proc", terminated.append)
     monkeypatch.setattr(_direct_run.time, "time", lambda: clock[0])
     monkeypatch.setattr(_direct_run, "_write_task", record_write)
-    monkeypatch.setattr(
-        _direct_run,
-        "_alert_engineer",
-        lambda task_id, event, data: alerts.append(
-            event
-        ),
-    )
+    monkeypatch.setattr(_direct_run, "_alert_engineer", lambda task_id, event, data: alerts.append(event))
 
     _direct_run._run_direct(
         "timed",
         "python train.py",
         "long experiment",
-        timeout=None,
         cwd=str(tmp_path),
         run_dir=str(tmp_path / "run"),
     )
 
     record = _sub._read_task("timed")
-    running = next(row for row in writes if row.get("state") == "running")
-    assert running["timeout_seconds"] is None
-    assert running["process_identity"]["pid"] == proc.pid
+    running = [row for row in writes if row.get("state") == "running"]
+    assert "timeout_seconds" not in running[0]
+    assert running[0]["process_identity"]["pid"] == proc.pid
+    # CPU use is noted every five minutes, not every look.
+    assert 20 <= len(running) - 1 <= 25 and running[-1]["cpu_progress_at"] > 100.0 + 7000
     assert record is not None and record["state"] == "done"
-    assert record["elapsed_seconds"] == 7201.0
-    assert alerts == ["COMPLETED"]
+    assert record["elapsed_seconds"] >= 7200.0
+    assert alerts == ["COMPLETED"] and terminated == []
 
 
 def test_launch_durable_command_uses_native_powershell_on_windows(

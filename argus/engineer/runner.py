@@ -397,11 +397,9 @@ class SupervisedEngineer(
             if paused is not None:
                 return paused
             control = self._handle_runtime_team_wait(
-                round_index=round_index,
                 supervised_config=supervised_config,
                 workdir=workdir,
                 state=state,
-                on_event=on_event,
             )
             if control.action == "return":
                 return enforce_terminal_question_policy(

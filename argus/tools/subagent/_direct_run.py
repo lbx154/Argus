@@ -10,14 +10,17 @@ import os
 import re
 import shlex
 import signal
-import stat
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 from ...core.daemon_lock import is_process_group_running
+from ...core.process_progress import (
+    CPU_PROGRESS_SECONDS,
+    CPU_SAMPLE_SECONDS,
+    process_tree_cpu_seconds,
+)
 from ...daemon.state import (
     _terminate_windows_process_tree as terminate_windows_process_tree,
 )
@@ -41,7 +44,6 @@ from ._registry import (
 from ._reporting import _alert_engineer
 from ._resource_admission import (
     ResourceLease,
-    ResourceQueueTimeout,
     acquire_for_task,
     command_env,
     record_renewal_failure,
@@ -49,6 +51,10 @@ from ._resource_admission import (
 from ._text import _tail_file
 
 log = logging.getLogger(__name__)
+
+# How often a busy run's record notes its CPU use: fine enough for the stall
+# rule in ``engineer/external_work.py``, which counts in half hours.
+_CPU_NOTE_SECONDS = 300.0
 
 # ---------------------------------------------------------------------------
 # RL detection and collapse-guidance helpers
@@ -339,50 +345,12 @@ def _wait_group(proc: "subprocess.Popen[Any]", group: int, timeout: float) -> bo
         time.sleep(0.05)
 
 
-def _timeout_exit_evidence(
-    task_id: str, run_id: str, proc: "subprocess.Popen[Any]",
-) -> dict[str, Any]:
-    """Publish an observed wrapper signal exit, never reconstruct an old run."""
-    code = proc.poll()
-    group = _owned_process_group(proc)
-    if code is None or group != proc.pid or is_process_group_running(group):
-        raise RuntimeError("Timeout exit evidence requires a reaped, settled owned group")
-    path = _exit_status_path(task_id, run_id).absolute()
-    source = "durable_wrapper"
-    if not path.exists() and not path.is_symlink():
-        if code >= 0:
-            raise RuntimeError("Naturally exited durable wrapper has no exit sidecar")
-        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".timeout-exit-") as stream:
-            stream.write(f"{code}\n".encode("ascii"))
-            stream.flush()
-            os.fsync(stream.fileno())
-            try:
-                os.link(stream.name, path)
-                source = "timeout_waitpid"
-            except FileExistsError:
-                pass  # A published wrapper result must never be overwritten.
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise RuntimeError("Timeout exit sidecar is not a regular file")
-        raw = stream.read(65)
-    if len(raw) > 64 or re.fullmatch(rb"-?[0-9]+\n?", raw) is None:
-        raise RuntimeError("Timeout exit sidecar is not a bounded integer")
-    return {
-        "exit_code": int(raw),
-        "exit_status_path": str(path),
-        "exit_status_source": source,
-        "timeout_wrapper_returncode": code,
-        "timeout_settlement_scope": "owned_posix_process_group",
-    }
-
-
 def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     """Stop a run's whole process group, escalating SIGTERM -> SIGKILL.
 
     Run commands launch with ``start_new_session=True``, so the GPU training
     children share ``proc.pid`` as their process-group leader. Killing the GROUP
-    (not just the shell) is what actually frees VRAM on an early-stop/timeout;
+    (not just the shell) is what actually frees VRAM on an early-stop;
     terminating only the shell can orphan the trainer and leak the GPU.
     """
     if os.name == "nt":
@@ -503,11 +471,15 @@ def _run_direct(
     task_id: str,
     command: str,
     description: str,
-    timeout: int | None,
     cwd: str,
     run_dir: str | None = None,
 ) -> None:
-    """Run command directly via Popen. No LLM involved."""
+    """Run command directly via Popen. No LLM involved.
+
+    A run ends when its command does: no clock stops live work. While it runs
+    the worker records when its process tree last used CPU, so a command that
+    computes without printing is not mistaken for a hung one.
+    """
     start_time = time.time()
     submitted_task = _read_task(task_id) or {}
     run_id = str(
@@ -519,12 +491,9 @@ def _run_direct(
     log_dir = _prepare_run_logs(task_id, run_id)
     stdout_path = log_dir / "stdout.log"
     stderr_path = log_dir / "stderr.log"
-    run_fields = {
-        "timeout_seconds": timeout,
-        **{key: submitted_task[key] for key in (
-            "prerequisites", "previous_run_id", "rerun_reason",
-        ) if key in submitted_task},
-    }
+    run_fields = {key: submitted_task[key] for key in (
+        "prerequisites", "previous_run_id", "rerun_reason",
+    ) if key in submitted_task}
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     resource_lease: ResourceLease | None = None
@@ -563,7 +532,6 @@ def _run_direct(
             task_id,
             mode="direct",
             project_root=Path.cwd(),
-            timeout=timeout,
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             with cpu_admission_lock(Path.cwd()):
@@ -597,63 +565,26 @@ def _run_direct(
                 **run_fields,
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
-            try:
-                if timeout is None and resource_lease is None:
-                    proc.wait()
-                elif resource_lease is None:
-                    proc.wait(timeout=timeout)
-                else:
-                    deadline = (
-                        time.monotonic() + timeout
-                        if timeout is not None
-                        else None
-                    )
-                    renew_every = max(1.0, resource_lease.ttl_seconds / 3.0)
-                    while True:
-                        remaining = (
-                            deadline - time.monotonic()
-                            if deadline is not None
-                            else renew_every
-                        )
-                        if deadline is not None and remaining <= 0:
-                            raise subprocess.TimeoutExpired(proc.args, timeout)
-                        try:
-                            proc.wait(timeout=min(renew_every, remaining))
-                            break
-                        except subprocess.TimeoutExpired:
-                            if not resource_lease.renew():
-                                record_renewal_failure(task_id, resource_lease)
-            except subprocess.TimeoutExpired:
-                # Kill the whole process group, not just the shell: the command
-                # runs with start_new_session=True, so a GPU trainer it spawned
-                # would otherwise survive the timeout and leak the GPU.
-                _terminate_proc(proc)
-                _settle_direct_process_group(proc, resource_lease)
-                exit_evidence = (
-                    _timeout_exit_evidence(task_id, run_id, proc)
-                    if os.name != "nt" else {}
-                )
-                td = {"state": "timeout", "task_id": task_id,
-                    "run_id": run_id,
-                    "description": description, "command": command,
-                    "pid": proc.pid, "worker_pid": os.getpid(),
-                    "process_identity": command_identity,
-                    "worker_process_identity": worker_identity,
-                    **run_fields,
-                    "timeout_message": (
-                        f"Hard timeout reached after {timeout} seconds; "
-                        "this was the configured --timeout limit."
-                    ),
-                    "elapsed_seconds": round(time.time() - start_time, 1),
-                    "completed_at": time.time(), "mode": "direct",
-                    "run_dir": run_dir,
-                    "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-                    **exit_evidence,
-                }
-                _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
-                _write_task(task_id, td)
-                _alert_engineer(task_id, "TIMEOUT", td)
-                return
+            look_every = CPU_SAMPLE_SECONDS
+            if resource_lease is not None:
+                look_every = max(1.0, min(look_every, resource_lease.ttl_seconds / 3.0))
+            cpu_seconds = 0.0
+            while True:
+                try:
+                    proc.wait(timeout=look_every)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if resource_lease is not None and not resource_lease.renew():
+                    record_renewal_failure(task_id, resource_lease)
+                previous, cpu_seconds = cpu_seconds, process_tree_cpu_seconds(proc.pid)
+                now = time.time()
+                if (
+                    cpu_seconds - previous >= CPU_PROGRESS_SECONDS
+                    and now - running_task.get("cpu_progress_at", 0.0) >= _CPU_NOTE_SECONDS
+                ):
+                    running_task["cpu_progress_at"] = now
+                    _write_task(task_id, running_task)
 
             group_cleanup = _settle_direct_process_group(proc, resource_lease)
 
@@ -707,14 +638,11 @@ def _run_direct(
         }
         if isinstance(exc, PrerequisiteError):
             td["preflight"] = True
-        if isinstance(exc, ResourceQueueTimeout):
-            td.update(state="timeout", timeout_message=str(exc))
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(
             task_id,
-            "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError)
-            else "TIMEOUT" if isinstance(exc, ResourceQueueTimeout) else "CRASHED",
+            "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED",
             td,
         )
     finally:

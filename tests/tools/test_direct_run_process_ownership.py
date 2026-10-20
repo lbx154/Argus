@@ -73,7 +73,7 @@ def test_direct_owner_settles_children_before_terminal_state_and_release(
     thread = threading.Thread(
         target=_direct_run._run_direct,
         args=("owned", command, "ownership regression"),
-        kwargs={"timeout": 5, "cwd": str(tmp_path)},
+        kwargs={"cwd": str(tmp_path)},
         daemon=True,
     )
     group = 0

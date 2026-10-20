@@ -57,8 +57,9 @@ CURRENT = [
     _usage("m3", "manager-supervision", 0.5, 10),
     _supervision("issued", "s3", call_id="m3", action="continue"),
     _supervision("failed", "s3", action="continue"),
-    # Task aaa: reviewed once on new work, once while its job still ran, then
-    # skipped once as unchanged, and passed on the job's result.
+    # Task aaa: reviewed twice, skipped once as unchanged, and passed on its
+    # job's result. The wait lines are from journals written before waiting
+    # went quiet; the report reads past them.
     {"type": "life.mission.started", "item_id": "aaa"},
     _usage("e1", "engineer-r1", 3.0, 1000, task="aaa:attempt:1"),
     _usage("r1", "reviewer", 1.0, 400, task="aaa:attempt:1"),
@@ -113,20 +114,19 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
         "planner_kept_waiting": (2, 4, 2.0, 2),
         "manager_not_applied": (1, 3, 0.5, 0),
         "manager_kept_course": (1, 3, 0.25, 0),
-        "reviewer_while_running": (1, 4, 1.0, 1),
     }
 
     assert [
-        {key: row[key] for key in ("task", "reviewer_calls", "unchanged", "while_running", "continue",
+        {key: row[key] for key in ("task", "reviewer_calls", "unchanged", "continue",
                                    "elapsed_s", "calls", "input_tokens", "cost_usd")}
         for row in report["passed_tasks"]
     ] == [
-        {"task": "aaa", "reviewer_calls": 3, "unchanged": 1, "while_running": 1, "continue": 2,
+        {"task": "aaa", "reviewer_calls": 3, "unchanged": 1, "continue": 2,
          "elapsed_s": 120.5, "calls": 5, "input_tokens": 4200, "cost_usd": 7.0},
-        {"task": "bbb", "reviewer_calls": 1, "unchanged": 0, "while_running": 0, "continue": 1,
+        {"task": "bbb", "reviewer_calls": 1, "unchanged": 0, "continue": 1,
          "elapsed_s": 90.0, "calls": 3, "input_tokens": 2400, "cost_usd": 4.0},
     ]
-    assert report["continue_reasons"] == {"artifact_improved": 1, "background_running": 1, "unspecified": 1}
+    assert report["continue_reasons"] == {"artifact_improved": 1, "uncertainty_reduced": 1, "unspecified": 1}
     assert report["context"]["planner"] == {
         "p50": 100, "p90": 500, "max": 500, "mean_by_session_turn": {"1": 100, "2-3": 300, "8-15": 500},
     }
@@ -138,7 +138,7 @@ def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture
     assert main([str(project)]) == 0
     table = capsys.readouterr().out
     assert table.startswith(f"{project}: 17 calls, $17.50")
-    assert "planner kept waiting        2   4    2.00        2" in table
+    assert "planner kept waiting      2   4    2.00        2" in table
 
     assert main([str(project), "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == efficiency_report(project)

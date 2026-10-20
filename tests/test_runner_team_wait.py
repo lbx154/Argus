@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import argus.team  # noqa: F401 — registers the team projection with the external-work scan
-from argus.engineer import runner
+from argus.engineer import round_signals, runner
 from argus.engineer.round_config import SupervisedConfig
 from argus.engineer.round_state import RoundLoopState
 from argus.engineer.round_waits import RoundWaitsMixin
@@ -34,8 +34,8 @@ def _portfolio(project: Path, *states: str) -> Path:
 
 def _wait(tmp_path: Path, **kwargs):
     return RoundWaitsMixin()._handle_runtime_team_wait(
-        round_index=1, supervised_config=SupervisedConfig(max_rounds=4),
-        workdir=tmp_path, state=kwargs.pop("state", RoundLoopState()), on_event=kwargs.pop("on_event", None),
+        supervised_config=SupervisedConfig(max_rounds=4),
+        workdir=tmp_path, state=kwargs.pop("state", RoundLoopState()),
     )
 
 
@@ -49,7 +49,10 @@ def test_running_team_is_waited_on_without_an_engineer_turn(tmp_path: Path, monk
     monkeypatch.setenv("ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS", "0")
     _portfolio(tmp_path, "running", "pending")
     calls: list[str] = []
-    monkeypatch.setattr(runner, "_run_external_work_wait", lambda **kw: (calls.append(kw["work_id"]) or ("cadence_elapsed", 300.0)))
+    monkeypatch.setattr(
+        round_signals, "wait_for_external_work_cadence",
+        lambda workdir, work_id: (calls.append(work_id) or ("cadence_elapsed", 300.0)),
+    )
     state = RoundLoopState()
     before = state.last_decision_progress_at
     control = _wait(tmp_path, state=state)
@@ -66,18 +69,21 @@ def test_lead_keeps_waiting_in_process_within_its_budget(tmp_path: Path, monkeyp
     monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
     monkeypatch.setenv("ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS", "3600")
     root = _portfolio(tmp_path, "running")
-    cadences: list[float] = []
+    cadences: list[str] = []
 
-    def wait(**kw):
-        cadences.append(kw["waited_total_s"])
+    def cadence(workdir, work_id):
+        cadences.append(work_id)
         if len(cadences) == 3:  # the worker finishes during the third cadence
             task_board._mutate(root, f"{TEAM}-route-01", state="done")
             return ("terminal", 40.0)
         return ("cadence_elapsed", 300.0)
 
-    monkeypatch.setattr(runner, "_run_external_work_wait", wait)
-    control = _wait(tmp_path)
-    assert cadences == [0.0, 300.0, 600.0]
+    monkeypatch.setattr(round_signals, "wait_for_external_work_cadence", cadence)
+    state = RoundLoopState()
+    before = state.last_decision_progress_at
+    control = _wait(tmp_path, state=state)
+    assert cadences == [WORK] * 3
+    assert state.last_decision_progress_at == before + 640.0
     assert control.action == "return"
     status, _rounds, final_message, reason, _thread = control.terminal
     assert status == "paused_external_work" and "finished" in reason

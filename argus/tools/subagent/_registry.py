@@ -372,7 +372,6 @@ def _write_task(
             "cpu_ids",
             "cpu_count",
             "cwd",
-            "timeout_seconds",
             "process_identity",
             "worker_process_identity",
         ]

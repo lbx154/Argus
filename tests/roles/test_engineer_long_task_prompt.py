@@ -23,7 +23,7 @@ def test_long_task_rule_requires_argus_durable_receipt(
     )
 
     assert '"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit' in prompt
-    assert "--mode direct" in prompt
+    assert "--mode direct" in prompt and "--timeout" not in prompt
     assert "--mode supervised" in prompt
     assert 'task(mode="background")' in prompt
     assert all(field in prompt for field in ("state=submitted", "task_id", "run_id", "check_with"))
@@ -60,7 +60,7 @@ def test_native_windows_rule_uses_powershell_durable_runner(
         "& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit"
         in prompt
     )
-    assert "--mode direct" in prompt
+    assert "--mode direct" in prompt and "--timeout" not in prompt
     assert "--mode supervised" in prompt
     assert 'task(mode="background")' in prompt
     assert "session-owned background shell" in prompt

@@ -1184,7 +1184,7 @@ export interface RoundStallEvent extends EventMsg {
   "stall_threshold"?: number;
   "decision_idle_seconds"?: number;
   "forward_progress"?: boolean;
-  "stall_reason"?: "no_forward_progress" | "unverifiable_through_view";
+  "stall_reason"?: "no_forward_progress" | "unverifiable_through_view" | "turn_stalled" | "background_work_stalled";
   "text"?: string;
 }
 
@@ -1899,27 +1899,6 @@ export interface RoundOrphanProcessGroupEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface RoundExternalWorkWaitStartedEvent extends EventMsg {
-  type: "round.external_work_wait.started";
-  payload_schema_version?: 1;
-  "round_index": number;
-  "round_max"?: number;
-  "work_id": string;
-  "waited_total_s"?: number;
-  "text"?: string;
-}
-
-export interface RoundExternalWorkWaitCompletedEvent extends EventMsg {
-  type: "round.external_work_wait.completed";
-  payload_schema_version?: 1;
-  "round_index": number;
-  "round_max"?: number;
-  "work_id": string;
-  "reason"?: string;
-  "waited_total_s"?: number;
-  "text"?: string;
-}
-
 export interface RoundExternalWorkReviewRequiredEvent extends EventMsg {
   type: "round.external_work_review.required";
   payload_schema_version?: 1;
@@ -2304,8 +2283,6 @@ export interface EventPayloadByType {
   "round.provider_turn_cap.restart": RoundProviderTurnCapRestartEvent;
   "round.provider_turn_cap.reviewer_restart": RoundProviderTurnCapReviewerRestartEvent;
   "round.orphan_process_group": RoundOrphanProcessGroupEvent;
-  "round.external_work_wait.started": RoundExternalWorkWaitStartedEvent;
-  "round.external_work_wait.completed": RoundExternalWorkWaitCompletedEvent;
   "round.external_work_review.required": RoundExternalWorkReviewRequiredEvent;
   "round.external_work_review.completed": RoundExternalWorkReviewCompletedEvent;
   "round.review.skipped_unchanged": RoundReviewSkippedUnchangedEvent;

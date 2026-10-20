@@ -27,7 +27,6 @@ def _submit(task_id: str, run_id: str, message: str, alerts: list) -> None:
         task_id,
         f'{sys.executable} -c "print(\'{message}\')"',
         f"arm {message}",
-        timeout=60,
         cwd=str(Path.cwd()),
     )
 

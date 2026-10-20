@@ -75,12 +75,12 @@ def test_failed_prerequisite_prevents_process_and_model_launch(monkeypatch, tmp_
     monkeypatch.setattr(runner, "_alert_engineer",
                         lambda task_id, event, data: alerts.append((event, data)) or "")
     if mode == "direct":
-        runner._run_direct("dependent", "echo main", "test", 10, str(tmp_path))
+        runner._run_direct("dependent", "echo main", "test", str(tmp_path))
     else:
         monkeypatch.setattr(runner, "_run_supervisor_with_usage", model)
         monkeypatch.setattr(runner, "_persist_experiment_record", lambda *args: None)
         runner._run_supervised(
-            "dependent", "echo main", "test", 10, 120, "", str(tmp_path), preflight=False,
+            "dependent", "echo main", "test", 120, "", str(tmp_path), preflight=False,
         )
     launch.assert_not_called()
     model.assert_not_called()
@@ -110,11 +110,11 @@ def test_prerequisite_changed_during_resource_admission_is_rechecked(
     monkeypatch.setattr(runner, "_alert_engineer",
                         lambda task_id, event, data: alerts.append((event, data)) or "")
     if mode == "direct":
-        runner._run_direct("dependent", "echo main", "test", 10, str(tmp_path))
+        runner._run_direct("dependent", "echo main", "test", str(tmp_path))
     else:
         monkeypatch.setattr(runner, "_persist_experiment_record", lambda *args: None)
         runner._run_supervised(
-            "dependent", "echo main", "test", 10, 120, "", str(tmp_path), preflight=False,
+            "dependent", "echo main", "test", 120, "", str(tmp_path), preflight=False,
         )
     launch.assert_not_called()
     assert alerts[-1][0] == "PREFLIGHT-REJECTED"
@@ -287,11 +287,11 @@ def test_final_check_and_launch_share_submission_lock(monkeypatch, tmp_path, mod
     monkeypatch.setattr(runner, "acquire_for_task", lambda *args, **kwargs: None)
     monkeypatch.setattr(runner, "_alert_engineer", lambda *args: "")
     if mode == "direct":
-        runner._run_direct("dependent", "echo main", "test", 10, str(tmp_path))
+        runner._run_direct("dependent", "echo main", "test", str(tmp_path))
     else:
         monkeypatch.setattr(runner, "_persist_experiment_record", lambda *args: None)
         runner._run_supervised(
-            "dependent", "echo main", "test", 10, 120, "", str(tmp_path), preflight=False,
+            "dependent", "echo main", "test", 120, "", str(tmp_path), preflight=False,
         )
     assert events == ["checked", "launched"]
     assert not held

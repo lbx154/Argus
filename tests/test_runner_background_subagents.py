@@ -430,3 +430,65 @@ def test_a_job_that_writes_its_results_elsewhere_is_not_accused(tmp_path) -> Non
     )
     assert status.state is ExternalWorkState.RUNNING_HEALTHY
     assert status.waitable is True
+
+
+def test_a_stalled_job_is_reported_to_the_manager_once_and_left_running(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Half an hour with neither CPU use nor output: the wait ends, the
+    Engineer gets the job back, the Manager is asked once, and nothing
+    signals the process."""
+    import subprocess
+    import sys
+
+    from argus.engineer import round_signals
+
+    workdir = tmp_path / "work"
+    registry = workdir / ".argus_subagents"
+    registry.mkdir(parents=True)
+    log = workdir / "hung.out"
+    log.write_text("loading\n", encoding="utf-8")
+    packet = tmp_path / "state" / "handoff" / "mission.json"
+    packet.parent.mkdir(parents=True)
+    packet.write_text(json.dumps({"mission_id": "m-hung"}), encoding="utf-8")
+    job = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    long_ago = time.time() - 3600
+    (registry / "hung.json").write_text(json.dumps({
+        "task_id": "hung", "run_id": "run-1", "state": "running", "mode": "direct",
+        "pid": job.pid, "worker_pid": job.pid, "started_at": long_ago,
+        "stdout_log": str(log),
+    }), encoding="utf-8")
+
+    def cadence(_workdir, _work_id):
+        os.utime(log, (long_ago, long_ago))  # the job falls silent during the wait
+        return "stalled", 120.0
+
+    monkeypatch.setattr(round_signals, "wait_for_external_work_cadence", cadence)
+    config = SupervisedConfig(
+        background_subagent_advisory=True, manager_supervised=True, context_packet_path=packet,
+    )
+    events: list[dict] = []
+
+    def ask(state: RoundLoopState):
+        return RoundWaitsMixin()._handle_agent_driven_wait(
+            round_index=2, supervised_config=config,
+            raw_engineer_message='{"wait_for":"subagent","wait_id":"hung"}',
+            workdir=workdir, state=state, on_event=events.append,
+        )
+
+    try:
+        state = RoundLoopState()
+        assert ask(state).action == "continue_loop"
+        assert "`stalled`" in state.pending_external_work_followup
+        # Asking again, in this attempt or the next one, reports nothing new.
+        assert ask(state).action == "proceed"
+        assert ask(RoundLoopState()).action == "continue_loop"
+
+        stalls = [event for event in events if event["type"] == "round.stall"]
+        assert len(stalls) == 1
+        assert stalls[0]["stall_reason"] == "background_work_stalled"
+        assert "`hung`" in stalls[0]["consult"] and stalls[0]["work_id"] == "hung"
+        assert job.poll() is None
+    finally:
+        job.kill()
+        job.wait(timeout=5)

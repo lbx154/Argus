@@ -92,8 +92,6 @@ class EventType(StrEnum):
     ROUND_PROVIDER_TURN_CAP_RESTART = "round.provider_turn_cap.restart"
     ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART = "round.provider_turn_cap.reviewer_restart"
     ROUND_ORPHAN_PROCESS_GROUP = "round.orphan_process_group"
-    ROUND_EXTERNAL_WORK_WAIT_STARTED = "round.external_work_wait.started"
-    ROUND_EXTERNAL_WORK_WAIT_COMPLETED = "round.external_work_wait.completed"
     ROUND_EXTERNAL_WORK_REVIEW_REQUIRED = "round.external_work_review.required"
     ROUND_EXTERNAL_WORK_REVIEW_COMPLETED = "round.external_work_review.completed"
     ROUND_REVIEW_SKIPPED_UNCHANGED = "round.review.skipped_unchanged"
@@ -393,8 +391,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_PROVIDER_TURN_CAP_RESTART,
     EventType.ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART,
     EventType.ROUND_ORPHAN_PROCESS_GROUP,
-    EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
-    EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
     EventType.ROUND_EXTERNAL_WORK_REVIEW_REQUIRED,
     EventType.ROUND_EXTERNAL_WORK_REVIEW_COMPLETED,
     EventType.ROUND_REVIEW_SKIPPED_UNCHANGED,

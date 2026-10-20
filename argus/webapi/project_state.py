@@ -724,9 +724,7 @@ def build_snapshot(
 
         # What an open mission waits on, read once so the sidebar, the map and
         # the conversation header describe the same wait with the same numbers.
-        waits = background_work(
-            session.get("workdir") or session.get("cwd"), backlog, recent,
-        )
+        waits = background_work(session.get("workdir") or session.get("cwd"), backlog)
     except Exception as exc:  # noqa: BLE001
         waits = []
         diagnostics.append(diagnostic("background_work", exc))

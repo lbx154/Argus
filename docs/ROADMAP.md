@@ -247,8 +247,9 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Status: the first step is done. The guards above no longer stop a task themselves: while the facts are unchanged
   they wait, and on new facts they hand the task to the Manager once; the Manager may choose to stop, which parks the
   task and keeps its workspace. The hard timeouts that killed processes are gone: a turn is stuck only when there is
-  neither model output nor CPU use in its process tree, and then it is reported to the Manager once. The budgets and
-  deleting the guards remain.
+  neither model output nor CPU use in its process tree, and then it is reported to the Manager once. Background jobs
+  follow the same rule: `subagent submit` takes no `--timeout`, and a job with neither output nor CPU use for 30 min is
+  reported once, never killed. The budgets and deleting the guards remain.
 
 #### HO-13 Review only when work is handed in
 `0.4` · `M` · Depends on: HO-2, HO-7, HO-12

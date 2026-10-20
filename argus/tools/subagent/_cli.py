@@ -119,7 +119,6 @@ def _windows_worker_command(
     description: str,
     command: str,
     mode: str,
-    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -145,8 +144,6 @@ def _windows_worker_command(
         "--cwd",
         cwd,
     ]
-    if timeout is not None:
-        argv.extend(["--timeout", str(int(timeout))])
     if model:
         argv.extend(["--model", model])
     if run_dir:
@@ -164,7 +161,6 @@ def _spawn_windows_worker(
     description: str,
     command: str,
     mode: str,
-    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -193,7 +189,6 @@ def _spawn_windows_worker(
                 description=description,
                 command=command,
                 mode=mode,
-                timeout=timeout,
                 monitor_interval=monitor_interval,
                 model=model,
                 cwd=cwd,
@@ -256,7 +251,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
     worker_task["worker_pid"] = os.getpid()
     worker_task.setdefault("pid", os.getpid())
     worker_task["worker_process_identity"] = _process_identity(os.getpid())
-    worker_task.setdefault("timeout_seconds", args.timeout)
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
@@ -279,7 +273,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
             monitor_interval=args.monitor_interval or 120,
             model=args.model or resolve_supervisor_model(),
             cwd=args.cwd,
@@ -291,7 +284,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
             cwd=args.cwd,
             run_dir=run_dir,
         )
@@ -340,7 +332,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if run_dir:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
-    timeout_seconds = int(args.timeout) if args.timeout is not None else None
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs
@@ -451,7 +442,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "submitted_at": time.time(),
                 "submitter_pid": os.getpid(),
                 "submitter_process_identity": _process_identity(os.getpid()),
-                "timeout_seconds": timeout_seconds,
             }
             if prerequisites:
                 initial_task["prerequisites"] = prerequisites
@@ -498,7 +488,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 description=args.description,
                 command=args.command,
                 mode=mode,
-                timeout=timeout_seconds,
                 monitor_interval=args.monitor_interval or 120,
                 model=args.model,
                 cwd=cwd,
@@ -529,7 +518,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
-            "timeout_seconds": timeout_seconds,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -564,7 +552,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_id": run_id,
             "description": args.description, "command": args.command,
             "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
-            "timeout_seconds": timeout_seconds,
         }
         rec["worker_pid"] = pid
         rec.setdefault("pid", pid)
@@ -579,7 +566,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
-            "timeout_seconds": timeout_seconds,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -628,7 +614,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=timeout_seconds,
             monitor_interval=args.monitor_interval or 120,
             model=args.model or resolve_supervisor_model(),
             cwd=cwd,
@@ -640,7 +625,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=timeout_seconds,
             cwd=cwd,
             run_dir=run_dir,
         )
@@ -654,6 +638,7 @@ _OK_STATES = frozenset({
     "done", "running", "starting", "preflight", "waiting_resource", "early_stopped",
 })
 
+# ``timeout`` survives only on records from when a run could be given a time limit.
 _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
 
 
@@ -901,7 +886,6 @@ def main() -> int:
     p_submit.add_argument("--command", required=True, help="Shell command to run")
     p_submit.add_argument("--mode", choices=["direct", "supervised"], default="direct",
                           help="direct: just run (no LLM). supervised: run + periodic LLM monitoring")
-    p_submit.add_argument("--timeout", type=int, default=None, help="Optional maximum seconds")
     p_submit.add_argument("--monitor-interval", type=int, default=120,
                           help="Base seconds between supervisor checks; backs off "
                                "while healthy, tightens when degrading (supervised mode)")
@@ -967,7 +951,6 @@ def main() -> int:
     p_worker.add_argument("--description", default="background task")
     p_worker.add_argument("--command", required=True)
     p_worker.add_argument("--mode", choices=["direct", "supervised"], default="direct")
-    p_worker.add_argument("--timeout", type=int, default=None)
     p_worker.add_argument("--monitor-interval", type=int, default=120)
     p_worker.add_argument("--model", default=None)
     p_worker.add_argument("--run-dir", default=None)
