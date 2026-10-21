@@ -618,6 +618,8 @@ class ReviewerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     working_dir: str | None = None
+    # The Engineer's: the Reviewer reads what the work it judges was built from.
+    add_dirs: list[str] = field(default_factory=list)
     artifact_root: str | None = None
     # The task's snapshots, its candidate just taken: the Reviewer starts from
     # the diff from baseline to candidate.
@@ -902,7 +904,7 @@ class Reviewer:
             decision.changed_during_review = changed
             return decision
 
-        add_dirs: list[str] | None = None
+        add_dirs = list(config.add_dirs)
         if str(getattr(self.runner, "backend", "")).lower() == "copilot":
             # Copilot denies a read outside its add-dirs, and this prompt names
             # files outside the workdir by absolute path: the project state
@@ -915,7 +917,7 @@ class Reviewer:
             ]
             if config.vertical_state_root:
                 prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
-            add_dirs = [
+            add_dirs += [
                 *(str(path) for path in review_libraries.library_roots),
                 *(str(path) for path in prompt_dirs if path.is_dir()),
                 *vertical_skill_read_dirs(vertical),
@@ -930,7 +932,7 @@ class Reviewer:
                     **_engineer_access(config),
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
-                    add_dirs=add_dirs,
+                    add_dirs=add_dirs or None,
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a

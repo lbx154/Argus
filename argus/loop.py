@@ -83,7 +83,8 @@ class SkillLoopConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
-    # Directories outside the workdir the Engineer may read (recall, handoffs).
+    # Directories outside the workdir the Engineer and its Reviewer may read
+    # (recall, handoffs).
     add_dirs: list[str] | None = None
     session_id: str | None = None
     # Manager-selected execution topology. Every mode still uses skill/wiki.
@@ -194,6 +195,9 @@ class SkillLoop(
         # decision layer and no runtime Skill mutation channel.
         self.skill_router = None
         libraries = self.engineer_mission.libraries()
+        # A sandboxed backend reads only what it is given: the Skill libraries
+        # the prompts name are read where they lie.
+        add_dirs = [*(self.config.add_dirs or ()), *(str(path) for path in libraries.library_roots)]
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
             reviewer=self.reviewer,
@@ -205,12 +209,7 @@ class SkillLoop(
                 ),
                 extra_args=self.config.extra_args,
                 skill_paths=[str(path) for path in libraries.native_paths],
-                # A sandboxed backend reads only what it is given: the Skill
-                # libraries its prompt names are read where they lie.
-                add_dirs=[
-                    *(self.config.add_dirs or ()),
-                    *(str(path) for path in libraries.library_roots),
-                ] or None,
+                add_dirs=add_dirs or None,
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
                 dangerous_yolo=self.config.dangerous_yolo,
@@ -219,6 +218,7 @@ class SkillLoop(
             ),
             reviewer_config=ReviewerConfig(
                 model=self.config.resolved_reviewer_model(),
+                add_dirs=add_dirs,
                 active_vertical=self.config.active_vertical,
                 workflow_mode=self.config.workflow_mode,
                 vertical_state_root=(
