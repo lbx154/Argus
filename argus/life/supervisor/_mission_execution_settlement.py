@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ...core.event_catalog import EventType
 from ...core.mission_view import say
-from ...core.operator_decision import ask_operator
 from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
@@ -37,6 +36,7 @@ from ._constants import (
     PLANNER_SCOPE_FINAL_SUBMISSION,
 )
 from ._mission_execution_helpers import _MissionRunState
+from .pending_notify import ask_operator
 
 log = logging.getLogger(__name__)
 

@@ -162,7 +162,7 @@ class PlanningCycleVerdictMixin:
                     iterate=False,
                 )
             )
-        from ...core.operator_decision import ask_operator
+        from .pending_notify import ask_operator
 
         ask_operator(
             self.memory.root, item, question, reason=reason or question, layer="planner",

@@ -375,7 +375,7 @@ def enqueue_mission(
         sink = JsonlEventSink(None, life_dir=life_dir)
         sink.append(event)
         if question:
-            from ..core.operator_decision import ask_operator
+            from ..life.supervisor.pending_notify import ask_operator
 
             ask_operator(
                 life_dir, item, question, layer="manager",

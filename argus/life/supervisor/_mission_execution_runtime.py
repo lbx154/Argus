@@ -1231,7 +1231,7 @@ class MissionExecutionRuntimeMixin:
             return None
 
         from ...core.mission_view import say
-        from ...core.operator_decision import ask_operator
+        from .pending_notify import ask_operator
 
         usage_summary = state.usage_summary
         assert usage_summary is not None, "provider parking requires metered outcome"

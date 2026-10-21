@@ -22,11 +22,15 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, Mapping
+
+from ...core.event_catalog import EventType
+from ...core.operator_decision import build_operator_decision
 
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "ask_operator",
     "notify_pending_question",
     "pending_question_message",
     "should_report_pending_wait",
@@ -223,6 +227,34 @@ def notify_pending_question(life_dir: Any, item: Any) -> bool:
     except Exception:  # noqa: BLE001
         log.exception("pending-question notify: unexpected failure")
         return False
+
+
+def ask_operator(
+    root: Path, item: Any, question: str, *, reason: str, layer: str,
+    save: Callable[..., Any], emit: Callable[[dict[str, Any]], Any],
+    options: Iterable[Mapping[str, Any] | str] = (),
+    evidence: Iterable[Mapping[str, Any]] = (),
+    **card_fields: Any,
+) -> None:
+    """Park ``item`` on ``question`` to the operator, on its one card.
+
+    ``save`` writes the parked row and receives the card's backlog fields;
+    then the operator is told where they already are, and ``emit`` records
+    the question ``layer`` asked. While the operator cannot be asked, the
+    Manager answers the card in their place like any parked question.
+    """
+    card = build_operator_decision(
+        item_id=item.id, title=item.title, reason=reason, question=question,
+        options=options, evidence=evidence, project_id=Path(root).name,
+        previous_decision=item.operator_decision,
+    ) | card_fields
+    save(park_reason="operator_question", pending_question=question, operator_decision=card)
+    item.pending_question, item.operator_decision = question, card
+    notify_pending_question(root, item)
+    emit({
+        "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": item.id,
+        "title": item.title, "question": question, "agent_layer": layer,
+    })
 
 
 def _send_telegram(message: str) -> bool:

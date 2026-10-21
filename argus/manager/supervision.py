@@ -558,9 +558,9 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     A task still settling is delivered to at the next boundary; the question
     the card already holds is not asked twice.
     """
-    from ..core.operator_decision import ask_operator
     from ..life.event_log import JsonlEventSink
     from ..life.memory import Backlog
+    from ..life.supervisor.pending_notify import ask_operator
 
     item_id = str(record.get("trigger", {}).get("item_id") or "")
     backlog = Backlog(root / "backlog.jsonl")

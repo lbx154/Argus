@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus.life.supervisor.pending_notify import (
+    ask_operator,
     notify_pending_question,
     pending_question_message,
     should_report_pending_wait,
@@ -230,8 +231,6 @@ def test_an_unwritable_ledger_still_sends(tmp_path: Path, channel, monkeypatch) 
 # -- the wiring -------------------------------------------------------------
 
 def test_asking_the_operator_announces_only_a_recorded_question(project, monkeypatch) -> None:
-    from argus.core.operator_decision import ask_operator
-
     order: list[str] = []
     monkeypatch.setattr(
         "argus.life.supervisor.pending_notify._send_telegram",

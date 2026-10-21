@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 
 def _human_reason(reason: str, *, language_hint: str) -> str:
@@ -186,37 +185,6 @@ def build_operator_decision(
     return card
 
 
-def ask_operator(
-    root: Path, item: Any, question: str, *, reason: str, layer: str,
-    save: Callable[..., Any], emit: Callable[[dict[str, Any]], Any],
-    options: Iterable[Mapping[str, Any] | str] = (),
-    evidence: Iterable[Mapping[str, Any]] = (),
-    **card_fields: Any,
-) -> None:
-    """Park ``item`` on ``question`` to the operator, on its one card.
-
-    ``save`` writes the parked row and receives the card's backlog fields;
-    the operator is told where they already are, and ``emit`` records the
-    question ``layer`` asked. While the operator cannot be asked, the Manager
-    answers the card in their place like any parked question.
-    """
-    from ..life.supervisor.pending_notify import notify_pending_question
-    from .event_catalog import EventType
-
-    card = build_operator_decision(
-        item_id=item.id, title=item.title, reason=reason, question=question,
-        options=options, evidence=evidence, project_id=Path(root).name,
-        previous_decision=item.operator_decision,
-    ) | card_fields
-    save(park_reason="operator_question", pending_question=question, operator_decision=card)
-    item.pending_question, item.operator_decision = question, card
-    notify_pending_question(root, item)
-    emit({
-        "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": item.id,
-        "title": item.title, "question": question, "agent_layer": layer,
-    })
-
-
 def operator_answers(rows: Iterable[Any], *, since: float = 0.0) -> list[str]:
     """Answers on question cards asked from ``since`` on, oldest first, as ``question → answer (who)``.
 
@@ -270,7 +238,6 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
 
 
 __all__ = [
-    "ask_operator",
     "build_operator_decision",
     "operator_answers",
     "normalize_agent_options",
