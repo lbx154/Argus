@@ -20,7 +20,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ..core.command_record import backend_records_command_results
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
@@ -514,9 +513,6 @@ class RoundReviewerMixin:
                         state.snapshots
                         if state.snapshots and state.snapshots.take("candidate")
                         else None
-                    ),
-                    engineer_records_commands=backend_records_command_results(
-                        getattr(self, "engineer_runner", None)
                     ),
                     mission_grounding=_mission_grounding(supervised_config, state),
                 ),

@@ -30,12 +30,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 
-#: Backends whose stream reports each shell command's exit code, so the host
-#: can record a result for it. Others report a command's start (and at most
-#: its failure); a Reviewer must not be told to rely on results that cannot
-#: exist there.
-RESULT_RECORDING_BACKENDS = frozenset({"copilot", "codex"})
-
 _SHELL_TRAILER = re.compile(r"^<shellId: .*>$")
 _KEY_LINE = re.compile(
     r"(?i)\b(?:fail(?:ed|s|ure|ures)?|errors?|traceback|exception|"
@@ -49,12 +43,6 @@ _DIGEST_CHARS = 800
 _MAX_RUNS = 2_000
 _MAX_RESULTS = 4
 _TEXT_CHARS = 4_000
-
-
-def backend_records_command_results(backend: object) -> bool:
-    """Whether a runner of this backend reports each command's exit code."""
-    name = str(getattr(backend, "backend", backend) or "").strip().lower()
-    return name in RESULT_RECORDING_BACKENDS
 
 
 def output_digest(raw: object) -> str:
@@ -265,12 +253,10 @@ def captures_for(actor: str) -> list[CommandCapture]:
 
 
 __all__ = [
-    "RESULT_RECORDING_BACKENDS",
     "CommandCapture",
     "CommandResult",
     "CommandRun",
     "anonymous_call_id",
-    "backend_records_command_results",
     "capture",
     "captures_for",
     "output_digest",

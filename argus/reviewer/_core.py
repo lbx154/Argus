@@ -634,9 +634,6 @@ class ReviewerConfig:
     )
     # Standalone reviews discover persisted policy; mission callers supply theirs.
     workflow_mode: str | None = None
-    # No longer read: the Reviewer reruns checks itself. Kept only because
-    # ``engineer/round_reviewer.py`` still sets it.
-    engineer_records_commands: bool = False
     # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
     # the workspace's files as recorded when work on the objective began, the
     # files its packet names with their recorded state, and the acceptances

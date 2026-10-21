@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-from argus.core.command_record import backend_records_command_results
 from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.reviewer import Reviewer
 
@@ -29,13 +28,6 @@ def test_every_reviewer_reruns_the_check_itself(backend: str) -> None:
     )
     assert REVIEW_EVIDENCE_RULE in prompt
     assert "never ask for an execution tool" not in prompt
-
-
-def test_only_backends_that_report_exit_codes_count_as_recording() -> None:
-    assert backend_records_command_results(_Runner("copilot"))
-    assert backend_records_command_results(_Runner("codex"))
-    for backend in ("claude", "cursor", "pi", "opencode", "qoder", "memory", ""):
-        assert not backend_records_command_results(_Runner(backend))
 
 
 def test_the_rule_refuses_the_engineers_word_alone_and_falls_back_when_blocked() -> None:
