@@ -212,7 +212,6 @@ def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:
     assert resumed.operator_decision["status"] == "resolved"
     assert resumed.operator_decision["selected_option"] == "custom"
     assert resumed.operator_decision["resolved_from_revision"] == 1
-    assert resumed.operator_decision["continuation_item_id"] == item.id
     assert resumed.operator_decision["resume_requested"] is True
     assert resumed.operator_decision["resolution_id"] == "decision-item:r1"
     # The task it parked resumes, not failed and not replaced.

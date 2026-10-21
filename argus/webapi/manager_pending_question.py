@@ -355,7 +355,7 @@ def _drop_decision_item(
             (row for row in mem.backlog.history() if row.id == item.id), item,
         )
         replay = _resolved_decision_replay(
-            mem, current, decision_id=decision_id, option_id="drop", note=note,
+            current, decision_id=decision_id, option_id="drop", note=note,
         )
         return replay or _decision_stale("decision changed while applying")
     card = dropped.operator_decision
@@ -371,7 +371,6 @@ def _drop_decision_item(
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
-        "continuation_item_id": "",
         "question": str(item.pending_question or ""),
         "manager_decision": "drop task",
         "decision_id": decision_id,
@@ -399,7 +398,6 @@ def _drop_decision_item(
 
 
 def _resolved_decision_replay(
-    mem: Any,
     item: Any,
     *,
     decision_id: str,
@@ -447,16 +445,6 @@ def _resolved_decision_replay(
             "deployment": dict(card.get("deployment") or {}),
             "maintenance_cleanup": dict(card.get("maintenance_cleanup") or {}),
         }
-    continuation_id = str(card.get("continuation_item_id") or "").strip()
-    continuation = next(
-        (row for row in mem.backlog.history() if row.id == continuation_id),
-        None,
-    ) if continuation_id else None
-    if option_id != "stop" and continuation is None:
-        return {
-            "error": "resolved decision is missing its continuation item",
-            "application_status": "stale",
-        }
     result: dict[str, Any] = {
         "answered_item_id": item.id,
         "decision_id": decision_id,
@@ -476,7 +464,7 @@ def _resolved_decision_replay(
         result["stopped"] = True
     else:
         result["manager_decision"] = str(card.get("manager_decision") or "")
-        result["item"] = continuation.to_jsonable()
+        result["item"] = item.to_jsonable()
     return result
 
 
@@ -577,7 +565,7 @@ def _apply_framework_deployment_decision(
     card.update({
         "status": "resolved", "selected_option": option_id, "note": note.strip(),
         "resolved_from_revision": revision, "revision": revision + 1,
-        "continuation_item_id": "", "resume_requested": False,
+        "resume_requested": False,
         "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
         "reply": reply, "deployment": deployment, "decided_by": decided_by,
     })
@@ -599,7 +587,7 @@ def _apply_framework_deployment_decision(
     mem.backlog.update(item.id, operator_decision=card)
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
         "type": "life.operator_question.answered", "item_id": item.id,
-        "continuation_item_id": "", "question": str(item.pending_question or ""),
+        "question": str(item.pending_question or ""),
         "manager_decision": option_id, "decision_id": decision_id,
         "decision_revision": revision, "deployment": deployment, "maintenance_cleanup": cleanup,
         "decided_by": decided_by,
@@ -676,7 +664,6 @@ def _apply_operator_answer(
     if not answered:
         if decision_id:
             replay = _resolved_decision_replay(
-                mem,
                 resumed,
                 decision_id=decision_id,
                 option_id=decision_option,
@@ -700,7 +687,6 @@ def _apply_operator_answer(
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
-        "continuation_item_id": resumed.id,
         "question": question,
         "manager_decision": manager_decision,
         "decision_id": decision_id,
@@ -910,7 +896,6 @@ def manager_answer_pending_question(
         if not str(item.pending_question or "").strip():
             if decision_id:
                 replay = _resolved_decision_replay(
-                    mem,
                     item,
                     decision_id=decision_id,
                     option_id=decision_option,
@@ -1045,7 +1030,6 @@ def manager_resolve_operator_decision(
             return None
 
         replay = _resolved_decision_replay(
-            mem,
             item,
             decision_id=decision_id,
             option_id=option_id,
@@ -1105,7 +1089,6 @@ def manager_resolve_operator_decision(
                     item,
                 )
                 replay = _resolved_decision_replay(
-                    mem,
                     current,
                     decision_id=decision_id,
                     option_id=option_id,
@@ -1140,7 +1123,6 @@ def manager_resolve_operator_decision(
             JsonlEventSink(None, life_dir=mem.project_root).append({
                 "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
                 "item_id": item.id,
-                "continuation_item_id": item.id,
                 "question": str(item.pending_question or ""),
                 "manager_decision": "stop campaign",
                 "decision_id": decision_id,

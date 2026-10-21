@@ -600,14 +600,8 @@ def read_map(
 ) -> dict:
     memory = LifeMemory.open(life_dir)
     tasks = []
-    # An answered question's work goes on in a new task: the answer is what
-    # that task is built on, drawn as its dependency.
-    continues = {}
     for item in memory.backlog.history():
         raw = item.to_jsonable()
-        decision = raw.get("operator_decision") or {}
-        if continuation := decision.get("continuation_item_id"):
-            continues[continuation] = item.id
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         if reason := park_reason(item):
             task["park_reason"] = reason
@@ -623,15 +617,8 @@ def read_map(
                 # owns_paths (and deps) are operator-visible strings too.
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
-        if continuation:
-            # Answered: where it ended is the answer, and its work goes on there.
-            task["continued_by"] = continuation
-            task["summary"] = text(decision.get("manager_decision") or decision.get("note")) or task["summary"]
         task["role"] = "engineer"
         tasks.append(task)
-    for task in tasks:
-        if task["id"] in continues:
-            task["deps"] = [*task.get("deps", []), continues[task["id"]]]
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
     path = life_dir / "events.jsonl"

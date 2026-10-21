@@ -87,7 +87,7 @@ def test_full_lifecycle_continues_after_browser_close(setup):
             "status": "paused_operator", "success": False},
            {"type": "ui.operator", "text": "Correction: use seconds"},
            {"type": "life.operator_question.answered", "item_id": "actual-task",
-            "answer": "Seconds", "continuation_item_id": "next-task",
+            "answer": "Seconds",
             "decision_id": "decision-actual-task", "decision_revision": 1,
             "manager_decision": "Use seconds"},
            {"type": "life.mission.resumed", "item_id": "actual-task"},
@@ -111,7 +111,6 @@ def test_full_lifecycle_continues_after_browser_close(setup):
     assert any(event["payload"].get("answer") == "Seconds" for event in newer["events"])
     resolution = next(event for event in newer["events"] if event["kind"] == "life.operator_question.answered")
     assert resolution["task_id"] == "actual-task"
-    assert resolution["payload"]["continuation_item_id"] == "next-task"
     assert resolution["payload"]["decision_id"] == "decision-actual-task"
     assert resolution["payload"]["decision_revision"] == 1
     assert resolution["payload"]["manager_decision"] == "Use seconds"

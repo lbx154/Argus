@@ -2587,7 +2587,6 @@
       "version": 1,
       "required": [
         "item_id",
-        "continuation_item_id",
         "question",
         "manager_decision"
       ],
@@ -2595,9 +2594,6 @@
         "item_id": {
           "type": "string",
           "minLength": 1
-        },
-        "continuation_item_id": {
-          "type": "string"
         },
         "question": {
           "type": "string",

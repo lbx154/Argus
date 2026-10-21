@@ -121,7 +121,6 @@ const STATES: Record<string, [string, string]> = {
   skipped: ["已跳过", "Skipped"],
   superseded: ["已被新计划替代", "Replaced by a new plan"],
   question: ["等待答复", "Waiting for an answer"],
-  answered: ["已答复，工作转入后续任务", "Answered; the work went on in a follow-up"],
   paused: ["已暂停", "Paused"],
   missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],

@@ -550,7 +550,6 @@ def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
     assert answered.status == "pending"  # the answer's transaction, intact
     assert answered.operator_decision["status"] == "resolved"
     assert answered.operator_decision["selected_option"] == "custom"
-    assert answered.operator_decision["continuation_item_id"] == item.id
 
 
 # ---------------------------------------------------------------------------

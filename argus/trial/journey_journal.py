@@ -86,7 +86,7 @@ MAX_HTTP_BYTES = 128 * 1024
 REPLAY_NOTICE_VERSION = "operator-analytics-v2"
 _TYPE = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,8}\Z")
 _SCALARS = frozenset("""
-    type kind item_id task_id continuation_item_id message_id event_id id ts timestamp
+    type kind item_id task_id message_id event_id id ts timestamp
     status success title objective text reply question answer summary reason next_action
     code error_code error_category stop_kind outcome_class from_state to_state
     tool_name exit_code duration_ms elapsed_ms elapsed_seconds actor agent_layer label

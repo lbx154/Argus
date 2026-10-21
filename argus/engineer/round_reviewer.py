@@ -248,31 +248,11 @@ def backlog_history(root: Path | None) -> list[Any] | None:
 
 
 def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, Any]]:
-    """Resolved operator decision cards on this item and the items it continues.
-
-    An answer resolves the card on the task it parked, which resumes; an older
-    release continued the work as a new item, whose answering card sits on the
-    item it continues.
-    """
+    """This item's operator decision card, once resolved: an answer resolves it and the item resumes."""
     # An unreadable backlog accepts nothing.
-    items = backlog_history(root) if item_id else []
-    if not items:
-        return []
-    continued = {
-        str((item.operator_decision or {}).get("continuation_item_id") or ""): item for item in items
-        if isinstance(item.operator_decision, dict)
-    }
-    by_id = {item.id: item for item in items}
-    cards: list[dict[str, Any]] = []
-    current, seen = item_id, set()
-    while current and current not in seen:
-        seen.add(current)
-        own = by_id.get(current)
-        if own is not None and isinstance(own.operator_decision, dict) and own.operator_decision:
-            cards.append(dict(own.operator_decision))
-        previous = continued.get(current)
-        current = previous.id if previous is not None else ""
-    return [card for card in cards if card.get("status") == "resolved"]
+    items = (backlog_history(root) if item_id else None) or ()
+    card = next((item.operator_decision for item in items if item.id == item_id), None)
+    return [dict(card)] if isinstance(card, dict) and card.get("status") == "resolved" else []
 
 
 def _recorded_facts(value: object) -> list[int] | None:

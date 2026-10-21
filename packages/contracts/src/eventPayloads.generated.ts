@@ -746,7 +746,6 @@ export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
   type: "life.operator_question.answered";
   payload_schema_version?: 1;
   "item_id": string;
-  "continuation_item_id": string;
   "question": string;
   "manager_decision": string;
   "decision_id"?: string;

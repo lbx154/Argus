@@ -1987,7 +1987,6 @@
     {
       "event": {
         "campaign_generation": 1,
-        "continuation_item_id": "continuation item id",
         "decided_by": "operator",
         "decision_id": "decision id",
         "decision_revision": 1,

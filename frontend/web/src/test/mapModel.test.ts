@@ -17,12 +17,6 @@ describe("progress map data semantics", () => {
     expect(statusKey(task("plain-failure", [], "failed"))).toBe("failed");
     expect(statusKey({ ...failed, outcome: { review_status: "blocked" } })).toBe("failed");
   });
-  it("reads an answered question as answered, not as a failure needing attention", () => {
-    const answered = { ...task("ask", [], "failed", 5), continued_by: "next", summary: "Choose A" };
-    expect(statusKey(answered)).toBe("answered");
-    expect(supersededByLaterWork(answered, [answered])).toBe(true);
-    expect(attentionTasks([answered, task("next", ["ask"], "pending", 6)])).toEqual([]);
-  });
   it("links only explicit final acceptance, not an intermediate success or later conversation", () => {
     const accepted = { ...task("final", [], "done", 20), started_ts: 19, finished_ts: 20,
       outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
