@@ -1992,9 +1992,9 @@ class LifeSupervisor(
 
     def _operator_chinese(self) -> bool:
         """Whether the operator writes Chinese, as their objective reads."""
-        from ...core.operator_messages import uses_cjk
+        from ...core.mission_view import uses_cjk
 
-        return uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
+        return uses_cjk(getattr(self.config, "continuous_objective", ""))
 
     def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None:
         """Post one message to the operator's conversation, once per ``notice_id``."""

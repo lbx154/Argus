@@ -9,8 +9,8 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from ..core.mission_view import uses_cjk
 from ..core.operator_decision import normalize_agent_options, parse_agent_operator_options
-from ..core.operator_messages import uses_cjk
 from .domain_author import VerticalDecision, parse_domain_proposal
 
 
@@ -172,7 +172,7 @@ def intake_card(state: dict) -> dict | None:
     phase = state.get("phase")
     if phase not in {"offered", "clarifying"}:
         return None
-    chinese = uses_cjk(str(state.get("request", "")))
+    chinese = uses_cjk(state.get("request"))
     options = state.get("options", []) if phase == "clarifying" else []
     if phase == "offered":
         options = [

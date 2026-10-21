@@ -40,7 +40,7 @@ from ._view_state import (
     load_mission_view,
     mission_view_handles_event,
 )
-from ._wording import say
+from ._wording import say, session_is_chinese, uses_cjk
 
 __all__ = [
     "MISSION_VIEW_FILE",
@@ -51,7 +51,9 @@ __all__ = [
     "mission_view_handles_event",
     "reduce_mission_view_event",
     "say",
+    "session_is_chinese",
     "snapshot_mission_view",
     "update_mission_view_event",
+    "uses_cjk",
     "work_record_event_id",
 ]

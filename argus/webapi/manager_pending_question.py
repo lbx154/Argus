@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.mission_view import uses_cjk
 from .manager_dispatch_receipt import record_task_dispatch_ack as record_task_dispatch_ack
 
 
@@ -216,12 +217,6 @@ _CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，其余工作先停着。"
 _STOPPED_REPLY = ("已停下，做到的部分都保留着。", "Stopped. The work done so far is kept.")
 
 
-def _zh(*texts: Any) -> bool:
-    from ..core.operator_messages import uses_cjk
-
-    return any(uses_cjk(str(text or "")) for text in texts)
-
-
 def _dropped_reply(chinese: bool, stopped: bool) -> str:
     if chinese:
         return f"已放下这项任务。{_CAMPAIGN_STAYS_STOPPED_ZH}" if stopped else "已放下这项任务，其余工作照常。"
@@ -233,7 +228,7 @@ def _dropped_reply(chinese: bool, stopped: bool) -> str:
 
 def _delivered(answer: str) -> str:
     """The reply to an answer, in the operator's language."""
-    return "收到，按你定的继续做。" if _zh(answer) else "Got it, carrying on with your choice."
+    return "收到，按你定的继续做。" if uses_cjk(answer) else "Got it, carrying on with your choice."
 
 
 def campaign_stop_reason(project_root: Path | str) -> str:
@@ -258,8 +253,6 @@ def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
     """
     if not campaign_stop_reason(mem.project_root):
         return False
-    from ..core.operator_messages import uses_cjk
-
     result["resume_requested"] = False
     reply = str(result.get("reply") or "").strip()
     chinese = uses_cjk(reply)
@@ -307,7 +300,7 @@ def _record_decision_turns(
             "argus",
             (
                 f"这个问题你暂时没空回答，我先替你选了：{choice}"
-                if _zh(choice, reply)
+                if uses_cjk(choice, reply)
                 else f"You weren't available, so I chose for you: {choice}"
             ) + f"\n\n{reply}",
         ),)
@@ -337,7 +330,7 @@ def _drop_decision_item(
     # stop, completion or Planner hold stands, as after any answer.
     stopped_for = campaign_stop_reason(mem.project_root)
     reply = _dropped_reply(
-        _zh(operator_text, item.pending_question, item.title), bool(stopped_for),
+        uses_cjk(operator_text, item.pending_question, item.title), bool(stopped_for),
     )
     dropped = mem.backlog.stop_for_operator_decision(
         item.id,
@@ -433,7 +426,7 @@ def _resolved_decision_replay(
             "application_status": "already_applied",
             "resolution_id": str(card.get("resolution_id") or ""),
             "resume_requested": False,
-            "reply": str(card.get("reply") or _dropped_reply(_zh(card.get("question")), False)),
+            "reply": str(card.get("reply") or _dropped_reply(uses_cjk(card.get("question")), False)),
         }
     if card.get("decision_kind") == "framework_deployment":
         return {
@@ -466,9 +459,9 @@ def _resolved_decision_replay(
         "resume_requested": bool(card.get("resume_requested", option_id != "stop")),
         "reply": str(card.get("reply") or "").strip()
         or (
-            _STOPPED_REPLY[0 if _zh(card.get("question")) else 1]
+            _STOPPED_REPLY[0 if uses_cjk(card.get("question")) else 1]
             if option_id == "stop"
-            else "这个决定之前已经收到了。" if _zh(card.get("question"))
+            else "这个决定之前已经收到了。" if uses_cjk(card.get("question"))
             else "I already have this decision."
         ),
     }
@@ -981,7 +974,7 @@ def manager_answer_pending_question(
         # reads what happened to their answer.
         reply = str(result.get("reply") or "").strip() or (
             "这个回答没能用上：问题可能已经答过，或者已经不在了。"
-            if _zh(text)
+            if uses_cjk(text)
             else "That answer couldn't be applied: the question may already be "
             "answered or gone."
         )
@@ -1096,7 +1089,7 @@ def manager_resolve_operator_decision(
                 item.id,
                 note=note,
                 decision_id=decision_id,
-                reply=_STOPPED_REPLY[0 if _zh(operator_text, card.get("question")) else 1],
+                reply=_STOPPED_REPLY[0 if uses_cjk(operator_text, card.get("question")) else 1],
                 decided_by=decided_by,
             )
             if stopped is None:

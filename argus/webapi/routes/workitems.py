@@ -245,7 +245,8 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         """Start work the operator held for confirmation before its first run."""
         import time
 
-        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...core.mission_view import uses_cjk
+        from ...core.operator_messages import publish_operator_message
         from ...daemon.commands import daemon_command_execution_lock
         from ..launch_hold import clear_launch_hold, read_launch_hold
 
@@ -264,7 +265,7 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
                     resume_continuous=bool(record.get("continuous")), reclaim_idle=True,
                 )
                 clear_launch_hold(life_dir)
-            zh = uses_cjk(str(record.get("request") or record.get("title") or ""))
+            zh = uses_cjk(record.get("request") or record.get("title"))
             title = str(record.get("title") or "").strip()
             text = (f"已开始执行：{title}" if title else "已开始执行。") if zh else (
                 f"Started: {title}" if title else "Started.")
@@ -280,7 +281,8 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         """Drop held, never-started work so the operator can rewrite the request."""
         import time
 
-        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...core.mission_view import uses_cjk
+        from ...core.operator_messages import publish_operator_message
         from ...daemon.life_worker import read_daemon_status
         from ..launch_hold import discard_held_work, read_launch_hold
 
@@ -291,7 +293,7 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         if read_daemon_status(life_dir).alive:
             raise HTTPException(status_code=409, detail="This work has already started; use Stop instead.")
         result = discard_held_work(life_dir)
-        zh = uses_cjk(str(record.get("request") or record.get("title") or ""))
+        zh = uses_cjk(record.get("request") or record.get("title"))
         publish_operator_message(
             life_dir,
             text=("已放弃这个任务，没有开始执行。你可以修改要求后重新发送。" if zh else

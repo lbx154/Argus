@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 from ...core import paths as core_paths
 from ...core.json_codec import loads_finite_json
-from ...core.operator_messages import uses_cjk
+from ...core.mission_view import uses_cjk
 from ...core.role_handoff import strip_handoff
 from ...core.secret_guard import known_secret_values, redact_secrets_text
 from ...life.memory import Backlog
@@ -673,7 +673,7 @@ def _format_follow_event_body(
     if etype == "life.manager.intent.completed":
         vertical = str(event.get("vertical") or "")
         label = vertical.replace("_", " ")
-        if uses_cjk(str(event.get("objective") or "")):
+        if uses_cjk(event.get("objective")):
             text = f"已将这项任务交给 {label} 工作流。" if label else "已为团队准备好这项任务。"
         else:
             text = f"Prepared this request for {label} work." if label else "Prepared this request for the team."
@@ -681,7 +681,7 @@ def _format_follow_event_body(
 
     if etype == "life.manager.intent.failed":
         phase = str(event.get("phase") or "").strip()
-        chinese = uses_cjk(str(event.get("objective") or ""))
+        chinese = uses_cjk(event.get("objective"))
         reasons = {
             "backend": "the routing service did not return a usable answer",
             "parse": "the routing answer could not be read",
@@ -826,7 +826,7 @@ def _format_follow_event_body(
         )
         status_text = str(event.get("status") or "").strip()
         status = status_text.lower()
-        chinese = uses_cjk(f"{title}\n{objective}\n{summary}\n{failure_reason}")
+        chinese = uses_cjk(title, objective, summary, failure_reason)
         if status == "continued" or iter_info.get("requeued"):
             text = (
                 f"{title} 的本轮已完成；下一轮已加入队列。"

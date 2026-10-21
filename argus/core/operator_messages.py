@@ -6,18 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from ..life.event_log import JsonlEventSink
+from .mission_view import uses_cjk
 from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
-_CJK_RE = re.compile(r"[\u3400-\u9fff]")
 _TIMEOUT_RE = re.compile(
     r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
     flags=re.IGNORECASE,
 )
-
-def uses_cjk(text: str) -> bool:
-    """Return whether *text* indicates a CJK operator-language message."""
-    return bool(_CJK_RE.search(str(text or "")))
 
 
 def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive: bool = False) -> str:
@@ -206,5 +202,4 @@ __all__ = [
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",
-    "uses_cjk",
 ]

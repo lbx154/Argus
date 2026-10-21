@@ -909,7 +909,7 @@ def prepare_manager_execution_task(
                 clause=exc.clause,
                 consecutive_count=exc.consecutive_count,
             )
-            from ..core.operator_messages import uses_cjk
+            from ..core.mission_view import uses_cjk
 
             # The exception keeps the developer's account; the operator reads
             # what happened and what to change.
@@ -1274,7 +1274,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     chat_state.pop("_self_failure", None)
     captured: list[str] = []
     round_failure: str | None = None
-    from ..core.operator_messages import humanize_runtime_reason, uses_cjk
+    from ..core.mission_view import uses_cjk
+    from ..core.operator_messages import humanize_runtime_reason
 
     chinese = uses_cjk(body)
     empty_reply = (

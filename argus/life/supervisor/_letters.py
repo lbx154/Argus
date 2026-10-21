@@ -203,7 +203,7 @@ class LettersMixin:
         return path
 
     def _letter_facts(self, *, since: float, now: float) -> dict[str, Any]:
-        from ...core.operator_messages import uses_cjk
+        from ...core.mission_view import uses_cjk
         from ...core.operator_presence import operator_presence
 
         life_dir = Path(self.memory.root)

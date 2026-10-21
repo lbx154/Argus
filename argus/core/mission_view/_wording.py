@@ -538,14 +538,9 @@ def say(kind: str, chinese: bool, **params: Any) -> str:
     return filled
 
 
-def uses_cjk(text: str) -> bool:
-    """Whether *text* is written in a CJK script.
-
-    The same test ``argus.core.operator_messages.uses_cjk`` applies to
-    chat replies; it is repeated here so the read model does not import the
-    chat transport.
-    """
-    return bool(_CJK_RE.search(str(text or "")))
+def uses_cjk(*texts: Any) -> bool:
+    """Whether any of *texts* is written in a CJK script: the operator writes Chinese."""
+    return any(_CJK_RE.search(str(text or "")) for text in texts)
 
 
 def remember_language(view: dict[str, Any], text: str) -> None:

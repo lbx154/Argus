@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .operator_messages import uses_cjk
+from .mission_view import uses_cjk
 
 TARGET_LEVELS = ("auto", "exploratory", "publishable")
 DELIVERABLES = ("any", "report", "code", "paper", "data")

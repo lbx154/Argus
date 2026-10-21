@@ -566,7 +566,7 @@ def _handle_pending_question_turn(
     reach their handlers; nothing is promoted to an answer without a positive
     classification, and the open questions stay exactly as they were.
     """
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
     from ..life.memory import BacklogItem
 
     if len(pending_questions) == 1:
@@ -664,7 +664,7 @@ def _classify_operator_turn(
     it is planned and independently reviewed; a greeting, conversation, a
     status question, a control or a setting stays where it was.
     """
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
     from ..life.memory import BacklogItem
     from ..manager.config_intent import _front_door_classify
     from ..manager.front_door import _accepts_parameter
@@ -970,7 +970,7 @@ def _handle_steer_control(
 ) -> dict[str, Any]:
     """Persist steering and also wake the currently running mission."""
     from ..apps._inbox import queue_inbox_message
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
     from ..manager.directive import (
         active_manager_directive_message,
         set_active_manager_directive,
@@ -1117,7 +1117,7 @@ def _handle_pause_control(
     daemon_stop_requested, daemon_pid = request_daemon_stop(life_dir)
     daemon_stop_failed = daemon_pid is not None and not daemon_stop_requested
 
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
 
     chinese = uses_cjk(body)
     if not pause_persisted:
@@ -1177,7 +1177,7 @@ def _handle_abort_control(
         reason=f"operator requested: {body}",
         requested_by="manager",
     )
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
 
     chinese = uses_cjk(body)
     if requested:
@@ -1395,7 +1395,7 @@ def _dispatch_team_mission(
     """Resume a done lifecycle and run the operator's TEAM mission in a
     Planner-run campaign. Raises on failure — the caller catches it and turns
     it into a structured ``{"kind": "error"}`` reply."""
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
         resume_done_lifecycle_for_team_dispatch,

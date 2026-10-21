@@ -34,7 +34,7 @@ def fallback_project_report(
     completion_context: Mapping[str, Any], continuous_objective: str = "",
 ) -> str:
     """The completion report Argus can state without the Manager model."""
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
 
     paths = [
         str(row["path"])

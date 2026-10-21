@@ -161,7 +161,7 @@ def pending_question_message(
     *, project: str, title: str, question: str, options: Any = None
 ) -> str:
     """The message an operator should be able to act on from a phone."""
-    from ...core.operator_messages import uses_cjk
+    from ...core.mission_view import uses_cjk
 
     chinese = uses_cjk(question)
     lines = [

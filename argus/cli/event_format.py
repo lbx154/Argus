@@ -13,7 +13,7 @@ import shlex
 from typing import Any, Callable
 
 from ..core.event_catalog import EventType, canonical_event_type
-from ..core.operator_messages import uses_cjk
+from ..core.mission_view import uses_cjk
 from ..core.secret_guard import redact_secrets_text
 from ..core.stop_kinds import is_pause_status, park_clause
 from ..life.mission_outcome import mission_outcome_class
@@ -425,7 +425,7 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
     resumable = bool(event.get("resumable") or event.get("recoverable"))
     if isinstance(outcome, dict):
         resumable = resumable or outcome.get("resumable") is True
-    chinese = uses_cjk(f"{title}\n{summary}")
+    chinese = uses_cjk(title, summary)
     residual_risk = str(event.get("residual_risk") or "").strip()
     if (success or outcome_class == "completed") and residual_risk:
         headline = (

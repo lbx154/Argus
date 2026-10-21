@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
-from ..core.operator_messages import uses_cjk
+from ..core.mission_view import uses_cjk
 
 
 def _dispatch_ack_text(

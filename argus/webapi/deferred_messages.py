@@ -18,7 +18,8 @@ from urllib.parse import quote
 import portalocker
 
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
-from ..core.operator_messages import publish_operator_message, uses_cjk
+from ..core.mission_view import uses_cjk
+from ..core.operator_messages import publish_operator_message
 
 log = logging.getLogger(__name__)
 

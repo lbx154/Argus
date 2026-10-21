@@ -264,7 +264,7 @@ def _manager_message(
     ``_TurnEmitter``.
     """
     from ..core.launch_settings import launch_note, normalize_launch_settings
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import uses_cjk
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.front_door import mission_is_running

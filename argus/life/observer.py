@@ -91,13 +91,13 @@ def look(
     look began: the look resumes it and reads only the events since. Raises
     when the call fails; the caller then skips these turns.
     """
-    from ..core.mission_view import load_mission_view
+    from ..core.mission_view import load_mission_view, session_is_chinese
     from ..roles.prompts.observer import build_observer_prompt
 
     said = _earlier_remarks(root)
     thread, since = session or ("", 0.0)
     prompt = build_observer_prompt(
-        root=root, turns=turns, said=said, chinese=load_mission_view(root).get("language") == "zh",
+        root=root, turns=turns, said=said, chinese=session_is_chinese(load_mission_view(root)),
         since=since,
     )
     result = run_exec(
