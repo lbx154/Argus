@@ -6,7 +6,7 @@ import logging
 import os
 from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 from ..core.file_facts import file_facts
 from ..core.knobs import resolve_light_effort, resolve_light_model
@@ -282,7 +282,6 @@ def _team_learning_prompt(
     shared_root: Path,
     scope: str,
     mission_objective: str,
-    mission_success: bool,
     mission_result: str,
 ) -> tuple[str, frozenset[str]]:
     candidates, presented = _candidate_evidence(
@@ -294,7 +293,7 @@ def _team_learning_prompt(
         "has ended and its canonical verdict is complete. Do not continue the "
         "mission, answer the operator, run builds or tests, or edit the project and "
         "session state.\n\n"
-        f"Mission verdict: {'success' if mission_success else 'failure'}\n"
+        "Mission verdict: success\n"
         f"Mission result: {mission_result[:2000] or '(not supplied)'}\n\n"
         "Decide whether the mission demonstrated a durable role procedure "
         "that would materially improve later sessions. A successful mission with a "
@@ -315,9 +314,7 @@ def _team_learning_prompt(
         "observable benefit and a checked different-input or boundary case, not just "
         "a successful answer. Do not reject it merely "
         "because it came from one session, and do not require novelty beyond improving "
-        "future execution. For a failure, write "
-        "only when the root cause is concretely verified or recent session evidence shows "
-        "the same mechanism/assumption failing repeatedly. Capture a reusable detection, "
+        "future execution. Capture a reusable detection, "
         "research, stopping, or recovery procedure—not the task-specific outcome. A "
         "single transient, ambiguous, interrupted, or unresolved failure produces no "
         "Skill edit. Reviewer self-evolution belongs in `reviewer/`: use repeated "
@@ -368,23 +365,6 @@ def _team_learning_prompt(
     return prompt, presented
 
 
-def propagate_runtime_skills_to_shared(
-    runtime_store: Any,
-    *,
-    shared_root: Path,
-    ledger_path: Path,
-    classify_batch: Callable[[list[dict[str, str]]], Any],
-    on_event: Any = None,
-) -> dict[str, int]:
-    """Compatibility entry point retained for older callers.
-
-    Promotion now needs full mission evidence and is performed by
-    :func:`propagate_after_mission`.
-    """
-    _ = (runtime_store, shared_root, ledger_path, classify_batch, on_event)
-    return dict(_ZERO_SHARED)
-
-
 def propagate_after_mission(
     project_root: Path | str,
     runner: Any,
@@ -411,7 +391,6 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
             "reason": "mission failed",
         })
         return counts
@@ -476,7 +455,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no project skill delta",
         })
         return counts
@@ -484,7 +462,6 @@ def _review_into_vertical(
         counts["stayed"] = len(pending_paths)
         _emit(on_event, {
             "type": "team.learning.review.skipped", "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no resolved vertical; candidates stay in project, not global",
         })
         return counts
@@ -495,14 +472,12 @@ def _review_into_vertical(
         shared_root=shared,
         scope=scope,
         mission_objective=mission_objective,
-        mission_success=True,
         mission_result=mission_result,
     )
     if not presented_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no readable project skill delta",
         })
         return counts
@@ -511,7 +486,6 @@ def _review_into_vertical(
         "type": "team.learning.review.started",
         "agent_layer": "manager",
         "mission_objective": mission_objective[:500],
-        "mission_success": True,
         "scope": "vertical", "vertical": scope,
     })
 
@@ -542,7 +516,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": True,
             "error": f"{type(exc).__name__}: {exc}",
         })
         return counts
@@ -555,7 +528,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": True,
             "error": str(getattr(result, "fatal_error", "") or ""),
         })
         return counts
@@ -587,7 +559,6 @@ def _review_into_vertical(
     _emit(on_event, {
         "type": "team.learning.review.completed",
         "agent_layer": "manager",
-        "mission_success": True,
         "created": len(created),
         "updated": len(updated),
         "quarantined": len(quarantined),
@@ -653,5 +624,4 @@ def _quarantine_uncertified(
 __all__ = [
     "names_the_verifier",
     "propagate_after_mission",
-    "propagate_runtime_skills_to_shared",
 ]

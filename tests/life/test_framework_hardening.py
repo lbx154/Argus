@@ -27,14 +27,14 @@ class _BackoffStub:
 
 def test_idle_backoff_is_exponential_and_capped() -> None:
     s = _BackoffStub()
-    first = s._enter_idle_backoff()
-    assert first == _IDLE_BACKOFF_BASE_SECONDS
-    second = s._enter_idle_backoff()
-    assert second == _IDLE_BACKOFF_BASE_SECONDS * 2
+    s._enter_idle_backoff()
+    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS
+    s._enter_idle_backoff()
+    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS * 2
     # Drive it far past the cap.
     for _ in range(20):
-        last = s._enter_idle_backoff()
-    assert last == _IDLE_BACKOFF_CAP_SECONDS
+        s._enter_idle_backoff()
+    assert s._suggested_sleep_s == _IDLE_BACKOFF_CAP_SECONDS
 
 
 def test_idle_backoff_handles_an_extreme_persisted_cycle_count() -> None:
@@ -52,7 +52,8 @@ def test_reset_clears_backoff() -> None:
     assert s._consecutive_idle_planner_cycles == 0
     assert s._suggested_sleep_s == 0.0
     # After reset the next entry starts again at base.
-    assert s._enter_idle_backoff() == _IDLE_BACKOFF_BASE_SECONDS
+    s._enter_idle_backoff()
+    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS
 
 
 class _LifecycleRootStub:

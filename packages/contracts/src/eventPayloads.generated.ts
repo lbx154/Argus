@@ -1823,14 +1823,12 @@ export interface TeamLearningReviewStartedEvent extends EventMsg {
   "vertical"?: string;
   "agent_layer"?: string;
   "mission_objective"?: string;
-  "mission_success": boolean;
 }
 
 export interface TeamLearningReviewSkippedEvent extends EventMsg {
   type: "team.learning.review.skipped";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success": boolean;
   "reason": string;
 }
 
@@ -1840,7 +1838,6 @@ export interface TeamLearningReviewCompletedEvent extends EventMsg {
   "scope"?: "vertical";
   "vertical"?: string;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "created": number;
   "updated": number;
   "quarantined": number;
@@ -1851,7 +1848,6 @@ export interface TeamLearningReviewFailedEvent extends EventMsg {
   type: "team.learning.review.failed";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "error": string;
 }
 

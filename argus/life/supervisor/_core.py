@@ -68,10 +68,6 @@ _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
 _REVIEW_PHRASES = {
-    # A passed review needs no label: the completion already says so.
-    "done": ("", ""),
-    "passed": ("", ""),
-    "approved": ("", ""),
     "continue": ("审阅认为还要再完善。", " The review asked for more work."),
     "blocked": ("审阅发现了卡住的问题。", " The review found a blocking problem."),
     "stale": (
@@ -1808,9 +1804,9 @@ class LifeSupervisor(
                 headline = f"做完一步：{brief}。" if chinese else f"One step done: {brief}."
             else:
                 headline = f"这项任务结束了：{brief}。" if chinese else f"This task has ended: {brief}."
+            # A passed review needs no label: the completion already says so.
             if (
-                review
-                and review not in {"none", "not_assessed"}
+                review not in {"", "none", "not_assessed", "done"}
                 and not final_submission_certified
                 and not (overall_complete and independent_review_required)
             ):

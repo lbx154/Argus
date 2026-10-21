@@ -2306,7 +2306,6 @@
       "event": {
         "agent_layer": "engineer",
         "mission_objective": "mission objective",
-        "mission_success": true,
         "payload_schema_version": 1,
         "scope": "vertical",
         "ts": 1700000150,
@@ -2318,7 +2317,6 @@
     {
       "event": {
         "agent_layer": "engineer",
-        "mission_success": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "ts": 1700000151,
@@ -2330,7 +2328,6 @@
       "event": {
         "agent_layer": "engineer",
         "created": 1,
-        "mission_success": true,
         "paths": [
           "path"
         ],
@@ -2348,7 +2345,6 @@
       "event": {
         "agent_layer": "engineer",
         "error": "provider request failed",
-        "mission_success": true,
         "payload_schema_version": 1,
         "ts": 1700000153,
         "type": "team.learning.review.failed"

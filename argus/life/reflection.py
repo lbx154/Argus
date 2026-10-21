@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
@@ -48,7 +47,6 @@ _REVIEWED_FACT_PREFIX = "REVIEWED_FACT:"
 MISSION_RUN_LABEL = "reflection"
 PROMPT_CHAR_LIMIT = 12_000
 _MAX_EXISTING_TITLES = 40
-_URL_RE = re.compile(r"https?://[^\s<>()\[\]\"']+")
 Emit = Callable[[dict[str, Any]], Any] | None
 
 
