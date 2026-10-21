@@ -430,6 +430,47 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
         "也可以让我放下它。",
     ),
+    # A task's update in the operator's conversation.
+    "this_task": ("the current task", "这项任务"),
+    "update_done": ("Done: {subject}.", "完成了：{subject}。"),
+    "update_canceled": ("Canceled: {subject}.", "已取消：{subject}。"),
+    "update_continuing": ("Still working on {subject}.", "还在继续：{subject}。"),
+    "update_stuck": ("Stuck for now: {subject}.", "「{subject}」暂时做不下去了。"),
+    "update_new_approach": ("Needs a different approach: {subject}.", "「{subject}」需要换个做法。"),
+    "update_not_finished": ("Couldn't finish: {subject}.", "没能完成：{subject}。"),
+    "update_provider_fenced": (
+        "The model provider is restricting calls, so {subject} is paused.",
+        "模型服务限制了调用，「{subject}」先停下了。",
+    ),
+    "update_run_to_continue": (
+        "Once it is resolved, click Run to continue; nothing retries on its own until then.",
+        "问题解决后点“运行”就能继续；在那之前不会自动重试。",
+    ),
+    "update_reason": ("Reason: {why}", "原因：{why}"),
+    "update_next": ("Next: {action}", "接下来：{action}"),
+    "update_advice": ("Next: {action}", "建议：{action}"),
+    "update_your_call": ("Your call: {action}", "需要你定：{action}"),
+    "update_needs_decision": (
+        "I need your decision before this can continue.",
+        "需要你定一下才能继续。",
+    ),
+    "update_will_investigate": (
+        "Next: I'll find out what went wrong and pick a way forward.",
+        "接下来：我先查清原因，再找个能走通的办法。",
+    ),
+    # What was decided while the operator could not be asked.
+    "assumed_head": (
+        "Decided without asking you (please look these over):",
+        "这些是没问你就定下的，请过目：",
+    ),
+    "assumed_by_manager": ("the Manager decided", "经理替你定了"),
+    "assumed_by_me": ("I went with", "我按这个理解做的"),
+    "assumed_choice": ("{conflict} → {verb}: {reading}", "{conflict} → {verb}：{reading}"),
+    "assumed_reading": ("{verb}: {reading}", "{verb}：{reading}"),
+    "assumed_conflict": (
+        "{conflict} (the reading chosen is in CHECKPOINT.md)",
+        "{conflict}（选定的理解记在 CHECKPOINT.md）",
+    ),
     # Notices Argus posts to the operator's conversation on its own.
     "planner_retries_stopped_internal": (
         "Planning kept hitting an internal error in Argus for three hours, so I "
