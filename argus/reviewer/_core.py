@@ -947,11 +947,11 @@ class Reviewer:
                 chinese = uses_cjk(objective)
                 if interrupted:
                     sentence = (
-                        "审阅者还没读完这一轮，Argus 就被操作员停止了；这里没有任何"
+                        "审阅者还没读完这一轮，你就让 Argus 停下了；这里没有任何"
                         "对工作本身的评价。"
                         if chinese
-                        else "Argus was stopped by its operator before the Reviewer could "
-                        "finish reading this round; nothing here is a judgment on the work."
+                        else "You stopped Argus before the Reviewer could finish reading "
+                        "this round; nothing here is a judgment on the work."
                     )
                 else:
                     sentence = (

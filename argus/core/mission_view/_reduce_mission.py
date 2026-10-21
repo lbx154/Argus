@@ -154,6 +154,7 @@ _RUNTIME_STOP_OPENINGS: tuple[tuple[str, str], ...] = (
     ("the model service dropped the engineer's session", "engineer_service_dropped"),
     ("the wait after a repeated backend failure ended early", "retry_wait_cut_short"),
     ("argus was stopped by its operator", "argus_stopped"),
+    ("you stopped argus", "argus_stopped"),
     ("execution host is unavailable", "tools_unavailable"),
     ("the tool environment the engineer needs", "tools_unavailable"),
     ("configured model is unavailable", "model_unavailable"),

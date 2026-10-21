@@ -45,6 +45,7 @@ class PlanningCycleIntakeMixin:
         memory: _MemoryView
 
         def _emit_status(self, text: str) -> None: ...
+        def _operator_chinese(self) -> bool: ...
         def _enter_idle_backoff(self) -> float: ...
         def _enter_pause_backoff(self) -> float: ...
         def _hold_on_unresolved_vertical(
@@ -56,7 +57,9 @@ class PlanningCycleIntakeMixin:
         """Record bounded completion, then deliver the Manager project report."""
         from ...core.autonomy import render_autonomous_assumptions
 
-        assumptions = render_autonomous_assumptions(self._project_state_root())
+        assumptions = render_autonomous_assumptions(
+            self._project_state_root(), chinese=self._operator_chinese(),
+        )
         if assumptions:
             # Honest completion: a run that decided without an operator says
             # so in its completion summary, not only in the event log.
@@ -115,10 +118,10 @@ class PlanningCycleIntakeMixin:
         ):
             return None
 
+        from ...core.operator_messages import brief_title
         from ..memory import BacklogItem
 
-        compact = " ".join(objective.split()).replace("`", "")
-        title = compact if len(compact) <= 96 else compact[:93] + "..."
+        title = brief_title(objective.replace("`", ""))
         stage = str(
             intent.get("current_stage") or intent.get("stage") or ""
         ).strip().lower()
@@ -207,10 +210,13 @@ class PlanningCycleIntakeMixin:
             or context.revision > context.acknowledged_revision("planner")
         ):
             return ""
-        from ...skills.vertical_select import resolve_vertical
-
-        vertical = resolve_vertical(artifact_root)
-        return f"bounded {vertical} vertical has a current completion certificate"
+        # The operator reads this reason on the timeline and the Manager
+        # reports from it: say what happened, not which certificate allowed it.
+        return (
+            "要求的工作已经全部完成。"
+            if self._operator_chinese()
+            else "All the requested work is done."
+        )
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.

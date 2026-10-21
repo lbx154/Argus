@@ -44,6 +44,11 @@ class IdleCycleMixin:
         config: LifeSupervisorConfig
 
         def _bound_manager(self) -> Any: ...
+        def _operator_chinese(self) -> bool: ...
+        def _emit_status(self, text: str) -> None: ...
+        def _tell_status(self, kind: str, **params: Any) -> None: ...
+        def _operator_words(self, kind: str, **params: Any) -> dict[str, str]: ...
+        def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None: ...
 
     def _artifact_root(self) -> Path:
         raise NotImplementedError
@@ -89,19 +94,15 @@ class IdleCycleMixin:
             return None
         if self._admit_runtime_failure_half_open(circuit_root, circuit, item=item):
             return None
-        reason = (
-            "the model service turned work away past its automatic retries; no "
-            "model call starts until the operator clicks Run, the backend or "
-            "model changes, the operator writes, or a canary finds it back "
-            f"({circuit.get('normalized_error')})"
-            if outage
-            else "runtime failure circuit is open; install or canary a changed Argus "
-            f"runtime before dispatching more work ({circuit.get('exception_type')} "
-            f"at {circuit.get('callsite')})"
+        # The circuit's own fields carry the technical record.
+        words = self._operator_words(
+            "work_paused_service" if outage else "work_paused_internal"
         )
+        reason = words["text"]
         if self._should_journal_idle_repeat("runtime_failure_circuit"):
             self._emit({
                 "type": EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
+                **words,
                 "item_id": str(getattr(item, "id", "") or ""),
                 "fingerprint": fingerprint,
                 "exception_type": circuit.get("exception_type"),
@@ -236,15 +237,7 @@ class IdleCycleMixin:
         if resumed:
             # Ready work: the daemon comes back for it instead of backing off.
             self._reset_idle_backoff()
-        self._emit_status(
-            "the model service answers again; "
-            + (
-                "resumed the tasks it had turned away: "
-                + ", ".join(row.id for row in resumed)
-                if resumed
-                else "model calls go ahead"
-            )
-        )
+        self._tell_status("service_back")
         return True
 
     def _execution_host_failure_block(
@@ -269,15 +262,16 @@ class IdleCycleMixin:
             not continuous.enabled
             and is_execution_host_startup_error(continuous.done_reason)
         ):
+            words = self._operator_words("planning_paused_host")
             reason = (
-                "The program that runs code for Argus could not be started, so "
-                "planning is paused. Restore the Codex installation, then "
-                "re-enable continuous work to try again. "
-                f"Technical record: {continuous.done_reason}"
+                words["text"]
+                + (" 技术记录：" if self._operator_chinese() else " Technical record: ")
+                + str(continuous.done_reason)
             )
             if self._should_journal_idle_repeat("execution_host_failure"):
                 self._emit({
                     "type": "life.execution_host.blocked",
+                    "kind": words["kind"],
                     "item_id": str(getattr(item, "id", "") or ""),
                     "reason": reason,
                     "operator_alert": True,
@@ -516,11 +510,13 @@ class IdleCycleMixin:
                         "operator's place; it will be asked again"
                     )
                 else:
+                    from ...core.operator_messages import brief_title
+
                     self._tell_operator(
                         f"proxy-undecided-{key}",
-                        f"The Manager could not decide “{item.title}” in your place, so "
-                        "the question waits for you.",
-                        f"Manager 未能代你决定“{item.title}”，这个问题会等你回来。",
+                        f"I couldn't decide “{brief_title(item.title)}” for you, so "
+                        "it waits for your answer.",
+                        f"“{brief_title(item.title)}”我没法替你决定，等你回来再定。",
                     )
                 continue
             record_autonomous_assumption(

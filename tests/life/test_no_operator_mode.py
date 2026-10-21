@@ -307,8 +307,9 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
         tmp_path, item_id="x", conflict="Two release rules conflict.", source="mission_challenge"
     )
     text = render_autonomous_assumptions(tmp_path)
-    assert text.startswith("Decided without asking the operator")
+    assert text.startswith("Decided without asking you")
     assert "Two release rules conflict." in text
+    assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
 
 
 # --- --no-operator lasts one run ---------------------------------------------

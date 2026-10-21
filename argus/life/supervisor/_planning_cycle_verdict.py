@@ -20,8 +20,6 @@ from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 
 log = logging.getLogger(__name__)
 
-_OPERATOR_DIRECTION_TITLE = "Planner needs operator direction"
-
 
 def _is_content_filter_failure(*values: Any) -> bool:
     text = " ".join(str(value or "") for value in values).casefold()
@@ -62,6 +60,7 @@ class PlanningCycleVerdictMixin:
             "operator_alert": True,
             "recoverable": True,
             "stop_kind": "backend_unavailable",
+            **self._operator_words("planning_paused_host"),
         })
         self._emit_status(
             "Planner execution host is unavailable; restore the Codex host executable "
@@ -95,10 +94,14 @@ class PlanningCycleVerdictMixin:
             )
             return PLAN_ERROR
         question = (
-            "Planner cannot identify a concrete next task. "
-            + (f"It reported: {reason[:900]} " if reason else "")
-            + "Please tell Argus what direction to try next, provide the missing "
-            "decision/resource, or say that this campaign should stop."
+            "接下来往哪个方向做，我拿不准"
+            + (f"：{reason[:900]}" if reason else "。")
+            + "\n你可以指定方向、补上缺的决定或资源，或者让我先停下。"
+            if self._operator_chinese()
+            else "I'm not sure which direction to take next"
+            + (f": {reason[:900]}" if reason else ".")
+            + "\nYou can name a direction, supply the missing decision or "
+            "resource, or tell me to stop."
         )
         self._enter_pause_backoff()
         if not self._park_planner_question(state, question, reason):
@@ -114,6 +117,7 @@ class PlanningCycleVerdictMixin:
             "operator_alert": True,
             "recoverable": True,
             "stop_kind": "operator_input_required",
+            **self._operator_words("planner_needs_direction"),
         })
         self._emit_status("planner has no concrete task; the operator is asked for direction")
         return PLAN_AWAITING
@@ -141,11 +145,13 @@ class PlanningCycleVerdictMixin:
             # rewords the open one. Their answer is new input that calls it again.
             if any(str(row.pending_question or "").strip() for row in self.memory.backlog.active()):
                 return False
+            from ...core.operator_messages import brief_title
             from ..memory import BacklogItem
 
+            # The work resumes under this title once answered: name the work.
             item = self.memory.backlog.add(
                 BacklogItem.new(
-                    title=_OPERATOR_DIRECTION_TITLE,
+                    title=brief_title(str(self.config.continuous_objective or question)),
                     objective=str(self.config.continuous_objective or question),
                     tags=["planner", "operator_decision", "scope:bounded"],
                     iterate=False,
@@ -419,6 +425,7 @@ class PlanningCycleVerdictMixin:
                             "operator_alert": True,
                             "recoverable": False,
                             "stop_kind": "permanent_error",
+                            **self._operator_words("planning_paused_content_filter"),
                         }
                         if content_filtered
                         else {}

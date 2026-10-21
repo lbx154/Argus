@@ -2523,7 +2523,7 @@ class Backlog:
         decision_id: str = "",
         selected_option: str = "stop",
         manager_decision: str = "stop campaign",
-        reply: str = "Campaign stopped. Current work was preserved.",
+        reply: str = "Stopped. The work done so far is kept.",
         last_error: str = "",
         decided_by: str = "operator",
     ) -> BacklogItem | None:
