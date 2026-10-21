@@ -722,31 +722,69 @@ def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
     assert len(planner.calls) == MANAGER_FEEDBACK_REPLAN_LIMIT
 
 
-def test_planner_and_manager_read_the_answer_beside_the_objective_it_settles(
+def _answered(backlog, question: str, answer: str, asked_at: float) -> BacklogItem:
+    """A task that asked ``question`` at ``asked_at`` and was answered."""
+    from argus.core.operator_decision import build_operator_decision
+
+    row = backlog.add(BacklogItem.new(title=f"asked at {asked_at:.0f}", objective="wait for my choice"))
+    card = build_operator_decision(item_id=row.id, title=row.title, reason="choice", question=question)
+    card["asked_at"] = asked_at
+    backlog.update(row.id, park_reason="operator_question", pending_question=question, operator_decision=card)
+    resumed, _ = backlog.resume_with_operator_reply(row.id, answer, manager_decision=answer)
+    return resumed
+
+
+def _answers_read(supervisor: LifeSupervisor, project: Path) -> tuple[str, str]:
+    """What the Planner's digest and the Manager's stage decision say was answered."""
+    from argus.manager import Manager
+
+    manager = Manager(project, runner=None, manager_session_root=supervisor.memory.root)
+    return supervisor._planner_current_reality_note(), manager._stage_operator_context()
+
+
+def test_planner_and_manager_read_every_answer_given_since_the_objective_began(
     tmp_path: Path, monkeypatch,
 ) -> None:
     """2026-10-20: after the operator chose A, the Manager's stage decision
     still held for "your choice between A and B is missing": it read only the
-    objective written before the question."""
-    from argus.core.operator_decision import build_operator_decision
-    from argus.manager import Manager
+    objective written before the question. Both now read the answers given
+    since the objective began, all of them and none from before."""
+    from argus.daemon.state import write_continuous_config
 
     project = _project(tmp_path, monkeypatch)
     supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
-    backlog = supervisor.memory.backlog
-    asked = backlog.add(BacklogItem.new(title="truncate", objective="wait for my choice of A or B"))
-    backlog.update(
-        asked.id, park_reason="operator_question", pending_question="Keep A or B?",
-        operator_decision=build_operator_decision(
-            item_id=asked.id, title=asked.title, reason="conflict", question="Keep A or B?",
-        ),
-    )
-    backlog.resume_with_operator_reply(asked.id, "A", manager_decision="Keep A; drop B.")
+    root, backlog = supervisor.memory.root, supervisor.memory.backlog
+    write_continuous_config(root, enabled=True, objective="keep improving the solver")
+    _answered(backlog, "Keep the old parser?", "Yes.", 100.0)
+    JsonlEventSink(None, life_dir=root).append({
+        "type": EventType.LIFE_MANAGER_INTENT_COMPLETED, "ts": 200.0, "intent_id": "i-1", "item_id": "i-1",
+        "objective": "keep improving the solver", "execution_task": "keep improving the solver",
+        "vertical": "software", "stages": ["delivery"],
+    })
+    for number in range(4):
+        _answered(backlog, f"Choice {number}?", f"Option {number}.", 300.0 + number)
 
-    answer = "Keep A or B? → Keep A; drop B. (the operator)"
-    assert f"- operator_answers (their later word wherever the objective says otherwise): {answer}" in (
-        supervisor._planner_current_reality_note()
-    )
-    manager = Manager(project, runner=None, manager_session_root=supervisor.memory.root)
-    context = manager._stage_operator_context()
-    assert "## The operator's answers since the objective" in context and f"- {answer}" in context
+    digest, context = _answers_read(supervisor, project)
+    answers = [f"Choice {number}? → Option {number}. (the operator)" for number in range(4)]
+    assert "- operator_answers (their later word wherever the objective says otherwise): " + "; ".join(answers) in digest
+    assert "## The operator's answers since the objective" in context
+    assert all(f"- {answer}" in context for answer in answers)
+    assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context
+
+
+def test_without_a_record_of_the_objective_s_start_the_live_backlog_bounds_the_answers(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.daemon.state import write_continuous_config
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    root, backlog = supervisor.memory.root, supervisor.memory.backlog
+    write_continuous_config(root, enabled=True, objective="keep improving the solver")
+    finished = _answered(backlog, "Keep the old parser?", "Yes.", 100.0)
+    backlog.update(finished.id, status="done", finished_ts=time.time())
+    _answered(backlog, "Which dataset?", "The small one.", 300.0)
+
+    digest, context = _answers_read(supervisor, project)
+    assert "Which dataset? → The small one. (the operator)" in digest and "Which dataset?" in context
+    assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context

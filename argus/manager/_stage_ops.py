@@ -92,13 +92,18 @@ class _StageDecisionMixin:
         """What the operator has said, with the answers they gave since the objective was written."""
         from ..core.operator_context import build_operator_context_block
         from ..core.operator_decision import operator_answers
-        from ..life.memory import Backlog
+        from ..life.memory import Backlog, objective_started_at
+        from .control_state import CampaignControlStore
 
         root = Path(self.manager_session_root)
         context, _revision = build_operator_context_block("manager", root, consume_once=False)
         try:
-            backlog = root / "backlog.jsonl"
-            answers = operator_answers(Backlog(backlog).history()) if backlog.is_file() else []
+            backlog = Backlog(root / "backlog.jsonl")
+            # Since the objective began; with no record of when, the live backlog bounds it.
+            since = objective_started_at(root, CampaignControlStore(root).campaign_identity().objective)
+            answers = operator_answers(
+                backlog.history() if since is not None else backlog.active(), since=since or 0.0,
+            ) if backlog.path.is_file() else []
         except Exception:  # noqa: BLE001 - context only; the decision stands without it
             answers = []
         if not answers:

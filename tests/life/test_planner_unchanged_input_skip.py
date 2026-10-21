@@ -496,14 +496,19 @@ def test_an_old_waiting_contract_file_is_ignored(tmp_path: Path, monkeypatch) ->
     assert calls["count"] == 1
 
 
-def test_an_open_question_stays_as_asked_and_gets_no_second_card(tmp_path: Path) -> None:
+def test_the_planning_slot_s_open_question_stays_as_asked_beside_other_tasks_questions(
+    tmp_path: Path,
+) -> None:
     """2026-10-20: every Planner turn reworded its open A-or-B question, each
-    vaguer than the last, beside the task already waiting on that choice."""
+    vaguer than the last. A question another task waits on is that task's and
+    never holds the planning slot's own question back."""
     supervisor = _supervisor(tmp_path / "project", tmp_path / "life")
     backlog = supervisor.memory.backlog
-    asked = backlog.add(BacklogItem.new(title="truncate", objective="pick A or B"))
-    backlog.update(asked.id, park_reason="operator_question", pending_question="Keep A or B?")
+    adopt = backlog.add(BacklogItem.new(title="Adopt reviewed change", objective="deploy"))
+    backlog.update(adopt.id, park_reason="operator_question", pending_question="Adopt it?")
 
+    assert supervisor._park_planner_question(None, "Keep A or B?", "conflict") is True
     assert supervisor._park_planner_question(None, "Answer the A/B choice already asked.", "waiting") is False
 
-    assert [(row.id, row.pending_question) for row in backlog.active()] == [(asked.id, "Keep A or B?")]
+    asked = {row.title: row.pending_question for row in backlog.active()}
+    assert asked == {"Adopt reviewed change": "Adopt it?", "Planner needs operator direction": "Keep A or B?"}
