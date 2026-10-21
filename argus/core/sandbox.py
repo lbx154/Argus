@@ -216,9 +216,7 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
     (1) Drops push-capable VCS credentials so a sandboxed engineer cannot push
         to the package's own remote and rewrite the harness at its source of
         truth (the local-FS sandbox does not police network egress).
-    (2) Sets ``PYTHONSAFEPATH=1`` so a workdir ``code/sitecustomize.py`` or an
-        earlier ``sys.path`` entry cannot shadow the package at import time.
-    (3) Sets ``PIP_USER=0`` so pip against an unwritable site fails loudly
+    (2) Sets ``PIP_USER=0`` so pip against an unwritable site fails loudly
         (Errno 13) instead of silently "Defaulting to user installation",
         which rewrites the ~/.local/bin launchers and plants a user-site
         ``.pth`` (the 2026-09-05 escape); ``--target`` and in-venv installs
@@ -228,7 +226,6 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
     for key in list(env):
         if key in _VCS_CRED_ENV_KEYS or key.startswith(("GH_", "GITHUB_")):
             env.pop(key, None)
-    env["PYTHONSAFEPATH"] = "1"
     env["PIP_USER"] = "0"
     return env
 

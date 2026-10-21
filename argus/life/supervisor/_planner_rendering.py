@@ -178,8 +178,21 @@ class PlannerRenderingMixin:
             f"{getattr(entry, 'kind', '')}:{getattr(entry, 'title', '')}"
         )
 
-    def _render_journal_entries_for_planner(self, entries: list[Any]) -> str:
-        """Render given journal entries plus the campaign tally and failures."""
+    def _planner_recall_context(self) -> str:
+        try:
+            return self.memory.render_recall_context(
+                self.config.continuous_objective, role="planner",
+            ).strip()
+        except (AttributeError, OSError, TypeError, ValueError):
+            return ""
+
+    def _render_journal_entries_for_planner(
+        self, entries: list[Any], recall: str | None = None,
+    ) -> str:
+        """Render given journal entries plus the campaign tally and recall.
+
+        One planning cycle recalls once and passes ``recall`` to each render.
+        """
         lines: list[str] = []
         for e in entries:
             from datetime import datetime
@@ -202,17 +215,10 @@ class PlannerRenderingMixin:
                 line = line[: _PLANNER_HISTORY_ENTRY_CHARS - 1].rstrip() + "…"
             lines.append(line)
         body = "\n".join(lines) or "(empty)"
-        try:
-            render_recall = getattr(self.memory, "render_recall_context", None)
-            if not callable(render_recall):
-                render_recall = getattr(self.memory, "render_failure_experience_context")
-            failure_context = render_recall(
-                self.config.continuous_objective,
-            ).strip()
-        except (AttributeError, OSError, TypeError, ValueError):
-            failure_context = ""
-        if failure_context:
-            body += "\n\n" + failure_context
+        if recall is None:
+            recall = self._planner_recall_context()
+        if recall:
+            body += "\n\n" + recall
         tally = self._render_campaign_tally()
         return f"{tally}\n{body}" if tally else body
 
@@ -226,6 +232,7 @@ class PlannerRenderingMixin:
     def _render_journal_delta_for_planner(
         self,
         entries: list[Any] | None,
+        recall: str | None = None,
     ) -> tuple[str | None, frozenset[str] | None]:
         """What the current Planner session has not been shown yet.
 
@@ -247,6 +254,6 @@ class PlannerRenderingMixin:
         ]
         if not fresh:
             return "", keys
-        return self._render_journal_entries_for_planner(fresh), keys
+        return self._render_journal_entries_for_planner(fresh, recall), keys
 
 __all__ = ["PlannerRenderingMixin"]

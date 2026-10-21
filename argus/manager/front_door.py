@@ -1211,6 +1211,20 @@ def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
     )
 
 
+def manager_judgment(mem: Any, prompt: str, chat_state: dict[str, Any], *,
+                     run_label: str, root_task_id: str | None = None) -> str:
+    """One stateless, read-only Manager turn on a self-contained prompt.
+
+    Unlike :func:`manager_triage` it neither resumes nor advances the
+    Manager's conversation and carries no SELF context. ``""`` when no
+    Manager is available or it said nothing.
+    """
+    manager = getattr(_ensure_manager_runner(chat_state, mem), "manager", None)
+    if manager is None:
+        return ""
+    return manager.run_turn(prompt, run_label=run_label, root_task_id=root_task_id)
+
+
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
                    route: str | None = None,
@@ -1536,14 +1550,6 @@ def _extract_chat_reply_text(msg: str) -> str:
     if msg.startswith("{") and msg.endswith("}"):
         try:
             data = json.loads(msg)
-            # Pending-question resolution consumes this structured Manager
-            # decision downstream. Do not collapse it to its operator-facing
-            # ``reply`` field before that parser sees it.
-            if (
-                isinstance(data.get("is_answer"), bool)
-                and isinstance(data.get("resolved"), bool)
-            ):
-                return msg
             for key in ("reply", "message", "text", "answer", "response"):
                 val = data.get(key)
                 if isinstance(val, str) and val.strip():
@@ -1569,6 +1575,7 @@ __all__ = [
     "manager_execution_task",
     "manager_bounded_handoff",
     "manager_continuous_handoff",
+    "manager_judgment",
     "manager_triage",
     "mission_is_running",
     "prepare_manager_execution_task",

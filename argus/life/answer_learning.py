@@ -1,31 +1,19 @@
-"""Durable, serial learning from delivered answers, independent of reply latency.
+"""Observable status of the learning pass after each mission.
 
-The queue is per operator home: projects share knowledge and a private profile,
-so their read/modify/write learning passes must not race with one another.
+A SELF turn keeps what it learned in the same turn; only mission reflection
+runs separately, and this store shows its progress and outcome.
 """
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sqlite3
-import threading
 import time
-import uuid
-from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from ..core.daemon_lock import is_pid_running
-from ..core.file_lock import exclusive_file_lock
-
-log = logging.getLogger(__name__)
-_LOCK = threading.RLock()
-_THREADS: dict[Path, threading.Thread] = {}
-_BACKENDS: dict[tuple[Path, str], Any] = {}
-BackendFactory = Callable[[Path, str], Any]
-_BACKEND_FACTORIES: dict[Path, BackendFactory] = {}
 
 
 @contextmanager
@@ -49,22 +37,23 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
     """A bounded projection with no prompt, answer, credential or filesystem path."""
     if not (root / "answer-learning.sqlite3").exists():
         return {"jobs": [], "pending": 0, "revision": 0}
+    # Rows from the retired per-answer queue are not mission jobs; ignore them.
+    mission = "sid=? AND id LIKE 'mission-%'"
     with _database(root) as db:
         rows = db.execute(
             "SELECT id, status, created, updated, attempts, outcome, payload FROM jobs "
-            "WHERE sid=? ORDER BY created DESC LIMIT 20", (sid,),
+            f"WHERE {mission} ORDER BY created DESC LIMIT 20", (sid,),
         ).fetchall()
         pending = db.execute(
-            "SELECT count(*) FROM jobs WHERE sid=? AND status IN ('queued','running')", (sid,),
+            f"SELECT count(*) FROM jobs WHERE {mission} AND status='running'", (sid,),
         ).fetchone()[0]
-        revision = db.execute("SELECT max(updated) FROM jobs WHERE sid=?", (sid,)).fetchone()[0]
+        revision = db.execute(f"SELECT max(updated) FROM jobs WHERE {mission}", (sid,)).fetchone()[0]
     jobs = []
     for row in rows:
         job = dict(row)
         payload = json.loads(job.pop("payload"))
         job["outcome"] = json.loads(job["outcome"])
-        job["retryable"] = not job["id"].startswith("mission-")
-        if not job["retryable"] and job["status"] == "running":
+        if job["status"] == "running":
             # Never probe with os.kill(pid, 0): on Windows CPython maps every
             # non-console signal to TerminateProcess, so this read-only status
             # poll used to kill the running daemon that owns the job.
@@ -77,73 +66,6 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
                 pending = max(0, pending - 1)
         jobs.append(job)
     return {"jobs": jobs, "pending": pending, "revision": revision or 0}
-
-
-def enqueue_answer(
-    *, root: Path, sid: str, operator_text: str, reply: str, vertical: str = "",
-    evidence: str = "", turn_id: str = "", backend: Any = None,
-    backend_factory: BackendFactory | None = None,
-) -> threading.Thread:
-    root = root.resolve()
-    # A turn is learned once; an answer without a turn id is its own job.
-    job_id = f"{sid}:{turn_id}" if turn_id else f"{sid}:{uuid.uuid4().hex}"
-    payload = {"operator_text": operator_text, "reply": reply,
-               "vertical": vertical, "evidence": evidence}
-    with _LOCK:
-        with _database(root) as db:
-            now = time.time()
-            db.execute(
-                "INSERT OR IGNORE INTO jobs (id,sid,payload,status,created,updated) VALUES (?,?,?,'queued',?,?)",
-                (job_id, sid, json.dumps(payload, ensure_ascii=False), now, now),
-            )
-        if backend is not None:
-            _BACKENDS[root, sid] = backend
-        return resume_learning(root, backend_factory=backend_factory)
-
-
-def retry_learning(
-    root: Path, sid: str, job_id: str, *, backend_factory: BackendFactory | None = None,
-) -> bool:
-    root = root.resolve()
-    with _LOCK:
-        with _database(root) as db:
-            changed = db.execute(
-                "UPDATE jobs SET status='queued', updated=? WHERE id=? AND sid=? AND (status='failed' OR (status='skipped' AND json_extract(outcome, '$.reason')='paused')) "
-                "AND id NOT LIKE 'mission-%'",
-                (time.time(), job_id, sid),
-            ).rowcount
-        if changed:
-            resume_learning(root, backend_factory=backend_factory)
-        return bool(changed)
-
-
-def resume_learning(
-    root: Path, *, backend_factory: BackendFactory | None = None,
-) -> threading.Thread:
-    root = root.resolve()
-    with _LOCK:
-        if backend_factory is not None:
-            _BACKEND_FACTORIES[root] = backend_factory
-        active = _THREADS.get(root)
-        if active is not None:
-            return active
-        thread = threading.Thread(target=_drain, args=(root,), name="argus-answer-learning", daemon=True)
-        _THREADS[root] = thread
-        thread.start()
-        return thread
-
-
-def _backend(root: Path, sid: str) -> Any:
-    cached = _BACKENDS.get((root, sid))
-    if cached is not None:
-        return cached
-    # The delivery owner reconstructs its configured transport after restart.
-    # This queue must not import WebAPI state or another package's private runner.
-    factory = _BACKEND_FACTORIES.get(root)
-    backend = factory(root, sid) if factory is not None else None
-    if backend is None:
-        raise RuntimeError("Learning backend is unavailable")
-    return backend
 
 
 # Calls the host refused before they started: nothing failed, learning simply waits.
@@ -184,7 +106,7 @@ def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
     elif result.get("failure"):
         status, outcome["reason"] = "failed", "failed"
     elif result.get("skipped") and not any(counts.values()):
-        # Nothing to learn from (learning off, empty reply, no backend): stay quiet.
+        # Nothing to learn from (learning off, no backend): stay quiet.
         status, outcome["reason"] = "skipped", "not_needed"
     elif any(counts.values()):
         status, outcome["reason"] = "completed", "saved"
@@ -193,32 +115,6 @@ def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
     with _database(root) as db:
         db.execute("UPDATE jobs SET status=?, updated=?, outcome=? WHERE id=?",
                    (status, time.time(), json.dumps(outcome, ensure_ascii=False), job["id"]))
-
-
-def _process(root: Path, job: dict) -> None:
-    from .event_log import JsonlEventSink
-    from .reflection import reflect_after_answer
-
-    entries: list[dict] = []
-    life_dir = root / "projects" / job["sid"]
-    sink = JsonlEventSink(None, life_dir=life_dir)
-
-    def emit(event: dict) -> None:
-        if event.get("type") == "knowledge.learned":
-            entries.append(event)
-        sink.append(event)
-
-    try:
-        if not life_dir.is_dir():
-            raise RuntimeError("Project was removed before learning")
-        result = reflect_after_answer(
-            runner_backend=_backend(root, job["sid"]), global_root=root, life_dir=life_dir,
-            project_id=job["sid"], emit=emit, **json.loads(job["payload"]),
-        )
-    except Exception:  # noqa: BLE001 - learning cannot take down the reply or queue
-        log.exception("answer learning job %s failed", job["id"])
-        result = {"failure": "learning failed"}
-    _finish(root, job, result, entries)
 
 
 def observe_mission(root: Path, sid: str, mission_id: str, run, emit) -> dict:
@@ -245,35 +141,3 @@ def observe_mission(root: Path, sid: str, mission_id: str, run, emit) -> dict:
         raise
     _finish(root, {"id": job_id}, result, entries)
     return result
-
-
-def _drain(root: Path) -> None:
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        with (root / ".answer-learning.lock").open("a+") as handle:
-            with exclusive_file_lock(handle, timeout_seconds=600):
-                # Acquiring the process lease proves any earlier owner is gone.
-                # A killed worker's current answer stays in the durable queue.
-                with _database(root) as db:
-                    db.execute("UPDATE jobs SET status='queued', updated=? WHERE status='running' AND id NOT LIKE 'mission-%'", (time.time(),))
-                while True:
-                    with _LOCK:
-                        with _database(root) as db:
-                            row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
-                            if row is None:
-                                _THREADS.pop(root, None)
-                                return
-                            db.execute("UPDATE jobs SET status='running', updated=?, attempts=attempts+1 WHERE id=?",
-                                       (time.time(), row["id"]))
-                    _process(root, dict(row))
-    except Exception:
-        log.exception("answer learning queue stopped; pending work is retained")
-    finally:
-        with _LOCK:
-            if _THREADS.get(root) is threading.current_thread():
-                _THREADS.pop(root, None)
-            for key in list(_BACKENDS):
-                if key[0] == root and root not in _THREADS:
-                    _BACKENDS.pop(key, None)
-            if root not in _THREADS:
-                _BACKEND_FACTORIES.pop(root, None)

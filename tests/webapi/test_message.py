@@ -832,7 +832,7 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
         assert text == "停一下，你在干什么？"
         return None, "pause", "simple"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_judgment", triage)
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
 
     result = manager_bridge.manager_message(
@@ -1842,7 +1842,7 @@ def test_manager_message_resolves_single_pending_question(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": True,
@@ -1873,16 +1873,14 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: json.dumps({
-            "is_answer": False,
-            "resolved": False,
-            "decision": "",
-            "reply": "",
-        }),
-    )
+    not_an_answer = json.dumps({
+        "is_answer": False,
+        "resolved": False,
+        "decision": "",
+        "reply": "",
+    })
+    monkeypatch.setattr(front_door, "manager_judgment", lambda *args, **kwargs: not_an_answer)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: not_an_answer)
 
     result = manager_bridge.manager_message(
         "s-msgtest0",
@@ -1915,6 +1913,7 @@ def test_unclassified_message_stays_in_conversation_without_research_directive(
             raise RuntimeError("classification unavailable")
         return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
 
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
 
@@ -1942,7 +1941,7 @@ def test_manager_keeps_pending_question_when_answer_is_insufficient(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": False,
@@ -1997,23 +1996,6 @@ def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None
             },
         )
     ]
-
-
-def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    reviewed: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=reviewed.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert reviewed == ["answer"]
 
 
 def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
@@ -2115,23 +2097,6 @@ def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
     assert server._manager_stream_heartbeat_seconds() == 5.0
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "invalid")
     assert server._manager_stream_heartbeat_seconds() == 5.0
-
-
-def test_turn_emitter_schedules_learning_only_after_chat_reply(tmp_path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    learned: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=learned.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert learned == ["answer"]
 
 
 def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) -> None:

@@ -534,6 +534,16 @@ def test_activity_recognizes_concurrent_agent_io_without_leaking_stream_text(tmp
     assert "SECRET" not in acts["engineer"].label + acts["manager"].label
 
 
+def test_a_self_execution_turn_is_manager_work(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "agent.io.start", "call_id": "self", "run_label": "self-implement", "ts": now - 5},
+    ])
+    acts = role_activity(tmp_path, now=now)
+    assert acts["manager"].active is True
+    assert acts["engineer"].active is False
+
+
 def test_activity_does_not_put_assistant_prose_in_role_bar(tmp_path):
     now = time.time()
     _write_events(tmp_path, [{
@@ -632,7 +642,7 @@ def test_map_summary_does_not_hide_the_engineers_open_call(tmp_path):
 
 @pytest.mark.parametrize(
     "run_label",
-    ["map-summary", "reflection", "answer-learning", "team-learning-review"],
+    ["map-summary", "reflection", "team-learning-review"],
 )
 def test_background_calls_are_not_engineer_work(tmp_path, run_label):
     now = time.time()

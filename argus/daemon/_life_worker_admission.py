@@ -452,7 +452,9 @@ def spawn_detached_daemon_clean(
     # ``sitecustomize.py`` shadow the running Argus release during an upgrade
     # restart. Pin both cwd and PYTHONPATH to the package root that loaded this
     # WebAPI process; the daemon receives ``project_workdir`` in its payload and
-    # exposes it to agents only after control-plane boot succeeds.
+    # exposes it to agents only after control-plane boot succeeds. No
+    # PYTHONSAFEPATH: every agent shell inherits this environment, and it breaks
+    # the subprocess imports of the project's own tests.
     import_root = Path(__file__).resolve().parents[2]
     pythonpath = [
         str(import_root),
@@ -463,7 +465,6 @@ def spawn_detached_daemon_clean(
         ],
     ]
     env["PYTHONPATH"] = os.pathsep.join(pythonpath)
-    env["PYTHONSAFEPATH"] = "1"
     started_at = time.time()
     timeout_s = _clean_launch_timeout_seconds()
     payload = _config_payload(config)

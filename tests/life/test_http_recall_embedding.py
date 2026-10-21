@@ -522,12 +522,13 @@ def test_mission_memory_prelude_recognizes_one_shot_lock_cancellation(tmp_path, 
             with exclusive_file_lock(handle, lock_name="optional memory read"):
                 pytest.fail("cancelled memory must not acquire the read lock")
 
-    def render_current(*, objective):
-        assert objective == "database cache"
+    item = BacklogItem.new(title="next", objective="database cache")
+
+    def render_current(*, objective, mission_id):
+        assert (objective, mission_id) == ("database cache", item.id)
         return read_memory()
 
     memory = SimpleNamespace(render_prelude=read_memory if legacy else render_current)
-    item = BacklogItem.new(title="next", objective="database cache")
     with run_interrupt_scope(interrupt, retain_first_reason=retain_parent):
         assert _mission_memory_prelude(memory, item) == ""
         assert calls == 1
@@ -560,12 +561,13 @@ def test_mission_memory_prelude_preserves_unclassified_and_mandatory_failures(le
     def read_memory():
         raise error
 
-    def render_current(*, objective):
-        assert objective == "database cache"
+    item = BacklogItem.new(title="next", objective="database cache")
+
+    def render_current(*, objective, mission_id):
+        assert (objective, mission_id) == ("database cache", item.id)
         return read_memory()
 
     memory = SimpleNamespace(render_prelude=read_memory if legacy else render_current)
-    item = BacklogItem.new(title="next", objective="database cache")
     reason = None if failure == "unknown-cancellation" else "daemon stop requested"
     with run_interrupt_scope(lambda: reason):
         with pytest.raises(type(error)) as raised:

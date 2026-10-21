@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..daemon.runtime_status import STATUS_MODES
 from ..manager.self_context import self_skill_context_available as _self_skill_context_available
 from .manager_pending_question import (
     _emit_ui_turn,
@@ -434,7 +435,6 @@ class _TurnEmitter:
     life_dir: Path
     turn_id: str
     fragment: Callable[[str, dict[str, Any]], None]
-    after_reply: Callable[[str], None] | None = None
     # Tool steps streamed during this turn, journaled with the reply so the
     # conversation and the map can show the work behind a single-agent answer.
     steps: list[dict[str, Any]] = field(default_factory=list)
@@ -535,8 +535,6 @@ class _TurnEmitter:
         """
         self.reply_fragment(text, message_id=message_id)
         self.journal(text, result)
-        if result.get("kind") == "chat" and not result.get("decision_card") and self.after_reply is not None:
-            self.after_reply(text)
         return {"reply": text, **result}
 
     def journal_and_respond(self, text: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -545,8 +543,6 @@ class _TurnEmitter:
         extra delta fragment is emitted here.
         """
         self.journal(text, result)
-        if result.get("kind") == "chat" and self.after_reply is not None:
-            self.after_reply(text)
         return {"reply": text, **result}
 
 
@@ -637,12 +633,10 @@ class _ClassifyResult:
     fast_reply: str
     greeting_reply: str
     frontdoor_failure: str
-    # The classifier's own SELF mode, before follow-ups are rerouted through
-    # the persistent Manager. Later phases reuse it to judge the turn.
-    classified_self_mode: str = ""
 
 
-# Only Chat fixes the topology. Task requests still need a scope decision.
+# Chat fixes the topology before classification. Task is applied after it:
+# the classifier still tells conversation from work.
 _FORCED_ROUTES = {"chat": "simple"}
 
 
@@ -664,9 +658,10 @@ def _classify_operator_turn(
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
     caller must check ``isinstance(result, dict)`` before reading fields.
 
-    Explicit ``chat`` stays inline. ``task`` still runs classification: a
-    submission category is not a request for a team, independent review, or
-    persistent work when the message only contains conversation.
+    Explicit ``chat`` stays inline. ``task`` still runs classification, and
+    work the classifier would have handled alone goes to the team instead, so
+    it is planned and independently reviewed; a greeting, conversation, a
+    status question, a control or a setting stays where it was.
     """
     from ..core.operator_messages import uses_cjk
     from ..life.memory import BacklogItem
@@ -774,7 +769,13 @@ def _classify_operator_turn(
     self_mode = str(
         chat_state.get("_frontdoor_self_mode", "inspect") or "inspect"
     ).strip().lower()
-    classified_self_mode = self_mode
+    if (
+        str(route_override or "").strip().lower() == "task"
+        and route == "simple" and intent is None and control is None
+        and self_mode not in {"reply", *STATUS_MODES}
+        and not chat_state.get("_frontdoor_greeting_reply")
+    ):
+        route = "complex"
     fast_reply = str(
         chat_state.pop("_frontdoor_fast_reply", "") or ""
     ).strip()
@@ -812,7 +813,6 @@ def _classify_operator_turn(
         fast_reply=fast_reply,
         greeting_reply=greeting_reply,
         frontdoor_failure=frontdoor_failure,
-        classified_self_mode=classified_self_mode,
     )
 
 
@@ -1321,7 +1321,7 @@ def _run_triage_and_fallbacks(
         })
 
     # A provider may return a buffered reply or failure after interruption.
-    # Reject it before durable UI/transcript writes and self-learning hooks.
+    # Reject it before durable UI/transcript writes.
     if cancelled is not None and cancelled():
         emitter.cancel_task()
         return _cancelled_result()

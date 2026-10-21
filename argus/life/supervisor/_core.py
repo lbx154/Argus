@@ -1157,6 +1157,14 @@ class LifeSupervisor(
                 if item.status == "done" and objective
                 and str(item.original_objective or item.objective).strip() == objective
             }
+            task_delivery = latest.get("delivery")
+            if (
+                isinstance(task_delivery, dict) and task_delivery.get("kind") == "task_completed"
+                and set(goal_items) <= {latest.get("item_id")}
+            ):
+                # The project was this one task: its receipt is the project's,
+                # with the same primary file and the same identity.
+                return dict(task_delivery)
             for entry in reversed(settlements):
                 extra = getattr(entry, "extra", None)
                 if not isinstance(extra, dict) or extra.get("success") is not True:
@@ -1316,6 +1324,7 @@ class LifeSupervisor(
         if details.get("project_done") is True or completion_kind == "certified_increment":
             report_result = self._manager_publish_project_report(
                 reason,
+                delivery=event.get("delivery"),
                 **(
                     {"certified_increment": True}
                     if completion_kind == "certified_increment"
@@ -1422,6 +1431,7 @@ class LifeSupervisor(
         if event.get("project_done") is True or event.get("completion_kind") == "certified_increment":
             report_result = self._manager_publish_project_report(
                 str(event.get("reason") or ""),
+                delivery=event.get("delivery"),
                 **(
                     {"certified_increment": True}
                     if event.get("completion_kind") == "certified_increment"
@@ -1463,32 +1473,8 @@ class LifeSupervisor(
                 self._publish_mission_completion_message(event)
                 # A mission boundary is a natural moment to write home.
                 self._maybe_write_letter()
-            elif (
-                event_type == EventType.LIFE_PLANNER_VERDICT
-                and event.get("project_done") is True
-                and isinstance(event.get("delivery"), dict)
-            ):
-                delivery = dict(event["delivery"])
-                self._publish_mission_completion_message({
-                    "item_id": str(delivery.get("item_id") or "project"),
-                    "title": str(delivery.get("title") or "Completed task"),
-                    "success": True,
-                    "status": "done",
-                    "summary": str(delivery.get("summary") or event.get("reason") or ""),
-                    "outcome": {
-                        "review_status": str(
-                            delivery.get("review_status") or "not_assessed"
-                        ),
-                    },
-                    "final_submission_certified": (
-                        delivery.get("kind") == "submission_certified"
-                    ),
-                    "overall_complete": True,
-                    "campaign_continues": False,
-                    "delivery": delivery,
-                    "delivery_id": str(delivery.get("delivery_id") or ""),
-                    "message_kind": "project-completed",
-                })
+        # A finished project is told by the Manager's completion report; its
+        # verdict carries the delivery card, not a second completion message.
         return delivered
 
     def _continuation_line(self, item_id: str, chinese: bool) -> str:
@@ -1784,7 +1770,10 @@ class LifeSupervisor(
                     if chinese
                     else "The final submission passed independent review."
                 )
-            elif overall_complete and independent_review_required and review == "done":
+            elif (
+                overall_complete and independent_review_required and review == "done"
+                and event.get("review_source") == "reviewer"
+            ):
                 continuation = (
                     "本次结果已由独立审阅者检查，未发现需要先修正的问题。"
                     if chinese
@@ -1838,7 +1827,7 @@ class LifeSupervisor(
                 ),
                 message_id=_message_id(
                     f"mission-result-{item_id}-"
-                    f"{str(event.get('message_kind') or ('continued' if campaign_continues else 'completed' if overall_complete and delivery_ready else 'ended'))}"
+                    f"{'continued' if campaign_continues else 'completed' if overall_complete and delivery_ready else 'ended'}"
                 ),
                 event_fields={
                     "mission_result": True,

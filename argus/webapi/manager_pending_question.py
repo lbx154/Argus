@@ -722,7 +722,7 @@ def _resolve_pending_question_with_manager(
         persist_once_answer,
     )
     from ..core.run_gateway import current_run_interrupt_reason
-    from ..manager.front_door import manager_triage
+    from ..manager.front_door import manager_judgment
     from ..roles.prompts.manager import build_pending_question_prompt
 
     cancelled_result = {
@@ -741,13 +741,12 @@ def _resolve_pending_question_with_manager(
     )
     prompt = build_pending_question_prompt(item, answer)
     try:
-        manager_reply = manager_triage(
-            mem,
-            prompt,
-            chat_state,
-            route="simple",
-            root_task_id=root_task_id,
-            on_fragment=None,
+        # The prompt is self-contained. A full SELF turn resumed the Manager's
+        # conversation and wrapped it in ~26k characters of persona, recall,
+        # Skills and project evidence.
+        manager_reply = manager_judgment(
+            mem, prompt, chat_state,
+            run_label="manager-pending-answer", root_task_id=root_task_id,
         )
     except Exception as exc:  # noqa: BLE001
         if current_run_interrupt_reason():

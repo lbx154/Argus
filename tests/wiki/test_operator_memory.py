@@ -17,7 +17,7 @@ from argus.core.pipeline_state import write_pipeline_state
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.knowledge_recall import knowledge_recall_for_memory
 from argus.life.memory import MemoryBundle
-from argus.life.reflection import build_answer_prompt, build_reflection_prompt
+from argus.life.reflection import build_reflection_prompt
 from argus.webapi.server import create_app
 from argus.wiki.context import render_operator_memory_block
 from argus.wiki.journal import append_knowledge_event, read_knowledge_events
@@ -67,21 +67,16 @@ def test_recall_reads_the_operator_first_under_the_private_scope(tmp_path, monke
     assert "the split the operator described" in text and "about the operator" in text
 
 
-def test_both_reflection_prompts_route_personal_facts_to_the_private_memory(tmp_path) -> None:
+def test_the_reflection_prompt_routes_personal_facts_to_the_private_memory(tmp_path) -> None:
     root = tmp_path / "operator"
-    answer = build_answer_prompt(
-        project_id="s-1", vertical="", operator_text="q", reply="a" * 700, root=tmp_path / "wiki",
-        existing=[], operator_root=root,
-    )
-    mission = build_reflection_prompt(
+    prompt = build_reflection_prompt(
         project_id="s-1", vertical="research", mission_id="m", title="t", objective="o", acceptance="a",
         review_status="done", review_reason="", stop_reason="", host_round_log="", run_reality="",
         vertical_root=tmp_path / "v", project_wiki=None, skills_dir=tmp_path / "skills", existing_lessons=[],
         operator_root=root,
     )
-    for prompt in (answer, mission):
-        assert "goes to their private memory, not to a shared page" in prompt
-        assert f"`{root}`" in prompt and "profile.md" in prompt and "kind: note" in prompt
+    assert "goes to their private memory, not to a shared page" in prompt
+    assert f"`{root}`" in prompt and "profile.md" in prompt and "kind: note" in prompt
 
 
 def test_the_api_lists_the_private_library_first_with_the_profile_and_serves_its_pages(tmp_path, monkeypatch) -> None:

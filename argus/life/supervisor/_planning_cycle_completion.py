@@ -314,6 +314,11 @@ class PlanningCycleCompletionMixin:
                 "Do not reuse old titles, page counts, or numerical results as final."
             ),
             "current_artifact_evidence": evidence,
+            # Who accepted the final work and what they verified, in their words.
+            "final_delivery_review": {
+                key: (terminal_delivery or {}).get(key, "")
+                for key in ("review_source", "review_status", "summary")
+            },
             # Decisions settled without an operator: the report must name them.
             "autonomous_assumptions": [
                 {key: row.get(key) for key in ("conflict", "reading", "source")}
@@ -336,6 +341,7 @@ class PlanningCycleCompletionMixin:
 
     def _manager_publish_project_report(
         self, completion_reason: str, *, certified_increment: bool = False,
+        delivery: dict[str, Any] | None = None,
     ) -> str:
         """Have Manager summarize the completed full stage ledger to the operator.
 
@@ -420,6 +426,9 @@ class PlanningCycleCompletionMixin:
                 event_fields={
                     "manager_project_report": True,
                     "current_stage": stage,
+                    # The project's delivery card rides on its one completion message.
+                    **({"delivery": delivery, "delivery_id": str(delivery.get("delivery_id") or "")}
+                       if isinstance(delivery, dict) else {}),
                 },
             )
             if not published and not any(

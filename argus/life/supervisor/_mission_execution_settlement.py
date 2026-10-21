@@ -950,8 +950,16 @@ class MissionExecutionSettlementMixin:
         campaign_continues = bool(status == "stage_continues" or (success and not overall_complete))
 
         plan_challenge = dict(getattr(outcome, "plan_challenge", {}) or {})
+        # Work an independent Reviewer accepted is reported in the Reviewer's
+        # words: the Engineer's handoff predates that review.
+        accepted_review = (
+            getattr(outcome, "final_review_reason", "")
+            if success and getattr(outcome, "final_review_source", "") == "reviewer"
+            else ""
+        )
         raw_mission_summary = str(
-            getattr(outcome, "summary", "")
+            accepted_review
+            or getattr(outcome, "summary", "")
             or getattr(outcome, "final_review_reason", "")
             or getattr(outcome, "final_message", "")
             or getattr(outcome, "reason", "")

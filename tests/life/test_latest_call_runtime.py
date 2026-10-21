@@ -30,14 +30,13 @@ def test_latest_call_runtime_is_none_before_any_call(tmp_path: Path) -> None:
 
 
 def test_latest_call_runtime_reports_the_work_call_not_helper_calls(tmp_path: Path) -> None:
-    """Classifiers, learning reviews and summaries run on their own (often
+    """Classifiers, reflection and summaries run on their own (often
     smaller) models; the composer must name the call that did the work."""
     start = {"type": "agent.io.start", "call_id": "x"}
     _write(tmp_path / "events.jsonl", [
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "manager-frontdoor-classify", "ts": 1.0},
         {**start, "backend": "copilot", "model": "work-model", "reasoning_effort": "high", "run_label": "self-implement", "ts": 2.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "manager-classify-grounded", "ts": 3.0},
-        {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "answer-learning", "ts": 4.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "reflection", "ts": 5.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "manager.reviewed_facts", "ts": 6.0},
         {**start, "backend": "copilot", "model": "summary-model", "run_label": "map-summary", "ts": 7.0},

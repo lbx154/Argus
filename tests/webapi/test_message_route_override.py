@@ -1,7 +1,8 @@
 """Operator-stated message category (auto / chat / task).
 
-``auto`` and ``task`` keep the front-door classifier in charge of scope and
-topology. ``chat`` explicitly stays inline and skips classification.
+``auto`` keeps the front-door classifier in charge of scope and topology.
+``task`` is still classified, but work goes to the team. ``chat`` explicitly
+stays inline and skips classification.
 """
 from __future__ import annotations
 
@@ -77,6 +78,7 @@ def _classify(
     route_override: str,
     monkeypatch,
     classifier_answer: tuple = (None, None, "simple"),
+    classifier_state: dict | None = None,
 ) -> tuple[_ClassifyResult, list[str], list[str]]:
     """Run one turn and report (result, phase labels, classifier call log)."""
     calls: list[str] = []
@@ -84,6 +86,7 @@ def _classify(
 
     def _fake_classify(mem, text, chat_state, **kwargs):  # noqa: ANN001, ANN003
         calls.append(text)
+        chat_state.update(classifier_state or {})
         return classifier_answer
 
     monkeypatch.setattr(
@@ -241,18 +244,54 @@ def test_forced_chat_does_not_replay_a_matching_recent_research_task(tmp_path, m
     assert len(memory.backlog.history()) == 1
 
 
+@pytest.mark.parametrize("self_mode", ["implement", "micro", "inspect"])
 @pytest.mark.parametrize("route", ["simple", "complex"])
-def test_task_mode_keeps_manager_in_charge_of_topology(tmp_path, monkeypatch, route) -> None:
+def test_task_mode_sends_work_to_the_team(tmp_path, monkeypatch, route, self_mode) -> None:
+    """Trial task 1b: an explicit Task the classifier marked SELF IMPLEMENT
+    ran alone with no review. The operator's choice now holds."""
     result, phases, calls = _classify(
         tmp_path,
         route_override="task",
         monkeypatch=monkeypatch,
         classifier_answer=(None, None, route),
+        classifier_state={"_frontdoor_self_mode": self_mode},
     )
 
     assert calls == ["优化推理吞吐"]
-    assert result.route == route
+    assert result.route == "complex"
     assert phases == ["正在理解你的请求…"]
+
+
+@pytest.mark.parametrize("classifier_state", [
+    {"_frontdoor_self_mode": "reply"},
+    {"_frontdoor_self_mode": "project_status"},
+    {"_frontdoor_greeting_reply": "你好！"},
+])
+def test_task_mode_keeps_conversation_inline(tmp_path, monkeypatch, classifier_state) -> None:
+    result, _phases, _calls = _classify(
+        tmp_path, route_override="task", monkeypatch=monkeypatch,
+        classifier_state=classifier_state,
+    )
+
+    assert result.route == "simple"
+
+
+def test_task_mode_leaves_a_control_or_setting_alone(tmp_path, monkeypatch) -> None:
+    result, _phases, _calls = _classify(
+        tmp_path, route_override="task", monkeypatch=monkeypatch,
+        classifier_answer=(None, "pause", "simple"),
+    )
+
+    assert (result.control, result.route) == ("pause", "simple")
+
+
+def test_auto_leaves_single_worker_work_alone(tmp_path, monkeypatch) -> None:
+    result, _phases, _calls = _classify(
+        tmp_path, route_override="auto", monkeypatch=monkeypatch,
+        classifier_state={"_frontdoor_self_mode": "implement"},
+    )
+
+    assert result.route == "simple"
 
 
 def test_forced_turn_still_carries_the_message_and_a_task_id(
@@ -392,3 +431,35 @@ def test_endpoint_rejects_an_unknown_category(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_explicit_task_reaches_triage_on_the_team_route(tmp_path, monkeypatch) -> None:
+    _make_project(tmp_path)
+    manager_state._STATES.pop(_SID, None)
+    routes: list[str] = []
+
+    def classify(mem, text, chat_state, **kwargs):  # noqa: ANN001, ANN003
+        chat_state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    def triage(mem, body, chat_state, *, route=None, **kwargs):  # noqa: ANN001, ANN003
+        routes.append(route)
+        return None
+
+    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", classify)
+    monkeypatch.setattr("argus.manager.front_door.manager_triage", triage)
+    dispatched: list[str] = []
+
+    def dispatch(mem, body, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        dispatched.append(body)
+        raise RuntimeError("stop after dispatch")
+
+    monkeypatch.setattr(manager_bridge, "_dispatch_team_mission", dispatch)
+
+    manager_bridge.manager_message(
+        _SID, "Add a wrap function with tests", global_root=tmp_path, route_override="task",
+    )
+
+    assert routes == ["complex"]
+    assert dispatched == ["Add a wrap function with tests"]
+    manager_state._STATES.pop(_SID, None)

@@ -515,7 +515,7 @@ def test_unclassified_pending_message_does_not_become_an_engineer_directive(
 
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("401 Missing bearer")
         ),

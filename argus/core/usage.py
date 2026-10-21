@@ -848,61 +848,6 @@ def build_usage_record(
     )
 
 
-def usage_recorded_event(record: UsageRecord) -> dict[str, Any]:
-    """Return the canonical self-contained ``usage.recorded`` v2 event."""
-    models = [dict(item) for item in record.model_usage]
-    usage = {
-        "input_tokens": record.input_tokens,
-        "cached_input_tokens": record.cached_input_tokens,
-        "cache_write_tokens": record.cache_write_tokens,
-        "output_tokens": record.output_tokens,
-        "reasoning_output_tokens": record.reasoning_output_tokens,
-        "premium_requests": record.premium_requests,
-        "total_nano_aiu": record.total_nano_aiu,
-        "models": models,
-    }
-    pricing = {
-        "status": record.pricing_status,
-        "tier": record.pricing_tier,
-        "cost_basis": record.cost_basis,
-        "cost_usd": record.cost_usd,
-        "premium_request_cost_usd": record.premium_request_cost_usd,
-    }
-    return {
-        "type": EventType.USAGE_RECORDED,
-        "schema_version": 2,
-        "call_id": record.call_id,
-        "project_id": record.project_id,
-        "mission_id": record.mission_id,
-        "thread_id": record.thread_id,
-        "started_at": record.started_at,
-        "completed_at": record.completed_at,
-        "duration_ms": record.duration_ms,
-        "provider": record.provider,
-        "model": record.model,
-        "run_label": record.run_label,
-        "status": record.status,
-        "source": record.source,
-        "error": record.error,
-        "usage": usage,
-        "pricing": pricing,
-        # Flat compatibility fields for existing event consumers.
-        "input_tokens": record.input_tokens,
-        "cached_input_tokens": record.cached_input_tokens,
-        "cache_write_tokens": record.cache_write_tokens,
-        "output_tokens": record.output_tokens,
-        "reasoning_output_tokens": record.reasoning_output_tokens,
-        "premium_requests": record.premium_requests,
-        "total_nano_aiu": record.total_nano_aiu,
-        "premium_request_cost_usd": record.premium_request_cost_usd,
-        "pricing_status": record.pricing_status,
-        "pricing_tier": record.pricing_tier,
-        "cost_basis": record.cost_basis,
-        "cost_usd": record.cost_usd,
-        "ts": record.completed_at,
-    }
-
-
 class UsageLedger:
     """Project-local ledger with cross-process idempotent append."""
 
@@ -2238,7 +2183,6 @@ __all__ = [
     "format_usage_cost",
     "project_usage_summary",
     "summarize_usage",
-    "usage_recorded_event",
 ]
 
 

@@ -1824,7 +1824,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     # 41 on both origin/main and dev on 2026-09-16 with the same four files
     # (apps/_runtime_construction 7, apps/_self_reply 15, manager/front_door 10,
     # webapi/attachments 9); the 40 was a miscount, not a spread.
-    "session_root": 41,
+    "session_root": 33,
     # manager/self_context adds one required LayeredSkillStore(project_dir=...)
     # keyword naming the Skill directory, not another project-state alias.
     "project_dir": 34,

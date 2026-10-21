@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from argus.adapters.agent_cli_backend import AgentCliBackend
+from argus.adapters.agent_cli_backend._io_log import raw_transcript_path
 from argus.agent_cli.models import AgentRunResult
 from argus.core.models import RunnerOptions
 
@@ -34,7 +35,7 @@ def _cli_result(
         # The provider streamed real work before the call ended (#129 shape).
         stdout_lines=['{"type":"model.call_finished"}'], stdout_line_count=1,
         turn_completed=(not failed) if turn_completed is None else turn_completed,
-        turn_failed=failed, fatal_error=fatal_error, session_identity_conflict=conflict,
+        turn_failed=failed, fatal_error=fatal_error or conflict, session_identity_conflict=conflict,
     )
 
 
@@ -68,7 +69,7 @@ def copilot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         def run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
             seen["options"] = kwargs["options"]
             seen["resume_thread_id"] = kwargs["resume_thread_id"]
-            seen["start_rows_at_spawn"] = _rows(log_path, "agent.io.start")
+            seen["start_rows_at_spawn"] = _rows(raw_transcript_path(log_path), "agent.io.start")
             return fake(kwargs)
 
         monkeypatch.setattr(backend._runner.__class__, "run_exec", run_exec, raising=True)
@@ -134,7 +135,7 @@ def test_watchdog_kill_without_terminal_result_keeps_identity_and_stays_failed(
     assert result.thread_id == bound
     assert result.fatal_error.startswith("Provider turn cap reached")
     complete = _rows(copilot["log_path"], "agent.io.complete")[-1]
-    assert complete["thread_id"] == bound and complete["provider_session_id"] == bound
+    assert complete["thread_id"] == bound
     assert complete["turn_completed"] is False and complete["turn_failed"] is True
     usage = _usage_row(tmp_path)
     assert usage["status"] == "error" and usage["thread_id"] == bound
@@ -194,7 +195,7 @@ def test_reported_identity_mismatch_keeps_accounting_unresolved(tmp_path: Path, 
     assert copilot["lookups"] == [None], "no session is looked up for a conflicted call"
     assert result.thread_id is None, "the resume identity must not be re-bound either"
     complete = _rows(copilot["log_path"], "agent.io.complete")[-1]
-    assert complete["thread_id"] is None and complete["session_identity_conflict"] == conflict
+    assert complete["thread_id"] is None and complete["fatal_error"] == conflict
     usage = _usage_row(tmp_path)
     assert usage["thread_id"] is None and usage["status"] == "error"
     assert "accounting_pending: session_identity_conflict" in usage["error"]

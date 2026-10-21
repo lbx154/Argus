@@ -83,11 +83,21 @@ CURRENT = [
 
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
+    """The event log and the call ledger as a project keeps them, in time order."""
     write = lambda path, rows: path.write_text("".join(json.dumps(row) + "\n" for row in rows))  # noqa: E731
-    write(tmp_path / "events.jsonl.1", OLDER)
-    write(tmp_path / "events.jsonl", CURRENT)
-    with (tmp_path / "events.jsonl").open("a") as handle:
-        handle.write('{"type": "usage.recorded", "call_id": "torn"\n')
+    rows = [{**row, "ts": float(index)} for index, row in enumerate(OLDER + CURRENT)]
+    calls = [row for row in rows if row["type"] == "usage.recorded"]
+    events = [row for row in rows if row["type"] != "usage.recorded"]
+    write(tmp_path / "events.jsonl.1", [row for row in events if row["ts"] < len(OLDER)])
+    # An older log also carried a copy of each call; the ledger is not counted twice.
+    write(tmp_path / "events.jsonl", [*(row for row in events if row["ts"] >= len(OLDER)), calls[-1]])
+    write(tmp_path / "usage.jsonl", [
+        {**{key: value for key, value in row.items() if key not in {"type", "ts"}}, "completed_at": row["ts"]}
+        for row in calls
+    ])
+    for name in ("events.jsonl", "usage.jsonl"):
+        with (tmp_path / name).open("a") as handle:
+            handle.write('{"call_id": "torn"\n')
     return tmp_path
 
 

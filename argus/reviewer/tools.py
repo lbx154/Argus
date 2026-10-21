@@ -502,14 +502,14 @@ def review_action_tools(
             extensions.append(str(Path(__file__).with_name("pi_review_tools.mjs")))
         elif backend == "codex":
             for key, value in {
-                "command": sys.executable, "args": ["-m", "argus.reviewer.tools"],
+                "command": sys.executable, "args": ["-P", "-m", "argus.reviewer.tools"],
                 "env_vars": list(bridge.environment),
                 "env.PYTHONPATH": environment["PYTHONPATH"],
             }.items():
                 extra.extend(["-c", f"mcp_servers.{SERVER}.{key}={json.dumps(value)}"])
         elif backend in {"copilot", "claude", "qoder"}:
             config = {"mcpServers": {SERVER: {
-                "command": sys.executable, "args": ["-m", "argus.reviewer.tools"],
+                "command": sys.executable, "args": ["-P", "-m", "argus.reviewer.tools"],
                 "env": environment,
             }}}
             if backend == "copilot":

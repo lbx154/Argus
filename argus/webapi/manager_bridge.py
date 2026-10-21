@@ -16,7 +16,6 @@ dispatch, and pending-question operations from their owning modules.
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,6 @@ from .manager_session_intent import contextualize_operator_turn
 from .manager_state import (
     _chat_state_for,
     _lock_for,
-    answer_learning_backend,
     interrupt_manager_turns,
     manager_control_generation,
 )
@@ -54,77 +52,6 @@ log = logging.getLogger(__name__)
 
 _PLAN_PREVIEW_CACHE_TTL_S = 60.0
 _TEAM_REPLAY_WINDOW_S = 90.0
-
-
-def _schedule_answer_learning(
-    sid: str,
-    *,
-    life_dir: Path,
-    global_root: Path | str | None,
-    operator_text: str,
-    reply: str,
-    turn_id: str = "",
-    evidence: str = "",
-    frontdoor: dict[str, Any] | None = None,
-) -> threading.Thread | None:
-    """Queue every delivered answer durably; an earlier pass never drops a turn.
-
-    ``frontdoor`` carries what the front-door classifier already decided about
-    this turn. When it marked the turn as small talk, a settings change, a
-    control, or a message-only reply with no observed work, there is nothing to
-    learn and the paid learning call is not made.
-    """
-    from ..core.knobs import learning_enabled
-    from ..life.answer_learning import enqueue_answer
-
-    if not learning_enabled() or not str(reply or "").strip() or global_root is None:
-        return None
-    if _frontdoor_says_nothing_to_learn(frontdoor):
-        return None
-    state = _chat_state_for(sid)
-    backend = getattr(state.get("manager_runner"), "_backend", None)
-    vertical = ""
-    from ..skills.vertical_select import resolve_project_vertical
-
-    for candidate in (state.get("manager_runner_workdir"), life_dir):
-        if candidate:
-            try:
-                vertical = str(resolve_project_vertical(Path(candidate), life_dir=Path(life_dir)) or "")
-            except Exception:
-                log.debug("answer learning: vertical is undecided", exc_info=True)
-            if vertical:
-                break
-    try:
-        return enqueue_answer(
-            root=Path(global_root), sid=sid, operator_text=operator_text,
-            reply=reply, vertical=vertical, backend=backend, turn_id=turn_id, evidence=evidence,
-            backend_factory=answer_learning_backend,
-        )
-    except Exception:  # learning never prevents delivery of an already completed reply
-        log.exception("could not queue answer learning for %s", sid)
-        return None
-
-
-def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
-    """Reuse the classifier's own judgement of the turn; add no new heuristic."""
-    if not frontdoor:
-        return False
-    if frontdoor.get("greeting") or frontdoor.get("config"):
-        return True
-    if frontdoor.get("control") in {"steer", "pause", "abort", "authorization"}:
-        return True
-    return (
-        frontdoor.get("intake_type") == "ephemeral"
-        and frontdoor.get("self_mode") == "reply"
-        and not frontdoor.get("tool_evidence")
-    )
-
-
-def _answer_learning_evidence(steps: list[dict[str, Any]]) -> str:
-    return "\n".join(str({
-        key: value for key, value in step.items()
-        if key not in {"call_id", "started_ts", "ended_ts"}
-    }) for step in steps)[-6000:]
 
 
 def _recent_team_replay(
@@ -323,8 +250,8 @@ def _manager_message(
     ``/message``) keeps the whole exchange synchronous.
 
     ``route_override`` lets the operator explicitly mark Chat or Task. Task
-    still passes through classification so conversation stays inline and
-    finite work can use one worker with a vertical. Chat skips classification.
+    still passes through classification so conversation stays inline, and
+    work goes to the team rather than one worker. Chat skips classification.
     Explicit Chat also bypasses automatic pending-answer interpretation and
     task replay; the dedicated answer/decision endpoints remain authoritative.
 
@@ -398,29 +325,10 @@ def _manager_message(
     )
     life_dir = mem.project_root
     credential_record = None
-
-    # Filled in once the front door has classified this turn.
-    frontdoor_class: dict[str, Any] = {}
-
-    def _after_reply(reply: str) -> None:
-        if frontdoor_class:
-            frontdoor_class["tool_evidence"] = bool(turn_steps)
-        _schedule_answer_learning(
-            sid,
-            life_dir=life_dir,
-            global_root=mem.global_root,
-            operator_text=operator_text,
-            reply=reply,
-            turn_id=turn_id,
-            evidence=_answer_learning_evidence(turn_steps),
-            frontdoor=dict(frontdoor_class) or None,
-        )
-
     emitter = _TurnEmitter(
         life_dir=life_dir,
         turn_id=turn_id,
         fragment=_fragment,
-        after_reply=_after_reply,
         steps=turn_steps,
         task_objective=operator_text,
     )
@@ -710,21 +618,6 @@ def _manager_message(
                     "launch": launch, "pending_question_checked": checked_question,
                 },
             }
-        frontdoor_intake = chat_state.get("_frontdoor_intake")
-        frontdoor_class.update({
-            "greeting": bool(
-                classify.greeting_reply and intent is None and control is None and route == "simple"
-            ),
-            "config": intent is not None,
-            "control": (
-                "authorization" if chat_state.get("_frontdoor_authorization") else control
-            ),
-            "intake_type": (
-                str(frontdoor_intake.get("kind") or "") if isinstance(frontdoor_intake, dict) else ""
-            ),
-            "self_mode": classify.classified_self_mode or classify.self_mode,
-        })
-
         _announce_standing_directive(chat_state, life_dir, turn_id)
         greeting_result = _maybe_greeting_reply(classify, body, emitter)
         if greeting_result is not None:

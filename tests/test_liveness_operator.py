@@ -107,7 +107,7 @@ def test_several_open_questions_do_not_swallow_control(
     def interpret(*_args, **_kwargs):
         raise AssertionError("no single question for the Manager to interpret")
 
-    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(
         config_intent, "_front_door_classify",
         lambda *_args, **_kwargs: (None, control, "simple"),
@@ -161,7 +161,7 @@ def test_failed_interpretation_of_one_question_still_reaches_pause(
             raise RuntimeError("401 Missing bearer")
         return "IS_ANSWER=maybe\nRESOLVED=true\nDECISION=continue"
 
-    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(
         config_intent, "_front_door_classify",
         lambda *_args, **_kwargs: (None, "pause", "simple"),
@@ -480,7 +480,7 @@ def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
     item = _park(life, "route", "Which route?")
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: json.dumps({
             "is_answer": True, "resolved": True,
             "decision": "Take the short route.", "reply": "Delivered.",

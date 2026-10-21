@@ -1,12 +1,14 @@
 """Where one project's model calls went, read from its event log (roadmap HO-1).
 
 Every efficiency change has to show its effect here. The report is read-only:
-it reads ``events.jsonl`` (every retained generation, oldest first) and writes
-nothing; the round handoff files carry no fact the round events lack.
+it reads ``events.jsonl`` (every retained generation, oldest first) and the
+call ledger ``usage.jsonl``, and writes nothing; the round handoff files carry
+no fact the round events lack.
 
     python -m argus.tools.efficiency_report <project-state-dir> [--json]
 
-A call is a ``usage.recorded`` row; its role comes from its run label. "No new
+A call is a row of the ledger, placed among the events where it completed; its
+role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
 that added no new work, and a Manager supervision whose decision was never
 applied or kept the course. ``avoided`` counts the Planner calls skipped because
@@ -15,6 +17,7 @@ nothing it reads had changed (``model_call_skipped``).
 from __future__ import annotations
 
 import argparse
+import heapq
 import json
 import math
 import re
@@ -42,8 +45,8 @@ def task_of(usage: dict[str, Any]) -> str:
     return str(usage.get("mission_id") or "").partition(":attempt:")[0]
 
 
-def _events(life_dir: Path) -> Iterator[dict[str, Any]]:
-    for path in retained_jsonl_paths(life_dir / "events.jsonl"):
+def _rows(log: Path) -> Iterator[dict[str, Any]]:
+    for path in retained_jsonl_paths(log):
         with path.open("rb") as handle:
             for line in handle:
                 try:
@@ -52,6 +55,23 @@ def _events(life_dir: Path) -> Iterator[dict[str, Any]]:
                     continue  # a torn line is not a call
                 if isinstance(row, dict):
                     yield row
+
+
+def _events(life_dir: Path) -> Iterator[dict[str, Any]]:
+    """The event log with each ledger call inserted where it completed.
+
+    Older logs also carried a ``usage.recorded`` copy of each call; the ledger
+    is the one source, so those copies are skipped.
+    """
+    events = (
+        row for row in _rows(life_dir / "events.jsonl")
+        if canonical_event_type(row.get("type")) != "usage.recorded"
+    )
+    calls = (
+        {**row, "type": "usage.recorded", "ts": row.get("completed_at")}
+        for row in _rows(life_dir / "usage.jsonl")
+    )
+    return heapq.merge(events, calls, key=lambda row: float(row.get("ts") or 0))
 
 
 def _tally(rows: Iterable[dict[str, Any]], **extra: Any) -> dict[str, Any]:

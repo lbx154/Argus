@@ -88,3 +88,19 @@ def test_evaluation_candidates_and_edit_attribution_are_preserved(tmp_path):
     event = next(r["data"] for r in records if r["kind"] == "role_event")
     assert event["actor"] == "engineer-r1" and event["target_paths"] == ["src/train.py"]
     assert "not collected" not in json.dumps(records)
+
+
+def test_orchestration_tokens_come_from_the_call_ledger(tmp_path):
+    work, session = setup(tmp_path)
+    (session / "usage.jsonl").write_text(json.dumps({
+        "call_id": "a", "run_label": "engineer-r1", "completed_at": 2000000000,
+        "input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 7,
+    }) + "\n")
+    # An older event log's copy of the same call is not counted again.
+    (session / "events.jsonl").write_text(json.dumps({
+        "type": "usage.recorded", "ts": 2000000000, "call_id": "a", "input_tokens": 100,
+    }) + "\n")
+
+    assert collect(tmp_path)["orchestration_token_usage"] == {
+        "input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 7,
+    }
