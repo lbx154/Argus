@@ -17,7 +17,7 @@ function writeExpanded(value: boolean) {
   try { globalThis.localStorage?.setItem(EXPANDED_KEY, value ? '1' : '0'); } catch { /* per-browser convenience only */ }
 }
 
-const ROLE_NAMES_ZH: Record<string, string> = { engineer: '工程师', planner: '规划员', reviewer: '审核员', manager: 'Argus' };
+const ROLE_NAMES_ZH: Record<string, string> = { engineer: '工程师', planner: '规划者', reviewer: '审阅者', manager: 'Argus' };
 const ROLE_NAMES_EN: Record<string, string> = { engineer: 'Engineer', planner: 'Planner', reviewer: 'Reviewer', manager: 'Argus' };
 const ICONS = { command: SquareTerminal, tool: Search, edit: FilePen, message: MessageSquareText, milestone: Flag };
 

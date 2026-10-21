@@ -15,7 +15,7 @@ describe('historical task-report presentation', () => {
   it('describes the recorded interruption neutrally and keeps the later next-action line visible', () => {
     const report = plainTaskReport(INTERRUPTED_TASK_REPORT, 'zh-CN')!;
     expect(report.text).toContain('当时这项任务未能完成。');
-    expect(report.text).toContain('当时运行被操作员停下，这一轮没有做完；这不是对工作本身的评价');
+    expect(report.text).toContain('当时运行被你停下了，这一轮没有做完；这不是对工作本身的评价');
     expect(report.text).toContain('已做的工作保留，当时没有重试。');
     expect(report.text).toContain('当时记录的下一步：诊断当时的原因，再选择可恢复的方案。');
     expect(report.text).not.toMatch(/Technical record|daemon|External interrupt|Next:|你|研究失败/);
@@ -37,7 +37,7 @@ describe('historical task-report presentation', () => {
     const raw = `未能完成：当前任务。\n原因：${INTERRUPTED_TASK_REASON} 技术记录：error=External interrupt: daemon stop requested\n下一步：Argus 会诊断原因并选择可恢复的方案。`;
     const report = plainTaskReport(raw, 'zh-CN')!;
     expect(report.text).toContain('当时这项任务未能完成。');
-    expect(report.text).toContain('当时运行被操作员停下');
+    expect(report.text).toContain('当时运行被你停下了');
     expect(report.text).not.toContain('你');
     expect(report.text).toContain('当时记录的下一步：诊断当时的原因');
     expect(report.technical).not.toContain('下一步');

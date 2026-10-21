@@ -94,46 +94,49 @@ const KINDS: Record<MissionOutcomeClass, MissionOutcomeKind> = {
   ended: 'mission_ended',
 };
 
-const LABELS: Record<MissionOutcomeKind, string> = {
-  mission_completed: 'The task was completed.',
-  mission_continued: 'The task was completed and the project continues with the next one.',
-  mission_certified: 'The final submission was checked and approved.',
-  mission_incomplete: 'The task stopped with work still remaining.',
-  mission_stalled: 'The task stopped because recent rounds made no useful progress.',
-  mission_blocked: 'The task cannot continue until something outside it is resolved.',
-  mission_failed: 'The task could not be completed.',
-  mission_paused: 'The task was paused before it finished because {why}; its progress is saved and it can be resumed.',
-  mission_ended: 'The task ended without a recorded outcome.',
+type Pair = readonly [en: string, zh: string];
+
+const LABELS: Record<MissionOutcomeKind, Pair> = {
+  mission_completed: ['The task was completed.', '任务已完成。'],
+  mission_continued: ['The task was completed and the project continues with the next one.', '任务已完成，项目继续进行下一项。'],
+  mission_certified: ['The final submission was checked and approved.', '最终投稿经核对后获得认可。'],
+  mission_incomplete: ['The task stopped with work still remaining.', '任务停止时仍有工作未完成。'],
+  mission_stalled: ['The task stopped because recent rounds made no useful progress.', '最近几轮没有取得实质进展，任务已停止。'],
+  mission_blocked: ['The task cannot continue until something outside it is resolved.', '任务需要先解决外部问题才能继续。'],
+  mission_failed: ['The task could not be completed.', '任务没能完成。'],
+  mission_paused: ['The task was paused before it finished because {why}; its progress is saved and it can be resumed.', '任务在完成前暂停，因为{why}；进度已保存，可以继续。'],
+  mission_ended: ['The task ended without a recorded outcome.', '任务已结束，没有记录到明确的结果。'],
 };
 
 // Why a call stopped, as a clause; mirrors argus/core/stop_kinds.py.
-const STOP_KIND_CLAUSES: Record<string, string> = {
-  budget_exhausted: 'the project reached its budget limit',
-  cost_unreconciled: 'provider charges are awaiting reconciliation or explicit risk approval',
-  provider_cooldown: 'the model service asked Argus to wait before calling again',
-  provider_fence: 'the model provider is not accepting calls right now',
-  daemon_shutdown: 'Argus was stopped',
-  operator_pause: 'the operator paused the work',
-  operator_abort: 'the operator cancelled the task',
-  backend_unavailable: 'the model service was unavailable',
-  transient_error: 'a temporary error interrupted the call',
-  permanent_error: 'an error that will not clear on its own stopped the call',
+const STOP_KIND_CLAUSES: Record<string, Pair> = {
+  budget_exhausted: ['the project reached its budget limit', '项目达到了预算上限'],
+  cost_unreconciled: ['provider charges are awaiting reconciliation or explicit risk approval', '模型费用尚待核对或明确的风险确认'],
+  provider_cooldown: ['the model service asked Argus to wait before calling again', '模型服务要求 Argus 稍后再调用'],
+  provider_fence: ['the model provider is not accepting calls right now', '模型服务当前不接受调用'],
+  daemon_shutdown: ['Argus was stopped', 'Argus 被停止'],
+  operator_pause: ['you paused the work', '你暂停了工作'],
+  operator_abort: ['you cancelled the task', '你取消了这项任务'],
+  backend_unavailable: ['the model service was unavailable', '模型服务不可用'],
+  transient_error: ['a temporary error interrupted the call', '一次临时错误中断了调用'],
+  permanent_error: ['an error that will not clear on its own stopped the call', '一个不会自行消失的错误中止了调用'],
 };
 
-const PARK_REASON_CLAUSES: Record<string, string> = {
-  external_work: 'work outside Argus had to finish first',
-  operator_question: 'a question is waiting for the operator',
+const PARK_REASON_CLAUSES: Record<string, Pair> = {
+  external_work: ['work outside Argus had to finish first', '需要先等 Argus 之外的工作完成'],
+  operator_question: ['a question is waiting for your answer', '有个问题在等你回答'],
 };
 
 function normalizedString(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function pauseClause(status: string, recorded: unknown, stopKind: string): string {
+function pauseClause(status: string, recorded: unknown, stopKind: string, zh: boolean): string {
   const reason = parkReason(status, recorded);
-  if (reason) return PARK_REASON_CLAUSES[reason] || STOP_KIND_CLAUSES[reason] || 'the work was paused';
-  if (STOP_KIND_CLAUSES[stopKind]) return STOP_KIND_CLAUSES[stopKind];
-  return reason === null ? 'the work was interrupted' : 'the work was paused';
+  const pick = (pair: Pair) => pair[zh ? 1 : 0];
+  const known = (reason && (PARK_REASON_CLAUSES[reason] || STOP_KIND_CLAUSES[reason])) || STOP_KIND_CLAUSES[stopKind];
+  if (known) return pick(known);
+  return reason === null ? pick(['the work was interrupted', '工作被打断了']) : pick(['the work was paused', '工作被暂停了']);
 }
 
 function normalizedOutcomeClass(value: unknown): MissionOutcomeClass | null {
@@ -210,12 +213,15 @@ export function outcomeDimensionSummary(
 
 export function missionOutcomePresentation(
   event: MissionOutcomeEvent,
+  locale: 'en' | 'zh-CN' = 'en',
 ): MissionOutcomePresentation {
+  const zh = locale === 'zh-CN';
+  const say = (kind: MissionOutcomeKind) => LABELS[kind][zh ? 1 : 0];
   if (event.success === true && event.campaign_continues === true) {
     return {
       outcomeClass: 'completed',
       kind: 'mission_continued',
-      label: LABELS.mission_continued,
+      label: say('mission_continued'),
       glyph: '↻',
       tone: 'info',
       missionStatus: 'continued',
@@ -226,11 +232,11 @@ export function missionOutcomePresentation(
   const status = normalizedString(event.status);
   const base = PRESENTATION[outcomeClass];
   let kind: MissionOutcomeKind = KINDS[outcomeClass];
-  let label = LABELS[kind];
+  let label = say(kind);
   let technical = '';
   if (outcomeClass === 'completed' && event.final_submission_certified === true) {
     kind = 'mission_certified';
-    label = LABELS.mission_certified;
+    label = say('mission_certified');
   } else if (outcomeClass === 'ended') {
     // An unrecognised status is a technical fact, not part of the sentence.
     technical = String(event.status ?? '').trim();
@@ -240,7 +246,7 @@ export function missionOutcomePresentation(
         : {};
       const stopKind = normalizedString(event.stop_kind) || normalizedString(outcome.interruption_kind);
       kind = 'mission_paused';
-      label = LABELS.mission_paused.replace('{why}', pauseClause(status, event.park_reason, stopKind));
+      label = say('mission_paused').replace('{why}', pauseClause(status, event.park_reason, stopKind, zh));
     }
   }
   return {
