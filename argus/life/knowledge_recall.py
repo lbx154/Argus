@@ -51,7 +51,8 @@ _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
 _MAX_CODE_FILES = 4
-_MAX_CODE_SCAN = 64
+_MAX_PAGE_BYTES = 32_768
+_MAX_CITING_PAGES = 64
 _MAX_SIBLINGS = 8
 _MAX_SIBLING_CANDIDATES = 64
 _MAX_PROJECT_ENTRIES = 256
@@ -479,7 +480,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
 
 class MarkdownKnowledgeRecall:
     def __init__(self, index_path: Path, roots: list[KnowledgeRoot], *,
-                 max_documents: int = 256, max_file_bytes: int = 32_768,
+                 max_documents: int = 256, max_file_bytes: int = _MAX_PAGE_BYTES,
                  max_total_bytes: int = 1_000_000, max_scan_entries: int = 4096,
                  embedder: EmbeddingAdapter | None = None) -> None:
         from .recall_embedding import configured_embedder
@@ -826,9 +827,9 @@ def _cited_source_dirs(root: KnowledgeRoot) -> set[Path]:
 
     workspace, library = root.boundary.absolute(), (root.library or root.path).absolute()
     found: set[Path] = set()
-    for page in islice(root.path.rglob("*.md"), _MAX_CODE_SCAN):
+    for page in islice(root.path.rglob("*.md"), _MAX_CITING_PAGES):
         try:
-            text = _read_current_file(page, 32_768).decode("utf-8", "replace")
+            text = _read_current_file(page, _MAX_PAGE_BYTES).decode("utf-8", "replace")
         except (OSError, ValueError):
             continue
         for target in linked_files(page, text, workspace):

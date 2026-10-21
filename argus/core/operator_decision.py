@@ -203,8 +203,8 @@ def operator_answers(rows: Iterable[Any], *, since: float = 0.0) -> list[str]:
     )
     answers = []
     for card in cards:
-        question = " ".join(str(card.get("question") or "").split())[:300]
-        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())[:500]
+        question = " ".join(str(card.get("question") or "").split())
+        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())
         if question and answer:
             who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
             answers.append(f"{question} → {answer} ({who})")

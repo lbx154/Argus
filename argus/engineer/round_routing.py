@@ -36,7 +36,7 @@ def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
     """
     return ReviewDecision(
         status=HANDOFF_STATUS[holder],
-        reason=strip_handoff(message)[-1200:] or f"Engineer handed the work to the {holder}.",
+        reason=strip_handoff(message) or f"Engineer handed the work to the {holder}.",
         next_action="",
         operator_question=question,
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",

@@ -193,7 +193,7 @@ def test_busy_retries_back_off_and_stop_after_three_hours(tmp_path, monkeypatch)
     assert len(calls) == 44 and calls[-1] - calls[0] >= 3 * 3600
     path = next((life / "manager-deferred").glob("*.json"))
     assert read_json(path)["status"] == "needs_attention"
-    assert "three hours" in read_turns(life)[-1]["text"]
+    assert "3 hours" in read_turns(life)[-1]["text"]
 
 
 def test_a_saved_message_is_checked_against_the_same_question_once(tmp_path, monkeypatch):

@@ -22,6 +22,7 @@ from .map_view import facts, text
 
 CARDS_VERSION = 2
 TASK_LIMIT = 40
+RECORD_CHARS = 700
 # How much a card holds depends on the language it is read in: a Chinese title
 # of sixteen characters and an English one of eight words say about as much.
 LIMITS = {
@@ -49,7 +50,7 @@ def _last_records(dataset: dict) -> dict[str, str]:
     settlement only repeats that report, written before the review."""
     last: dict[str, tuple[str, str]] = {}
     for event in sorted(dataset.get("events", []), key=lambda event: float(event.get("ts") or 0)):
-        said = text(event.get("text"), 700).strip()
+        said = text(event.get("text"), RECORD_CHARS).strip()
         owner, kind = event.get("item_id"), event.get("type")
         if kind in _RECORDS and owner and said and not (
             kind == "life.mission.completed" and last.get(owner, ("", ""))[0] == "round.review.completed"
