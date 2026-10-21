@@ -207,6 +207,7 @@ export interface LifeObserverNoteEvent extends EventMsg {
   "to": "manager" | "operator";
   "text": string;
   "operator_alert"?: boolean;
+  "evidence"?: string;
 }
 
 export interface AgentIoStartEvent extends EventMsg {
@@ -541,6 +542,9 @@ export interface LifePlannerErrorEvent extends EventMsg {
   payload_schema_version?: 1;
   "error": string;
   "reason"?: string;
+  "kind"?: string;
+  "text"?: string;
+  "operator_alert"?: boolean;
 }
 
 export interface LifeRuntimeFailureCircuitOpenedEvent extends EventMsg {
@@ -569,6 +573,8 @@ export interface LifeRuntimeFailureCircuitBlockedEvent extends EventMsg {
   "runtime_identity"?: Record<string, unknown>;
   "operator_alert"?: boolean;
   "reason": string;
+  "kind"?: string;
+  "text"?: string;
 }
 
 export interface LifeRuntimeFailureCanaryPassedEvent extends EventMsg {
@@ -1171,6 +1177,7 @@ export interface LifeStatusEvent extends EventMsg {
   type: "life.status";
   payload_schema_version?: 1;
   "text"?: string;
+  "kind"?: string;
 }
 
 export interface LifePhaseStartedEvent extends EventMsg {
@@ -1450,6 +1457,7 @@ export interface OperatorAlertEvent extends EventMsg {
   "text"?: string;
   "reason"?: string;
   "operator_alert"?: true;
+  "kind"?: string;
 }
 
 export interface LifeMissionProviderConfigurationDisabledEvent extends EventMsg {
@@ -1501,6 +1509,7 @@ export interface LifeExecutionHostBlockedEvent extends EventMsg {
   "reason": string;
   "operator_alert": true;
   "recoverable"?: boolean;
+  "kind"?: string;
 }
 
 export interface LifeAuthFailureEvent extends EventMsg {

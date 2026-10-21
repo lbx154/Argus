@@ -248,6 +248,7 @@
     {
       "event": {
         "agent_layer": "observer",
+        "evidence": "evidence",
         "item_id": "task-1",
         "operator_alert": true,
         "payload_schema_version": 1,
@@ -919,6 +920,7 @@
     },
     {
       "event": {
+        "kind": "agent_message",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "ts": 1700000051,
@@ -1130,6 +1132,7 @@
       "event": {
         "blocked_item_id": "blocked item id",
         "item_id": "task-1",
+        "kind": "agent_message",
         "operator_alert": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
@@ -1556,8 +1559,11 @@
     {
       "event": {
         "error": "provider request failed",
+        "kind": "agent_message",
+        "operator_alert": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
         "ts": 1700000096,
         "type": "life.planner.error"
       },
@@ -1715,6 +1721,7 @@
         "exception_type": "exception type",
         "fingerprint": "fingerprint",
         "item_id": "task-1",
+        "kind": "agent_message",
         "normalized_error": "normalized error",
         "occurrence_count": 1,
         "operator_alert": true,
@@ -1723,6 +1730,7 @@
         "runtime_identity": {
           "value": "recorded"
         },
+        "text": "Renderer event detail",
         "ts": 1700000110,
         "type": "life.runtime_failure.circuit_blocked"
       },
@@ -2550,6 +2558,7 @@
     },
     {
       "event": {
+        "kind": "agent_message",
         "operator_alert": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",

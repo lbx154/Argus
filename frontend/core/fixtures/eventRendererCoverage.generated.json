@@ -367,8 +367,8 @@
     },
     "tui": {
       "counts": {
-        "handled": 91,
-        "hidden": 84,
+        "handled": 92,
+        "hidden": 83,
         "missing": 0
       },
       "fallback": "hide",
@@ -434,6 +434,7 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
+        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -515,7 +516,6 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
-        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",
@@ -555,8 +555,8 @@
     },
     "web": {
       "counts": {
-        "handled": 91,
-        "hidden": 84,
+        "handled": 92,
+        "hidden": 83,
         "missing": 0
       },
       "fallback": "hide",
@@ -622,6 +622,7 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
+        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -703,7 +704,6 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
-        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",
