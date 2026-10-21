@@ -770,6 +770,13 @@ def park_item(item: BacklogItem, reason: str) -> None:
     item.outcome = {**item.outcome, "park": {"reason": reason}}
 
 
+def _rearm(item: BacklogItem) -> None:
+    """Queue ``item`` again, on a fresh usage attempt."""
+    item.status, item.last_error = "pending", ""
+    item.attempt = max(1, int(item.attempt or 1)) + 1
+    item.started_ts = item.finished_ts = None
+
+
 def _holds_resources(item: Any) -> bool:
     """Running work holds its GPUs and paths; parked work holds nothing."""
     return getattr(item, "status", "") == "running"
@@ -2536,11 +2543,7 @@ class Backlog:
                 "manager-approved",
                 "review:required",
             ]))
-            item.status = "pending"
-            item.attempt = max(1, int(item.attempt or 1)) + 1
-            item.started_ts = None
-            item.finished_ts = None
-            item.last_error = ""
+            _rearm(item)
             item.pending_question = ""
             if card:
                 resolved_from_revision = int(card.get("revision", 1) or 1)
@@ -2869,11 +2872,7 @@ class Backlog:
                     continue
                 if str(item.pending_question or "").strip():
                     continue
-                item.status = "pending"
-                item.attempt = max(1, int(item.attempt or 1)) + 1
-                item.started_ts = None
-                item.finished_ts = None
-                item.last_error = ""
+                _rearm(item)
                 resumed.append(item)
             if resumed:
                 self._cascade_blocked(
