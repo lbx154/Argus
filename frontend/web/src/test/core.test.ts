@@ -510,12 +510,12 @@ describe('shared frontend core', () => {
       [
         // A paused task says why it paused and that it can resume; the raw status stays technical.
         { status: 'paused_daemon_shutdown', success: false, stop_kind: 'backend_unavailable', resumable: true },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
         // A `parked` status carries its reason; it reads like the `paused_*` status it replaces.
         { status: 'parked', park_reason: 'daemon_shutdown', success: false },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
       ],
       [
         { status: 'parked', park_reason: 'external_work', success: false },

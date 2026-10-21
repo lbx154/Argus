@@ -3806,8 +3806,12 @@
     "loop.done": {
       "version": 1,
       "properties": {
-        "text": {
+        "status": {
           "type": "string"
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 0
         },
         "success": {
           "type": "boolean"

@@ -45,10 +45,5 @@ class MissionSettlementMixin:
             recoverable=stop_kind_is_recoverable(stop_kind),
             park_reason=park_reason,
         )
-        self._emit(
-            {
-                "type": EventType.LOOP_DONE,
-                "text": f"status={status} rounds={len(rounds)} reason={reason[:80]}",
-            }
-        )
+        self._emit({"type": EventType.LOOP_DONE, "status": status, "rounds": len(rounds)})
         return outcome

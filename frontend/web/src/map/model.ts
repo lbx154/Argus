@@ -57,6 +57,8 @@ export interface MapEvent {
   status?: string;
   /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
   park_reason?: string;
+  /** Who or what stopped this work short of a failure, as the record names it. */
+  stop_kind?: string;
   round_index?: number;
   attempt?: number;
   success?: boolean;

@@ -1650,22 +1650,24 @@ def test_round_skipped_because_argus_stopped_is_classified_by_stop_kind(
     assert entry["technical"] == "error=daemon stop requested"
 
 
-@pytest.mark.parametrize("opening", [
-    "You stopped Argus before the Reviewer could finish reading this round",
-    "The Argus background service stopped or restarted in the middle of this round",
-    "The run was interrupted before the Reviewer could finish reading this round",
+@pytest.mark.parametrize("stop_kind,said", [
+    ("operator_pause", "The task stopped because you paused the work."),
+    ("daemon_shutdown", "The task stopped because the Argus background service stopped or restarted."),
 ])
-def test_a_task_closed_by_an_interrupted_round_is_recognized(tmp_path: Path, opening: str) -> None:
-    reason = f"{opening}; nothing here is a judgment on the work. Technical record: exit=130"
+def test_a_task_closed_by_a_stop_says_why_from_its_stop_kind(
+    tmp_path: Path, stop_kind: str, said: str,
+) -> None:
+    # Whatever the runtime's sentence says, who stopped the task is its stop kind.
+    reason = "You stopped Argus in the middle of this round. Technical record: exit=130"
     view = emit(
         tmp_path, "life.mission.completed", 1,
         item_id="task-1", title="Portfolio", success=False, status="failed",
-        failure_reason=reason, stop_reason=reason,
+        failure_reason=reason, stop_reason=reason, stop_kind=stop_kind,
     )
     entry = view["timeline"][-1]
-    assert entry["cause"] == "argus_stopped"
-    assert entry["detail"] == "Argus was stopped while this task was running; its progress is saved."
+    assert entry["detail"] == said
     assert entry["technical"] == "exit=130"
+    assert "cause" not in entry
 
 
 def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Path) -> None:
@@ -1699,7 +1701,7 @@ def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Pa
     entry = view["timeline"][-1]
     assert view["mission"]["status"] == "ended"
     assert role["kind"] == "mission_paused"
-    assert role["label"] == "任务在完成前暂停，因为 Argus 被停止；进度已保存，可以继续。"
+    assert role["label"] == "任务在完成前暂停，因为 Argus 后台服务停止或重启了；进度已保存，可以继续。"
     assert entry["kind"] == "mission_paused"
     assert entry["title"] == role["label"]
     assert entry["technical"] == "paused_daemon_shutdown"
@@ -1758,7 +1760,7 @@ def test_version_six_view_is_rebuilt_with_codes_and_sentences(tmp_path: Path) ->
     assert load_mission_view(tmp_path)["schema_version"] == 7
 
 
-def test_failed_task_closing_row_explains_the_runtime_record(tmp_path: Path) -> None:
+def test_failed_task_closing_row_says_its_stop_and_keeps_the_record_apart(tmp_path: Path) -> None:
     emit(
         tmp_path,
         "life.manager.intent.completed",
@@ -1782,17 +1784,13 @@ def test_failed_task_closing_row_explains_the_runtime_record(tmp_path: Path) -> 
         status="failed",
         failure_reason=raw,
         stop_reason=raw,
+        stop_kind="backend_unavailable",
     )
     entry = view["timeline"][-1]
     assert entry["kind"] == "mission_failed"
     assert entry["title"] == "任务没能完成。"
-    assert entry["cause"] == "reviewer_unreachable"
-    assert entry["detail"] == (
-        "审阅者连续 2 次没能给出判断，Argus 选择停下这项任务，"
-        "而不是在没有真正审阅的情况下结束一轮。"
-    )
+    assert entry["detail"] == "任务停了下来，因为模型服务不可用。"
     assert entry["technical"] == "exit=1, fatal_error=Copilot CLI exited with code 1."
-    assert view["role_work"][-1]["cause"] == "reviewer_unreachable"
     assert view["role_work"][-1]["detail"] == entry["detail"]
 
 
@@ -1811,34 +1809,6 @@ def test_failed_task_keeps_a_roles_own_reason_verbatim(tmp_path: Path) -> None:
     assert entry["detail"] == "The proof relies on a lemma that does not hold for n = 0."
     assert "cause" not in entry
     assert "technical" not in entry
-
-
-def test_failed_task_with_new_runtime_wording_is_explained_in_english(tmp_path: Path) -> None:
-    view = emit(
-        tmp_path,
-        "life.mission.completed",
-        1,
-        item_id="task-1",
-        title="Run the sweep",
-        success=False,
-        status="error",
-        failure_reason=(
-            "The model service dropped the Engineer's session before it produced a "
-            "result that could be checked, so this round was not judged; Argus "
-            "retries in a fresh session. Technical record: consecutive failures=2, "
-            "limit=2, error=Copilot CLI exited with code 1."
-        ),
-    )
-    entry = view["timeline"][-1]
-    assert entry["cause"] == "engineer_service_dropped"
-    assert entry["detail"] == (
-        "The model service kept dropping the Engineer's session before it produced "
-        "a result that could be checked, so Argus stopped this task; it can be "
-        "retried later."
-    )
-    assert entry["technical"] == (
-        "consecutive failures=2, limit=2, error=Copilot CLI exited with code 1."
-    )
 
 
 def test_round_skipped_for_an_unreachable_model_service_names_the_cause(

@@ -45,11 +45,10 @@ function alertOf(event: EventMsg, zh: boolean): GuardianAlert | null {
     };
   }
   if (BUDGET_ALARM_TYPES.has(type)) {
-    const reason = String(event.reason ?? event.text ?? '').trim();
     return {
       tone: 'block',
       kind: 'budget',
-      text: reason.startsWith('unresolved provider cost')
+      text: type === EVENT_TYPES.BUDGET_UNPRICED_BLOCKED
         ? say('Provider charges are still being reconciled; new model calls wait until then.', '模型费用还在对账，新的模型调用先等一等。')
         : say('The budget is used up, so new model calls are on hold; raise the budget to continue.', '预算用完了，新的模型调用先停下；提高预算后会继续。'),
     };

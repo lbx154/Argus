@@ -77,14 +77,6 @@ describe("humanizeHarnessNote", () => {
     expect(note.summary).toBeTruthy();
     expect(note.summary).not.toContain("120");
   });
-  it("rewrites budget pauses", () => {
-    const note = humanizeHarnessNote(
-      "Paused because this project reached its budget limit: sampling study.\n" +
-        "Existing work is saved; raise the project budget or narrow the task to continue.",
-      true,
-    );
-    expect(note.summary).toContain("预算");
-  });
   it("rewrites quarantine notes", () => {
     const note = humanizeHarnessNote(
       "The task signature is quarantined out of planner rotation after repeated failures.",
@@ -117,17 +109,19 @@ describe("humanizeHarnessNote", () => {
     expect(review.detail).not.toContain("Technical record:");
   });
   it.each([
-    ["operator pause requested", "运行被你停下了", "You stopped Argus"],
-    ["operator abort requested: replace the target", "运行被你停下了", "You stopped Argus"],
-    ["daemon stop requested", "后台服务停止或重启了，运行中断", "The background service stopped or restarted"],
-    ["Manager turn wall-clock limit reached", "运行中断了，这一轮没有做完", "The run was interrupted"],
-  ])("names who stopped a round only as the record does (%s)", (interrupt, zh, en) => {
-    const record = `The work stopped. Technical record: error=External interrupt: ${interrupt}`;
-    const chinese = humanizeHarnessNote(record, true);
-    expect(chinese.kind).toBe("interrupt");
+    ["operator_pause", "你暂停了工作，这一轮没有做完", "because you paused the work"],
+    ["daemon_shutdown", "Argus 后台服务停止或重启了，这一轮没有做完", "because the Argus background service stopped or restarted"],
+    ["budget_exhausted", "项目达到了预算上限，这一轮没有做完", "because the project reached its budget limit"],
+  ])("names who or what stopped a round by its stop kind (%s)", (stop_kind, zh, en) => {
+    // The sentence the runtime wrote says nothing to the reader; the stop kind does.
+    const stopped = event("e1", "round.review.completed", {
+      round_index: 1, status: "blocked", review_skipped: true, stop_kind,
+      text: "You stopped Argus. Technical record: error=External interrupt: daemon stop requested",
+    });
+    const chinese = buildSubmap(task, [stopped], true).find((row) => row.kind === "review")!;
+    expect(chinese.title).toBe("这一轮没做完就被停下");
     expect(chinese.summary).toContain(zh);
-    expect(humanizeHarnessNote(record, false).summary).toContain(en);
-    if (!interrupt.startsWith("operator")) expect(chinese.summary).not.toContain("你");
+    expect(buildSubmap(task, [stopped], false).find((row) => row.kind === "review")!.summary).toContain(en);
   });
 
   it("leaves plain research prose untouched", () => {

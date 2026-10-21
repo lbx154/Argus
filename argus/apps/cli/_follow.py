@@ -865,10 +865,7 @@ def _format_follow_event_body(
         return f"▶️ [{_follow_layer_label('engineer')}] {event.get('text', 'round started')}"
 
     if etype == "loop.done":
-        detail = _clean_follow_text(str(event.get("text") or ""), limit=None)
-        return "🏁 This piece of work has wrapped up" + (
-            f": {detail}" if detail else "."
-        )
+        return "🏁 This piece of work has wrapped up."
 
     return None
 

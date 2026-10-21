@@ -78,7 +78,7 @@ it('keeps a policy pause out of the workspace, where the reply already explains 
 it('explains a policy pause in plain words inside the library, not as a failure', async () => {
   await mount('skipped', { reason: 'paused', detail: 'cost_unreconciled' }, 'knowledge');
   const text = content(renderer.root);
-  expect(text).toContain('本轮未学习：上一次模型调用的费用尚未结算');
+  expect(text).toContain('本轮未学习：模型费用尚待核对或明确的风险确认');
   expect(text).not.toContain('未完成');
   expect(renderer.root.findByProps({ 'data-learning-status': 'skipped' })).toBeTruthy();
   expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);

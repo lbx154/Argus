@@ -69,24 +69,12 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
 
 
 # Calls the host refused before they started: nothing failed, learning simply waits.
-_PAUSE_KINDS = {
-    "cost_unreconciled": "cost_unreconciled",
-    "budget_exhausted": "budget_exhausted",
-    "provider_cooldown": "provider_cooldown",
-    "operator_pause": "operator_pause",
-}
+_PAUSE_KINDS = frozenset({"cost_unreconciled", "budget_exhausted", "provider_cooldown", "operator_pause"})
 
 
 def _pause_reason(result: dict) -> str:
     kind = str(result.get("stop_kind") or "")
-    if kind in _PAUSE_KINDS:
-        return _PAUSE_KINDS[kind]
-    text = str(result.get("failure") or "").lower()
-    if "unresolved provider cost" in text or "awaiting usage reconciliation" in text:
-        return "cost_unreconciled"
-    if "budget exhausted" in text:
-        return "budget_exhausted"
-    return ""
+    return kind if kind in _PAUSE_KINDS else ""
 
 
 def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:

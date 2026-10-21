@@ -4,31 +4,7 @@
 // start-anchored emitted opening (round_stop_signals.py, _idle_cycle.py) for
 // receipts that arrive without the marker. Research prose that merely talks
 // about budgets or quarantine policy must never be replaced by a canned line.
-const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" | "reviewer" | "round"; zh: string; en: string }> = [
-  // A round stopped midway, never a verdict on anything. Who stopped it is
-  // said only as the record names them: the background service (a restart,
-  // a deploy, the daemon stopping), you, or, when the record does not say, no one.
-  {
-    match: /daemon (?:stop|shutdown)|stopped by its operator|background service stopped or restarted/i,
-    bare: /^(?:Engineer interrupted because daemon shutdown|Argus was stopped by its operator|The Argus background service stopped or restarted|Reviewer backend returned no complete judgment \([^)]*External interrupt: daemon)/,
-    kind: "interrupt",
-    zh: "后台服务停止或重启了，运行中断，这一轮没有做完；这不是对工作本身的评价",
-    en: "The background service stopped or restarted, cutting this round short; this says nothing about the work itself",
-  },
-  {
-    match: /operator (?:pause|abort) requested|You stopped Argus/i,
-    bare: /^(?:You stopped Argus|Reviewer backend returned no complete judgment \([^)]*External interrupt: operator)/,
-    kind: "interrupt",
-    zh: "运行被你停下了，这一轮没有做完；这不是对工作本身的评价",
-    en: "You stopped Argus before this round could finish; this says nothing about the work itself",
-  },
-  {
-    match: /External interrupt|The run was interrupted/i,
-    bare: /^(?:The run was interrupted|Reviewer backend returned no complete judgment \([^)]*External interrupt)/,
-    kind: "interrupt",
-    zh: "运行中断了，这一轮没有做完；这不是对工作本身的评价",
-    en: "The run was interrupted before this round could finish; this says nothing about the work itself",
-  },
+const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "reviewer" | "round"; zh: string; en: string }> = [
   {
     match: /no complete judgment|before reaching a judgment|reached a conclusion|did not reach a conclusion/i,
     bare: /^(?:Reviewer backend (?:returned no complete judgment|ended before reaching a judgment)|The Reviewer's session ended before it reached a conclusion|The review did not reach a conclusion)/,
@@ -48,11 +24,6 @@ const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" |
     en: "Argus will try again in a fresh session",
   },
   {
-    bare: /^Restart the daemon when ready/,
-    zh: "重新启动后，Argus 会从项目留下的状态继续，选择下一项具体任务",
-    en: "Once Argus is started again it continues from the saved project state and picks the next concrete task",
-  },
-  {
     bare: /^engineer round \d+ \((?:fresh|rotated|resumed)[^)]*\)\s*$/i,
     kind: "round",
     zh: "工程师开始了新的一轮工作",
@@ -63,12 +34,6 @@ const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" |
     bare: /^(?:One Engineer call|\d+ Engineer sessions in a row each) used (?:its|their) whole per-call provider-turn allowance/,
     zh: "继续换了个新会话接着做，之前的进展都在",
     en: "Continued in a fresh session; earlier progress is kept",
-  },
-  {
-    match: /budget (limit|cap|exhausted)|blocking budget|预算上限/i,
-    bare: /^Paused because this project reached its budget limit/,
-    zh: "花费到了预算上限，先暂停；提高预算后可以继续",
-    en: "Paused at the budget limit; work resumes once the budget is raised",
   },
   {
     match: /quarantin/i,
@@ -104,7 +69,7 @@ export function splitHarnessRecord(text: string): { prose: string; receipt: stri
 export function humanizeHarnessNote(
   text: string,
   zh: boolean,
-): { summary: string; receipt: string; kind?: "interrupt" | "reviewer" | "round" } {
+): { summary: string; receipt: string; kind?: "reviewer" | "round" } {
   const raw = String(text || "").trim();
   const { receipt: tail } = splitHarnessRecord(raw);
   const rule = tail

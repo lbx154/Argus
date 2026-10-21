@@ -11,6 +11,7 @@ from ..core.json_codec import loads_finite_json
 from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
+from ..core.stop_kinds import NON_FAILURE_STOP_KINDS
 from ..life.memory import LifeMemory, _jsonl_history_paths, park_reason
 from .map_outcomes import project_map_outcomes, public_outcome
 
@@ -335,6 +336,9 @@ def normalize_events(
                 e["review_source"] = text(row["review_source"], 120)
             if row.get("park_reason"):
                 e["park_reason"] = text(row["park_reason"], 80)
+            if row.get("stop_kind") in NON_FAILURE_STOP_KINDS:
+                # Stopped, not failed: by whom or what, as the record names it.
+                e["stop_kind"] = row["stop_kind"]
             if isinstance(row.get("outcome"), dict):
                 e["outcome"] = public_outcome(row["outcome"])
             outcome = row.get("outcome")

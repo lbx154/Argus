@@ -357,9 +357,8 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
 
 
 def _render_loop_done(event: dict[str, Any]) -> str:
-    text = str(event.get("text") or "").strip()
     if "success" not in event:
-        return _trunc(text, 200) if text else "the work here has wrapped up"
+        return "the work here has wrapped up"
     head = (
         "the work here ended in success"
         if event.get("success")

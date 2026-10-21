@@ -115,7 +115,7 @@ function upsert<T extends Record<string, unknown>>(rows: T[], key: keyof T, valu
   else rows.push(patch);
 }
 
-function setRole(view: MissionView, role: string, status: string, label: string, ts: number): void {
+function setRole(view: MissionView, role: string, status: string, label: string, ts: number, kind?: string): void {
   if (!ROLE_NAMES.includes(role as typeof ROLE_NAMES[number])) return;
   if (status === 'active' && PIPELINE_ROLES.has(role)) {
     view.roles.forEach((candidate) => {
@@ -124,7 +124,7 @@ function setRole(view: MissionView, role: string, status: string, label: string,
       }
     });
   }
-  const patch: MissionRoleView = { role, status, label, updated_at: ts };
+  const patch: MissionRoleView = { role, status, kind, label, updated_at: ts };
   upsert(view.roles as Array<MissionRoleView & Record<string, unknown>>, 'role', role, patch as MissionRoleView & Record<string, unknown>);
   if (status === 'active') view.active_role = role;
   else if (view.active_role === role) view.active_role = '';
@@ -336,7 +336,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     addRoleWork(view, event, 'planner', 'verdict', label, S(event, 'reason'), projectDone ? 'done' : 'planned');
   } else if (type === EVENT_TYPES.LIFE_PLANNER_IDLE) {
     // A pass that starts nothing changes the Planner's state, not the story.
-    setRole(view, 'planner', 'waiting', 'Nothing new to plan until the current work moves.', ts);
+    setRole(view, 'planner', 'waiting', 'Nothing new to plan until the current work moves.', ts, 'planner_no_new_work');
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
     view.review = { status: '', reason: '', rejected_attempts: 0 };
     view.delivery = null;

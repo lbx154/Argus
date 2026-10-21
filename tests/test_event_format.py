@@ -118,8 +118,8 @@ def test_loop_done_supports_structured_and_text_events() -> None:
     assert "the work here ended in success" in format_event_message(
         {"type": "loop.completed", "success": True}
     )
-    assert format_event_message({"type": "loop.done", "text": "review complete"}) == (
-        "🏁 review complete"
+    assert format_event_message({"type": "loop.done", "status": "done", "rounds": 2}) == (
+        "🏁 the work here has wrapped up"
     )
 
 

@@ -342,10 +342,11 @@ def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
                 assert word not in text.lower()
     assert stop_kind_clause("not-a-kind") == ""
     assert stop_kind_clause(None) == ""
-    assert stop_kind_clause("daemon_shutdown") == "Argus was stopped"
-    assert stop_kind_clause("daemon_shutdown", chinese=True) == "Argus 被停止"
+    assert stop_kind_clause(None, neutral=True) == "the work was interrupted"
+    assert stop_kind_clause("daemon_shutdown") == "the Argus background service stopped or restarted"
+    assert stop_kind_clause("daemon_shutdown", chinese=True) == "Argus 后台服务停止或重启了"
 
-    assert park_clause("paused_daemon_shutdown") == "Argus was stopped"
+    assert park_clause("paused_daemon_shutdown") == "the Argus background service stopped or restarted"
     assert park_clause("paused_budget") == "the project reached its budget limit"
     assert park_clause("paused_external_work", chinese=True) == (
         "需要先等 Argus 之外的工作完成"

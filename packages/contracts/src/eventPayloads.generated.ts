@@ -1142,7 +1142,8 @@ export interface LoopStartEvent extends EventMsg {
 export interface LoopDoneEvent extends EventMsg {
   type: "loop.done";
   payload_schema_version?: 1;
-  "text"?: string;
+  "status"?: string;
+  "rounds"?: number;
   "success"?: boolean;
   "stop_reason"?: string;
 }

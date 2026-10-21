@@ -575,9 +575,10 @@
     {
       "event": {
         "payload_schema_version": 1,
+        "rounds": 1,
+        "status": "completed",
         "stop_reason": "stop reason",
         "success": true,
-        "text": "Renderer event detail",
         "ts": 1700000030,
         "type": "loop.done"
       },
