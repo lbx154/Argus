@@ -75,6 +75,7 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "A new research route was added to the plan.",
         "计划中加入了一条新的研究路线。",
     ),
+    "requested_work_done": ("All the requested work is done.", "要求的工作已经全部完成。"),
     "planning_complete": (
         "The plan for the next step is ready.",
         "下一步的计划已经排好。",
@@ -416,6 +417,16 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Argus 在等待重试（此前模型服务多次失败）时被停止；任务可以从保存的进度继续。",
     ),
     # Questions Argus itself puts to the operator.
+    "ask_direction": (
+        "I'm not sure which direction to take next.\nYou can name a direction, "
+        "supply the missing decision or resource, or tell me to stop.",
+        "接下来往哪个方向做，我拿不准。\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
+    ),
+    "ask_direction_because": (
+        "I'm not sure which direction to take next: {why}\nYou can name a direction, "
+        "supply the missing decision or resource, or tell me to stop.",
+        "接下来往哪个方向做，我拿不准：{why}\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
+    ),
     "ask_adopt_reviewed_change": (
         "The Reviewer read the change for “{title}” and it holds. "
         "Publish this reviewed version and use it at the next task boundary?",
@@ -486,6 +497,31 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "规划者用的模型服务连着三个小时都失败，我先不再自动重试。"
         "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。",
     ),
+    "wrap_up_paused": (
+        "I've tried to wrap this project up {count} times in a row, and each time it "
+        "was turned back for the same reason: {reason}\nI'm pausing those attempts so "
+        "they stop costing money. I'll try again when the work changes or you reply "
+        "here; if the requirement itself is wrong, tell me and I'll take a different path.",
+        "我已经连续 {count} 次想收尾，每次都因为同一个原因被退回：{reason}\n"
+        "为了不再白花钱，我先不试了。等任务有变化或你回复后再试；"
+        "如果这个要求本身不对，直接告诉我，我换个做法。",
+    ),
+    "background_calls_paused": (
+        "The background made {calls} model calls in a row without any progress: no "
+        "new task, no finished work, and no message from you. I've stopped those "
+        "background calls so they stop costing money; running tasks are not affected. "
+        "They resume as soon as something changes or you reply here.",
+        "后台连着调用了 {calls} 次模型，一直没有进展：没有新任务、没有做完的工作，"
+        "你也没发新消息。为了不再白花钱，我先停了这些后台调用，正在做的任务不受影响。"
+        "一有新进展，或者你在这里回一句，就会恢复。",
+    ),
+    "manager_model_mismatch": (
+        "The model the Manager uses ({model}) failed several times in a row to work "
+        "out how to handle requests, so nothing was started. Pick another model for "
+        "the Manager in Settings → Advanced settings, restart, and try again.",
+        "现在给经理用的模型（{model}）连续几次都没弄懂该怎么处理请求，所以这次没有开始任何工作。"
+        "请在“设置 → 高级设置”里给经理换一个模型，重启后再试。",
+    ),
     "proxy_undecided": (
         "I couldn't decide “{title}” for you, so it waits for your answer.",
         "“{title}”我没法替你决定，等你回来再定。",
@@ -517,6 +553,44 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Paused; stopping what was running. Everything so far is saved; "
         "I'll pick it up when you say continue.",
         "已暂停，正在停下手上的事。做到的部分都保存了，你说继续我再接着做。",
+    ),
+    "gathering_options": ("Putting together options for this task…", "正在结合你的任务整理几个选项…"),
+    "options_failed": (
+        "I couldn't put the options together just now. Your task and answer are "
+        "kept; please try again in a moment.",
+        "这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。",
+    ),
+    "retry_no_action": ("Nothing was actually done yet; trying once more…", "还没真正动手，再试一次…"),
+    "retry_resumed": (
+        "The model stopped responding; picking the conversation up again…",
+        "模型这次没有回应，接着刚才的对话再试一次…",
+    ),
+    "retry_stalled": ("The model stopped responding; trying once more…", "模型这次没有回应，再试一次…"),
+    "retry_dropped": (
+        "The connection to the model service dropped; trying once more…",
+        "连接模型服务时断了，再试一次…",
+    ),
+    "reply_empty": (
+        "No reply came back for this request. No new task was added, and the "
+        "current task was not changed.",
+        "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。",
+    ),
+    "reply_cut_off": ("The model didn't finish its answer.", "模型这次没把话说完。"),
+    "reply_stopped_midway": (
+        "This stopped before it finished: {said}\n\nThe progress messages above "
+        "don't mean it's done, and some files may be half-written. No new task was added.",
+        "这次没做完就停下了：{said}\n\n"
+        "上面的进度消息不代表已经做完，可能留下了做到一半的文件；没有新增任务。",
+    ),
+    "reply_stopped_before_reply": (
+        "This stopped before I could reply: {said}\n\n"
+        "No new task was added, and the current work is unchanged.",
+        "这次还没回复就停下了：{said}\n\n没有新增任务，正在做的事也没变。",
+    ),
+    "reply_incomplete": ("No completed reply was received.", "没有收到完整回复。"),
+    "reply_failed": (
+        "This request did not finish. No new task was added.\n\nReason: {said}",
+        "这次没能处理完你的请求，没有新增任务。\n\n原因：{said}",
     ),
     # The first reply to a task the operator hands over.
     "ack_plan_awaits_start": (

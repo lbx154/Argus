@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say
 from ...core.runner_errors import is_execution_host_startup_error
 from ._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
 from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
@@ -94,15 +95,9 @@ class PlanningCycleVerdictMixin:
                 f"so autonomous retry/backoff remains active: {reason[:240]}"
             )
             return PLAN_ERROR
-        question = (
-            "接下来往哪个方向做，我拿不准"
-            + (f"：{reason[:900]}" if reason else "。")
-            + "\n你可以指定方向、补上缺的决定或资源，或者让我先停下。"
-            if self._operator_chinese()
-            else "I'm not sure which direction to take next"
-            + (f": {reason[:900]}" if reason else ".")
-            + "\nYou can name a direction, supply the missing decision or "
-            "resource, or tell me to stop."
+        question = say(
+            "ask_direction_because" if reason else "ask_direction",
+            self._operator_chinese(), why=reason[:900],
         )
         self._enter_pause_backoff()
         if not self._park_planner_question(state, question, reason):

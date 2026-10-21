@@ -909,22 +909,13 @@ def prepare_manager_execution_task(
                 clause=exc.clause,
                 consecutive_count=exc.consecutive_count,
             )
-            from ..core.mission_view import uses_cjk
+            from ..core.mission_view import say, uses_cjk
 
             # The exception keeps the developer's account; the operator reads
             # what happened and what to change.
             _publish_manager_model_capability_mismatch(
                 mem,
-                text=(
-                    f"现在给经理用的模型（{exc.model_id}）连续几次都没弄懂该怎么处理请求，"
-                    "所以这次没有开始任何工作。请在“设置 → 高级设置”里给经理换一个模型，"
-                    "重启后再试。"
-                    if uses_cjk(public_objective or body)
-                    else f"The model the Manager uses ({exc.model_id}) failed several times "
-                    "in a row to work out how to handle requests, so nothing was started. "
-                    "Pick another model for the Manager in Settings → Advanced settings, "
-                    "restart, and try again."
-                ),
+                text=say("manager_model_mismatch", uses_cjk(public_objective or body), model=exc.model_id),
                 model_id=exc.model_id,
                 clause=exc.clause,
                 consecutive_count=exc.consecutive_count,
@@ -1274,15 +1265,10 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     chat_state.pop("_self_failure", None)
     captured: list[str] = []
     round_failure: str | None = None
-    from ..core.mission_view import uses_cjk
+    from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
 
     chinese = uses_cjk(body)
-    empty_reply = (
-        "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。"
-        if chinese else
-        "No reply came back for this request. No new task was added, and the current task was not changed."
-    )
 
     def _reply_for_outcome() -> str:
         outcome = getattr(runner, "last_chat_outcome", None)
@@ -1294,46 +1280,29 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if mode in execution_modes:
                 chat_state["_self_failure"] = reason
             said = humanize_runtime_reason(
-                stop_reason or ("模型这次没把话说完。" if chinese else "The model didn't finish its answer."),
-                language_hint=body, interactive=True,
+                stop_reason or say("reply_cut_off", chinese), language_hint=body, interactive=True,
             )
-            return (
-                f"这次没做完就停下了：{said}\n\n"
-                "上面的进度消息不代表已经做完，可能留下了做到一半的文件；没有新增任务。"
-                if chinese else
-                f"This stopped before it finished: {said}\n\n"
-                "The progress messages above don't mean it's done, and some files may be "
-                "half-written. No new task was added."
-            )
+            return say("reply_stopped_midway", chinese, said=said)
         if captured:
             # Only the latest successful completed round is the final delivery.
             return captured[-1]
         if not stop_reason:
-            return empty_reply
+            return say("reply_empty", chinese)
         said = humanize_runtime_reason(stop_reason, language_hint=body, interactive=True)
-        return (
-            f"这次还没回复就停下了：{said}\n\n没有新增任务，正在做的事也没变。"
-            if chinese else
-            f"This stopped before I could reply: {said}\n\n"
-            "No new task was added, and the current work is unchanged."
-        )
+        return say("reply_stopped_before_reply", chinese, said=said)
 
     def _redact_live_text(text: Any) -> str:
         return redact_secrets_text(str(text or ""), known_values=known_secret_values())
 
     def _failure_reply(detail: Any, *, formatted: bool = False) -> str:
-        safe = _redact_live_text(detail).strip()[:1200] or (
-            "没有收到完整回复。" if chinese else "No completed reply was received."
-        )
+        safe = _redact_live_text(detail).strip()[:1200] or say("reply_incomplete", chinese)
         chat_state["_self_failure"] = {"detail": safe}
         chat_state.pop("_self_delivery", None)
         chat_state.pop("last_thread_id", None)
         display = humanize_runtime_reason(safe, language_hint=body, interactive=True)
         if formatted:
             return display
-        if chinese:
-            return f"这次没能处理完你的请求，没有新增任务。\n\n原因：{display}"
-        return f"This request did not finish. No new task was added.\n\nReason: {display}"
+        return say("reply_failed", chinese, said=display)
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
