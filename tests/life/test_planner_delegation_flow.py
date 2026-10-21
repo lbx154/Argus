@@ -848,6 +848,27 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
     )
 
 
+def test_the_planner_may_read_the_libraries_its_recall_points_at(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    def read_dirs(state, global_root, workspace):
+        calls.append((state, global_root, workspace))
+        return ["/elsewhere/wiki"]
+
+    monkeypatch.setattr("argus.life.knowledge_recall.knowledge_read_dirs", read_dirs)
+    project = tmp_path / "project"
+    project.mkdir()
+    memory = LifeMemory.open(tmp_path / "life")
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_MissionRunner(), sink=JsonlEventSink(None, life_dir=memory.root),
+        config=LifeSupervisorConfig(project_worktree=project, artifact_root=project),
+        planner_runner=object(),
+    )
+
+    assert "/elsewhere/wiki" in supervisor._planner_config().add_dirs
+    assert calls == [(memory.root, None, None)]
+
+
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
