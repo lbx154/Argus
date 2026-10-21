@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -161,33 +162,12 @@ class PlanningCycleVerdictMixin:
                     iterate=False,
                 )
             )
-        try:
-            from ...core.operator_decision import build_operator_decision
+        from ...core.operator_decision import ask_operator
 
-            card = build_operator_decision(
-                item_id=item.id,
-                title=item.title,
-                reason=reason or question,
-                question=question,
-                project_id=self.memory.root.name,
-                previous_decision=item.operator_decision,
-            )
-        except Exception:  # noqa: BLE001 - the plain question is sufficient
-            card = {}
-        self.memory.backlog.update(
-            item.id,
-            park_reason="operator_question",
-            pending_question=question,
-            operator_decision=card,
-            last_error=reason,
+        ask_operator(
+            self.memory.root, item, question, reason=reason or question, layer="planner",
+            save=partial(self.memory.backlog.update, item.id, last_error=reason), emit=self._emit,
         )
-        self._emit({
-            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-            "item_id": item.id,
-            "title": item.title,
-            "question": question,
-            "agent_layer": "planner",
-        })
         return True
 
     def _pc_invoke_planner(self, state: _PlanCycleState) -> Any | None:

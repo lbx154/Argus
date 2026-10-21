@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -344,19 +345,10 @@ def enqueue_mission(
         )
         question = str(getattr(prepared_handoff.decision, "operator_question", "") or "")
         if question:
-            # Only the operator can decide before this work starts: it waits on
-            # their answer, which continues it like any parked question.
-            from ..core.operator_decision import build_operator_decision
+            # Only the operator can decide before this work starts: it is never
+            # queued, and their answer continues it like any parked question.
             from ..life.memory import park_item
 
-            item.pending_question = question
-            item.operator_decision = build_operator_decision(
-                item_id=item.id,
-                title=item.title,
-                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
-                question=question,
-                project_id=life_dir.name,
-            )
             park_item(item, "operator_question")
         try:
             mem.backlog.add(item)
@@ -367,32 +359,29 @@ def enqueue_mission(
                 "The mission remains pending in memory and was not dispatched."
             ) from exc
         persisted["item"] = item
-        try:
-            from ..life.event_log import JsonlEventSink
+        from ..life.event_log import JsonlEventSink
 
-            event = {
-                "type": "life.planner.task_added",
-                "item_id": item.id,
-                "title": item.title,
-                "objective": item.objective,
-                "deps": list(item.deps),
-                "priority": item.priority,
-                "source": "manager_direct" if direct else "manager_operator",
-            }
-            if not direct:
-                event["operator_priority"] = True
-            sink = JsonlEventSink(None, life_dir=life_dir)
-            sink.append(event)
-            if question:
-                sink.append({
-                    "type": "life.operator_question.pending",
-                    "item_id": item.id,
-                    "title": item.title,
-                    "question": question,
-                    "agent_layer": "manager",
-                })
-        except Exception:  # noqa: BLE001 - backlog persistence is authoritative
-            pass
+        event = {
+            "type": "life.planner.task_added",
+            "item_id": item.id,
+            "title": item.title,
+            "objective": item.objective,
+            "deps": list(item.deps),
+            "priority": item.priority,
+            "source": "manager_direct" if direct else "manager_operator",
+        }
+        if not direct:
+            event["operator_priority"] = True
+        sink = JsonlEventSink(None, life_dir=life_dir)
+        sink.append(event)
+        if question:
+            from ..core.operator_decision import ask_operator
+
+            ask_operator(
+                life_dir, item, question, layer="manager",
+                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
+                save=partial(mem.backlog.update, item.id), emit=sink.append,
+            )
         return item
 
     if direct and campaign_running:

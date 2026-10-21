@@ -602,6 +602,9 @@ def test_provider_configuration_failure_parks_for_whoever_decides(
         def _emit(self, event) -> None:
             self.events.append(dict(event))
 
+        def _operator_chinese(self) -> bool:
+            return False
+
         def _project_state_root(self) -> Path:
             return tmp_path
 

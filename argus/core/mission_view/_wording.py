@@ -415,6 +415,21 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "failures; the task can resume from its saved progress.",
         "Argus 在等待重试（此前模型服务多次失败）时被停止；任务可以从保存的进度继续。",
     ),
+    # Questions Argus itself puts to the operator.
+    "ask_adopt_reviewed_change": (
+        "The Reviewer read the change for “{title}” and it holds. "
+        "Publish this reviewed version and use it at the next task boundary?",
+        "审阅者看过“{title}”的改动，结论成立。要发布这个审阅过的版本，并在下一项任务开始时换上吗？",
+    ),
+    "ask_fix_model_configuration": (
+        "The model configuration for this task has failed the same way {streak} "
+        "times in a row: {reason} I have stopped retrying this configuration so the "
+        "failures stop costing money. Fix the model name or provider access, then "
+        "reply here to resume this task — or tell me to drop it.",
+        "这项任务用的模型配置已经连续 {streak} 次以同样的方式失败：{reason} 为了不再白花钱，"
+        "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
+        "也可以让我放下它。",
+    ),
     # Judgments on a round.
     "self_check_accepted": (
         "The Engineer's own check of the result was accepted.",
