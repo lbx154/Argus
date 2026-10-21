@@ -7,6 +7,7 @@ plain strings.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from typing import Any, Callable
@@ -240,6 +241,13 @@ def annotate_progress_result(line: str, event: dict[str, Any]) -> str:
 def format_event_message(event: dict[str, Any]) -> str:
     """Render one event after collapsing historical aliases to canonical types."""
     kind = canonical_event_type(event.get("type")) or "?"
+    if (
+        kind == EventType.LIFE_STATUS
+        and not event.get("kind")
+        and os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "").strip().lower() != "full"
+    ):
+        # Status lines are the developer log; a full-verbosity run prints them.
+        return ""
     icon = _EVENT_ICONS.get(kind, "")
     renderer = _RICH_RENDERERS.get(kind)
     if renderer is not None:

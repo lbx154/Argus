@@ -36,28 +36,26 @@ def fallback_project_report(
     """The completion report Argus can state without the Manager model."""
     from ..core.operator_messages import uses_cjk
 
-    stages = completion_context.get("stages")
-    stage_names = list(stages) if isinstance(stages, dict) else []
-    route = " -> ".join(stage_names)
+    paths = [
+        str(row["path"])
+        for row in completion_context.get("current_artifact_evidence") or ()
+        if isinstance(row, dict) and row.get("path")
+    ][:3]
     increment = completion_context.get("completion_scope") == "certified_increment"
     if uses_cjk(continuous_objective):
         return (
-            (
-                "本次增量已认证完成；长期目标仍然有效。Manager 已收到完整阶段记录"
-                if increment else "项目已完成。Manager 已收到完整阶段记录"
-            )
-            + (f"（{route}）。" if route else "。")
-            + " Manager 后端不可用，未检查当前交付成果的详细证据。"
+            ("这一部分做完了，长期目标还在继续。" if increment else "项目完成了。")
+            + (f"结果在 {'、'.join(paths)}。" if paths else "")
+            + "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）"
         )
     return (
         (
-            "Certified increment completed; the standing objective remains "
-            "active. Manager received the full stage ledger"
-            if increment else "Project completed. Manager received the full stage ledger"
+            "This piece is done; the longer-term goal continues. "
+            if increment else "The project is done. "
         )
-        + (f" ({route})." if route else ".")
-        + " The Manager backend is unavailable; detailed current artifact "
-        "evidence was not inspected."
+        + (f"The results are in {', '.join(paths)}. " if paths else "")
+        + "(The model service was unavailable while this summary was written, "
+        "so the final files were not checked one by one.)"
     )
 
 
@@ -89,12 +87,31 @@ class _StageDecisionMixin:
     # ------------------------------------------------------------------
 
     def _stage_operator_context(self) -> str:
+        """What the operator has said, with the answers they gave since the objective was written."""
         from ..core.operator_context import build_operator_context_block
+        from ..core.operator_decision import operator_answers
+        from ..life.memory import Backlog, objective_started_at
+        from .control_state import CampaignControlStore
 
-        context, _revision = build_operator_context_block(
-            "manager", self.manager_session_root, consume_once=False,
-        )
-        return context
+        root = Path(self.manager_session_root)
+        context, _revision = build_operator_context_block("manager", root, consume_once=False)
+        try:
+            backlog = Backlog(root / "backlog.jsonl")
+            # Since the objective began; with no record of when, the live backlog bounds it.
+            since = objective_started_at(root, CampaignControlStore(root).campaign_identity().objective)
+            answers = operator_answers(
+                backlog.history() if since is not None else backlog.active(), since=since or 0.0,
+            ) if backlog.path.is_file() else []
+        except Exception:  # noqa: BLE001 - context only; the decision stands without it
+            answers = []
+        if not answers:
+            return context
+        return "\n\n".join(part for part in (
+            context,
+            "## The operator's answers since the objective\n"
+            "Wherever the objective says otherwise, these are the later word.\n"
+            + "".join(f"- {answer}\n" for answer in answers),
+        ) if part)
 
     def _stage_context_facts(self, root: Path) -> dict[str, Any]:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""

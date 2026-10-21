@@ -1061,9 +1061,9 @@ def test_increment_report_fallback_preserves_standing_campaign(objective):
     )
     assert "Project completed." not in text
     assert "项目已完成。" not in text
-    assert "standing objective remains active" in text or "长期目标仍然有效" in text
+    assert "longer-term goal continues" in text or "长期目标还在继续" in text
     assert "12 pages" not in text and "99%" not in text
-    assert "not inspected" in text or "未检查" in text
+    assert "not checked one by one" in text or "没有逐项核对" in text
 
 
 def test_increment_prompt_does_not_close_campaign():
@@ -1278,7 +1278,7 @@ def test_failing_project_report_backs_off_then_sends_the_stage_summary(
     assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS
     reports = _reports(campaign.life)
     assert len(reports) == 1
-    assert "not inspected" in reports[0]["text"]
+    assert "not checked one by one" in reports[0]["text"]
 
 
 def test_project_report_attempts_are_counted_per_completion(campaign, monkeypatch):

@@ -64,8 +64,7 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
         next_action=None,
     )
 
-    assert "reviewer subagent" in out.lower()
-    assert "host invokes reviewer only when required" in out.lower()
+    assert "does the independent review; do not start a review of your own" in out
     assert "yield" in out.lower()
 
 
@@ -100,8 +99,14 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
         next_action="Ask only if the operator owns the decision.",
         include_static=False,
     )
+    team = SkillLoop._build_engineer_prompt(
+        task="Continue until an operator-owned choice is required.",
+        skill_text="",
+        next_action=None,
+        compact_team=True,
+    )
 
-    for out in (full, compact):
+    for out in (full, compact, team):
         assert "→ operator: <question>" in out
         assert "OPERATOR_OPTIONS" not in out
         assert "→ done" in out

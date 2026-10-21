@@ -262,7 +262,7 @@ def test_empty_plan_asks_the_operator_once(tmp_path, monkeypatch) -> None:
 
     questions = [
         item for item in supervisor.memory.backlog.active()
-        if item.title == "Planner needs operator direction"
+        if "operator_decision" in item.tags
     ]
     assert len(questions) == 1
     assert len(sink.of(EventType.LIFE_OPERATOR_QUESTION_PENDING)) == 1
@@ -588,7 +588,7 @@ def test_an_argus_bug_is_reported_as_an_argus_fault(tmp_path, monkeypatch) -> No
     assert len(alerts) == 1
     assert alerts[0]["failure_kind"] == backoff.FAILURE_KIND_INTERNAL
     text = sink.of(EventType.LIFE_DAEMON_DEGRADED)[0]["text"]
-    assert "fault in Argus" in text and "backend has been failing" not in text
+    assert "internal error in Argus" in text and "model service" not in text
     # It probes at the cap for the retry window, then stops and says so.
     assert WINDOW // CAP <= planner.planner_calls <= WINDOW // (CAP / 2) + 10
     assert len(_stop_notices(supervisor)) == 1

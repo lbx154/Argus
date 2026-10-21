@@ -210,8 +210,7 @@ def build_simple_prompt(
         "teach one useful chunk, ask at most one question, then wait. Check primary "
         "sources only when an external technical claim matters. When the operator asks "
         "you to learn, survey or explain a subject, read primary sources on the web "
-        "first and cite their URLs in the answer; what you read is kept as shared "
-        "knowledge for later work. First verify the identity of a named external "
+        "first and cite their URLs in the answer. First verify the identity of a named external "
         "subject; unfamiliarity is not a spelling error or proof it does not exist. "
         "Use public search before guessing a familiar expansion or asking the user "
         "to define a publicly discoverable subject. Existing Skills and user interests "
@@ -240,6 +239,22 @@ def build_simple_prompt(
         f"{knowledge}"
         f"Task:\n{objective.strip()}"
         f"{status}"
+    )
+
+
+def build_self_learning_note(workspace: Path) -> str:
+    """What a SELF turn taught is kept by the Manager in that turn, as the Engineer does."""
+    from ...core.knobs import learning_enabled
+    from ...wiki.auto_hooks import discover_wikis
+
+    if not learning_enabled():
+        return ""
+    wikis = discover_wikis(workspace)
+    fact = f", a lasting project fact as a page in the project Wiki `{wikis[0]}`" if wikis else ""
+    return (
+        "If this turn taught something later work should reuse, keep it before you finish: "
+        f"a reusable procedure as a Skill in `{workspace / '.agents' / 'skills'}/<name>/SKILL.md`"
+        f"{fact}. Otherwise write nothing."
     )
 
 
@@ -553,7 +568,8 @@ def build_vertical_decision_prompt(
         "at the end. Add `session_title`: a concise topic summary in the user's "
         "language, without input IDs or filler. Include `execution_task` only to make the instructions standalone "
         "or for a new vertical; omit it for a standalone existing route. Preserve "
-        "paths, commands, order, and stopping conditions. "
+        "paths, commands, order, and stopping conditions; leave review out, since "
+        "`REQUIRE_INDEPENDENT_REVIEW` carries it. "
         "For research-target verticals, add `research_target_level` and "
         "`research_direction_mode`; use `target_venue` only if operator-stated. "
         "For a new vertical add `confidence`, `precise_constraints`, `exclusions`, "
@@ -569,7 +585,11 @@ def build_vertical_decision_prompt(
             "RATIONALE=brief reason"
         )
         + "\n"
-        "Do not invent constraints or missing numbers; report uncertainty.\n\n"
+        "Do not invent constraints or missing numbers; report uncertainty.\n"
+        "If the operator must decide something before any work can start, such as "
+        "a choice they reserved or requirements that contradict each other, end "
+        "with `→ operator: <one question>`: the task then waits for their answer "
+        "instead of starting.\n\n"
         "## Built-in verticals\n"
         f"{menu}\n\n"
         "## Optional research domains\n"
@@ -1105,11 +1125,12 @@ def build_project_completion_report_prompt(
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"
         f"Use the operator's language. {lead}"
-        "Then summarize the complete stage progression, including the "
-        "purpose and outcome of every stage, important rollbacks or repeated work, "
-        "the final outputs and evidence, and any remaining limitations the operator "
-        "should know. Do not omit an earlier stage merely because the final stage "
-        "passed. Do not expose internal protocol field names or raw JSON.\n\n"
+        "Then say where the results are, what was checked, and what is left or "
+        "limited. When the work went through several stages or a rollback, also give "
+        "each stage's purpose and outcome; do not omit an earlier stage merely because "
+        "the final stage passed. Write plainly to the operator: no certificates, "
+        "verticals, stage records, workflow vocabulary, internal role exchanges, "
+        "protocol field names or raw JSON.\n\n"
         "Ground final-output claims in current_artifact_evidence and the current "
         "workspace, not in stage summaries or the completion trigger. Stage reviews "
         "and transition/rollback reasons are historical: label them as historical "
@@ -1125,7 +1146,10 @@ def build_project_completion_report_prompt(
         "certification; use current_final_certification for that distinction. "
         "If a current artifact or claim cannot be verified, omit the exact claim "
         "and state the evidence limitation rather than substituting historical "
-        "numbers. Cite the current output paths in the report.\n\n"
+        "numbers. Cite the current output paths in the report. When "
+        "final_delivery_review.review_source is reviewer, its summary is the "
+        "independent Reviewer's verdict on the final delivered work, with what it "
+        "verified (such as test counts); report from it.\n\n"
         + (
             "Name each recorded assumption in autonomous_assumptions (the conflict "
             "and the reading chosen) in its own line, as decided without an operator.\n\n"
@@ -1159,6 +1183,7 @@ __all__ = [
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_route_prompt",
+    "build_self_learning_note",
     "build_simple_prompt",
     "build_skill_placements_prompt",
     "build_stage_decision_prompt",

@@ -68,18 +68,22 @@ _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
 _REVIEW_PHRASES = {
-    "done": ("审核：已通过", "review: passed"),
-    "passed": ("审核：已通过", "review: passed"),
-    "approved": ("审核：已通过", "review: passed"),
-    "continue": ("审核：要求继续完善", "review: needs more work"),
-    "blocked": ("审核：发现阻塞问题", "review: blocked"),
-    "stale": ("审核：已过期（稿件之后有改动）", "review: stale (manuscript changed since)"),
+    # A passed review needs no label: the completion already says so.
+    "done": ("", ""),
+    "passed": ("", ""),
+    "approved": ("", ""),
+    "continue": ("审阅认为还要再完善。", " The review asked for more work."),
+    "blocked": ("审阅发现了卡住的问题。", " The review found a blocking problem."),
+    "stale": (
+        "审阅之后稿件又改过，审阅结论已经过时。",
+        " The manuscript changed after the review, so the review is out of date.",
+    ),
 }
 
 
 def _review_phrase(review: str, chinese: bool) -> str:
-    """A review outcome in words, for operator-facing completion lines."""
-    zh, en = _REVIEW_PHRASES.get(str(review), (f"审核：{review}", f"review: {review}"))
+    """A review outcome as a sentence that follows a completion headline."""
+    zh, en = _REVIEW_PHRASES.get(str(review), (f"审阅结果：{review}。", f" Review: {review}."))
     return zh if chinese else en
 
 
@@ -172,11 +176,6 @@ class LifeSupervisor(
         # The facts the last spare-slot Planner call saw: the backlog's running
         # and pending sets and the Planner-visible input digest.
         self._parallel_plan_facts: tuple[Any, ...] | None = None
-        # The Planner-visible input digest at its last model call, read back
-        # from disk so a restart does not re-ask an operator hold on unchanged
-        # inputs. See _record_planner_last_turn.
-        self._planner_last_turn_signature: str = ""
-        self._load_planner_last_turn()
         # Parked cards the Manager could not yet decide in the operator's
         # place: attempts and when to ask again (_decide_parked_questions).
         self._proxy_retry: dict[str, tuple[int, float]] = {}
@@ -392,8 +391,6 @@ class LifeSupervisor(
                 return "planner superseded by newer continuous generation"
             return None
 
-        from ...core.role_session import objective_revision
-
         workdir = self._planner_workdir()
         state_root = self._artifact_root()
         try:
@@ -429,10 +426,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            objective_revision=(
-                f"{expected.generation}:"
-                f"{objective_revision(expected.objective)}"
-            ),
             on_event=getattr(self.sink, "handle_event", None),
             require_stage_decision=bool(current_pipeline_stage),
             current_stage=current_pipeline_stage,
@@ -623,14 +616,11 @@ class LifeSupervisor(
                             self.memory.root,
                             pending_questions,
                         ):
-                            self._emit_status(
-                                "Argus is waiting for your answer on: "
-                                + "; ".join(
-                                    str(item.pending_question).strip()
-                                    for item in pending_questions[:3]
-                                )
-                                + " — independent work continues meanwhile"
+                            asked = "; ".join(
+                                str(item.pending_question).strip()
+                                for item in pending_questions[:3]
                             )
+                            self._tell_status("waiting_for_answer", question=asked)
                     gate_reason = self._planner_cycle_gate_reason()
                     if gate_reason:
                         self._emit({
@@ -1166,6 +1156,14 @@ class LifeSupervisor(
                 if item.status == "done" and objective
                 and str(item.original_objective or item.objective).strip() == objective
             }
+            task_delivery = latest.get("delivery")
+            if (
+                isinstance(task_delivery, dict) and task_delivery.get("kind") == "task_completed"
+                and set(goal_items) <= {latest.get("item_id")}
+            ):
+                # The project was this one task: its receipt is the project's,
+                # with the same primary file and the same identity.
+                return dict(task_delivery)
             for entry in reversed(settlements):
                 extra = getattr(entry, "extra", None)
                 if not isinstance(extra, dict) or extra.get("success") is not True:
@@ -1325,6 +1323,7 @@ class LifeSupervisor(
         if details.get("project_done") is True or completion_kind == "certified_increment":
             report_result = self._manager_publish_project_report(
                 reason,
+                delivery=event.get("delivery"),
                 **(
                     {"certified_increment": True}
                     if completion_kind == "certified_increment"
@@ -1431,6 +1430,7 @@ class LifeSupervisor(
         if event.get("project_done") is True or event.get("completion_kind") == "certified_increment":
             report_result = self._manager_publish_project_report(
                 str(event.get("reason") or ""),
+                delivery=event.get("delivery"),
                 **(
                     {"certified_increment": True}
                     if event.get("completion_kind") == "certified_increment"
@@ -1472,32 +1472,8 @@ class LifeSupervisor(
                 self._publish_mission_completion_message(event)
                 # A mission boundary is a natural moment to write home.
                 self._maybe_write_letter()
-            elif (
-                event_type == EventType.LIFE_PLANNER_VERDICT
-                and event.get("project_done") is True
-                and isinstance(event.get("delivery"), dict)
-            ):
-                delivery = dict(event["delivery"])
-                self._publish_mission_completion_message({
-                    "item_id": str(delivery.get("item_id") or "project"),
-                    "title": str(delivery.get("title") or "Completed task"),
-                    "success": True,
-                    "status": "done",
-                    "summary": str(delivery.get("summary") or event.get("reason") or ""),
-                    "outcome": {
-                        "review_status": str(
-                            delivery.get("review_status") or "not_assessed"
-                        ),
-                    },
-                    "final_submission_certified": (
-                        delivery.get("kind") == "submission_certified"
-                    ),
-                    "overall_complete": True,
-                    "campaign_continues": False,
-                    "delivery": delivery,
-                    "delivery_id": str(delivery.get("delivery_id") or ""),
-                    "message_kind": "project-completed",
-                })
+        # A finished project is told by the Manager's completion report; its
+        # verdict carries the delivery card, not a second completion message.
         return delivered
 
     def _continuation_line(self, item_id: str, chinese: bool) -> str:
@@ -1520,7 +1496,9 @@ class LifeSupervisor(
                 if chinese
                 else "Nothing is queued yet; the next step is being considered."
             )
-        next_title = " ".join(str(pending[0].title or "").split()) or (
+        from ...core.operator_messages import brief_title
+
+        next_title = brief_title(str(pending[0].title or "")) or (
             "下一项" if chinese else "the next item"
         )
         more = len(pending) - 1
@@ -1545,10 +1523,44 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - a status line must not break settlement
             return 0
 
+    def _project_report_tells(self, event: dict[str, Any]) -> bool:
+        """Whether this finished task is the whole project, told by its report.
+
+        A finite project of one task ends with that task, and the Manager's
+        project report then says the same thing under the same delivery card.
+        Other live work or unread operator input can keep the project open,
+        so the task then speaks for itself.
+        """
+        if not (
+            event.get("success") is True
+            and event.get("overall_complete") is True
+            and not event.get("campaign_continues")
+            and not event.get("final_submission_certified")
+            and getattr(self.config, "continuous", False)
+            and not getattr(self.config, "open_ended", False)
+        ):
+            return False
+        try:
+            from ...core.operator_context import (
+                OperatorContextStore,
+                operator_context_state_root,
+            )
+
+            item_id = str(event.get("item_id") or "")
+            if any(row.id != item_id for row in self.memory.backlog.active()):
+                return False
+            context = OperatorContextStore(operator_context_state_root(self.memory))
+            return context.revision <= context.acknowledged_revision("planner")
+        except Exception:  # noqa: BLE001 - when unsure, the task tells itself
+            return False
+
     def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
         """Tell the operator a Team mission ended without another model call."""
+        if self._project_report_tells(event):
+            return
         try:
             from ...core.operator_messages import (
+                brief_title,
                 publish_operator_message,
                 render_operator_update,
             )
@@ -1594,8 +1606,8 @@ class LifeSupervisor(
                         title=title, status=status,
                         reason=str(event.get("stop_reason") or ""),
                         next_action=(
-                            "Argus 会自动开始下一轮，继续完成剩余工作。"
-                            if chinese else "Argus will start the next pass automatically to finish the remaining work."
+                            "我会自动接着做剩下的部分。"
+                            if chinese else "I'll pick up the remaining work automatically."
                         ),
                         language_hint=language_hint,
                     ),
@@ -1683,12 +1695,18 @@ class LifeSupervisor(
             # on; it must never read as the finished goal.
             stage_package = bool(delivery_ready and delivery.get("kind") == "stage_package")
             delivery_line = (
-                f"{'阶段成果（整体目标未完成）' if stage_package else '交付文件'}: {delivery_path}"
-                if chinese and delivery_path
-                else f"{'Stage package (overall goal not complete)' if stage_package else 'Deliverable'}: {delivery_path}"
-                if delivery_path
-                else ""
-            )
+                (
+                    f"阶段成果在 {delivery_path}（整体目标还没完成）。"
+                    if stage_package
+                    else f"结果在 {delivery_path}。"
+                )
+                if chinese
+                else (
+                    f"Interim results are in {delivery_path} (the overall goal is not done yet)."
+                    if stage_package
+                    else f"The result is in {delivery_path}."
+                )
+            ) if delivery_path else ""
             overall_complete = bool(
                 success
                 and not campaign_continues
@@ -1698,43 +1716,8 @@ class LifeSupervisor(
                     or not bool(getattr(self.config, "continuous", False))
                 )
             )
-            summary_label = (
-                "本次进展"
-                if chinese and campaign_continues
-                else "Progress"
-                if campaign_continues
-                else "本次完成"
-                if chinese
-                else "Mission summary"
-            )
-            summary_line = f"{summary_label}: {summary}" if summary else ""
-            if success:
-                if campaign_continues:
-                    completion_label = "已完成一步" if chinese else "Step done"
-                elif overall_complete:
-                    completion_label = (
-                        "交付已认证"
-                        if chinese and final_submission_certified
-                        else "Submission certified"
-                        if final_submission_certified
-                        else "任务已完成"
-                        if chinese
-                        else "Task completed"
-                    )
-                else:
-                    completion_label = "任务已结束" if chinese else "Task ended"
-                result = (
-                    completion_label
-                    if chinese and overall_complete
-                    else f"{completion_label} · {title}"
-                )
-                if (
-                    review
-                    and review not in {"none", "not_assessed"}
-                    and not (overall_complete and independent_review_required)
-                ):
-                    result += f" · {_review_phrase(review, chinese)}"
-            else:
+            brief = brief_title(title)
+            if not success:
                 reason = str(
                     event.get("stop_reason")
                     or event.get("failure_reason")
@@ -1750,7 +1733,12 @@ class LifeSupervisor(
                         life_dir,
                         text="\n".join(
                             part
-                            for part in (title, summary_line, operator_question)
+                            for part in (
+                                f"「{brief}」需要你定一下：{operator_question}"
+                                if chinese
+                                else f"{brief} needs your call: {operator_question}",
+                                summary if summary != operator_question else "",
+                            )
                             if part
                         ),
                         message_id=_message_id(f"mission-result-{item_id}-{status}"),
@@ -1775,7 +1763,10 @@ class LifeSupervisor(
                 )
                 publish_operator_message(
                     life_dir,
-                    text="\n".join(part for part in (text, summary_line) if part),
+                    # The summary often is the stop reason; say it once.
+                    text="\n".join(
+                        part for part in (text, "" if summary in text else summary) if part
+                    ),
                     message_id=_message_id(f"mission-result-{item_id}-{status}"),
                     event_fields={
                         "mission_result": True,
@@ -1785,60 +1776,71 @@ class LifeSupervisor(
                     },
                 )
                 return
+            reviewer_found_nothing = bool(
+                overall_complete and independent_review_required and review == "done"
+                and event.get("review_source") == "reviewer"
+            )
+            # The item is done while other planned work goes on.
+            deferred = (
+                not campaign_continues
+                and str(outcome.get("stage_certification") or "").strip() == "deferred"
+            )
+            if final_submission_certified:
+                headline = (
+                    "最终稿通过了独立审核，可以交付了。"
+                    if chinese
+                    else "The final submission passed independent review and is ready."
+                )
+            elif overall_complete or deferred:
+                headline = (
+                    ("这一项做完了" if deferred else "做完了")
+                    + ("，独立审阅也没发现要改的地方" if reviewer_found_nothing else "")
+                    + ("；计划里的其他工作还在进行。" if deferred else "。")
+                    if chinese
+                    else ("This item is done" if deferred else "Done")
+                    + (
+                        ", and an independent reviewer found nothing that needs fixing"
+                        if reviewer_found_nothing else ""
+                    )
+                    + ("; the rest of the plan is still under way." if deferred else ".")
+                )
+            elif campaign_continues:
+                headline = f"做完一步：{brief}。" if chinese else f"One step done: {brief}."
+            else:
+                headline = f"这项任务结束了：{brief}。" if chinese else f"This task has ended: {brief}."
+            if (
+                review
+                and review not in {"none", "not_assessed"}
+                and not final_submission_certified
+                and not (overall_complete and independent_review_required)
+            ):
+                headline += _review_phrase(review, chinese)
             if campaign_continues:
                 continuation = self._continuation_line(item_id, chinese)
-            elif final_submission_certified:
-                continuation = (
-                    "最终交付已通过独立审核。"
-                    if chinese
-                    else "The final submission passed independent review."
-                )
-            elif overall_complete and independent_review_required and review == "done":
-                continuation = (
-                    "本次结果已由独立审阅者检查，未发现需要先修正的问题。"
-                    if chinese
-                    else (
-                        "An independent reader checked this result and "
-                        "found no issues that need fixing before proceeding."
-                    )
-                )
-            elif str(outcome.get("stage_certification") or "").strip() == "deferred":
-                continuation = (
-                    "此工作项已完成；其他计划项仍在进行。"
-                    if chinese
-                    else (
-                        "This work item is complete; other planned work is still "
-                        "in progress."
-                    )
-                )
-            elif overall_complete:
-                continuation = (
-                    "请求的工作已完成。"
-                    if chinese
-                    else "The requested work is complete."
-                )
+            elif overall_complete or deferred:
+                continuation = ""
             else:
                 continuation = (
-                    "本次处理已结束，但没有可打开的交付成果。"
+                    "这次没有产出可以打开的文件。"
                     if chinese
-                    else "This run ended without an openable deliverable."
+                    else "This run produced no file you can open."
                 )
             assumptions_line = ""
-            if success and overall_complete:
+            if overall_complete:
                 from ...core.autonomy import render_autonomous_assumptions
 
                 # What was decided without an operator belongs in the
                 # completion message, not only in the event log.
                 assumptions_line = render_autonomous_assumptions(
-                    self._project_state_root()
+                    self._project_state_root(), chinese=chinese,
                 )
             publish_operator_message(
                 life_dir,
                 text="\n".join(
                     part
                     for part in (
-                        result,
-                        summary_line,
+                        headline,
+                        summary,
                         delivery_line,
                         continuation,
                         assumptions_line,
@@ -1847,7 +1849,7 @@ class LifeSupervisor(
                 ),
                 message_id=_message_id(
                     f"mission-result-{item_id}-"
-                    f"{str(event.get('message_kind') or ('continued' if campaign_continues else 'completed' if overall_complete and delivery_ready else 'ended'))}"
+                    f"{'continued' if campaign_continues else 'completed' if overall_complete and delivery_ready else 'ended'}"
                 ),
                 event_fields={
                     "mission_result": True,
@@ -1881,7 +1883,7 @@ class LifeSupervisor(
         from ..memory import _fsync_parent
 
         delivery_id = str(event.get("mission_delivery_id") or "")
-        if not delivery_id:
+        if not delivery_id or self._project_report_tells(event):
             return True
         project = getattr(self.memory, "project", None)
         root = Path(getattr(project, "root", None) or self.memory.root)
@@ -1975,17 +1977,33 @@ class LifeSupervisor(
         return (_ids(running), _ids(pending))
 
     def _emit_status(self, text: str) -> None:
+        """One line of the developer log; screens hide it by default."""
         self._emit({"type": "life.status", "text": text})
+
+    def _operator_words(self, kind: str, **params: Any) -> dict[str, str]:
+        """A kind and its sentence in the operator's language, for an event they read."""
+        from ...core.mission_view import say
+
+        return {"kind": kind, "text": say(kind, self._operator_chinese(), **params)}
+
+    def _tell_status(self, kind: str, **params: Any) -> None:
+        """A status line the operator reads, unlike the developer log."""
+        self._emit({"type": "life.status", **self._operator_words(kind, **params)})
+
+    def _operator_chinese(self) -> bool:
+        """Whether the operator writes Chinese, as their objective reads."""
+        from ...core.operator_messages import uses_cjk
+
+        return uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
 
     def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None:
         """Post one message to the operator's conversation, once per ``notice_id``."""
-        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...core.operator_messages import publish_operator_message
 
-        cjk = uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
         try:
             publish_operator_message(
                 self._manager_project_report_root(),
-                text=chinese if cjk else english,
+                text=chinese if self._operator_chinese() else english,
                 message_id=f"argus-notice-{notice_id}",
                 event_fields={"operator_notice": notice_id},
             )

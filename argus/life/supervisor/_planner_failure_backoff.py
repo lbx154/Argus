@@ -389,7 +389,6 @@ class PlannerFailureBackoffMixin:
                     "id": f"planner-alert-{uuid.uuid4().hex}",
                     "kind": kind,
                     "streak": streak,
-                    "delay": delay,
                     "failing_for": now - first_failed_at,
                     "detail": " ".join(
                         str(
@@ -444,38 +443,27 @@ class PlannerFailureBackoffMixin:
         detail = str(alert.get("detail") or "")
         try:
             streak = int(alert.get("streak") or 0)
-            delay = float(alert.get("delay") or 0.0)
             failing_for = float(alert.get("failing_for") or 0.0)
         except (TypeError, ValueError):
-            streak, delay, failing_for = 0, 0.0, 0.0
+            streak, failing_for = 0, 0.0
         minutes = int(failing_for // 60)
-        if kind == FAILURE_KIND_INTERNAL:
-            text = (
-                f"Argus has been hitting an internal error for {minutes} minutes "
-                "while asking the Planner"
-                + (f" ({detail})" if detail else "")
-                + ". This is a fault in Argus itself, not in the model or its "
-                "backend; Argus keeps retrying at a slow pace. Please report it "
-                "with the daemon log."
-            )
-        else:
-            text = (
-                f"The Planner's backend has been failing for {minutes} minutes"
-                + (f" ({detail})" if detail else "")
-                + ". Argus keeps retrying at a slow pace; check the backend or "
-                "switch the Planner model in Settings."
-            )
+        # The failure detail stays in ``error``; the operator reads the words.
+        words = self._operator_words(
+            "planner_internal_error" if kind == FAILURE_KIND_INTERNAL else "planner_failing",
+            minutes=minutes,
+        )
+        text = words["text"]
         alert_id = str(alert.get("id") or "")
         self._emit({
             "type": EventType.LIFE_PLANNER_ERROR,
             "cycle": getattr(self, "_planning_cycles", 0),
             "error": detail or kind,
+            **words,
             "operator_alert": True,
             "recoverable": True,
             "stop_kind": "planner_repeated_failure",
             "failure_kind": kind,
             "consecutive_failures": streak,
-            "suggested_sleep_s": delay,
             "alert_id": alert_id,
         })
         # Manager supervision listens for degraded-daemon evidence; this is
@@ -540,7 +528,6 @@ class PlannerFailureBackoffMixin:
                     "cycle": getattr(self, "_planning_cycles", 0),
                     "reason": "backing off after repeated failed Planner turns",
                     "consecutive_failures": streak,
-                    "suggested_sleep_s": remaining,
                     "model_call_skipped": True,
                 })
                 self._emit_status(
@@ -562,23 +549,23 @@ class PlannerFailureBackoffMixin:
             told.add(notice)
             if record.get("kind") == FAILURE_KIND_INTERNAL:
                 english = (
-                    "Argus kept hitting an internal error while asking the Planner for three "
-                    "hours, so it stopped retrying. Send a message to try again, and please "
-                    "report it with the daemon log."
+                    "Planning kept hitting an internal error in Argus for three hours, "
+                    "so I stopped retrying. Send me a message to try again, and please "
+                    "report it along with the run log."
                 )
                 chinese = (
-                    "Argus 调用 Planner 时连续三小时遇到内部错误，已停止自动重试。"
-                    "发送一条消息即可重新尝试，并请附上后台日志反馈这个问题。"
+                    "规划时 Argus 自己连着出错三个小时，我先不再自动重试。"
+                    "给我发条消息就会再试；也请把运行日志一起反馈给我们。"
                 )
             else:
                 english = (
-                    "The Planner's model backend kept failing for three hours, so Argus "
-                    "stopped retrying it. Send a message, or switch the Planner model in "
-                    "Settings, to try again."
+                    "The Planner's model service kept failing for three hours, so I "
+                    "stopped retrying. Send me a message, or switch the Planner's model "
+                    "in Settings, to try again."
                 )
                 chinese = (
-                    "Planner 的模型后端已连续失败三小时，Argus 已停止自动重试。"
-                    "发送一条消息，或在设置中更换 Planner 模型，即可重新尝试。"
+                    "规划者用的模型服务连着三个小时都失败，我先不再自动重试。"
+                    "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。"
                 )
             self._tell_operator(notice, english, chinese)
         return PLAN_AWAITING

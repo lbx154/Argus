@@ -36,9 +36,6 @@ if TYPE_CHECKING:
     from ._config import _MemoryView
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
-# Stands in for a Planner input digest that could not be computed after a
-# turn, so a Manager WAIT still holds after it instead of re-granting one.
-_UNREADABLE_WAIT_INPUT = "planner-input:unreadable"
 
 
 class PlanningCycleIntakeMixin:
@@ -48,6 +45,7 @@ class PlanningCycleIntakeMixin:
         memory: _MemoryView
 
         def _emit_status(self, text: str) -> None: ...
+        def _operator_chinese(self) -> bool: ...
         def _enter_idle_backoff(self) -> float: ...
         def _enter_pause_backoff(self) -> float: ...
         def _hold_on_unresolved_vertical(
@@ -59,7 +57,9 @@ class PlanningCycleIntakeMixin:
         """Record bounded completion, then deliver the Manager project report."""
         from ...core.autonomy import render_autonomous_assumptions
 
-        assumptions = render_autonomous_assumptions(self._project_state_root())
+        assumptions = render_autonomous_assumptions(
+            self._project_state_root(), chinese=self._operator_chinese(),
+        )
         if assumptions:
             # Honest completion: a run that decided without an operator says
             # so in its completion summary, not only in the event log.
@@ -118,10 +118,10 @@ class PlanningCycleIntakeMixin:
         ):
             return None
 
+        from ...core.operator_messages import brief_title
         from ..memory import BacklogItem
 
-        compact = " ".join(objective.split()).replace("`", "")
-        title = compact if len(compact) <= 96 else compact[:93] + "..."
+        title = brief_title(objective.replace("`", ""))
         stage = str(
             intent.get("current_stage") or intent.get("stage") or ""
         ).strip().lower()
@@ -210,10 +210,13 @@ class PlanningCycleIntakeMixin:
             or context.revision > context.acknowledged_revision("planner")
         ):
             return ""
-        from ...skills.vertical_select import resolve_vertical
-
-        vertical = resolve_vertical(artifact_root)
-        return f"bounded {vertical} vertical has a current completion certificate"
+        # The operator reads this reason on the timeline and the Manager
+        # reports from it: say what happened, not which certificate allowed it.
+        return (
+            "要求的工作已经全部完成。"
+            if self._operator_chinese()
+            else "All the requested work is done."
+        )
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.
@@ -274,18 +277,13 @@ class PlanningCycleIntakeMixin:
             from ...manager.supervision import waiting_for_evidence
 
             if waiting_for_evidence(operator_context_state_root(self.memory)):
-                # The WAIT parks the tasks whose answers it awaits: they are
-                # unclaimable and their dependents unready on their own. It
-                # must not freeze the project, so the Planner gets one turn per
-                # state of its inputs to plan work that does not need the
-                # answer; only a state it has already seen is held without a
-                # call.
-                current = self._current_planner_input_signature()
-                held = str(getattr(self, "_planner_last_turn_signature", "") or "")
-                if held and (current or _UNREADABLE_WAIT_INPUT) == held:
-                    self._enter_idle_backoff()
-                    self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
-                    return PLAN_AWAITING
+                # A WAIT is the Manager's answer to exactly the evidence it
+                # judged: keeping work on the operator's question is no new
+                # input for the Planner. It never freezes the project: any
+                # change to that evidence, or operator words, ends it. The
+                # operator already hears what is waiting on them, once.
+                self._enter_idle_backoff()
+                return PLAN_AWAITING
         if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
@@ -344,14 +342,13 @@ class PlanningCycleIntakeMixin:
                 (feedback or {}).get("attempts") or (1 if feedback else 0)
             )
             if feedback is not None and feedback_attempts >= MANAGER_FEEDBACK_REPLAN_LIMIT:
-                sleep_s = self._enter_idle_backoff()
+                self._enter_idle_backoff()
                 self._emit({
                     "type": "life.manager.feedback.exhausted",
                     "stage": feedback.get("stage") or "",
                     "diagnostic": feedback.get("diagnostic") or "",
                     "reason": feedback.get("reason") or "",
                     "attempts": feedback_attempts,
-                    "suggested_sleep_s": sleep_s,
                 })
                 self._emit_status(
                     "Manager→Planner feedback repeated without a commit; "
@@ -391,7 +388,7 @@ class PlanningCycleIntakeMixin:
                     )
                     self._reset_idle_backoff()
                 else:
-                    sleep_s = self._enter_idle_backoff()
+                    self._enter_idle_backoff()
                     self._emit({
                         "type": "life.planner.completion_circuit_holding",
                         "diagnostic": str(circuit.get("diagnostic") or ""),
@@ -399,7 +396,6 @@ class PlanningCycleIntakeMixin:
                         "consecutive_rejections": int(
                             circuit.get("consecutive_rejections") or 0
                         ),
-                        "suggested_sleep_s": sleep_s,
                     })
                     self._emit_status(
                         "completion attempts stay paused: the same reason "

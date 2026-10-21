@@ -81,7 +81,7 @@ test('a denied cost reservation raises a budget alarm', () => {
   ]);
   assert.equal(a?.tone, 'block');
   assert.equal(a?.kind, 'budget');
-  assert.ok(a?.text.includes('global daily budget exhausted'));
+  assert.ok(a?.text.includes('The budget is used up'));
   assert.equal(activeGuardianAlert([
     ev({
       type: 'budget.reservation.denied',

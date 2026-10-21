@@ -32,7 +32,7 @@ def _supervisor(tmp_path, monkeypatch):
     ):
         monkeypatch.setattr(supervisor, name, lambda *args: "")
     monkeypatch.setattr(supervisor, "_planner_journal_window", lambda: None)
-    monkeypatch.setattr(supervisor, "_render_journal_delta_for_planner", lambda _: ("", None))
+    monkeypatch.setattr(supervisor, "_render_journal_delta_for_planner", lambda *_: ("", None))
     monkeypatch.setattr(supervisor, "_apply_research_plan_update", lambda _: None)
     return supervisor, events
 

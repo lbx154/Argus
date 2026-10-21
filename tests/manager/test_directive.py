@@ -54,6 +54,18 @@ def test_directives_accumulate_until_explicitly_retracted(tmp_path: Path) -> Non
     assert active_manager_directive_message(tmp_path) == ""
 
 
+def test_only_a_directive_handed_to_the_planner_moves_its_revision(tmp_path: Path) -> None:
+    _set_objective(tmp_path, "prove the theorem")
+    source = "manager.supervision:1"
+
+    team = set_active_manager_directive(tmp_path, "rerun the fixture", source=source, for_planner=False)
+    assert team.planner_revision == ""
+    planned = set_active_manager_directive(tmp_path, "split the proof", source=source)
+    assert planned.planner_revision == planned.revision
+    later = set_active_manager_directive(tmp_path, "keep one review", source=source, for_planner=False)
+    assert load_active_manager_directive(tmp_path).planner_revision == planned.revision != later.revision
+
+
 def test_directive_is_scoped_to_the_objective(tmp_path: Path) -> None:
     _set_objective(tmp_path, "first objective")
     set_active_manager_directive(tmp_path, "first-objective policy")
@@ -229,7 +241,7 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
 
     assert result["control"] == "steer"
     assert result["continuous"] is False
-    assert "方向已记录" in result["reply"]
+    assert "The direction is noted" in result["reply"]
     directive = load_active_manager_directive(tmp_path)
     assert directive is not None
     assert chat_state["config"]["continuous"] is True

@@ -285,7 +285,7 @@ def test_planner_host_pause_gate_uses_split_memory_project_root(tmp_path: Path) 
     blocked = supervisor._execution_host_failure_block(item=item)
 
     assert blocked is not None and blocked["status"] == "runtime_block"
-    assert "re-enable continuous work" in blocked["reason"]
+    assert "turn continuous work back on" in blocked["reason"]
     assert runner.backend.calls == 0
     write_continuous_config(project_root, enabled=True, objective="project campaign")
     assert supervisor._execution_host_failure_block(item=item) is None

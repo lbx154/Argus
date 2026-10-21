@@ -1326,12 +1326,13 @@ class TestManagerMessageLifecycleErrors:
 # ── Dispatch acknowledgement persistence ────────────────────────────────────
 
 _DISPATCH_ACK_CASES = [
-    ({"rc": 0, "pid": 42}, "Queued; waiting for the executor"),
-    (None, "Queued; waiting for the executor"),
-    ({"admission_required": True}, "Waiting for a free executor slot"),
+    ({"rc": 0, "pid": 42}, "Got it, starting now."),
+    (None, "Got it, starting now."),
+    ({"admission_required": True}, "this starts as soon as a slot frees up"),
     (
         {"rc": 2, "error": "auth failed"},
-        "The task is saved, but the background worker could not start. See startup details.",
+        "Saved, but the work couldn't start. Your request is kept; see the startup "
+        "details for why, or try again later.",
     ),
 ]
 
@@ -1440,18 +1441,18 @@ def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> N
         global_root=tmp_path,
     )
 
-    assert "Objective updated" in text
-    assert "waiting for the Planner" in text
+    assert "Goal updated" in text
+    assert "working out the next step" in text
     assert "already running" not in text
 
 
 @pytest.mark.parametrize(
     ("dispatch_state", "expected"),
     [
-        ("queued_after_current", "Queued after the current work"),
-        ("queued", "waiting for the executor"),
-        ("running", "executor has claimed"),
-        ("already_queued", "no duplicate task was created"),
+        ("queued_after_current", "This starts once the current work is done."),
+        ("queued", "Got it, starting now."),
+        ("running", "Got it, it's been picked up."),
+        ("already_queued", "I didn't add it again"),
     ],
 )
 def test_dispatch_ack_describes_queue_state(
@@ -1521,10 +1522,7 @@ def test_dispatch_ack_surfaces_transcript_write_failure(
     assert result["kind"] == "task"
     assert result["ack_error"] == text
     assert result["reply"] == text
-    assert text == (
-        "The mission is queued, but I couldn't save its confirmation. "
-        "It remains in the queue."
-    )
+    assert text == "The task is saved; only this confirmation couldn't be recorded."
     assert str(transcript) in result["ack_diagnostic"]
     assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in (
         result["ack_diagnostic"]
@@ -1541,7 +1539,7 @@ def test_dispatch_ack_surfaces_transcript_write_failure(
     assert queued[0].status == "pending"
 
 
-def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) -> None:
+def test_dispatch_ack_speaks_the_operator_language_without_echoing_the_task(tmp_path: Path) -> None:
     from argus.webapi.manager_pending_question import record_task_dispatch_ack
 
     (tmp_path / "projects" / "s-ack").mkdir(parents=True)
@@ -1552,12 +1550,18 @@ def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) ->
         "item": {"id": "t1", "title": "请做一个 8 页的 PPT，介绍 Argus。", "status": "pending"},
     }
     text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
-    assert text == "已加入队列，等待执行者接手：请做一个 8 页的 PPT，介绍 Argus。"
+    assert text == "收到，马上开始。"
 
     result = {"kind": "task", "daemon_alive": True, "daemon": None,
               "item": {"id": "t2", "title": "Write the release notes", "status": "pending"}}
     text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
-    assert text == "Queued; waiting for the executor to pick it up: Write the release notes"
+    assert text == "Got it, starting now."
+
+    result = {"kind": "task", "daemon_alive": True, "daemon": None,
+              "item": {"id": "t3", "title": "改 truncate", "status": "parked",
+                       "pending_question": "选 A 还是 B？"}}
+    text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
+    assert text == "开始之前需要你定一下：\n选 A 还是 B？"
 
 
 @pytest.mark.parametrize("planner_pending", [False, True])
@@ -1572,4 +1576,4 @@ def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp
     reply = record_task_dispatch_ack(
         "s-operator-language", result, global_root=tmp_path, operator_text="继续比较两组延迟",
     )
-    assert ("目标已更新" if planner_pending else "已加入队列") in reply
+    assert ("目标已更新" if planner_pending else "收到，马上开始") in reply

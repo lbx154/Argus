@@ -10,35 +10,32 @@ export function managerIntentSummary(event: EventMsg, locale: 'en' | 'zh-CN'): s
   const zh = locale === 'zh-CN';
   const route = text(event.route, 40);
   const mode = text(event.workflow_mode, 40);
-  // Historical objective fields can contain the model transport context.
-  // Only repeat the normalized public task here; the task card owns its title.
-  const objective = text(event.execution_task, 160);
+  // The request is the operator's own words; the plan line does not say it back.
   let plan: string;
   if (route === 'self') {
-    plan = zh ? '计划由 Manager 直接处理' : 'Manager plans to handle this request';
+    plan = zh ? '我直接来处理。' : "I'll handle this myself.";
   } else if (mode === 'staged') {
     plan = route === 'team'
-      ? (zh ? '计划由团队分阶段推进' : 'The team plans to work in stages')
-      : (zh ? '计划分阶段推进' : 'The plan is to work in stages');
+      ? (zh ? '交给团队，分几个阶段做。' : 'Handing this to the team, in stages.')
+      : (zh ? '分几个阶段做。' : 'Working on this in stages.');
   } else if (mode === 'direct') {
     plan = route === 'team'
-      ? (zh ? '计划由团队直接处理' : 'The team plans to handle this task directly')
-      : (zh ? '计划直接处理这项工作' : 'The plan is to handle this task directly');
+      ? (zh ? '交给团队直接做。' : 'Handing this to the team to do directly.')
+      : (zh ? '直接做。' : 'Doing this directly.');
   } else {
-    plan = zh ? '处理方案已确定' : 'A plan is ready';
+    plan = zh ? '处理方式定好了。' : 'The approach is set.';
   }
-  if (objective) plan += `${zh ? '：' : ': '}${objective}`;
 
   let scope = '';
   if ((event.lifetime === 'standing' && event.open_ended !== false)
     || (!event.lifetime && event.open_ended === true)) {
-    scope = zh ? '持续跟进后续工作。' : 'Keep following up on subsequent work.';
+    scope = zh ? '之后会持续跟进。' : "I'll keep following up after this.";
   } else if (event.lifetime === 'bounded_increment') {
-    scope = zh ? '本次只推进一个明确的增量。' : 'Limit this run to one defined increment.';
+    scope = zh ? '先做一部分，做完再看下一步。' : 'One piece first, then I decide what comes next.';
   } else if (event.lifetime === 'bounded') {
     scope = event.continuous === true && event.open_ended === false
-      ? (zh ? '完成这次目标后结束。' : 'Finish once this objective is met.')
-      : (zh ? '范围限于本次目标。' : 'Keep the work within this objective.');
+      ? (zh ? '做完这次的目标就结束。' : 'Done once this goal is met.')
+      : (zh ? '只做这次的目标。' : 'Only this goal is in scope.');
   }
 
   // Older producers used Division.headline() as the reason. It repeats internal

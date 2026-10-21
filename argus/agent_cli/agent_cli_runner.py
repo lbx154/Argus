@@ -87,7 +87,7 @@ class RunnerOptions:
     # Codex sandbox policy. When set (e.g. "workspace-write"), the codex command
     # is built with ``-s <mode> -C <working_dir> --add-dir <add_dirs>`` so writes
     # are confined to the workspace + add_dirs, and the child env is scrubbed of
-    # push-capable VCS credentials with PYTHONSAFEPATH=1 — INSTEAD of
+    # push-capable VCS credentials — INSTEAD of
     # ``--dangerously-bypass-approvals-and-sandbox``. None = legacy behaviour
     # (dangerous_yolo / full_auto flags), so existing callers are unaffected.
     sandbox_mode: str | None = None

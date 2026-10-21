@@ -8,10 +8,9 @@ import pytest
 
 from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.agent_cli.models import AgentRunResult
-from argus.core.models import RunnerOptions
 from argus.core.operator_context import OperatorContextStore
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.manager._session_ops import _ManagerSession
+from argus.manager import Manager
 from argus.webapi.manager_pending_question import (
     _resolve_pending_question_with_manager,
 )
@@ -59,20 +58,10 @@ def _raw_result(*, message: str = "", error: str = "") -> AgentRunResult:
 
 
 class _PendingManagerRunner:
-    def __init__(self, backend: AgentCliBackend, project_root) -> None:
-        self.backend = _ManagerSession(backend, project_root)
+    """The front-door runner as the pending-answer check sees it: its Manager."""
 
-    def chat_reply_if_conversational(self, *, objective, sink, **_kwargs) -> bool:
-        result = self.backend.run_exec(
-            prompt=objective,
-            options=RunnerOptions(skip_git_repo_check=True),
-            run_label="manager-pending-answer",
-        )
-        sink.handle_event({
-            "type": "round.main.completed",
-            "last_message": result.last_agent_message,
-        })
-        return True
+    def __init__(self, backend: AgentCliBackend, project_root) -> None:
+        self.manager = Manager(project_root, runner=backend, memory_maintenance_enabled=False)
 
 
 def _pending_memory(tmp_path):
@@ -122,10 +111,9 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
 
     assert result["resolved"] is True
     assert calls == ["rejected-relay-token", "fresh-relay-token"]
-    rows = mem.backlog.history()
-    blocked = next(row for row in rows if row.id == item.id)
-    assert blocked.pending_question == ""
-    assert len([row for row in rows if row.id != item.id]) == 1
+    (resumed,) = mem.backlog.history()
+    assert resumed.id == item.id and resumed.status == "pending"
+    assert resumed.pending_question == ""
     ledger = OperatorContextStore(tmp_path).records()
     assert [row.text for row in ledger] == [
         "Yes, authorize the requested repair."
@@ -193,7 +181,7 @@ def test_pending_question_contract_failure_carries_reply_snippet(
     reply = "IS_ANSWER=maybe\nRESOLVED=true\nDECISION=continue"
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: reply,
     )
 
@@ -227,7 +215,7 @@ def test_answer_directive_is_written_only_after_positive_classification(tmp_path
         assert not (tmp_path / "operator_context.jsonl").exists()
         return json.dumps({"is_answer": is_answer, "resolved": False, "decision": "", "reply": "Please specify the card."})
 
-    monkeypatch.setattr(front_door, "manager_triage", classify)
+    monkeypatch.setattr(front_door, "manager_judgment", classify)
     result = _resolve_pending_question_with_manager(mem, item, answer, {})
 
     assert result["answer_intent"] is is_answer and result["resolved"] is False
@@ -239,3 +227,35 @@ def test_answer_directive_is_written_only_after_positive_classification(tmp_path
         assert ledger[0].lifetime == "once"
     else:
         assert not (tmp_path / "operator_context.jsonl").exists()
+
+
+def test_the_answer_check_is_one_short_stateless_turn_with_its_own_label(tmp_path) -> None:
+    """Trial s-4aaf2d17: the check ran as SELF ``simple-1``, resumed the Manager's
+    conversation and sent a 25,910-character prompt for a ~2.6k judgment."""
+    from argus.core.models import RunnerResult
+    from argus.roles.prompts.manager import build_pending_question_prompt
+
+    calls = []
+
+    class Backend:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            calls.append((prompt, options, run_label, resume_thread_id))
+            return RunnerResult(exit_code=0, agent_messages=[
+                "IS_ANSWER=false\nRESOLVED=false\nDECISION=\nREPLY=\n",
+            ])
+
+    mem, item = _pending_memory(tmp_path)
+    state = {
+        "manager_runner": SimpleNamespace(manager=Manager(tmp_path, runner=Backend(), memory_maintenance_enabled=False)),
+        "manager_runner_workdir": str(tmp_path),
+        "last_thread_id": "manager-conversation",
+    }
+
+    result = _resolve_pending_question_with_manager(mem, item, "Also add a char_count helper.", state)
+
+    assert result["answer_intent"] is False
+    ((prompt, options, run_label, resume),) = calls
+    assert run_label == "manager-pending-answer"
+    assert resume is None and state["last_thread_id"] == "manager-conversation"
+    assert prompt == build_pending_question_prompt(item, "Also add a char_count helper.")
+    assert options.sandbox_mode == "read-only"

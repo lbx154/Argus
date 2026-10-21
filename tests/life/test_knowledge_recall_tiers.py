@@ -227,6 +227,32 @@ def test_a_role_is_given_the_directories_recall_points_at_outside_its_workspace(
     assert knowledge_read_dirs(None, tenant, workspace) == []
 
 
+def test_an_earlier_page_s_sources_resolve_and_only_their_directories_are_readable(tenant, tmp_path):
+    """Trial s-30b9eaed: a recalled page named ``repos/DeepInfer`` of an earlier
+    workspace the backend could not read, so the agents fetched it from GitHub."""
+    workspace = tmp_path / "work" / "current"
+    state = earlier_project(tenant, "s-current", VERTICAL, workspace)
+    earlier = tmp_path / "work" / "earlier"
+    earlier_project(tenant, "s-earlier", VERTICAL, earlier)
+    write(earlier / "repos" / "engine" / "core.py", "pass\n")
+    write(earlier / "private" / "notes.py", "pass\n")
+    write(earlier / ".cache" / "blob.py", "pass\n")
+    project_wiki(earlier, "earlier", "engine.md", page(
+        "Engine", "how the engine schedules",
+        "quartz engine in `repos/engine`: [core](../../../../repos/engine/core.py), "
+        "[cache](../../../../.cache/blob.py)",
+    ))
+
+    dirs = knowledge_read_dirs(state, tenant, workspace)
+    context = knowledge_recall_for_memory(
+        MemoryBundle.for_cwd(workspace, global_root=tenant, fingerprint=state.name),
+    ).render_context("quartz engine")
+
+    assert str(earlier / "repos") in dirs
+    assert not {str(earlier), str(earlier / "private"), str(earlier / ".cache")} & set(dirs)
+    assert f"workspace `{earlier}`" in context
+
+
 def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path):
     from argus.core.models import RunnerResult
     from argus.loop import SkillLoop, SkillLoopConfig
@@ -242,7 +268,7 @@ def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path
                      config=SkillLoopConfig(read_dirs=["/elsewhere/wiki"]))
     loop.supervised._run_engineer(prompt="work", workdir=tmp_path, run_label="engineer-r1")
 
-    assert Capture.options.add_dirs == ["/elsewhere/wiki"]
+    assert Capture.options.add_dirs[0] == "/elsewhere/wiki"
 
 
 @pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])

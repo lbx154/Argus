@@ -108,8 +108,8 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
         "模型服务当前不接受调用",
     ),
     "daemon_shutdown": ("Argus was stopped", "Argus 被停止"),
-    "operator_pause": ("the operator paused the work", "操作员暂停了工作"),
-    "operator_abort": ("the operator cancelled the task", "操作员取消了任务"),
+    "operator_pause": ("you paused the work", "你暂停了工作"),
+    "operator_abort": ("you cancelled the task", "你取消了这项任务"),
     "backend_unavailable": ("the model service was unavailable", "模型服务不可用"),
     "transient_error": (
         "a temporary error interrupted the call",
@@ -192,8 +192,8 @@ _PARK_REASON_CLAUSES: dict[str, tuple[str, str]] = {
         "需要先等 Argus 之外的工作完成",
     ),
     "operator_question": (
-        "a question is waiting for the operator",
-        "有问题在等操作员回答",
+        "a question is waiting for your answer",
+        "有个问题在等你回答",
     ),
 }
 

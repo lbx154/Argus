@@ -69,7 +69,6 @@ class PlannerConfig:
     open_ended: bool = False
     external_interrupt_reason_provider: Any = None
     role_session_path: Path | None = None
-    objective_revision: str = ""
     on_event: Any = None
     require_stage_decision: bool = False
     current_stage: str = ""
@@ -216,9 +215,7 @@ class Planner:
         session = RoleSessionCapsule.open(
             role="planner",
             policy=session_policy,
-            objective_revision=(
-                cfg.objective_revision or objective_revision(continuous_objective)
-            ),
+            objective_revision=objective_revision(continuous_objective),
             workdir=workdir,
             backend=backend_name,
             model=str(cfg.model or ""),
@@ -1192,6 +1189,9 @@ def _planner_verdict_from_fields(
 
     baton = read_baton_line(text)
     handoff = baton.holder if baton is not None and baton.holder in {"engineer", "manager", "operator"} else ""
+    if project_done and handoff == "manager":
+        # Completion goes to the Manager anyway; the line only names it.
+        handoff = ""
 
     new_tasks: list[TaskSpec] = []
     for task_index, row in enumerate(task_rows):

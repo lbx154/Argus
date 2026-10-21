@@ -30,13 +30,13 @@ _RESULT_KEY = re.compile(
 # A role-decision event line (``core.role_decision``): read by the host, never by a person.
 _ROLE_DECISION_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]*)?`?" + re.escape(ROLE_DECISION_PREFIX))
 # The holders a baton line may name, in English or by the role names the
-# operator sees.
+# operator sees; the older Chinese names stay readable.
 _HOLDERS = {
-    "engineer": "engineer", "执行": "engineer",
-    "reviewer": "reviewer", "复核": "reviewer",
-    "planner": "planner", "规划": "planner",
-    "manager": "manager", "统筹": "manager",
-    "operator": "operator", "操作员": "operator",
+    "engineer": "engineer", "工程师": "engineer", "执行": "engineer",
+    "reviewer": "reviewer", "审阅者": "reviewer", "复核": "reviewer",
+    "planner": "planner", "规划者": "planner", "规划": "planner",
+    "manager": "manager", "经理": "manager", "统筹": "manager",
+    "operator": "operator", "你": "operator", "操作员": "operator",
     "done": "done", "完成": "done",
 }
 # One holder after an arrow, optionally with ``: <argument>``; a bullet, bold,

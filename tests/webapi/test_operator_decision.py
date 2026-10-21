@@ -172,7 +172,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     mem, card = _bound_blocked_project(tmp_path)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),
@@ -196,7 +196,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     assert first["item"]["id"] == second["item"]["id"]
     assert first["resolution_id"] == second["resolution_id"]
     assert first["resume_requested"] is True
-    assert len(mem.backlog.all()) == 2
+    assert len(mem.backlog.all()) == 1
     assert (mem.project_root / "operator_context.jsonl").read_bytes() == answer_ledger
     directives = OperatorContextStore(mem.project_root).records()
     assert len(directives) == 1 and directives[0].source == "operator.explicit_answer"
@@ -225,7 +225,7 @@ def test_campaign_generation_change_does_not_block_pending_decision(
     )
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),
@@ -252,7 +252,7 @@ def test_concurrent_same_decision_returns_accepted_and_already_applied(
     mem, card = _bound_blocked_project(tmp_path)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),
@@ -273,7 +273,7 @@ def test_concurrent_same_decision_returns_accepted_and_already_applied(
         "accepted",
         "already_applied",
     }
-    assert len(mem.backlog.all()) == 2
+    assert len(mem.backlog.all()) == 1
 
 
 def test_stop_decision_replay_does_not_advance_campaign_twice(tmp_path) -> None:

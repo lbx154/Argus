@@ -70,7 +70,7 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
     ]
     assert transcript[-1]["delivery"] == delivery
     assert transcript[-1]["delivery_id"] == delivery["delivery_id"]
-    assert "Deliverable: results/final.md" in transcript[-1]["text"]
+    assert "The result is in results/final.md." in transcript[-1]["text"]
     ui_events = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
@@ -96,7 +96,6 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
             project_worktree=workspace,
         ),
     )
-    supervisor._manager_publish_project_report = lambda _reason: "reported"
 
     assert supervisor._emit({
         "type": "life.mission.completed",
@@ -123,7 +122,7 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         json.loads(line)
         for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert "Step done" in turns[-1]["text"]
+    assert "One step done" in turns[-1]["text"]
     assert turns[-1].get("delivery") is None
 
     delivery = supervisor._build_terminal_project_delivery("All planned work is done.")
@@ -142,9 +141,12 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         json.loads(line)
         for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
+    # One message tells the operator the project is done: the Manager's report,
+    # carrying the project's delivery card.
     completion_turn = next(turn for turn in reversed(turns) if turn.get("delivery"))
-    assert "Task completed" in completion_turn["text"]
+    assert completion_turn["text"] == "Manager reviewed the full stage ledger and confirmed completion."
     assert completion_turn["delivery"]["primary_target"]["path"] == "final.md"
+    assert not any(str(turn.get("message_id", "")).endswith("-project-completed") for turn in turns)
 
 
 def _delivery_supervisor(tmp_path) -> tuple[LifeSupervisor, LifeMemory]:
@@ -163,7 +165,7 @@ def _delivery_supervisor(tmp_path) -> tuple[LifeSupervisor, LifeMemory]:
             project_worktree=workspace,
         ),
     )
-    supervisor._manager_publish_project_report = lambda _reason: "reported"
+    supervisor._manager_publish_project_report = lambda _reason, **_kwargs: "reported"
     assert supervisor._emit({
         "type": "life.mission.completed",
         "item_id": "stage-1",
@@ -404,3 +406,66 @@ def test_terminal_delivery_recovers_reviewed_product_from_an_older_direct_settle
 
     assert receipt["primary_target"]["path"] == "index.html"
     assert receipt["delivery_id"].startswith(f"delivery:project-{memory.root.name}-{item_id}:task_completed:")
+
+
+def test_a_reviewed_task_is_announced_once_in_the_reviewer_s_words(tmp_path) -> None:
+    """Trial s-cc7ba48e 1c: the completion message quoted the Engineer's handoff
+    ("still awaiting the independent rerun") under "checked by an independent
+    reviewer", and the project receipt named another primary file."""
+    from dataclasses import dataclass
+
+    from argus.life.memory import BacklogItem
+    from argus.life.supervisor import LifeBudget
+
+    @dataclass
+    class _Outcome:
+        success: bool = True
+        status: str = "done"
+        stop_reason: str = ""
+        stop_kind: str | None = None
+        recoverable: bool = False
+        rounds: int = 1
+        final_review_status: str = "done"
+        final_review_source: str = "reviewer"
+        final_review_reason: str = "Review passed: reran the full suite, 138 passed.\n→ done"
+        final_residual_risk: str = ""
+        final_message: str = ""
+        summary: str = "Implemented wrap in `core.py`; awaiting the independent rerun."
+        final_output: str = "Changed `core.py` and `README.md`."
+
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(tmp_path / "life"), runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=tmp_path / "life", verbosity="full"),
+        config=LifeSupervisorConfig(budget=LifeBudget(max_missions=1), poll_interval_seconds=0.01),
+    )
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "core.py").write_text("def wrap(): ...\n", encoding="utf-8")
+    (workdir / "README.md").write_text("# wrap\n", encoding="utf-8")
+    supervisor.memory.backlog.add(BacklogItem.new(
+        title="Add wrap", objective="Add wrap to core.py",
+        tags=["manager_direct", "scope:bounded", "review:required"],
+    ))
+    supervisor.runner.execute = lambda **kwargs: _Outcome()
+    supervisor.tick()
+
+    life = tmp_path / "life"
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    completed = next(event for event in events if event.get("type") == "life.mission.completed")
+    assert completed["summary"] == "Review passed: reran the full suite, 138 passed."
+    assert completed["delivery"]["summary"] == completed["summary"]
+    messages = [
+        json.loads(line)["text"]
+        for line in (life / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+        if json.loads(line).get("mission_result")
+    ]
+    assert len(messages) == 1
+    assert "138 passed" in messages[0] and "awaiting" not in messages[0]
+    project = supervisor._build_terminal_project_delivery("done")
+    assert project["delivery_id"] == completed["delivery"]["delivery_id"]
+    assert project["primary_target"] == completed["delivery"]["primary_target"]
+    # The Manager's project report reads that same verdict instead of
+    # searching for a REVIEW.md that a direct task never writes.
+    assert supervisor._manager_project_completion_context()["final_delivery_review"] == {
+        "review_source": "reviewer", "review_status": "done", "summary": completed["summary"],
+    }

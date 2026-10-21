@@ -91,6 +91,21 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
     return raw
 
 
+def brief_title(text: str, limit: int = 50) -> str:
+    """Name a task in a sentence by its opening clause, never its whole objective."""
+    title = " ".join(str(text or "").split()).rstrip("。.…")
+    for marks in ("。！？；;!?", "，,：:"):
+        if len(title) <= limit:
+            break
+        cut = next((
+            i for i, ch in enumerate(title)
+            if ch in marks and i >= 4 and title[i + 1:i + 3] != "//"
+        ), 0)
+        if cut:
+            title = title[:cut]
+    return title if len(title) <= limit else title[: limit - 1].rstrip() + "…"
+
+
 def render_operator_update(
     *,
     title: str,
@@ -102,77 +117,59 @@ def render_operator_update(
     language_hint: str = "",
 ) -> str:
     """Render structured runtime state as a short, plain operator update."""
-    subject = str(title or "the current task").strip()
+    chinese = uses_cjk(language_hint or title)
+    subject = brief_title(title) or ("这项任务" if chinese else "the current task")
     state = str(status or "").strip().lower()
     park = park_reason_of(state, park_reason)
-    chinese = uses_cjk(language_hint or subject)
-    why = humanize_runtime_reason(reason, language_hint=subject)
+    why = humanize_runtime_reason(reason, language_hint=language_hint or subject)
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
+    reason_label = "原因：" if chinese else "Reason: "
     if park == "provider_fence":
-        first = (
-            f"模型服务限制导致任务暂停：{subject}。"
-            if chinese
-            else f"Work is paused by a model-provider restriction: {subject}."
-        )
-        resume = (
-            "解除限制后，请点击“运行”恢复任务；不会自动重试。"
-            if chinese
-            else "After resolving the restriction, click Run to resume; automatic retries are disabled."
-        )
         return "\n".join(part for part in (
-            first,
-            ("原因：" if chinese else "Reason: ") + why if why else "",
-            ("处理建议：" if chinese else "Next: ") + action if action else "",
-            resume,
+            f"模型服务限制了调用，「{subject}」先停下了。"
+            if chinese
+            else f"The model provider is restricting calls, so {subject} is paused.",
+            reason_label + why if why else "",
+            ("建议：" if chinese else "Next: ") + action if action else "",
+            "问题解决后点“运行”就能继续；在那之前不会自动重试。"
+            if chinese
+            else "Once it is resolved, click Run to continue; nothing retries on its own until then.",
         ) if part)
-    if state in {"done", "completed", "success"}:
-        first = f"已完成：{subject}。" if chinese else f"Completed: {subject}."
-    elif state in {"aborted", "cancelled", "canceled"}:
+    finished = state in {"done", "completed", "success"}
+    canceled = state in {"aborted", "cancelled", "canceled"}
+    if finished:
+        first = f"完成了：{subject}。" if chinese else f"Done: {subject}."
+    elif canceled:
         first = f"已取消：{subject}。" if chinese else f"Canceled: {subject}."
     elif state in {"continue", "running", "in_progress", "stage_continues"}:
-        first = f"正在继续：{subject}。" if chinese else f"Still working on {subject}."
+        first = f"还在继续：{subject}。" if chinese else f"Still working on {subject}."
     elif state == "blocked" or park is not None:
-        first = f"暂时无法继续：{subject}。" if chinese else f"Cannot continue yet: {subject}."
+        first = f"「{subject}」暂时做不下去了。" if chinese else f"Stuck for now: {subject}."
     elif state in {"replan_requested", "revise"}:
-        first = (
-            f"当前方案需要调整：{subject}。"
-            if chinese
-            else f"The current route for {subject} needs to change."
-        )
+        first = f"「{subject}」需要换个做法。" if chinese else f"Needs a different approach: {subject}."
     else:
-        first = f"未能完成：{subject}。" if chinese else f"Could not complete {subject}."
+        first = f"没能完成：{subject}。" if chinese else f"Couldn't finish: {subject}."
     lines = [first]
-    if why and state not in {"aborted", "cancelled", "canceled"}:
-        lines.append(("原因：" if chinese else "Reason: ") + why)
+    if why and not canceled:
+        # A finished task's note is what it found, not why it stopped.
+        lines.append(why if finished else reason_label + why)
     if action:
-        prefix = (
-            "需要你决定："
-            if chinese and user_action_required
-            else "下一步："
-            if chinese
-            else "Your decision: "
+        lines.append((
+            ("需要你定：" if chinese else "Your call: ")
             if user_action_required
-            else "Next: "
-        )
-        lines.append(prefix + action)
-    elif state not in {
-        "done",
-        "completed",
-        "success",
-        "aborted",
-        "cancelled",
-        "canceled",
-    }:
+            else ("接下来：" if chinese else "Next: ")
+        ) + action)
+    elif not (finished or canceled):
         lines.append(
-            "需要你决定后才能继续。"
-            if chinese and user_action_required
-            else "下一步：Argus 会诊断原因并选择可恢复的方案。"
-            if chinese
-            else "Your decision is needed before work can continue."
+            ("需要你定一下才能继续。" if chinese else "I need your decision before this can continue.")
             if user_action_required
-            else "Next: Argus will diagnose the failure and choose a safe next step."
+            else (
+                "接下来：我先查清原因，再找个能走通的办法。"
+                if chinese
+                else "Next: I'll find out what went wrong and pick a way forward."
+            )
         )
     return "\n".join(lines)
 
@@ -205,6 +202,7 @@ def publish_operator_message(
 
 
 __all__ = [
+    "brief_title",
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",

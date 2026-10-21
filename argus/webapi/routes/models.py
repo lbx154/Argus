@@ -45,8 +45,10 @@ class MessageIn(BaseModel):
     text: str = Field(max_length=MESSAGE_MAX_CHARS)
     request_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
     attachments: list[AttachmentRefIn] = Field(default_factory=list, max_length=5)
-    # Explicit Task/Chat is operator authority and skips only the category
-    # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
+    # Explicit Task/Chat is operator authority. Chat skips the classifier and
+    # stays inline. Task is still classified: work goes to the team (Planner ->
+    # Engineer -> Reviewer); a greeting, conversation, status question, control
+    # or setting is handled as usual.
     route_override: Literal["auto", "chat", "task"] = "auto"
     domain_answer: DomainAnswerIn | None = None
     launch: LaunchIn | None = None

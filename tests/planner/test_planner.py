@@ -86,6 +86,18 @@ def test_parse_retire_task_ignores_malformed_line(line: str) -> None:
     assert verdict.retire_tasks == ()
 
 
+@pytest.mark.parametrize("line", ["→ manager", "→ done"])
+def test_completion_handed_to_the_manager_is_completion(line: str) -> None:
+    """2026-10-20: `PROJECT_DONE=true` closed by `→ manager` was refused as a
+    conflict twice and stopped the daemon on a planner error."""
+    verdict = parse_planner_text(
+        "Decision:\nPROJECT_DONE=true\nREASON=The chosen behaviour is reviewed and delivered.\n" + line
+    )
+
+    assert verdict.error == ""
+    assert verdict.project_done is True and verdict.handoff == ""
+
+
 def test_retire_tasks_use_only_the_footer_before_plan_update() -> None:
     verdict = parse_planner_text(
         "RETIRE_TASK=quoted | Discard this earlier thought.\n"

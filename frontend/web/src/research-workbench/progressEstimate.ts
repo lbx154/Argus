@@ -147,7 +147,7 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
     passed: text('本轮工作通过核对', 'This round passed review'),
     needs_work: text('仍需补充或修改', 'More work is needed'),
     skipped: text('本轮未做审查', 'This round was not reviewed'),
-    self_checked: text('执行者已自查，待独立核对', 'Self-checked; independent review pending'),
+    self_checked: text('工程师自查过，还等独立审阅', 'Self-checked; independent review pending'),
   };
   const reviewDefaults = {
     pending: text('尚无能对应到当前工作项和轮次的通过记录。', 'No passing review is linked to the current work item and round.'),
@@ -155,7 +155,7 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
     passed: text('通过记录仅适用于本轮提交的工作与证据。', 'The passing verdict applies to the work and evidence submitted in this round.'),
     needs_work: text('审查发现仍有待处理的问题，需要继续工作。', 'The review found issues that require further work.'),
     skipped: text('执行结束并不代表证据已经通过核对。', 'The end of execution does not establish that the evidence passed review.'),
-    self_checked: text('这条记录来自执行者自查，尚无本轮独立审查通过记录。', 'This record is a self-check by the worker; no independent passing review is recorded for this round.'),
+    self_checked: text('这是工程师的自查，这一轮还没有独立审阅通过。', "This is the Engineer's own check; no independent review has passed this round yet."),
   };
   const review = {
     state: reviewState,

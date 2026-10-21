@@ -431,18 +431,17 @@ def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path
         ),
     )
     supervisor._vertical_resolved = True
-    # The WAIT parks the questioned task, never the project: the Planner gets
-    # one turn to plan work that does not need the answer, and only an
-    # unchanged state is then held without another call.
-    assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 1
+    # The WAIT is the Manager's answer to the evidence it judged: while that
+    # holds, the Planner is not asked, and nothing new is said each pass; the
+    # answer moves it.
     for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == 1
+    assert calls == []
+    assert "requested operator facts" not in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
     backlog.update(item.id, pending_question="")
     assert backlog.resume_parked()
     assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
@@ -859,3 +858,46 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
     assert delivered["status"] == "applied" and len(backend.calls) == 1
     types = [json.loads(line)["type"] for line in (tmp_path / "events.jsonl").read_text().splitlines()]
     assert types.count(EventType.LIFE_MANAGER_SUPERVISION_APPLIED) == 1
+
+
+class AskingBackend(EvidenceBackend):
+    """A Manager that judges the work handed to it is the operator's to decide."""
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.calls.append((prompt, resume_thread_id, run_label))
+        text = (
+            "ACTION: continue\nREASON: Requirements A and B conflict; only the operator may choose.\n"
+            "EVIDENCE_REFS: backlog.jsonl\n→ operator: Keep A or B?"
+        )
+        return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
+
+
+def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operator(tmp_path):
+    """2026-10-20: an Engineer handed an A-or-B conflict to the Manager, the task
+    failed, and the question hung on a separate Planner card. The Manager's
+    question now parks the task that was handed to it, once it has settled."""
+    from argus.life.memory import park_reason
+
+    backlog, item = project(tmp_path)
+    backlog.update(item.id, status="running")
+    backend = AskingBackend()
+    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    event = {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id,
+             "consult_reason": "the Engineer handed the work to you: A and B conflict"}
+
+    settling = supervise(manager, tmp_path, event)
+    assert settling["status"] == "issued" and settling["error_code"] == "busy"
+    assert task_at(backlog, item.id).pending_question == ""
+
+    backlog.update(item.id, park_reason="research_open")
+    delivered = supervise(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED, "item_id": item.id})
+    assert delivered["status"] == "applied" and delivered["effects"]["question_item_id"] == item.id
+    asked = task_at(backlog, item.id)
+    assert park_reason(asked) == "operator_question"
+    assert asked.pending_question == asked.operator_decision["question"] == "Keep A or B?"
+    assert len(backend.calls) == 1
+    pending = [
+        json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
+        if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
+    ]
+    assert [(row["item_id"], row["question"]) for row in pending] == [(item.id, "Keep A or B?")]

@@ -100,7 +100,7 @@ it('labels who checked a delivery and finds the previous version of a redelivere
   const { deliveryReviewLabel, previousDeliveryVersion } = await import('../components/deliveryPresentation');
   const reviewed = deliveryReviewLabel({ ...receipt('r'), review_status: 'done', review_source: 'reviewer' }, true);
   expect(reviewed.independent).toBe(true);
-  expect(reviewed.text).toBe('独立复核通过');
+  expect(reviewed.text).toBe('独立审阅通过');
   // A worker that settles its own task as done has not been independently reviewed.
   const selfDone = deliveryReviewLabel({ ...receipt('e'), review_status: 'done', review_source: 'engineer_self_review' }, false);
   expect(selfDone.independent).toBe(false);

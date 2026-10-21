@@ -10,6 +10,10 @@ export interface MapTask
   content_revision?: string;
   /** The backlog's last recorded error, e.g. why a stage was held. */
   last_error?: string;
+  /** Why a ``parked`` task is waiting. */
+  park_reason?: string;
+  /** The task an answer to this task's question went on in. */
+  continued_by?: string;
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;
@@ -159,7 +163,8 @@ function latestProgressTs(tasks: MapTask[]): number {
 
 /** A failed card the pipeline has since moved past: later work finished or is running. */
 export function supersededByLaterWork(task: MapTask, tasks: MapTask[]): boolean {
-  return task.status === "failed" && !task.pending_question && (task.ts ?? 0) < latestProgressTs(tasks);
+  return task.status === "failed" && !task.pending_question &&
+    (!!task.continued_by || (task.ts ?? 0) < latestProgressTs(tasks));
 }
 
 export function attentionTasks(tasks: MapTask[]): MapTask[] {
@@ -198,6 +203,8 @@ export function taskDependencies(graph: MapGraph, taskId: string) {
 export function statusKey(task: MapTask): string {
   if (task.status === "cancelled") return "aborted";
   if (task.pending_question) return "question";
+  // The backlog closes an answered question as failed; its work went on elsewhere.
+  if (task.continued_by) return "answered";
   if (ACTIVE.has(task.status)) return "running";
   if (task.outcome?.review_status === "unavailable") return "review_unavailable";
   // The Manager kept the stage open after a reviewed attempt: the work is

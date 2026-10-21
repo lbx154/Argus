@@ -322,3 +322,33 @@ def test_successful_settlement_retains_bounded_observation_without_inventing_cau
     assert (verdict_source or "unspecified") in captured.claim_boundaries[-1]
     assert "bounded trial passed" in memory.render_recall_context("quartz")
     assert "Prior mission experiences" in memory.render_recall_context("quartz")
+
+
+def test_a_planning_cycle_recalls_once_and_as_the_planner():
+    """Trial s-cc7ba48e 1c: the Planner's recall was recorded as the Engineer's;
+    a cycle renders both the full journal and its delta, and must recall once."""
+    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
+
+    calls = []
+
+    class Memory:
+        def render_recall_context(self, objective, *, role="engineer", mission_id=""):
+            calls.append((objective, role, mission_id))
+            return "### recalled page"
+
+    class Host(PlannerRenderingMixin):
+        def _render_campaign_tally(self):
+            return ""
+
+    host = Host()
+    host.memory = Memory()
+    host.config = SimpleNamespace(continuous_objective="quartz")
+    host._planner_session_journal_keys = frozenset()
+    entry = SimpleNamespace(ts=1.0, kind="mission_complete", title="t", summary="s", extra={})
+
+    recall = host._planner_recall_context()
+    tail = host._render_journal_entries_for_planner([entry], recall)
+    delta, _keys = host._render_journal_delta_for_planner([entry], recall)
+
+    assert calls == [("quartz", "planner", "")]
+    assert "### recalled page" in tail and "### recalled page" in delta

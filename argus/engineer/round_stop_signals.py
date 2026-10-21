@@ -687,8 +687,8 @@ def daemon_stop_review_decision(
         # having to parse ``reason`` prose.
         backend_stop_kind="daemon_shutdown",
         reason=(
-            "Argus was stopped by its operator in the middle of this round; the "
-            "Engineer's work so far is kept and nothing was retried. "
+            "The Argus background service stopped or restarted in the middle of "
+            "this round; the Engineer's work so far is kept and nothing was retried. "
             f"Technical record: error={error_text}"
         ),
         next_action=(

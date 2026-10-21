@@ -53,6 +53,7 @@ def test_cancelled_pending_interpretation_cannot_persist_late_once_answer(
         return json.dumps({"is_answer": True, "resolved": False, "decision": "", "reply": late_reply})
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     services = DaemonServices(
         read_status=daemon_worker.read_daemon_status,
@@ -123,7 +124,7 @@ def test_first_consumed_cancel_signal_remains_a_terminal_pending_result(tmp_path
         raise AssertionError("A cancelled pending turn cannot continue to another model")
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
-    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr("argus.manager.config_intent._front_door_classify", forbidden)
     result = manager_message(sid, "Yes, within that scope.", global_root=tmp_path, cancelled=cancelled)
     assert result["kind"] == "cancelled" and consumed == [True]

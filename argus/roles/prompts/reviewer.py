@@ -650,7 +650,9 @@ def render_reviewer_prompt(
     decision_policy = (
         "## Submit your review\n"
         "Express the complete review naturally in the operator's language and submit "
-        "it with the one native action, submit_review. End it with one line naming "
+        "it with the one native action, submit_review; its first sentence is what the "
+        "operator reads: what was delivered and what you verified, in plain words. "
+        "End it with one line naming "
         "who holds the work next: `→ done`, `→ engineer`, `→ planner`, `→ manager` or "
         "`→ operator: <one question>`. No JSON or other closing line is read. "
         "Before accepting, check each "

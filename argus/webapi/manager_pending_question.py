@@ -211,9 +211,29 @@ def _decision_stale(reason: str) -> dict[str, Any]:
     }
 
 
-_DROPPED_REPLY = "Dropped this task. The rest of the campaign continues."
-_CAMPAIGN_STAYS_STOPPED = "The campaign stays stopped until you resume it."
-_DROPPED_STOPPED_REPLY = f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}"
+_CAMPAIGN_STAYS_STOPPED = "Everything else stays stopped until you resume it."
+_CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，其余工作先停着。"
+_STOPPED_REPLY = ("已停下，做到的部分都保留着。", "Stopped. The work done so far is kept.")
+
+
+def _zh(*texts: Any) -> bool:
+    from ..core.operator_messages import uses_cjk
+
+    return any(uses_cjk(str(text or "")) for text in texts)
+
+
+def _dropped_reply(chinese: bool, stopped: bool) -> str:
+    if chinese:
+        return f"已放下这项任务。{_CAMPAIGN_STAYS_STOPPED_ZH}" if stopped else "已放下这项任务，其余工作照常。"
+    return (
+        f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}" if stopped
+        else "Dropped this task; the rest of the work carries on."
+    )
+
+
+def _delivered(answer: str) -> str:
+    """The reply to an answer, in the operator's language."""
+    return "收到，按你定的继续做。" if _zh(answer) else "Got it, carrying on with your choice."
 
 
 def campaign_stop_reason(project_root: Path | str) -> str:
@@ -238,10 +258,14 @@ def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
     """
     if not campaign_stop_reason(mem.project_root):
         return False
+    from ..core.operator_messages import uses_cjk
+
     result["resume_requested"] = False
     reply = str(result.get("reply") or "").strip()
-    if _CAMPAIGN_STAYS_STOPPED not in reply:
-        result["reply"] = f"{reply} {_CAMPAIGN_STAYS_STOPPED}".strip()
+    chinese = uses_cjk(reply)
+    stays = _CAMPAIGN_STAYS_STOPPED_ZH if chinese else _CAMPAIGN_STAYS_STOPPED
+    if stays not in reply:
+        result["reply"] = f"{reply}{'' if chinese else ' '}{stays}".strip()
     return True
 
 
@@ -279,7 +303,14 @@ def _record_decision_turns(
     turns = (
         (("operator", choice), ("argus", reply))
         if decided_by == "operator"
-        else (("argus", f"Decided in the operator's place: {choice}\n\n{reply}"),)
+        else ((
+            "argus",
+            (
+                f"这个问题你暂时没空回答，我先替你选了：{choice}"
+                if _zh(choice, reply)
+                else f"You weren't available, so I chose for you: {choice}"
+            ) + f"\n\n{reply}",
+        ),)
     )
     for role, text in turns:
         append_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
@@ -305,7 +336,9 @@ def _drop_decision_item(
     # ended waiting for this answer included) continues; a recorded pause,
     # stop, completion or Planner hold stands, as after any answer.
     stopped_for = campaign_stop_reason(mem.project_root)
-    reply = _DROPPED_STOPPED_REPLY if stopped_for else _DROPPED_REPLY
+    reply = _dropped_reply(
+        _zh(operator_text, item.pending_question, item.title), bool(stopped_for),
+    )
     dropped = mem.backlog.stop_for_operator_decision(
         item.id,
         note=note,
@@ -400,7 +433,7 @@ def _resolved_decision_replay(
             "application_status": "already_applied",
             "resolution_id": str(card.get("resolution_id") or ""),
             "resume_requested": False,
-            "reply": str(card.get("reply") or _DROPPED_REPLY),
+            "reply": str(card.get("reply") or _dropped_reply(_zh(card.get("question")), False)),
         }
     if card.get("decision_kind") == "framework_deployment":
         return {
@@ -433,9 +466,10 @@ def _resolved_decision_replay(
         "resume_requested": bool(card.get("resume_requested", option_id != "stop")),
         "reply": str(card.get("reply") or "").strip()
         or (
-            "Campaign stopped. Current work was preserved."
+            _STOPPED_REPLY[0 if _zh(card.get("question")) else 1]
             if option_id == "stop"
-            else "This decision was already delivered to the team."
+            else "这个决定之前已经收到了。" if _zh(card.get("question"))
+            else "I already have this decision."
         ),
     }
     if option_id == "stop":
@@ -584,7 +618,7 @@ def _apply_operator_answer(
     answer: str,
     *,
     manager_decision: str,
-    manager_reply: str,
+    manager_reply: str = "",
     decision_option: str = "custom",
     decision_id: str = "",
     decision_note: str = "",
@@ -592,7 +626,7 @@ def _apply_operator_answer(
     operator_context_revision: int = 0,
     decided_by: str = "operator",
 ) -> dict[str, Any]:
-    """Persist an explicit answer and enqueue its continuation.
+    """Persist an explicit answer and resume the task it parked.
 
     ``decided_by`` is ``"manager"`` when the Manager answered in the operator's
     place; the answer is then never recorded as the operator's.
@@ -625,7 +659,8 @@ def _apply_operator_answer(
     from ..life.event_log import JsonlEventSink
 
     question = str(item.pending_question or "").strip()
-    blocked, continuation = mem.backlog.continue_with_operator_reply(
+    manager_reply = manager_reply or _delivered(answer)
+    resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
         manager_decision=manager_decision,
@@ -636,13 +671,13 @@ def _apply_operator_answer(
         operator_context_persisted=operator_context_persisted,
         decided_by=decided_by,
     )
-    if blocked is None:
+    if resumed is None:
         return {"error": "unknown backlog item", "answered_item_id": item.id}
-    if continuation is None:
+    if not answered:
         if decision_id:
             replay = _resolved_decision_replay(
                 mem,
-                blocked,
+                resumed,
                 decision_id=decision_id,
                 option_id=decision_option,
                 note=decision_note,
@@ -657,20 +692,19 @@ def _apply_operator_answer(
     life_dir = Path(mem.project_root)
     directive = (
         "[MANAGER OPERATOR-ANSWER DECISION] "
-        f"Blocked item {item.id} was answered and continuation {continuation.id} "
-        f"was durably enqueued with this decision: {manager_decision} "
+        f"Task {item.id} was answered and resumes with this decision: {manager_decision} "
         "Treat this as authority/context and deactivate any stale waiting contract. "
-        "Do not enqueue duplicate work if that continuation is already terminal."
+        "Do not enqueue duplicate work for that task."
     )
     queue_inbox_message(life_dir, directive, source="manager.answer")
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
-        "continuation_item_id": continuation.id,
+        "continuation_item_id": resumed.id,
         "question": question,
         "manager_decision": manager_decision,
         "decision_id": decision_id,
-        "decision_revision": blocked.operator_decision.get(
+        "decision_revision": resumed.operator_decision.get(
             "resolved_from_revision"
         ),
         "decided_by": decided_by,
@@ -685,12 +719,12 @@ def _apply_operator_answer(
         "resolved": True,
         "application_status": "accepted",
         "resolution_id": str(
-            blocked.operator_decision.get("resolution_id") or ""
+            resumed.operator_decision.get("resolution_id") or ""
         ),
         "resume_requested": True,
-        "reply": manager_reply or "I have delivered your decision to the team.",
+        "reply": manager_reply,
         "manager_decision": manager_decision,
-        "item": continuation.to_jsonable(),
+        "item": resumed.to_jsonable(),
     }
 
 
@@ -710,7 +744,7 @@ def _resolve_pending_question_with_manager(
         persist_once_answer,
     )
     from ..core.run_gateway import current_run_interrupt_reason
-    from ..manager.front_door import manager_triage
+    from ..manager.front_door import manager_judgment
     from ..roles.prompts.manager import build_pending_question_prompt
 
     cancelled_result = {
@@ -729,13 +763,12 @@ def _resolve_pending_question_with_manager(
     )
     prompt = build_pending_question_prompt(item, answer)
     try:
-        manager_reply = manager_triage(
-            mem,
-            prompt,
-            chat_state,
-            route="simple",
-            root_task_id=root_task_id,
-            on_fragment=None,
+        # The prompt is self-contained. A full SELF turn resumed the Manager's
+        # conversation and wrapped it in ~26k characters of persona, recall,
+        # Skills and project evidence.
+        manager_reply = manager_judgment(
+            mem, prompt, chat_state,
+            run_label="manager-pending-answer", root_task_id=root_task_id,
         )
     except Exception as exc:  # noqa: BLE001
         if current_run_interrupt_reason():
@@ -838,9 +871,7 @@ def _resolve_pending_question_with_manager(
         item,
         answer,
         manager_decision=parsed["decision"],
-        manager_reply=(
-            parsed["reply"] or "I have delivered your decision to the team."
-        ),
+        manager_reply=parsed["reply"],
         decision_option=decision_option,
         decision_id=decision_id,
         decision_note=decision_note,
@@ -927,7 +958,6 @@ def manager_answer_pending_question(
             item,
             text.strip(),
             manager_decision=text.strip(),
-            manager_reply="I delivered your decision to the team.",
             decision_option=decision_option,
             decision_id=decision_id,
             decision_note=decision_note,
@@ -947,10 +977,13 @@ def manager_answer_pending_question(
                 result["continuous"] = True
             if projection_error:
                 result["projection_error"] = projection_error
-        reply = str(
-            result.get("reply")
-            or result.get("error")
-            or "Manager could not resolve the pending question."
+        # A failed answer keeps its diagnostic in ``error``; the operator
+        # reads what happened to their answer.
+        reply = str(result.get("reply") or "").strip() or (
+            "这个回答没能用上：问题可能已经答过，或者已经不在了。"
+            if _zh(text)
+            else "That answer couldn't be applied: the question may already be "
+            "answered or gone."
         )
         append_turn(
             mem.project_root,
@@ -1063,6 +1096,7 @@ def manager_resolve_operator_decision(
                 item.id,
                 note=note,
                 decision_id=decision_id,
+                reply=_STOPPED_REPLY[0 if _zh(operator_text, card.get("question")) else 1],
                 decided_by=decided_by,
             )
             if stopped is None:
@@ -1092,7 +1126,7 @@ def manager_resolve_operator_decision(
                     stopped.operator_decision.get("resolution_id") or ""
                 ),
                 "resume_requested": False,
-                "reply": "Campaign stopped. Current work was preserved.",
+                "reply": str(stopped.operator_decision.get("reply") or ""),
             }
             if projection_error:
                 result["projection_error"] = projection_error

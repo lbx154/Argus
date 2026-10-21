@@ -40,6 +40,7 @@ from ._view_state import (
     load_mission_view,
     mission_view_handles_event,
 )
+from ._wording import say
 
 __all__ = [
     "MISSION_VIEW_FILE",
@@ -49,6 +50,7 @@ __all__ = [
     "merge_mission_view_snapshot",
     "mission_view_handles_event",
     "reduce_mission_view_event",
+    "say",
     "snapshot_mission_view",
     "update_mission_view_event",
     "work_record_event_id",

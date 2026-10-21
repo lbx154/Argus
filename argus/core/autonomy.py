@@ -152,7 +152,9 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
     ]
 
 
-def render_autonomous_assumptions(state_root: Path | str, *, limit: int = 8) -> str:
+def render_autonomous_assumptions(
+    state_root: Path | str, *, limit: int = 8, chinese: bool = False,
+) -> str:
     rows = read_autonomous_assumptions(state_root)[-limit:]
     if not rows:
         return ""
@@ -160,14 +162,25 @@ def render_autonomous_assumptions(state_root: Path | str, *, limit: int = 8) -> 
     for row in rows:
         conflict = str(row.get("conflict") or "").strip()
         reading = str(row.get("reading") or "").strip()
-        verb = "Manager decided" if row.get("source") == "manager_decision" else "assumed"
+        manager = row.get("source") == "manager_decision"
+        verb = (
+            ("经理替你定了" if manager else "我按这个理解做的")
+            if chinese
+            else ("the Manager decided" if manager else "I went with")
+        )
         if reading and conflict:
-            lines.append(f"- {conflict[:300]} -> {verb}: {reading[:300]}")
+            lines.append(f"- {conflict[:300]} → {verb}：{reading[:300]}" if chinese
+                         else f"- {conflict[:300]} → {verb}: {reading[:300]}")
         elif reading:
-            lines.append(f"- {verb}: {reading[:300]}")
+            lines.append(f"- {verb}：{reading[:300]}" if chinese else f"- {verb}: {reading[:300]}")
         else:
-            lines.append(f"- {conflict[:300]} (the chosen reading is in CHECKPOINT.md)")
-    return "Decided without asking the operator (review these):\n" + "\n".join(lines)
+            lines.append(f"- {conflict[:300]}（选定的理解记在 CHECKPOINT.md）" if chinese
+                         else f"- {conflict[:300]} (the reading chosen is in CHECKPOINT.md)")
+    head = (
+        "这些是没问你就定下的，请过目：" if chinese
+        else "Decided without asking you (please look these over):"
+    )
+    return head + "\n" + "\n".join(lines)
 
 
 __all__ = [

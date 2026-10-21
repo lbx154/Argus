@@ -27,11 +27,30 @@ from ..core.models import (
 from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.stop_kinds import StopKind, normalize_stop_kind
+from ..core.stop_kinds import StopKind, normalize_stop_kind, stop_kind_from_external_interrupt
 from ..core.workspace_snapshot import WorkspaceSnapshots
 from .tools import review_action_tools
 
 log = logging.getLogger(__name__)
+
+# A review cut short, said by who stopped it as the record names them: you,
+# the background service, or, when the record does not say, nobody.
+_INTERRUPTED_REVIEW: dict[str, tuple[str, str]] = {
+    "operator_pause": (
+        "审阅者还没读完这一轮，你就让 Argus 停下了",
+        "You stopped Argus before the Reviewer could finish reading this round",
+    ),
+    "daemon_shutdown": (
+        "审阅者还没读完这一轮，Argus 后台服务就停止或重启了，运行中断",
+        "The Argus background service stopped or restarted before the Reviewer "
+        "could finish reading this round",
+    ),
+    "": (
+        "审阅者还没读完这一轮，运行就中断了",
+        "The run was interrupted before the Reviewer could finish reading this round",
+    ),
+}
+_INTERRUPTED_REVIEW["operator_abort"] = _INTERRUPTED_REVIEW["operator_pause"]
 
 
 class _ReviewUsage(TypedDict):
@@ -946,12 +965,16 @@ class Reviewer:
                 interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
                 chinese = uses_cjk(objective)
                 if interrupted:
+                    stopped_by = (
+                        stop_kind_from_external_interrupt(fatal)
+                        or normalize_stop_kind(getattr(result, "stop_kind", None))
+                        or ("daemon_shutdown" if "daemon stop" in fatal.lower() else "")
+                    )
+                    zh, en = _INTERRUPTED_REVIEW.get(stopped_by, _INTERRUPTED_REVIEW[""])
                     sentence = (
-                        "审阅者还没读完这一轮，Argus 就被操作员停止了；这里没有任何"
-                        "对工作本身的评价。"
+                        f"{zh}；这里没有任何对工作本身的评价。"
                         if chinese
-                        else "Argus was stopped by its operator before the Reviewer could "
-                        "finish reading this round; nothing here is a judgment on the work."
+                        else f"{en}; nothing here is a judgment on the work."
                     )
                 else:
                     sentence = (

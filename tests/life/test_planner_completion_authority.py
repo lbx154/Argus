@@ -235,10 +235,13 @@ def test_manager_reports_all_stages_after_project_completion(
 class _FailingReportHarness(_ManagerCompletionHarness):
     """A completion report that keeps failing, retried at the daemon's pace."""
 
+    from argus.life.supervisor._core import LifeSupervisor
     from argus.life.supervisor._idle_cycle import IdleCycleMixin
 
     _enter_idle_backoff = IdleCycleMixin._enter_idle_backoff
     _idle_backoff_seconds = IdleCycleMixin._idle_backoff_seconds
+    _operator_chinese = LifeSupervisor._operator_chinese
+    _operator_words = LifeSupervisor._operator_words
 
     def __init__(self, tmp_path, *, manager_fails: bool) -> None:
         super().__init__(tmp_path)

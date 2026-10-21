@@ -131,7 +131,7 @@ export function TimelinePage({ sid }: { sid: string }) {
           <label className="block text-xs">{text('本次保存 / 调整原因', 'Reason for this revision')}<textarea aria-label={text('本次保存 / 调整原因', 'Reason for this revision')} className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('说明为什么改变计划；延期请在具体任务中填写证据', 'Explain the change; add delay evidence on the affected task')} /></label>
           <div className="flex items-center justify-between gap-2"><span className="text-xs text-ink-faint">{saved ? text(`已保存 v${saved.version}`, `Saved v${saved.version}`) : text('未保存', 'Not saved')}{dirty ? text(' · 有未保存修改', ' · Unsaved changes') : ''}</span>
             <button className={`${button} border-blue bg-blue/10`} disabled={!ready || !dirty || !report || computing || Boolean(estimateError) || !reason.trim()} onClick={save}>{text('保存计划版本', 'Save timeline version')}</button></div>
-          <p className="text-xs text-ink-faint">{text('保存计划不会启动实验。实际进展和失败原因由实验结果或操作者更新。', 'Saving a timeline does not start experiments. Update progress and failure reasons from actual results.')}</p>
+          <p className="text-xs text-ink-faint">{text('保存计划不会启动实验。实际进展和失败原因由实验结果或你来更新。', 'Saving a timeline does not start experiments. Update progress and failure reasons from actual results.')}</p>
         </section>
       </fieldset>
       <div className="min-w-0 space-y-3">

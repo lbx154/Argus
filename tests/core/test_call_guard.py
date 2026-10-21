@@ -99,8 +99,8 @@ def test_a_refused_call_never_reaches_the_provider(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("objective,expected", [
-    ("keep improving the paper", "background model calls"),
-    ("继续改进论文", "后台模型调用"),
+    ("keep improving the paper", "model calls in a row"),
+    ("继续改进论文", "次模型"),
 ])
 def test_the_daemon_tells_the_operator_in_their_language(tmp_path, objective, expected):
     from argus.core.transcript import read_turns
@@ -117,4 +117,6 @@ def test_the_daemon_tells_the_operator_in_their_language(tmp_path, objective, ex
     )
     turns = [turn for turn in read_turns(tmp_path) if turn.get("role") == "argus"]
     assert len(turns) == 1 and expected in turns[0]["text"]
-    assert "planner.cycleN" in turns[0]["text"] and statuses
+    # Which calls they were is the developer log's, not the operator's.
+    assert "planner.cycleN" not in turns[0]["text"]
+    assert statuses and "planner.cycleN" in statuses[-1]

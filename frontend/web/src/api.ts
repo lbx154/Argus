@@ -121,11 +121,10 @@ export type LearningChannel = 'knowledge' | 'skills' | 'preferences';
 export interface LearningJob {
   id: string;
   /** skipped = not attempted: nothing to learn, or model calls were paused by host policy. */
-  status: 'queued' | 'running' | 'completed' | 'unchanged' | 'skipped' | 'failed';
+  status: 'running' | 'completed' | 'unchanged' | 'skipped' | 'failed';
   created: number;
   updated: number;
   attempts: number;
-  retryable?: boolean;
   outcome: {
     counts?: Record<LearningChannel, number>;
     items?: { channel: LearningChannel; title: string; scope: string; path: string }[];
@@ -1551,7 +1550,6 @@ export const api = {
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
     getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
   learningStatus: (sid: string, signal?: AbortSignal) => getJson<LearningState>(P(sid, '/learning'), signal),
-  retryLearning: (sid: string, jobId: string) => postJson<LearningState>(P(sid, `/learning/${encodeURIComponent(jobId)}/retry`), {}),
   setLaunchCwd: (sid: string, launchCwd: string) =>
     postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>

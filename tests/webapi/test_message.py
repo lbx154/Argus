@@ -832,7 +832,7 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
         assert text == "停一下，你在干什么？"
         return None, "pause", "simple"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_judgment", triage)
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
 
     result = manager_bridge.manager_message(
@@ -847,7 +847,7 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
     assert result["pause_persisted"] is True
     assert result["item_id"] == running.id
     assert "已暂停" in result["reply"]
-    assert "后台工作进程" in result["reply"]
+    assert "做到的部分都保存了" in result["reply"]
     assert "daemon" not in result["reply"]
     assert read_continuous_state(life).enabled is False
     assert (life / "running_item_abort.json").exists()
@@ -1163,8 +1163,8 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert result["kind"] == "control"
     assert result["control"] == "steer"
     assert result["continuous"] is True
-    assert "我已调整团队方向" in result["reply"]
-    assert "已升级为持续任务" in result["reply"]
+    assert "按你说的方向做" in result["reply"]
+    assert "改成长期做下去" in result["reply"]
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
@@ -1724,10 +1724,9 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     payload = response.json()
     assert payload["answered_item_id"] == blocked.id
     assert started == ["s-msgtest0"]
-    items = LifeMemory.open(life).backlog.all()
-    original = next(item for item in items if item.id == blocked.id)
-    continuation = next(item for item in items if item.id == payload["item"]["id"])
-    assert original.pending_question == ""
+    (continuation,) = LifeMemory.open(life).backlog.all()
+    assert continuation.id == payload["item"]["id"] == blocked.id
+    assert continuation.pending_question == ""
     assert continuation.objective.startswith(
         "Authoritative Manager operator-answer decision:\n"
         "Yes, include it after the references."
@@ -1754,7 +1753,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
         json={"text": "A duplicate answer."},
     )
     assert duplicate.status_code == 409
-    assert len(LifeMemory.open(life).backlog.all()) == 2
+    assert len(LifeMemory.open(life).backlog.all()) == 1
 
 
 def test_pending_answer_supersedes_conflicting_inherited_objective(
@@ -1771,7 +1770,7 @@ def test_pending_answer_supersedes_conflicting_inherited_objective(
     blocked.pending_question = "Which renderer should the team use?"
     mem.backlog.add(blocked)
 
-    _, continuation = mem.backlog.continue_with_operator_reply(
+    continuation, _ = mem.backlog.resume_with_operator_reply(
         blocked.id,
         "Use the installed editable renderer instead.",
         manager_decision=(
@@ -1800,7 +1799,7 @@ def test_pending_answer_supersedes_conflicting_inherited_objective(
     )
 
 
-def test_concurrent_pending_answers_create_one_continuation(
+def test_concurrent_pending_answers_resume_the_task_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1829,7 +1828,7 @@ def test_concurrent_pending_answers_create_one_continuation(
 
     assert sum(bool(result and result.get("item")) for result in results) == 1
     assert sum(bool(result and result.get("error")) for result in results) == 1
-    assert len(LifeMemory.open(life).backlog.all()) == 2
+    assert len(LifeMemory.open(life).backlog.all()) == 1
 
 
 def test_manager_message_resolves_single_pending_question(
@@ -1843,7 +1842,7 @@ def test_manager_message_resolves_single_pending_question(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": True,
@@ -1861,9 +1860,8 @@ def test_manager_message_resolves_single_pending_question(
     assert result["kind"] == "pending_question"
     assert result["resolved"] is True
     assert result["answered_item_id"] == blocked.id
-    rows = LifeMemory.open(life).backlog.all()
-    assert len(rows) == 2
-    assert next(row for row in rows if row.id == blocked.id).pending_question == ""
+    (row,) = LifeMemory.open(life).backlog.all()
+    assert row.id == blocked.id and row.pending_question == ""
 
 
 def test_non_answer_message_falls_through_without_clearing_pending_question(
@@ -1875,16 +1873,14 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: json.dumps({
-            "is_answer": False,
-            "resolved": False,
-            "decision": "",
-            "reply": "",
-        }),
-    )
+    not_an_answer = json.dumps({
+        "is_answer": False,
+        "resolved": False,
+        "decision": "",
+        "reply": "",
+    })
+    monkeypatch.setattr(front_door, "manager_judgment", lambda *args, **kwargs: not_an_answer)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: not_an_answer)
 
     result = manager_bridge.manager_message(
         "s-msgtest0",
@@ -1917,6 +1913,7 @@ def test_unclassified_message_stays_in_conversation_without_research_directive(
             raise RuntimeError("classification unavailable")
         return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
 
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
 
@@ -1944,7 +1941,7 @@ def test_manager_keeps_pending_question_when_answer_is_insufficient(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": False,
@@ -1999,23 +1996,6 @@ def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None
             },
         )
     ]
-
-
-def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    reviewed: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=reviewed.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert reviewed == ["answer"]
 
 
 def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
@@ -2117,23 +2097,6 @@ def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
     assert server._manager_stream_heartbeat_seconds() == 5.0
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "invalid")
     assert server._manager_stream_heartbeat_seconds() == 5.0
-
-
-def test_turn_emitter_schedules_learning_only_after_chat_reply(tmp_path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    learned: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=learned.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert learned == ["answer"]
 
 
 def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) -> None:

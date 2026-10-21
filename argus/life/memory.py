@@ -764,7 +764,7 @@ def park_reason(item: Any) -> str | None:
     )
 
 
-def _park(item: BacklogItem, reason: str) -> None:
+def park_item(item: BacklogItem, reason: str) -> None:
     """Park ``item``: one status, its reason kept in the outcome."""
     item.status = "parked"
     item.outcome = {**item.outcome, "park": {"reason": reason}}
@@ -788,6 +788,36 @@ def planner_may_retire_park(item: Any) -> bool:
         return False
     rule = park_rule(reason)
     return not rule.auto_resume and rule.holder != "operator"
+
+
+def objective_started_at(state_root: Path | str, objective: str) -> float | None:
+    """When ``objective`` became the standing objective, or None when no record says.
+
+    Every framing, at daemon start or through the front door, ends in one
+    ``life.manager.intent.completed`` naming the objective it hands on; the
+    latest one naming this objective is when it began.
+    """
+    objective = str(objective or "").strip()
+    rows = _read_jsonl_tail_history(
+        Path(state_root) / "events.jsonl", 1,
+        raw_markers=(EventType.LIFE_MANAGER_INTENT_COMPLETED.value.encode(),),
+        predicate=lambda row: row.get("type") == EventType.LIFE_MANAGER_INTENT_COMPLETED
+        and str(row.get("execution_task") or "").strip() == objective,
+    ) if objective else []
+    ts = rows[-1].get("ts") if rows else None
+    return float(ts) if isinstance(ts, (int, float)) else None
+
+
+def manager_direct_in_hand(item: Any) -> bool:
+    """Whether a task the Manager handed straight to an Engineer is still in hand.
+
+    Queued or running, it is the Engineer's; waiting on a question, the
+    operator's. Nothing about it is the Planner's until it leaves their hands.
+    """
+    return "manager_direct" in (getattr(item, "tags", None) or []) and (
+        getattr(item, "status", "") in {"pending", "running"}
+        or bool(str(getattr(item, "pending_question", "") or "").strip())
+    )
 
 
 def _expire_unanswered_operator_question(item: BacklogItem) -> None:
@@ -1287,7 +1317,7 @@ class BacklogItem:
             mission_delivery_id=str(row.get("mission_delivery_id") or ""),
         )
         if legacy_park is not None:
-            _park(item, legacy_park)
+            park_item(item, legacy_park)
         return item
 
 
@@ -2265,7 +2295,7 @@ class Backlog:
                         if hasattr(it, k):
                             setattr(it, k, v)
                     if park_reason is not None:
-                        _park(it, park_reason)
+                        park_item(it, park_reason)
                     if it.status in _TERMINAL_STATUSES:
                         _expire_unanswered_operator_question(it)
                     self._validate_no_dependency_cycles(items)
@@ -2375,7 +2405,7 @@ class Backlog:
                 self._save(items)
             return current, True
 
-    def continue_with_operator_reply(
+    def resume_with_operator_reply(
         self,
         item_id: str,
         answer: str,
@@ -2387,13 +2417,15 @@ class Backlog:
         manager_reply: str = "",
         operator_context_persisted: bool = False,
         decided_by: str = "operator",
-    ) -> tuple[BacklogItem | None, BacklogItem | None]:
-        """Atomically consume one pending question and enqueue its continuation.
+    ) -> tuple[BacklogItem | None, bool]:
+        """Atomically consume one pending question and resume the task it parked.
 
-        A decision id binds typed-card requests to the pending card. The backlog
-        lock and resolved card provide idempotency without a separate revision
-        or campaign-generation gate. An answer the Manager gave in the
-        operator's place (``decided_by="manager"``) is never recorded as theirs.
+        Returns the task and whether this answer resumed it. The task keeps its
+        id, dependents and history; its objective carries the answer. A decision
+        id binds typed-card requests to the pending card. The backlog lock and
+        resolved card provide idempotency without a separate revision or
+        campaign-generation gate. An answer the Manager gave in the operator's
+        place (``decided_by="manager"``) is never recorded as theirs.
         """
         from ..core.operator_context import import_deterministic_credential
 
@@ -2417,28 +2449,22 @@ class Backlog:
             )
         with self._locked():
             items = self._load()
-            blocked = next((item for item in items if item.id == item_id), None)
-            blocked_was_archived = False
-            if blocked is None:
-                blocked = next(
-                    (
-                        item
-                        for item in reversed(self._load_archive())
-                        if item.id == item_id
-                    ),
+            item = next((row for row in items if row.id == item_id), None)
+            if item is None:
+                # A task that ended since keeps its resolved card for replays.
+                ended = next(
+                    (row for row in reversed(self._load_archive()) if row.id == item_id),
                     None,
                 )
-                blocked_was_archived = blocked is not None
-            if blocked is None:
-                return None, None
-            card = blocked.operator_decision
+                return ended, False
+            card = item.operator_decision
             if decision_id and (
                 str(card.get("id") or "") != decision_id
                 or str(card.get("status") or "") != "pending"
             ):
-                return blocked, None
-            if not str(blocked.pending_question or "").strip():
-                return blocked, None
+                return item, False
+            if not str(item.pending_question or "").strip():
+                return item, False
             answer = answer.strip()
             decision = manager_decision.strip()
             response = (
@@ -2447,121 +2473,65 @@ class Backlog:
                 else "Manager decision in the operator's place"
             )
             if decision:
-                objective = (
+                item.objective = (
                     "Authoritative Manager operator-answer decision:\n"
                     f"{decision}\n\n"
                     "This decision supersedes every conflicting requirement in the "
                     "inherited blocked mission objective below.\n\n"
                     "Inherited blocked mission objective (retain only non-conflicting "
                     "context):\n"
-                    f"{blocked.objective.strip()}\n\n"
+                    f"{item.objective.strip()}\n\n"
                     f"{response}:\n{answer}"
                 )
-            else:
-                objective = f"{blocked.objective.strip()}\n\n{response}:\n{answer}"
-            acceptance_check = blocked.acceptance_check
-            non_goals = list(blocked.non_goals)
-            if decision:
-                if acceptance_check:
-                    acceptance_check = (
+                if item.acceptance_check:
+                    item.acceptance_check = (
                         "The Manager operator-answer decision in this continuation "
                         "is authoritative. Apply this inherited acceptance check only "
                         "where it does not conflict with that decision:\n"
-                        f"{acceptance_check}"
+                        f"{item.acceptance_check}"
                     )
-                non_goals = [
+                item.non_goals = [
                     (
                         "Subject to the authoritative Manager operator-answer "
                         "decision, preserve this inherited non-goal only where it "
                         f"does not conflict: {goal}"
                     )
-                    for goal in non_goals
+                    for goal in item.non_goals
                 ]
-            inherited_manager_decision = dict(blocked.manager_decision)
-            if decision:
-                inherited_manager_decision["routed"] = True
-            continuation = BacklogItem.new(
-                title=blocked.title,
-                objective=objective,
-                priority=blocked.priority,
-                # A canary admission belongs to the admitted item only.
-                tags=list(dict.fromkeys([
-                    *(tag for tag in blocked.tags if tag != "runtime_failure_canary"),
-                    "operator-reply",
-                    "manager-approved",
-                    "review:required",
-                ])),
-                notes=f"Continues blocked item {blocked.id}.",
-                iterate=blocked.iterate,
-                iteration_max_cycles=blocked.iteration_max_cycles,
-                deps=list(blocked.deps),
-                plan_id=blocked.plan_id,
-                plan_version=blocked.plan_version,
-                node_key=(
-                    f"{blocked.node_key}-operator-answer"
-                    if blocked.node_key
-                    else ""
-                ),
-                context_refs=list(blocked.context_refs),
-                authorization_id=blocked.authorization_id,
-                authorization_action=blocked.authorization_action,
-                execution_workdir=blocked.execution_workdir,
-                acceptance_check=acceptance_check,
-                plan_hypothesis=(
-                    decision or blocked.plan_hypothesis
-                ),
-                goal_contribution=blocked.goal_contribution,
-                expected_regressions=blocked.expected_regressions,
-                decision_rule=blocked.decision_rule,
-                non_goals=non_goals,
-                manager_decision=inherited_manager_decision,
-            )
-            blocked.status = "failed"
-            blocked.finished_ts = time.time()
-            blocked.pending_question = ""
-            if blocked.operator_decision:
-                resolved_from_revision = int(
-                    blocked.operator_decision.get("revision", 1) or 1
-                )
-                blocked.operator_decision.update({
+                item.plan_hypothesis = decision
+                item.manager_decision = {**item.manager_decision, "routed": True}
+            else:
+                item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"
+            # A canary admission belonged to the run that asked.
+            item.tags = list(dict.fromkeys([
+                *(tag for tag in item.tags if tag != "runtime_failure_canary"),
+                "operator-reply",
+                "manager-approved",
+                "review:required",
+            ]))
+            item.status = "pending"
+            item.attempt = max(1, int(item.attempt or 1)) + 1
+            item.started_ts = None
+            item.finished_ts = None
+            item.last_error = ""
+            item.pending_question = ""
+            if card:
+                resolved_from_revision = int(card.get("revision", 1) or 1)
+                card.update({
                     "status": "resolved",
                     "selected_option": decision_option,
-                    "note": (
-                        decision_note.strip() if decision_id else answer
-                    ),
+                    "note": decision_note.strip() if decision_id else answer,
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
-                    "continuation_item_id": continuation.id,
+                    "continuation_item_id": item.id,
                     "manager_decision": decision,
                     "reply": manager_reply.strip(),
                     "decided_by": decided_by,
                     "resume_requested": True,
-                    "resolution_id": (
-                        f"{blocked.operator_decision.get('id', decision_id)}:"
-                        f"r{resolved_from_revision}"
-                    ),
+                    "resolution_id": f"{card.get('id', decision_id)}:r{resolved_from_revision}",
                 })
-            # The blocked item becomes terminal in the same transaction that
-            # creates its continuation. Every live downstream node that
-            # depended on it must now depend on the continuation; otherwise
-            # the dead-dependency cascade would skip valid post-answer work.
-            for item in items:
-                if item.id == blocked.id or item.status in _TERMINAL_STATUSES:
-                    continue
-                if blocked.id not in item.deps:
-                    continue
-                item.deps = list(dict.fromkeys(
-                    continuation.id if dep == blocked.id else dep
-                    for dep in item.deps
-                ))
-            if blocked_was_archived:
-                # Append the resolved terminal revision; history() selects the
-                # latest row for this stable id.
-                items.append(blocked)
-            items.append(continuation)
-            self._validate_no_dependency_cycles(items)
             self._save(items)
-            return blocked, continuation
+            return item, True
 
     def stop_for_operator_decision(
         self,
@@ -2571,7 +2541,7 @@ class Backlog:
         decision_id: str = "",
         selected_option: str = "stop",
         manager_decision: str = "stop campaign",
-        reply: str = "Campaign stopped. Current work was preserved.",
+        reply: str = "Stopped. The work done so far is kept.",
         last_error: str = "",
         decided_by: str = "operator",
     ) -> BacklogItem | None:
@@ -2849,7 +2819,7 @@ class Backlog:
                 item.last_error = str(reason)
                 if outcome is not None:
                     item.outcome = dict(outcome)
-                _park(item, "operator_question")
+                park_item(item, "operator_question")
             else:
                 item.status = "pending"
                 item.started_ts = None

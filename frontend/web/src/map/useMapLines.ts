@@ -53,6 +53,9 @@ export function useMapLines(
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     retry: false,
+    // The server holds back a repeat of an attempt it just made and says when
+    // to ask again; asked then, the missing words are written.
+    refetchInterval: (query) => (query.state.data?.retry_after ?? 0) * 1000 || false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });

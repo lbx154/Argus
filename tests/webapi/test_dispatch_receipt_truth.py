@@ -99,11 +99,11 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
     if startup in {"failed", "died-before-start"}:
         assert "启动" in reply and ("失败" in reply or "没能" in reply)
     elif startup == "capacity":
-        assert "等待" in reply and "槽位" in reply
+        assert "空出来就开始" in reply
     elif startup == "control-busy":
-        assert "任务已保存" in reply and "正忙" in reply and "尚未确认启动" in reply
+        assert "记下了" in reply and "正在确认能不能开始" in reply
     else:
-        assert "队列" in reply or "排队" in reply or "接手" in reply
+        assert "马上开始" in reply or "接手" in reply
     turns = [turn for turn in read_turns(life) if turn["role"] == "argus"]
     assert [turn["text"] for turn in turns] == [reply]
     events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]

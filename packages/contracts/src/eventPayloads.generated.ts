@@ -203,9 +203,11 @@ export interface LifeObserverNoteEvent extends EventMsg {
   type: "life.observer.note";
   payload_schema_version?: 1;
   "agent_layer": "observer";
+  "item_id"?: string;
   "to": "manager" | "operator";
   "text": string;
   "operator_alert"?: boolean;
+  "evidence"?: string;
 }
 
 export interface AgentIoStartEvent extends EventMsg {
@@ -540,6 +542,9 @@ export interface LifePlannerErrorEvent extends EventMsg {
   payload_schema_version?: 1;
   "error": string;
   "reason"?: string;
+  "kind"?: string;
+  "text"?: string;
+  "operator_alert"?: boolean;
 }
 
 export interface LifeRuntimeFailureCircuitOpenedEvent extends EventMsg {
@@ -568,6 +573,8 @@ export interface LifeRuntimeFailureCircuitBlockedEvent extends EventMsg {
   "runtime_identity"?: Record<string, unknown>;
   "operator_alert"?: boolean;
   "reason": string;
+  "kind"?: string;
+  "text"?: string;
 }
 
 export interface LifeRuntimeFailureCanaryPassedEvent extends EventMsg {
@@ -1170,6 +1177,7 @@ export interface LifeStatusEvent extends EventMsg {
   type: "life.status";
   payload_schema_version?: 1;
   "text"?: string;
+  "kind"?: string;
 }
 
 export interface LifePhaseStartedEvent extends EventMsg {
@@ -1263,9 +1271,7 @@ export interface LifePlannerIdleEvent extends EventMsg {
   "cycle"?: number;
   "reason"?: string;
   "handoff"?: string;
-  "consecutive_idle_cycles"?: number;
   "consecutive_failures"?: number;
-  "suggested_sleep_s"?: number;
   "model_call_skipped"?: boolean;
 }
 
@@ -1274,8 +1280,6 @@ export interface LifePlannerTerminalIdleEvent extends EventMsg {
   payload_schema_version?: 1;
   "cycle"?: number;
   "reason"?: string;
-  "consecutive_idle_cycles"?: number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerVerificationProbeEvent extends EventMsg {
@@ -1453,6 +1457,7 @@ export interface OperatorAlertEvent extends EventMsg {
   "text"?: string;
   "reason"?: string;
   "operator_alert"?: true;
+  "kind"?: string;
 }
 
 export interface LifeMissionProviderConfigurationDisabledEvent extends EventMsg {
@@ -1504,6 +1509,7 @@ export interface LifeExecutionHostBlockedEvent extends EventMsg {
   "reason": string;
   "operator_alert": true;
   "recoverable"?: boolean;
+  "kind"?: string;
 }
 
 export interface LifeAuthFailureEvent extends EventMsg {
@@ -1573,7 +1579,6 @@ export interface LifeManagerFeedbackExhaustedEvent extends EventMsg {
   "diagnostic"?: string;
   "reason"?: string;
   "attempts": number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifeManagerProjectReportEvent extends EventMsg {
@@ -1629,7 +1634,6 @@ export interface LifePlannerContinuationRequiredEvent extends EventMsg {
   payload_schema_version?: 1;
   "cycle": number;
   "reason"?: string;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerCompletionRejectedEvent extends EventMsg {
@@ -1658,7 +1662,6 @@ export interface LifePlannerCompletionCircuitHoldingEvent extends EventMsg {
   "diagnostic"?: string;
   "reason"?: string;
   "consecutive_rejections": number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerCompletionCircuitNotifyFailedEvent extends EventMsg {
@@ -1860,33 +1863,6 @@ export interface TeamLearningPromotionQuarantinedEvent extends EventMsg {
   "moved_to": string;
   "marker"?: string;
   "reason"?: string;
-}
-
-export interface SelfLearningReviewStartedEvent extends EventMsg {
-  type: "self.learning.review.started";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count": number;
-}
-
-export interface SelfLearningReviewCompletedEvent extends EventMsg {
-  type: "self.learning.review.completed";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count"?: number;
-  "error"?: string;
-  "learning_applied": boolean;
-  "created"?: Array<string>;
-  "updated"?: Array<string>;
-  "removed"?: Array<string>;
-}
-
-export interface SelfLearningReviewFailedEvent extends EventMsg {
-  type: "self.learning.review.failed";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count"?: number;
-  "error": string;
 }
 
 export interface DomainPromotionEvent extends EventMsg {
@@ -2134,9 +2110,6 @@ export interface EventPayloadByType {
   "team.learning.review.completed": TeamLearningReviewCompletedEvent;
   "team.learning.review.failed": TeamLearningReviewFailedEvent;
   "team.learning.promotion.quarantined": TeamLearningPromotionQuarantinedEvent;
-  "self.learning.review.started": SelfLearningReviewStartedEvent;
-  "self.learning.review.completed": SelfLearningReviewCompletedEvent;
-  "self.learning.review.failed": SelfLearningReviewFailedEvent;
   "domain.promotion": DomainPromotionEvent;
   "manager.turn.started": ManagerTurnStartedEvent;
   "manager.turn.cancelled": ManagerTurnCancelledEvent;

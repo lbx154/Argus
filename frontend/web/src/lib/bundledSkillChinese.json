@@ -88,7 +88,7 @@
     "summary": "按核心与领域职责检查和简化框架，用小而可复用的修改解决明确问题。",
     "originalName": "Argus Maintenance",
     "source": "argus/verticals/argus_maintenance/skills/engineer/argus-maintenance-execution.md",
-    "sourceBytes": 1773
+    "sourceBytes": 1636
   },
   "vertical/argus_maintenance/reviewer/argus-maintenance-review.md": {
     "title": "Argus 维护变更评审",

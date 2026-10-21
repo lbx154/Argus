@@ -59,28 +59,28 @@ export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { in
   const residualRisk = String(receipt.residual_risk || '').trim();
   if (REVIEW_PASSED.has(status) && source === 'reviewer' && residualRisk) return {
     independent: true,
-    text: zh ? '独立复核通过 · 有残余风险' : 'Independently reviewed · residual risk',
+    text: zh ? '独立审阅通过 · 有残余风险' : 'Independently reviewed · residual risk',
     title: zh ? `有一项检查在此环境中无法进行，已被接受为残余风险：${residualRisk}` : `One check was impossible here and its risk was accepted: ${residualRisk}`,
   };
   if (REVIEW_PASSED.has(status) && source === 'reviewer') return {
     independent: true,
-    text: zh ? '独立复核通过' : 'Independently reviewed',
-    title: zh ? '另一个审查角色检查过这份成果' : 'A separate reviewer checked this result',
+    text: zh ? '独立审阅通过' : 'Independently reviewed',
+    title: zh ? '审阅者另外检查过这份成果' : 'A separate reviewer checked this result',
   };
   if (!status || status === 'not_assessed' || (REVIEW_PASSED.has(status) && source)) return {
     independent: false,
-    text: zh ? '实现者自检 · 未独立复核' : 'Self-checked · not independently reviewed',
+    text: zh ? '工程师自查 · 没有独立审阅' : 'Self-checked · not independently reviewed',
     title: zh ? '只有完成它的人自己检查过，没有另外的审查' : 'Only the worker that produced it checked it; no separate review',
   };
   if (REVIEW_PASSED.has(status)) return {
     independent: false,
-    text: zh ? '已完成 · 未记录是否独立复核' : 'Completed · review source not recorded',
-    title: zh ? '这份较早的交付没有记录是谁检查的，不能确认经过独立复核' : 'This older delivery did not record who checked it, so independent review cannot be confirmed',
+    text: zh ? '已完成 · 没记下是否独立审阅过' : 'Completed · review source not recorded',
+    title: zh ? '这份较早的交付没记下是谁检查的，不能确认经过独立审阅' : 'This older delivery did not record who checked it, so independent review cannot be confirmed',
   };
   return {
     independent: false,
-    text: zh ? `复核状态：${status}` : `Review: ${status}`,
-    title: zh ? '独立复核没有通过或已过期' : 'Independent review did not pass or is out of date',
+    text: zh ? `审阅结果：${status}` : `Review: ${status}`,
+    title: zh ? '独立审阅没有通过或已经过时' : 'Independent review did not pass or is out of date',
   };
 }
 

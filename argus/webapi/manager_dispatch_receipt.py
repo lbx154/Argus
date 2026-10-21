@@ -13,42 +13,40 @@ from typing import Any
 from ..core import paths as core_paths
 from ..core.operator_messages import uses_cjk
 
-_ACK_TITLE_LIMIT = 80
-
 
 def _dispatch_ack_text(
     result: dict[str, Any], daemon: Any, daemon_alive: bool, *, operator_text: str = "",
 ) -> str:
+    """The first reply to a task: what happens next, without echoing the request."""
     raw_item = result.get("item")
     item = raw_item if isinstance(raw_item, dict) else {}
-    title = " ".join(str(item.get("title") or item.get("objective") or "").split())
-    if len(title) > _ACK_TITLE_LIMIT:
-        title = title[: _ACK_TITLE_LIMIT - 1] + "…"
-    zh = uses_cjk(operator_text or title)
-    named = (f"：{title}" if zh else f": {title}") if title else ""
+    zh = uses_cjk(operator_text or str(item.get("title") or item.get("objective") or ""))
     dispatch_state = result.get("dispatch_state")
     if result.get("launch_hold"):
         return (
-            f"计划已排好，还没有开始{named}。请在上方卡片里核对 Argus 的理解和计划，点“开始执行”后才会开始。"
+            "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。"
             if zh else
-            f"The plan is ready and nothing has started yet{named}. Check what Argus understood "
-            "in the card above; work starts only when you press Start."
+            "The plan is ready, but nothing has started. Check what I understood and "
+            "the plan in the card above; work starts when you press Start."
         )
-    saved = "目标已更新" if dispatch_state == "planner_pending" else "任务已保存"
-    saved_en = "The objective is saved" if dispatch_state == "planner_pending" else "The task is saved"
+    question = str(item.get("pending_question") or "").strip()
+    if question:
+        return f"开始之前需要你定一下：\n{question}" if zh else f"Before I start, I need your call:\n{question}"
 
     # The endpoint's fresh startup result outranks the bridge's earlier queue
     # observation. A daemon may disappear between those two observations.
     if isinstance(daemon, dict):
         if daemon.get("admission_required"):
             return (
-                f"{saved}，正在等待空闲的执行槽位{named}"
-                if zh else f"{saved_en}. Waiting for a free executor slot{named}"
+                "记下了。现在同时在做的事已经满了，空出来就开始，不用重发。"
+                if zh else
+                "Got it. Everything that can run at once is busy; this starts as soon "
+                "as a slot frees up, no need to resend."
             )
         if daemon.get("control_busy"):
             return (
-                f"{saved}，执行控制正忙，尚未确认启动{named}"
-                if zh else f"{saved_en}. Executor control is busy; startup is not confirmed{named}"
+                "记下了，正在确认能不能开始，稍后告诉你。"
+                if zh else "Got it. Checking whether it can start; I'll let you know."
             )
         if int(daemon.get("rc", 0)) != 0:
             diagnostic = str(daemon.get("startup_diagnostic") or daemon.get("diagnostic")
@@ -56,30 +54,31 @@ def _dispatch_ack_text(
             daemon["diagnostic"] = diagnostic
             daemon["error"] = "The background worker could not start."
             return (
-                f"{saved}，但后台执行者没能启动。可在启动详情查看原因。"
-                if zh else f"{saved_en}, but the background worker could not start. See startup details."
+                "记下了，但没能开始工作。你的要求已经保存，可以点“启动详情”看原因，或者稍后再试。"
+                if zh else
+                "Saved, but the work couldn't start. Your request is kept; see the "
+                "startup details for why, or try again later."
             )
     if dispatch_state == "already_queued":
         status = str(item.get("status") or "pending")
-        status_zh = {"pending": "排队中", "running": "已接手", "done": "已完成",
-                     "parked": "已暂停", "failed": "失败"}.get(status, "已保存")
+        state = {
+            "pending": ("还没开始", "not started yet"),
+            "running": ("正在做", "in progress"),
+            "done": ("已经做完", "done"),
+            "parked": ("暂停着", "paused"),
+            "failed": ("上次没做成", "it didn't succeed last time"),
+        }.get(status, ("已经记下", "saved"))
         return (
-            f"这件事已存在（{status_zh}），没有重复创建。" if zh
-            else f"This request already exists ({status}); no duplicate task was created."
+            f"这件事之前已经交代过了（{state[0]}），没有再加一遍。" if zh
+            else f"You already asked for this ({state[1]}); I didn't add it again."
         )
     if dispatch_state == "queued_after_current" and daemon_alive:
-        return f"已排在当前工作之后{named}" if zh else f"Queued after the current work{named}"
+        return "收到，等手头这项做完就开始。" if zh else "Got it. This starts once the current work is done."
     if dispatch_state == "running" and daemon_alive:
-        return f"执行者已接手{named}" if zh else f"The executor has claimed this task{named}"
+        return "收到，已经接手了。" if zh else "Got it, it's been picked up."
     if dispatch_state == "planner_pending":
-        return (
-            "目标已更新，等待 Planner 安排下一步。" if zh
-            else "Objective updated; waiting for the Planner to schedule the next step."
-        )
-    return (
-        f"已加入队列，等待执行者接手{named}" if zh
-        else f"Queued; waiting for the executor to pick it up{named}"
-    )
+        return "目标已更新，正在安排下一步。" if zh else "Goal updated; working out the next step."
+    return "收到，马上开始。" if zh else "Got it, starting now."
 
 
 def record_task_dispatch_ack(
@@ -144,8 +143,9 @@ def record_task_dispatch_ack(
             fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as exc:
         text = (
-            "The mission is queued, but I couldn't save its confirmation. "
-            "It remains in the queue."
+            "任务已经记下了，只是这条确认没能保存。"
+            if uses_cjk(operator_text or text)
+            else "The task is saved; only this confirmation couldn't be recorded."
         )
         result["ack_error"] = text
         result["ack_diagnostic"] = f"{transcript_path}: {exc}"

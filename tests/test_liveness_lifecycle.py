@@ -450,10 +450,10 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
     backlog.add(asked)
     backlog.update(asked.id, status="paused_operator", pending_question="Go on?")
 
-    _blocked, continuation = backlog.continue_with_operator_reply(asked.id, "Yes.")
+    resumed, answered = backlog.resume_with_operator_reply(asked.id, "Yes.")
 
-    assert continuation is not None
-    assert CANARY_TAG not in continuation.tags and "planner" in continuation.tags
+    assert answered
+    assert CANARY_TAG not in resumed.tags and "planner" in resumed.tags
 
 
 # Lossy handoffs.
@@ -632,15 +632,21 @@ def test_structured_planner_decision_carries_retirements() -> None:
     assert any("retirement 3 skipped" in note for note in verdict.diagnostics)
 
 
-# I2/I1: a Manager WAIT parks its own tasks, never the whole project.
+# I2/I1: a Manager WAIT holds only the evidence it judged.
 
 
-def test_manager_wait_grants_the_planner_one_turn_per_input_state(
+def test_a_manager_wait_is_no_planner_input_until_its_evidence_moves(
     tmp_path: Path, monkeypatch,
 ) -> None:
+    """2026-10-20: the Manager answered a blocked task with WAIT and the Planner
+    was called 25 seconds later only to say it was waiting too. The WAIT is the
+    Manager's answer to the state it judged; once that state moves, the WAIT no
+    longer holds and the Planner plans the work that does not need the answer."""
     project = _project(tmp_path, monkeypatch)
+    waiting = {"now": True}
     monkeypatch.setattr(
-        "argus.manager.supervision.waiting_for_evidence", lambda *_a, **_k: True
+        "argus.manager.supervision.waiting_for_evidence",
+        lambda *_a, **_k: waiting["now"],
     )
     planner = _PlannerBackend(["\n".join([
         "PROJECT_DONE=false",
@@ -654,51 +660,14 @@ def test_manager_wait_grants_the_planner_one_turn_per_input_state(
     question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
     backlog.update(question.id, status="paused_operator", pending_question="Venue?")
 
-    # Independent work is planned instead of the whole campaign freezing.
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert _supervisor(project, tmp_path / "life", planner)._plan_next_work() == PLAN_AWAITING
+    assert planner.calls == []
+
+    waiting["now"] = False
     assert supervisor._plan_next_work() is True
     assert len(planner.calls) == 1
     assert [item.title for item in backlog.pending()] == ["Benchmark the solver"]
-
-    # Nothing the Planner reads has moved: the WAIT holds without a call.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-
-    # A restart (a crash-looping daemon, say) reads what the Planner last saw
-    # back from disk: unchanged inputs still hold without a call.
-    restarted = _supervisor(project, tmp_path / "life", planner)
-    assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-
-
-def test_an_unreadable_last_turn_record_allows_one_planner_call(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = _project(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        "argus.manager.supervision.waiting_for_evidence", lambda *_a, **_k: True
-    )
-    wait = "\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Nothing to do until the operator picks the venue.",
-        "→ engineer",
-    ])
-    planner = _PlannerBackend([wait, wait])
-    life = tmp_path / "life"
-    supervisor = _supervisor(project, life, planner)
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-    record = life / "handoffs" / "lineage-planning" / "holders.json"
-    assert json.loads(record.read_text(encoding="utf-8"))["planner"]["facts"]
-
-    record.write_text("{not json", encoding="utf-8")
-    restarted = _supervisor(project, life, planner)
-    assert restarted._planner_last_turn_signature == ""
-    assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 2
-    # That call is recorded again, so the next restart holds.
-    assert _supervisor(project, life, planner)._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 2
-
 
 
 # I2/I3: a Planner that hands the stage to the Manager is answered once.
@@ -751,3 +720,71 @@ def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
 
     assert len(manager.calls) == 1
     assert len(planner.calls) == MANAGER_FEEDBACK_REPLAN_LIMIT
+
+
+def _answered(backlog, question: str, answer: str, asked_at: float) -> BacklogItem:
+    """A task that asked ``question`` at ``asked_at`` and was answered."""
+    from argus.core.operator_decision import build_operator_decision
+
+    row = backlog.add(BacklogItem.new(title=f"asked at {asked_at:.0f}", objective="wait for my choice"))
+    card = build_operator_decision(item_id=row.id, title=row.title, reason="choice", question=question)
+    card["asked_at"] = asked_at
+    backlog.update(row.id, park_reason="operator_question", pending_question=question, operator_decision=card)
+    resumed, _ = backlog.resume_with_operator_reply(row.id, answer, manager_decision=answer)
+    return resumed
+
+
+def _answers_read(supervisor: LifeSupervisor, project: Path) -> tuple[str, str]:
+    """What the Planner's digest and the Manager's stage decision say was answered."""
+    from argus.manager import Manager
+
+    manager = Manager(project, runner=None, manager_session_root=supervisor.memory.root)
+    return supervisor._planner_current_reality_note(), manager._stage_operator_context()
+
+
+def test_planner_and_manager_read_every_answer_given_since_the_objective_began(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """2026-10-20: after the operator chose A, the Manager's stage decision
+    still held for "your choice between A and B is missing": it read only the
+    objective written before the question. Both now read the answers given
+    since the objective began, all of them and none from before."""
+    from argus.daemon.state import write_continuous_config
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    root, backlog = supervisor.memory.root, supervisor.memory.backlog
+    write_continuous_config(root, enabled=True, objective="keep improving the solver")
+    _answered(backlog, "Keep the old parser?", "Yes.", 100.0)
+    JsonlEventSink(None, life_dir=root).append({
+        "type": EventType.LIFE_MANAGER_INTENT_COMPLETED, "ts": 200.0, "intent_id": "i-1", "item_id": "i-1",
+        "objective": "keep improving the solver", "execution_task": "keep improving the solver",
+        "vertical": "software", "stages": ["delivery"],
+    })
+    for number in range(4):
+        _answered(backlog, f"Choice {number}?", f"Option {number}.", 300.0 + number)
+
+    digest, context = _answers_read(supervisor, project)
+    answers = [f"Choice {number}? → Option {number}. (the operator)" for number in range(4)]
+    assert "- operator_answers (their later word wherever the objective says otherwise): " + "; ".join(answers) in digest
+    assert "## The operator's answers since the objective" in context
+    assert all(f"- {answer}" in context for answer in answers)
+    assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context
+
+
+def test_without_a_record_of_the_objective_s_start_the_live_backlog_bounds_the_answers(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.daemon.state import write_continuous_config
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    root, backlog = supervisor.memory.root, supervisor.memory.backlog
+    write_continuous_config(root, enabled=True, objective="keep improving the solver")
+    finished = _answered(backlog, "Keep the old parser?", "Yes.", 100.0)
+    backlog.update(finished.id, status="done", finished_ts=time.time())
+    _answered(backlog, "Which dataset?", "The small one.", 300.0)
+
+    digest, context = _answers_read(supervisor, project)
+    assert "Which dataset? → The small one. (the operator)" in digest and "Which dataset?" in context
+    assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context

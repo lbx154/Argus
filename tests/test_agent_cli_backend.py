@@ -551,12 +551,9 @@ def test_run_exec_records_call_cost_and_provider_metric(
 
     assert result.cost_usd == pytest.approx(0.008)
     rows = [json.loads(line) for line in (project / "events.jsonl").read_text().splitlines()]
-    assert [row["type"] for row in rows] == [
-        "agent.io.start",
-        "agent.io.complete",
-        "usage.recorded",
-    ]
-    assert rows[-1]["cost_usd"] == pytest.approx(0.008)
+    assert [row["type"] for row in rows] == ["agent.io.start", "agent.io.complete"]
+    usage = json.loads((project / "usage.jsonl").read_text().splitlines()[-1])
+    assert usage["cost_usd"] == pytest.approx(0.008)
     metrics = [json.loads(line) for line in (root / "metrics.jsonl").read_text().splitlines()]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
     assert provider_metric["labels"]["status"] == "completed"
@@ -712,12 +709,8 @@ def test_run_exec_writes_full_agent_io_log(
     raw_rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     assert all(row["event_schema_version"] == 1 for row in rows)
     assert all("event_validation" not in row for row in rows)
-    assert [row["type"] for row in rows] == [
-        "agent.io.start",
-        "agent.io.complete",
-        "usage.recorded",
-    ]
-    assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
+    # The call's usage lives in usage.jsonl alone.
+    assert [row["type"] for row in rows] == ["agent.io.start", "agent.io.complete"]
     # The start row names the call once; each frame after it carries only
     # what differs per frame.
     assert raw_rows[0]["type"] == "agent.io.start"
@@ -735,26 +728,20 @@ def test_run_exec_writes_full_agent_io_log(
         "stderr",
     ]
     assert raw_rows[1]["line"].startswith('{"type"')
-    assert "agent_messages" not in rows[-2]
-    assert "stdout_lines" not in rows[-2]
-    assert "stderr_lines" not in rows[-2]
-    assert "json_events" not in rows[-2]
-    assert rows[-2]["agent_message_count"] == 1
-    assert rows[-2]["stdout_line_count"] == 1
-    assert rows[-2]["stderr_line_count"] == 1
-    assert rows[-2]["json_event_count"] == 1
-    assert rows[-2]["command"] == ["copilot", "-p", "<prompt>"]
-    assert rows[-2]["thread_id"] == "thread-1"
-    assert rows[-1]["schema_version"] == 2
+    assert "agent_messages" not in rows[-1]
+    assert "stdout_lines" not in rows[-1]
+    assert "stderr_lines" not in rows[-1]
+    assert "json_events" not in rows[-1]
+    assert rows[-1]["agent_message_count"] == 1
+    assert rows[-1]["stdout_line_count"] == 1
+    assert rows[-1]["json_event_count"] == 1
+    assert rows[-1]["command"] == ["copilot", "-p", "<prompt>"]
     assert rows[-1]["thread_id"] == "thread-1"
-    assert rows[-1]["started_at"] <= rows[-1]["completed_at"]
-    assert rows[-1]["duration_ms"] >= 0
-    assert rows[-1]["usage"]["models"] == []
-    assert rows[-1]["pricing"]["status"] == rows[-1]["pricing_status"]
-    assert rows[-1]["pricing"]["cost_basis"] == rows[-1]["cost_basis"]
     usage_rows = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text().splitlines()]
     assert len(usage_rows) == 1
-    assert usage_rows[0]["call_id"] == rows[-2]["call_id"]
+    assert usage_rows[0]["call_id"] == rows[-1]["call_id"]
+    assert usage_rows[0]["thread_id"] == "thread-1"
+    assert usage_rows[0]["started_at"] <= usage_rows[0]["completed_at"]
 
 
 def test_full_agent_io_batches_raw_stream_writes(
@@ -978,16 +965,9 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert usage["premium_request_cost_usd"] == pytest.approx(0.04)
     assert usage["model_usage"][0]["usage_event_id"] == 1
     assert usage["model_usage"][0]["session_id"] == "session-1"
-    event = json.loads(log_path.read_text().splitlines()[-1])
-    assert event["type"] == "usage.recorded"
-    assert event["schema_version"] == 2
-    assert event["thread_id"] == "session-1"
-    assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
-    assert event["usage"]["models"][0]["input_tokens"] == 25_819
-    assert event["usage"]["models"][0]["usage_event_id"] == 1
-    assert event["usage"]["models"][0]["session_id"] == "session-1"
-    assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
-    assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
+    assert usage["model_usage"][0]["input_tokens"] == 25_819
+    assert usage["model_usage"][0]["cost_usd"] == pytest.approx(0.161605)
+    assert usage["thread_id"] == "session-1"
 
 
 def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
@@ -1173,11 +1153,7 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    assert [row["type"] for row in rows] == [
-        "agent.io.start",
-        "agent.io.complete",
-        "usage.recorded",
-    ]
+    assert [row["type"] for row in rows] == ["agent.io.start", "agent.io.complete"]
     assert "prompt" not in rows[0] and rows[0]["prompt_chars"] > 100
     assert "prompt_sha256" not in rows[0]
     assert rows[1]["command"] == ["copilot", "-p", "<prompt>"]

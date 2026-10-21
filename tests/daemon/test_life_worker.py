@@ -415,6 +415,7 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(life_worker_mod.subprocess, "run", fake_run)
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
 
     assert life_worker_mod.spawn_detached_daemon_clean(config, quiet=True) == 0
     assert captured["command"] == [
@@ -425,7 +426,9 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     assert captured["close_fds"] is True
     import_root = Path(life_worker_mod.__file__).resolve().parents[2]
     assert captured["cwd"] == str(import_root)
-    assert captured["env"]["PYTHONSAFEPATH"] == "1"
+    # The pinned cwd and PYTHONPATH keep the shadow out; the daemon's agents
+    # inherit this environment and must not get safe-path imports.
+    assert "PYTHONSAFEPATH" not in captured["env"]
     assert captured["env"]["PYTHONUTF8"] == "1"
     assert captured["env"]["PYTHONIOENCODING"] == "utf-8"
     assert captured["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(import_root)

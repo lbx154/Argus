@@ -84,6 +84,31 @@ def test_empty_clean_output_is_reviewer_failure_not_engineer_work() -> None:
     assert decision.backend_unavailable is True
 
 
+@pytest.mark.parametrize("interrupt,said,said_zh", [
+    ("operator pause requested", "You stopped Argus before the Reviewer", "审阅者还没读完这一轮，你就让 Argus 停下了"),
+    ("operator abort requested: replace the target", "You stopped Argus before the Reviewer", "审阅者还没读完这一轮，你就让 Argus 停下了"),
+    ("daemon stop requested", "The Argus background service stopped or restarted before the Reviewer",
+     "审阅者还没读完这一轮，Argus 后台服务就停止或重启了，运行中断"),
+    ("Manager turn wall-clock limit reached", "The run was interrupted before the Reviewer", "审阅者还没读完这一轮，运行就中断了"),
+])
+def test_an_interrupted_review_names_who_stopped_it_only_when_the_record_does(
+    interrupt: str, said: str, said_zh: str,
+) -> None:
+    class _InterruptedRunner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(exit_code=130, fatal_error=f"External interrupt: {interrupt}")
+
+    decision = _evaluate(Reviewer(runner=_InterruptedRunner()))
+    assert decision.reason.startswith(said)
+    assert "nothing here is a judgment on the work" in decision.reason
+
+    decision = Reviewer(runner=_InterruptedRunner()).evaluate(
+        objective="降低验证集损失", round_index=1, session_id=None,
+        main_summary="(engineer handoff)", main_error=None, config=ReviewerConfig(model="gpt-5.5"),
+    )
+    assert decision.reason.startswith(said_zh)
+
+
 def test_native_action_succeeds_without_final_reviewer_message() -> None:
     class _DecisionRunner:
         def run_exec(self, **_kwargs):

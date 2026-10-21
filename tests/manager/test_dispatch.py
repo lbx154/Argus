@@ -37,7 +37,7 @@ def manager_runner(monkeypatch):
     )
 
 
-def _direct_manager(monkeypatch) -> None:
+def _direct_manager(monkeypatch, **decision) -> None:
     class Manager:
         def decide_vertical(self, body, **kwargs):
             return SimpleNamespace(
@@ -45,6 +45,7 @@ def _direct_manager(monkeypatch) -> None:
                 vertical="software",
                 workflow_mode="direct",
                 require_independent_review=True,
+                **decision,
             )
 
         def commit_vertical_decision(self, body, decision, **kwargs):
@@ -151,6 +152,33 @@ def test_direct_task_joins_a_running_campaign_without_replacing_it(
     assert campaign.objective == "existing campaign"
     assert state["continuous_objective"] == "existing campaign"
     assert "_frontdoor_lifetime" not in state
+
+
+def test_a_choice_the_operator_reserved_waits_on_them_instead_of_dispatching(
+    memory,
+    monkeypatch,
+) -> None:
+    """2026-10-20: the Manager read that only the operator could pick A or B,
+    yet an Engineer spent 44 seconds finding that out. The task now waits on
+    the Manager's question and resumes on the answer."""
+    from argus.life.memory import park_reason
+
+    _direct_manager(monkeypatch, operator_question="A or B?", adaptation_reason="A and B conflict")
+
+    item, _, _ = dispatch.enqueue_mission(memory, "pick A or B, then change truncate", {})
+
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert park_reason(stored) == "operator_question"
+    assert stored.pending_question == stored.operator_decision["question"] == "A or B?"
+    assert memory.backlog.next_pending() is None
+    assert any(
+        event.get("type") == "life.operator_question.pending" and event["item_id"] == item.id
+        for event in _events(memory)
+    )
+
+    resumed, _ = memory.backlog.resume_with_operator_reply(item.id, "A")
+    assert memory.backlog.next_pending().id == resumed.id == item.id
+    assert "manager_direct" in resumed.tags
 
 
 @pytest.mark.parametrize(
@@ -381,7 +409,8 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
     views.append(compact_backlog_item(failed))
 
     assert [view["status"] for view in views] == ["pending", "running", "failed"]
-    assert {view["title"] for view in views} == {execution_task}
+    # The title is the task's short name: its clause, not the sentence's period.
+    assert {view["title"] for view in views} == {execution_task.rstrip("。")}
     for view in views:
         visible = json.dumps(view, ensure_ascii=False)
         assert "[BOUNDED TASK CONTEXT" not in visible

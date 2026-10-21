@@ -214,12 +214,14 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
     assert engineer_prompts._HANDOFF_RULE == (
         "## Handing off\n"
         "End with a short handoff in the operator's language: changes with output "
-        "paths, the decisive check, what is open, why the next holder. Then one line "
-        "naming that holder:\n"
+        "paths, the decisive check, what is open, why the next holder. Its first "
+        "sentence is what the operator reads: what was done and found, in plain words. "
+        "Then one line naming that holder:\n"
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
         "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-        "`→ operator: <one question>`."
+        "`→ operator: <one question>`. The Reviewer you hand to with `→ reviewer` "
+        "does the independent review; do not start a review of your own."
     )
 
 

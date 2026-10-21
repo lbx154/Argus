@@ -112,11 +112,7 @@ def finalize_result(
     )
     if ctx.usage_project_root is not None:
         try:
-            from ...core.usage import (
-                UsageLedger,
-                build_usage_record,
-                usage_recorded_event,
-            )
+            from ...core.usage import UsageLedger, build_usage_record
             from ...trial.client import trial_enabled
 
             pricing_model, model_fallback_source = resolve_pricing_model(
@@ -170,14 +166,13 @@ def finalize_result(
                     )
                 ),
             )
-            appended = UsageLedger(
+            # usage.jsonl is the call ledger; the event log does not repeat it.
+            UsageLedger(
                 ctx.usage_project_root,
                 migrate_legacy=False,
             ).append(record)
             result.pricing_status = record.pricing_status
             result.cost_usd = record.cost_usd
-            if appended:
-                backend._log_agent_io(ctx.log_path, usage_recorded_event(record))
         except Exception:  # noqa: BLE001 — accounting must not break work
             log.exception("failed to persist usage record for %s", ctx.call_id)
     if ctx.usage_project_root is not None:

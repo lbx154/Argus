@@ -211,7 +211,7 @@ export function ArtifactModal({
               {reviewActivity === 'revising'
                 ? (zh ? '正在根据这份意见修改论文，修改后的版本尚待复审。' : 'The paper is being revised against this opinion; the revised version awaits review.')
                 : reviewActivity === 'reviewing'
-                  ? (zh ? 'Reviewer 正在更新本轮审稿意见，内容会自动刷新。' : 'The Reviewer is updating this round’s opinion. This file refreshes automatically.')
+                  ? (zh ? '审阅者正在更新这一轮的审稿意见，内容会自动刷新。' : 'The Reviewer is updating this round’s opinion. This file refreshes automatically.')
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}

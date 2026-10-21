@@ -328,6 +328,9 @@ the ladder's height bounds the number of model calls made without a change.
 - `continue` is `→ engineer`, `replan_requested` is `→ planner`, `blocked` is
   `→` whoever can remove the obstacle, and `done` is acceptance of a named
   candidate.
+- A task handed to the Manager is parked in its hands, not failed: a question
+  the Manager puts to the operator parks that same task, and the answer resumes
+  it, never a copy.
 - The eleven `paused_*` statuses become one park whose reason is data.
 - A Planner with nothing new to start names who acts next: `→ engineer` (the
   work in flight decides what comes next), `→ manager` (the stage blocks it), or
@@ -353,13 +356,19 @@ the work is right stays the Reviewer's to judge. It decides nothing: stopping or
 redirecting a mission is still the Manager's or the operator's.
 
 It looks once at each turn the Engineer, Reviewer or Planner ends, never at its
-own, reading only the task's events. When the flow is off it writes one line,
+own, reading only the task's events. Within a task it resumes one session and
+reads only the events added since its last look; the session ends with the
+task, and planning, which belongs to no task, is looked at afresh. A turn nobody
+took, such as a Planner call skipped because its inputs did not change, is not a
+turn. When the flow is off it writes one line,
 `→ manager: <sentence and where it was seen>`, as one `life.observer.note`
-event. The Manager hears it through its supervision, as news reported once,
+event naming its task. The Manager hears it through its supervision, as news reported once,
 like a stalled turn, and decides whether to steer, pause, or stop; with no
 Manager, or once the task is delivered, the operator gets an alert. The remark
-moves no baton and changes no candidate, and the Observer never repeats one,
-so it cannot keep a handoff going on its own.
+moves no baton and changes no candidate, and the Observer never repeats one. A
+steer it prompts is read by whoever holds the work at their next boundary and
+never hands planning to the Planner, so however a remark is worded, it cannot
+keep a handoff going on its own.
 
 ## What is deleted
 

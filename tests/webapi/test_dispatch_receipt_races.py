@@ -83,14 +83,14 @@ def test_cancel_during_receipt_io_suppresses_late_delivery(
     assert not (life / "events.jsonl").exists()
     turns = [turn for turn in read_turns(life) if turn["role"] == "argus"]
     if cancel_at == "after_append":
-        assert len(turns) == 1 and "旧目标" in turns[0]["text"]
-        assert "队列" in turns[0]["text"]
+        assert len(turns) == 1 and "旧目标" not in turns[0]["text"]
+        assert "收到" in turns[0]["text"]
     else:
         assert turns == []
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("status,expected", [("done", "已完成"), ("parked", "已暂停")])
+@pytest.mark.parametrize("status,expected", [("done", "已经做完"), ("parked", "暂停着")])
 def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
     tmp_path, monkeypatch, streaming, status, expected,
 ):
@@ -116,8 +116,8 @@ def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
                                    json={"text": "比较两组延迟"})
 
     result, frames = _response_result(response, streaming)
-    assert expected in result["reply"] and "没有重复创建" in result["reply"]
-    assert "尚未确认启动" not in result["reply"]
+    assert expected in result["reply"] and "没有再加一遍" in result["reply"]
+    assert "正在确认能不能开始" not in result["reply"]
     assert "daemon" not in result
     turns = [turn for turn in read_turns(life) if turn["role"] == "argus"]
     assert [turn["text"] for turn in turns] == [result["reply"]]

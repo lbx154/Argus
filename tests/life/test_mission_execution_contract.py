@@ -144,7 +144,7 @@ def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, 
     assert event["campaign_continues"] is True
     assert event["outcome"]["execution_status"] == "incomplete"
     supervisor._publish_mission_completion_message(event)
-    assert "自动开始下一轮" in read_turns(memory.root)[-1]["text"]
+    assert "自动接着做剩下的部分" in read_turns(memory.root)[-1]["text"]
     assert "长程信用分配" in read_turns(memory.root)[-1]["text"]
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
     assert "长程信用分配" in supervisor._build_mission_prelude(stored)

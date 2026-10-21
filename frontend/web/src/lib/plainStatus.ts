@@ -38,7 +38,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   stage_rolled_back: ['研究退回到了前一阶段。', 'The research went back a stage.'],
   stage_completed: ['当前阶段已完成。', 'The current stage is complete.'],
   stage_reconsidered: ['阶段安排已重新考虑。', 'The stage plan was reconsidered.'],
-  stage_reviewed: ['阶段已复核。', 'The stage was reviewed.'],
+  stage_reviewed: ['阶段已审阅。', 'The stage was reviewed.'],
   planning_started: ['正在规划下一步工作', 'Planning the next step'],
   task_added: ['计划中加入了一项新任务。', 'A new task was added to the plan.'],
   research_route_added: ['计划中加入了一条新的研究路线。', 'A new research route was added to the plan.'],
@@ -46,6 +46,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   project_finished: ['项目已经完成。', 'The project is finished.'],
   task_delivered: ['成果已交付。', 'The result was delivered.'],
   planner_waiting: ['规划者在等待前一步完成。', 'The Planner is waiting for the previous step.'],
+  planner_no_new_work: ['手头的工作还没做完，先不安排新的。', 'Nothing new to plan until the current work moves.'],
   planner_idle: ['暂时没有需要规划的工作。', 'Nothing to plan right now.'],
   planning_failed: ['这次规划没有成功。', 'Planning did not succeed this time.'],
   mission_started: ['开始处理这项任务', 'Work on the task started'],
@@ -102,7 +103,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   'event.instruction.done': ['指令已执行', 'Instruction carried out'],
   'event.inbox.processed': ['已处理收件箱', 'Inbox processed'],
   'event.round.started': ['新的一轮开始', 'A new round started'],
-  'event.round.finished': ['执行者完成了这一轮', 'The Engineer finished the round'],
+  'event.round.finished': ['工程师完成了这一轮', 'The Engineer finished the round'],
   'event.review.finished': ['这一轮的审阅结束', 'Review of the round finished'],
   'event.retry.waiting': ['等待后重试', 'Waiting before retrying'],
   'event.retry.interrupted': ['等待被打断', 'The wait was interrupted'],
@@ -319,6 +320,7 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^(?:Planning next work|Planning started)$/i, 'planning_started'],
   [/^Planning complete$/i, 'planning_complete'],
   [/^Planner waiting$/i, 'planner_waiting'],
+  [/^Nothing new to plan until the current work moves\.?$/i, 'planner_no_new_work'],
   [/^Project reviewed$/i, 'project_finished'],
   [/^Research branch added$/i, 'research_route_added'],
   [/^Task added$/i, 'task_added'],
@@ -472,10 +474,6 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
     (match, locale) => locale === 'zh-CN'
       ? `模型服务调用失败，${match[1]} 秒后在新的会话里重试。`
       : `The model service call failed; retrying in a fresh session after ${match[1]} seconds.`],
-  [/^planner error: (.*; retry later)\.?$/i, (match, locale) => ({
-    text: locale === 'zh-CN' ? '规划这一步没有完成，稍后会重试。' : 'Planning did not complete; it will be retried later.',
-    technical: match[1],
-  })],
   [/^mission failed\.?$/i, ['任务失败了。', 'The task failed.']],
   [/^Engineer backend failed before a trustworthy completed turn; reviewer skipped\.?/i,
     ['这一轮模型服务没有完成调用，所以没有人审阅。', 'The model service did not complete this round, so no one reviewed it.']],
@@ -511,6 +509,11 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
   [/^running project command$/i, ['正在运行项目命令', 'Running a project command']],
   [/^using a tool$/i, ['正在使用工具', 'Using a tool']],
 ];
+
+const DAEMON_STOP_SENTENCES = new Set([
+  "The Argus background service stopped or restarted in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
+  "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
+]);
 
 /** Text that reads as a counter, a receipt or an exit code rather than a sentence. */
 const TECHNICAL_TAIL = /^(?:[\w.]+_(?:streak|code|error|kind)=|error=|exit=|fatal_error=|Runner receipt:|stop_kind=|backend_)/i;
@@ -649,13 +652,13 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
     const reason = part.match(/^(?:Reason:|原因：)\s*(.*)$/);
     if (reason) {
       const record = splitHarnessRecord(reason[1]);
-      // This exact sentence is emitted by operator_interrupt_review_decision.
-      // A mention of interruption inside ordinary research prose is insufficient.
-      if (record.prose === "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.") {
+      // Only the exact sentences daemon_stop_review_decision writes (today's
+      // and an older one); interruption mentioned in research prose is not one.
+      if (DAEMON_STOP_SENTENCES.has(record.prose)) {
         const note = humanizeHarnessNote(reason[1], zh);
         if (record.receipt) technical.push(record.receipt);
         return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`
-          : `At that time, ${note.summary}. Work done so far was kept, and no retry was made then.`;
+          : `At that time, ${note.summary.charAt(0).toLowerCase()}${note.summary.slice(1)}. Work done so far was kept, and no retry was made then.`;
       }
       const detail = plainDetail(reason[1], locale);
       if (detail.text !== reason[1].trim() || detail.technical) {

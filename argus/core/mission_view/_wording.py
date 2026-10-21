@@ -88,8 +88,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "任务已完成，结果已交付。",
     ),
     "planner_no_new_work": (
-        "No new work to start until someone hands the Planner something new.",
-        "暂时没有新的工作要开始，等有新情况交给规划者时再规划。",
+        "Nothing new to plan until the current work moves.",
+        "手头的工作还没做完，先不安排新的。",
     ),
     "planner_idle": (
         "Nothing is left to plan for now.",
@@ -98,6 +98,61 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "planning_failed": (
         "Planning did not succeed.",
         "这次规划没有成功。",
+    ),
+    # What the operator is told while work waits or stops. Each names what
+    # happened and what happens next, never the mechanism behind it.
+    "waiting_for_answer": (
+        "Waiting for your answer: {question} (work that doesn't need it carries on)",
+        "在等你回答：{question}（不需要这个答复的工作照常进行）",
+    ),
+    "planner_needs_direction": (
+        "The Planner can't see a next step and is asking you for a direction.",
+        "规划者拿不准接下来做什么，在等你定个方向。",
+    ),
+    "planner_failing": (
+        "The Planner hasn't had an answer from the model service for {minutes} "
+        "minutes. Argus keeps trying at a slower pace; if this goes on, switch "
+        "the Planner's model in Settings.",
+        "规划者连着 {minutes} 分钟没能从模型服务拿到回应，Argus 会放慢节奏继续试；"
+        "如果一直这样，可以在设置里换一个规划者用的模型。",
+    ),
+    "planner_internal_error": (
+        "Planning has hit an internal error in Argus for {minutes} minutes. "
+        "Argus keeps trying at a slower pace; please report it with the run log.",
+        "规划时 Argus 自己出错已经 {minutes} 分钟了，会放慢节奏继续试；"
+        "麻烦把运行日志一起反馈给我们。",
+    ),
+    "planning_paused_host": (
+        "The program that runs code for Argus could not start, so planning is "
+        "paused. Reinstall Codex, then turn continuous work back on to try again.",
+        "为 Argus 运行代码的程序启动不了，规划先停下了。把 Codex 装好后，"
+        "重新开启持续工作就会再试。",
+    ),
+    "planning_paused_content_filter": (
+        "The model service's content filter refused this plan, so work is "
+        "paused. Please rephrase the goal.",
+        "模型服务的内容过滤拦下了这次规划，工作先暂停；请换个说法描述目标。",
+    ),
+    "work_paused_service": (
+        "The model service kept turning work away after every automatic retry, "
+        "so Argus has stopped calling it. Click Run, switch the backend or "
+        "model, or send a message to try again.",
+        "模型服务在自动重试后仍然拒绝工作，Argus 先不再调用它。点“运行”、"
+        "换个后端或模型，或者发条消息，就会再试。",
+    ),
+    "work_paused_internal": (
+        "Argus keeps hitting the same internal error, so new work is on hold "
+        "until a fixed Argus is installed.",
+        "Argus 自己反复遇到同一个内部错误，新的工作先停下，等装上修好的版本再继续。",
+    ),
+    "service_back": (
+        "The model service is answering again; paused work picks up where it stopped.",
+        "模型服务恢复了，之前停下的工作会接着做。",
+    ),
+    "project_report_pending": (
+        "The project is done, but its summary isn't written yet; Argus will try "
+        "again shortly.",
+        "项目已经完成，只是总结还没写好，Argus 过一会儿再试。",
     ),
     # Task lifecycle.
     "mission_started": (
@@ -222,8 +277,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Argus 在这一轮进行中被停止；已完成的工作已保存。",
     ),
     "cause_task_cancelled": (
-        "The task was cancelled at the operator's request.",
-        "任务已应操作员的要求取消。",
+        "You cancelled this task.",
+        "你取消了这项任务。",
     ),
     "cause_session_length_limit": (
         "The Engineer's session reached its length limit before finishing, "

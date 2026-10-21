@@ -147,9 +147,6 @@
     "round.start",
     "round.watchdog.retry",
     "round.watchdog.retry_exhausted",
-    "self.learning.review.completed",
-    "self.learning.review.failed",
-    "self.learning.review.started",
     "skill.archived",
     "skill.cost.completed",
     "skill.created",
@@ -184,7 +181,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 156
+        "missing": 153
       },
       "fallback": "greppable",
       "handled": [
@@ -338,9 +335,6 @@
         "round.stall",
         "round.watchdog.retry",
         "round.watchdog.retry_exhausted",
-        "self.learning.review.completed",
-        "self.learning.review.failed",
-        "self.learning.review.started",
         "skill.archived",
         "skill.cost.completed",
         "skill.created",
@@ -374,7 +368,7 @@
     "tui": {
       "counts": {
         "handled": 92,
-        "hidden": 86,
+        "hidden": 83,
         "missing": 0
       },
       "fallback": "hide",
@@ -440,6 +434,7 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
+        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -463,7 +458,6 @@
         "round.start",
         "round.watchdog.retry",
         "round.watchdog.retry_exhausted",
-        "self.learning.review.failed",
         "team.learning.promotion.quarantined",
         "team.learning.review.completed",
         "team.learning.review.failed",
@@ -522,7 +516,6 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
-        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",
@@ -536,8 +529,6 @@
         "research.achievement.certified",
         "role.session.turn",
         "round.secret_redacted",
-        "self.learning.review.completed",
-        "self.learning.review.started",
         "skill.archived",
         "skill.cost.completed",
         "skill.created",
@@ -565,7 +556,7 @@
     "web": {
       "counts": {
         "handled": 92,
-        "hidden": 86,
+        "hidden": 83,
         "missing": 0
       },
       "fallback": "hide",
@@ -631,6 +622,7 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
+        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -654,7 +646,6 @@
         "round.start",
         "round.watchdog.retry",
         "round.watchdog.retry_exhausted",
-        "self.learning.review.failed",
         "team.learning.promotion.quarantined",
         "team.learning.review.completed",
         "team.learning.review.failed",
@@ -713,7 +704,6 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
-        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",
@@ -727,8 +717,6 @@
         "research.achievement.certified",
         "role.session.turn",
         "round.secret_redacted",
-        "self.learning.review.completed",
-        "self.learning.review.started",
         "skill.archived",
         "skill.cost.completed",
         "skill.created",

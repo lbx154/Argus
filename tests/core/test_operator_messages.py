@@ -34,6 +34,17 @@ def test_publish_operator_message_is_idempotent_across_transcript_and_event(tmp_
     ]
 
 
+def test_brief_title_names_a_task_by_its_opening_clause() -> None:
+    from argus.core.operator_messages import brief_title
+
+    assert brief_title("Write the release notes") == "Write the release notes"
+    assert brief_title(
+        "strtools 的 truncate 收到两条互相冲突的需求，必须由我来拍板选一个，你们不能自己决定："
+        "需求 A（文档组）：truncate 截断时不能把单词切成两半。"
+    ) == "strtools 的 truncate 收到两条互相冲突的需求"
+    assert len(brief_title("x" * 300)) == 50
+
+
 def test_operator_update_explains_blocker_and_next_action() -> None:
     text = render_operator_update(
         title="run the H100 benchmark",
@@ -43,9 +54,9 @@ def test_operator_update_explains_blocker_and_next_action() -> None:
         user_action_required=True,
     )
 
-    assert text.splitlines()[0] == "Cannot continue yet: run the H100 benchmark."
+    assert text.splitlines()[0] == "Stuck for now: run the H100 benchmark."
     assert "Reason: The H100 runner is unavailable." in text
-    assert "Your decision:" in text
+    assert "Your call:" in text
     assert text.strip() not in {"BLOCKED", "REVISE"}
 
 
@@ -77,9 +88,9 @@ def test_operator_update_follows_chinese_project_language() -> None:
         next_action="先运行单行诊断。",
     )
 
-    assert text.splitlines()[0] == "暂时无法继续：验证内核性能。"
+    assert text.splitlines()[0] == "「验证内核性能」暂时做不下去了。"
     assert "原因：" in text
-    assert "下一步：先运行单行诊断。" in text
+    assert "接下来：先运行单行诊断。" in text
 
 
 def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
@@ -99,8 +110,8 @@ def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
 @pytest.mark.parametrize(
     ("hint", "resume"),
     [
-        ("继续论文", "点击“运行”恢复任务；不会自动重试"),
-        ("Continue the paper", "click Run to resume; automatic retries are disabled"),
+        ("继续论文", "点“运行”就能继续；在那之前不会自动重试"),
+        ("Continue the paper", "click Run to continue; nothing retries on its own"),
     ],
 )
 def test_provider_fence_explains_explicit_recovery(hint: str, resume: str) -> None:
@@ -149,8 +160,8 @@ def test_operator_update_leads_with_result() -> None:
         status="done",
         reason="18 focused tests passed.",
     ).splitlines() == [
-        "Completed: repair the parser.",
-        "Reason: 18 focused tests passed.",
+        "Done: repair the parser.",
+        "18 focused tests passed.",
     ]
 
 

@@ -1240,7 +1240,7 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
     def _notices(sink) -> list[dict]:
         return [
             event for event in sink.events
-            if "waiting for your answer" in json.dumps(event, default=str)
+            if event.get("kind") == "waiting_for_answer"
         ]
 
     # The question is raised once and not repeated on the next start. The run
@@ -1249,6 +1249,62 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
     assert not _notices(second_sink)
     assert first["stopped_by"] != "pending_operator_question"
     assert second["stopped_by"] != "pending_operator_question"
+
+
+class _HandedToManagerRunner:
+    """The Engineer's ``→ manager``: blocked, with no question, in its own words."""
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        outcome = _Outcome(
+            success=False, status="blocked", final_message="A and B conflict.",
+            stop_reason="A and B conflict; the choice is not mine.",
+        )
+        outcome.final_review_source = "engineer_handoff"
+        return outcome
+
+
+def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path) -> None:
+    """2026-10-20: a task an Engineer handed to the Manager settled as failed a
+    second after its round, before the Manager could answer; its question then
+    had nothing to park. It now parks where a Manager stop leaves work."""
+    from argus.life.memory import park_reason
+
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_HandedToManagerRunner(),
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=1), poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(title="Pick A or B", objective="change truncate"))
+
+    sup.tick()
+
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert park_reason(stored) == "research_open"
+    assert stored.pending_question == ""
+    assert "the choice is not mine" in stored.last_error
+
+
+def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    item = mem.backlog.add(BacklogItem.new(title="选数据集", objective="跑基线"))
+    mem.backlog.update(item.id, status="paused_operator", pending_question="基线用哪个数据集？")
+    sink = _RecordingSink(mem.root)
+    LifeSupervisor(
+        memory=mem,
+        runner=_BlockedQuestionRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=2), poll_interval_seconds=0.01,
+            continuous=True, continuous_objective="完成基准测试",
+        ),
+    ).run()
+
+    statuses = [event.get("text", "") for event in sink.events if event.get("type") == "life.status"]
+    assert "在等你回答：基线用哪个数据集？（不需要这个答复的工作照常进行）" in statuses
 
 
 def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:
@@ -1338,8 +1394,8 @@ def test_a_question_uses_the_durable_answer_path(tmp_path) -> None:
         if entry.kind == "mission_replan_requested" and entry.id == item.id
     ]
 
-    # The question survives a process restart and uses the existing atomic
-    # answer-to-continuation transition.
+    # The question survives a process restart, and the answer resumes the
+    # task it parked.
     reopened = LifeMemory.open(tmp_path / "life")
     blocked = next(row for row in reopened.backlog.all() if row.id == item.id)
     assert blocked.status == "parked"
@@ -1350,16 +1406,15 @@ def test_a_question_uses_the_durable_answer_path(tmp_path) -> None:
     assert reopened.backlog.next_pending() is None
     waiting = next(row for row in reopened.backlog.all() if row.id == dependent.id)
     assert waiting.status == "pending"
-    original, continuation = reopened.backlog.continue_with_operator_reply(
+    resumed, answered = reopened.backlog.resume_with_operator_reply(
         item.id,
         "No. Keep the trusted boundary unchanged.",
         manager_decision="Find a verified implementation without new assumptions.",
     )
-    assert original is not None and original.status == "failed"
-    assert original.pending_question == ""
-    assert continuation is not None and continuation.status == "pending"
-    rewired = next(row for row in reopened.backlog.all() if row.id == dependent.id)
-    assert rewired.deps == [continuation.id]
+    assert answered and resumed.status == "pending"
+    assert resumed.pending_question == ""
+    still = next(row for row in reopened.backlog.all() if row.id == dependent.id)
+    assert still.deps == [item.id]
 
 
 def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:

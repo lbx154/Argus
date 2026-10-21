@@ -341,7 +341,7 @@ describe('shared frontend core', () => {
     }])).toEqual({
       tone: 'warn',
       kind: 'validation',
-      text: 'invalid event agent.io.error: missing required fields: error',
+      text: "Argus skipped a record it couldn't read; your work is not affected.",
     });
   });
 

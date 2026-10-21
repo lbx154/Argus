@@ -26,11 +26,9 @@ def test_legacy_team_waiting_projects_as_planner_idle(tmp_path: Path) -> None:
 
     planner = next(role for role in view["roles"] if role["role"] == "planner")
     assert planner["kind"] == "planner_no_new_work"
-    assert planner["label"] == (
-        "No new work to start until someone hands the Planner something new."
-    )
-    assert view["timeline"][-1]["kind"] == "planner_no_new_work"
-    assert view["timeline"][-1]["title"] == planner["label"]
+    assert planner["label"] == "Nothing new to plan until the current work moves."
+    # Waiting is the Planner's state, not a row of the story.
+    assert all(row["kind"] != "planner_no_new_work" for row in view["timeline"])
 
 
 def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:
@@ -1650,6 +1648,24 @@ def test_round_skipped_because_argus_stopped_is_classified_by_stop_kind(
         "Argus was stopped while this round was running; the work so far is saved."
     )
     assert entry["technical"] == "error=daemon stop requested"
+
+
+@pytest.mark.parametrize("opening", [
+    "You stopped Argus before the Reviewer could finish reading this round",
+    "The Argus background service stopped or restarted in the middle of this round",
+    "The run was interrupted before the Reviewer could finish reading this round",
+])
+def test_a_task_closed_by_an_interrupted_round_is_recognized(tmp_path: Path, opening: str) -> None:
+    reason = f"{opening}; nothing here is a judgment on the work. Technical record: exit=130"
+    view = emit(
+        tmp_path, "life.mission.completed", 1,
+        item_id="task-1", title="Portfolio", success=False, status="failed",
+        failure_reason=reason, stop_reason=reason,
+    )
+    entry = view["timeline"][-1]
+    assert entry["cause"] == "argus_stopped"
+    assert entry["detail"] == "Argus was stopped while this task was running; its progress is saved."
+    assert entry["technical"] == "exit=130"
 
 
 def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Path) -> None:

@@ -166,13 +166,15 @@ class PlanningCycleCompletionMixin:
             operator_context_revision=getattr(self, "_planning_operator_context_revision", 0),
         )
         message = (
-            f"I have tried to close out this project {count} times in a row, "
-            "and each attempt was turned back for the same reason: "
-            f"{reason} "
-            "I am pausing completion attempts so this exchange stops costing "
-            "money. I will try again when the backlog changes or when you "
-            "reply here; if the requirement itself is wrong, say so and I "
-            "will take a different path."
+            f"我已经连续 {count} 次想收尾，每次都因为同一个原因被退回：{reason}\n"
+            "为了不再白花钱，我先不试了。等任务有变化或你回复后再试；"
+            "如果这个要求本身不对，直接告诉我，我换个做法。"
+            if self._operator_chinese()
+            else f"I've tried to wrap this project up {count} times in a row, "
+            f"and each time it was turned back for the same reason: {reason}\n"
+            "I'm pausing those attempts so they stop costing money. I'll try "
+            "again when the work changes or you reply here; if the requirement "
+            "itself is wrong, tell me and I'll take a different path."
         )
         try:
             from ...core.operator_messages import publish_operator_message
@@ -314,6 +316,11 @@ class PlanningCycleCompletionMixin:
                 "Do not reuse old titles, page counts, or numerical results as final."
             ),
             "current_artifact_evidence": evidence,
+            # Who accepted the final work and what they verified, in their words.
+            "final_delivery_review": {
+                key: (terminal_delivery or {}).get(key, "")
+                for key in ("review_source", "review_status", "summary")
+            },
             # Decisions settled without an operator: the report must name them.
             "autonomous_assumptions": [
                 {key: row.get(key) for key in ("conflict", "reading", "source")}
@@ -336,6 +343,7 @@ class PlanningCycleCompletionMixin:
 
     def _manager_publish_project_report(
         self, completion_reason: str, *, certified_increment: bool = False,
+        delivery: dict[str, Any] | None = None,
     ) -> str:
         """Have Manager summarize the completed full stage ledger to the operator.
 
@@ -420,6 +428,9 @@ class PlanningCycleCompletionMixin:
                 event_fields={
                     "manager_project_report": True,
                     "current_stage": stage,
+                    # The project's delivery card rides on its one completion message.
+                    **({"delivery": delivery, "delivery_id": str(delivery.get("delivery_id") or "")}
+                       if isinstance(delivery, dict) else {}),
                 },
             )
             if not published and not any(
@@ -465,7 +476,7 @@ class PlanningCycleCompletionMixin:
                 "type": EventType.OPERATOR_ALERT,
                 "operator_alert": True,
                 "reason": "project_report_failed",
-                "text": f"The project is complete, but its completion report failed ({error}); Argus keeps retrying with backoff.",
+                **self._operator_words("project_report_pending"),
             })
         self._enter_idle_backoff()
         return PLAN_ERROR
@@ -759,12 +770,11 @@ class PlanningCycleCompletionMixin:
             # supervisor guard for injected/fake/custom planners. Stay alive and
             # ask again after backoff instead of recording project_done and then
             # idling until the daemon exits.
-            sleep_s = self._enter_pause_backoff()
+            self._enter_pause_backoff()
             self._emit({
                 "type": "life.planner.continuation_required",
                 "cycle": self._planning_cycles,
                 "reason": verdict.reason,
-                "suggested_sleep_s": sleep_s,
             })
             self._emit_status(
                 "planner completed one increment, but the standing objective "

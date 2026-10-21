@@ -335,10 +335,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     addTimeline(view, event, 'planner', label, S(event, 'reason'), projectDone ? 'success' : 'neutral');
     addRoleWork(view, event, 'planner', 'verdict', label, S(event, 'reason'), projectDone ? 'done' : 'planned');
   } else if (type === EVENT_TYPES.LIFE_PLANNER_IDLE) {
-    setRole(view, 'planner', 'waiting', 'No new work to start', ts);
-    const detail = S(event, 'reason');
-    addTimeline(view, event, 'planner', 'Planner: nothing new to start', detail);
-    addRoleWork(view, event, 'planner', 'waiting', 'Planner: nothing new to start', detail, 'waiting');
+    // A pass that starts nothing changes the Planner's state, not the story.
+    setRole(view, 'planner', 'waiting', 'Nothing new to plan until the current work moves.', ts);
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
     view.review = { status: '', reason: '', rejected_attempts: 0 };
     view.delivery = null;

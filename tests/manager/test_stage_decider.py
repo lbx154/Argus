@@ -550,3 +550,4 @@ def test_final_stage_completion_requires_manager_decision(
     assert json.loads(state_path.read_text())["stages"]["delivery"]["status"] == (
         expected_status
     )
+

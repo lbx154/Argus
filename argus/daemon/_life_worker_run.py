@@ -790,21 +790,22 @@ class LifeWorkerRunMixin:
         from ..core.operator_messages import publish_operator_message, uses_cjk
 
         supervisor = rf_state.sup
+        # Which calls they were is the developer's record, not the operator's.
         kinds = ", ".join(sorted({re.sub(r"\d+", "N", label) for label in labels}))[:300]
         if uses_cjk(str(getattr(supervisor.config, "continuous_objective", "") or "")):
             text = (
-                f"Argus 连续发起了 {BACKGROUND_CALL_BUDGET} 次后台模型调用（{kinds}），"
-                "期间没有任何进展：没有新任务、没有完成的工作，也没有你的新消息。"
-                "为了不再空耗费用，Argus 已暂停后台调用，正在执行的任务不受影响。"
-                "一旦有新进展，或你在这里回复，后台调用就会恢复。"
+                f"后台连着调用了 {BACKGROUND_CALL_BUDGET} 次模型，一直没有进展："
+                "没有新任务、没有做完的工作，你也没发新消息。为了不再白花钱，"
+                "我先停了这些后台调用，正在做的任务不受影响。"
+                "一有新进展，或者你在这里回一句，就会恢复。"
             )
         else:
             text = (
-                f"Argus made {BACKGROUND_CALL_BUDGET} background model calls in a row "
-                f"({kinds}) without any progress: no new task, no finished work, and no "
-                "message from you. It has stopped background calls so they stop costing "
-                "money; running tasks are not affected. Background calls resume as soon "
-                "as something changes or you reply here."
+                f"The background made {BACKGROUND_CALL_BUDGET} model calls in a row "
+                "without any progress: no new task, no finished work, and no message "
+                "from you. I've stopped those background calls so they stop costing "
+                "money; running tasks are not affected. They resume as soon as "
+                "something changes or you reply here."
             )
         publish_operator_message(
             supervisor._manager_project_report_root(),
@@ -814,7 +815,7 @@ class LifeWorkerRunMixin:
         )
         supervisor._emit_status(
             f"background model calls paused after {BACKGROUND_CALL_BUDGET} calls "
-            "without progress"
+            f"without progress ({kinds})"
         )
 
     def _rf_shutdown(self, rf_state: _RunForeverState) -> int:

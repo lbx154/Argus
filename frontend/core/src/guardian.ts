@@ -32,37 +32,41 @@ const BUDGET_RESOLVING_TYPES = new Set<string>([
   EVENT_TYPES.PROVIDER_REQUEST_STARTED,
 ]);
 
-function alertOf(event: EventMsg): GuardianAlert | null {
+function alertOf(event: EventMsg, zh: boolean): GuardianAlert | null {
   const type = canonicalEventType(event.canonical_type ?? event.type);
+  const say = (en: string, chinese: string) => (zh ? chinese : en);
   if (event.event_validation?.status === 'invalid') {
     if (type === EVENT_TYPES.ROLE_SESSION_TURN) return null;
+    // The record names the malformed event; the banner says what it means.
     return {
       tone: 'warn',
       kind: 'validation',
-      text: `invalid event ${type || 'unknown'}: ${event.event_validation.errors.join('; ')}`,
+      text: say("Argus skipped a record it couldn't read; your work is not affected.", 'Argus 跳过了一条读不懂的记录，不影响你的工作。'),
     };
   }
   if (BUDGET_ALARM_TYPES.has(type)) {
-    const reason = String(event.reason ?? event.text ?? type).trim();
+    const reason = String(event.reason ?? event.text ?? '').trim();
     return {
       tone: 'block',
       kind: 'budget',
-      text: `Budget exhausted or blocked — ${reason}`,
+      text: reason.startsWith('unresolved provider cost')
+        ? say('Provider charges are still being reconciled; new model calls wait until then.', '模型费用还在对账，新的模型调用先等一等。')
+        : say('The budget is used up, so new model calls are on hold; raise the budget to continue.', '预算用完了，新的模型调用先停下；提高预算后会继续。'),
     };
   }
   const tone = event.operator_alert === true ? 'block' : ALERT_TYPES[type];
   if (!tone) return null;
   return {
     tone,
-    text: String(event.text ?? event.reason ?? type).trim(),
+    text: String(event.text ?? event.reason ?? '').trim() || say('Something needs your attention.', '有件事需要你看一下。'),
   };
 }
 
-export function activeGuardianAlert(events: EventMsg[]): GuardianAlert | null {
+export function activeGuardianAlert(events: EventMsg[], locale: 'en' | 'zh-CN' = 'en'): GuardianAlert | null {
   let alert: GuardianAlert | null = null;
   for (const event of events) {
     const type = canonicalEventType(event.canonical_type ?? event.type);
-    const next = alertOf(event);
+    const next = alertOf(event, locale === 'zh-CN');
     if (next) alert = next;
     else if (alert?.kind === 'validation') alert = null;
     else if (

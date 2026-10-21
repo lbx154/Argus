@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG
+from ..core.operator_messages import brief_title
 from . import front_door
 
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
@@ -295,6 +296,13 @@ def enqueue_mission(
             execution_body if direct or contextual_body else body
         )
         compact = " ".join(title_body.split()).replace("`", "")
+        # The Manager's short topic names the task wherever it is mentioned;
+        # without one, the request's opening clause does, never the whole text.
+        named = front_door._derive_session_name(
+            str(getattr(prepared_handoff.decision, "session_title", "") or ""), limit=32,
+        )
+        if named.casefold() in {"none", "keep", "null"} or named.isdecimal():
+            named = ""
         manager_decision = decision_evidence(division) or {"routed": True}
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
@@ -319,7 +327,7 @@ def enqueue_mission(
         )
         item = BacklogItem.new(
             item_id=root_task_id,
-            title=compact if len(compact) <= 96 else compact[:93] + "...",
+            title=brief_title(display_title or named or compact),
             objective=execution_body,
             priority=min(head_priority - 1, -1),
             tags=["manager", "scope:bounded", "review:required", *kind_tags],
@@ -334,6 +342,22 @@ def enqueue_mission(
             original_objective=execution_body,
             manager_decision=manager_decision,
         )
+        question = str(getattr(prepared_handoff.decision, "operator_question", "") or "")
+        if question:
+            # Only the operator can decide before this work starts: it waits on
+            # their answer, which continues it like any parked question.
+            from ..core.operator_decision import build_operator_decision
+            from ..life.memory import park_item
+
+            item.pending_question = question
+            item.operator_decision = build_operator_decision(
+                item_id=item.id,
+                title=item.title,
+                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
+                question=question,
+                project_id=life_dir.name,
+            )
+            park_item(item, "operator_question")
         try:
             mem.backlog.add(item)
         except OSError as exc:
@@ -357,7 +381,16 @@ def enqueue_mission(
             }
             if not direct:
                 event["operator_priority"] = True
-            JsonlEventSink(None, life_dir=life_dir).append(event)
+            sink = JsonlEventSink(None, life_dir=life_dir)
+            sink.append(event)
+            if question:
+                sink.append({
+                    "type": "life.operator_question.pending",
+                    "item_id": item.id,
+                    "title": item.title,
+                    "question": question,
+                    "agent_layer": "manager",
+                })
         except Exception:  # noqa: BLE001 - backlog persistence is authoritative
             pass
         return item

@@ -297,7 +297,7 @@ def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
     assert rule.endswith("the Manager decides it.")
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     rule = engineer_operator_handoff_rule()
-    assert rule.endswith("that parks the task.")
+    assert rule.endswith("that parks the task until they answer.")
 
 
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
@@ -307,8 +307,9 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
         tmp_path, item_id="x", conflict="Two release rules conflict.", source="mission_challenge"
     )
     text = render_autonomous_assumptions(tmp_path)
-    assert text.startswith("Decided without asking the operator")
+    assert text.startswith("Decided without asking you")
     assert "Two release rules conflict." in text
+    assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
 
 
 # --- --no-operator lasts one run ---------------------------------------------
@@ -399,7 +400,7 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         _json.loads(line)["text"]
         for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert any("assumed: Hello goes to stdout" in text for text in texts)
+    assert any("I went with: Hello goes to stdout" in text for text in texts)
 
 
 def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:

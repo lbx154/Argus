@@ -36,8 +36,6 @@ _BACKGROUND_RUN_LABELS = (
     "observer",
     "map-summary",
     "reflection",
-    "answer-learning",
-    "self-learning-review",
     "team-learning-review",
 )
 

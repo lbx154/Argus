@@ -205,14 +205,23 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
   const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
     // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
     'life.manager.intent.started': { text: 'Working out how to handle your request…' },
-    'life.manager.intent.failed': { text: 'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: VerticalDecisionError: routing failed' },
     'life.phase.started': { text: 'entering implementation' },
+    // The shared renderer says what went wrong in words; the raw error stays in the record.
+    'life.manager.intent.failed': { text: "couldn't work out how to handle this request (the model service did not answer), so nothing was started" },
     // The shared renderer explains the selected plan and its recorded rationale.
     'life.manager.intent.completed': {
-      text: 'The team plans to work in stages\nFinish once this objective is met. the current operation needs attention',
+      text: 'Handing this to the team, in stages.\nDone once this goal is met. the current operation needs attention',
     },
-    // The old renderer leaves a trailing space when this schema has no objective field.
-    'life.planner.start': { text: 'planning' },
+    // The goal is the operator's own words; the shared renderer does not say it back.
+    'life.planner.start': { text: 'working out the next step' },
+    'life.manager.stage_decision': { text: 'moved on to the review stage' },
+    'loop.done': { text: 'the run finished' },
+    // Bookkeeping retried or repaired on its own is not news to the operator.
+    'round.orphan_process_group': { visibility: 'hidden' },
+    'life.planner.verdict': { visibility: 'hidden' },
+    'life.planner.completion_circuit_opened': { visibility: 'hidden' },
+    // Only a Planner error that carries words for the operator is shown, as a warning.
+    'life.planner.error': { visibility: 'alert', tone: 'warn', text: 'Renderer event detail' },
   };
 
   for (const fixture of EVENT_CORPUS.fixtures) {
@@ -253,7 +262,7 @@ test('render-events streams semantic-core corpus events as one plain line per ND
 
   assert.equal(
     rendered,
-    '🧭 [Manager] 正在安排处理方式…\n'
+    '🧭 [经理] 正在安排处理方式…\n'
     + '• [Argus] [future.event] kept for grep\n'
     + '⛔ [监控] 卡住了 — 需要你来处理 · Renderer event detail\n',
   );
