@@ -189,7 +189,7 @@ export function ArtifactList({
   empty?: string;
 }) {
   const { text } = useWorkbenchText();
-  if (!artifacts.length) return <EmptyState icon={FileText} title={empty || text('暂无已注册产物', 'No registered artifacts yet')} description={text('Argus 注册或 Reviewer 认证产物后会自动出现在这里。', 'Artifacts appear here after Argus registers them or the Reviewer approves them.')} />;
+  if (!artifacts.length) return <EmptyState icon={FileText} title={empty || text('还没有成果文件', 'No results yet')} description={text('有了成果文件或审阅者认可的结果，会自动出现在这里。', 'Artifacts appear here after Argus registers them or the Reviewer approves them.')} />;
   return (
     <div className="artifact-list">
       {artifacts.map((item) => {

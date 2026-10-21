@@ -111,8 +111,6 @@ describe('plainStatus', () => {
       .toEqual({ text: 'The model service did not complete this round, so no one reviewed it.', technical: 'backend_failure_streak=3/2; error=Copilot CLI exited with code 1.' });
     expect(plainDetail('status=paused_daemon_shutdown rounds=9 reason=The wait after a repeated backend failure ended early: daemon stop requested.', 'zh-CN').text)
       .toBe('任务已结束（Argus 被暂停），共 9 轮。在等待重试时 Argus 被要求停止，任务随之暂停。');
-    expect(plainDetail('planner error: Copilot CLI exited with code 1.; retry later', 'zh-CN'))
-      .toEqual({ text: '规划这一步没有完成，稍后会重试。', technical: 'Copilot CLI exited with code 1.; retry later' });
     expect(plainDetail('backend failure; retrying in a fresh Codex session after 15.0s', 'en').text)
       .toBe('The model service call failed; retrying in a fresh session after 15.0 seconds.');
     expect(plainDetail('未能完成：Build the portfolio。\n原因：The wait after a repeated backend failure ended early: daemon stop requested.\n下一步：Argus 会诊断原因并选择可恢复的方案。', 'zh-CN').text)

@@ -394,24 +394,25 @@ export default function App() {
       (result) => {
         if (result.error || !result.rewritten.trim()) {
           if (finishRewrite(operation) && sidRef.current === sid) {
-            notify('error', `Rewrite failed: ${result.error || 'empty rewrite'} — your prompt is unchanged`);
+            notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
           }
           return;
         }
         if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
         setComposerFocus((x) => x + 1);
+        const zh = locale === 'zh-CN';
         const open = result.questions.length
-          ? ` Manager asks: ${result.questions.join(' · ')}`
+          ? `${zh ? ' 还想跟你确认：' : ' One thing to check: '}${result.questions.join(' · ')}`
           : '';
-        notify('success', `Prompt rewritten — review it, then send.${open}`);
+        notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
       },
       (error) => {
         if (finishRewrite(operation) && sidRef.current === sid) {
-          notify('error', `Rewrite failed: ${errorText(error)} — your prompt is unchanged`);
+          notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
         }
       },
     );
-  }, [beginRewrite, finishRewrite, notify, sidRef]);
+  }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
 
   const { createDaemon, creatingDaemon } = useCreateDaemonSession({
@@ -448,8 +449,8 @@ export default function App() {
     try {
       const result = await api.confirmLaunch(loadedSid);
       const daemon = result.daemon;
-      if (daemon?.admission_required) notify('error', locale === 'zh-CN' ? '已确认，但执行槽位都在忙，空出后会开始。' : 'Confirmed, but all executor slots are busy; it starts when one frees up.');
-      else if (daemon && Number(daemon.rc ?? 0) !== 0) notify('error', locale === 'zh-CN' ? `后台执行者没能启动：${daemon.error || '未知原因'}` : `The background worker could not start: ${daemon.error || 'unknown error'}`);
+      if (daemon?.admission_required) notify('error', locale === 'zh-CN' ? '已确认。现在同时在做的事已满，空出来就开始。' : 'Confirmed. Everything that can run at once is busy; this starts as soon as a slot frees up.');
+      else if (daemon && Number(daemon.rc ?? 0) !== 0) notify('error', locale === 'zh-CN' ? '已确认，但没能开始工作；可以在“启动详情”里看原因，或稍后再试。' : "Confirmed, but the work couldn't start; see the startup details for why, or try again later.");
     } catch (error) {
       notify('error', errorText(error));
     } finally {
@@ -496,7 +497,7 @@ export default function App() {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [loadedSid, queryClient, snapshotRefreshKey]);
-  const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
+  const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
     loadedSid, true, events, localConversationEvents, localConversationSid.current,
   );
@@ -955,10 +956,10 @@ export default function App() {
       if (daemon?.admission_required) {
         notify(
           'error',
-          reply || `Task queued, but all daemon slots are busy: ${String(daemon.error || 'operator action required')}`,
+          reply || (locale === 'zh-CN' ? '记下了。现在同时在做的事已满，空出来就开始。' : 'Got it. Everything that can run at once is busy; this starts as soon as a slot frees up.'),
         );
       } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
-        notify('error', reply || `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
+        notify('error', reply || (locale === 'zh-CN' ? '记下了，但没能开始工作；可以在“启动详情”里看原因，或稍后再试。' : "Saved, but the work couldn't start; see the startup details for why, or try again later."));
       } else if (reply && !observe) {
         notify('success', reply);
       }

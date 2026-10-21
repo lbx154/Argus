@@ -567,12 +567,12 @@ describe("where the task stands", () => {
       { id: "e2", item_id: "m", type: "round.start", ts: 50, text: "", round_index: 2 },
     ];
     const steps = buildSubmap(parent, rounds, true);
-    expect(taskConclusion(steps, true)).toBe("当前结论：复核要求再改一轮；第 2 轮进行中");
+    expect(taskConclusion(steps, true)).toBe("当前结论：审阅要求再改一轮；第 2 轮进行中");
     expect(taskConclusion(buildSubmap(parent, rounds, false), false))
       .toBe("So far: the review asked for another pass; round 2 under way");
     expect(taskConclusion(buildSubmap(parent, rounds.slice(0, 1), true), true)).toBe("");
     // A task that is not running has no round "under way", whatever its last step says.
-    expect(taskConclusion(steps, true, false)).toBe("当前结论：复核要求再改一轮");
+    expect(taskConclusion(steps, true, false)).toBe("当前结论：审阅要求再改一轮");
     // Every part of a long task carries the line.
     const scene = layoutScene(buildMap([parent]), rounds, true);
     expect(new Set(scene.cards.map((card) => card.conclusion))).toEqual(new Set([taskConclusion(steps, true)]));

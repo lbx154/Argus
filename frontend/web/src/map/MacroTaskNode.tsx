@@ -435,7 +435,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             {cardNotes.length > 0 && (
               <span
                 className="macro-note-badge"
-                title={zh ? "操作员批注" : "Operator notes"}
+                title={zh ? "你的批注" : "Your notes"}
               >
                 {cardNotes.length}
               </span>
@@ -572,7 +572,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           ))}
         </div>
         {cardNotes.length > 0 && (
-          <aside className="macro-notes" aria-label={zh ? "操作员批注" : "Operator notes"}>
+          <aside className="macro-notes" aria-label={zh ? "你的批注" : "Your notes"}>
             <small>{zh ? "批注" : "Notes"}</small>
             {cardNotes.map((note) => (
               <p key={note.id}>{note.text}</p>

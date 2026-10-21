@@ -682,10 +682,10 @@ export function taskConclusion(steps: SubmapStep[], zh: boolean, active = true):
   const review = [...steps].reverse().find((step) => step.kind === "review"
     && ["done", "continue", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
   if (review) {
-    parts.push(review.status === "done" ? zh ? "复核通过" : "review passed"
-      : review.status === "continue" ? zh ? "复核要求再改一轮" : "the review asked for another pass"
-      : review.status === "failed" ? zh ? "复核未通过" : "review not passed"
-      : zh ? "复核建议调整方向" : "the review asked for a change of course");
+    parts.push(review.status === "done" ? zh ? "审阅通过" : "review passed"
+      : review.status === "continue" ? zh ? "审阅要求再改一轮" : "the review asked for another pass"
+      : review.status === "failed" ? zh ? "审阅没通过" : "review not passed"
+      : zh ? "审阅建议换个方向" : "the review asked for a change of course");
   }
   const round = active ? [...steps].reverse().find((step) => step.kind === "execution"
     && step.round != null && step.status === "started") : undefined;

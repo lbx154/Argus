@@ -153,21 +153,21 @@ describe('the web feed line', () => {
       execution_task: 'Fix the stale goal after Stop.',
       reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
     };
-    expect(line(event)?.text).toBe('The team plans to work in stages: Fix the stale goal after Stop.\n'
-      + 'Finish once this objective is met. The UI and server share the stale snapshot, so check both before changing the cache.');
-    expect(zh(event)?.text).toContain('计划由团队分阶段推进');
-    expect(zh(event)?.text).toContain('完成这次目标后结束。');
+    expect(line(event)?.text).toBe('Handing this to the team, in stages.\n'
+      + 'Done once this goal is met. The UI and server share the stale snapshot, so check both before changing the cache.');
+    expect(zh(event)?.text).toContain('交给团队，分几个阶段做。');
+    expect(zh(event)?.text).toContain('做完这次的目标就结束。');
     expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
   });
 
-  it('uses the public execution task and omits a legacy routing headline', () => {
+  it('does not say the request back and omits a legacy routing headline', () => {
     const event = {
       type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct',
       lifetime: 'standing', continuous: true, open_ended: true,
       objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
       reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
     };
-    expect(zh(event)?.text).toBe('计划由团队直接处理：只比较相同批量下的两组延迟。\n持续跟进后续工作。');
+    expect(zh(event)?.text).toBe('交给团队直接做。\n之后会持续跟进。');
     expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
   });
 
@@ -178,17 +178,17 @@ describe('the web feed line', () => {
     for (const event of [started, completed, { ...completed, execution_task: 'Compare the two runs.' }]) {
       expect(line(event)?.text).not.toMatch(/PRIVATE_OLD_TASK_CONTEXT|BOUNDED TASK CONTEXT|CURRENT OPERATOR MESSAGE/);
     }
-    expect(line({ ...completed, execution_task: 'Compare the two runs.' })?.text).toContain('Compare the two runs.');
+    expect(line({ ...completed, execution_task: 'Compare the two runs.' })?.text).not.toContain('Compare the two runs.');
     expect(completed.objective).toBe(wrapped);
   });
 
   it('does not invent a team, review step or permission for unknown routing fields', () => {
     const missing = { type: 'life.manager.intent.completed', reason: 'Waiting for the operator to choose a dataset.' };
-    expect(line(missing)?.text).toBe('A plan is ready\nWaiting for the operator to choose a dataset.');
+    expect(line(missing)?.text).toBe('The approach is set.\nWaiting for the operator to choose a dataset.');
     expect(line({ ...missing, workflow_mode: 'constructor', lifetime: 'new-mode' })?.text).toBe(line(missing)?.text);
-    expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('计划由 Manager 直接处理');
-    expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('one defined increment');
-    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toContain('范围限于本次目标。');
+    expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('我直接来处理。');
+    expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('One piece first');
+    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toContain('只做这次的目标。');
     expect(zh({ ...missing, lifetime: 'standing', open_ended: false })?.text).not.toContain('持续跟进');
     expect(line({ ...missing, reason: '[source: latency.csv] Both runs must use the same batch size.' })?.text)
       .toContain('[source: latency.csv] Both runs must use the same batch size.');
@@ -279,7 +279,7 @@ describe('the web feed line', () => {
     expect(activeGuardianAlert([event as EventMsg])).toEqual({
       tone: 'block',
       kind: 'budget',
-      text: 'Budget exhausted or blocked — daily budget exhausted ($0.000000 available)',
+      text: 'The budget is used up, so new model calls are on hold; raise the budget to continue.',
     });
     expect(activeGuardianAlert([
       event as EventMsg,

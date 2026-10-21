@@ -8,7 +8,7 @@ describe('historical task-report presentation', () => {
     expect(report.text).toContain(`当时记录：工作继续推进。\n任务：${CONTINUED_TASK_TITLE}`);
     expect(report.text).toContain('当时记录的审阅状态：已完成');
     expect(report.text).toContain('当时尚未排入下一项任务');
-    expect(report.text).not.toMatch(/Task continued|review=|Nothing is queued|独立|复核通过|研究已完成/);
+    expect(report.text).not.toMatch(/Task continued|review=|Nothing is queued|独立|复核通过|审阅通过|研究已完成/);
     expect(report.technical).toBe('');
   });
 

@@ -113,7 +113,7 @@ export function LaunchHoldCard({
           <dt className="font-medium text-ink">{zh ? `计划${plan.length ? `（${plan.length} 项）` : ''}` : `Plan${plan.length ? ` (${plan.length})` : ''}`}</dt>
           <dd>{plan.length
             ? <ol className="list-decimal pl-4">{plan.map((title, index) => <li key={`${index}:${title}`}>{title}</li>)}</ol>
-            : (zh ? '开始后由 Planner 拆分第一阶段的具体任务。' : 'The Planner splits the first stage into tasks once it starts.')}</dd>
+            : (zh ? '开始后由规划者把第一阶段拆成具体任务。' : 'The Planner splits the first stage into tasks once it starts.')}</dd>
         </div>
         {settings ? <div><dt className="font-medium text-ink">{zh ? '开工设置' : 'Launch settings'}</dt><dd>{settings}</dd></div> : null}
       </dl>
