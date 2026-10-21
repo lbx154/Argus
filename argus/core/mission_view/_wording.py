@@ -430,6 +430,58 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
         "也可以让我放下它。",
     ),
+    # Replies in the conversation with the operator.
+    "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
+    "understanding_request": ("Understanding your request…", "正在理解你的请求…"),
+    "steer_unclear": (
+        "It sounds like you want to change direction, but I couldn't tell how, "
+        "so nothing has changed yet. Could you say a bit more?",
+        "听起来你想调整当前任务的方向，但我没听出具体要怎么改，所以先没动。能再说具体一点吗？",
+    ),
+    "steer_taken": ("Got it, carrying on in that direction.", "好，接下来按你说的方向做。"),
+    "steer_taken_ongoing": (
+        "Got it, carrying on in that direction. This is now ongoing work; "
+        "after this round I'll plan the next piece.",
+        "好，接下来按你说的方向做。这件事改成长期做下去，这一轮做完会接着安排下一项。",
+    ),
+    "steer_taken_not_ongoing": (
+        "Got it, carrying on in that direction. The direction is noted, but I "
+        "couldn't make this ongoing work; the current setup stays as it is.",
+        "好，接下来按你说的方向做。方向记下了，但没能改成长期任务，原来的安排不变。",
+    ),
+    "paused": (
+        "Paused. Everything so far is saved; I'll pick it up when you say continue.",
+        "已暂停。做到的部分都保存了，你说继续我再接着做。",
+    ),
+    "paused_stopping": (
+        "Paused; stopping what was running. Everything so far is saved; "
+        "I'll pick it up when you say continue.",
+        "已暂停，正在停下手上的事。做到的部分都保存了，你说继续我再接着做。",
+    ),
+    # Replies to the operator's answer to a question.
+    "answer_taken": ("Got it, carrying on with your choice.", "收到，按你定的继续做。"),
+    "answer_already_taken": ("I already have this decision.", "这个决定之前已经收到了。"),
+    "answer_not_applied": (
+        "That answer couldn't be applied: the question may already be answered or gone.",
+        "这个回答没能用上：问题可能已经答过，或者已经不在了。",
+    ),
+    "answered_for_operator": (
+        "You weren't available, so I chose for you: {choice}",
+        "这个问题你暂时没空回答，我先替你选了：{choice}",
+    ),
+    "answer_stopped": ("Stopped. The work done so far is kept.", "已停下，做到的部分都保留着。"),
+    "answer_dropped": (
+        "Dropped this task; the rest of the work carries on.",
+        "已放下这项任务，其余工作照常。",
+    ),
+    "answer_dropped_while_stopped": (
+        "Dropped this task. Everything else stays stopped until you resume it.",
+        "已放下这项任务。在你恢复之前，其余工作先停着。",
+    ),
+    "campaign_stays_stopped": (
+        "Everything else stays stopped until you resume it.",
+        "在你恢复之前，其余工作先停着。",
+    ),
     # Judgments on a round.
     "self_check_accepted": (
         "The Engineer's own check of the result was accepted.",

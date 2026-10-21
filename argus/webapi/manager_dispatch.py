@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.mission_view import say, uses_cjk
 from ..daemon.runtime_status import STATUS_MODES
 from ..manager.self_context import self_skill_context_available as _self_skill_context_available
 from .manager_pending_question import (
@@ -566,7 +567,6 @@ def _handle_pending_question_turn(
     reach their handlers; nothing is promoted to an answer without a positive
     classification, and the open questions stay exactly as they were.
     """
-    from ..core.mission_view import uses_cjk
     from ..life.memory import BacklogItem
 
     if len(pending_questions) == 1:
@@ -598,12 +598,7 @@ def _handle_pending_question_turn(
             )
             return None
         if result.get("answer_intent") is not False:
-            reply = str(result.get("reply") or "").strip() or (
-                "这个回答没能用上：问题可能已经答过，或者已经不在了。"
-                if uses_cjk(body)
-                else "That answer couldn't be applied: the question may already be "
-                "answered or gone."
-            )
+            reply = str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(body))
             return emitter.respond(reply, {"kind": "pending_question", **result})
         return None
     if len(pending_questions) > 1:
@@ -664,7 +659,6 @@ def _classify_operator_turn(
     it is planned and independently reviewed; a greeting, conversation, a
     status question, a control or a setting stays where it was.
     """
-    from ..core.mission_view import uses_cjk
     from ..life.memory import BacklogItem
     from ..manager.config_intent import _front_door_classify
     from ..manager.front_door import _accepts_parameter
@@ -675,18 +669,10 @@ def _classify_operator_turn(
     # produce no events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
 
-    if forced_route == "simple":
-        emitter.phase(
-            "正在想怎么回复…"
-            if uses_cjk(body)
-            else "Working out a reply…"
-        )
-    else:
-        emitter.phase(
-            "正在理解你的请求…"
-            if uses_cjk(body)
-            else "Understanding your request…"
-        )
+    emitter.phase(say(
+        "working_out_reply" if forced_route == "simple" else "understanding_request",
+        uses_cjk(body),
+    ))
 
     # Persistent Manager session: the codex/copilot thread is resumed via
     # last_thread_id each turn, and the backend compacts its own context.
@@ -970,7 +956,6 @@ def _handle_steer_control(
 ) -> dict[str, Any]:
     """Persist steering and also wake the currently running mission."""
     from ..apps._inbox import queue_inbox_message
-    from ..core.mission_view import uses_cjk
     from ..manager.directive import (
         active_manager_directive_message,
         set_active_manager_directive,
@@ -980,14 +965,8 @@ def _handle_steer_control(
         chat_state.pop("_frontdoor_steering_directive", "") or ""
     ).strip()
     if not manager_directive:
-        reply = (
-            "听起来你想调整当前任务的方向，但我没听出具体要怎么改，所以先没动。能再说具体一点吗？"
-            if uses_cjk(body)
-            else "It sounds like you want to change direction, but I couldn't tell how, "
-            "so nothing has changed yet. Could you say a bit more?"
-        )
         return emitter.respond(
-            reply,
+            say("steer_unclear", uses_cjk(body)),
             {"kind": "chat", "control": "steer_unresolved"},
             message_id="steer",
         )
@@ -1051,25 +1030,13 @@ def _handle_steer_control(
         )
     # The directive is the Manager's instruction to the team; the operator
     # hears that their direction was taken, not the instruction itself.
-    chinese = uses_cjk(body or manager_directive)
-    reply = "好，接下来按你说的方向做。" if chinese else "Got it, carrying on in that direction."
-    if lifetime == "standing":
-        reply += (
-            (
-                "这件事改成长期做下去，这一轮做完会接着安排下一项。"
-                if chinese
-                else " This is now ongoing work; after this round I'll plan the next piece."
-            )
-            if promoted_to_standing
-            else (
-                "方向记下了，但没能改成长期任务，原来的安排不变。"
-                if chinese
-                else " The direction is noted, but I couldn't make this ongoing work; "
-                "the current setup stays as it is."
-            )
-        )
     return emitter.respond(
-        reply,
+        say(
+            "steer_taken" if lifetime != "standing"
+            else "steer_taken_ongoing" if promoted_to_standing
+            else "steer_taken_not_ongoing",
+            uses_cjk(body or manager_directive),
+        ),
         {
             "kind": "control",
             "control": "steer",
@@ -1117,8 +1084,6 @@ def _handle_pause_control(
     daemon_stop_requested, daemon_pid = request_daemon_stop(life_dir)
     daemon_stop_failed = daemon_pid is not None and not daemon_stop_requested
 
-    from ..core.mission_view import uses_cjk
-
     chinese = uses_cjk(body)
     if not pause_persisted:
         reply = (
@@ -1137,14 +1102,7 @@ def _handle_pause_control(
             "worker did not stop. Check its status before resuming."
         )
     else:
-        stopping = abort_requested or daemon_stop_requested
-        reply = (
-            ("已暂停，正在停下手上的事。" if stopping else "已暂停。")
-            + "做到的部分都保存了，你说继续我再接着做。"
-            if chinese
-            else ("Paused; stopping what was running. " if stopping else "Paused. ")
-            + "Everything so far is saved; I'll pick it up when you say continue."
-        )
+        reply = say("paused_stopping" if abort_requested or daemon_stop_requested else "paused", chinese)
 
     return emitter.respond(
         reply,
@@ -1177,8 +1135,6 @@ def _handle_abort_control(
         reason=f"operator requested: {body}",
         requested_by="manager",
     )
-    from ..core.mission_view import uses_cjk
-
     chinese = uses_cjk(body)
     if requested:
         reply = "我已要求当前任务停止。" if chinese else "I asked the current task to stop."
@@ -1395,7 +1351,6 @@ def _dispatch_team_mission(
     """Resume a done lifecycle and run the operator's TEAM mission in a
     Planner-run campaign. Raises on failure — the caller catches it and turns
     it into a structured ``{"kind": "error"}`` reply."""
-    from ..core.mission_view import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
         resume_done_lifecycle_for_team_dispatch,
