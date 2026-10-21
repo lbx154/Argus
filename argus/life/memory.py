@@ -808,6 +808,33 @@ def objective_started_at(state_root: Path | str, objective: str) -> float | None
     return float(ts) if isinstance(ts, (int, float)) else None
 
 
+def operator_answers(backlog: Backlog, objective: str) -> list[str]:
+    """Answers on question cards since ``objective`` began, oldest first, as ``question → answer (who)``.
+
+    An objective is written before the questions it raises, so a role that
+    judges against the objective reads these beside it: an answer is the
+    later word wherever the two conflict. With no record of when the
+    objective began, the live backlog's own cards bound them.
+    """
+    since = objective_started_at(backlog.path.parent, objective)
+    cards = sorted(
+        (
+            card for row in (backlog.history() if since is not None else backlog.active())
+            if (card := row.operator_decision).get("status") == "resolved"
+            and float(card.get("asked_at") or 0) >= (since or 0.0)
+        ),
+        key=lambda card: float(card.get("asked_at") or 0),
+    )
+    answers = []
+    for card in cards:
+        question = " ".join(str(card.get("question") or "").split())[:300]
+        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())[:500]
+        if question and answer:
+            who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
+            answers.append(f"{question} → {answer} ({who})")
+    return answers
+
+
 def manager_direct_in_hand(item: Any) -> bool:
     """Whether a task the Manager handed straight to an Engineer is still in hand.
 
