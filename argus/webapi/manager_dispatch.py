@@ -598,10 +598,11 @@ def _handle_pending_question_turn(
             )
             return None
         if result.get("answer_intent") is not False:
-            reply = str(
-                result.get("reply")
-                or result.get("error")
-                or "Manager could not resolve the pending question."
+            reply = str(result.get("reply") or "").strip() or (
+                "这个回答没能用上：问题可能已经答过，或者已经不在了。"
+                if uses_cjk(body)
+                else "That answer couldn't be applied: the question may already be "
+                "answered or gone."
             )
             return emitter.respond(reply, {"kind": "pending_question", **result})
         return None
@@ -676,9 +677,9 @@ def _classify_operator_turn(
 
     if forced_route == "simple":
         emitter.phase(
-            "对话模式：Manager 正在准备回复…"
+            "正在想怎么回复…"
             if uses_cjk(body)
-            else "Chat mode: preparing the Manager reply…"
+            else "Working out a reply…"
         )
     else:
         emitter.phase(
@@ -964,9 +965,12 @@ def _handle_steer_control(
     chat_state: dict[str, Any],
     life_dir: Path,
     emitter: _TurnEmitter,
+    *,
+    body: str = "",
 ) -> dict[str, Any]:
     """Persist steering and also wake the currently running mission."""
     from ..apps._inbox import queue_inbox_message
+    from ..core.operator_messages import uses_cjk
     from ..manager.directive import (
         active_manager_directive_message,
         set_active_manager_directive,
@@ -977,8 +981,10 @@ def _handle_steer_control(
     ).strip()
     if not manager_directive:
         reply = (
-            "我判断这属于当前任务的方向调整，但没有形成足够明确的团队指令；"
-            "本次未修改任务，请重试或补充目标。"
+            "听起来你想调整当前任务的方向，但我没听出具体要怎么改，所以先没动。能再说具体一点吗？"
+            if uses_cjk(body)
+            else "It sounds like you want to change direction, but I couldn't tell how, "
+            "so nothing has changed yet. Could you say a bit more?"
         )
         return emitter.respond(
             reply,
@@ -1043,12 +1049,24 @@ def _handle_steer_control(
             directive,
             source="manager.steer",
         )
-    reply = f"我已调整团队方向：{manager_directive}"
+    # The directive is the Manager's instruction to the team; the operator
+    # hears that their direction was taken, not the instruction itself.
+    chinese = uses_cjk(body)
+    reply = "好，接下来按你说的方向做。" if chinese else "Got it, carrying on in that direction."
     if lifetime == "standing":
         reply += (
-            " 当前任务已升级为持续任务，本轮结束后会继续规划下一项工作。"
+            (
+                "这件事改成长期做下去，这一轮做完会接着安排下一项。"
+                if chinese
+                else " This is now ongoing work; after this round I'll plan the next piece."
+            )
             if promoted_to_standing
-            else " 方向已记录，但持续任务升级未成功；当前持续状态保持不变。"
+            else (
+                "方向记下了，但没能改成长期任务，原来的安排不变。"
+                if chinese
+                else " The direction is noted, but I couldn't make this ongoing work; "
+                "the current setup stays as it is."
+            )
         )
     return emitter.respond(
         reply,
@@ -1118,28 +1136,14 @@ def _handle_pause_control(
             else "The task is paused and your work is saved, but the background "
             "worker did not stop. Check its status before resuming."
         )
-    elif chinese:
-        if abort_requested and daemon_stop_requested:
-            first = "已暂停。当前任务和后台工作进程正在停止。"
-        elif abort_requested:
-            first = "已暂停。当前任务正在停止，后台工作进程已经停止。"
-        elif daemon_stop_requested:
-            first = "已暂停。当前没有运行中的任务，后台工作进程正在停止。"
-        else:
-            first = "已暂停。当前没有运行中的任务，后台工作进程已经停止。"
-        reply = first + "目标和待办已保存；只有你提出继续时才会恢复。"
     else:
-        if abort_requested and daemon_stop_requested:
-            first = "Paused. The current task and background worker are stopping."
-        elif abort_requested:
-            first = "Paused. The current task is stopping; the background worker is stopped."
-        elif daemon_stop_requested:
-            first = "Paused. No task is running, and the background worker is stopping."
-        else:
-            first = "Paused. No task is running, and the background worker is stopped."
+        stopping = abort_requested or daemon_stop_requested
         reply = (
-            first
-            + " Your objective and queue are saved; work will resume only when you ask."
+            ("好，正在停下。" if stopping else "已暂停。")
+            + "做到的部分都保存了，你说继续我再接着做。"
+            if chinese
+            else ("OK, stopping now. " if stopping else "Paused. ")
+            + "Everything so far is saved; I'll pick it up when you say continue."
         )
 
     return emitter.respond(

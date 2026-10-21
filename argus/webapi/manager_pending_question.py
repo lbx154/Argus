@@ -211,17 +211,29 @@ def _decision_stale(reason: str) -> dict[str, Any]:
     }
 
 
-_DROPPED_REPLY = "Dropped this task. The rest of the campaign continues."
-_CAMPAIGN_STAYS_STOPPED = "The campaign stays stopped until you resume it."
-_CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，这轮工作保持停止。"
-_DROPPED_STOPPED_REPLY = f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}"
+_CAMPAIGN_STAYS_STOPPED = "Everything else stays stopped until you resume it."
+_CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，其余工作先停着。"
+_STOPPED_REPLY = ("已停下，做到的部分都保留着。", "Stopped. The work done so far is kept.")
+
+
+def _zh(*texts: Any) -> bool:
+    from ..core.operator_messages import uses_cjk
+
+    return any(uses_cjk(str(text or "")) for text in texts)
+
+
+def _dropped_reply(chinese: bool, stopped: bool) -> str:
+    if chinese:
+        return f"已放下这项任务。{_CAMPAIGN_STAYS_STOPPED_ZH}" if stopped else "已放下这项任务，其余工作照常。"
+    return (
+        f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}" if stopped
+        else "Dropped this task; the rest of the work carries on."
+    )
 
 
 def _delivered(answer: str) -> str:
     """The reply to an answer, in the operator's language."""
-    from ..core.operator_messages import uses_cjk
-
-    return "已把你的决定交给团队。" if uses_cjk(answer) else "I delivered your decision to the team."
+    return "收到，按你定的继续做。" if _zh(answer) else "Got it, carrying on with your choice."
 
 
 def campaign_stop_reason(project_root: Path | str) -> str:
@@ -291,7 +303,14 @@ def _record_decision_turns(
     turns = (
         (("operator", choice), ("argus", reply))
         if decided_by == "operator"
-        else (("argus", f"Decided in the operator's place: {choice}\n\n{reply}"),)
+        else ((
+            "argus",
+            (
+                f"这个问题你暂时没空回答，我先替你选了：{choice}"
+                if _zh(choice, reply)
+                else f"You weren't available, so I chose for you: {choice}"
+            ) + f"\n\n{reply}",
+        ),)
     )
     for role, text in turns:
         append_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
@@ -317,7 +336,9 @@ def _drop_decision_item(
     # ended waiting for this answer included) continues; a recorded pause,
     # stop, completion or Planner hold stands, as after any answer.
     stopped_for = campaign_stop_reason(mem.project_root)
-    reply = _DROPPED_STOPPED_REPLY if stopped_for else _DROPPED_REPLY
+    reply = _dropped_reply(
+        _zh(operator_text, item.pending_question, item.title), bool(stopped_for),
+    )
     dropped = mem.backlog.stop_for_operator_decision(
         item.id,
         note=note,
@@ -412,7 +433,7 @@ def _resolved_decision_replay(
             "application_status": "already_applied",
             "resolution_id": str(card.get("resolution_id") or ""),
             "resume_requested": False,
-            "reply": str(card.get("reply") or _DROPPED_REPLY),
+            "reply": str(card.get("reply") or _dropped_reply(_zh(card.get("question")), False)),
         }
     if card.get("decision_kind") == "framework_deployment":
         return {
@@ -445,9 +466,10 @@ def _resolved_decision_replay(
         "resume_requested": bool(card.get("resume_requested", option_id != "stop")),
         "reply": str(card.get("reply") or "").strip()
         or (
-            "Campaign stopped. Current work was preserved."
+            _STOPPED_REPLY[0 if _zh(card.get("question")) else 1]
             if option_id == "stop"
-            else "This decision was already delivered to the team."
+            else "这个决定之前已经收到了。" if _zh(card.get("question"))
+            else "I already have this decision."
         ),
     }
     if option_id == "stop":
@@ -955,10 +977,13 @@ def manager_answer_pending_question(
                 result["continuous"] = True
             if projection_error:
                 result["projection_error"] = projection_error
-        reply = str(
-            result.get("reply")
-            or result.get("error")
-            or "Manager could not resolve the pending question."
+        # A failed answer keeps its diagnostic in ``error``; the operator
+        # reads what happened to their answer.
+        reply = str(result.get("reply") or "").strip() or (
+            "这个回答没能用上：问题可能已经答过，或者已经不在了。"
+            if _zh(text)
+            else "That answer couldn't be applied: the question may already be "
+            "answered or gone."
         )
         append_turn(
             mem.project_root,
@@ -1071,6 +1096,7 @@ def manager_resolve_operator_decision(
                 item.id,
                 note=note,
                 decision_id=decision_id,
+                reply=_STOPPED_REPLY[0 if _zh(operator_text, card.get("question")) else 1],
                 decided_by=decided_by,
             )
             if stopped is None:
@@ -1100,7 +1126,7 @@ def manager_resolve_operator_decision(
                     stopped.operator_decision.get("resolution_id") or ""
                 ),
                 "resume_requested": False,
-                "reply": "Campaign stopped. Current work was preserved.",
+                "reply": str(stopped.operator_decision.get("reply") or ""),
             }
             if projection_error:
                 result["projection_error"] = projection_error

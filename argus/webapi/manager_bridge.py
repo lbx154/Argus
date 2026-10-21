@@ -643,7 +643,7 @@ def _manager_message(
         if control == "steer":
             if _cancelled():
                 return _cancelled_result()
-            return _handle_steer_control(chat_state, life_dir, emitter)
+            return _handle_steer_control(chat_state, life_dir, emitter, body=operator_text)
 
         if control == "pause":
             if _cancelled():
@@ -690,8 +690,8 @@ def _manager_message(
             previous_intake = read_intake(life_dir)
             try:
                 if previous_intake.get("phase") in {"offered", "clarifying"} and domain_decision.get("action") in {"ask", "prepare", "dialogue"}:
-                    emitter.phase("Manager 正在结合任务整理建议选项…" if uses_cjk(operator_text) else
-                                  "Manager is preparing options for this task…")
+                    emitter.phase("正在结合你的任务整理几个选项…" if uses_cjk(operator_text) else
+                                  "Putting together options for this task…")
                     domain_decision = manager_intake_decision(mem, chat_state, operator_text, root_task_id=root_task_id)
                     if _cancelled():
                         return _cancelled_result()
@@ -702,8 +702,8 @@ def _manager_message(
                 if _cancelled():
                     return _cancelled_result()
                 log.warning("Manager workflow dialogue failed: %s", type(exc).__name__)
-                reply = ("Manager 暂时没能整理好建议选项，请重试；你的任务和回答已保留。" if uses_cjk(operator_text) else
-                         "Manager could not prepare the options just now. Retry; your task and answer are preserved.")
+                reply = ("这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。" if uses_cjk(operator_text) else
+                         "I couldn't put the options together just now. Your task and answer are kept; please try again in a moment.")
                 return emitter.respond(reply, {"kind": "error", "resolved": False})
             if intake is not None:
                 if "reply" in intake:

@@ -1163,8 +1163,8 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert result["kind"] == "control"
     assert result["control"] == "steer"
     assert result["continuous"] is True
-    assert "我已调整团队方向" in result["reply"]
-    assert "已升级为持续任务" in result["reply"]
+    assert "按你说的方向做" in result["reply"]
+    assert "改成长期做下去" in result["reply"]
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG
+from ..core.operator_messages import brief_title
 from . import front_door
 
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
@@ -295,6 +296,13 @@ def enqueue_mission(
             execution_body if direct or contextual_body else body
         )
         compact = " ".join(title_body.split()).replace("`", "")
+        # The Manager's short topic names the task wherever it is mentioned;
+        # without one, the request's opening clause does, never the whole text.
+        named = front_door._derive_session_name(
+            str(getattr(prepared_handoff.decision, "session_title", "") or ""), limit=32,
+        )
+        if named.casefold() in {"none", "keep", "null"} or named.isdecimal():
+            named = ""
         manager_decision = decision_evidence(division) or {"routed": True}
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
@@ -319,7 +327,7 @@ def enqueue_mission(
         )
         item = BacklogItem.new(
             item_id=root_task_id,
-            title=compact if len(compact) <= 96 else compact[:93] + "...",
+            title=brief_title(display_title or named or compact),
             objective=execution_body,
             priority=min(head_priority - 1, -1),
             tags=["manager", "scope:bounded", "review:required", *kind_tags],

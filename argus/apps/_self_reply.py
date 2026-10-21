@@ -921,13 +921,23 @@ class SelfReplyMixin:
                     "kind": "provider_retry",
                     "agent_layer": "manager",
                     "text": (
-                        "尚未执行实际操作，正在自动补做一次…"
+                        (
+                            "还没真正动手，再试一次…"
+                            if no_action else
+                            "模型这次没有回应，接着刚才的对话再试一次…"
+                            if stalled and stall_resume else
+                            "模型这次没有回应，再试一次…"
+                            if stalled else
+                            "连接模型服务时断了，再试一次…"
+                        )
+                        if re.search(r"[\u3400-\u9fff]", objective) else
+                        "Nothing was actually done yet; trying once more…"
                         if no_action else
-                        "模型停止响应，本轮被看门狗中止；正在续接同一会话重试一次…"
+                        "The model stopped responding; picking the conversation up again…"
                         if stalled and stall_resume else
-                        "模型停止响应，本轮被看门狗中止；正在重新发起一次…"
+                        "The model stopped responding; trying once more…"
                         if stalled else
-                        "Provider transport failed before output; retrying once in a fresh session"
+                        "The connection to the model service dropped; trying once more…"
                     ),
                 })
                 result = gateway_run_exec(

@@ -147,7 +147,7 @@ def test_forced_chat_skips_the_classifier(tmp_path, monkeypatch) -> None:
     assert result.control is None
     assert result.self_mode == "inspect"
     assert result.frontdoor_failure == ""
-    assert phases == ["对话模式：Manager 正在准备回复…"]
+    assert phases == ["正在想怎么回复…"]
 
 
 def test_forced_chat_restores_history_without_classification(
