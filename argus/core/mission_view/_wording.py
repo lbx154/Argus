@@ -14,14 +14,14 @@ these sentences. Rows that need them carry a separate ``technical`` field.
 from __future__ import annotations
 
 import re
+from string import Formatter
 from typing import Any, Mapping
 
 _CJK_RE = re.compile(r"[㐀-鿿]")
 # A Latin word or number set into a Chinese sentence reads best with a thin
-# gap on each side ("因为 Argus 被停止"); parameters are inserted raw, so the
-# gap is added afterwards wherever the two scripts touch.
-_CJK_THEN_LATIN_RE = re.compile(r"(?<=[㐀-鿿])(?=[A-Za-z0-9])")
-_LATIN_THEN_CJK_RE = re.compile(r"(?<=[A-Za-z0-9])(?=[㐀-鿿])")
+# gap on each side ("因为 Argus 被停止"); the gap goes only where a parameter
+# meets the sentence, so a parameter (a path, a quoted answer) stays as given.
+_SCRIPTS_MEET_RE = re.compile(r"[㐀-鿿][A-Za-z0-9]|[A-Za-z0-9][㐀-鿿]")
 
 # (English, Chinese) for every code. Placeholders are filled by ``say``.
 _SENTENCES: dict[str, tuple[str, str]] = {
@@ -754,12 +754,15 @@ _STAGE_NAMES_ZH = {
 def say(kind: str, chinese: bool, **params: Any) -> str:
     """Return the sentence for *kind* in the requested language."""
     english, zh = _SENTENCES[kind]
-    sentence = zh if chinese else english
     if not params:
-        return sentence
-    filled = sentence.format(**params)
-    if chinese:
-        filled = _LATIN_THEN_CJK_RE.sub(" ", _CJK_THEN_LATIN_RE.sub(" ", filled))
+        return zh if chinese else english
+    if not chinese:
+        return english.format(**params)
+    filled = ""
+    for literal, field, spec, _conversion in Formatter().parse(zh):
+        for piece in (literal, "" if field is None else format(params[field], spec or "")):
+            gap = " " if _SCRIPTS_MEET_RE.fullmatch(filled[-1:] + piece[:1]) else ""
+            filled += gap + piece
     return filled
 
 
