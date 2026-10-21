@@ -1553,6 +1553,13 @@ def test_chinese_request_gets_chinese_sentences_with_stable_codes(tmp_path: Path
     assert view["timeline"][-1]["title"] == "第 9 轮工作开始。"
 
 
+def test_a_chinese_sentence_spaces_a_latin_parameter_but_not_its_own_text() -> None:
+    from argus.core.mission_view import say
+
+    assert say("stage_advanced", True, stage="experiment") == "项目进入 experiment 阶段。"
+    assert say("update_done", True, subject="写出实验1结果.csv") == "完成了：写出实验1结果.csv。"
+
+
 def test_round_the_model_service_dropped_is_explained_without_runtime_words(
     tmp_path: Path,
 ) -> None:
