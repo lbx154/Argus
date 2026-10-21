@@ -32,6 +32,38 @@ const event = (
 });
 
 describe("task submap evidence", () => {
+  it("keeps an Engineer's handoff in the Engineer's round, not as a review", () => {
+    const rows = buildSubmap({ ...task, status: "failed" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.start", { round_index: 1 }),
+      event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict.\n→ manager" }),
+      event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "blocked",
+        text: "Requirements conflict." }),
+    ], true);
+    expect(rows.some((row) => row.kind === "review")).toBe(false);
+    const round = rows.find((row) => row.round === 1)!;
+    expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "blocked", ["e2", "e3", "e4"]]);
+  });
+
+  it("shows the question, its answer, remarks, direction and why the work paused", () => {
+    const rows = buildSubmap({ ...task, status: "parked" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "life.manager.supervision.applied", { role: "manager", status: "applied", text: "Wait for the choice." }),
+      event("e3", "life.observer.note", { role: "observer", association: "single_active_window", text: "Dispatched too early." }),
+      event("e4", "life.mission.completed", { status: "parked", park_reason: "operator_question", text: "" }),
+      event("e5", "life.operator_question.pending", { role: "planner", text: "A or B?" }),
+      event("e6", "life.operator_question.answered", { role: "operator", text: "A." }),
+      event("e7", "life.operator_question.answered", { role: "manager", text: "B." }),
+    ], true);
+    const by = (id: string) => rows.find((row) => row.id === id)!;
+    expect([by("e2").kind, by("e2").title, by("e2").status, by("e2").detail]).toEqual(["plan", "经理的督导", "recorded", "Wait for the choice."]);
+    expect([by("e3").kind, by("e3").title, by("e3").source]).toEqual(["revision", "监督者的提醒", "interval"]);
+    expect(by("e4").detail).toBe("因为在等你回答一个问题，工作停了下来。");
+    expect([by("e5").title, by("e5").detail]).toEqual(["向你提问", "A or B?"]);
+    expect([by("e6").title, by("e6").detail]).toEqual(["你的答复", "A."]);
+    expect(by("e7").title).toBe("Argus 代你答复");
+  });
+
   it("shows reviewer failure as an error rather than rejection and keeps later review independent", () => {
     const rows = buildSubmap({ ...task, status: "failed" }, [
       event("e1", "life.mission.started"),
@@ -546,13 +578,17 @@ describe("where the task stands", () => {
     expect(new Set(scene.cards.map((card) => card.conclusion))).toEqual(new Set([taskConclusion(steps, true)]));
   });
 
-  it.each(["paused_external_work", "parked"])("describes a %s mission as paused", (status) => {
+  it.each([
+    ["paused_external_work", "operator_pause", "因为等待外部工作完成，工作停了下来。"],
+    ["parked", "operator_pause", "因为你暂停了它，工作停了下来。"],
+    ["parked", undefined, "这项任务的工作暂停了。"],
+  ])("describes a %s mission as paused, with the reason it names", (status, park_reason, detail) => {
     const rows = buildSubmap({ ...parent, status }, [
       { id: "s", item_id: "m", type: "life.mission.started", ts: 20, text: "" },
-      { id: "p", item_id: "m", type: "life.mission.completed", ts: 30, text: "", status, park_reason: "operator_pause", success: false },
+      { id: "p", item_id: "m", type: "life.mission.completed", ts: 30, text: "", status, park_reason, success: false },
     ], true);
     const result = rows.find((row) => row.kind === "result")!;
     expect(result.title).toBe("执行结果");
-    expect(result.detail).toBe("这项任务的工作暂停了。");
+    expect(result.detail).toBe(detail);
   });
 });

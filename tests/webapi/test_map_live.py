@@ -44,6 +44,67 @@ def test_live_map_preserves_evidence_and_ignores_partial_line(tmp_path):
     assert read_map(sid, tmp_path, life)["events"] == data["events"]
 
 
+def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
+    sid, life = sample(tmp_path)
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem(
+        id="ask", ts=4, title="Planner needs operator direction", objective="A or B", status="failed",
+        outcome={"park": {"reason": "operator_question"}},
+        operator_decision={"status": "resolved", "continuation_item_id": "next", "manager_decision": "A"},
+    ))
+    memory.backlog.add(BacklogItem(id="next", ts=9, title="Do A", objective="A", status="pending"))
+    memory.backlog.add(BacklogItem(id="budget", ts=10, title="Later", objective="Later", status="pending"))
+    memory.backlog.update("budget", park_reason="budget_exhausted")
+    with (life / "events.jsonl").open("a") as f:
+        for row in (
+            {"type": "life.observer.note", "agent_layer": "observer", "to": "manager", "ts": 4,
+             "text": "The Engineer was dispatched before the operator chose."},
+            {"type": "life.manager.supervision.applied", "agent_layer": "manager", "item_id": "task-a",
+             "status": "applied", "action": "wait", "summary": "Wait for the operator's choice.", "ts": 5},
+            {"type": "life.mission.completed", "item_id": "task-a", "status": "parked",
+             "park_reason": "operator_question", "success": False, "ts": 6},
+            {"type": "life.operator_question.pending", "item_id": "ask", "agent_layer": "planner",
+             "title": "Planner needs operator direction", "question": "A or B?", "ts": 7},
+            # Nothing runs: a remark naming no task has no task to stand on.
+            {"type": "life.observer.note", "agent_layer": "observer", "to": "manager", "ts": 8, "text": "Idle."},
+            {"type": "life.operator_question.answered", "item_id": "ask", "continuation_item_id": "next",
+             "question": "A or B?", "manager_decision": "A", "decided_by": "operator", "ts": 9},
+        ):
+            f.write(json.dumps(row) + "\n")
+    data = read_map(sid, tmp_path, life)
+    said = {(e["item_id"], e["type"]): e for e in data["events"]}
+    assert (said[("ask", "life.operator_question.pending")]["role"],
+            said[("ask", "life.operator_question.pending")]["text"]) == ("planner", "A or B?")
+    assert (said[("ask", "life.operator_question.answered")]["role"],
+            said[("ask", "life.operator_question.answered")]["text"]) == ("operator", "A")
+    note = said[("task-a", "life.observer.note")]
+    assert (note["role"], note["association"]) == ("observer", "single_active_window")
+    assert said[("task-a", "life.manager.supervision.applied")]["text"] == "Wait for the operator's choice."
+    assert said[("task-a", "life.mission.completed")]["park_reason"] == "operator_question"
+    assert "Idle." not in [e["text"] for e in data["events"]]
+    tasks = {t["id"]: t for t in data["tasks"]}
+    # The work an answer went on with is drawn from the question it answered.
+    assert tasks["next"]["deps"] == ["ask"]
+    assert tasks["budget"]["park_reason"] == "budget_exhausted" and "park_reason" not in tasks["ask"]
+    # The question is the Planner's, answered and carried on; the mission is the Engineer's.
+    assert (tasks["ask"]["role"], tasks["ask"]["continued_by"], tasks["ask"]["summary"]) == ("planner", "next", "A")
+    assert tasks["task-a"]["role"] == "engineer" and "continued_by" not in tasks["task-a"]
+
+
+def test_an_engineer_handoff_is_the_engineers_record_not_a_review():
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        {"type": "round.main.completed", "item_id": "a", "ts": 2, "round_index": 1,
+         "last_message": "The two requirements conflict; the operator must choose.\n→ manager"},
+        {"type": "round.review.completed", "item_id": "a", "ts": 3, "round_index": 1, "status": "blocked",
+         "review_source": "engineer_handoff", "reason": "The two requirements conflict; the operator must choose."},
+        {"type": "round.review.completed", "item_id": "a", "ts": 4, "round_index": 2, "status": "done",
+         "review_source": "reviewer", "reason": "Passed."},
+    ]
+    roles = [(e["type"], e["role"]) for e in normalize_events(rows, {"a"})]
+    assert roles[2:] == [("round.review.completed", "engineer"), ("round.review.completed", "reviewer")]
+
+
 def test_ambiguous_rounds_do_not_attach_to_arbitrary_tasks():
     rows = [{"type": "life.mission.started", "item_id": t} for t in ("a", "b")]
     rows += [{"type": "round.start", "round_index": 1}]
@@ -611,7 +672,7 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     segments: dict = {}
     events = normalize_events(rows, {"a"}, set(), segments)
     work = [e for e in events if e["type"] == "work.segment"]
-    assert [e["id"] for e in work] == ["seg:a:1", "seg:a:2", "seg:a:3"]
+    assert [e["id"] for e in work] == ["seg:a:1", "seg:a:2"]
     assert work[0]["text"] == "先读设计规范，再生成幻灯片。"
     assert [s["kind"] for s in work[0]["steps"]] == ["tool_use", "command_execution"]
     assert work[0]["steps"][1] == {
@@ -620,12 +681,60 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     assert work[0]["ts"] == 2.0 and work[0]["ts_end"] == 4.0
     assert work[1]["text"] == "八页已生成，开始校验。" and len(work[1]["steps"]) == 1
     # The round ended before this narration, so it starts a fresh segment that is still open.
-    assert work[2]["text"] == "第二轮开始。" and work[2]["steps"] == []
-    assert list(segments["open"]) == ["a"]
+    # Words with no work after them yet wait: they may be the agent's last message.
+    assert segments["open"]["a"]["text"] == "第二轮开始。" and segments["open"]["a"]["steps"] == []
     # Reasoning never reaches the map; the original mission events are untouched.
     assert [e["type"] for e in events if e["type"] != "work.segment"] == [
         "life.mission.started", "round.main.completed",
     ]
+
+
+def test_a_tasks_work_holds_its_own_roles_once_in_the_order_it_happened(tmp_path):
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        _progress("agent_message", "a", 2, text="Read the code."),
+        _progress("tool_use", "a", 3, text="view: a", tool_name="view"),
+        # The Planner runs beside the task and names none; the Manager's stage call names it.
+        {**_progress("agent_message", "", 4, text="Planning the project."), "agent_layer": "planner"},
+        {**_progress("tool_use", "", 5, text="view: plan", tool_name="view"), "agent_layer": "planner"},
+        {**_progress("tool_use", "a", 6, text="view: stage", tool_name="view"), "agent_layer": "manager"},
+        _progress("tool_use", "a", 7, text="view: b", tool_name="view"),
+        # The Engineer's last message is the round's record.
+        _progress("agent_message", "a", 8, text="Done: 3 passed."),
+        {"type": "round.main.completed", "item_id": "a", "ts": 9, "last_message": "Done: 3 passed.\n→ manager"},
+    ]
+    events = normalize_events(rows, {"a"}, set(), {})
+    work = [e for e in events if e["type"] == "work.segment"]
+    assert [(e["role"], e["text"], len(e["steps"])) for e in work] == [("engineer", "Read the code.", 2)]
+
+    # A segment closes after the records that followed it began: read in the order things happened.
+    sid, life = sample(tmp_path)
+    with (life / "events.jsonl").open("a") as f:
+        for row in (
+            _progress("agent_message", "task-a", 4, text="Checking."),
+            _progress("tool_use", "task-a", 5, text="view: a", tool_name="view"),
+            {"type": "round.main.completed", "item_id": "task-a", "ts": 6, "last_message": "Checked."},
+            {"type": "life.mission.completed", "item_id": "task-a", "ts": 7, "status": "done"},
+        ):
+            f.write(json.dumps(row) + "\n")
+    times = [e["ts"] for e in read_map(sid, tmp_path, life)["events"]]
+    assert times == sorted(times) and len(times) == 5
+
+
+def test_a_running_turn_shows_its_steps_as_they_are_journaled():
+    rows = [
+        {"type": "manager.turn.started", "message_id": "web-5", "ts": 1, "text": "Add slugify"},
+        {"type": "engineer.progress", "kind": "tool_use", "agent_layer": "manager", "item_id": "turn:web-5",
+         "message_id": "web-5:c1", "text": "查阅 core.py", "tool_name": "view", "status": "running",
+         "turn_step": True, "ts": 2},
+        {"type": "engineer.progress", "kind": "tool_use", "agent_layer": "manager", "item_id": "turn:web-5",
+         "message_id": "web-5:c1", "text": "查阅 core.py", "tool_name": "view", "status": "completed",
+         "turn_step": True, "ts": 3},
+    ]
+    (work,) = turn_records(rows, {}, {})["turn:web-5"]["events"]
+    assert work["steps"] == [{"kind": "tool_use", "label": "查阅 core.py", "ts": 2.0, "tool": "view",
+                              "status": "completed"}]
+    assert "tool_details_recorded" not in work
 
 
 def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():

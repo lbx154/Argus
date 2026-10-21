@@ -15,7 +15,7 @@ import json
 import time
 from pathlib import Path
 
-from .map_lines import RETRY_SECONDS, _told, fit
+from .map_lines import _told, fit, retry_wait
 from .map_model import MapGenerationError, map_timeout_seconds, resolve_map_model, run_map_model
 from .map_narrative import _source_lock, _write_cache, cache_path, read_cache
 from .map_view import facts, text
@@ -38,18 +38,23 @@ def cards_source(dataset_id: str, locale: str) -> str:
     return f"{dataset_id}:{locale}:card-words"
 
 
-_RECORDS = ("life.mission.completed", "round.main.completed", "round.review.completed")
+_RECORDS = ("life.mission.completed", "round.main.completed", "round.review.completed",
+            "life.operator_question.answered")
 
 
 def _last_records(dataset: dict) -> dict[str, str]:
     """What each task's own record last said: what the work found is in the
-    record its last round left."""
-    last: dict[str, tuple[float, str]] = {}
-    for event in dataset.get("events", []):
+    record its last round left, and a question's in the answer it got. A
+    review's verdict is the last word on the report it judged: the mission's
+    settlement only repeats that report, written before the review."""
+    last: dict[str, tuple[str, str]] = {}
+    for event in sorted(dataset.get("events", []), key=lambda event: float(event.get("ts") or 0)):
         said = text(event.get("text"), 700).strip()
-        owner = event.get("item_id")
-        if event.get("type") in _RECORDS and owner and said and float(event.get("ts") or 0) >= last.get(owner, (0.0, ""))[0]:
-            last[owner] = (float(event.get("ts") or 0), said)
+        owner, kind = event.get("item_id"), event.get("type")
+        if kind in _RECORDS and owner and said and not (
+            kind == "life.mission.completed" and last.get(owner, ("", ""))[0] == "round.review.completed"
+        ):
+            last[owner] = (kind, said)
     return {owner: said for owner, (_, said) in last.items()}
 
 
@@ -145,13 +150,14 @@ def words(
         cache = read_cache(root, source_name)
         saved = cache.get("tasks", {})
         todo = [task_id for task_id in wanted if saved.get(task_id, {}).get("input") != inputs[task_id]]
-        wait = RETRY_SECONDS - (time.time() - cache.get("attempt_at", 0))
+        attempt = {task_id: inputs[task_id] for task_id in todo}
+        wait = retry_wait(cache, attempt)
         if not todo or wait > 0:
             return {"cards": _saved(cache, wanted, inputs), "available": True,
                     **({"retry_after": int(wait) + 1} if todo and wait > 0 else {})}
         path = cache_path(root, source_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        cache["attempt_at"] = time.time()
+        cache.update(attempt_at=time.time(), attempted=attempt)
         _write_cache(path, cache)
         output_schema = _schema(todo, locale)
         prompt = _prompt(locale, [about[task_id] for task_id in todo], output_schema)

@@ -72,13 +72,31 @@ def test_writes_once_from_the_works_own_record(tmp_path, model):
     assert again["cards"] == first["cards"] and len(model.calls) == 1
 
 
+def test_a_card_is_written_from_the_review_verdict_and_the_answer_not_the_report_before_them():
+    # 1c: the Engineer's report says review is still to come; the mission's
+    # settlement repeats that report after the Reviewer has passed the work.
+    report = "138 passed. Still to be rerun by an independent reviewer."
+    records = map_cards._last_records({"events": [
+        {"type": "life.mission.completed", "item_id": "wrap", "ts": 3, "text": report},
+        {"type": "round.main.completed", "item_id": "wrap", "ts": 1, "text": report},
+        {"type": "round.review.completed", "item_id": "wrap", "ts": 2, "text": "Review passed: reran 138 tests."},
+        # The operator's answer is the last word on a question.
+        {"type": "life.operator_question.pending", "item_id": "ask", "ts": 1, "text": "A or B?"},
+        {"type": "life.operator_question.answered", "item_id": "ask", "ts": 2, "text": "A."},
+        # A new attempt's own report supersedes an earlier attempt's verdict.
+        {"type": "round.review.completed", "item_id": "retry", "ts": 1, "text": "Another pass needed."},
+        {"type": "round.main.completed", "item_id": "retry", "ts": 2, "text": "Fixed and reran."},
+        {"type": "life.mission.completed", "item_id": "retry", "ts": 3, "text": "Fixed and reran."},
+    ]})
+    assert records == {"wrap": "Review passed: reran 138 tests.", "ask": "A.", "retry": "Fixed and reran."}
+
+
 def test_a_running_task_is_described_by_what_was_asked_and_rewritten_when_it_settles(tmp_path, model):
     model([{"id": "t1", "title": "撰写论文", "summary": "正在起草。"}])
     map_cards.words(tmp_path, dataset("running"), ["t1"], "zh-CN", project_root=tmp_path, generate=True)
     assert '"result"' not in model.calls[0]["prompt"]
-    cache = map_cards.read_cache(tmp_path, map_cards.cards_source("live:s-cards", "zh-CN"))
-    cache["attempt_at"] = 0
-    map_cards._write_cache(map_cards.cache_path(tmp_path, map_cards.cards_source("live:s-cards", "zh-CN")), cache)
+    # A task that has just finished is new input, written at once: the wait
+    # after an attempt only holds back asking again for the same input.
     model([{"id": "t1", "title": "撰写论文", "summary": "初稿已编译。"}])
     settled = map_cards.words(tmp_path, dataset("done"), ["t1"], "zh-CN", project_root=tmp_path, generate=True)
     assert settled["cards"]["t1"]["summary"] == "初稿已编译。" and len(model.calls) == 2
@@ -96,6 +114,10 @@ def test_without_a_session_or_after_a_failure_nothing_is_asked(tmp_path, model, 
         map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", project_root=tmp_path, generate=True)
     waiting = map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", project_root=tmp_path, generate=True)
     assert waiting["retry_after"] > 0 and model.calls == ["failed"]
+    # Only the input that failed waits; a card not asked for yet is not held back by it.
+    with pytest.raises(map_model.MapGenerationError):
+        map_cards.words(tmp_path, dataset(), ["t1"], "zh-CN", project_root=tmp_path, generate=True)
+    assert model.calls == ["failed", "failed"]
 
 
 def test_words_are_sized_for_the_language_they_are_read_in(tmp_path, model):

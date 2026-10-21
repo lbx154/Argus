@@ -91,12 +91,7 @@ def test_a_task_settling_asks_again_for_its_lines_only(tmp_path, model, monkeypa
     assert len(model.calls) == 1
     model([{"source": "t2", "target": "t3", "label": "figures", "evidence": "t3 uses t2's figures"}])
     settled = dataset(("done", "done", "done", "done"))
-    # The reader still has the map open: not asked again straight away.
-    waiting = map_lines.notes(tmp_path, settled, PAIRS, "en-US", project_root=tmp_path, generate=True)
-    assert waiting["retry_after"] > 0 and len(model.calls) == 1
-    cache = map_lines.read_cache(tmp_path, map_lines.lines_source(settled["id"], "en-US"))
-    cache["attempt_at"] = 0
-    map_lines._write_cache(map_lines.cache_path(tmp_path, map_lines.lines_source(settled["id"], "en-US")), cache)
+    # A task that settled is new input: asked for at once, while the reader has the map open.
     result = map_lines.notes(tmp_path, settled, PAIRS, "en-US", project_root=tmp_path, generate=True)
     assert [line["label"] for line in result["lines"]] == ["figures"]
     assert len(model.calls) == 2

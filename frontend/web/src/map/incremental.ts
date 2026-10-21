@@ -42,7 +42,8 @@ export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): 
   return replaceEqualDeep(previous, {
     ...previous, ...next,
     tasks: [...tasks.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0) || a.id.localeCompare(b.id)),
-    events: [...events.values()].filter((e) => tasks.has(e.item_id)),
+    // A page brings what happened earlier as well as later; keep the order it happened in.
+    events: [...events.values()].filter((e) => tasks.has(e.item_id)).sort((a, b) => a.ts - b.ts),
   });
 }
 

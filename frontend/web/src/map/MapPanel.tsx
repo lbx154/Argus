@@ -94,6 +94,7 @@ const MINIMAP_STATUS: Record<string, string> = {
   done: "#a9c4b6",
   running: "#9fb6cc",
   question: "#dcc797",
+  answered: "#a9c4b6",
   failed: "#d9a79f",
   review_unavailable: "#cdbba3",
   held: "#cdbba3",
@@ -794,7 +795,7 @@ export function MapCanvas({
       else if (task.pending_question) buckets.question++;
       else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
       else if (statusKey(task) === "held") buckets.held++;
-      else if (task.status === "failed") buckets.failed++;
+      else if (statusKey(task) === "failed") buckets.failed++;
       else buckets.other++;
     }
     return buckets;

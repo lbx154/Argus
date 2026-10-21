@@ -89,6 +89,12 @@ describe("macro card copy", () => {
     expect(markup).not.toContain("Unknown status");
     expect(markup).not.toContain('class="macro-state">Paused');
   });
+  it("says why a parked task waits", () => {
+    const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
+      task: { ...task, status: "parked", park_reason: "budget_exhausted" }, live: false,
+    })} />);
+    expect(markup).toContain("Paused · the budget ran out");
+  });
   it("does not present the last small edit as the outcome of the whole task", () => {
     const completed = { ...task, status: "done", objective: "Build a reusable date workflow" };
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([
