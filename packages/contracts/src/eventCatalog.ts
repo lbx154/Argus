@@ -16,7 +16,6 @@ export const EVENT_TYPES = {
   AGENT_IO_STREAM: 'agent.io.stream',
   AGENT_IO_COMPLETE: 'agent.io.complete',
   AGENT_IO_ERROR: 'agent.io.error',
-  USAGE_RECORDED: 'usage.recorded',
   ACCOUNTING_JOURNAL_REPAIRED: 'accounting.journal_repaired',
   PROVIDER_REQUEST_STARTED: 'provider.request.started',
   PROVIDER_REQUEST_COMPLETED: 'provider.request.completed',
@@ -339,7 +338,6 @@ export const CALL_SCOPED_EVENT_TYPES = new Set<CatalogEventType>([
   EVENT_TYPES.PROVIDER_REQUEST_STARTED,
   EVENT_TYPES.PROVIDER_REQUEST_COMPLETED,
   EVENT_TYPES.PROVIDER_REQUEST_DENIED,
-  EVENT_TYPES.USAGE_RECORDED,
 ]);
 
 export function canonicalEventType(value: unknown): string {

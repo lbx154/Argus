@@ -104,15 +104,12 @@ def test_payload_schema_validates_types_and_payload_versions() -> None:
     assert "field input_tokens must be integer" in invalid["event_validation"]["errors"]
 
     usage = normalize_event_envelope({
-        "type": EventType.USAGE_RECORDED,
+        "type": EventType.AGENT_IO_COMPLETE,
         "call_id": "call-2",
-        "schema_version": 2,
-        "provider": "codex",
-        "status": "completed",
-        "usage": {},
-        "pricing": {},
+        "run_label": "engineer-r1",
+        "input_tokens": 100,
     })
-    assert usage["payload_schema_version"] == 2
+    assert usage["payload_schema_version"] == 1
     assert "event_validation" not in usage
 
     unknown_resumed_premium = normalize_event_envelope({

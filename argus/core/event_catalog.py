@@ -58,7 +58,6 @@ class EventType(StrEnum):
     AGENT_IO_STREAM = "agent.io.stream"
     AGENT_IO_COMPLETE = "agent.io.complete"
     AGENT_IO_ERROR = "agent.io.error"
-    USAGE_RECORDED = "usage.recorded"
     ACCOUNTING_JOURNAL_REPAIRED = "accounting.journal_repaired"
     PROVIDER_REQUEST_STARTED = "provider.request.started"
     PROVIDER_REQUEST_COMPLETED = "provider.request.completed"
@@ -391,7 +390,6 @@ CALL_SCOPED_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.PROVIDER_REQUEST_STARTED,
     EventType.PROVIDER_REQUEST_COMPLETED,
     EventType.PROVIDER_REQUEST_DENIED,
-    EventType.USAGE_RECORDED,
 })
 
 @dataclass(frozen=True)

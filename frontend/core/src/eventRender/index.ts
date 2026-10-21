@@ -570,7 +570,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     // Status lines are the developer log.
     case 'life.status':
     case 'agent.io.start': case 'agent.io.stream': case 'agent.io.complete': case 'agent.io.error':
-    case 'usage.recorded': case 'provider.request.started': case 'provider.request.completed':
+    case 'provider.request.started': case 'provider.request.completed':
     case 'codex.util.completed': case 'skill.cost.completed':
     case 'budget.reservation.created': case 'budget.reservation.settled': case 'budget.reservation.released':
     case 'round.secret_redacted':

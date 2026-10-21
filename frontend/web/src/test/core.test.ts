@@ -27,7 +27,7 @@ import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes } from '../lib/format';
 import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
 import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
-import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
+import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
 import {
   selectPreferredLiveArtifact,
   selectPreferredPreviewArtifact,
@@ -58,15 +58,11 @@ beforeEach(() => {
 });
 afterEach(() => queryClient.clear());
 
-const typedUsageEvent: UsageRecordedEvent = {
-  type: 'usage.recorded',
-  payload_schema_version: 2,
+const typedCallEvent: AgentIoCompleteEvent = {
+  type: 'agent.io.complete',
+  payload_schema_version: 1,
   call_id: 'call-1',
-  schema_version: 2,
-  provider: 'codex',
-  status: 'completed',
-  usage: {},
-  pricing: {},
+  run_label: 'engineer-r1',
 };
 
 describe('shared frontend core', () => {
@@ -249,8 +245,7 @@ describe('shared frontend core', () => {
   });
 
   it('uses the canonical event catalog and explicit legacy aliases', () => {
-    expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
-    expect(typedUsageEvent.payload_schema_version).toBe(2);
+    expect(EVENT_TYPES.AGENT_IO_COMPLETE).toBe(typedCallEvent.type);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
   });

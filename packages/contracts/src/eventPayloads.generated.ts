@@ -259,23 +259,6 @@ export interface AgentIoErrorEvent extends EventMsg {
   "error": string;
 }
 
-export interface UsageRecordedEvent extends EventMsg {
-  type: "usage.recorded";
-  payload_schema_version?: 2;
-  "call_id": string;
-  "schema_version": 2;
-  "project_id"?: string;
-  "mission_id"?: string | null;
-  "thread_id"?: string | null;
-  "provider": string;
-  "model"?: string;
-  "run_label"?: string;
-  "status": "completed" | "error" | "denied";
-  "duration_ms"?: number;
-  "usage": Record<string, unknown>;
-  "pricing": Record<string, unknown>;
-}
-
 export interface ProviderRequestStartedEvent extends EventMsg {
   type: "provider.request.started";
   payload_schema_version?: 1;
@@ -1966,7 +1949,6 @@ export interface EventPayloadByType {
   "agent.io.stream": AgentIoStreamEvent;
   "agent.io.complete": AgentIoCompleteEvent;
   "agent.io.error": AgentIoErrorEvent;
-  "usage.recorded": UsageRecordedEvent;
   "provider.request.started": ProviderRequestStartedEvent;
   "provider.request.completed": ProviderRequestCompletedEvent;
   "provider.request.denied": ProviderRequestDeniedEvent;
