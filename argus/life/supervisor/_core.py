@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say, uses_cjk
 from ...core.planner_verdict import (
     PlannerVerdictStatus,
     build_planner_verdict_event,
@@ -1982,8 +1983,6 @@ class LifeSupervisor(
 
     def _operator_words(self, kind: str, **params: Any) -> dict[str, str]:
         """A kind and its sentence in the operator's language, for an event they read."""
-        from ...core.mission_view import say
-
         return {"kind": kind, "text": say(kind, self._operator_chinese(), **params)}
 
     def _tell_status(self, kind: str, **params: Any) -> None:
@@ -1992,21 +1991,19 @@ class LifeSupervisor(
 
     def _operator_chinese(self) -> bool:
         """Whether the operator writes Chinese, as their objective reads."""
-        from ...core.mission_view import uses_cjk
-
         return uses_cjk(getattr(self.config, "continuous_objective", ""))
 
-    def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None:
-        """Post one message to the operator's conversation, once per ``notice_id``."""
+    def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None:
+        """Post the sentence for ``kind`` to the operator's conversation, once per ``notice_id``."""
         from ...core.operator_messages import publish_operator_message
 
         try:
             publish_operator_message(
                 self._manager_project_report_root(),
-                text=chinese if self._operator_chinese() else english,
+                text=say(kind, self._operator_chinese(), **params),
                 message_id=f"argus-notice-{notice_id}",
                 event_fields={"operator_notice": notice_id},
             )
         except Exception:  # noqa: BLE001 - the status line below still records it
             log.warning("could not post operator notice %s", notice_id, exc_info=True)
-        self._emit_status(english)
+        self._emit_status(say(kind, False, **params))

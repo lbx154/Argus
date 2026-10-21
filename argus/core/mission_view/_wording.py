@@ -430,6 +430,25 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
         "也可以让我放下它。",
     ),
+    # Notices Argus posts to the operator's conversation on its own.
+    "planner_retries_stopped_internal": (
+        "Planning kept hitting an internal error in Argus for three hours, so I "
+        "stopped retrying. Send me a message to try again, and please report it "
+        "along with the run log.",
+        "规划时 Argus 自己连着出错三个小时，我先不再自动重试。"
+        "给我发条消息就会再试；也请把运行日志一起反馈给我们。",
+    ),
+    "planner_retries_stopped_service": (
+        "The Planner's model service kept failing for three hours, so I stopped "
+        "retrying. Send me a message, or switch the Planner's model in Settings, "
+        "to try again.",
+        "规划者用的模型服务连着三个小时都失败，我先不再自动重试。"
+        "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。",
+    ),
+    "proxy_undecided": (
+        "I couldn't decide “{title}” for you, so it waits for your answer.",
+        "“{title}”我没法替你决定，等你回来再定。",
+    ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
     "understanding_request": ("Understanding your request…", "正在理解你的请求…"),
