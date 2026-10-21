@@ -790,6 +790,24 @@ def planner_may_retire_park(item: Any) -> bool:
     return not rule.auto_resume and rule.holder != "operator"
 
 
+def objective_started_at(state_root: Path | str, objective: str) -> float | None:
+    """When ``objective`` became the standing objective, or None when no record says.
+
+    Every framing, at daemon start or through the front door, ends in one
+    ``life.manager.intent.completed`` naming the objective it hands on; the
+    latest one naming this objective is when it began.
+    """
+    objective = str(objective or "").strip()
+    rows = _read_jsonl_tail_history(
+        Path(state_root) / "events.jsonl", 1,
+        raw_markers=(EventType.LIFE_MANAGER_INTENT_COMPLETED.value.encode(),),
+        predicate=lambda row: row.get("type") == EventType.LIFE_MANAGER_INTENT_COMPLETED
+        and str(row.get("execution_task") or "").strip() == objective,
+    ) if objective else []
+    ts = rows[-1].get("ts") if rows else None
+    return float(ts) if isinstance(ts, (int, float)) else None
+
+
 def manager_direct_in_hand(item: Any) -> bool:
     """Whether a task the Manager handed straight to an Engineer is still in hand.
 

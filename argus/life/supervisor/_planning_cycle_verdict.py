@@ -129,7 +129,7 @@ class PlanningCycleVerdictMixin:
 
         The card is the operator's to answer, or the Manager's while the
         operator cannot be asked, like any parked question. Returns False when
-        a question already waits on the operator: it stays as it was asked.
+        the planning slot's own question still waits: it stays as it was asked.
         """
         item = None
         revision = getattr(state, "revision_request", None) or {}
@@ -140,10 +140,14 @@ class PlanningCycleVerdictMixin:
                 None,
             )
         if item is None:
-            # The operator answers one question at a time, as it was asked: a
-            # Planner that comes back while one waits neither adds a card nor
-            # rewords the open one. Their answer is new input that calls it again.
-            if any(str(row.pending_question or "").strip() for row in self.memory.backlog.active()):
+            # One open question per planning slot, kept as it was asked: a
+            # Planner that comes back while it waits neither adds a card nor
+            # rewords it. Their answer is new input that calls it again; a
+            # question another task waits on is that task's, not this one.
+            if any(
+                "operator_decision" in row.tags and str(row.pending_question or "").strip()
+                for row in self.memory.backlog.active()
+            ):
                 return False
             from ...core.operator_messages import brief_title
             from ..memory import BacklogItem

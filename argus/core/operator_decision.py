@@ -185,8 +185,8 @@ def build_operator_decision(
     return card
 
 
-def operator_answers(rows: Iterable[Any], *, limit: int = 3) -> list[str]:
-    """The latest answers on resolved question cards, oldest first, as ``question → answer (who)``.
+def operator_answers(rows: Iterable[Any], *, since: float = 0.0) -> list[str]:
+    """Answers on question cards asked from ``since`` on, oldest first, as ``question → answer (who)``.
 
     An objective is written before the questions it raises, so a role that
     judges against the objective reads these beside it: an answer is the
@@ -197,6 +197,7 @@ def operator_answers(rows: Iterable[Any], *, limit: int = 3) -> list[str]:
             card for row in rows
             if isinstance(card := getattr(row, "operator_decision", None), Mapping)
             and card.get("status") == "resolved"
+            and float(card.get("asked_at") or 0) >= since
         ),
         key=lambda card: float(card.get("asked_at") or 0),
     )
@@ -207,7 +208,7 @@ def operator_answers(rows: Iterable[Any], *, limit: int = 3) -> list[str]:
         if question and answer:
             who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
             answers.append(f"{question} → {answer} ({who})")
-    return answers[-limit:]
+    return answers
 
 
 def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -> str:
