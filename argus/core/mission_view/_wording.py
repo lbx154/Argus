@@ -477,6 +477,45 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "I'll pick it up when you say continue.",
         "已暂停，正在停下手上的事。做到的部分都保存了，你说继续我再接着做。",
     ),
+    # The first reply to a task the operator hands over.
+    "ack_plan_awaits_start": (
+        "The plan is ready, but nothing has started. Check what I understood and "
+        "the plan in the card above; work starts when you press Start.",
+        "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。",
+    ),
+    "ack_needs_your_call": ("Before I start, I need your call:\n{question}", "开始之前需要你定一下：\n{question}"),
+    "ack_waits_for_slot": (
+        "Got it. Everything that can run at once is busy; this starts as soon "
+        "as a slot frees up, no need to resend.",
+        "记下了。现在同时在做的事已经满了，空出来就开始，不用重发。",
+    ),
+    "ack_checking_start": (
+        "Got it. Checking whether it can start; I'll let you know.",
+        "记下了，正在确认能不能开始，稍后告诉你。",
+    ),
+    "ack_start_failed": (
+        "Saved, but the work couldn't start. Your request is kept; see the "
+        "startup details for why, or try again later.",
+        "记下了，但没能开始工作。你的要求已经保存，可以点“启动详情”看原因，或者稍后再试。",
+    ),
+    "ack_already_asked": (
+        "You already asked for this ({state}); I didn't add it again.",
+        "这件事之前已经交代过了（{state}），没有再加一遍。",
+    ),
+    "asked_pending": ("not started yet", "还没开始"),
+    "asked_running": ("in progress", "正在做"),
+    "asked_done": ("done", "已经做完"),
+    "asked_parked": ("paused", "暂停着"),
+    "asked_failed": ("it didn't succeed last time", "上次没做成"),
+    "asked_saved": ("saved", "已经记下"),
+    "ack_after_current": ("Got it. This starts once the current work is done.", "收到，等手头这项做完就开始。"),
+    "ack_picked_up": ("Got it, it's been picked up.", "收到，已经接手了。"),
+    "ack_goal_updated": ("Goal updated; working out the next step.", "目标已更新，正在安排下一步。"),
+    "ack_starting": ("Got it, starting now.", "收到，马上开始。"),
+    "ack_not_recorded": (
+        "The task is saved; only this confirmation couldn't be recorded.",
+        "任务已经记下了，只是这条确认没能保存。",
+    ),
     # Replies to the operator's answer to a question.
     "answer_taken": ("Got it, carrying on with your choice.", "收到，按你定的继续做。"),
     "answer_already_taken": ("I already have this decision.", "这个决定之前已经收到了。"),
