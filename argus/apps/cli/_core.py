@@ -1358,10 +1358,10 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     Clearing ``pending_question`` and resuming the same item is NOT enough,
     and looks like it is: the mission runs again, re-reads the objective that
     made it ask, and asks the identical question. One live campaign burned
-    five attempts that way, answered every time. ``continue_with_operator_reply``
-    is the path the cockpit uses — it enqueues a CONTINUATION whose objective
-    carries the answer as authority over the inherited one, so the next round
-    reads what it was told instead of the question it already asked.
+    five attempts that way, answered every time. ``resume_with_operator_reply``
+    is the path the cockpit uses — the resumed task's objective carries the
+    answer as authority over the one it asked under, so the next round reads
+    what it was told instead of the question it already asked.
     """
     answer = (getattr(args, "answer", "") or "").strip()
     if not answer:
@@ -1447,20 +1447,20 @@ def _cmd_answer(args: argparse.Namespace) -> int:
             sys.stdout.write(f"  result: {reply}\n")
         return 0
 
-    blocked, continuation = backlog.continue_with_operator_reply(
+    resumed, answered = backlog.resume_with_operator_reply(
         item.id, answer, manager_decision=answer
     )
-    if blocked is None:
+    if resumed is None:
         sys.stderr.write(f"argus: {item.id} is no longer in the backlog\n")
         return 1
-    if continuation is None:
+    if not answered:
         sys.stderr.write(f"argus: {item.id} is no longer waiting on an answer\n")
         return 1
     sys.stdout.write(f"argus: answered {item.id} ({item.title})\n")
     if question:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
-    sys.stdout.write(f"  continues as: {continuation.id} ({continuation.status})\n")
+    sys.stdout.write(f"  resumes: {resumed.id} ({resumed.status})\n")
     from ...webapi.manager_pending_question import campaign_stop_reason
 
     if campaign_stop_reason(bundle.project.root):

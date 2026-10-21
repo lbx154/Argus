@@ -193,6 +193,27 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     assert record["trigger"]["consult_reason"] == "the Engineer handed the work to you"
 
 
+@pytest.mark.parametrize(("event", "planned"), [
+    ({**_review(2, status="blocked", review_source="engineer_handoff"),
+      "consult_reason": "the Engineer handed the work to you"}, True),
+    ({**_REMARK, "stall_reason": "observer", "consult_reason": "the Observer says the Planner spins"}, False),
+])
+def test_only_a_steer_not_prompted_by_the_observer_reaches_the_planner(tmp_path, event, planned):
+    """2026-10-20: Observer remark, Manager steer, Planner turn, remark again, four
+    times over, each remark worded anew. A remark never moves the baton."""
+    from argus.manager.directive import load_active_manager_directive
+
+    write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
+    Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
+    backend = _Backend("ACTION: steer\nREASON: Plan the grouping repair apart.\n"
+                       "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Split the repair into two tasks.\n→ planner")
+    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+
+    assert record["status"] == "applied" and record["decision"]["handoff"] == "planner"
+    directive = load_active_manager_directive(tmp_path)
+    assert bool(directive.planner_revision) is planned
+
+
 def test_engineer_phase_starts_no_longer_trigger_a_check(admitted):
     assert admitted({"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 3}) is None
 
@@ -220,6 +241,12 @@ def test_replies_in_the_shapes_models_actually_wrote_are_read(text, action):
     assert decision["cited_refs"] == ["handoffs/a/round-0001.json", "handoffs/a/frontier.json"]
     if action == "steer":
         assert decision["directive"]
+
+
+def test_a_steer_names_the_planner_only_when_it_needs_new_planning():
+    steer = "ACTION: steer\nREASON: char_count runs on its own.\nEVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Keep A/B parked."
+    assert supervision._decision(steer)["handoff"] == ""
+    assert supervision._decision(steer + "\n→ planner")["handoff"] == "planner"
 
 
 R = "EVIDENCE_REFS: backlog.jsonl"

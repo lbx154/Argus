@@ -1,4 +1,4 @@
-"""What the Observer is told each time it looks, in a fresh session."""
+"""What the Observer is told when it looks: everything at a task's first look, then only what is new."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -9,20 +9,33 @@ from typing import Any, Sequence
 def _turn_line(turn: dict[str, Any]) -> str:
     finished = datetime.fromtimestamp(turn["ts"]).astimezone().isoformat(timespec="seconds")
     task = f"on task `{turn['item_id']}`" if turn["item_id"] else "planning for the whole project"
-    still = "; then the team went still: nothing runs and the Planner was not called" if turn.get("still") else ""
-    return f"- the {turn['role'].capitalize()}, {task}, at {finished} (ts {turn['ts']:.0f}){still}"
+    return f"- the {turn['role'].capitalize()}, {task}, at {finished} (ts {turn['ts']:.0f})"
 
 
 def build_observer_prompt(
     *, root: Path, turns: Sequence[dict[str, Any]], said: Sequence[str], chinese: bool,
+    since: float = 0.0,
 ) -> str:
+    """The first look at a task carries the whole brief; a resumed look, from ``since``, only what is new."""
     ended = "\n".join(map(_turn_line, turns))
     earlier = "\n".join(f"→ manager: {text}" for text in said) or "(none)"
+    if since:
+        return (
+            "## Another look\n"
+            f"These turns ended since your last look, which began at ts {int(since)}. Read only "
+            "the events from then on; the earlier ones are already in this conversation:\n"
+            f"{ended}\n"
+            f"Your earlier remarks:\n{earlier}\n"
+            f"Write a remark in {'Chinese' if chinese else 'English'}, the operator's language.\n"
+        )
     return (
         "## The Observer\n"
         "You are the Observer on an Argus team. You do what a person sitting beside the "
         "screen used to do: glance at how the work flows and speak up only when the flow is "
-        "off. Whether the work itself is right is the Reviewer's to judge, not yours. Look at:\n"
+        "off. Whether the work itself is right is the Reviewer's to judge, not yours: its "
+        "formal review is how a task is accepted, never a duplicate, and an Engineer's own "
+        "check or subagent review inside its turn does not replace it, so never suggest "
+        "skipping it. Look at:\n"
         "- who holds the baton and whom it passed to;\n"
         "- how long each turn took and what it cost;\n"
         "- going round in circles: the same role called again and again with nothing new;\n"

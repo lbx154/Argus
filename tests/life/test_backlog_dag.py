@@ -332,19 +332,12 @@ def test_next_pending_reconciles_dead_dependency_without_claim(tmp_path: Path) -
     assert failed.id in stored.last_error
 
 
-def test_operator_answer_rewires_pending_dependents(tmp_path: Path) -> None:
+def test_operator_answer_resumes_the_task_its_dependents_wait_on(tmp_path: Path) -> None:
     b = Backlog(tmp_path / "backlog.jsonl")
     blocked = BacklogItem.new(title="blocked", objective="choose a GPU")
-    blocked.status = "failed"
+    blocked.status = "parked"
     blocked.pending_question = "Which GPU?"
-    blocked.execution_workdir = "/private/framework"
-    blocked.authorization_id = "maintenance-auth"
-    blocked.authorization_action = "repair"
-    blocked.manager_decision = {
-        "routed": True,
-        "vertical": "software",
-        "workflow_mode": "staged",
-    }
+    blocked.manager_decision = {"vertical": "software"}
     b.add(blocked)
     downstream = b.add(
         BacklogItem.new(
@@ -354,22 +347,19 @@ def test_operator_answer_rewires_pending_dependents(tmp_path: Path) -> None:
         )
     )
 
-    original, continuation = b.continue_with_operator_reply(
+    resumed, answered = b.resume_with_operator_reply(
         blocked.id,
         "Use GPU 1",
         manager_decision="GPU 1 is authorized.",
     )
 
-    assert original is not None and continuation is not None
-    assert continuation.execution_workdir == "/private/framework"
-    assert continuation.authorization_id == "maintenance-auth"
-    assert continuation.authorization_action == "repair"
-    assert continuation.manager_decision == blocked.manager_decision
-    assert "review:required" in continuation.tags
+    assert answered and resumed.id == blocked.id
+    assert resumed.manager_decision == {"vertical": "software", "routed": True}
+    assert "review:required" in resumed.tags
     stored_downstream = next(item for item in b.all() if item.id == downstream.id)
-    assert stored_downstream.deps == [continuation.id]
-    assert b.claim_next().id == continuation.id
-    b.mark_done(continuation.id)
+    assert stored_downstream.deps == [blocked.id]
+    assert b.claim_next().id == blocked.id
+    b.mark_done(blocked.id)
     assert b.claim_next().id == downstream.id
 
 

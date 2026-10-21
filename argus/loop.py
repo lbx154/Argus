@@ -193,6 +193,7 @@ class SkillLoop(
         # library roots and use their own file tools; there is no matcher/router
         # decision layer and no runtime Skill mutation channel.
         self.skill_router = None
+        libraries = self.engineer_mission.libraries()
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
             reviewer=self.reviewer,
@@ -203,11 +204,13 @@ class SkillLoop(
                     self.config.resolved_initial_engineer_effort()
                 ),
                 extra_args=self.config.extra_args,
-                skill_paths=[
-                    str(path)
-                    for path in self.engineer_mission.libraries().native_paths
-                ],
-                add_dirs=self.config.read_dirs,
+                skill_paths=[str(path) for path in libraries.native_paths],
+                # A sandboxed backend reads only what it is given: the Skill
+                # libraries its prompt names are read where they lie.
+                add_dirs=list(dict.fromkeys([
+                    *(self.config.read_dirs or ()),
+                    *(str(path) for path in libraries.library_roots),
+                ])) or None,
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
                 dangerous_yolo=self.config.dangerous_yolo,

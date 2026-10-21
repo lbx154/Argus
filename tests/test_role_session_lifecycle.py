@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
@@ -330,7 +331,6 @@ def test_planner_session_survives_new_planner_instance(tmp_path: Path) -> None:
         model="model",
         working_dir=str(tmp_path),
         role_session_path=capsule_path,
-        objective_revision="generation-1",
     )
 
     Planner(backend).plan_next(
@@ -353,6 +353,50 @@ def test_planner_session_survives_new_planner_instance(tmp_path: Path) -> None:
     ]
     assert "## Continued Planner cycle" in planner_prompts[1]
     assert len(planner_prompts[1]) < len(planner_prompts[0])
+
+
+def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
+    tmp_path: Path,
+) -> None:
+    """2026-10-20: every Manager WAIT or steer advanced the campaign generation,
+    which was part of the Planner session's identity, so each Planner turn
+    opened a new session ("rotated") and paid for its whole context again."""
+    from argus.daemon.state import write_continuous_config
+    from argus.life.event_log import JsonlEventSink
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+
+    life = tmp_path / "life"
+    memory = LifeMemory.open(life)
+    write_continuous_config(life, enabled=True, objective="pick A or B, then change truncate")
+    supervisor = LifeSupervisor(
+        memory=memory, runner=object(), planner_runner=object(),
+        sink=JsonlEventSink(None, life_dir=memory.root),
+        config=LifeSupervisorConfig(
+            continuous=True, continuous_objective="pick A or B, then change truncate",
+            project_worktree=tmp_path, artifact_root=tmp_path,
+        ),
+    )
+    backend = _resumable()
+    for cycle in range(2):
+        backend.queue(
+            f"planner.cycle{cycle}",
+            CannedResponse(message="PROJECT_DONE=false\nREASON=waiting\n→ operator: A or B?", thread_id="p1"),
+        )
+    events: list[dict] = []
+    for cycle in range(2):
+        # A Manager WAIT or steer reserves the campaign: a new generation, same objective.
+        write_continuous_config(life, enabled=True, objective="pick A or B, then change truncate")
+        Planner(backend).plan_next(
+            continuous_objective="pick A or B, then change truncate",
+            planning_cycle=cycle,
+            config=replace(supervisor._planner_config(), on_event=events.append),
+        )
+
+    assert [thread for label, thread in backend.resume_history] == [None, "p1"]
+    assert [event["action"] for event in events if event["type"] == "role.session.turn"] == [
+        "fresh", "resumed",
+    ]
 
 
 def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Path) -> None:

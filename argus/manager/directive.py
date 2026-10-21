@@ -33,6 +33,9 @@ class ActiveManagerDirective:
     set_at: float
     version: int = _DIRECTIVE_VERSION
     authorized_objective: str = ""
+    # The newest directive handed to the Planner: this one when it is, else
+    # the one it replaced. Only a new one of those asks the Planner again.
+    planner_revision: str = ""
 
 
 def _directive_path(state_root: Path | str) -> Path:
@@ -347,22 +350,32 @@ def set_active_manager_directive(
     source: str = "manager.steer",
     authorized_objective: str = "",
     scope_objective: str | None = None,
+    for_planner: bool = True,
 ) -> ActiveManagerDirective:
     """Replace the active directive atomically."""
     normalized = str(text or "").strip()
     if not normalized:
         raise ValueError("manager directive must not be empty")
+    objective = (
+        _current_objective(state_root)
+        if scope_objective is None
+        else str(scope_objective or "").strip()
+    )
+    revision = uuid.uuid4().hex
+    replaced = None if for_planner else load_active_manager_directive(
+        state_root, expected_objective=objective,
+    )
     record = ActiveManagerDirective(
         text=normalized,
         source=str(source or "").strip() or "manager",
-        objective=(
-            _current_objective(state_root)
-            if scope_objective is None
-            else str(scope_objective or "").strip()
-        ),
-        revision=uuid.uuid4().hex,
+        objective=objective,
+        revision=revision,
         set_at=time.time(),
         authorized_objective=str(authorized_objective or "").strip(),
+        planner_revision=(
+            revision if for_planner
+            else replaced.planner_revision if replaced is not None else ""
+        ),
     )
     path = _directive_path(state_root)
     temporary = path.with_name(
@@ -443,6 +456,10 @@ def load_active_manager_directive(
         set_at=set_at,
         authorized_objective=authorized_objective,
         version=version,
+        # A directive written before this field was always the Planner's too.
+        planner_revision=str(
+            payload.get("planner_revision", payload.get("revision")) or ""
+        ).strip(),
     )
 
 

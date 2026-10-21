@@ -297,7 +297,7 @@ def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
     assert rule.endswith("the Manager decides it.")
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     rule = engineer_operator_handoff_rule()
-    assert rule.endswith("that parks the task.")
+    assert rule.endswith("that parks the task until they answer.")
 
 
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:

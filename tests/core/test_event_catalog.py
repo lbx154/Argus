@@ -168,8 +168,6 @@ def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> Non
         "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
         "cycle": 0,
         "reason": "open-ended project_done unchanged since last planner run",
-        "consecutive_idle_cycles": 0,
-        "suggested_sleep_s": 30.0,
     })
     assert "event_validation" not in terminal_idle
 

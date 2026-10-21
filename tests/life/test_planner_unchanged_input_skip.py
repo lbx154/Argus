@@ -213,6 +213,108 @@ def test_a_manager_hold_wakes_the_planner_to_plan_the_next_step(
     assert [item.title for item in supervisor.memory.backlog.pending()] == ["Step 2: to_camel"]
 
 
+def test_work_the_manager_handed_to_an_engineer_is_not_planner_input_until_it_ends(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """2026-10-20: each task the Manager dispatched straight to an Engineer woke
+    the Planner as it started, and the Planner only said it was waiting."""
+    project = tmp_path / "project"
+    project.mkdir()
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    backlog = supervisor.memory.backlog
+
+    def direct(title: str, **fields) -> BacklogItem:
+        item = backlog.add(BacklogItem.new(title=title, objective=title, tags=["manager", "manager_direct"]))
+        backlog.update(item.id, **fields)
+        return item
+
+    choice = direct("Change truncate", park_reason="operator_question", pending_question="A or B?")
+    char_count = direct("Add char_count", status="running")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 0, "every live task is in an Engineer's or the operator's hands"
+
+    question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
+    backlog.update(question.id, park_reason="operator_question", pending_question="Which venue?")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1, "the Planner's own question is its input"
+
+    direct("Add word_count", status="running")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1, "another direct task starting is no news to the Planner"
+
+    backlog.update(char_count.id, status="done")
+    supervisor.sink.handle_event({
+        "type": "life.mission.completed", "item_id": char_count.id, "title": char_count.title,
+        "objective": char_count.objective, "success": True, "status": "done",
+        "summary": "char_count passes review.",
+    })
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 2, "a direct task that ended is"
+    assert choice.id in {item.id for item in backlog.active()}
+
+
+def test_a_manager_steer_wakes_the_planner_only_when_handed_to_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from argus.manager.directive import set_active_manager_directive
+
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, life)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    source = "manager.supervision:steer"
+
+    set_active_manager_directive(life, "Keep one formal review.", source=source, for_planner=False)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1, "a direction for the team is not the Planner's input"
+
+    set_active_manager_directive(life, "Split the benchmark by dataset.", source=source)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 2
+
+
+def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The 2026-10-20 loop: remark, steer, Planner turn, remark, four times over."""
+    from argus.core.event_catalog import EventType
+    from argus.core.models import RunnerResult
+    from argus.daemon.state import write_continuous_config
+    from argus.manager import Manager, supervision
+
+    class _Steers:
+        def fork(self):
+            return self
+
+        def run_exec(self, **_kwargs):
+            return RunnerResult(exit_code=0, agent_messages=[
+                "ACTION: steer\nREASON: The Planner keeps waking for nothing.\n"
+                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Stop re-planning unchanged work.\n→ planner"
+            ])
+
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    life.mkdir()
+    write_continuous_config(life, enabled=True, objective="keep improving the solver")
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, life)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    remark = {
+        "type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager",
+        "text": "the Planner woke again only to wait", "stall_reason": "observer",
+    }
+    supervisor.sink.handle_event(remark)
+    manager = Manager(life, runner=_Steers(), memory_maintenance_enabled=False)
+    assert supervision.supervise(manager, life, remark)["status"] == "applied"
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1
+
+
 def test_elapsed_time_alone_never_buys_a_planner_call(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -392,3 +494,16 @@ def test_an_old_waiting_contract_file_is_ignored(tmp_path: Path, monkeypatch) ->
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 1
+
+
+def test_an_open_question_stays_as_asked_and_gets_no_second_card(tmp_path: Path) -> None:
+    """2026-10-20: every Planner turn reworded its open A-or-B question, each
+    vaguer than the last, beside the task already waiting on that choice."""
+    supervisor = _supervisor(tmp_path / "project", tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    asked = backlog.add(BacklogItem.new(title="truncate", objective="pick A or B"))
+    backlog.update(asked.id, park_reason="operator_question", pending_question="Keep A or B?")
+
+    assert supervisor._park_planner_question(None, "Answer the A/B choice already asked.", "waiting") is False
+
+    assert [(row.id, row.pending_question) for row in backlog.active()] == [(asked.id, "Keep A or B?")]

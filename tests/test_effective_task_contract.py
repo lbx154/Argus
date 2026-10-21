@@ -23,7 +23,7 @@ def test_effective_task_contract_is_compact() -> None:
     assert 'operator>objective>mission>preregistration' in contract
     assert "preregistration" in contract
     assert "not substitutes" in contract
-    assert "ambiguous_objective" in contract
+    assert "not yours to settle" in contract
     for ban in ("unrelated cleanup", "never unchanged work", "Limit output", "Git retries"):
         assert ban not in contract
 

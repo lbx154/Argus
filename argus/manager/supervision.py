@@ -318,9 +318,14 @@ def _decision(text: str) -> dict[str, Any]:
     try:
         value = json.loads(text)
     except ValueError:
+        from ..core.role_handoff import read_baton_line
+
         fields = read_key_values(text, _DECISION_KEYS)
         fields.update(_bare_named_lines(text))
         value = {key.lower(): val for key, val in fields.items()}
+        handoff = read_baton_line(text)
+        if handoff is not None:
+            value["handoff"], value["question"] = handoff.holder, handoff.question
     if not isinstance(value, dict):
         raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
     if isinstance(text, str) and "decision" not in value:
@@ -400,6 +405,10 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
         raise SupervisionDecisionError("evidence_uncited", "Manager must cite the evidence used for its decision")
     return {"action": action, "reason": reason, "directive": directive,
+            # ``→ planner``: the directive is new planning, so the Planner is asked.
+            "handoff": str(value.get("handoff") or ""),
+            # ``→ operator: <question>``: the task handed here waits on their answer.
+            "question": str(value.get("question") or ""),
             "cited_refs": list(dict.fromkeys(refs)),
             "consultation_id": str(value.get("consultation_id") or "")[:128],
             "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
@@ -454,6 +463,12 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
             "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
             if holds else ""
         )
+        + "Add a last line `→ planner` only when a STEER needs new planning (tasks to add, "
+        "retire or replace); otherwise whoever holds the work reads it at their next boundary.\n"
+        + ("" if holds else (
+            "When work handed to you waits on a choice only the operator can make, make that "
+            "last line `→ operator: <one question>` instead: the task then waits on their answer.\n"
+        ))
         + "\n"
         + observation.render()
     )
@@ -536,6 +551,48 @@ def _apply_risk_decision(
         effects["residual_risk_basis_source"] = basis_source or "task"
 
 
+def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
+    """Park the task handed to the Manager on the operator's answer, on its question card.
+
+    A task still settling is delivered to at the next boundary; the question
+    the card already holds is not asked twice.
+    """
+    from ..core.operator_decision import build_operator_decision
+    from ..life.event_log import JsonlEventSink
+    from ..life.memory import Backlog
+    from ..life.supervisor.pending_notify import notify_pending_question
+
+    item_id = str(record.get("trigger", {}).get("item_id") or "")
+    backlog = Backlog(root / "backlog.jsonl")
+    task = next((row for row in backlog.active() if row.id == item_id), None) if item_id else None
+    if task is None:
+        raise SupervisionSuperseded("the task the question is about has ended")
+    if task.status == "running":
+        raise SupervisionBusy("the task the question is about is still settling")
+    if task.pending_question != question:
+        card = build_operator_decision(
+            item_id=task.id, title=task.title, reason=record["decision"]["reason"],
+            question=question, project_id=root.name, previous_decision=task.operator_decision,
+        )
+        task = backlog.update(
+            task.id, park_reason="operator_question", pending_question=question, operator_decision=card,
+        ) or task
+        notify_pending_question(root, task)
+        JsonlEventSink(None, life_dir=root).append({
+            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": task.id,
+            "title": task.title, "question": question, "agent_layer": "manager",
+        })
+    return task.id
+
+
+#: Who put the work in the Manager's hands, by the source of the round's record.
+HANDED_TO_MANAGER = {
+    "engineer_handoff": "the Engineer handed the work to you",
+    "reviewer": "the Reviewer handed the work to you",
+    "unchanged_return": "the work came back unchanged and climbed to you",
+}
+
+
 def _apply(
     root: Path, event: dict[str, Any], record: dict[str, Any],
     *, cancelled: Callable[[], bool],
@@ -566,11 +623,13 @@ def _apply(
             # Work that moved on while the Manager decided does not void its
             # decision; voided, the decision was lost and nobody asked again.
             record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
-            if decision["action"] == "wait" and not any(
+            if decision["action"] == "wait" and not decision.get("question") and not any(
                 item.get("pending_question") for item in observation.facts["tasks"]
             ):
                 raise SupervisionSuperseded("operator question no longer waits")
             effects = record.setdefault("effects", {"supervision_id": record["id"]})
+            if decision.get("question"):
+                effects["question_item_id"] = _put_to_operator(root, record, decision["question"])
             if decision["action"] == "continue":
                 effects["effect"] = "current course retained"
                 _apply_risk_decision(root, record, event, observation, effects)
@@ -615,6 +674,10 @@ def _apply(
                     directive = set_active_manager_directive(
                         root, decision["directive"], source=source,
                         scope_objective=observation.continuous.objective,
+                        # An Observer's remark never moves the baton, so a steer
+                        # it prompted is read by the team, never handed to the Planner.
+                        for_planner=decision.get("handoff") == "planner"
+                        and record["trigger"].get("type") != EventType.LIFE_OBSERVER_NOTE,
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)
@@ -799,7 +862,7 @@ def supervise(
                     raise RuntimeError("Manager supervision was interrupted or failed")
                 failure_stage = "decision"
                 decision = _decision(extract_answer(result))
-                if decision["action"] == "wait" and _manager_holds_operator_authority(root):
+                if (decision["action"] == "wait" or decision["question"]) and _manager_holds_operator_authority(root):
                     raise SupervisionDecisionError(
                         "wait_unavailable", "the operator cannot be asked, so nothing waits on them",
                     )
@@ -948,11 +1011,7 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     if changed:
         return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
                 "its verdict stands as written: decide whether this review counts")
-    handed = {
-        "engineer_handoff": "the Engineer handed the work to you",
-        "reviewer": "the Reviewer handed the work to you",
-        "unchanged_return": "the work came back unchanged and climbed to you",
-    }.get(str(event.get("review_source") or ""))
+    handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (
         handed and event.get("status") == "blocked"
         and not event.get("operator_question") and not event.get("review_skipped")
@@ -1088,4 +1147,4 @@ def start_supervision(root: Path | str | None = None) -> None:
             _STOPPED_ROOTS.discard(str(Path(root).resolve()))
 
 
-__all__ = ["supervise", "schedule_supervision", "recover_issued_supervision", "waiting_for_evidence", "mission_wait_reason", "shutdown_supervision", "start_supervision", "SupervisionSink"]
+__all__ = ["HANDED_TO_MANAGER", "supervise", "schedule_supervision", "recover_issued_supervision", "waiting_for_evidence", "mission_wait_reason", "shutdown_supervision", "start_supervision", "SupervisionSink"]

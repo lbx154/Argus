@@ -89,12 +89,26 @@ class _StageDecisionMixin:
     # ------------------------------------------------------------------
 
     def _stage_operator_context(self) -> str:
+        """What the operator has said, with the answers they gave since the objective was written."""
         from ..core.operator_context import build_operator_context_block
+        from ..core.operator_decision import operator_answers
+        from ..life.memory import Backlog
 
-        context, _revision = build_operator_context_block(
-            "manager", self.manager_session_root, consume_once=False,
-        )
-        return context
+        root = Path(self.manager_session_root)
+        context, _revision = build_operator_context_block("manager", root, consume_once=False)
+        try:
+            backlog = root / "backlog.jsonl"
+            answers = operator_answers(Backlog(backlog).history()) if backlog.is_file() else []
+        except Exception:  # noqa: BLE001 - context only; the decision stands without it
+            answers = []
+        if not answers:
+            return context
+        return "\n\n".join(part for part in (
+            context,
+            "## The operator's answers since the objective\n"
+            "Wherever the objective says otherwise, these are the later word.\n"
+            + "".join(f"- {answer}\n" for answer in answers),
+        ) if part)
 
     def _stage_context_facts(self, root: Path) -> dict[str, Any]:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""

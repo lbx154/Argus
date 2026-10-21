@@ -663,6 +663,8 @@ class MissionExecutionSettlementMixin:
         def fail(*, error: str, outcome: dict[str, Any]) -> None:
             commit(status="failed", finished_ts=time.time(), last_error=error, outcome=outcome)
 
+        from ...manager.supervision import HANDED_TO_MANAGER
+
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if status == "stage_continues":
@@ -762,8 +764,7 @@ class MissionExecutionSettlementMixin:
             # Status and the authority-bearing question must reach disk in one
             # backlog transaction. Keep the row nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
-            # operator is deciding; the answer transaction terminalizes it and
-            # rewires those dependencies to the continuation atomically.
+            # operator is deciding; their answer resumes this same row.
             commit(
                 park_reason="operator_question",
                 finished_ts=time.time(),
@@ -778,6 +779,29 @@ class MissionExecutionSettlementMixin:
             item.pending_question = operator_question
             item.operator_decision = decision_card
             notify_pending_question(self.memory.root, item)
+        elif status == "blocked" and str(
+            getattr(outcome, "final_review_source", "") or ""
+        ) in HANDED_TO_MANAGER:
+            # Handed to the Manager, who holds it now: it parks where a Manager
+            # stop leaves work, for the Manager to put to the operator, the
+            # Planner to retire or the operator to resume.
+            status, state.park_reason = "parked", "research_open"
+            resumable = True
+            outcome_dimensions = mission_outcome_dimensions(
+                status=status,
+                success=False,
+                review_status=final_review_status,
+                stage_transition=stage_transition,
+                stop_kind=state.stop_kind,
+                resumable=True,
+                park_reason=state.park_reason,
+            )
+            commit(
+                park_reason=state.park_reason,
+                finished_ts=time.time(),
+                last_error=err,
+                outcome=outcome_dimensions,
+            )
         elif stage_reconciled_replan:
             fail(
                 error=(

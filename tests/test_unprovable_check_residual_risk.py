@@ -399,12 +399,12 @@ def test_the_operator_answer_to_the_reviewer_question_reaches_the_next_mission(t
     )
     backlog.add(item)
     accept = item.operator_decision["options"][0]["id"]
-    _blocked, continuation = backlog.continue_with_operator_reply(
+    _resumed, answered = backlog.resume_with_operator_reply(
         item.id, selected_decision_text(item.operator_decision, accept, ""),
         decision_option=accept, decision_id=item.operator_decision["id"],
     )
-    assert continuation is not None
-    cards = operator_risk_decisions(tmp_path, continuation.id)
+    assert answered
+    cards = operator_risk_decisions(tmp_path, item.id)
     assert [card["selected_option"] for card in cards] == [accept]
     assert operator_risk_decisions(tmp_path, "another-item") == []
     actions = ReviewActions(grounding=_grounding(operator=True, operator_decisions=tuple(cards)))

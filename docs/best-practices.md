@@ -128,7 +128,7 @@ interchangeable, because they enter at different points of the loop.
 | Hold guidance until a later stage | `argus --notify "text" --notify-stage paper` | | | same, delivered only when the project reaches that stage (aliases such as `draft` are canonicalized; unknown stages are refused) |
 | Change the direction of the current task, pause or abort | (type it) | type it, or `/abort` | `POST /api/projects/{sid}/message` | the Manager classifies the message: `STEER` records a new direction for the active task, `PAUSE` stops the campaign, `ABORT` ends the task, `NO_DISPATCH` stops new work |
 | Set a rule for the whole project | (type it) | type it | `POST .../message` | text that sounds standing ("always", "never", "from now on", "do not ask") is stored as a project-wide directive; other amendments are scoped to the current task |
-| Answer a question the task stopped on | `argus --answer "text"` (`--answer-item ID` if several wait) | answer in the pending-question prompt | `POST /api/projects/{sid}/backlog/{item_id}/answer` | the paused task is replaced by a continuation whose objective carries your answer as authority, and the worker is restarted if needed |
+| Answer a question the task stopped on | `argus --answer "text"` (`--answer-item ID` if several wait) | answer in the pending-question prompt | `POST /api/projects/{sid}/backlog/{item_id}/answer` | the paused task resumes with your answer in its objective as authority, and the worker is restarted if needed |
 | Ask something without touching the run | `argus --ask "question"` | `/ask question` | `route_override: "chat"` on `/message` | the Manager answers from project state; nothing is queued |
 
 Stage-qualified notifications use the selected session's persisted vertical,
@@ -145,11 +145,11 @@ cite X"; it is the wrong tool for "stop".
 
 Why `--answer` is not a nudge: a task that stopped to ask a question is
 `paused` until the question is answered. Clearing the question and resuming
-the same task looks like it works but does not: the task re-reads the
+the task as it was looks like it works but does not: the task re-reads the
 objective that made it ask and asks again (the code comment on `--answer`
 records a campaign that burned five attempts that way). The answer path
-therefore enqueues a continuation whose objective states your answer, so the
-next round reads what it was told.
+therefore resumes the same task with your answer written into its objective,
+so the next round reads what it was told.
 
 Why a typed message is classified rather than obeyed literally: the same box
 carries greetings, questions, new tasks, settings changes and controls. The

@@ -248,6 +248,7 @@
     {
       "event": {
         "agent_layer": "observer",
+        "item_id": "task-1",
         "operator_alert": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
@@ -1318,7 +1319,6 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "stage": "implementation",
-        "suggested_sleep_s": 1.25,
         "ts": 1700000077,
         "type": "life.manager.feedback.exhausted"
       },
@@ -1494,13 +1494,11 @@
     {
       "event": {
         "consecutive_failures": 1,
-        "consecutive_idle_cycles": 1,
         "cycle": 1,
         "handoff": "handoff",
         "model_call_skipped": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "suggested_sleep_s": 1.25,
         "ts": 1700000091,
         "type": "life.planner.idle"
       },
@@ -1508,11 +1506,9 @@
     },
     {
       "event": {
-        "consecutive_idle_cycles": 1,
         "cycle": 1,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "suggested_sleep_s": 1.25,
         "ts": 1700000092,
         "type": "life.planner.terminal_idle"
       },
@@ -1615,7 +1611,6 @@
         "cycle": 1,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "suggested_sleep_s": 1.25,
         "ts": 1700000101,
         "type": "life.planner.continuation_required"
       },
@@ -1653,7 +1648,6 @@
         "diagnostic": "removed duplicate planner task",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "suggested_sleep_s": 1.25,
         "ts": 1700000104,
         "type": "life.planner.completion_circuit_holding"
       },

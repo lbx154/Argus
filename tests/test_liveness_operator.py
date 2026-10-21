@@ -255,9 +255,8 @@ def test_agent_option_named_drop_keeps_its_ordinary_meaning(tmp_path: Path) -> N
     )
 
     assert result["resolved"] is True and "dropped" not in result
-    rows = LifeMemory.open(life).backlog.history()
-    continuation = next(row for row in rows if row.id != item.id)
-    assert "Remove the 3 outlier rows." in continuation.objective
+    (resumed,) = LifeMemory.open(life).backlog.history()
+    assert "Remove the 3 outlier rows." in resumed.objective
 
 
 @pytest.mark.parametrize(
@@ -394,10 +393,10 @@ def _campaign_left_by(life: Path, how: str) -> None:
         write_continuous_config(life, enabled=True, objective="keep optimizing")
 
 
-def _continuation(life: Path, answered: BacklogItem) -> BacklogItem:
-    return next(
-        row for row in LifeMemory.open(life).backlog.history() if row.id != answered.id
-    )
+def _resumed(life: Path, answered: BacklogItem) -> BacklogItem:
+    (row,) = LifeMemory.open(life).backlog.history()
+    assert row.id == answered.id and row.status == "pending"
+    return row
 
 
 @pytest.mark.parametrize("answer_via", ["card", "text"])
@@ -425,7 +424,7 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
     # The routes start a worker only on resume_requested.
     assert result["resume_requested"] is False and "continuous" not in result
     assert "stays stopped" in result["reply"]
-    assert "Take the short route." in _continuation(life, item).objective
+    assert "Take the short route." in _resumed(life, item).objective
     campaign = read_continuous_state(life)
     assert campaign.enabled is False and campaign.done_reason == "operator pause"
     if answer_via == "card":
@@ -433,6 +432,28 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
         assert replay["application_status"] == "already_applied"
         assert replay["resume_requested"] is False
         assert read_continuous_state(life).enabled is False
+
+
+@pytest.mark.parametrize(
+    ("answer", "reply"),
+    [
+        ("走近路。", "已把你的决定交给团队。在你恢复之前，这轮工作保持停止。"),
+        ("Take the short route.", "I delivered your decision to the team. The campaign stays stopped until you resume it."),
+    ],
+)
+def test_an_answer_is_acknowledged_in_the_operator_s_language(
+    tmp_path: Path, answer: str, reply: str,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "pause")
+    item = _park(life, "route", "Which route?")
+
+    result = manager_pending_question.manager_answer_pending_question(
+        sid, item.id, answer, global_root=tmp_path,
+    )
+
+    assert result["reply"] == reply
 
 
 def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:
@@ -473,7 +494,7 @@ def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
     assert result["kind"] == "pending_question" and result["resolved"] is True
     assert result["resume_requested"] is False
     assert "stays stopped" in result["reply"]
-    assert "Take the short route." in _continuation(life, item).objective
+    assert "Take the short route." in _resumed(life, item).objective
     assert read_continuous_state(life).enabled is False
 
 
@@ -491,7 +512,7 @@ def test_cli_answer_reaches_its_task_and_starts_no_worker(
     )
 
     assert code == 0
-    assert "Take the short route." in _continuation(life, item).objective
+    assert "Take the short route." in _resumed(life, item).objective
     assert started == []
     assert ("still stopped" in capsys.readouterr().out) is (how == "pause")
     if how == "pause":
@@ -507,15 +528,15 @@ def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
     item = _provider_card_item(life)
     decision_id = item.operator_decision["id"]
     # The web drop validated this snapshot; a CLI free-text answer then
-    # resolved the same card and enqueued its continuation.
+    # resolved the same card and resumed its task.
     stale_snapshot = next(
         row for row in LifeMemory.open(life).backlog.history() if row.id == item.id
     )
-    _blocked, continuation = Backlog(life / "backlog.jsonl").continue_with_operator_reply(
+    _resumed_row, resumed = Backlog(life / "backlog.jsonl").resume_with_operator_reply(
         item.id, "Resume; the model name is fixed.",
         manager_decision="Resume; the model name is fixed.",
     )
-    assert continuation is not None
+    assert resumed
 
     result = manager_pending_question._drop_decision_item(
         SimpleNamespace(project_root=life, backlog=LifeMemory.open(life).backlog),
@@ -526,11 +547,10 @@ def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
     assert not result.get("dropped")
     rows = {row.id: row for row in LifeMemory.open(life).backlog.history()}
     answered = rows[item.id]
-    assert answered.status == "failed"  # the continuation's transaction, intact
+    assert answered.status == "pending"  # the answer's transaction, intact
     assert answered.operator_decision["status"] == "resolved"
     assert answered.operator_decision["selected_option"] == "custom"
-    assert answered.operator_decision["continuation_item_id"] == continuation.id
-    assert rows[continuation.id].status == "pending"
+    assert answered.operator_decision["continuation_item_id"] == item.id
 
 
 # ---------------------------------------------------------------------------
@@ -689,11 +709,9 @@ def test_manager_answer_continues_an_agent_card_in_its_own_name(
 
     assert supervisor._decide_parked_questions() is True
 
-    rows = LifeMemory.open(life).backlog.history()
-    continuation = next(row for row in rows if row.id != item.id)
     assert (
         "Manager decision in the operator's place:\nTake the shorter route."
-        in continuation.objective
+        in _resumed(life, item).objective
     )
     # Nothing was recorded as the operator's own input.
     assert OperatorContextStore(life).revision == revision

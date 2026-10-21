@@ -745,13 +745,11 @@ class IdleCycleMixin:
             self._last_open_ended_project_done_signature = ""
             return None
 
-        sleep_s = self._enter_idle_backoff()
+        self._enter_idle_backoff()
         self._emit({
             "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
             "cycle": self._planning_cycles,
             "reason": "open-ended certified terminal state unchanged since last planner verdict",
-            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-            "suggested_sleep_s": sleep_s,
         })
         self._emit_status(
             "planner: certified terminal state unchanged; standing objective remains "

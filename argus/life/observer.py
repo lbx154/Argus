@@ -8,13 +8,16 @@ the task. Whether the work itself is right is the Reviewer's to judge; the
 Observer only watches whether the work flows.
 
 The Observer is that person as a role, on the same backends as the others.
-Whenever the Engineer, Reviewer or Planner ends a turn, and once whenever the
-team goes still, it reads how the task has flowed so far from ``events.jsonl``,
-with the Engineer's access and only the tools reading needs, in a fresh
-session each time. When all is well it
-says nothing and leaves no record of its own. A remark is one ``life.observer.note`` event for the
-Manager, who hears it through its supervision and decides what to do; with no
-Manager, or once the task is delivered, the operator gets it as an alert.
+Whenever the Engineer, Reviewer or Planner ends a turn, it reads how the task
+has flowed so far from ``events.jsonl``, with the Engineer's access and only
+the tools reading needs. Within a task it resumes its session and reads only
+the events added since its last look; the session ends with the task, and
+planning, which belongs to no task, is looked at afresh each time. A turn
+nobody took, such as a Planner call skipped on unchanged inputs, is not looked
+at. When all is well it says nothing and leaves no record of its own. A remark
+is one ``life.observer.note`` event, naming its task, for the Manager, who
+hears it through its supervision and decides what to do; with no Manager, or
+once the task is delivered, the operator gets it as an alert.
 """
 from __future__ import annotations
 
@@ -56,17 +59,6 @@ def _ended_turn(event: dict[str, Any]) -> dict[str, Any] | None:
     return {"role": role, "item_id": str(event.get("item_id") or ""), "ts": float(event.get("ts") or time.time())}
 
 
-def _went_still(event: dict[str, Any]) -> dict[str, Any] | None:
-    """The Planner's skipped turn as one to look at, or None.
-
-    A skipped Planner call is the last event a still team writes; without this
-    look nobody would see that nothing moves.
-    """
-    if event.get("type") != EventType.LIFE_PLANNER_IDLE or event.get("model_call_skipped") is not True:
-        return None
-    return {"role": "planner", "item_id": "", "ts": float(event.get("ts") or time.time()), "still": True}
-
-
 def _earlier_remarks(root: Path) -> list[str]:
     """The Observer's latest remarks, oldest first, read back from the event log."""
     from .memory import _read_jsonl_tail_history
@@ -86,29 +78,34 @@ def remarks(reply: str) -> list[str]:
     return [text for to, text in baton_lines(reply) if to == "manager" and text][-1:]
 
 
-def look(backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str) -> list[str]:
-    """One look at the flow up to the turns that just ended: a remark worth making, if any.
+def look(
+    backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str,
+    session: tuple[str, float] | None = None,
+) -> tuple[list[str], str]:
+    """One look at the flow up to the turns that just ended: remarks worth making, and its session.
 
-    Each look is a fresh session: the turns, where the events are, and the
-    remarks already made are all it needs. Raises when the call fails; the
-    caller then skips these turns.
+    ``session`` is the task's session so far, the thread and when its last
+    look began: the look resumes it and reads only the events since. Raises
+    when the call fails; the caller then skips these turns.
     """
     from ..core.mission_view import load_mission_view
     from ..roles.prompts.observer import build_observer_prompt
 
     said = _earlier_remarks(root)
+    thread, since = session or ("", 0.0)
     prompt = build_observer_prompt(
         root=root, turns=turns, said=said, chinese=load_mission_view(root).get("language") == "zh",
+        since=since,
     )
     result = run_exec(
-        backend, prompt=prompt, run_label=RUN_LABEL,
+        backend, prompt=prompt, run_label=RUN_LABEL, resume_thread_id=thread or None,
         options=RunnerOptions(
             model=model or None, reasoning_effort="low",
             working_dir=str(root), skip_git_repo_check=True,
             # The Engineer's access: full outside safe mode, full-auto inside it.
             full_auto=True,
             # It only reads the event log: tools for writing, agents and
-            # GitHub/web search stay out of each fresh session's requests.
+            # GitHub/web search stay out of its requests.
             lean_tool_surface=True,
             excluded_tools=(*READING_ROLE_UNUSED_COPILOT_TOOLS, "apply_patch"),
             disabled_mcp_servers=("github-mcp-server",),
@@ -117,17 +114,31 @@ def look(backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str) -
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
         raise RuntimeError(f"the Observer's call ended with exit code {getattr(result, 'exit_code', '?')}")
     reply = "\n".join(getattr(result, "agent_messages", None) or [])
-    return [remark for remark in remarks(reply) if remark not in said]
+    heard = [remark for remark in remarks(reply) if remark not in said]
+    return heard, str(getattr(result, "thread_id", "") or "")
+
+
+def _ended(root: Path, task: str) -> bool:
+    """Whether ``task`` has completed since it last started."""
+    from .memory import _read_jsonl_tail_history
+
+    bounds = (EventType.LIFE_MISSION_STARTED, EventType.LIFE_MISSION_COMPLETED)
+    last = _read_jsonl_tail_history(
+        root / "events.jsonl", 1,
+        raw_markers=tuple(bound.value.encode() for bound in bounds),
+        predicate=lambda row: row.get("type") in bounds and row.get("item_id") == task,
+    ) if task else []
+    return bool(last) and last[-1].get("type") == EventType.LIFE_MISSION_COMPLETED
 
 
 @dataclass
 class _Watch:
-    """One project's Observer: the turns waiting for a look, and the look under way."""
+    """One project's Observer: the turns waiting for a look, the look under way, and each task's session."""
 
     waiting: list[dict[str, Any]] = field(default_factory=list)
     looking: threading.Thread | None = None
-    # Looked at since the team last went still; a turn that ends clears it.
-    still: bool = False
+    #: Each running task's session: the thread and when its last look began.
+    sessions: dict[str, tuple[str, float]] = field(default_factory=dict)
 
 
 #: One Observer per project, however many supervisors run its missions.
@@ -171,18 +182,12 @@ class ObserverSink:
     def _wake(self, event: dict[str, Any]) -> None:
         backend = getattr(self.supervisor.runner, "reviewer_backend", None)
         turn = _ended_turn(event)
-        still = None if turn else _went_still(event)
-        if backend is None or not (turn or still):
+        if backend is None or turn is None:
             return
-        if still and any(item.status == "running" for item in self.supervisor.memory.backlog.active()):
-            return  # a role is still at work: the team is not still
         root = Path(self.supervisor._project_state_root()).resolve()
         with _GUARD:
             watch = _WATCHES.setdefault(str(root), _Watch())
-            if still and watch.still:
-                return  # looked at once already; the next turn that ends re-arms it
-            watch.still = bool(still)
-            watch.waiting.append(turn or still)
+            watch.waiting.append(turn)
             if watch.looking is not None and watch.looking.is_alive():
                 return
             watch.looking = threading.Thread(
@@ -197,9 +202,13 @@ class ObserverSink:
                 if not turns:
                     watch.looking = None
                     return
-            self._look(backend, root, turns)
+            for task in dict.fromkeys(turn["item_id"] for turn in turns):
+                self._look(backend, root, watch, task, [turn for turn in turns if turn["item_id"] == task])
 
-    def _look(self, backend: Any, root: Path, turns: list[dict[str, Any]]) -> None:
+    def _look(self, backend: Any, root: Path, watch: _Watch, task: str, turns: list[dict[str, Any]]) -> None:
+        # A look that fails leaves the next one to start afresh.
+        session = watch.sessions.pop(task, None)
+        began = time.time()
         quiet = None
         try:
             fork = backend.fork
@@ -211,7 +220,9 @@ class ObserverSink:
                     project_root=root,
                     global_root=root.parent.parent if root.parent.name == "projects" else None,
                 )
-            heard = look(quiet, root=root, turns=turns, model=_model(self.supervisor.reviewer_model))
+            heard, thread = look(
+                quiet, root=root, turns=turns, model=_model(self.supervisor.reviewer_model), session=session,
+            )
         except Exception:  # noqa: BLE001 - a failed look is skipped, not retried
             LOG.warning("the Observer could not look at the turns that ended", exc_info=True)
             return
@@ -219,24 +230,20 @@ class ObserverSink:
             close = getattr(quiet, "close_acp_clients", None)
             if callable(close):
                 close()
+        delivered = _ended(root, task)
+        if thread and task and not delivered:
+            watch.sessions[task] = (thread, began)
         for text in heard:
             try:
-                self._say(root, turns, text)
+                self._say(task, text, delivered)
             except Exception:  # noqa: BLE001 - an unsaid remark is not recorded as said
                 LOG.warning("the Observer's remark was not delivered", exc_info=True)
 
-    def _say(self, root: Path, turns: list[dict[str, Any]], text: str) -> None:
-        """One remark, as one event: for the Manager, else an alert for the operator."""
-        from .memory import _read_jsonl_tail_history
-
-        tasks = {turn["item_id"] for turn in turns if turn["item_id"]}
-        delivered = tasks and _read_jsonl_tail_history(
-            root / "events.jsonl", 1,
-            raw_markers=(EventType.LIFE_MISSION_COMPLETED.value.encode(),),
-            predicate=lambda row: row.get("type") == EventType.LIFE_MISSION_COMPLETED
-            and row.get("item_id") in tasks,
-        )
+    def _say(self, task: str, text: str, delivered: bool) -> None:
+        """One remark on ``task``, as one event: for the Manager, else an alert for the operator."""
         event: dict[str, Any] = {"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "text": text}
+        if task:
+            event["item_id"] = task
         if self.supervisor.manager is None or delivered:
             event.update(to="operator", operator_alert=True)
         else:

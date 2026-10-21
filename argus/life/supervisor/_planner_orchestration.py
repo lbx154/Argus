@@ -116,6 +116,9 @@ class PlannerOrchestrationMixin:
             for item in backlog_rows
             if str(getattr(item, "pending_question", "") or "").strip()
         ]
+        from ...core.operator_decision import operator_answers
+
+        answered = operator_answers(backlog_rows)
         backlog_counts: dict[str, int] = {}
         for item in backlog_rows:
             status = str(getattr(item, "status", "") or "unknown")
@@ -345,6 +348,14 @@ class PlannerOrchestrationMixin:
                     "version of the same question."
                     if awaiting
                     else "- awaiting_operator_answer: (none)"
+                ),
+                *(
+                    [
+                        "- operator_answers (their later word wherever the objective "
+                        "says otherwise): " + "; ".join(answered)
+                    ]
+                    if answered
+                    else []
                 ),
                 *self._operator_map_note_lines(),
                 f"- git_changed_paths ({len(changed_paths)}): {changed_preview}",

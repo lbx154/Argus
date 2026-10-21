@@ -52,7 +52,8 @@ _HANDOFF_RULE = (
     "→ reviewer\n"
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
     "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-    "`→ operator: <one question>`."
+    "`→ operator: <one question>`. The Reviewer you hand to with `→ reviewer` "
+    "does the independent review; do not start a review of your own."
 )
 
 
@@ -73,8 +74,9 @@ def engineer_operator_handoff_rule() -> str:
             "Manager decides it."
         )
     return (
-        "Use `→ operator: <question>` only for a real operator decision; that "
-        "parks the task."
+        "Use `→ operator: <question>` only for a real operator decision, such as "
+        "a choice between requirements of theirs that conflict; that parks the "
+        "task until they answer."
     )
 
 
@@ -295,7 +297,7 @@ def build_mission_prompt(
             RESEARCHER_VOICE + "\n\n"
             "## Engineer summary\n"
             "Return the material result and decisive check; Reviewer judges whether the work holds.\n\n"
-            + _HANDOFF_RULE
+            + _HANDOFF_RULE + " " + engineer_operator_handoff_rule()
         )
         if skill_text:
             sections.append(skill_text)
@@ -328,8 +330,7 @@ def build_mission_prompt(
         sections.append(learning_block)
     sections.append(
         "## Carrying context between rounds\n"
-        "CHECKPOINT.md carries your state from one round to the next. Host invokes "
-        "Reviewer only when required; do not spawn a Reviewer subagent. "
+        "CHECKPOINT.md carries your state from one round to the next. "
         + engineer_operator_handoff_rule()
         + "\n\n"
         + RESEARCHER_VOICE + "\n\n"

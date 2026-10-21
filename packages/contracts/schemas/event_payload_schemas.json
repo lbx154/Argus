@@ -741,6 +741,10 @@
           "type": "string",
           "const": "observer"
         },
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "to": {
           "type": "string",
           "enum": [
@@ -4050,16 +4054,8 @@
         "handoff": {
           "type": "string"
         },
-        "consecutive_idle_cycles": {
-          "type": "integer",
-          "minimum": 0
-        },
         "consecutive_failures": {
           "type": "integer",
-          "minimum": 0
-        },
-        "suggested_sleep_s": {
-          "type": "number",
           "minimum": 0
         },
         "model_call_skipped": {
@@ -4076,14 +4072,6 @@
         },
         "reason": {
           "type": "string"
-        },
-        "consecutive_idle_cycles": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "suggested_sleep_s": {
-          "type": "number",
-          "minimum": 0
         }
       }
     },
@@ -4774,10 +4762,6 @@
         "attempts": {
           "type": "integer",
           "minimum": 0
-        },
-        "suggested_sleep_s": {
-          "type": "number",
-          "minimum": 0
         }
       }
     },
@@ -4910,10 +4894,6 @@
         },
         "reason": {
           "type": "string"
-        },
-        "suggested_sleep_s": {
-          "type": "number",
-          "minimum": 0
         }
       }
     },
@@ -4981,10 +4961,6 @@
         },
         "consecutive_rejections": {
           "type": "integer",
-          "minimum": 0
-        },
-        "suggested_sleep_s": {
-          "type": "number",
           "minimum": 0
         }
       }

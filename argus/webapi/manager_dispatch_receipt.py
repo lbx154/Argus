@@ -34,6 +34,12 @@ def _dispatch_ack_text(
             f"The plan is ready and nothing has started yet{named}. Check what Argus understood "
             "in the card above; work starts only when you press Start."
         )
+    question = str(item.get("pending_question") or "").strip()
+    if question:
+        return (
+            f"开始之前需要你决定{named}\n{question}" if zh
+            else f"Your decision is needed before this starts{named}\n{question}"
+        )
     saved = "目标已更新" if dispatch_state == "planner_pending" else "任务已保存"
     saved_en = "The objective is saved" if dispatch_state == "planner_pending" else "The task is saved"
 
