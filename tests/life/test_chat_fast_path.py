@@ -312,8 +312,8 @@ def test_a_sandboxed_engineer_may_read_its_own_handoff_directory(tmp_path) -> No
         workflow_mode_override="direct",
     )
 
-    assert str(handoff.resolve()) in state.config.read_dirs
-    assert str(state_root.resolve()) not in state.config.read_dirs
+    assert str(handoff.resolve()) in state.config.add_dirs
+    assert str(state_root.resolve()) not in state.config.add_dirs
 
 
 # ---------- Manager SELF fast-path: runner unit tests ----------------------

@@ -99,8 +99,8 @@ class EngineerConfig:
     # State root that owns the pipeline stage used by the live-search gate.
     # Execution may happen in a separate workdir.
     vertical_state_root: Path | None = None
-    # Directories outside the workdir the Engineer may read: the libraries
-    # its recalled knowledge points at. A sandboxed backend reads nothing else.
+    # Directories outside the workdir the Engineer may read: Skill and recall
+    # libraries, the sources they cite, its handoffs. A sandbox reads no other.
     add_dirs: list[str] | None = None
     # ``dataclasses.replace`` reconstructs an instance by passing every init
     # field back to ``__init__``. Keeping provenance as a keyword-only init

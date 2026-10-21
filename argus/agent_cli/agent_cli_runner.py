@@ -134,6 +134,11 @@ class RunnerOptions:
     _training_environment: PrivateRunnerEnvironment | None = field(default=None, repr=False, compare=False)
     _output_schema_path: str | None = field(default=None, repr=False, compare=False)
 
+    def __post_init__(self) -> None:
+        # Callers concatenate what each concern needs; the CLI gets each once.
+        if self.add_dirs:
+            self.add_dirs = list(dict.fromkeys(self.add_dirs))
+
 
 class AgentCliRunner(
     RunExecMixin,

@@ -718,7 +718,7 @@ class SkillLoopExecuteMixin:
         # The Engineer's recalled knowledge, and this task's handoff directory
         # its prompt names (mission, latest handoff, checkpoint), lie outside
         # its workdir; a sandboxed backend reads them only when they are given.
-        config_kwargs["read_dirs"] = [
+        config_kwargs["add_dirs"] = [
             *knowledge_read_dirs(_project_state_dir, getattr(args, "global_root", None), workdir),
             *([str(Path(context_packet_path).expanduser().resolve().parent)] if context_packet_path else []),
         ] or None
