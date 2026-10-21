@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 
 def mission_state_root(supervised_config: Any) -> Path | None:
     """The project state directory the mission belongs to, if it has one."""
-    root = getattr(supervised_config, "operator_question_policy_root", None)
+    root = getattr(supervised_config, "state_root", None)
     if root:
         return Path(root)
     packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
@@ -70,6 +70,18 @@ def mission_state_root(supervised_config: Any) -> Path | None:
         if len(parents) >= 3:
             return parents[2]
     return None
+
+
+def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
+    from ..core.autonomy import operator_questions_can_be_asked
+
+    root = getattr(supervised_config, "state_root", None)
+    if root is not None:
+        return operator_questions_can_be_asked(root)
+    return (
+        bool(getattr(supervised_config, "operator_questions_allowed", True))
+        and operator_questions_can_be_asked()
+    )
 
 
 def _mission_packet(supervised_config: Any) -> dict[str, Any]:
@@ -177,10 +189,10 @@ def _active_manager_directive_for_reviewer(
 ) -> list[str]:
     """Load the Reviewer-trimmed projection from the one operator store."""
     candidates: list[Path] = []
-    if supervised_config.operator_question_policy_root is not None:
+    if supervised_config.state_root is not None:
         # An explicit source owns even an empty/revoked projection. The log
         # and packet paths only locate context for older callers without it.
-        candidates.append(Path(supervised_config.operator_question_policy_root))
+        candidates.append(Path(supervised_config.state_root))
     else:
         if supervised_config.engineer_log_path:
             candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
@@ -298,7 +310,6 @@ def mission_grounding(
     this mission; when it cannot, accepting a risk is the Manager's.
     """
     from ..core.residual_risk import active_residual_risks
-    from .round_settlement import _operator_questions_allowed
 
     contract = mission_contract(supervised_config)
     refs = tuple(

@@ -398,7 +398,7 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
     return sorted(roots)
 
 
-def _sibling_wikis_enabled() -> bool:
+def _sibling_libraries_enabled() -> bool:
     """Other projects' Wikis and Skills are read only on a single-operator host with learning on."""
     try:
         from ..core.knobs import learning_enabled, resolve_knob
@@ -811,7 +811,7 @@ def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | Non
         # What Argus knows about the operator comes first of all: the work
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
-        if workspace is not None and _sibling_wikis_enabled():
+        if workspace is not None and _sibling_libraries_enabled():
             roots.extend(_sibling_roots(global_root, state, workspace))
     return roots
 

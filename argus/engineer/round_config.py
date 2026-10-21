@@ -239,4 +239,4 @@ class SupervisedConfig:
         )
     )
     operator_questions_allowed: bool = True
-    operator_question_policy_root: Path | None = None
+    state_root: Path | None = None

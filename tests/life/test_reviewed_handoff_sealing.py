@@ -17,7 +17,7 @@ one, or the Engineer would certify its own stage transition.
 Citations:
 - argus/engineer/round_settlement.py — the seal
 - argus/life/context_packet.py — ``record_reviewed_handoff``
-- argus/engineer/round_self_review.py — the self-review ``_settle_round``
+- argus/engineer/round_routing.py — the self-review ``_settle_round``
   caller whose verdicts carry ``review_source="engineer_self_review"``
 """
 

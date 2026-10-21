@@ -229,7 +229,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     assert state.config.vertical_state_root == state_root
     assert state.config.require_independent_review is True
     assert state.config.operator_questions_allowed is False
-    assert state.config.operator_question_policy_root == state_root
+    assert state.config.state_root == state_root
     assert not (
         workdir / "research" / "DOMAINS" / "physical_archive_restoration.json"
     ).exists()

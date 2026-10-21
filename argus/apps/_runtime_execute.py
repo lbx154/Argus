@@ -725,11 +725,10 @@ class SkillLoopExecuteMixin:
         from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
-        operator_policy_root = (
+        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
+        config_kwargs["state_root"] = (
             Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
-        config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a

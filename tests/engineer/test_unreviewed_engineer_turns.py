@@ -29,7 +29,7 @@ def _changed_files(prompt: str) -> str:
 def _config(tmp_path: Path) -> SupervisedConfig:
     return SupervisedConfig(
         max_rounds=4, require_independent_review=True, session_id="m1",
-        operator_question_policy_root=tmp_path / "state",
+        state_root=tmp_path / "state",
     )
 
 

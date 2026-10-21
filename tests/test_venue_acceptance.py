@@ -379,7 +379,7 @@ def _final_review(paper: Path, state: Path):
     supervised.engineer_runner, supervised.engineer_config = engineer, EngineerConfig(model="stub")
     supervised.reviewer, supervised.reviewer_config = reviewer, ReviewerConfig(model="stub")
     config = SupervisedConfig(
-        checkpoint_path=paper / "CHECKPOINT.md", operator_question_policy_root=state, session_id="paper",
+        checkpoint_path=paper / "CHECKPOINT.md", state_root=state, session_id="paper",
     )
     status, _rounds, _final, reason, _thread = supervised.run(
         objective="Bring the paper to the venue bar in final Review",

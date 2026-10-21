@@ -42,8 +42,8 @@ from .round_execution import RoundExecutionMixin
 from .round_manager_wait import manager_wait_terminal
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
-from .round_self_review import (
-    RoundSelfReviewMixin,
+from .round_routing import (
+    RoundRoutingMixin,
     accepted_as_is,
     accepted_verdict,
     climb_record,
@@ -99,7 +99,7 @@ def _carry_unreviewed_turn(state: RoundLoopState, round_index: int, message: str
 class SupervisedEngineer(
     RoundPromptMixin,
     RoundExecutionMixin,
-    RoundSelfReviewMixin,
+    RoundRoutingMixin,
     RoundReviewerMixin,
     RoundSettlementMixin,
 ):
@@ -301,7 +301,7 @@ class SupervisedEngineer(
                     continue
                 outcome = control.payload
 
-            control = self._handle_progress_and_self_review(
+            control = self._route_turn(
                 round_index=round_index,
                 supervised_config=supervised_config,
                 workdir=workdir,
@@ -441,7 +441,7 @@ class SupervisedEngineer(
             if stalled_idle_seconds > 0:
                 stall_watch = TurnStallWatch(
                     stall_seconds=stalled_idle_seconds,
-                    state_root=supervised_config.operator_question_policy_root,
+                    state_root=supervised_config.state_root,
                     run_label=run_label,
                     on_event=on_event,
                 )

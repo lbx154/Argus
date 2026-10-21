@@ -121,7 +121,7 @@ class SkillLoopConfig:
     continuous_objective: str = ""
     # Effective structured Manager policy loaded from project state.
     operator_questions_allowed: bool = True
-    operator_question_policy_root: Path | None = None
+    state_root: Path | None = None
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
@@ -374,7 +374,7 @@ class SkillLoop(
             engineer_operation=engineer_operation,
             narrative_mission_id=run_id,
             operator_questions_allowed=self.config.operator_questions_allowed,
-            operator_question_policy_root=self.config.operator_question_policy_root,
+            state_root=self.config.state_root,
         )
         status, rounds, final_message, reason, last_thread_id = supervised.run(
             objective=reviewer_task,
