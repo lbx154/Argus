@@ -96,7 +96,7 @@ def test_project_agent_skills_are_first_for_every_runtime_role(tmp_path: Path) -
         project_dir=tmp_path / "managed",
         vertical_dir=tmp_path / "vertical",
         global_dir=tmp_path / "global",
-        native_project_dir=native_root,
+        execution_project_root=native_root.parent.parent,
     )
 
     for mission_type in (

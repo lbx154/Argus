@@ -1,14 +1,35 @@
 """Layered Skill-library roots used by bounded recall and native discovery."""
 from __future__ import annotations
 
+from itertools import islice
 from pathlib import Path
 
+from ..core.paths import NATIVE_SKILLS_DIR
 from .store import Skill, SkillStore, role_of_path
 
 LAYER_PROJECT = "project"
 LAYER_VERTICAL = "vertical"
 LAYER_GLOBAL = "global"
 _SHARED_VERTICALS_DIR = "_shared_verticals"
+#: Entries looked at when listing what a Skill directory carries.
+_SKILL_DIR_SCAN = 64
+
+
+def skill_code_files(skill_md: Path) -> list[str]:
+    """What a ``SKILL.md`` carries beside it, relative to its directory.
+
+    Hidden entries, caches and symlinks are not part of a Skill.
+    """
+    if skill_md.name != "SKILL.md":
+        return []
+    directory = skill_md.parent
+    found = []
+    for item in sorted(islice(directory.rglob("*"), _SKILL_DIR_SCAN)):
+        relative = item.relative_to(directory)
+        if (item != skill_md and item.is_file() and not item.is_symlink()
+                and not any(part.startswith(".") or part == "__pycache__" for part in relative.parts)):
+            found.append(relative.as_posix())
+    return found
 
 
 def shared_skill_scope_dir(global_dir: Path, scope: str) -> Path | None:
@@ -28,31 +49,17 @@ class LayeredSkillStore:
         project_dir: Path,
         global_dir: Path,
         vertical_dir: Path | None = None,
-        native_project_dir: Path | None = None,
         execution_project_root: Path | None = None,
     ) -> None:
         self.project = SkillStore(Path(project_dir))
         self.global_ = SkillStore(Path(global_dir))
         self.vertical = SkillStore(Path(vertical_dir)) if vertical_dir else None
-        native_project_path = (
-            Path(native_project_dir) if native_project_dir is not None else None
-        )
         # Unlike managed stores, an Agent Skills root is discovery-only: never
         # create it, and preserve the old root set when the directory is absent.
-        self._execution_project_root = (
-            Path(execution_project_root).resolve()
-            if execution_project_root is not None
-            else (
-                native_project_path.parent.parent.resolve()
-                if native_project_path is not None
-                else None
-            )
-        )
-        self._native_project_root = (
-            native_project_path.resolve()
-            if native_project_path is not None and native_project_path.is_dir()
-            else None
-        )
+        root = Path(execution_project_root).resolve() if execution_project_root is not None else None
+        native = root / NATIVE_SKILLS_DIR if root is not None else None
+        self._execution_project_root = root
+        self._native_project_root = native.resolve() if native is not None and native.is_dir() else None
         self._project_root = self.project.skills_dir.resolve()
         self._global_root = self.global_.skills_dir.resolve()
         self._vertical_root = (

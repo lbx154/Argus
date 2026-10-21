@@ -4,15 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-from itertools import islice
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..core.file_facts import file_facts
 from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.models import RunnerOptions
+from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..skills.layered import shared_skill_scope_dir
+from ..skills.layered import shared_skill_scope_dir, skill_code_files
 from ..skills.vertical_select import resolve_skill_scope
 from ..wiki.promote import declared_vertical
 from .source_writeback import atomic_write
@@ -124,18 +124,6 @@ def _role_skill_paths(root: Path, roles: Iterable[str] = _TEAM_ROLES) -> list[Pa
     return paths
 
 
-def _skill_code(path: Path) -> list[str]:
-    """The files a ``SKILL.md`` carries beside it."""
-    if path.name != "SKILL.md":
-        return []
-    found = (item.relative_to(path.parent) for item in islice(path.parent.rglob("*"), 64))
-    return sorted(
-        item.as_posix() for item in found
-        if (path.parent / item).is_file() and item != Path(path.name)
-        and not any(part.startswith(".") for part in item.parts)
-    )[:_MAX_CANDIDATE_FILES]
-
-
 def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     snapshot: dict[Path, tuple[int, int]] = {}
     for path in paths:
@@ -162,7 +150,7 @@ def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[s
             path.relative_to(project_skills).as_posix(): path
             for path in _role_skill_paths(project_skills, (role for role in _TEAM_ROLES if role != "engineer"))
         }
-    native = workspace / ".agents" / "skills"
+    native = workspace / NATIVE_SKILLS_DIR
     for path in sorted(native.glob("*/SKILL.md")):
         if path.is_file() and not path.parent.name.startswith((".", "_")):
             files.setdefault(f"engineer/{path.parent.name}/SKILL.md", path.resolve())
@@ -261,7 +249,7 @@ def _candidate_evidence(
         if not excerpt:
             continue
         presented.add(key)
-        code = _skill_code(path)
+        code = skill_code_files(path)
         rendered.append(
             f"- {key}\n"
             + (f"  code beside it in `{path.parent}`: {', '.join(code)}\n" if code else "")
@@ -495,7 +483,7 @@ def _review_into_vertical(
         if (shared / role).is_dir()
     ]
     # Only the code of a presented candidate is read outside the vertical root.
-    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if _skill_code(files[key])]
+    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if skill_code_files(files[key])]
     try:
         result = gateway_run_exec(
             backend,

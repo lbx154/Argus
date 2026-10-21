@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..event_catalog import EventType, canonical_event_type
+from ..paths import NATIVE_SKILLS_DIR
 from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
@@ -473,7 +474,7 @@ def _enrich_skill_content(
     backlog: list[Mapping[str, Any]],
     workdir: str,
 ) -> None:
-    native, state = Path(workdir or root) / ".agents" / "skills", root / "skills"
+    native, state = Path(workdir or root) / NATIVE_SKILLS_DIR, root / "skills"
     _discover_project_skills(native, state, view, backlog)
     allowed_roots = [native.resolve(), state.resolve()]
     if root.parent.name == "projects":

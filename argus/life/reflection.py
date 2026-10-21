@@ -35,6 +35,7 @@ from ..core.file_lock import exclusive_file_lock
 from ..core.knobs import learning_enabled, resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
+from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..wiki.auto_hooks import discover_wikis
 from ..wiki.journal import append_knowledge_event
@@ -732,7 +733,7 @@ def _reflect_after_mission(
 
     vertical_root, lesson_scope = _vertical_root(vertical, global_root)
     lesson_dir = vertical_root / "pages" / "lessons"
-    skills_dir = workspace / ".agents" / "skills"
+    skills_dir = workspace / NATIVE_SKILLS_DIR
     try:
         lesson_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -844,7 +845,7 @@ def _reflect_after_mission(
         relative = _relative(path, root)
         if root == skills_dir:
             page_kind = "skill"
-            relative = ".agents/skills/" + relative
+            relative = (NATIVE_SKILLS_DIR / relative).as_posix()
         elif operator_root is not None and root == operator_root:
             page_kind = "profile" if relative == "profile.md" else _kind_for(meta, relative, default="note")
         elif root == vertical_root:

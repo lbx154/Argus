@@ -9,6 +9,7 @@ from ...core.model_visible_text import (
     MASKED_DISPLAY_ENGINEER_RULE,
     sanitize_model_visible_text,
 )
+from ...core.paths import NATIVE_SKILLS_DIR
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     EXPERIMENT_EVIDENCE_CONTRACT,
@@ -211,7 +212,7 @@ def _post_task_learning_section(
         return ""
     from ...skills.role_memory import role_skill_edit_rules
 
-    rules = role_skill_edit_rules("engineer", Path(project_root) / ".agents" / "skills")
+    rules = role_skill_edit_rules("engineer", Path(project_root) / NATIVE_SKILLS_DIR)
     return (
         "## Durable learning\n"
         "You have file and shell tools. After verification, if this task "

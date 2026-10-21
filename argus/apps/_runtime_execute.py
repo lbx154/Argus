@@ -846,7 +846,6 @@ class SkillLoopExecuteMixin:
                 project_dir=project_skills_dir,
                 global_dir=global_skills_dir,
                 vertical_dir=vertical_dir,
-                native_project_dir=workdir / ".agents" / "skills",
                 execution_project_root=workdir,
             )
         ex_state.loop = self._SkillLoop(

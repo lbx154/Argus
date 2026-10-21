@@ -31,7 +31,9 @@ import yaml
 
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
+from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.scoped_file import open_regular_file
+from ..skills.layered import skill_code_files
 from .failure_experience_index import (
     EmbeddingAdapter,
     EmbeddingUnavailable,
@@ -324,7 +326,7 @@ def _code_files(root: KnowledgeRoot, path: Path, body: str) -> tuple[str, ...]:
     directory = path.parent
     boundary = (root.library or root.path).absolute()
     if path.name == "SKILL.md":
-        candidates = sorted(islice(directory.rglob("*"), _MAX_CODE_SCAN))
+        candidates = [directory / name for name in skill_code_files(path)]
     else:
         candidates = linked_files(path, body, boundary)
     found: list[str] = []
@@ -465,7 +467,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
                  for wiki in _bounded_wiki_roots(sibling)]
         found += [(f"earlier project Skill ({sid})", path, boundary, None)
                   for path, boundary in ((candidate / "skills" / "engineer", candidate),
-                                         (sibling / ".agents" / "skills", sibling))
+                                         (sibling / NATIVE_SKILLS_DIR, sibling))
                   if path.is_dir()]
         roots += [KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid)
                   for kind, path, boundary, library in found]
@@ -790,7 +792,7 @@ def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | Non
         workspace = Path(workspace).absolute()
         if _contained(workspace, workspace):
             vertical = _resolve_vertical(workspace, state)
-            roots.append(KnowledgeRoot("native project Skill", workspace / ".agents" / "skills", workspace))
+            roots.append(KnowledgeRoot("native project Skill", workspace / NATIVE_SKILLS_DIR, workspace))
             for wiki in _bounded_wiki_roots(workspace):
                 roots.insert(0, KnowledgeRoot("project Wiki", wiki / "pages", workspace, library=wiki))
             if global_root is not None and vertical:
