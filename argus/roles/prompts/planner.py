@@ -80,9 +80,9 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   the operator can unblock it). You are called again when something new arrives:
   a mission ends, the operator writes, the Manager directs. Invent no work that
   needs results still in flight.
-- REASON and PLAN_REASON are operator-facing: one clear sentence in the operator's
-  language stating the decision and next action. Do not emit
-  field names or status tokens in their values.
+- REASON and PLAN_REASON are operator-facing: one plain sentence in the operator's
+  language with the decision and next step, as a colleague would say it; no field
+  names, status tokens or routine steps, and nothing the last REASON said.
 """ + "\n" + RESEARCHER_VOICE + "\n\n" + _PLANNER_DECISION_FOOTER
 
 _RESEARCH_PLAN_CONTRACT = """## Research plan

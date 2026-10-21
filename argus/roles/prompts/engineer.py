@@ -47,7 +47,9 @@ _POSIX_LONG_EXPERIMENT_RULE = (
 _HANDOFF_RULE = (
     "## Handing off\n"
     "End with a short handoff in the operator's language: changes with output "
-    "paths, the decisive check, what is open, why the next holder. Then one line "
+    "paths, the decisive check, what is open, why the next holder. Its first "
+    "sentence is what the operator reads: what was done and found, in plain words. "
+    "Then one line "
     "naming that holder:\n"
     "→ reviewer\n"
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
