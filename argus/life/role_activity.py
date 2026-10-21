@@ -63,7 +63,8 @@ def _event_role(event: dict[str, Any]) -> str | None:
         if (
             "manager" in label
             or label.startswith("router")
-            or label.startswith(("chat-", "simple-", "self-"))
+            or label.startswith("chat-")
+            or label.startswith("simple-")
         ):
             return "manager"
         return "engineer"

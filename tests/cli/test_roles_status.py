@@ -534,16 +534,6 @@ def test_activity_recognizes_concurrent_agent_io_without_leaking_stream_text(tmp
     assert "SECRET" not in acts["engineer"].label + acts["manager"].label
 
 
-def test_a_self_execution_turn_is_manager_work(tmp_path):
-    now = time.time()
-    _write_events(tmp_path, [
-        {"type": "agent.io.start", "call_id": "self", "run_label": "self-implement", "ts": now - 5},
-    ])
-    acts = role_activity(tmp_path, now=now)
-    assert acts["manager"].active is True
-    assert acts["engineer"].active is False
-
-
 def test_activity_does_not_put_assistant_prose_in_role_bar(tmp_path):
     now = time.time()
     _write_events(tmp_path, [{
