@@ -299,11 +299,7 @@ def enqueue_mission(
         compact = " ".join(title_body.split()).replace("`", "")
         # The Manager's short topic names the task wherever it is mentioned;
         # without one, the request's opening clause does, never the whole text.
-        named = front_door._derive_session_name(
-            str(getattr(prepared_handoff.decision, "session_title", "") or ""), limit=32,
-        )
-        if named.casefold() in {"none", "keep", "null"} or named.isdecimal():
-            named = ""
+        topic = str(getattr(prepared_handoff.decision, "session_title", "") or "")
         manager_decision = decision_evidence(division) or {"routed": True}
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
@@ -328,7 +324,7 @@ def enqueue_mission(
         )
         item = BacklogItem.new(
             item_id=root_task_id,
-            title=brief_title(display_title or named or compact),
+            title=brief_title(display_title or topic or compact),
             objective=execution_body,
             priority=min(head_priority - 1, -1),
             tags=["manager", "scope:bounded", "review:required", *kind_tags],
