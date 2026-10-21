@@ -1177,7 +1177,13 @@ export interface LifeStatusEvent extends EventMsg {
   type: "life.status";
   payload_schema_version?: 1;
   "text"?: string;
+}
+
+export interface LifeOperatorStatusEvent extends EventMsg {
+  type: "life.operator_status";
+  payload_schema_version?: 1;
   "kind"?: string;
+  "text"?: string;
 }
 
 export interface LifePhaseStartedEvent extends EventMsg {
@@ -2035,6 +2041,7 @@ export interface EventPayloadByType {
   "round.reviewer_backend_failure": RoundReviewerBackendFailureEvent;
   "engineer.skill_maintenance.completed": EngineerSkillMaintenanceCompletedEvent;
   "life.status": LifeStatusEvent;
+  "life.operator_status": LifeOperatorStatusEvent;
   "life.phase.started": LifePhaseStartedEvent;
   "life.mission.failed": LifeMissionFailedEvent;
   "life.mission.skipped": LifeMissionSkippedEvent;

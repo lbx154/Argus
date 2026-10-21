@@ -3882,8 +3882,16 @@
       "properties": {
         "text": {
           "type": "string"
-        },
+        }
+      }
+    },
+    "life.operator_status": {
+      "version": 1,
+      "properties": {
         "kind": {
+          "type": "string"
+        },
+        "text": {
           "type": "string"
         }
       }

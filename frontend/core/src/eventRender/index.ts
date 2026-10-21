@@ -564,12 +564,11 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         : hidden();
     }
 
-    case 'life.status': {
-      // Status lines are the developer log; the few meant for you carry a kind.
-      const said = stringField(event, 'text');
-      return stringField(event, 'kind') && said ? model('system', 'role.system', 'ℹ', said, 'info') : hidden();
-    }
+    case 'life.operator_status':
+      return model('system', 'role.system', 'ℹ', stringField(event, 'text'), 'info');
 
+    // Status lines are the developer log.
+    case 'life.status':
     case 'agent.io.start': case 'agent.io.stream': case 'agent.io.complete': case 'agent.io.error':
     case 'usage.recorded': case 'provider.request.started': case 'provider.request.completed':
     case 'codex.util.completed': case 'skill.cost.completed':

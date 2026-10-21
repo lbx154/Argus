@@ -72,6 +72,7 @@
     "life.observer.note",
     "life.operator_question.answered",
     "life.operator_question.pending",
+    "life.operator_status",
     "life.peer.message.processed",
     "life.phase.started",
     "life.plan.node.superseded",
@@ -179,7 +180,7 @@
   "renderers": {
     "python_cli": {
       "counts": {
-        "handled": 22,
+        "handled": 23,
         "hidden": 0,
         "missing": 153
       },
@@ -194,6 +195,7 @@
         "life.mission.completed",
         "life.mission.failed",
         "life.mission.started",
+        "life.operator_status",
         "life.phase.started",
         "life.planner.error",
         "life.planner.start",
@@ -368,7 +370,7 @@
     "tui": {
       "counts": {
         "handled": 92,
-        "hidden": 83,
+        "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
@@ -414,6 +416,7 @@
         "life.mission.provider_configuration_disabled",
         "life.mission.started",
         "life.observer.note",
+        "life.operator_status",
         "life.peer.message.processed",
         "life.phase.started",
         "life.planner.completion_circuit_opened",
@@ -434,7 +437,6 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
-        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -516,6 +518,7 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
+        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",
@@ -556,7 +559,7 @@
     "web": {
       "counts": {
         "handled": 92,
-        "hidden": 83,
+        "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
@@ -602,6 +605,7 @@
         "life.mission.provider_configuration_disabled",
         "life.mission.started",
         "life.observer.note",
+        "life.operator_status",
         "life.peer.message.processed",
         "life.phase.started",
         "life.planner.completion_circuit_opened",
@@ -622,7 +626,6 @@
         "life.planner.verification_probe",
         "life.post_mission.stop",
         "life.review.waived",
-        "life.status",
         "life.supervisor.error",
         "loop.done",
         "loop.start",
@@ -704,6 +707,7 @@
         "life.runtime_failure.canary_passed",
         "life.runtime_failure.circuit_blocked",
         "life.runtime_failure.circuit_opened",
+        "life.status",
         "life.vertical.resolved",
         "manager.live_view.rejected",
         "manager.live_view.updated",

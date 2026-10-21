@@ -52,6 +52,7 @@ export const EVENT_TYPES = {
   ENGINEER_PROGRESS: 'engineer.progress',
   ENGINEER_SKILL_MAINTENANCE_COMPLETED: 'engineer.skill_maintenance.completed',
   LIFE_STATUS: 'life.status',
+  LIFE_OPERATOR_STATUS: 'life.operator_status',
   LIFE_PHASE_STARTED: 'life.phase.started',
   LIFE_MISSION_STARTED: 'life.mission.started',
   LIFE_MISSION_COMPLETED: 'life.mission.completed',
