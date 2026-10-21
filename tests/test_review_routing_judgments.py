@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.core.models import REVIEW_ROUTING_JUDGMENTS, ReviewDecision
+from argus.core.models import ReviewDecision
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.venue_review import (
     ACCEPTANCE_BAR_POLICY,
@@ -24,15 +24,12 @@ from argus.skills.vertical_select import persist_vertical
 JUDGED = {"learning": "nothing_new", "learning_reason": "Routine."}
 
 
-def _review(status: str, **report) -> ReviewDecision:
-    return ReviewDecision(
-        status=status, reason="The table is correct.", next_action="",
-        planner_report={**JUDGED, **report},
-    )
+def _review(status: str) -> ReviewDecision:
+    return ReviewDecision(status=status, reason="The table is correct.", next_action="", **JUDGED)
 
 
 def _assert_kept(review: ReviewDecision) -> None:
-    assert {key: review.planner_report[key] for key in JUDGED} == JUDGED
+    assert {key: getattr(review, key) for key in JUDGED} == JUDGED
     assert review.to_event_payload()["learning"] == "nothing_new"
 
 
@@ -49,12 +46,11 @@ def paper(tmp_path: Path) -> Path:
 
 
 def test_a_final_review_replan_stays_the_reviewers(paper):
-    review = _review("replan_requested", plan_signal="reconsider", challenge="Wrong baseline.")
+    review = _review("replan_requested")
 
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
     assert review.status == "replan_requested"
-    assert review.planner_report["challenge"] == "Wrong baseline."
     assert not review.interventions
     _assert_kept(review)
 
@@ -82,5 +78,5 @@ def test_a_missing_venue_assessment_drops_the_judgments(paper):
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
     assert review.status == "blocked"
-    assert not set(REVIEW_ROUTING_JUDGMENTS) & set(review.planner_report)
+    assert not review.learning and not review.learning_reason
     assert "learning" not in review.to_event_payload()

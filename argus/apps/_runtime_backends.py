@@ -84,7 +84,7 @@ class _Outcome:
     research_result: dict | None = None
     venue_review: dict | None = None
     venue_review_snapshot: dict | None = None
-    final_planner_report: dict = field(default_factory=dict)
+    final_learning: str = ""
     plan_challenge: dict = field(default_factory=dict)
 
 

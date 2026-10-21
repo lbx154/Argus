@@ -164,7 +164,6 @@ class _ProductionRunnerProbe(_SkillLoopRunner):
             next_action="",
             operator_question="",
             operator_options=[],
-            planner_report={"forward_progress": True},
         )
         ex_state.rounds_list = [SimpleNamespace(review=review)]
         ex_state.review_source = "reviewer"

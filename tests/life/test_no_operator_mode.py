@@ -53,7 +53,6 @@ class _QuestionRunner:
         )
         outcome.final_review_reason = "Two requirements conflict."
         outcome.final_review_next_action = ""
-        outcome.final_planner_report = {"plan_signal": "continue"}
         return outcome
 
 

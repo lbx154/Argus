@@ -462,7 +462,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "operator_question"?: string;
   "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
   "review_source"?: string;
-  "plan_signal"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
   "review_skipped"?: boolean;

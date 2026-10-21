@@ -661,7 +661,6 @@
         "operator_question": "operator question",
         "output_tokens": 1,
         "payload_schema_version": 1,
-        "plan_signal": "plan signal",
         "premium_requests": 1.25,
         "prompt_block_stats": {
           "value": "recorded"

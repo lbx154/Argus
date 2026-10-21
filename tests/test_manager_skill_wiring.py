@@ -80,7 +80,6 @@ class _StubReview:
     status = "continue"
     reason = "checklist not yet satisfied"
     checklist: list = []
-    planner_report: dict = {}
 
 
 class _CapturingRunExec:

@@ -32,7 +32,6 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
         reason=str(report.get("challenge") or "The plan is challenged."),
         next_action=str(report.get("alternative") or ""),
         operator_question=question,
-        planner_report=dict(report),
     )
     state = _ExecuteState()
     state.workdir = tmp_path

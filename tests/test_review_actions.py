@@ -46,7 +46,6 @@ def test_the_closing_line_routes_and_the_prose_is_kept(tmp_path, line, status, q
     assert result.next_action == ("" if status == "done" else prose)
     assert [label for label, _, _ in backend.history] == ["reviewer"]
     assert result.operator_question == question
-    assert result.planner_report["plan_signal"] == ("reconsider" if status == "replan_requested" else "continue")
 
 
 @pytest.mark.parametrize("review", [
@@ -239,7 +238,7 @@ def test_reviewer_judges_learning_on_the_verdict():
         "review": "The fixture now proves the header.\n→ done",
         "learning": {"verdict": "worth_reflecting", "reason": "A masked display hid the value."},
     })
-    assert actions.decision.planner_report["learning"] == "worth_reflecting"
+    assert actions.decision.learning == "worth_reflecting"
     payload = actions.decision.to_event_payload()
     assert payload["learning"] == "worth_reflecting"
     assert payload["learning_reason"] == "A masked display hid the value."
@@ -252,7 +251,7 @@ def test_judgments_are_kept_only_where_the_host_uses_them():
         "review": "Repair grouping.\n→ engineer",
         "learning": {"verdict": "worth_reflecting", "reason": "Only an accepting review routes reflection."},
     })
-    assert "learning" not in actions.decision.planner_report
+    assert not actions.decision.learning
 
 
 @pytest.mark.parametrize("line, status", [("→ done", "done"), ("→ engineer", "continue")])
@@ -264,7 +263,7 @@ def test_a_malformed_judgment_is_ignored_and_the_verdict_stands(line, status, ju
     actions = ReviewActions()
     actions.dispatch("submit_review", {"review": f"Repair grouping.\n{line}", "learning": judgment})
     assert actions.decision.status == status
-    assert "learning" not in actions.decision.planner_report
+    assert not actions.decision.learning
     assert "learning" not in actions.decision.to_event_payload()
 
 

@@ -1196,7 +1196,6 @@ class MissionExecutionSettlementMixin:
         outcome = state.outcome
         success = state.success
         status = state.status
-        planner_report = dict(getattr(outcome, "final_planner_report", {}) or {})
         try:
             from ...core.metrics import metrics_root_for_project, record_metric
 
@@ -1209,7 +1208,6 @@ class MissionExecutionSettlementMixin:
                     "item_id": item.id,
                     "accepted": bool(success),
                     "replan_requested": bool(state.replan_requested),
-                    "plan_signal": str(planner_report.get("plan_signal") or ""),
                     "elapsed_seconds": float(state.elapsed or 0.0),
                 },
             )
@@ -1277,7 +1275,6 @@ class MissionExecutionSettlementMixin:
         reviewed_fact = getattr(self, "_pending_reviewed_fact", None)
         self._pending_reviewed_fact = None
         review_status = str(getattr(outcome, "final_review_status", "") or "")
-        final_report = getattr(outcome, "final_planner_report", {}) or {}
         workspace = Path(state.execution_workdir or self._project_workdir())
         manager_decision = getattr(item, "manager_decision", {}) or {}
         vertical = (
@@ -1322,9 +1319,8 @@ class MissionExecutionSettlementMixin:
             reviewed_fact=reviewed_fact,
             # Only the Reviewer's own verdict carries its learning judgment.
             learning=(
-                str(final_report.get("learning") or "")
-                if isinstance(final_report, dict)
-                and str(getattr(outcome, "final_review_source", "") or "").strip().lower() == "reviewer"
+                str(getattr(outcome, "final_learning", "") or "")
+                if str(getattr(outcome, "final_review_source", "") or "").strip().lower() == "reviewer"
                 else ""
             ),
             mission_accepted=bool(

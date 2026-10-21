@@ -110,7 +110,7 @@ def test_direct_idea_only_research_completes_without_advancing(tmp_path) -> None
     assert not (workdir / "HANDOFF.md").exists()
 
 
-def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
+def test_stage_closing_bounded_direct_done_with_a_learning_judgment_completes_current_stage(
     tmp_path,
 ) -> None:
     manager, state_root, _workdir = _manager(tmp_path, workflow_mode="direct")
@@ -121,9 +121,7 @@ def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
         raise AssertionError("direct Reviewer done must not call Manager model")
 
     decision = manager.decide_stage_transition(
-        review=_review(
-            planner_report={"plan_signal": "reconsider"}
-        ),
+        review=_review(learning="worth_reflecting"),
         project_root=state_root,
         mission_scope="bounded",
         stage_closing=True,
@@ -412,7 +410,7 @@ def test_clean_acceptance_with_operator_question_uses_manager(tmp_path) -> None:
             next_action="",
             operator_question="",
         ),
-        _review(planner_report=["not", "a", "mapping"]),
+        _review(session_signal=["not", "a", "mapping"]),
     ],
 )
 def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> None:

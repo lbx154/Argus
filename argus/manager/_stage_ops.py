@@ -174,10 +174,9 @@ class _StageDecisionMixin:
         review_source = field("review_source")
         backend_unavailable = field("backend_unavailable")
         backend_fatal_error = field("backend_fatal_error")
-        planner_report = field("planner_report")
         session_signal = field("session_signal")
 
-        if not (
+        return (
             isinstance(status, str)
             and status.strip().lower() == "done"
             and isinstance(reason, str)
@@ -194,31 +193,9 @@ class _StageDecisionMixin:
             and not backend_unavailable
             and isinstance(backend_fatal_error, str)
             and not backend_fatal_error.strip()
-            and isinstance(planner_report, dict)
             and isinstance(session_signal, dict)
             and not session_signal
-        ):
-            return False
-
-        allowed_plan_fields = {
-            "plan_signal",
-            # The reflection judgment says nothing about whether the stage is accepted.
-            "learning",
-            "learning_reason",
-        }
-        if not set(planner_report).issubset(allowed_plan_fields):
-            return False
-        for name in ("learning", "learning_reason"):
-            if name in planner_report and not isinstance(planner_report[name], str):
-                return False
-        if "plan_signal" in planner_report:
-            signal = planner_report["plan_signal"]
-            if not isinstance(signal, str):
-                return False
-            signal = signal.strip().lower()
-            if signal not in {"", "continue", "reconsider"}:
-                return False
-        return True
+        )
 
     def _gather_stage_context(
         self,

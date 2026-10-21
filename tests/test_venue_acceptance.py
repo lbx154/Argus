@@ -149,16 +149,14 @@ def test_manuscript_change_during_review_cannot_be_certified(paper):
 
 
 def test_a_final_reviews_own_routing_stands(paper):
-    report = {"plan_signal": "reconsider"}
     review = ReviewDecision(
         status="replan_requested", reason="The baseline processes fewer positions.",
         next_action="Measure latency and accepted tokens under the same speculative budget.",
-        venue_review=assessment("weak_reject", clear=False), planner_report=dict(report),
+        venue_review=assessment("weak_reject", clear=False),
     )
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
     assert review.status == "replan_requested"
     assert review.next_action == "Measure latency and accepted tokens under the same speculative budget."
-    assert review.planner_report == report
     assert not review.interventions
     assert not review.final_submission_certified
 

@@ -1136,9 +1136,6 @@ class _TechnicalQuestionRunner:
         outcome.final_review_next_action = (
             "Validate one smaller row, then replan the full measurement."
         )
-        outcome.final_planner_report = {
-            "plan_signal": "reconsider",
-        }
         return outcome
 
 

@@ -3,9 +3,8 @@
 Argus already routes such a challenge end to end: the Reviewer raises it, the
 Manager decides whose authority it touches, and the Planner is handed the
 challenged assumption with its next cycle. The channel was nonetheless
-unreachable in practice. Its only key is ``plan_signal="reconsider"``, a word
-that appeared in no prompt, and the one example the Reviewer was shown offered
-an invalid ``keep``.
+unreachable in practice: its signal was a word that appeared in no prompt, and
+the one example the Reviewer was shown offered an invalid ``keep``.
 
 The result was a campaign that could close round after locally correct round
 with no way to question the design producing them. These tests pin the channel
@@ -45,7 +44,6 @@ def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None
         "review": "Each round repairs a symptom of one cohort rule; certify per cell.\n→ planner",
     })
     assert actions.decision.status == "replan_requested"
-    assert actions.decision.planner_report["plan_signal"] == "reconsider"
     routed = adjudicate_plan_challenge(
         reviewer_status=actions.decision.status,
         review_reason=actions.decision.reason,
