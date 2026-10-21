@@ -1045,7 +1045,7 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
         if item.status == "parked"
     ]
     assert len(paused) == 1
-    assert "cannot identify a concrete next task" in paused[0].pending_question
+    assert "not sure which direction to take next" in paused[0].pending_question
     error_event = next(
         event for event in sink.events if event.get("type") == "life.planner.error"
     )

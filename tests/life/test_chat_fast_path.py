@@ -983,7 +983,7 @@ def test_self_resumes_the_same_thread_once_after_a_watchdog_stall() -> None:
     assert backend.calls[1]["resume_thread_id"] == "stalled-session"
     assert "Do not repeat tool calls" in backend.calls[1]["prompt"]
     retry = next(event for event in sink.events if event.get("kind") == "provider_retry")
-    assert "续接同一会话" in retry["text"]
+    assert "接着刚才的对话再试一次" in retry["text"]
     main = next(event for event in sink.events if event.get("type") == "round.main.completed")
     assert main["attempt_count"] == 2
 

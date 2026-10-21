@@ -1240,7 +1240,7 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
     def _notices(sink) -> list[dict]:
         return [
             event for event in sink.events
-            if "waiting for your answer" in json.dumps(event, default=str)
+            if event.get("kind") == "waiting_for_answer"
         ]
 
     # The question is raised once and not repeated on the next start. The run
@@ -1304,7 +1304,7 @@ def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> 
     ).run()
 
     statuses = [event.get("text", "") for event in sink.events if event.get("type") == "life.status"]
-    assert "Argus 在等你回答：基线用哪个数据集？；不依赖答复的工作照常进行" in statuses
+    assert "在等你回答：基线用哪个数据集？（不需要这个答复的工作照常进行）" in statuses
 
 
 def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:

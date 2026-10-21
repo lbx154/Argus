@@ -70,7 +70,7 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
     ]
     assert transcript[-1]["delivery"] == delivery
     assert transcript[-1]["delivery_id"] == delivery["delivery_id"]
-    assert "Deliverable: results/final.md" in transcript[-1]["text"]
+    assert "The result is in results/final.md." in transcript[-1]["text"]
     ui_events = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
@@ -122,7 +122,7 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         json.loads(line)
         for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert "Step done" in turns[-1]["text"]
+    assert "One step done" in turns[-1]["text"]
     assert turns[-1].get("delivery") is None
 
     delivery = supervisor._build_terminal_project_delivery("All planned work is done.")

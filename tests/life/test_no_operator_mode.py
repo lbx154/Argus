@@ -400,7 +400,7 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         _json.loads(line)["text"]
         for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert any("assumed: Hello goes to stdout" in text for text in texts)
+    assert any("I went with: Hello goes to stdout" in text for text in texts)
 
 
 def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:

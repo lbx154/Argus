@@ -46,6 +46,10 @@ _OBJECTIVE = "finish the paper"
 class _RejectionHarness(PlanningCycleCompletionMixin):
     """Just enough supervisor for the project_done normalization phase."""
 
+    from argus.life.supervisor._core import LifeSupervisor
+
+    _operator_chinese = LifeSupervisor._operator_chinese
+
     def __init__(self, tmp_path: Path) -> None:
         self.root = Path(tmp_path)
         self.config = SimpleNamespace(
