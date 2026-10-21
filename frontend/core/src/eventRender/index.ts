@@ -624,10 +624,11 @@ export function renderText(modelValue: RenderModel): string {
   return modelValue.segments.map((segment) => segment.text).join('');
 }
 
-// The team members by the names the reader uses; a critic reviews, so it is
-// shown as the Reviewer. The other keys name who is speaking when it is not
-// a role — the person at the keyboard, or Argus keeping watch.
-const LABELS: Record<string, [english: string, chinese: string]> = {
+/** The team members by the names the reader uses, the one copy every frontend
+ *  shows; a critic reviews, so it is shown as the Reviewer. The last keys name
+ *  who is speaking when it is not a role — Argus keeping watch, or the person
+ *  at the keyboard. */
+export const ROLE_NAMES: Record<string, [english: string, chinese: string]> = {
   'role.manager': ['Manager', '经理'],
   'role.planner': ['Planner', '规划者'],
   'role.engineer': ['Engineer', '工程师'],
@@ -639,6 +640,10 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.system': ['Argus', 'Argus'],
   'role.argus': ['Argus', 'Argus'],
   'role.operator': ['You', '你'],
+};
+
+const LABELS: Record<string, [english: string, chinese: string]> = {
+  ...ROLE_NAMES,
   'event.notice': ['Notice', '通知'],
   'event.watch': ['Watch', '监控'],
   'event.budget': ['Budget', '预算'],

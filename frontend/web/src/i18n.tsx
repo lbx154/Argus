@@ -6,12 +6,15 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { ROLE_NAMES } from '../../core/src/eventRender';
 import { applicationBrand } from './applicationBrand';
 
 export type Locale = 'en' | 'zh-CN';
 type Variables = Record<string, string | number>;
 
 const STORAGE_KEY = 'argus.locale';
+const roleNames = (column: 0 | 1) =>
+  Object.fromEntries(Object.entries(ROLE_NAMES).map(([key, names]) => [key, names[column]]));
 
 const en: Record<string, string> = {
   'language.english': 'English',
@@ -271,17 +274,11 @@ const en: Record<string, string> = {
   'mission.roleActive': '{role} active',
   'mission.overview': 'mission overview',
   'mission.operations': 'Operations',
-  'role.manager': 'Manager',
+  ...roleNames(0),
   'role.manager.description': 'Understands your goal and coordinates work',
-  'role.planner': 'Planner',
   'role.planner.description': 'Breaks down the problem, schedules work, and revises the plan',
-  'role.engineer': 'Engineer',
   'role.engineer.description': 'Researches, writes proofs or code, and uses tools to check the work',
-  'role.reviewer': 'Reviewer',
   'role.reviewer.description': 'Checks results and evidence and identifies gaps',
-  'role.critic': 'Reviewer',
-  'role.system': 'Argus',
-  'role.operator': 'You',
   'doctor.title': 'Doctor',
   'doctor.subtitle': 'Argus status checks + recommended root-cause fix',
   'doctor.recommended': 'recommended fix',
@@ -642,8 +639,6 @@ const en: Record<string, string> = {
   'label.status.limited': 'Limited',
   'label.status.healthy': 'Healthy',
   'label.status.updated': 'Status updated',
-  'label.role.argus': 'Argus',
-  'label.role.you': 'You',
   'label.work.task': 'Task',
   'label.work.action': 'Work step',
   'label.work.handoff': 'Notes for the next step',
@@ -1050,17 +1045,11 @@ const zhCN: Record<string, string> = {
   'mission.roleActive': '{role} 正在工作',
   'mission.overview': '任务概览',
   'mission.operations': '运行控制',
-  'role.manager': '经理',
+  ...roleNames(1),
   'role.manager.description': '理解你的目标，协调工作',
-  'role.planner': '规划者',
   'role.planner.description': '拆解问题，安排后续工作并调整计划',
-  'role.engineer': '工程师',
   'role.engineer.description': '查资料、写证明或代码，调用工具验证',
-  'role.reviewer': '审阅者',
   'role.reviewer.description': '检查结果与证据，指出缺口',
-  'role.critic': '审阅者',
-  'role.system': 'Argus',
-  'role.operator': '你',
   'doctor.title': '诊断',
   'doctor.subtitle': 'Argus 状态检查与推荐的根因修复方案',
   'doctor.recommended': '推荐修复',
@@ -1421,8 +1410,6 @@ const zhCN: Record<string, string> = {
   'label.status.limited': '部分受限',
   'label.status.healthy': '状态正常',
   'label.status.updated': '状态已更新',
-  'label.role.argus': 'Argus',
-  'label.role.you': '你',
   'label.work.task': '任务',
   'label.work.action': '工作步骤',
   'label.work.handoff': '给下一步的说明',
@@ -1590,7 +1577,7 @@ export function translate(key: string, variables: Variables = {}, locale: Locale
 const APPLICATION_LABELS = new Set([
   'handshake.connecting', 'handshake.title', 'splash.starting', 'connection.pairingTitle',
   'topbar.pauseDaemon', 'topbar.runDaemon', 'chat.messageArgus', 'palette.messageArgus',
-  'palette.stopDaemon', 'palette.startDaemon', 'role.system', 'label.role.argus',
+  'palette.stopDaemon', 'palette.startDaemon', 'role.system',
 ]);
 
 interface I18nValue {
