@@ -668,7 +668,7 @@ def reflect_after_mission(
     try:
         with _learning_write_lock(Path(global_root)):
             if learning_enabled() and mission_id and not _already_reflected(Path(life_dir), mission_id):
-                from .answer_learning import observe_mission
+                from .reflection_status import observe_mission
 
                 return observe_mission(Path(global_root), project_id, mission_id, run, emit)
             return run(emit)

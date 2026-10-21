@@ -367,7 +367,7 @@ def test_pages_that_do_not_parse_are_ignored_and_a_failed_call_is_recorded(roots
     assert result["failure"] == "exit code 1"
     assert _learned(roots.events) == []
     assert not (roots.life / ".argus" / "REFLECTED.json").exists()
-    from argus.life.answer_learning import learning_status
+    from argus.life.reflection_status import learning_status
     assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
 
 

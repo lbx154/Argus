@@ -1,4 +1,4 @@
-"""Observable status of the learning pass after each mission.
+"""Observable status of the reflection after each mission.
 
 A SELF turn keeps what it learned in the same turn; only mission reflection
 runs separately, and this store shows its progress and outcome.
@@ -27,6 +27,9 @@ def _database(root: Path):
             status TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0, outcome TEXT NOT NULL DEFAULT '{}'
         )""")
+        if not db.execute("PRAGMA user_version").fetchone()[0]:
+            # Once: drop the rows the retired per-answer queue left behind.
+            db.executescript("DELETE FROM jobs WHERE id NOT LIKE 'mission-%'; PRAGMA user_version = 1;")
         with db:
             yield db
     finally:
@@ -37,17 +40,15 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
     """A bounded projection with no prompt, answer, credential or filesystem path."""
     if not (root / "answer-learning.sqlite3").exists():
         return {"jobs": [], "pending": 0, "revision": 0}
-    # Rows from the retired per-answer queue are not mission jobs; ignore them.
-    mission = "sid=? AND id LIKE 'mission-%'"
     with _database(root) as db:
         rows = db.execute(
             "SELECT id, status, created, updated, attempts, outcome, payload FROM jobs "
-            f"WHERE {mission} ORDER BY created DESC LIMIT 20", (sid,),
+            "WHERE sid=? ORDER BY created DESC LIMIT 20", (sid,),
         ).fetchall()
         pending = db.execute(
-            f"SELECT count(*) FROM jobs WHERE {mission} AND status='running'", (sid,),
+            "SELECT count(*) FROM jobs WHERE sid=? AND status='running'", (sid,),
         ).fetchone()[0]
-        revision = db.execute(f"SELECT max(updated) FROM jobs WHERE {mission}", (sid,)).fetchone()[0]
+        revision = db.execute("SELECT max(updated) FROM jobs WHERE sid=?", (sid,)).fetchone()[0]
     jobs = []
     for row in rows:
         job = dict(row)
@@ -69,18 +70,15 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
 
 
 # Calls the host refused before they started: nothing failed, learning simply waits.
-_PAUSE_KINDS = {
-    "cost_unreconciled": "cost_unreconciled",
-    "budget_exhausted": "budget_exhausted",
-    "provider_cooldown": "provider_cooldown",
-    "operator_pause": "operator_pause",
-}
+_PAUSE_KINDS = frozenset({
+    "cost_unreconciled", "budget_exhausted", "provider_cooldown", "operator_pause",
+})
 
 
 def _pause_reason(result: dict) -> str:
     kind = str(result.get("stop_kind") or "")
     if kind in _PAUSE_KINDS:
-        return _PAUSE_KINDS[kind]
+        return kind
     text = str(result.get("failure") or "").lower()
     if "unresolved provider cost" in text or "awaiting usage reconciliation" in text:
         return "cost_unreconciled"
@@ -89,7 +87,7 @@ def _pause_reason(result: dict) -> str:
     return ""
 
 
-def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
+def _finish(root: Path, job_id: str, result: dict, entries: list[dict]) -> None:
     counts = {"knowledge": 0, "skills": 0, "preferences": 0}
     items = []
     for event in entries:
@@ -114,11 +112,11 @@ def _finish(root: Path, job: dict, result: dict, entries: list[dict]) -> None:
         status, outcome["reason"] = "unchanged", "no_new_learning"
     with _database(root) as db:
         db.execute("UPDATE jobs SET status=?, updated=?, outcome=? WHERE id=?",
-                   (status, time.time(), json.dumps(outcome, ensure_ascii=False), job["id"]))
+                   (status, time.time(), json.dumps(outcome, ensure_ascii=False), job_id))
 
 
 def observe_mission(root: Path, sid: str, mission_id: str, run, emit) -> dict:
-    """Expose the existing mission reflection through the same status surface."""
+    """Record a mission reflection's progress and outcome for the status surface."""
     job_id = f"mission-{sid}:{mission_id}"
     entries = []
 
@@ -137,7 +135,7 @@ def observe_mission(root: Path, sid: str, mission_id: str, run, emit) -> dict:
     try:
         result = run(capture)
     except Exception:
-        _finish(root, {"id": job_id}, {"failure": "reflection failed"}, entries)
+        _finish(root, job_id, {"failure": "reflection failed"}, entries)
         raise
-    _finish(root, {"id": job_id}, result, entries)
+    _finish(root, job_id, result, entries)
     return result
