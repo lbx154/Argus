@@ -1051,7 +1051,7 @@ def _handle_steer_control(
         )
     # The directive is the Manager's instruction to the team; the operator
     # hears that their direction was taken, not the instruction itself.
-    chinese = uses_cjk(body)
+    chinese = uses_cjk(body or manager_directive)
     reply = "好，接下来按你说的方向做。" if chinese else "Got it, carrying on in that direction."
     if lifetime == "standing":
         reply += (
@@ -1139,10 +1139,10 @@ def _handle_pause_control(
     else:
         stopping = abort_requested or daemon_stop_requested
         reply = (
-            ("好，正在停下。" if stopping else "已暂停。")
+            ("已暂停，正在停下手上的事。" if stopping else "已暂停。")
             + "做到的部分都保存了，你说继续我再接着做。"
             if chinese
-            else ("OK, stopping now. " if stopping else "Paused. ")
+            else ("Paused; stopping what was running. " if stopping else "Paused. ")
             + "Everything so far is saved; I'll pick it up when you say continue."
         )
 

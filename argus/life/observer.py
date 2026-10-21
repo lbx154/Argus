@@ -22,6 +22,7 @@ once the task is delivered, the operator gets it as an alert.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
 from ..core.run_gateway import run_exec
 
 LOG = logging.getLogger(__name__)
+# A remark's pointer into the record ("(events.jsonl ts …)"), in either script.
+_EVIDENCE = re.compile(r"\s*[(（][^()（）]*events\.jsonl[^()（）]*[)）]")
 
 RUN_LABEL = "observer"
 #: The roles whose turns the Observer looks at.
@@ -245,6 +248,10 @@ class ObserverSink:
         if task:
             event["item_id"] = task
         if self.supervisor.manager is None or delivered:
+            # The operator reads the remark; where it was seen stays on record.
+            said = _EVIDENCE.sub("", text).strip()
+            if said and said != text:
+                event.update(text=said, evidence=text)
             event.update(to="operator", operator_alert=True)
         else:
             event["to"] = "manager"

@@ -758,6 +758,9 @@
         },
         "operator_alert": {
           "type": "boolean"
+        },
+        "evidence": {
+          "type": "string"
         }
       }
     },
@@ -1967,6 +1970,15 @@
         },
         "reason": {
           "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "operator_alert": {
+          "type": "boolean"
         }
       }
     },
@@ -2047,6 +2059,12 @@
         "reason": {
           "type": "string",
           "minLength": 1
+        },
+        "kind": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
         }
       }
     },
@@ -3864,6 +3882,9 @@
       "properties": {
         "text": {
           "type": "string"
+        },
+        "kind": {
+          "type": "string"
         }
       }
     },
@@ -4458,6 +4479,9 @@
         "operator_alert": {
           "type": "boolean",
           "const": true
+        },
+        "kind": {
+          "type": "string"
         }
       }
     },
@@ -4598,6 +4622,9 @@
         },
         "recoverable": {
           "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
         }
       }
     },

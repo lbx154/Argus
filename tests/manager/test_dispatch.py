@@ -409,7 +409,8 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
     views.append(compact_backlog_item(failed))
 
     assert [view["status"] for view in views] == ["pending", "running", "failed"]
-    assert {view["title"] for view in views} == {execution_task}
+    # The title is the task's short name: its clause, not the sentence's period.
+    assert {view["title"] for view in views} == {execution_task.rstrip("。")}
     for view in views:
         visible = json.dumps(view, ensure_ascii=False)
         assert "[BOUNDED TASK CONTEXT" not in visible

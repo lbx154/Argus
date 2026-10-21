@@ -300,38 +300,16 @@ def reduce_planner_event(
             status="done" if project_done else "planned",
         )
 
+    # A planning pass that starts nothing changes the Planner's state, not
+    # the story: it repeats every pass, and a question it asks reaches the
+    # operator on its card.
     elif event_type == EventType.LIFE_PLANNER_IDLE:
         label = say("planner_no_new_work", chinese)
         _set_role(view, "planner", "waiting", label, ts, kind="planner_no_new_work")
-        _timeline(
-            view,
-            event,
-            role="planner",
-            kind="planner_no_new_work",
-            title=label,
-            detail=_text(event, "reason"),
-        )
-        _role_work(
-            view,
-            event,
-            role="planner",
-            kind="waiting",
-            title=label,
-            detail=_text(event, "reason", 4000),
-            status="waiting",
-        )
 
     elif event_type == EventType.LIFE_PLANNER_TERMINAL_IDLE:
         label = say("planner_idle", chinese)
         _set_role(view, "planner", "waiting", label, ts, kind="planner_idle")
-        _timeline(
-            view,
-            event,
-            role="planner",
-            kind="planner_idle",
-            title=label,
-            detail=_text(event, "reason"),
-        )
 
     elif event_type == EventType.LIFE_PLANNER_ERROR:
         label = say("planning_failed", chinese)

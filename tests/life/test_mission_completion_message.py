@@ -46,11 +46,10 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
     ]
     assert len(transcript) == 1
     assert transcript[0]["role"] == "argus"
-    assert "Step done · Fix the first issue · review: passed" in transcript[0]["text"]
-    assert (
-        "Progress: Updated the parser and passed focused regression tests."
-        in transcript[0]["text"]
-    )
+    # A passed review is no label; the step is named once, by its title.
+    assert transcript[0]["text"].startswith("One step done: Fix the first issue.\n")
+    assert "Updated the parser and passed focused regression tests." in transcript[0]["text"]
+    assert "review" not in transcript[0]["text"].lower()
     assert "the next step is being considered" in transcript[0]["text"]
     ui_events = [
         event
@@ -89,10 +88,7 @@ def test_bounded_completion_says_the_task_is_finished(tmp_path) -> None:
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
-    assert text == (
-        "Task completed · One bounded fix\n"
-        "The requested work is complete."
-    )
+    assert text == "Done."
 
 
 def test_completion_summary_uses_the_operator_language(tmp_path) -> None:
@@ -118,9 +114,8 @@ def test_completion_summary_uses_the_operator_language(tmp_path) -> None:
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
-    assert "任务已完成" in text
-    assert "本次完成: 修复了解析器并通过回归测试。" in text
-    assert "Mission summary" not in text
+    assert text == "做完了。\n修复了解析器并通过回归测试。"
+    assert "本次完成" not in text and "Mission summary" not in text
 
 
 def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) -> None:
@@ -147,10 +142,7 @@ def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) 
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
-    assert text == (
-        "Task completed · Write the paper draft · review: passed\n"
-        "The requested work is complete."
-    )
+    assert text == "Done."
 
 
 def test_technical_blocker_does_not_pretend_a_human_decision_is_needed(tmp_path) -> None:
@@ -179,7 +171,8 @@ def test_technical_blocker_does_not_pretend_a_human_decision_is_needed(tmp_path)
     )["text"]
     assert "does not prove the idea is wrong" in text
     assert "Next: Run the isolated one-row diagnostic." in text
-    assert "Mission summary: The large row timed out" in text
+    assert "The large row timed out; smaller rows remain valid." in text
+    assert "Mission summary" not in text
     assert "Your decision" not in text
 
 
@@ -211,9 +204,8 @@ def test_operator_blocker_surfaces_the_exact_question_without_templates(tmp_path
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
     assert text == (
-        "Verify macOS computer use\n"
-        "Mission summary: The harness builds, but UI automation is not yet verified.\n"
-        f"{question}"
+        f"Verify macOS computer use needs your call: {question}\n"
+        "The harness builds, but UI automation is not yet verified."
     )
     assert "Reason:" not in text
     assert "Next:" not in text
@@ -250,10 +242,7 @@ def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
-    assert text == (
-        "Submission certified · Prepare final ICLR submission · review: passed\n"
-        "The final submission passed independent review."
-    )
+    assert text == "The final submission passed independent review and is ready."
 
 
 def test_bounded_independent_review_completion_is_natural_and_footer_free(
@@ -292,9 +281,11 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
-    assert text.startswith("任务已完成\n")
+    # One headline says it was done, checked, and that other planned work goes on.
+    assert text.startswith(
+        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。\n"
+    )
     assert "完成了缓存方案调研并形成报告。" in text
-    assert "本次结果已由独立审阅者检查，未发现需要先修正的问题。" in text
     assert "Reviewer" not in text
     assert "实现和测试" not in text
     for internal in (

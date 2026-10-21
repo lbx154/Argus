@@ -909,9 +909,22 @@ def prepare_manager_execution_task(
                 clause=exc.clause,
                 consecutive_count=exc.consecutive_count,
             )
+            from ..core.operator_messages import uses_cjk
+
+            # The exception keeps the developer's account; the operator reads
+            # what happened and what to change.
             _publish_manager_model_capability_mismatch(
                 mem,
-                text=message,
+                text=(
+                    f"现在给经理用的模型（{exc.model_id}）连续几次都没弄懂该怎么处理请求，"
+                    "所以这次没有开始任何工作。请在“设置 → 高级设置”里给经理换一个模型，"
+                    "重启后再试。"
+                    if uses_cjk(public_objective or body)
+                    else f"The model the Manager uses ({exc.model_id}) failed several times "
+                    "in a row to work out how to handle requests, so nothing was started. "
+                    "Pick another model for the Manager in Settings → Advanced settings, "
+                    "restart, and try again."
+                ),
                 model_id=exc.model_id,
                 clause=exc.clause,
                 consecutive_count=exc.consecutive_count,
@@ -1279,23 +1292,29 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             reason = stop_reason or "The backend did not complete the turn."
             if mode in execution_modes:
                 chat_state["_self_failure"] = reason
+            said = humanize_runtime_reason(
+                stop_reason or ("模型这次没把话说完。" if chinese else "The model didn't finish its answer."),
+                language_hint=body, interactive=True,
+            )
             return (
-                f"这次处理在完成前停下了。原因：{reason}\n\n"
-                "之前的进度消息不代表任务已完成，可能留下了部分文件。没有新增任务。"
+                f"这次没做完就停下了：{said}\n\n"
+                "上面的进度消息不代表已经做完，可能留下了做到一半的文件；没有新增任务。"
                 if chinese else
-                f"This request stopped before it finished. Reason: {reason}\n\n"
-                "Earlier progress messages do not mean the task finished. Partial files may remain. No new task was added."
+                f"This stopped before it finished: {said}\n\n"
+                "The progress messages above don't mean it's done, and some files may be "
+                "half-written. No new task was added."
             )
         if captured:
             # Only the latest successful completed round is the final delivery.
             return captured[-1]
         if not stop_reason:
             return empty_reply
+        said = humanize_runtime_reason(stop_reason, language_hint=body, interactive=True)
         return (
-            f"这次还没生成回复就停下了。原因：{stop_reason}\n\n没有新增任务，正在进行的任务也没有改变。"
+            f"这次还没回复就停下了：{said}\n\n没有新增任务，正在做的事也没变。"
             if chinese else
-            f"This request stopped before a reply was produced. Reason: {stop_reason}\n\n"
-            "No new task was added, and the current task was not changed."
+            f"This stopped before I could reply: {said}\n\n"
+            "No new task was added, and the current work is unchanged."
         )
 
     def _redact_live_text(text: Any) -> str:

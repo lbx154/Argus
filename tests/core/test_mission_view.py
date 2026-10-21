@@ -26,11 +26,9 @@ def test_legacy_team_waiting_projects_as_planner_idle(tmp_path: Path) -> None:
 
     planner = next(role for role in view["roles"] if role["role"] == "planner")
     assert planner["kind"] == "planner_no_new_work"
-    assert planner["label"] == (
-        "No new work to start until someone hands the Planner something new."
-    )
-    assert view["timeline"][-1]["kind"] == "planner_no_new_work"
-    assert view["timeline"][-1]["title"] == planner["label"]
+    assert planner["label"] == "Nothing new to plan until the current work moves."
+    # Waiting is the Planner's state, not a row of the story.
+    assert all(row["kind"] != "planner_no_new_work" for row in view["timeline"])
 
 
 def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:

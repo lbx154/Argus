@@ -847,7 +847,7 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
     assert result["pause_persisted"] is True
     assert result["item_id"] == running.id
     assert "已暂停" in result["reply"]
-    assert "后台工作进程" in result["reply"]
+    assert "做到的部分都保存了" in result["reply"]
     assert "daemon" not in result["reply"]
     assert read_continuous_state(life).enabled is False
     assert (life / "running_item_abort.json").exists()

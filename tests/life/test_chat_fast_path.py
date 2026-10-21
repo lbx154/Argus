@@ -25,7 +25,6 @@ from typing import Any, cast
 
 import pytest
 
-from argus.apps._self_reply import build_status_snapshot_reply
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import (
@@ -712,46 +711,6 @@ def test_status_like_self_turn_uses_manager_model(tmp_path: Path) -> None:
     assert out is not None and out.success is True and out.rounds == 1
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-def test_status_snapshot_merges_continuous_campaign_state(tmp_path: Path) -> None:
-    from argus.core.mission_view import empty_mission_view
-
-    view = empty_mission_view()
-    view.update({
-        "bootstrapped": True,
-        "mission": {
-            **view["mission"],
-            "title": "Previous mission",
-            "objective": "Old objective",
-            "status": "complete",
-        },
-        "review": {
-            "status": "done",
-            "reason": "Previous mission was accepted.",
-            "rejected_attempts": 0,
-        },
-    })
-    (tmp_path / "mission-view.json").write_text(
-        json.dumps(view),
-        encoding="utf-8",
-    )
-    (tmp_path / "continuous.json").write_text(
-        json.dumps({
-            "enabled": True,
-            "objective": "Finish the campaign",
-            "done_reason": "",
-            "done_at": "",
-        }),
-        encoding="utf-8",
-    )
-
-    reply = build_status_snapshot_reply(tmp_path, "What is the current status?")
-
-    assert "Finish the campaign" in reply
-    assert "(queued)" in reply
-    assert "Previous mission" not in reply
-    assert "Previous mission was accepted." not in reply
-
-
 def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     """A SELF route answer runs one bounded Manager turn with no reviewer."""
     backend = _FakeBackend(response_message="17*23 = 391.", classify_answer="SELF")

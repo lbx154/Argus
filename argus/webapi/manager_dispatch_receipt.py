@@ -24,10 +24,10 @@ def _dispatch_ack_text(
     dispatch_state = result.get("dispatch_state")
     if result.get("launch_hold"):
         return (
-            "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，没问题就点“开始执行”。"
+            "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。"
             if zh else
             "The plan is ready, but nothing has started. Check what I understood and "
-            "the plan in the card above, then press Start."
+            "the plan in the card above; work starts when you press Start."
         )
     question = str(item.get("pending_question") or "").strip()
     if question:
@@ -75,7 +75,7 @@ def _dispatch_ack_text(
     if dispatch_state == "queued_after_current" and daemon_alive:
         return "收到，等手头这项做完就开始。" if zh else "Got it. This starts once the current work is done."
     if dispatch_state == "running" and daemon_alive:
-        return "收到，已经开始做了。" if zh else "Got it, work has started."
+        return "收到，已经接手了。" if zh else "Got it, it's been picked up."
     if dispatch_state == "planner_pending":
         return "目标已更新，正在安排下一步。" if zh else "Goal updated; working out the next step."
     return "收到，马上开始。" if zh else "Got it, starting now."

@@ -229,7 +229,10 @@ def test_threshold_changes_message_publishes_alert_and_stays_fail_closed(
     assert alerts[0]["model_id"] == MODEL_ID
     assert alerts[0]["failed_clause"] == STRUCTURED_DECISION_CLAUSE
     assert alerts[0]["consecutive_count"] == 3
-    assert any(turn["text"] == text for turn in read_turns(memory.project_root))
+    # The operator reads what to change, not the developer's account.
+    told = [turn["text"] for turn in read_turns(memory.project_root)]
+    assert any(MODEL_ID in said and "Settings → Advanced settings" in said for said in told)
+    assert not any("role-capability mismatch" in said for said in told)
 
     with pytest.raises(ManagerModelCapabilityMismatchError) as after_threshold:
         manager_bounded_handoff(

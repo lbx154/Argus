@@ -241,7 +241,7 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
 
     assert result["control"] == "steer"
     assert result["continuous"] is False
-    assert "方向已记录" in result["reply"]
+    assert "The direction is noted" in result["reply"]
     directive = load_active_manager_directive(tmp_path)
     assert directive is not None
     assert chat_state["config"]["continuous"] is True

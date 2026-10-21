@@ -1780,20 +1780,30 @@ class LifeSupervisor(
                 overall_complete and independent_review_required and review == "done"
                 and event.get("review_source") == "reviewer"
             )
+            # The item is done while other planned work goes on.
+            deferred = (
+                not campaign_continues
+                and str(outcome.get("stage_certification") or "").strip() == "deferred"
+            )
             if final_submission_certified:
                 headline = (
                     "最终稿通过了独立审核，可以交付了。"
                     if chinese
                     else "The final submission passed independent review and is ready."
                 )
-            elif reviewer_found_nothing:
+            elif overall_complete or deferred:
                 headline = (
-                    "做完了，独立审阅也没发现要改的地方。"
+                    ("这一项做完了" if deferred else "做完了")
+                    + ("，独立审阅也没发现要改的地方" if reviewer_found_nothing else "")
+                    + ("；计划里的其他工作还在进行。" if deferred else "。")
                     if chinese
-                    else "Done, and an independent reviewer found nothing that needs fixing."
+                    else ("This item is done" if deferred else "Done")
+                    + (
+                        ", and an independent reviewer found nothing that needs fixing"
+                        if reviewer_found_nothing else ""
+                    )
+                    + ("; the rest of the plan is still under way." if deferred else ".")
                 )
-            elif overall_complete:
-                headline = "做完了。" if chinese else "Done."
             elif campaign_continues:
                 headline = f"做完一步：{brief}。" if chinese else f"One step done: {brief}."
             else:
@@ -1807,13 +1817,7 @@ class LifeSupervisor(
                 headline += _review_phrase(review, chinese)
             if campaign_continues:
                 continuation = self._continuation_line(item_id, chinese)
-            elif str(outcome.get("stage_certification") or "").strip() == "deferred":
-                continuation = (
-                    "这一项做完了，计划里的其他工作还在进行。"
-                    if chinese
-                    else "This item is done; the rest of the plan is still under way."
-                )
-            elif overall_complete:
+            elif overall_complete or deferred:
                 continuation = ""
             else:
                 continuation = (
@@ -1978,7 +1982,7 @@ class LifeSupervisor(
 
     def _operator_words(self, kind: str, **params: Any) -> dict[str, str]:
         """A kind and its sentence in the operator's language, for an event they read."""
-        from ...core.mission_view._wording import say
+        from ...core.mission_view import say
 
         return {"kind": kind, "text": say(kind, self._operator_chinese(), **params)}
 

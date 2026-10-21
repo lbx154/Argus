@@ -302,7 +302,7 @@ def test_drop_continues_an_armed_campaign(tmp_path: Path) -> None:
     )
 
     assert result["dropped"] is True and result["resume_requested"] is True
-    assert "continues" in result["reply"]
+    assert "carries on" in result["reply"]
     campaign = read_continuous_state(life)
     assert campaign.enabled is True
     assert campaign.objective == "keep optimizing"
@@ -437,8 +437,8 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
 @pytest.mark.parametrize(
     ("answer", "reply"),
     [
-        ("走近路。", "已把你的决定交给团队。在你恢复之前，这轮工作保持停止。"),
-        ("Take the short route.", "I delivered your decision to the team. The campaign stays stopped until you resume it."),
+        ("走近路。", "收到，按你定的继续做。在你恢复之前，其余工作先停着。"),
+        ("Take the short route.", "Got it, carrying on with your choice. Everything else stays stopped until you resume it."),
     ],
 )
 def test_an_answer_is_acknowledged_in_the_operator_s_language(
