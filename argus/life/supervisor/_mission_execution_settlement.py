@@ -667,6 +667,16 @@ class MissionExecutionSettlementMixin:
         def fail(*, error: str, outcome: dict[str, Any]) -> None:
             commit(status="failed", finished_ts=time.time(), last_error=error, outcome=outcome)
 
+        def parked_outcome(reason: str, *, succeeded: bool) -> dict[str, Any]:
+            """Settle the run as parked for ``reason``; the outcome the park records."""
+            nonlocal status, resumable
+            status, state.park_reason, resumable = "parked", reason, True
+            return mission_outcome_dimensions(
+                status=status, success=succeeded, review_status=final_review_status,
+                stage_transition=stage_transition, stop_kind=state.stop_kind,
+                resumable=True, park_reason=reason,
+            )
+
         from ...manager.supervision import HANDED_TO_MANAGER
 
         # Update backlog row. A bounded research cycle that did not achieve its
@@ -682,17 +692,7 @@ class MissionExecutionSettlementMixin:
             # transition allowed here: running -> pending on the same item.
             commit(outcome=outcome_dimensions)
         elif maintenance_reviewed:
-            status, state.park_reason = "parked", "operator_question"
-            resumable = True
-            outcome_dimensions = mission_outcome_dimensions(
-                status=status,
-                success=True,
-                review_status=final_review_status,
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=True,
-                park_reason=state.park_reason,
-            )
+            outcome_dimensions = parked_outcome("operator_question", succeeded=True)
             ask_operator(
                 self.memory.root, item,
                 say("ask_adopt_reviewed_change", self._operator_chinese(), title=item.title),
@@ -746,17 +746,7 @@ class MissionExecutionSettlementMixin:
             # Handed to the Manager, who holds it now: it parks where a Manager
             # stop leaves work, for the Manager to put to the operator, the
             # Planner to retire or the operator to resume.
-            status, state.park_reason = "parked", "research_open"
-            resumable = True
-            outcome_dimensions = mission_outcome_dimensions(
-                status=status,
-                success=False,
-                review_status=final_review_status,
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=True,
-                park_reason=state.park_reason,
-            )
+            outcome_dimensions = parked_outcome("research_open", succeeded=False)
             commit(
                 park_reason=state.park_reason,
                 finished_ts=time.time(),
