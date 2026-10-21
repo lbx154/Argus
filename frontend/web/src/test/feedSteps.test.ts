@@ -210,7 +210,7 @@ describe('foldFeedRows · repeated sentences and failure streaks (rules d, e)', 
     const events: EventMsg[] = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
       events.push({ type: 'life.planner.start', objective: 'write the paper', ts: (clock += 1) } as EventMsg);
-      events.push({ type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', ts: (clock += 1) } as EventMsg);
+      events.push({ type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: (clock += 1) } as EventMsg);
     }
     events.push({ type: 'life.planner.start', objective: 'write the paper', ts: (clock += 1) } as EventMsg);
     events.push({ type: 'life.planner.task_added', title: 'Build the portfolio', ts: (clock += 1) } as EventMsg);
@@ -284,10 +284,11 @@ describe('foldFeedRows · a real campaign', () => {
     ), 0);
     const echoes = events.filter((event) => event.type === 'engineer.progress' && event.kind === 'tool_use' && event.status === 'failed').length;
 
-    // 622 events → 207 rendered rows → 125 rows once folded (manager 5→5,
-    // planner 27→16, engineer 159→97, reviewer 13→5, Argus updates 3→2).
-    // The recording's two retired idea-portfolio events render as nothing.
-    expect(before).toBe(207);
+    // 622 events → 196 rendered rows → 118 rows once folded (manager 5→5,
+    // planner 18→11, engineer 157→95, reviewer 13→5, Argus updates 3→2).
+    // The recording's two retired idea-portfolio events render as nothing,
+    // nor do Planner errors retried on their own or a task's repeated start.
+    expect(before).toBe(196);
     expect(after).toBeLessThanOrEqual(Math.round(before * 0.65));
     // Every rendered row is still reachable: as a step, a group member or a repeat.
     expect(preserved + echoes).toBe(before);
@@ -299,11 +300,9 @@ describe('foldFeedRows · a real campaign', () => {
     expect(reviewer.map((row) => (row.kind === 'step' ? row.repeat : 0))).toEqual([1, 1, 1, 1, 9]);
     expect((reviewer[2] as FeedStep).r.text).toBe('reviewer backend unavailable; retrying after 15.0s');
 
-    // The Planner's six failed attempts are two rows, not twelve.
-    const planner = foldFeedRows(roleRows.planner, 'en');
-    const errors = planner.filter((row) => row.kind === 'step' && row.ev.type === 'life.planner.error');
-    expect(errors).toHaveLength(1);
-    expect((errors[0] as FeedStep).repeat).toBe(6);
+    // The Planner's six failed attempts were retried on their own and carry
+    // no words for the operator: none of them is a row.
+    expect(roleRows.planner.filter((row) => row.ev.type === 'life.planner.error')).toHaveLength(0);
 
     // Reads, searches and fetches fold; shell commands do not.
     const engineer = foldFeedRows(roleRows.engineer, 'en');
@@ -334,9 +333,9 @@ describe('EventStream renders folded rows', () => {
       // The Planner's three identical errors come first; the Engineer, being
       // the role that spoke last, is the group that opens on a live feed.
       events: [
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', ts: 1 },
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', ts: 2 },
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', ts: 3 },
+        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 1 },
+        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 2 },
+        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 3 },
         call('view', { path: 'a.py' }),
         call('view', { path: 'b.py' }),
         call('view', { path: 'c.py' }),
@@ -356,7 +355,7 @@ describe('EventStream renders folded rows', () => {
     // Two identical shell commands fold to one line with a count.
     expect(html).toContain('data-repeat="2"');
     // The collapsed Planner header still previews its folded row.
-    expect(html).toContain('the Planner hit an error');
+    expect(html).toContain("The Planner hasn&#x27;t had an answer");
     expect(html).not.toContain('Used ');
   });
 });

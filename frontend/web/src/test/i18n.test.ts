@@ -9,7 +9,7 @@ const ZH: RenderContext = { locale: 'zh-CN', showReasoning: true, unknownEventPo
 
 describe('web localization', () => {
   test.each([
-    ['Manager', '统筹'], ['Planner', '规划'], ['Engineer', '执行'], ['Reviewer', '复核'],
+    ['Manager', '经理'], ['Planner', '规划者'], ['Engineer', '工程师'], ['Reviewer', '审阅者'],
   ])('localizes the %s role name across workbench surfaces', (role, chinese) => {
     for (const locale of ['zh-CN', 'en'] as const) {
       const expected = locale === 'zh-CN' ? chinese : role;
@@ -25,7 +25,7 @@ describe('web localization', () => {
   test('localizes shared command presentation without changing command tokens', () => {
     const status = COMMANDS.find((command) => command.id === 'status')!;
     expect(status.name).toBe('/status');
-    expect(commandDescription(status, 'zh-CN')).toContain('健康状态');
+    expect(commandDescription(status, 'zh-CN')).toContain('运行状况');
     expect(commandGroup(status, 'zh-CN')).toBe('常用');
   });
 

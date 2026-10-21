@@ -653,7 +653,7 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
         const note = humanizeHarnessNote(reason[1], zh);
         if (record.receipt) technical.push(record.receipt);
         return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`
-          : `At that time, ${note.summary}. Work done so far was kept, and no retry was made then.`;
+          : `At that time, ${note.summary.charAt(0).toLowerCase()}${note.summary.slice(1)}. Work done so far was kept, and no retry was made then.`;
       }
       const detail = plainDetail(reason[1], locale);
       if (detail.text !== reason[1].trim() || detail.technical) {

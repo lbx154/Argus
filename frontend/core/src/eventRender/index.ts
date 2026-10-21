@@ -127,20 +127,11 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
     transient_error: ['the model service had a temporary error', '模型服务临时出错'],
     permanent_error: ['the model call failed', '模型调用失败了'],
   };
-  const cause = why[code] ?? why[stopKind];
-  if (cause) {
-    return {
-      text: localized(
-        context,
-        `The Manager couldn't finish looking over the progress (${cause[0]}); it will look again later and the work carries on.`,
-        `经理这次没能看完进展（${cause[1]}），稍后再看，工作照常进行。`,
-      ),
-      tone: 'warn',
-    };
-  }
+  const cause = [code, stopKind].map((key) => (Object.hasOwn(why, key) ? why[key] : undefined)).find(Boolean);
+  const [en, zh] = cause ? [` (${cause[0]})`, `（${cause[1]}）`] : ['', ''];
   const text = stage === 'commit' && ['continue', 'wait', 'steer', 'stop'].includes(stringField(event, 'action'))
-    ? localized(context, "The Manager decided on an adjustment, but it couldn't be applied; the work carries on as it was.", '经理想调整一下工作，但没能生效；工作按原样继续。')
-    : localized(context, "The Manager couldn't finish looking over the progress; it will look again later and the work carries on.", '经理这次没能看完进展，稍后再看，工作照常进行。');
+    ? localized(context, `The Manager decided on an adjustment, but it couldn't be applied${en}; the work carries on as it was.`, `经理想调整一下工作，但没能生效${zh}；工作按原样继续。`)
+    : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later and the work carries on.`, `经理这次没能看完进展${zh}，稍后再看，工作照常进行。`);
   return { text, tone: 'warn' };
 }
 
@@ -202,11 +193,11 @@ function managerFailure(event: TypedArgusEvent, context: RenderContext): string 
     backend: ['the model service did not answer', '模型服务没有回应'],
     timeout: ['the model took too long to answer', '模型太久没有回应'],
   };
-  const cause = why[phase] ?? ["the model's answer couldn't be understood", '没看懂模型的回答'];
+  const cause = Object.hasOwn(why, phase) ? why[phase] : ["the model's answer couldn't be understood", '没看懂模型的回答'];
   return localized(
     context,
-    `couldn't work out how to handle this request (${cause[0]}); please send it again`,
-    `没弄明白该怎么处理这个请求（${cause[1]}），请再发一次`,
+    `couldn't work out how to handle this request (${cause[0]}), so nothing was started`,
+    `没弄明白该怎么处理这个请求（${cause[1]}），所以还没开始做`,
   );
 }
 

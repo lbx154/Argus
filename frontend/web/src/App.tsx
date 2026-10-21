@@ -406,7 +406,7 @@ export default function App() {
           : '';
         notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
       },
-      (error) => {
+      () => {
         if (finishRewrite(operation) && sidRef.current === sid) {
           notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
         }
