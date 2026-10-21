@@ -116,6 +116,20 @@ describe("humanizeHarnessNote", () => {
     expect(review.detail).toContain("— technical record: exit=2");
     expect(review.detail).not.toContain("Technical record:");
   });
+  it.each([
+    ["operator pause requested", "运行被你停下了", "You stopped Argus"],
+    ["operator abort requested: replace the target", "运行被你停下了", "You stopped Argus"],
+    ["daemon stop requested", "后台服务停止或重启了，运行中断", "The background service stopped or restarted"],
+    ["Manager turn wall-clock limit reached", "运行中断了，这一轮没有做完", "The run was interrupted"],
+  ])("names who stopped a round only as the record does (%s)", (interrupt, zh, en) => {
+    const record = `The work stopped. Technical record: error=External interrupt: ${interrupt}`;
+    const chinese = humanizeHarnessNote(record, true);
+    expect(chinese.kind).toBe("interrupt");
+    expect(chinese.summary).toContain(zh);
+    expect(humanizeHarnessNote(record, false).summary).toContain(en);
+    if (!interrupt.startsWith("operator")) expect(chinese.summary).not.toContain("你");
+  });
+
   it("leaves plain research prose untouched", () => {
     expect(humanizeHarnessNote("Found the leak in the eval split.", false)).toEqual({
       summary: "",

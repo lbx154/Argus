@@ -510,6 +510,11 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
   [/^using a tool$/i, ['正在使用工具', 'Using a tool']],
 ];
 
+const DAEMON_STOP_SENTENCES = new Set([
+  "The Argus background service stopped or restarted in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
+  "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
+]);
+
 /** Text that reads as a counter, a receipt or an exit code rather than a sentence. */
 const TECHNICAL_TAIL = /^(?:[\w.]+_(?:streak|code|error|kind)=|error=|exit=|fatal_error=|Runner receipt:|stop_kind=|backend_)/i;
 
@@ -647,9 +652,9 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
     const reason = part.match(/^(?:Reason:|原因：)\s*(.*)$/);
     if (reason) {
       const record = splitHarnessRecord(reason[1]);
-      // This exact sentence is emitted by operator_interrupt_review_decision.
-      // A mention of interruption inside ordinary research prose is insufficient.
-      if (record.prose === "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.") {
+      // Only the exact sentences daemon_stop_review_decision writes (today's
+      // and an older one); interruption mentioned in research prose is not one.
+      if (DAEMON_STOP_SENTENCES.has(record.prose)) {
         const note = humanizeHarnessNote(reason[1], zh);
         if (record.receipt) technical.push(record.receipt);
         return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`

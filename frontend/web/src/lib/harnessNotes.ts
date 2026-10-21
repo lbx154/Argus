@@ -5,13 +5,29 @@
 // receipts that arrive without the marker. Research prose that merely talks
 // about budgets or quarantine policy must never be replaced by a canned line.
 const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" | "reviewer" | "round"; zh: string; en: string }> = [
+  // A round stopped midway, never a verdict on anything. Who stopped it is
+  // said only as the record names them: the background service (a restart,
+  // a deploy, the daemon stopping), you, or, when the record does not say, no one.
   {
-    // The operator stopped Argus mid-round. Not a verdict on anything.
-    match: /External interrupt|daemon (?:stop|shutdown)|stopped by its operator|You stopped Argus/i,
-    bare: /^(?:Engineer interrupted because daemon shutdown|Argus was stopped by its operator|You stopped Argus|Reviewer backend returned no complete judgment \([^)]*External interrupt)/,
+    match: /daemon (?:stop|shutdown)|stopped by its operator|background service stopped or restarted/i,
+    bare: /^(?:Engineer interrupted because daemon shutdown|Argus was stopped by its operator|The Argus background service stopped or restarted|Reviewer backend returned no complete judgment \([^)]*External interrupt: daemon)/,
+    kind: "interrupt",
+    zh: "后台服务停止或重启了，运行中断，这一轮没有做完；这不是对工作本身的评价",
+    en: "The background service stopped or restarted, cutting this round short; this says nothing about the work itself",
+  },
+  {
+    match: /operator (?:pause|abort) requested|You stopped Argus/i,
+    bare: /^(?:You stopped Argus|Reviewer backend returned no complete judgment \([^)]*External interrupt: operator)/,
     kind: "interrupt",
     zh: "运行被你停下了，这一轮没有做完；这不是对工作本身的评价",
     en: "You stopped Argus before this round could finish; this says nothing about the work itself",
+  },
+  {
+    match: /External interrupt|The run was interrupted/i,
+    bare: /^(?:The run was interrupted|Reviewer backend returned no complete judgment \([^)]*External interrupt)/,
+    kind: "interrupt",
+    zh: "运行中断了，这一轮没有做完；这不是对工作本身的评价",
+    en: "The run was interrupted before this round could finish; this says nothing about the work itself",
   },
   {
     match: /no complete judgment|before reaching a judgment|reached a conclusion|did not reach a conclusion/i,

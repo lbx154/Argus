@@ -1650,6 +1650,24 @@ def test_round_skipped_because_argus_stopped_is_classified_by_stop_kind(
     assert entry["technical"] == "error=daemon stop requested"
 
 
+@pytest.mark.parametrize("opening", [
+    "You stopped Argus before the Reviewer could finish reading this round",
+    "The Argus background service stopped or restarted in the middle of this round",
+    "The run was interrupted before the Reviewer could finish reading this round",
+])
+def test_a_task_closed_by_an_interrupted_round_is_recognized(tmp_path: Path, opening: str) -> None:
+    reason = f"{opening}; nothing here is a judgment on the work. Technical record: exit=130"
+    view = emit(
+        tmp_path, "life.mission.completed", 1,
+        item_id="task-1", title="Portfolio", success=False, status="failed",
+        failure_reason=reason, stop_reason=reason,
+    )
+    entry = view["timeline"][-1]
+    assert entry["cause"] == "argus_stopped"
+    assert entry["detail"] == "Argus was stopped while this task was running; its progress is saved."
+    assert entry["technical"] == "exit=130"
+
+
 def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Path) -> None:
     emit(
         tmp_path,
