@@ -302,12 +302,16 @@ def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
 
+    # A conflict with no reading chosen decided nothing.
+    record_autonomous_assumption(tmp_path, item_id="x", conflict="Two release rules conflict.", source="x")
+    assert render_autonomous_assumptions(tmp_path) == ""
     record_autonomous_assumption(
-        tmp_path, item_id="x", conflict="Two release rules conflict.", source="mission_challenge"
+        tmp_path, item_id="x", conflict="Two release rules conflict.", reading="The stricter one.",
+        source="engineer",
     )
     text = render_autonomous_assumptions(tmp_path)
     assert text.startswith("Decided without asking you")
-    assert "Two release rules conflict." in text
+    assert "Two release rules conflict. → I went with: The stricter one." in text
     assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
 
 
@@ -358,7 +362,7 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     )
 
     start_autonomy_run()
-    record_autonomous_assumption(tmp_path, item_id="", conflict="old conflict", source="x")
+    record_autonomous_assumption(tmp_path, item_id="", reading="old reading", source="x")
     assert read_autonomous_assumptions(tmp_path)
     start_autonomy_run()
     assert read_autonomous_assumptions(tmp_path) == []

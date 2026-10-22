@@ -912,10 +912,13 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert [option["label"] for option in asked.operator_decision["options"]] == ["Keep A", "Keep B"]
     assert len(backend.calls) == 1
     # 2026-10-22: rounding "consistent with the package's whole-unit functions"
-    # read two ways with two public behaviors; the Manager chose one itself and
-    # the operator never heard of the other.
+    # read two ways with two public behaviors. Told separately that such readings
+    # were the operator's and that reversible decisions were its own, the Manager
+    # chose one itself. The one rule every role shares now settles it, once.
+    from argus.core.operator_context import JUDGMENT_INSTRUCTION
+
     prompt = " ".join(backend.calls[0][0].split())
-    assert "open to readings that change the delivered public behavior is such a choice" in prompt
+    assert prompt.count(JUDGMENT_INSTRUCTION) == 1
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
@@ -923,3 +926,55 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert [(row["item_id"], row["question"], row["options"]) for row in pending] == [
         (item.id, "Keep A or B?", ["Keep A", "Keep B"]),
     ]
+
+
+def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_report(tmp_path, monkeypatch):
+    """With nobody to ask, the Manager's steer chose one reading of a requirement
+    read two ways; the run report says it was chosen for the operator."""
+    from argus.core.autonomy import read_autonomous_assumptions, render_autonomous_assumptions
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.manager import supervision
+    from argus.roles.prompts.manager import build_project_completion_report_prompt
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    monkeypatch.setenv("ARGUS_AUTONOMY_RUN_ID", "assumption-run")
+    reading = "format_hours truncates like format_minutes (5400 → 1 h), not half up like format_days"
+
+    class ChoosingBackend(EvidenceBackend):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append((prompt, resume_thread_id, run_label))
+            text = (
+                "ACTION: steer\nREASON: The rounding requirement reads two ways.\n"
+                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Truncate partial hours.\n"
+                f"ASSUMPTION: {reading}"
+            )
+            return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
+
+    root = tmp_path / "state"
+    _, item = project(root)
+    backend = ChoosingBackend()
+    record = supervise(Manager(root, runner=backend, memory_maintenance_enabled=False), root,
+                       {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id})
+    assert record["status"] == "applied", record
+    assert "ASSUMPTION:" in backend.calls[0][0]
+    (row,) = read_autonomous_assumptions(root)
+    assert (row["item_id"], row["reading"], row["source"]) == (item.id, reading, "manager_decision")
+    assert f"the Manager decided for you: {reading}" in render_autonomous_assumptions(root)
+
+    class Runner:
+        manager = None
+
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(root), runner=Runner(), sink=JsonlEventSink(None, life_dir=root),
+        config=LifeSupervisorConfig(continuous=True, continuous_objective="o", project_worktree=tmp_path),
+    )
+    report = build_project_completion_report_prompt(
+        objective="o", completion_reason="done",
+        completion_context=supervisor._manager_project_completion_context(),
+    )
+    assert "Name each recorded assumption" in report and reading in report
+    # A field that states nothing records nothing.
+    assert supervision._decision(
+        "ACTION: continue\nREASON: r\nEVIDENCE_REFS: backlog.jsonl\nASSUMPTION: none"
+    )["assumption"] == ""
