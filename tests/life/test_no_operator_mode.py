@@ -311,6 +311,17 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
 
 
+def test_a_manager_answer_is_named_the_same_way_everywhere(tmp_path) -> None:
+    from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
+
+    record_autonomous_assumption(
+        tmp_path, item_id="x", conflict="Which rule wins?", reading="The newer one.",
+        source="manager_decision",
+    )
+    assert "the Manager decided for you: The newer one." in render_autonomous_assumptions(tmp_path)
+    assert "经理替你定了：The newer one." in render_autonomous_assumptions(tmp_path, chinese=True)
+
+
 # --- --no-operator lasts one run ---------------------------------------------
 def test_no_operator_flag_is_not_persisted_with_the_project(tmp_path, monkeypatch) -> None:
     import argus.core.autonomy as autonomy

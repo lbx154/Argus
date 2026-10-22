@@ -61,7 +61,7 @@ describe("task submap evidence", () => {
     expect(by("e4").detail).toBe("因为在等你回答一个问题，工作停了下来。");
     expect([by("e5").title, by("e5").detail]).toEqual(["向你提问", "A or B?"]);
     expect([by("e6").title, by("e6").detail]).toEqual(["你的答复", "A."]);
-    expect(by("e7").title).toBe("Argus 代你答复");
+    expect(by("e7").title).toBe("经理替你定了");
   });
 
   it("shows reviewer failure as an error rather than rejection and keeps later review independent", () => {

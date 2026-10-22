@@ -168,7 +168,7 @@ def render_autonomous_assumptions(
         verb = (
             ("经理替你定了" if manager else "我按这个理解做的")
             if chinese
-            else ("the Manager decided" if manager else "I went with")
+            else ("the Manager decided for you" if manager else "I went with")
         )
         if reading and conflict:
             lines.append(f"- {conflict} → {verb}：{reading}" if chinese

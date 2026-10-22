@@ -424,7 +424,7 @@ export function buildSubmap(
         kind: said.kind,
         // The Manager may answer in the operator's place; that is not the operator's answer.
         title: e.type.endsWith(".answered") && e.role !== "operator"
-          ? zh ? "Argus 代你答复" : "Argus answered for you"
+          ? zh ? "经理替你定了" : "The Manager decided for you"
           : said.title[zh ? 0 : 1],
         summary: clipSentence(record) || undefined,
         detail: record || noDetails(zh),
