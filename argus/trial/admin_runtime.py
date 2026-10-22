@@ -65,6 +65,22 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         raise RuntimeError("Could not persist the administrator provider configuration")
 
 
+def other_tenant_roots(settings, tenant: str) -> list[str]:
+    """What an enrolled native workspace's roles may not touch (SE-1).
+
+    The ten invitation workspaces run in their own containers, but an enrolled
+    native workspace runs as the deployment user, who owns every tenant's
+    directory (``tenants/<key>``, the parent of its socket directory) and the
+    portal's own state and key. Its Engineer and Reviewer are refused those.
+    """
+    roots = [
+        str(Path(backend.uds).parent.parent)
+        for key, backend in settings.tenants.items()
+        if key != tenant and backend.uds
+    ]
+    return [*roots, str(settings.state_dir), str(settings.key_file)]
+
+
 def main() -> None:
     import uvicorn
 
@@ -102,6 +118,11 @@ def main() -> None:
         if endpoint.uds != str(args.uds.resolve()):
             parser.error("The workspace socket must match its configured tenant endpoint")
         args.uds.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        from ..core.workspace_boundary import FOREIGN_ROOTS_ENV, foreign_roots
+
+        os.environ[FOREIGN_ROOTS_ENV] = os.pathsep.join(
+            dict.fromkeys([*foreign_roots(), *other_tenant_roots(settings, args.tenant)])
+        )
         from .store import Store
 
         api_key = Store(settings.state_dir / "usage.sqlite3", master_key=settings.key_file).credential(args.tenant)

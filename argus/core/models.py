@@ -124,6 +124,10 @@ class RunnerOptions:
     trusted_extensions: list[str] | None = None
     trusted_tool_names: list[str] | None = None
     extension_env: dict[str, str] | None = None
+    # What this call's tools may not touch: other projects' and tenants' data
+    # (``core.workspace_boundary``, SE-1). Engineer and Reviewer calls set it;
+    # backends without a pre-tool hook run without it.
+    workspace_boundary: Any = None
 
 
 @dataclass

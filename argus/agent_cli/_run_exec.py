@@ -204,7 +204,21 @@ class RunExecMixin:
         self, *, prompt: str, resume_thread_id: str | None, options,
         run_label: str | None = None,
     ) -> AgentRunResult:
+        from ._workspace_boundary import workspace_boundary_call
+
         options = self._apply_sandbox_policy(options)
+        # The hook is prepared for the access the call finally runs with:
+        # worktree isolation hides its files and needs no boundary.
+        with workspace_boundary_call(self.backend, options) as options:
+            return self._run_bounded_exec(
+                prompt=prompt, resume_thread_id=resume_thread_id,
+                options=options, run_label=run_label,
+            )
+
+    def _run_bounded_exec(
+        self, *, prompt: str, resume_thread_id: str | None, options,
+        run_label: str | None = None,
+    ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
         gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)

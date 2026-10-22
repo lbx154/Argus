@@ -290,6 +290,7 @@ PASS_THROUGH = {
     ("argus/adapters/agent_cli_backend/_exec.py", "execute", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec_finalize.py", "finalize_result", "ctx.run_label"),
     ("argus/adapters/agent_cli_backend/_exec_spawn.py", "spawn_and_finish", "ctx.run_label"),
+    ("argus/agent_cli/_run_exec.py", "_run_bounded_exec", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_run_prepared_exec", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_stream_turn_output.check_idle_deadlines", "run_label"),
     ("argus/agent_cli/_run_exec.py", "run_exec", "run_label"),
