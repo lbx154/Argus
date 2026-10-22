@@ -1642,7 +1642,7 @@ def test_a_stage_closed_on_one_task_is_not_the_project_while_a_question_waits(tm
         view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=backlog)
         return next(role for role in view["roles"] if role["role"] == "manager")
 
-    assert manager([asked, done])["label"] == "这一项做完了；计划里的其他工作还在进行。"
+    assert manager([asked, done])["label"] == "这一项做完了；另一项在等你回答。"
     assert manager([{**asked, "status": "done", "pending_question": ""}, done])["label"] == "交付阶段已完成。"
     # The overlay is the response's; the recorded view keeps the Manager's decision.
     assert next(role for role in load_mission_view(tmp_path)["roles"] if role["role"] == "manager")["kind"] == "stage_completed"

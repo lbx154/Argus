@@ -51,13 +51,35 @@ def test_operator_update_explains_blocker_and_next_action() -> None:
         status="blocked",
         reason="The H100 runner is unavailable.",
         next_action="Choose whether to wait or use a named H200-only track.",
-        user_action_required=True,
+        holder="operator",
     )
 
     assert text.splitlines()[0] == "Stuck for now: run the H100 benchmark."
     assert "Reason: The H100 runner is unavailable." in text
     assert "Your call:" in text
     assert text.strip() not in {"BLOCKED", "REVISE"}
+
+
+@pytest.mark.parametrize(
+    ("holder", "expected"),
+    [
+        # Trial s-6f0e6213: an Engineer's handoff to the Manager read
+        # "接下来：我先查清原因，再找个能走通的办法", as if Argus would look into it.
+        ("manager", "接下来：经理在定怎么继续。"),
+        ("operator", "需要你定一下才能继续。"),
+        ("", "接下来：我先查清原因，再找个能走通的办法。"),
+    ],
+)
+def test_a_paused_task_says_who_holds_it_next(holder: str, expected: str) -> None:
+    text = render_operator_update(
+        title="为 timefmt 添加整小时格式化函数",
+        status="parked",
+        park_reason="research_open",
+        reason="现有舍入规则冲突，需要先定下舍入方式。",
+        holder=holder,
+    )
+
+    assert text.splitlines()[-1] == expected
 
 
 def test_runtime_timeout_is_explained_without_claiming_the_idea_failed() -> None:

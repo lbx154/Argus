@@ -370,6 +370,8 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "End with a short handoff in the operator's language: changes with output "
         "paths, the decisive check, what is open, why the next holder. Its first "
         "sentence is what the operator reads: what was done and found, in plain words. "
+        "The operator reads all of it, so call the roles the Manager, Planner and "
+        "Reviewer, and leave Argus' own files such as CHECKPOINT.md out of it. "
         "Then one line naming that holder:\n"
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
