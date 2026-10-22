@@ -190,6 +190,11 @@ def reduce_manager_event(
             technical=record,
         )
 
+    elif event_type == EventType.MANAGER_TURN_STARTED:
+        # A direct turn has no task yet; the operator's words in it decide the
+        # language its steps are named in.
+        remember_language(view, _text(event, "text", 2000))
+
 
 def reduce_planner_event(
     view: dict[str, Any],

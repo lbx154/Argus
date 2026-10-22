@@ -379,12 +379,14 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const presentation = missionOutcomePresentation(row(event), context.locale);
       const summary = clean(stringField(event, 'summary'), 240);
       const residualRisk = clean(stringField(event, 'residual_risk'), 200);
+      // A task the Reviewer accepted closes in the Reviewer's words, under its name.
+      const by = row(event).success === true && stringField(event, 'review_source') === 'reviewer' ? 'reviewer' : 'engineer';
       if (residualRisk && presentation.tone === 'ok') {
         const label = localized(context, 'completed with residual risk', '已完成，但有残余风险');
         const detail = summary.includes(residualRisk) ? summary : `${residualRisk}${summary ? ` · ${summary}` : ''}`;
-        return model('engineer', 'role.engineer', '⚠', `${label} · ${detail}`, 'warn', { rule: true });
+        return model(by, `role.${by}`, '⚠', `${label} · ${detail}`, 'warn', { rule: true });
       }
-      return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
+      return model(by, `role.${by}`, presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
     }
     case 'life.mission.failed':
       return model('engineer', 'role.engineer', '❌', `${localized(context, 'this task failed', '这项任务失败了')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err', { rule: true });

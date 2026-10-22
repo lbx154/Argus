@@ -133,6 +133,8 @@ def _short_name(path: str, workspace: str = "") -> str:
     parts = [part for part in text.replace("\\", "/").split("/") if part]
     if _is_plumbing(parts[:-1]):
         return _INTERNAL_FILE
+    if workspace and os.path.normpath(text) == os.path.normpath(workspace):
+        return "项目目录"
     return os.path.basename(text.rstrip("/")) or text
 
 
@@ -208,13 +210,13 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     verb = _tool_verb(name)
     payload = _parse_args(args)
     path = _first_value(payload, _PATH_KEYS)
-    if verb in {"read", "edit"} and not path and payload is None and args and "{" not in args:
-        # A bare ``read: notes.md`` names its file directly.
-        path = args.split()[0]
     if verb == "edit" and not path:
         match = _PATCH_FILE.search(args or "")
         if match:
             path = match.group(1)
+    if verb in {"read", "edit"} and not path and payload is None and args and "{" not in args:
+        # A bare ``read: notes.md`` names its file directly.
+        path = args.split()[0]
     if verb == "read":
         target = _short_name(path, workspace)
         return f"查阅 {target}" if target else "查阅文件"
@@ -233,7 +235,8 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     if verb == "edit":
         target = _short_name(path, workspace)
         return f"修改 {target}" if target else "修改文件"
-    return f"调用 {name}"
+    # The Reviewer's verdict goes through Argus' own action, not a tool of the work.
+    return "提交审阅结论" if name.endswith("submit_review") else f"调用 {name}"
 
 
 def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:

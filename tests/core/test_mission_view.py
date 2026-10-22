@@ -1924,6 +1924,17 @@ def test_task_paused_for_an_unreachable_model_service_is_explained_in_english(
     )
 
 
+def test_direct_turn_steps_are_named_in_the_operators_language(tmp_path: Path) -> None:
+    emit(tmp_path, "manager.turn.started", 9, message_id="web-4", text="帮我看看调度代码")
+    view = emit(
+        tmp_path, "engineer.progress", 10, status="running", agent_layer="manager",
+        kind="tool_use", item_id="turn:web-4", message_id="web-4:c1", text="查阅 scheduler.hpp",
+        call_id="c1", turn_step=True,
+    )
+    row = next(row for row in view["role_work"] if row["role"] == "manager")
+    assert row["title"] == "正在使用工具"
+
+
 def test_manager_turn_steps_keep_one_work_record_per_call_with_its_status(tmp_path: Path) -> None:
     step = dict(
         agent_layer="manager", actor="manager", kind="command_execution",
