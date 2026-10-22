@@ -12,7 +12,7 @@ import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
 import { visibleAgentText } from "../../../core/src/events";
-import { isPauseStatus, parkReason, stopClause } from "../../../core/src/missionOutcome";
+import { isPauseStatus, parkReason, settledStatus, stopClause } from "../../../core/src/missionOutcome";
 import { plainStopSentence } from "../lib/plainStatus";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
@@ -436,7 +436,7 @@ export function buildSubmap(
     const reviewUnavailable = e.backend_unavailable === true || (kind === "result" && lastReview?.backend_unavailable === true);
     const scope = reviewUnavailable ? "" : completionScope(e, zh);
     const status =
-      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : e.status) ||
+      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : settledStatus(e)) ||
       (e.success === false || e.type.endsWith(".failed")
         ? "failed"
         : e.success === true
@@ -460,6 +460,8 @@ export function buildSubmap(
         ? zh ? "审阅通过" : "Review passed"
         : status === "continue"
           ? zh ? "审阅：要求再改一轮" : "Review: another pass asked for"
+          : status === "question"
+            ? zh ? "审阅：等你决定" : "Review: your decision is needed"
           : ["blocked", "replan", "replan_requested"].includes(status)
             ? zh ? "审阅：建议调整方向" : "Review: a change of course asked for"
             : status === "failed"
@@ -538,9 +540,7 @@ export function buildSubmap(
     });
     if (
       !reviewSkipped && !interrupted && e.next_action &&
-      ["continue", "blocked", "replan", "replan_requested"].includes(
-        e.status || "",
-      )
+      ["continue", "blocked", "replan", "replan_requested"].includes(status)
     ) {
       rows.push({
         id: `${e.id}:next`,
@@ -649,14 +649,18 @@ export function buildSubmap(
 }
 
 /** The task's standing in one line, for its card and its heading: what the
- * last review asked for and the round under way. */
+ * last review of the current attempt asked for and the round under way. A
+ * review of an earlier attempt, one the operator has since answered among
+ * them, no longer stands. */
 export function taskConclusion(steps: SubmapStep[], zh: boolean, active = true): string {
   const parts: string[] = [];
-  const review = [...steps].reverse().find((step) => step.kind === "review"
-    && ["done", "continue", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
+  const attempt = Math.max(0, ...steps.map((step) => step.episode ?? 0));
+  const review = [...steps].reverse().find((step) => step.kind === "review" && (step.episode ?? 0) === attempt
+    && ["done", "continue", "question", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
   if (review) {
     parts.push(review.status === "done" ? zh ? "审阅通过" : "review passed"
       : review.status === "continue" ? zh ? "审阅要求再改一轮" : "the review asked for another pass"
+      : review.status === "question" ? zh ? "等你决定" : "waiting for your decision"
       : review.status === "failed" ? zh ? "审阅没通过" : "review not passed"
       : zh ? "审阅建议换个方向" : "the review asked for a change of course");
   }

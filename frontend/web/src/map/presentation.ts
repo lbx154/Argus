@@ -80,8 +80,9 @@ const clip = (text: string, size = 80) => text.length > size ? `${text.slice(0, 
 
 /** Three lines an outsider can read: the goal of the task the reader most
  * needs to see, what has been concluded (only an acceptance still standing
- * counts), and what comes next. */
-export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, written: (task: MapTask) => string = () => ""):
+ * counts), and what comes next. ``live`` is what the runtime reports under
+ * way right now; a question waiting on the reader still heads the brief. */
+export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, written: (task: MapTask) => string = () => "", live = ""):
   { goal: string; current: string; conclusion: string; next: string } {
   const work = tasks.filter((task) => task.turn_kind !== "qa" && task.kind !== "turn");
   const running = work.find((task) => ACTIVE.has(task.status));
@@ -115,9 +116,10 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
         : zh ? '还没有经过检查确认的结果。' : 'There is no checked, confirmed result yet.'
       : zh ? "还没有结果" : "No result yet";
   const queued = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)).find((task) => statusKey(task) === "pending");
-  const current = running && focus === running
-    ? zh ? `正在处理：${clip(running.title, 70)}` : `Working on: ${clip(running.title, 70)}`
-    : focus ? label(focus) : zh ? '可以开始新任务' : 'Ready for a new task';
+  const current = focus && statusKey(focus) === "question" ? label(focus)
+    : live || (running && focus === running
+      ? zh ? `正在处理：${clip(running.title, 70)}` : `Working on: ${clip(running.title, 70)}`
+      : focus ? label(focus) : zh ? '可以开始新任务' : 'Ready for a new task');
   const next = focus && ["question", "held", "failed", "review_unavailable"].includes(statusKey(focus))
     ? attentionSummary(focus, events, zh, written(focus)).next
     : queued

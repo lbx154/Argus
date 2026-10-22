@@ -57,6 +57,8 @@ export interface MapEvent {
   status?: string;
   /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
   park_reason?: string;
+  /** What a review or task handed to the operator asks them. */
+  operator_question?: string;
   /** Who or what stopped this work short of a failure, as the record names it. */
   stop_kind?: string;
   round_index?: number;
@@ -237,8 +239,11 @@ export function isStageHold(task: MapTask): boolean {
 /** The project's concluding acceptance, if it still is one. A certification
  * says "the project is done" only until work starts again: once any mission
  * starts after it (a new goal, an operator redirect, a retry of the same task),
- * the earlier acceptance describes a past state and must not headline the map. */
+ * the earlier acceptance describes a past state and must not headline the map.
+ * While a question waits on the reader nothing is done yet either; the
+ * completion message says the same (``_publish_mission_completion_message``). */
 export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
+  if (attentionTasks(tasks).some((task) => task.pending_question)) return undefined;
   const reopenedAfter = (ts: number) => events.some((event) =>
     event.type === "life.mission.started" && event.ts > ts);
   return tasks.filter(task => task.status === "done"

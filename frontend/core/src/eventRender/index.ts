@@ -2,7 +2,7 @@ import type { EventMsg } from '../types.js';
 import type { TypedArgusEvent } from '../eventPayloads.generated.js';
 import { canonicalEventType } from '../eventCatalog.js';
 import { isStructuredAgentPayload, visibleAgentText } from '../events.js';
-import { missionOutcomePresentation, stopClause } from '../missionOutcome.js';
+import { missionOutcomePresentation, settledStatus, stopClause } from '../missionOutcome.js';
 import { managerIntentSummary } from '../managerIntent.js';
 
 export type RenderLocale = 'en' | 'zh-CN';
@@ -365,14 +365,14 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       if (event.review_skipped === true) {
         return model('reviewer', 'role.reviewer', '↪', `${localized(context, 'no review this round', '这一轮没有审阅')} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'info');
       }
-      const status = stringField(event, 'status');
+      const status = settledStatus(event);
       const residualRisk = status === 'done' ? clean(stringField(event, 'residual_risk'), 200) : '';
       if (residualRisk) {
         // Approved with one check left unverified on an accepted risk: never a plain pass.
         return model('reviewer', 'role.reviewer', '⚠', `${localized(context, 'verified with residual risk', '已验证，但有残余风险')}: ${residualRisk} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'warn');
       }
       const tone: RenderTone = status === 'done' ? 'ok' : status === 'blocked' || status === 'no_progress' ? 'err' : 'warn';
-      const glyph = status === 'done' ? '✅' : status === 'blocked' || status === 'no_progress' ? '⛔' : '↻';
+      const glyph = status === 'done' ? '✅' : status === 'blocked' || status === 'no_progress' ? '⛔' : status === 'question' ? '❓' : '↻';
       return model('reviewer', 'role.reviewer', glyph, `${reviewVerdict(status, context)} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
     }
     case 'life.mission.completed': {
@@ -701,6 +701,7 @@ function reviewVerdict(status: string, context: RenderContext): string {
   const verdicts: Record<string, [string, string]> = {
     done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
     blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
+    question: ['the Reviewer leaves the choice to you', '审阅者把选择交给你'],
     no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
   };
   if (!status) return localized(context, 'the Reviewer gave no verdict', '审阅者没有给出结论');

@@ -139,6 +139,15 @@ def _skipped_round_cause(event: Mapping[str, Any]) -> tuple[str, str]:
     return "unknown", stop_kind
 
 
+def _settled_status(event: Mapping[str, Any]) -> str:
+    """How a review or a task settled, as its reader is told; ``settledStatus``
+    in frontend/core/src/missionOutcome.ts says the same. A ``→ operator:``
+    handoff settles ``blocked`` with the question it asks (HANDOFF_STATUS):
+    the work waits on the operator's decision and is not stuck."""
+    status = _text(event, "status").lower()
+    return "question" if status == "blocked" and _text(event, "operator_question") else status
+
+
 def _mission_outcome_presentation(
     event: Mapping[str, Any],
     event_type: str,
@@ -146,6 +155,9 @@ def _mission_outcome_presentation(
     chinese: bool,
 ) -> tuple[str, str, str, str, str, str]:
     """Return (mission status, role status, kind, label, tone, technical)."""
+    if _settled_status(event) == "question":
+        # A task that settled on a question to the operator is parked on it, as its row is.
+        event = {**event, "outcome_class": "ended", "status": "parked", "park_reason": "operator_question"}
     if event_type == EventType.LIFE_MISSION_FAILED:
         outcome_class = "failed"
     else:
@@ -436,20 +448,20 @@ def _reduce_review_completed(
             tone="success",
         )
     else:
+        settled = _settled_status(event)
         kind = {
             "done": "results_accepted",
             "continue": "another_attempt_requested",
             "blocked": "attempt_blocked",
+            "question": "choice_left_to_you",
             "replan_requested": "replan_requested",
-        }.get(status, "results_not_final")
-        _set_role(
-            view,
-            "reviewer",
-            "done" if status == "done" else "rejected",
-            say(kind, chinese),
-            ts,
-            kind=kind,
+        }.get(settled, "results_not_final")
+        role_status, tone = (
+            ("done", "success") if status == "done"
+            else ("waiting", "info") if settled == "question"
+            else ("rejected", "error")
         )
+        _set_role(view, "reviewer", role_status, say(kind, chinese), ts, kind=kind)
         _timeline(
             view,
             event,
@@ -457,7 +469,7 @@ def _reduce_review_completed(
             kind=kind,
             title=say(kind, chinese),
             detail=reason,
-            tone="success" if status == "done" else "error",
+            tone=tone,
         )
     detail = reason
     next_action = _text(event, "next_action", 2000)

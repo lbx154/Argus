@@ -41,6 +41,17 @@ describe("progress map data semantics", () => {
     // A restart of the certified task itself is the same reopening.
     expect(latestCertifiedTask(rows, [completion, { ...reopened, item_id: "cleanup" }])).toBeUndefined();
   });
+  it("keeps the final-acceptance banner down while a question still waits on the reader", () => {
+    // Trial s-934a4569: char_count passed review while the truncate task waited
+    // on the operator, and the map said the final result had passed review.
+    const counted = { ...task("count", [], "done", 20), finished_ts: 20,
+      outcome: { review_status: "done", stage_certification: "certified" } };
+    const completion: MapEvent = { id: "end", item_id: "count", type: "life.mission.completed",
+      ts: 21, text: "", overall_complete: true };
+    const asked = { ...task("truncate", [], "parked", 10), pending_question: "A or B?" };
+    expect(latestCertifiedTask([asked, counted], [completion])).toBeUndefined();
+    expect(latestCertifiedTask([{ ...asked, status: "done", pending_question: "" }, counted], [completion])).toBe(counted);
+  });
   it("shows a stage hold as held, not as an execution failure", () => {
     const held = { ...task("exp", [], "failed"), last_error: "manager stage hold: keep Experiment open",
       outcome: { execution_status: "failed", review_status: "done", stage_certification: "not_certified" } };

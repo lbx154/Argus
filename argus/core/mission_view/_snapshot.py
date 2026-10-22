@@ -12,7 +12,7 @@ import json
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from ..event_catalog import EventType, canonical_event_type
 from ..paths import NATIVE_SKILLS_DIR
@@ -122,6 +122,15 @@ def operator_objective(row: Mapping[str, Any]) -> str:
     """A task's objective as the operator reads it: their own request when one is kept."""
     shown = (row.get("manager_decision") or {}).get("display_objective")
     return shown if isinstance(shown, str) and shown.strip() else str(row.get("objective") or "")
+
+
+def awaits_operator(rows: Iterable[Mapping[str, Any]]) -> bool:
+    """Whether a task among ``rows`` waits on the operator's answer.
+
+    Until it is answered the project is not done, whatever else finished;
+    ``latestCertifiedTask`` in frontend/web/src/map/model.ts reads it the same.
+    """
+    return any(str(row.get("pending_question") or "").strip() for row in rows)
 
 
 def merge_mission_view_snapshot(
@@ -266,6 +275,10 @@ def merge_mission_view_snapshot(
     for existing in role_rows:
         if existing.get("kind") == "waiting":
             existing["label"] = say("waiting", chinese)
+        # A stage closed on one item while a question still waits on the
+        # operator: only that item is done.
+        if existing.get("kind") == "stage_completed" and awaits_operator(backlog):
+            existing.update({"kind": "item_done", "label": say("item_done", chinese)})
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:

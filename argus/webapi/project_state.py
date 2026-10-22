@@ -17,7 +17,7 @@ from typing import Any
 from ..apps.cli._follow import _read_recent_project_events
 from ..core import paths as core_paths
 from ..core.metrics import metrics_snapshot
-from ..core.mission_view import snapshot_mission_view
+from ..core.mission_view import operator_objective, snapshot_mission_view
 from ..core.role_config import RoleConfig, resolve_all_roles
 from ..core.runtime_identity import runtime_identity
 from ..core.session import (
@@ -274,8 +274,12 @@ def daemon_dict(status: DaemonStatus, *, life_dir: Path | None = None) -> dict[s
     }
 
 
-def _goal_text(life_dir: Path) -> str:
-    """The committed operator objective, without appended launch settings."""
+def _goal_text(life_dir: Path, items: list[Any]) -> str:
+    """The committed operator objective, without appended launch settings.
+
+    The contract keeps the Manager's reading of the request; the task it
+    became keeps the operator's own words, and those are what they read.
+    """
     try:
         from ..core.project_contract import load_contract
 
@@ -284,7 +288,10 @@ def _goal_text(life_dir: Path) -> str:
         return ""
     if contract is None:
         return ""
-    text = contract.objective
+    text = next((
+        operator_objective(vars(item)) for item in items
+        if item.original_objective.strip() == contract.objective.strip()
+    ), contract.objective)
     for marker in ("\n\n【开工设置", "\n\n[Launch settings"):
         text = text.split(marker, 1)[0]
     return text.strip()[:600]
@@ -779,7 +786,7 @@ def build_snapshot(
     if card := intake_card(read_intake(life_dir)):
         snapshot["pending_questions"].insert(0, {"operator_decision": card})
     snapshot["storage"] = _storage_view(session, life_dir)
-    snapshot["goal"] = _goal_text(life_dir)
+    snapshot["goal"] = _goal_text(life_dir, items)
     try:
         from .launch_hold import launch_hold_view
 

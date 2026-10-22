@@ -74,6 +74,15 @@ export function isPauseStatus(status: unknown): boolean {
   return value === 'parked' || value.startsWith('paused_');
 }
 
+/** How a review or a task settled, as its reader is told. A `→ operator:`
+ * handoff settles `blocked` with the question it asks (HANDOFF_STATUS): the
+ * work waits on the operator's decision, `question`, and is neither stuck nor
+ * sent another way. */
+export function settledStatus(event: MissionOutcomeEvent | { status?: unknown; operator_question?: unknown }): string {
+  const status = normalizedString(event.status);
+  return status === 'blocked' && String(event.operator_question ?? '').trim() ? 'question' : status;
+}
+
 const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation, 'outcomeClass' | 'kind' | 'label' | 'technical'>> = {
   completed: { glyph: '🎉', tone: 'ok', missionStatus: 'complete' },
   incomplete: { glyph: '◌', tone: 'warn', missionStatus: 'incomplete' },
@@ -215,9 +224,13 @@ export function outcomeDimensionSummary(
 }
 
 export function missionOutcomePresentation(
-  event: MissionOutcomeEvent,
+  recorded: MissionOutcomeEvent,
   locale: 'en' | 'zh-CN' = 'en',
 ): MissionOutcomePresentation {
+  // A task that settled on a question to the operator is parked on it, as its row is.
+  const event = settledStatus(recorded) === 'question'
+    ? { ...recorded, outcome_class: 'ended', status: 'parked', park_reason: 'operator_question' }
+    : recorded;
   const zh = locale === 'zh-CN';
   const say = (kind: MissionOutcomeKind) => LABELS[kind][zh ? 1 : 0];
   if (event.success === true && event.campaign_continues === true) {

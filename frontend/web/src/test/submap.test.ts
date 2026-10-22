@@ -592,6 +592,32 @@ describe("where the task stands", () => {
     expect(new Set(scene.cards.map((card) => card.conclusion))).toEqual(new Set([taskConclusion(steps, true)]));
   });
 
+  it("says a review that hands the choice to the operator waits on them, and drops it once answered", () => {
+    // Trial s-934a4569: a `→ operator:` review read "the review asked for a
+    // change of course", grew two "Changes asked for" steps, and stayed the
+    // card's conclusion after the operator answered.
+    const asked: MapEvent[] = [
+      { id: "s1", item_id: "m", type: "life.mission.started", ts: 10, text: "" },
+      { id: "v1", item_id: "m", type: "round.review.completed", ts: 20, text: "A and B conflict", round_index: 1,
+        status: "blocked", next_action: "A and B conflict", operator_question: "A or B?" },
+      { id: "c1", item_id: "m", type: "life.mission.completed", ts: 21, text: "Kept as is", status: "blocked",
+        success: false, overall_complete: false, next_action: "A and B conflict", operator_question: "A or B?" },
+    ];
+    const waiting = buildSubmap({ ...parent, status: "parked", pending_question: "A or B?" }, asked, true);
+    expect(waiting.find((step) => step.kind === "review")).toMatchObject({ status: "question", title: "审阅：等你决定" });
+    expect(waiting.find((step) => step.kind === "result")?.status).toBe("question");
+    expect(waiting.some((step) => step.kind === "revision")).toBe(false);
+    expect(taskConclusion(waiting, true, false)).toBe("当前结论：等你决定");
+    const resumed = [...asked,
+      { id: "a1", item_id: "m", type: "life.operator_question.answered", ts: 30, text: "A" },
+      { id: "s2", item_id: "m", type: "life.mission.started", ts: 31, text: "" },
+      { id: "r2", item_id: "m", type: "round.start", ts: 32, text: "", round_index: 1 }] as MapEvent[];
+    expect(taskConclusion(buildSubmap(parent, resumed, true), true)).toBe("当前结论：第 1 轮进行中");
+    // A review handed to the Manager, with no question, is still a block.
+    const toManager = asked.map(({ operator_question: _q, ...event }) => event);
+    expect(buildSubmap(parent, toManager, true).find((step) => step.kind === "review")?.title).toBe("审阅：建议调整方向");
+  });
+
   it.each([
     ["paused_external_work", "operator_pause", "因为需要先等 Argus 之外的工作完成，工作停了下来。"],
     ["parked", "operator_pause", "因为你暂停了工作，工作停了下来。"],
