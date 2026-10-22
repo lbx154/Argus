@@ -64,7 +64,7 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
         next_action=None,
     )
 
-    assert "does the independent review; do not start a review of your own" in out
+    assert "does the independent review; do not start one yourself or through a subagent" in out
     assert "yield" in out.lower()
 
 
