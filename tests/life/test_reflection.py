@@ -77,6 +77,7 @@ class _Backend:
     files: list[tuple[Path, str]] = field(default_factory=list)
     exit_code: int = 0
     fatal_error: str | None = None
+    message: str = "WROTE"
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     def run_exec(self, *, prompt: str, options: Any, run_label: str, resume_thread_id=None):
@@ -96,7 +97,7 @@ class _Backend:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
         return RunnerResult(
-            exit_code=self.exit_code, fatal_error=self.fatal_error, agent_messages=["WROTE"],
+            exit_code=self.exit_code, fatal_error=self.fatal_error, agent_messages=[self.message],
         )
 
 
@@ -417,6 +418,22 @@ def test_pages_that_do_not_parse_are_ignored_and_a_failed_call_is_recorded(roots
     assert not (roots.life / ".argus" / "REFLECTED.json").exists()
     from argus.life.reflection_status import learning_status
     assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
+
+
+@pytest.mark.parametrize(("message", "detail"), [
+    ("Nothing durable here.\nWROTE: nothing — the run repeated a known lesson", "wrote_nothing"),
+    ("WROTE: /tmp/lessons/20260917-x.md", "claimed_write_missing"),
+    ("Done.", "no_wrote_line"),
+])
+def test_a_reflection_that_changed_nothing_records_why(roots: _Roots, message, detail) -> None:
+    from argus.life.reflection_status import learning_status
+
+    result = roots.reflect(_Backend(message=message))
+
+    assert result["created"] == [] and result["updated"] == []
+    job = learning_status(roots.home, SID)["jobs"][0]
+    assert (job["status"], job["outcome"]["reason"]) == ("unchanged", "no_new_learning")
+    assert job["outcome"]["detail"] == detail
 
 
 def test_a_raising_backend_never_reaches_the_caller(roots: _Roots) -> None:

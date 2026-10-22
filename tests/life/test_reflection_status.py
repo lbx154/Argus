@@ -33,3 +33,21 @@ def test_nothing_to_learn_is_not_a_failure(tmp_path):
 def test_a_real_model_failure_stays_failed(tmp_path):
     job = _run(tmp_path, {"failure": "exit code 1", "stop_kind": "permanent_error"})
     assert (job["status"], job["outcome"]["reason"]) == ("failed", "failed")
+
+
+def test_a_skip_records_the_reason_it_was_skipped(tmp_path):
+    job = _run(tmp_path, {"skipped": "the final review found nothing new to learn"})
+    assert job["outcome"]["detail"] == "the final review found nothing new to learn"
+
+
+@pytest.mark.parametrize(("result", "detail"), [
+    ({"retired": ["pages/lessons/a.md"], "ignored": ["/w/INDEX.md"], "wrote": "nothing"}, "retired_only"),
+    ({"ignored": ["/w/pages/lessons/broken.md"], "wrote": "paths"}, "unreadable_page"),
+    ({"ignored": ["/w/INDEX.md"], "wrote": "nothing"}, "wrote_nothing"),
+    ({"reviewed_fact_recorded": True, "wrote": "nothing"}, "reviewed_fact_only"),
+    ({"wrote": "paths"}, "claimed_write_missing"),
+    ({}, "no_wrote_line"),
+])
+def test_an_unchanged_reflection_names_why_nothing_was_kept(tmp_path, result, detail):
+    job = _run(tmp_path, {"skipped": "", "created": [], "updated": [], **result})
+    assert (job["status"], job["outcome"]["detail"]) == ("unchanged", detail)
