@@ -683,7 +683,6 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
         "review_reason": "The no-gap validator dominates the preselected candidate.",
         "expected_plan_id": "plan-old",
         "expected_plan_version": 1,
-        "planner_report": {"plan_signal": "reconsider"},
         "plan_challenge": {
             "manager_action": "replace",
             "manager_reason": "Later evidence supports a concrete alternative.",
@@ -743,7 +742,6 @@ def _assert_replan_replace_commits_after_source_terminalized(
                 final_review_reason=(
                     "The source node completed enough evidence to refute itself."
                 ),
-                final_planner_report={"plan_signal": "reconsider"},
                 plan_challenge={
                     "manager_action": "replace",
                     "manager_reason": "Later evidence supports a replacement.",
@@ -848,6 +846,27 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
         plan_version=0,
         expected_replacement_version=1,
     )
+
+
+def test_the_planner_may_read_the_libraries_its_recall_points_at(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    def read_dirs(state, global_root, workspace):
+        calls.append((state, global_root, workspace))
+        return ["/elsewhere/wiki"]
+
+    monkeypatch.setattr("argus.life.knowledge_recall.knowledge_read_dirs", read_dirs)
+    project = tmp_path / "project"
+    project.mkdir()
+    memory = LifeMemory.open(tmp_path / "life")
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_MissionRunner(), sink=JsonlEventSink(None, life_dir=memory.root),
+        config=LifeSupervisorConfig(project_worktree=project, artifact_root=project),
+        planner_runner=object(),
+    )
+
+    assert "/elsewhere/wiki" in supervisor._planner_config().add_dirs
+    assert calls == [(memory.root, None, None)]
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:

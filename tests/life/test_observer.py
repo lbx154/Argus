@@ -131,6 +131,16 @@ def test_a_planner_turn_that_was_never_called_is_not_looked_at(team):
     assert team.backend.calls == []
 
 
+def test_the_turn_that_ends_the_work_is_not_looked_at(team):
+    """Trial 2: five looks after a task was delivered or the project done, all "the flow is fine"."""
+    team.supervisor._emit({"type": EventType.ROLE_SESSION_TURN, "role": "reviewer", "policy": "fresh",
+                           "action": "fresh", "item_id": "m-1", "ends_work": True})
+    team.supervisor._emit({"type": EventType.ROLE_SESSION_TURN, "role": "planner", "policy": "fresh",
+                           "action": "fresh", "ends_work": True})
+    _settle(team)
+    assert team.backend.calls == []
+
+
 def test_only_the_engineer_reviewer_and_planner_wake_it(team):
     team.supervisor._emit({"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager", "text": "x"})
     _ends(team, "manager")

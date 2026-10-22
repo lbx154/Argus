@@ -661,7 +661,6 @@
         "operator_question": "operator question",
         "output_tokens": 1,
         "payload_schema_version": 1,
-        "plan_signal": "plan signal",
         "premium_requests": 1.25,
         "prompt_block_stats": {
           "value": "recorded"
@@ -873,6 +872,7 @@
         "cached_input_tokens": 1,
         "capsule_path": "capsule path",
         "duration_ms": 1,
+        "ends_work": true,
         "input_tokens": 1,
         "metadata_persisted": true,
         "payload_schema_version": 1,
@@ -2306,7 +2306,6 @@
       "event": {
         "agent_layer": "engineer",
         "mission_objective": "mission objective",
-        "mission_success": true,
         "payload_schema_version": 1,
         "scope": "vertical",
         "ts": 1700000150,
@@ -2318,7 +2317,6 @@
     {
       "event": {
         "agent_layer": "engineer",
-        "mission_success": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "ts": 1700000151,
@@ -2330,7 +2328,6 @@
       "event": {
         "agent_layer": "engineer",
         "created": 1,
-        "mission_success": true,
         "paths": [
           "path"
         ],
@@ -2348,7 +2345,6 @@
       "event": {
         "agent_layer": "engineer",
         "error": "provider request failed",
-        "mission_success": true,
         "payload_schema_version": 1,
         "ts": 1700000153,
         "type": "team.learning.review.failed"

@@ -68,10 +68,6 @@ _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
 _REVIEW_PHRASES = {
-    # A passed review needs no label: the completion already says so.
-    "done": ("", ""),
-    "passed": ("", ""),
-    "approved": ("", ""),
     "continue": ("审阅认为还要再完善。", " The review asked for more work."),
     "blocked": ("审阅发现了卡住的问题。", " The review found a blocking problem."),
     "stale": (
@@ -406,11 +402,17 @@ class LifeSupervisor(
             else ""
         )
         from ...skills.builtins import vertical_skill_read_dirs
+        from ..knowledge_recall import knowledge_read_dirs
 
         # The stage prompt tells the read-only Planner to open the vertical's
-        # packaged playbook; grant that directory, not the whole release.
+        # packaged playbook; grant that directory, not the whole release. Its
+        # recall points at libraries outside the workdir as well.
         playbook_dirs = vertical_skill_read_dirs(
             str(pipeline.get("vertical") or "").strip() if isinstance(pipeline, dict) else ""
+        )
+        recall_dirs = knowledge_read_dirs(
+            self._project_state_root(), getattr(self.memory, "global_root", None),
+            getattr(self.memory, "project_worktree", None),
         )
         return PlannerConfig(
             model=resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
@@ -420,7 +422,7 @@ class LifeSupervisor(
             ).value,
             working_dir=str(workdir),
             state_root=str(state_root),
-            add_dirs=([str(state_root)] if state_root != workdir else []) + playbook_dirs,
+            add_dirs=[*([str(state_root)] if state_root != workdir else []), *playbook_dirs, *recall_dirs],
             skip_git_repo_check=True,
             dangerous_yolo=False,
             open_ended=bool(self.config.continuous and self.config.open_ended),
@@ -1808,9 +1810,9 @@ class LifeSupervisor(
                 headline = f"做完一步：{brief}。" if chinese else f"One step done: {brief}."
             else:
                 headline = f"这项任务结束了：{brief}。" if chinese else f"This task has ended: {brief}."
+            # A passed review needs no label: the completion already says so.
             if (
-                review
-                and review not in {"none", "not_assessed"}
+                review not in {"", "none", "not_assessed", "done"}
                 and not final_submission_certified
                 and not (overall_complete and independent_review_required)
             ):

@@ -306,9 +306,9 @@ def _record_decision_turns(
         else ((
             "argus",
             (
-                f"这个问题你暂时没空回答，我先替你选了：{choice}"
+                f"这个问题你暂时没空回答，经理替你定了：{choice}"
                 if _zh(choice, reply)
-                else f"You weren't available, so I chose for you: {choice}"
+                else f"You weren't available, so the Manager decided for you: {choice}"
             ) + f"\n\n{reply}",
         ),)
     )

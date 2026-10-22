@@ -36,7 +36,7 @@ it('shows real background work after delivery, then refreshes libraries and show
   await settle();
   expect(content(renderer.root)).toContain('知识库已更新 · 1 条');
   expect(content(renderer.root)).toContain('技能库已更新 · 1 条');
-  // A library this turn did not change is not mentioned at all.
+  // A library this mission did not change is not mentioned at all.
   expect(content(renderer.root)).not.toContain('用户偏好');
   expect(content(renderer.root)).toContain('CRISPR 机制与来源');
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['wiki-library'] });
@@ -53,7 +53,7 @@ it('shows nothing for a finished check that added nothing, in the workspace or a
 
 it('says plainly when learning did not finish', async () => {
   await mount('failed');
-  expect(content(renderer.root)).toContain('本轮学习未完成，回复不受影响');
+  expect(content(renderer.root)).toContain('任务结束后的学习没有完成，任务结果不受影响');
   expect(content(renderer.root)).not.toContain('知识库更新未完成');
   expect(renderer.root.findAllByType('button')).toHaveLength(0);
 });
@@ -65,7 +65,7 @@ it('does not show the previous project learning after switching projects', async
   expect(content(renderer.root)).not.toContain('CRISPR');
 });
 
-it('says nothing when the turn had nothing to learn', async () => {
+it('says nothing when the mission had nothing to learn', async () => {
   await mount('skipped', { reason: 'not_needed' });
   expect(renderer.toJSON()).toBeNull();
 });
@@ -78,7 +78,7 @@ it('keeps a policy pause out of the workspace, where the reply already explains 
 it('explains a policy pause in plain words inside the library, not as a failure', async () => {
   await mount('skipped', { reason: 'paused', detail: 'cost_unreconciled' }, 'knowledge');
   const text = content(renderer.root);
-  expect(text).toContain('本轮未学习：上一次模型调用的费用尚未结算');
+  expect(text).toContain('任务结束后没有学习：上一次模型调用的费用尚未结算');
   expect(text).not.toContain('未完成');
   expect(renderer.root.findByProps({ 'data-learning-status': 'skipped' })).toBeTruthy();
   expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);

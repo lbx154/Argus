@@ -112,7 +112,7 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
         def _emit_status(self, _text: str) -> None:
             return None
 
-        def _enter_idle_backoff(self) -> float:
+        def _enter_idle_backoff(self) -> None:
             raise AssertionError("known cross-cycle dependency must not back off")
 
     state = _PlanCycleState(None)
@@ -228,7 +228,7 @@ def test_commit_resolves_dependency_from_existing_backlog_item_id(
         def _emit_status(self, _text: str) -> None:
             return None
 
-        def _enter_idle_backoff(self) -> float:
+        def _enter_idle_backoff(self) -> None:
             raise AssertionError("existing item ids must resolve directly")
 
     state = _PlanCycleState(None)
@@ -270,7 +270,7 @@ def test_commit_drops_unknown_dependency_keys_and_tells_the_planner(
         def _emit_status(self, _text: str) -> None:
             return None
 
-        def _enter_idle_backoff(self) -> float:
+        def _enter_idle_backoff(self) -> None:
             raise AssertionError("a dropped dependency key is not a planner error")
 
     state = _PlanCycleState(None)
@@ -337,7 +337,7 @@ def test_commit_resolves_completed_backlog_item_id_dependency(tmp_path: Path) ->
         def _emit_status(self, _text: str) -> None:
             return None
 
-        def _enter_idle_backoff(self) -> float:
+        def _enter_idle_backoff(self) -> None:
             raise AssertionError("completed item-id dependency must not back off")
 
     state = _PlanCycleState(None)
@@ -464,8 +464,8 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
             return True
 
         @staticmethod
-        def _enter_idle_backoff() -> float:
-            return 5.0
+        def _enter_idle_backoff() -> None:
+            return None
 
         @staticmethod
         def _emit_status(_text: str) -> None:

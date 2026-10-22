@@ -751,7 +751,7 @@ def test_a_sandboxed_engineer_may_read_the_skill_libraries_its_prompt_names(tmp_
     handoffs = str(tmp_path / "handoffs")
     loop = SkillLoop(
         skills_dir=tmp_path / "skills", engineer_runner=object(),
-        config=SkillLoopConfig(read_dirs=[handoffs]),
+        config=SkillLoopConfig(add_dirs=[handoffs]),
     )
 
     roots = [str(path) for path in loop.engineer_mission.libraries().library_roots]

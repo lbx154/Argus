@@ -52,7 +52,7 @@ def _run(
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
         supervised_config=SupervisedConfig(
             max_rounds=max_rounds,
-            operator_question_policy_root=(tmp_path / "state") if snapshots else None,
+            state_root=(tmp_path / "state") if snapshots else None,
             session_id="parser-task",
             context_packet_path=str(packet or ""),
         ),

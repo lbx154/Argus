@@ -24,18 +24,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
-    from ..core.autonomy import operator_questions_can_be_asked
-
-    root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is not None:
-        return operator_questions_can_be_asked(root)
-    return (
-        bool(getattr(supervised_config, "operator_questions_allowed", True))
-        and operator_questions_can_be_asked()
-    )
-
-
 def _next_engineer_action(review: ReviewDecision) -> str | None:
     """What the next Engineer turn works from: the verdict, and an intervention that kept the work going."""
     if review.status == "continue":

@@ -116,9 +116,8 @@ class _RejectionHarness(PlanningCycleCompletionMixin):
     def _reset_idle_backoff(self) -> None:
         self.idle_resets += 1
 
-    def _enter_idle_backoff(self) -> float:
+    def _enter_idle_backoff(self) -> None:
         self.idle_backoffs += 1
-        return 15.0
 
 
 def _done_state() -> _PlanCycleState:
@@ -267,9 +266,8 @@ class _IntakeHarness(PlanningContextMixin, PlanningCycleIntakeMixin):
     def _reset_idle_backoff(self) -> None:
         self.idle_resets += 1
 
-    def _enter_idle_backoff(self) -> float:
+    def _enter_idle_backoff(self) -> None:
         self.idle_holds += 1
-        return 30.0
 
     def _retry_pending_planner_verdict(self):
         # Sentinel: reaching this means the hold let the cycle continue.

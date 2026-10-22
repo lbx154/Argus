@@ -729,7 +729,6 @@ def _classify_operator_turn(
             "_frontdoor_failure",
             "_frontdoor_steering_directive",
             "_frontdoor_authorization",
-            "_frontdoor_intake",
             "_frontdoor_standing_notice",
             "_frontdoor_domain",
             "_frontdoor_skill_vertical",

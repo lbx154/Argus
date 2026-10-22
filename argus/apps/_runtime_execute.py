@@ -718,18 +718,17 @@ class SkillLoopExecuteMixin:
         # The Engineer's recalled knowledge, and this task's handoff directory
         # its prompt names (mission, latest handoff, checkpoint), lie outside
         # its workdir; a sandboxed backend reads them only when they are given.
-        config_kwargs["read_dirs"] = [
+        config_kwargs["add_dirs"] = [
             *knowledge_read_dirs(_project_state_dir, getattr(args, "global_root", None), workdir),
             *([str(Path(context_packet_path).expanduser().resolve().parent)] if context_packet_path else []),
         ] or None
         from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
-        operator_policy_root = (
+        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
+        config_kwargs["state_root"] = (
             Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
-        config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a
@@ -846,7 +845,6 @@ class SkillLoopExecuteMixin:
                 project_dir=project_skills_dir,
                 global_dir=global_skills_dir,
                 vertical_dir=vertical_dir,
-                native_project_dir=workdir / ".agents" / "skills",
                 execution_project_root=workdir,
             )
         ex_state.loop = self._SkillLoop(
@@ -1110,7 +1108,7 @@ class SkillLoopExecuteMixin:
         final_review_next_action = ""
         review_source = ""
         final_residual_risk = ""
-        final_planner_report: dict = {}
+        final_learning = ""
         plan_challenge: dict = {}
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
@@ -1162,9 +1160,7 @@ class SkillLoopExecuteMixin:
                 final_review_next_action = str(
                     getattr(_final_review, "next_action", "") or ""
                 ).strip()
-                raw_report = getattr(_final_review, "planner_report", {}) or {}
-                if isinstance(raw_report, dict):
-                    final_planner_report = dict(raw_report)
+                final_learning = str(getattr(_final_review, "learning", "") or "")
                 manager = getattr(self, "manager", None)
                 if manager is not None:
                     challenge_decision = manager.adjudicate_plan_challenge(
@@ -1234,7 +1230,7 @@ class SkillLoopExecuteMixin:
         ex_state.final_review_next_action = final_review_next_action
         ex_state.review_source = review_source
         ex_state.final_residual_risk = final_residual_risk if final_review_status == "done" else ""
-        ex_state.final_planner_report = final_planner_report
+        ex_state.final_learning = final_learning
         ex_state.plan_challenge = plan_challenge
         ex_state.final_submission_certified = final_submission_certified
         ex_state.completion_evidence = completion_evidence
@@ -1410,7 +1406,7 @@ class SkillLoopExecuteMixin:
             ),
             venue_review=getattr(rounds[-1].review, "venue_review", None) if rounds else None,
             venue_review_snapshot=getattr(rounds[-1].review, "venue_review_snapshot", None) if rounds else None,
-            final_planner_report=ex_state.final_planner_report,
+            final_learning=ex_state.final_learning,
             plan_challenge=ex_state.plan_challenge,
         )
 

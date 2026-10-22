@@ -127,7 +127,7 @@ def test_running_legacy_daemon_is_explicitly_incompatible(tmp_path: Path) -> Non
     status = DaemonStatus(
         alive=True,
         pid=os.getpid(),
-        started_at_iso=None,
+        started_at_iso="2026-10-21T00:00:00+00:00",
         uptime_seconds=1.0,
         life_dir=tmp_path,
     )
@@ -136,6 +136,18 @@ def test_running_legacy_daemon_is_explicitly_incompatible(tmp_path: Path) -> Non
 
     assert compatible is False
     assert "no protocol metadata" in error
+
+
+def test_a_daemon_that_has_not_written_its_status_yet_is_not_called_incompatible(
+    tmp_path: Path,
+) -> None:
+    # Trial 2: every message that launched the daemon answered
+    # protocol_compatible=false, read before the new daemon wrote its status.
+    status = DaemonStatus(
+        alive=True, pid=os.getpid(), started_at_iso=None, uptime_seconds=None, life_dir=tmp_path,
+    )
+
+    assert daemon_protocol_compatibility(status) == (None, "")
 
 
 def test_daemon_loaded_from_wrong_configured_checkout_is_incompatible(

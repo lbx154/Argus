@@ -10,8 +10,6 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from .models import without_routing_judgments
-
 RECOMMENDATIONS = (
     "strong_reject", "reject", "weak_reject", "borderline",
     "weak_accept", "accept", "strong_accept", "best_paper",
@@ -165,8 +163,10 @@ def enforce_venue_acceptance(
     if assessment is None or (venue and _venue_key(assessment["venue"]) != _venue_key(venue)):
         # An incomplete/wrong-venue response is a Reviewer failure. Retry that
         # read-only leg; do not ask Engineer to alter a paper to fix the protocol.
+        # The retried verdict is no longer what the Reviewer judged, so its
+        # learning judgment goes and reflection runs.
         decision.status = "blocked"
-        decision.planner_report = without_routing_judgments(decision.planner_report)
+        decision.learning = decision.learning_reason = ""
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
         decision.reason = f"Final Reviewer omitted a valid assessment for {_venue_phrase(venue)}."

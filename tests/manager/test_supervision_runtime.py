@@ -639,7 +639,7 @@ def role_loop(root, mission_id, backend):
             active_vertical="software", max_rounds=1,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False, session_id=mission_id,
-            operator_question_policy_root=root,
+            state_root=root,
         ),
     )
 

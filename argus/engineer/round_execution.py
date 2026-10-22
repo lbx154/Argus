@@ -25,6 +25,7 @@ from ..core import command_record
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
+from ..core.role_handoff import read_baton_line
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -216,10 +217,14 @@ class RoundExecutionMixin:
             engineer_result,
             decisive_output=engineer_message,
         )
+        handoff = read_baton_line(raw_engineer_message)
         if on_event:
             on_event({
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "engineer",
+                # Accepting its own work ends the task where no review is required.
+                **({"ends_work": True} if handoff and handoff.holder == "done"
+                   and not supervised_config.require_independent_review else {}),
                 "policy": engineer_session.policy,
                 "action": engineer_session.action,
                 "rotation_reason": engineer_session.rotation_reason,

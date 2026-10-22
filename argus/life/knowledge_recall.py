@@ -31,7 +31,9 @@ import yaml
 
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
+from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.scoped_file import open_regular_file
+from ..skills.layered import skill_code_files
 from .failure_experience_index import (
     EmbeddingAdapter,
     EmbeddingUnavailable,
@@ -49,7 +51,8 @@ _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
 _MAX_CODE_FILES = 4
-_MAX_CODE_SCAN = 64
+_MAX_PAGE_BYTES = 32_768
+_MAX_CITING_PAGES = 64
 _MAX_SIBLINGS = 8
 _MAX_SIBLING_CANDIDATES = 64
 _MAX_PROJECT_ENTRIES = 256
@@ -324,7 +327,7 @@ def _code_files(root: KnowledgeRoot, path: Path, body: str) -> tuple[str, ...]:
     directory = path.parent
     boundary = (root.library or root.path).absolute()
     if path.name == "SKILL.md":
-        candidates = sorted(islice(directory.rglob("*"), _MAX_CODE_SCAN))
+        candidates = [directory / name for name in skill_code_files(path)]
     else:
         candidates = linked_files(path, body, boundary)
     found: list[str] = []
@@ -396,7 +399,7 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
     return sorted(roots)
 
 
-def _sibling_wikis_enabled() -> bool:
+def _sibling_libraries_enabled() -> bool:
     """Other projects' Wikis and Skills are read only on a single-operator host with learning on."""
     try:
         from ..core.knobs import learning_enabled, resolve_knob
@@ -465,7 +468,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
                  for wiki in _bounded_wiki_roots(sibling)]
         found += [(f"earlier project Skill ({sid})", path, boundary, None)
                   for path, boundary in ((candidate / "skills" / "engineer", candidate),
-                                         (sibling / ".agents" / "skills", sibling))
+                                         (sibling / NATIVE_SKILLS_DIR, sibling))
                   if path.is_dir()]
         roots += [KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid)
                   for kind, path, boundary, library in found]
@@ -477,7 +480,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
 
 class MarkdownKnowledgeRecall:
     def __init__(self, index_path: Path, roots: list[KnowledgeRoot], *,
-                 max_documents: int = 256, max_file_bytes: int = 32_768,
+                 max_documents: int = 256, max_file_bytes: int = _MAX_PAGE_BYTES,
                  max_total_bytes: int = 1_000_000, max_scan_entries: int = 4096,
                  embedder: EmbeddingAdapter | None = None) -> None:
         from .recall_embedding import configured_embedder
@@ -790,7 +793,7 @@ def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | Non
         workspace = Path(workspace).absolute()
         if _contained(workspace, workspace):
             vertical = _resolve_vertical(workspace, state)
-            roots.append(KnowledgeRoot("native project Skill", workspace / ".agents" / "skills", workspace))
+            roots.append(KnowledgeRoot("native project Skill", workspace / NATIVE_SKILLS_DIR, workspace))
             for wiki in _bounded_wiki_roots(workspace):
                 roots.insert(0, KnowledgeRoot("project Wiki", wiki / "pages", workspace, library=wiki))
             if global_root is not None and vertical:
@@ -809,7 +812,7 @@ def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | Non
         # What Argus knows about the operator comes first of all: the work
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
-        if workspace is not None and _sibling_wikis_enabled():
+        if workspace is not None and _sibling_libraries_enabled():
             roots.extend(_sibling_roots(global_root, state, workspace))
     return roots
 
@@ -824,9 +827,9 @@ def _cited_source_dirs(root: KnowledgeRoot) -> set[Path]:
 
     workspace, library = root.boundary.absolute(), (root.library or root.path).absolute()
     found: set[Path] = set()
-    for page in islice(root.path.rglob("*.md"), _MAX_CODE_SCAN):
+    for page in islice(root.path.rglob("*.md"), _MAX_CITING_PAGES):
         try:
-            text = _read_current_file(page, 32_768).decode("utf-8", "replace")
+            text = _read_current_file(page, _MAX_PAGE_BYTES).decode("utf-8", "replace")
         except (OSError, ValueError):
             continue
         for target in linked_files(page, text, workspace):

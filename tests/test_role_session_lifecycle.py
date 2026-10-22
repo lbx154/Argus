@@ -116,6 +116,8 @@ def test_resumable_backend_resumes_each_role_without_crossing_roles(tmp_path: Pa
         ("engineer", "resumed"),
         ("reviewer", "resumed"),
     ]
+    # Only the Reviewer's closing `→ done` turn ends the work.
+    assert [bool(event.get("ends_work")) for event in turns] == [False, False, False, True]
 
 
 def test_fresh_backend_repeats_task_contract_on_continuation_round(
@@ -383,6 +385,7 @@ def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
             f"planner.cycle{cycle}",
             CannedResponse(message="PROJECT_DONE=false\nREASON=waiting\n→ operator: A or B?", thread_id="p1"),
         )
+    backend.queue("planner.cycle2", CannedResponse(message="PROJECT_DONE=true\nREASON=done", thread_id="p1"))
     events: list[dict] = []
     for cycle in range(2):
         # A Manager WAIT or steer reserves the campaign: a new generation, same objective.
@@ -396,6 +399,14 @@ def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
     assert [thread for label, thread in backend.resume_history] == [None, "p1"]
     assert [event["action"] for event in events if event["type"] == "role.session.turn"] == [
         "fresh", "resumed",
+    ]
+    # Declaring the project done ends the work; a turn that waits does not.
+    Planner(backend).plan_next(
+        continuous_objective="pick A or B, then change truncate", planning_cycle=2,
+        config=replace(supervisor._planner_config(), on_event=events.append),
+    )
+    assert [bool(event.get("ends_work")) for event in events if event["type"] == "role.session.turn"] == [
+        False, False, True,
     ]
 
 

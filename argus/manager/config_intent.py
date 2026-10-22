@@ -104,7 +104,6 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
     chat_state.pop("_frontdoor_authorization", None)
-    chat_state.pop("_frontdoor_intake", None)
     chat_state.pop("_frontdoor_standing_notice", None)
     chat_state.pop("_frontdoor_domain", None)
     chat_state.pop("_frontdoor_skill_vertical", None)
@@ -193,7 +192,6 @@ def _front_door_classify(
             if "vertical" in domain_decisions[-1]:
                 chat_state["_frontdoor_skill_vertical"] = domain_decisions[-1]["vertical"]
         if intake_decisions:
-            chat_state["_frontdoor_intake"] = intake_decisions[-1]
             chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
         if classifier_failures:
             chat_state["_frontdoor_failure"] = classifier_failures[-1]

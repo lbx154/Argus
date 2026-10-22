@@ -561,7 +561,7 @@ class SelfReplyMixin:
 
             state_root = self._manager_state_path()
             prompt += "\n\n" + observe_project(state_root).render()
-            read_dirs = None
+            add_dirs: list[str] = []
             native_skill_paths: list[str] = []
         elif execution_contract is not None:
             prompt = (
@@ -575,7 +575,7 @@ class SelfReplyMixin:
                 objective, role="manager", mission_id=root_task_id or "",
             ) if memory is not None else ""
             prompt = "\n\n".join(block for block in (libraries.block, recalled, prompt) if block)
-            read_dirs = [str(path) for path in libraries.library_roots]
+            add_dirs = [str(path) for path in libraries.library_roots]
             native_skill_paths = [str(path) for path in libraries.native_paths]
         else:
             memory_prelude = (
@@ -595,22 +595,19 @@ class SelfReplyMixin:
             )
             native_skill_paths = [str(path) for path in libraries.native_paths]
             session_root = getattr(self, "_manager_session_root", None)
-            read_dirs = (
-                [str(Path(session_root).expanduser())]
-                if session_root and Path(session_root).expanduser() != workdir
-                else None
-            )
-            read_dirs = list(dict.fromkeys([
-                *(read_dirs or []), *(str(path) for path in libraries.library_roots),
-            ]))
+            add_dirs = [
+                *([str(Path(session_root).expanduser())]
+                  if session_root and Path(session_root).expanduser() != workdir else []),
+                *(str(path) for path in libraries.library_roots),
+            ]
         if not lean:
             from ..life.knowledge_recall import knowledge_read_dirs
 
             # Recall points at libraries outside the workspace; a sandboxed
             # worker reads them only when they are given.
-            read_dirs = list(dict.fromkeys([*(read_dirs or []), *knowledge_read_dirs(
+            add_dirs += knowledge_read_dirs(
                 getattr(memory, "project_root", None), getattr(memory, "global_root", None), workdir,
-            )]))
+            )
             from ..roles.prompts.manager import build_self_learning_note
 
             learning_note = build_self_learning_note(workdir)
@@ -713,7 +710,7 @@ class SelfReplyMixin:
             force_safe_mode=lean,
             disable_tools=lean,
             working_dir=str(workdir),
-            add_dirs=read_dirs,
+            add_dirs=add_dirs,
             skill_paths=native_skill_paths,
             extra_args=extra_args,
             watchdog_soft_idle_seconds=env_int(

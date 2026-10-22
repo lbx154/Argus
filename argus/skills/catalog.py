@@ -69,7 +69,7 @@ def library_roots(
         if os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR") or _inside(project, project_state):
             result.append(Library("project:learned", "project", project, "project"))
     if workdir is not None:
-        native = workdir / ".agents" / "skills"
+        native = workdir / paths.NATIVE_SKILLS_DIR
         if _inside(native, workdir):
             result.append(Library("project:native", "project", native, "native"))
     return result

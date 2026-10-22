@@ -44,6 +44,7 @@ _GUARD = threading.Lock()
 _CLOSED = False
 _STOPPED_ROOTS: set[str] = set()
 MAX_PENDING_PROJECTS = 64
+_CHANGED_PATHS_SHOWN = 20
 
 
 class SupervisionBusy(RuntimeError):
@@ -1009,7 +1010,7 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """
     changed = event.get("changed_during_review")
     if changed:
-        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
+        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:_CHANGED_PATHS_SHOWN]))}); "
                 "its verdict stands as written: decide whether this review counts")
     handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (

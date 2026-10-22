@@ -462,7 +462,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "operator_question"?: string;
   "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
   "review_source"?: string;
-  "plan_signal"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
   "review_skipped"?: boolean;
@@ -778,6 +777,7 @@ export interface RoleSessionTurnEvent extends EventMsg {
   "persistence_warning"?: string;
   "signal_kind"?: "repeated_contradiction" | "reviewer_confusion" | "quality_degradation";
   "signal_detail"?: string;
+  "ends_work"?: boolean;
 }
 
 export interface EngineerProgressEvent extends EventMsg {
@@ -1823,14 +1823,12 @@ export interface TeamLearningReviewStartedEvent extends EventMsg {
   "vertical"?: string;
   "agent_layer"?: string;
   "mission_objective"?: string;
-  "mission_success": boolean;
 }
 
 export interface TeamLearningReviewSkippedEvent extends EventMsg {
   type: "team.learning.review.skipped";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success": boolean;
   "reason": string;
 }
 
@@ -1840,7 +1838,6 @@ export interface TeamLearningReviewCompletedEvent extends EventMsg {
   "scope"?: "vertical";
   "vertical"?: string;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "created": number;
   "updated": number;
   "quarantined": number;
@@ -1851,7 +1848,6 @@ export interface TeamLearningReviewFailedEvent extends EventMsg {
   type: "team.learning.review.failed";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "error": string;
 }
 

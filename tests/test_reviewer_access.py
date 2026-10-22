@@ -265,3 +265,30 @@ def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_
         vertical_skill_source_path("research") / "research-experiment-playbook.md",
     ):
         assert any(named.resolve().is_relative_to(root) for root in readable), named
+
+
+@pytest.mark.parametrize("backend_name", ["copilot", "memory"])
+def test_the_reviewer_reads_what_its_engineer_reads(tmp_path, backend_name):
+    # Trial s-3f5c3427: the Reviewer was denied the recalled source the Engineer
+    # had been given, and read another commit of it from GitHub instead.
+    from argus.loop import SkillLoop, SkillLoopConfig
+
+    recalled = tmp_path / "learn" / "repos"
+    recalled.mkdir(parents=True)
+    loop = SkillLoop(skills_dir=tmp_path / "skills", engineer_runner=object(),
+                     config=SkillLoopConfig(add_dirs=[str(recalled)]))
+    backend = MemoryBackend()
+    backend.backend = backend_name
+    backend.queue("reviewer", CannedResponse(
+        review_action=("submit_review", {"review": "One repair remains.\n→ engineer"}),
+    ))
+
+    Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
+        objective="Review the round", round_index=1, session_id=None,
+        main_summary="The run finished.", main_error=None,
+        config=replace(loop.supervised.reviewer_config, working_dir=str(tmp_path)),
+    )
+
+    engineer = loop.supervised.engineer_config.add_dirs
+    assert str(recalled) in engineer
+    assert set(engineer) <= set(backend.history[0][2].add_dirs)

@@ -36,11 +36,6 @@ const STATUS_KEYS: Record<string, string> = {
   healthy: 'label.status.healthy',
 };
 
-const ROLE_KEYS: Record<string, string> = {
-  system: 'label.role.argus',
-  operator: 'label.role.you',
-};
-
 const WORK_KIND_KEYS: Record<string, string> = {
   task: 'label.work.task',
   tool_use: 'label.work.action',
@@ -141,7 +136,7 @@ export function statusLabel(value: string | null | undefined, t: Translate): str
 
 export function roleLabel(value: string | null | undefined, t: Translate): string {
   const role = String(value ?? '').toLowerCase();
-  return isAgentRole(role) ? agentRoleName(role, t) : t(ROLE_KEYS[role] ?? 'label.role.argus');
+  return isAgentRole(role) ? agentRoleName(role, t) : t(role === 'operator' ? 'role.operator' : 'role.system');
 }
 
 export function workKindLabel(value: string | null | undefined, t: Translate): string {

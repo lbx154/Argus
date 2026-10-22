@@ -1678,9 +1678,6 @@
         "review_source": {
           "type": "string"
         },
-        "plan_signal": {
-          "type": "string"
-        },
         "session_signal": {
           "type": "object"
         },
@@ -2728,6 +2725,9 @@
         },
         "signal_detail": {
           "type": "string"
+        },
+        "ends_work": {
+          "type": "boolean"
         }
       }
     },
@@ -5396,9 +5396,6 @@
     },
     "team.learning.review.started": {
       "version": 1,
-      "required": [
-        "mission_success"
-      ],
       "properties": {
         "scope": {
           "type": "string",
@@ -5414,24 +5411,17 @@
         },
         "mission_objective": {
           "type": "string"
-        },
-        "mission_success": {
-          "type": "boolean"
         }
       }
     },
     "team.learning.review.skipped": {
       "version": 1,
       "required": [
-        "mission_success",
         "reason"
       ],
       "properties": {
         "agent_layer": {
           "type": "string"
-        },
-        "mission_success": {
-          "type": "boolean"
         },
         "reason": {
           "type": "string",
@@ -5458,9 +5448,6 @@
         },
         "agent_layer": {
           "type": "string"
-        },
-        "mission_success": {
-          "type": "boolean"
         },
         "created": {
           "type": "integer",
@@ -5490,9 +5477,6 @@
       "properties": {
         "agent_layer": {
           "type": "string"
-        },
-        "mission_success": {
-          "type": "boolean"
         },
         "error": {
           "type": "string"

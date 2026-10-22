@@ -265,7 +265,7 @@ def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path
             return RunnerResult(exit_code=0, agent_messages=["done"])
 
     loop = SkillLoop(skills_dir=tmp_path / "skills", engineer_runner=Capture(),
-                     config=SkillLoopConfig(read_dirs=["/elsewhere/wiki"]))
+                     config=SkillLoopConfig(add_dirs=["/elsewhere/wiki"]))
     loop.supervised._run_engineer(prompt="work", workdir=tmp_path, run_label="engineer-r1")
 
     assert Capture.options.add_dirs[0] == "/elsewhere/wiki"

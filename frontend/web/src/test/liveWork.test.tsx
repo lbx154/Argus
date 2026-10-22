@@ -124,6 +124,19 @@ describe('the live work card', () => {
     vi.restoreAllMocks();
   });
 
+  it('names the Manager as every other surface does', () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
+    const snapshot = running();
+    snapshot.roles = [{ ...snapshot.roles[0], role: 'manager' }];
+    let tree!: ReturnType<typeof create>;
+    act(() => { tree = create(<LiveWorkCard snapshot={snapshot} view={null} events={work} />); });
+    const meta = tree.root.find((node) => node.props.className === 'live-work-meta');
+    expect(meta.findAllByType('span')[0].children).toEqual(['Manager']);
+    act(() => tree.unmount());
+    vi.restoreAllMocks();
+  });
+
   it('renders nothing while the project is stopped', () => {
     const stopped = running();
     stopped.daemon.alive = false;

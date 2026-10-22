@@ -33,7 +33,12 @@ __all__ = [
     "shared_vertical_wiki_root",
     "PathResolutionError",
     "resolve_runtime_path",
+    "NATIVE_SKILLS_DIR",
 ]
+
+#: Inside a workspace rather than under the runtime root: where it keeps its
+#: Agent Skills.
+NATIVE_SKILLS_DIR = Path(".agents") / "skills"
 
 _PATH_PLACEHOLDER_RE = re.compile(
     r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))"

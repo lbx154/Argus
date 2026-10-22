@@ -44,6 +44,9 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
     major = getattr(status, "protocol_major", None)
     minor = getattr(status, "protocol_minor", None)
     if not name or major is None or minor is None:
+        if not getattr(status, "started_at_iso", None):
+            # Just started: its status, protocol included, is not written yet.
+            return None, ""
         return False, "running daemon has no protocol metadata; restart it with the current checkout"
     if name != DAEMON_PROTOCOL_NAME or int(major) != DAEMON_PROTOCOL_MAJOR:
         return (

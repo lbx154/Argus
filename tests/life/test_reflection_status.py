@@ -1,7 +1,7 @@
 """The learning job record says why a mission was not learned, not just that it was not."""
 import pytest
 
-from argus.life.answer_learning import learning_status, observe_mission
+from argus.life.reflection_status import learning_status, observe_mission
 
 
 def _run(tmp_path, result):
