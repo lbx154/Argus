@@ -55,6 +55,15 @@ describe('the web feed line', () => {
     expect(line({ ...note, tags: ['config'] })).toBeNull();
     expect(line({ ...note, tags: [] })?.text).toContain("Set all Argus roles' model");
   });
+  it('says the Planner updated its plan without calling every plan research', () => {
+    // 2026-10-21: a software task read 规划者：更新了研究计划.
+    expect(zh({ type: 'user.note', title: 'research plan updated', tags: ['planner', 'research_plan'] })?.text).toBe('更新了计划');
+  });
+  it('leaves the end of a team task to its completion row', () => {
+    // 2026-10-21: a task the Reviewer closed also ended with 工程师：这次运行结束，共 1 轮.
+    expect(line({ type: 'loop.done', status: 'done', rounds: 1, item_id: 't-1' })).toBeNull();
+    expect(line({ type: 'loop.done', status: 'done', rounds: 1 })?.text).toBe('the run finished after 1 round');
+  });
   it('explains a refused Manager check without claiming a team decision failed', () => {
     const event = {
       type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',

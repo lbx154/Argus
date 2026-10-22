@@ -393,6 +393,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       if (stringField(event, 'item_id')) return hidden();
       return model('engineer', 'role.engineer', '▶', clean(stringField(event, 'text') || stringField(event, 'objective'), context.density === 'full' ? 16_000 : 160), 'info', { expandable: context.density === 'full' });
     case 'loop.done': {
+      // A team task's end is told by its completion row, under whoever closed it.
+      if (stringField(event, 'item_id')) return hidden();
       const rounds = Number(row(event).rounds) || 0;
       return model('engineer', 'role.engineer', '🏁', rounds
         ? localized(context, `the run finished after ${count(rounds, 'round')}`, `这次运行结束，共 ${rounds} 轮`)
@@ -545,7 +547,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       // grounding for later turns, not something the operator wrote.
       if (tags.includes('config')) return hidden();
       if (tags.includes('planner')) {
-        return model('planner', 'role.planner', '📝', localized(context, 'updated the research plan', '更新了研究计划'), 'dim');
+        return model('planner', 'role.planner', '📝', localized(context, 'updated the plan', '更新了计划'), 'dim');
       }
       const body = clean(stringField(event, 'summary') || stringField(event, 'text') || stringField(event, 'title'), 180);
       return model('system', 'role.operator', '📝', `${localized(context, 'you added a note', '你添加了一条笔记')}${body ? ` · ${body}` : ''}`, 'accent');

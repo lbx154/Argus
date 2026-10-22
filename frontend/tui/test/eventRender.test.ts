@@ -223,7 +223,6 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     // The goal is the operator's own words; the shared renderer does not say it back.
     'life.planner.start': { text: 'working out the next step' },
     'life.manager.stage_decision': { text: 'moved on to the review stage' },
-    'loop.done': { text: 'the run finished after 1 round' },
     // Bookkeeping retried or repaired on its own is not news to the operator.
     'round.orphan_process_group': { visibility: 'hidden' },
     'life.planner.verdict': { visibility: 'hidden' },

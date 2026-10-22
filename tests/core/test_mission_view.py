@@ -31,6 +31,16 @@ def test_legacy_team_waiting_projects_as_planner_idle(tmp_path: Path) -> None:
     assert all(row["kind"] != "planner_no_new_work" for row in view["timeline"])
 
 
+def test_planner_left_waiting_on_a_question_says_it_waits_for_the_answer(tmp_path: Path) -> None:
+    """2026-10-21: with the only task parked on the operator's choice, the
+    Planner read as waiting for unfinished work to move."""
+    view = emit(tmp_path, "life.planner.idle", 1, handoff="operator", model_call_skipped=True)
+
+    planner = next(role for role in view["roles"] if role["role"] == "planner")
+    assert planner["kind"] == "planner_awaits_answer"
+    assert planner["label"] == "Waiting for your answer before planning anything new."
+
+
 def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:
     emit(
         tmp_path,

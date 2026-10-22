@@ -30,7 +30,8 @@ function recordedDetail(task: MapTask): string {
 
 /** What waits on the reader, as a short reason and next step in the reader's
  * language, with the agent's own (possibly other-language) words kept apart
- * as detail rather than shown as the headline.
+ * as detail rather than shown as the headline. The next step is a plain
+ * instruction with no "Next:" of its own; the brief shows it under that label.
  *
  * ``written`` is the plain-language account of this task's outcome that the
  * writer already produced in the reader's language, when one is cached. A
@@ -41,7 +42,7 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   { reason: string; next: string; detail: string; showDetail: boolean } {
   if (task.pending_question) return {
     reason: task.pending_question,
-    next: zh ? "下一步：回答这个问题，团队才会继续。" : "Next: answer this question so the team can continue.",
+    next: zh ? "回答这个问题，团队才会继续。" : "Answer this question so the team can continue.",
     detail: "",
     showDetail: false,
   };
@@ -69,7 +70,7 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   const detail = recordedDetail(task);
   return {
     reason: zh ? `执行失败：${reason}` : `Execution failed: ${reason}`,
-    next: zh ? "下一步：查看原因后重试，或在对话里调整任务。" : "Next: check the reason, then retry or adjust the task in the conversation.",
+    next: zh ? "查看原因后重试，或在对话里调整任务。" : "Check the reason, then retry or adjust the task in the conversation.",
     detail: detail && !reason.includes(detail) ? detail : "",
     showDetail: false,
   };
@@ -77,14 +78,18 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
 
 const clip = (text: string, size = 80) => text.length > size ? `${text.slice(0, size)}…` : text;
 
-/** Three lines an outsider can read: the current goal, what has been
- * concluded (only an acceptance still standing counts), and what comes next. */
+/** Three lines an outsider can read: the goal of the task the reader most
+ * needs to see, what has been concluded (only an acceptance still standing
+ * counts), and what comes next. */
 export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, written: (task: MapTask) => string = () => ""):
   { goal: string; current: string; conclusion: string; next: string } {
   const work = tasks.filter((task) => task.turn_kind !== "qa" && task.kind !== "turn");
-  const byTime = [...work].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
-  const latest = byTime[0];
-  const goal = latest ? clip((latest.objective || latest.title).trim()) : (zh ? "还没有任务" : "No task yet");
+  const running = work.find((task) => ACTIVE.has(task.status));
+  // A question waiting on the reader comes first, then the work under way,
+  // then whatever happened last: a task's finish, else its arrival.
+  const recent = [...work].sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0));
+  const focus = recent.find((task) => statusKey(task) === "question") ?? running ?? recent[0];
+  const goal = focus ? clip((focus.objective || focus.title).trim()) : (zh ? "还没有任务" : "No task yet");
   const accepted = latestCertifiedTask(tasks, events);
   const label = (task: MapTask) => {
     const key = statusKey(task);
@@ -99,30 +104,26 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
       paused: zh ? "已暂停" : "paused",
     } as Record<string, string>)[key] || (zh ? '还没有新的进展记录' : 'No new progress has been recorded');
   };
-  // The goal line already names the latest task; saying its title again
-  // under the conclusion only repeats it.
+  // The goal line already names the task; saying its title again under the
+  // conclusion only repeats it.
   const conclusion = accepted
     ? zh ? `已确认：${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
       : `Confirmed: ${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
-    : latest
-      ? statusKey(latest) === 'review_unavailable'
+    : focus
+      ? statusKey(focus) === 'review_unavailable'
         ? zh ? '这次结果检查没有完成，暂时不能确认结果。' : 'The result check did not finish, so the result is not yet confirmed.'
         : zh ? '还没有经过检查确认的结果。' : 'There is no checked, confirmed result yet.'
       : zh ? "还没有结果" : "No result yet";
-  const running = work.find((task) => ACTIVE.has(task.status));
-  const waiting = byTime.find((task) => ["question", "held", "failed", "review_unavailable"].includes(statusKey(task)));
   const queued = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)).find((task) => statusKey(task) === "pending");
-  const current = running
+  const current = running && focus === running
     ? zh ? `正在处理：${clip(running.title, 70)}` : `Working on: ${clip(running.title, 70)}`
-    : latest ? label(latest) : zh ? '可以开始新任务' : 'Ready for a new task';
-  const next = running
-    ? queued
-      ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued next: ${clip(queued.title, 70)}`
-      : zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
-    : waiting && waiting === latest
-      ? attentionSummary(waiting, events, zh, written(waiting)).next
-      : queued
-        ? zh ? `下一步：${clip(queued.title, 60)}` : `Next: ${clip(queued.title, 60)}`
+    : focus ? label(focus) : zh ? '可以开始新任务' : 'Ready for a new task';
+  const next = focus && ["question", "held", "failed", "review_unavailable"].includes(statusKey(focus))
+    ? attentionSummary(focus, events, zh, written(focus)).next
+    : queued
+      ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued: ${clip(queued.title, 70)}`
+      : running
+        ? zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
         : accepted
           ? zh ? "可以查看结果，或继续提出要求。" : "Read the result, or tell me what to do next."
           : zh ? "还没有后续任务，可在对话里告诉我接下来做什么。" : "Nothing else is scheduled. Tell me what to do next in the conversation.";

@@ -199,6 +199,8 @@ def test_it_speaks_the_operator_s_language(team):
     first, second = (call["prompt"] for call in team.backend.calls)
     assert "in English, the operator's language" in first
     assert "in Chinese, the operator's language" in second
+    # 2026-10-21: a remark the operator read said "Planner" in a Chinese sentence.
+    assert "经理, 规划者, 工程师 and 审阅者" in second and "规划者" not in first
 
 
 def test_it_never_takes_the_formal_review_for_a_duplicate(team):
