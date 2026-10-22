@@ -211,14 +211,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   if (t === 'round.review.started') return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: `the Reviewer checks round ${roundNo(ev)}`, tone: 'info' };
   if (t === 'round.review.deferred') return { role: 'engineer', label: 'Engineer', glyph: '↪', text: `carries on into the next round without a review · ${trunc(S(ev, 'next_step'), 180)}`, tone: 'info' };
   if (t === 'round.main.completed') return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `finished round ${roundNo(ev)} of work`, tone: 'info' };
-  if (t === 'round.review.completed') {
-    if (ev.review_skipped === true)
-      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `no review this round · ${trunc(S(ev, 'reason'), 200)}`, tone: 'info' };
-    const st = S(ev, 'status');
-    const tone: Tone = st === 'done' ? 'ok' : st === 'blocked' || st === 'no_progress' ? 'err' : 'warn';
-    const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';
-    return { role: 'reviewer', label: 'Reviewer', glyph, text: `${reviewVerdict(st)} · ${trunc(S(ev, 'reason'), 200)}`, tone };
-  }
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
     // An independent review told its conclusion on its own row; without
@@ -359,24 +351,4 @@ export function messageId(ev: EventMsg): string {
     return String(rec.message_id ?? '');
   }
   return '';
-}
-
-/**
- * Merge a new fragment into the accumulated text of a streaming message. The
- * daemon delivers a message under one message_id as several fragments — usually
- * SEPARATE blocks (paragraphs), occasionally a cumulative resend. Keeping only
- * the longest DROPS blocks (the message looked truncated / "frozen"); we instead
- * grow the message: cumulative resend replaces, a duplicate is skipped, a new
- * block is appended. Result: the full reply streams in, nothing lost.
- */
-
-/** The Reviewer's verdict in words a reader outside the project understands. */
-function reviewVerdict(status: string): string {
-  const verdicts: Record<string, string> = {
-    done: 'the Reviewer was satisfied',
-    blocked: 'the Reviewer found the work stuck',
-    no_progress: 'the Reviewer saw no progress',
-  };
-  if (!status) return 'the Reviewer gave no verdict';
-  return verdicts[status] ?? 'the Reviewer asked for another pass';
 }
