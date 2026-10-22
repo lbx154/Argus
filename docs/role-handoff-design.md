@@ -262,7 +262,8 @@ The line takes one of six values: `engineer`, `reviewer`, `planner`,
 picks between a few answers lists them under the line, one `- <answer>` each:
 the operator answers with one tap or in their own words, and the Manager,
 answering in their place, picks one of them. A list that cannot be read
-leaves the question without options, never without its question.
+leaves the question without options, never without its question; a list
+under an empty `operator:` line asks the last line of prose above it.
 Routing is free. Any holder may pass to any role: a Reviewer straight to the
 Manager when the criteria conflict, an Engineer straight to the Planner when a
 task is mis-scoped. The host never decides where work goes. It enforces four

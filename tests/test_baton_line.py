@@ -11,9 +11,16 @@ from pathlib import Path
 import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.role_handoff import Handoff, listed_choices, read_baton_line, strip_handoff
+from argus.core.role_handoff import (
+    OPERATOR_CHOICES_RULE,
+    Handoff,
+    listed_choices,
+    read_baton_line,
+    strip_handoff,
+)
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
+from argus.reviewer.tools import ReviewActions
 from argus.roles.prompts import engineer as engineer_prompts
 
 
@@ -84,6 +91,9 @@ def test_decoration_case_and_the_operator_facing_names_are_read(line: str, owner
     "Work.\n→ reviewer\n→ engineer",
     "Work.\n→ done\n→ engineer",
     "Work.\n→ operator",
+    "Work.\n→ operator:",
+    "→ operator:\n- Keep it\n- Switch",
+    "Decision:\n→ operator:\n- Keep it\n- Switch",
     "Work.\n→ wait: `job-42`",
     "Work.\n→ 等待: `job-42`",
 ])
@@ -144,6 +154,96 @@ def test_the_same_list_reads_under_any_question() -> None:
 def test_a_list_under_another_holder_is_prose_not_options() -> None:
     assert read_baton_line("Built it.\n→ reviewer\n- tests pass") == Handoff("reviewer")
     assert strip_handoff("Built it.\n→ reviewer\n- tests pass") == "Built it.\n- tests pass"
+
+
+# Round four's questions (exp-dogfood4, s-934a4569 and s-aeb9e18c), as the roles wrote them.
+_FRONT_DOOR = """需要你先决定：**采用需求 A，还是需求 B？** 在你选定前，不会修改代码。选定后将按对应要求修改代码、补充 pytest 测试和使用说明，并经独立审阅后交付。
+
+Decision:
+CHOICE=existing
+SESSION_TITLE=strtools truncate 冲突需求裁决与实现
+VERTICAL=software
+DOMAIN=
+WORKFLOW_MODE=direct
+START_STAGE=
+REQUIRE_INDEPENDENT_REVIEW=true
+RATIONALE=两项要求互相冲突，且你明确保留选择权；必须先由你确定预期行为，才能修改代码和编写对应测试。
+→ operator:
+- A：截断时退到最近的单词边界再加省略号，允许现有输出改变。
+- B：所有现有调用的输出保持逐字一致，不改变截断行为。"""
+_ENGINEER = """已确认 A、B 冲突，**未修改任何文件，也未代你选择**。
+
+`strtools/core.py` 当前对 `truncate("hello world", 10)` 返回 `"hello w..."`，会切断单词。A 要求改变这个结果，B 则要求保留。现有 pytest 基线为 **3 项通过**；代码修改、补测、使用说明和独立审阅均待选择后进行。
+
+→ operator:
+- **A：优先完整单词**，允许截断结果发生变化。
+- **B：优先下游兼容**，保留所有现有输出，包括切断单词的情况。"""
+_REVIEW = """truncate 的两条需求确实冲突；代码保持原样，必须由你选定后才能继续修改。
+
+独立检查了 `strtools/core.py`、包导出、现有测试和使用说明，并实际调用公开接口：`truncate("hello world", 10)` 返回 `"hello w..."`，切断了单词。A 要求改变这一结果，B 要求逐字保留它，因此不能同时满足，也不能由实现人员代选。
+
+本轮重新确认包源码可编译、现有 pytest 全部通过（3 项），受版本控制的文件没有改动。这仅验证现状，不代表已完成任一方案；选定后仍须按所选需求处理代码、补充 pytest 测试和使用说明，再独立审阅。
+
+"""
+_REVIEW_FIRST = _REVIEW + """→ operator:
+- A：优先完整单词，允许截断结果变化。
+- B：优先下游兼容，保留全部现有输出，包括切断单词的情况。
+
+→ operator: 请选择 A 还是 B？"""
+_REVIEW_RETRY = _REVIEW + """请选择：
+- A：优先完整单词，允许截断结果变化。
+- B：优先下游兼容，保留全部现有输出，包括切断单词的情况。
+
+→ operator: 请选择 A 还是 B？"""
+_FRONT_DOOR_BY_THE_RULE = """请先选择 `count` 的输出格式；选定前不修改代码。之后将按你的选择修改实现、补充 pytest 测试和使用说明，并经独立审阅后交付。
+
+Decision:
+CHOICE=existing
+SESSION_TITLE=确认 strtools count 的输出格式
+VERTICAL=software
+DOMAIN=
+WORKFLOW_MODE=direct
+START_STAGE=
+REQUIRE_INDEPENDENT_REVIEW=true
+EXECUTION_TASK=等待用户选择 count 输出格式：A 为只输出数字，保持现状；B 为输出带标签的格式，例如 words: 2。不得代替用户决定。选定后按所选需求修改 strtools/__main__.py、补充通过 subprocess 启动 python -m strtools 并检查输出和退出码的 pytest 测试、更新使用说明，确保 python -m pytest -q 全部通过。
+RATIONALE=两条输出要求互相冲突，且用户明确保留选择权；必须先确认格式，才能修改代码和测试。
+→ operator: 你选择哪种 count 输出格式？
+- A：只输出数字，例如 `2`，保持现状。
+- B：输出带标签的格式，例如 `words: 2`。"""
+
+
+@pytest.mark.parametrize("text, question, options", [
+    # An empty line over its answers asks the last line of prose above it, as written.
+    (_FRONT_DOOR,
+     "需要你先决定：**采用需求 A，还是需求 B？** 在你选定前，不会修改代码。"
+     "选定后将按对应要求修改代码、补充 pytest 测试和使用说明，并经独立审阅后交付。",
+     ("A：截断时退到最近的单词边界再加省略号，允许现有输出改变。", "B：所有现有调用的输出保持逐字一致，不改变截断行为。")),
+    (_ENGINEER,
+     '`strtools/core.py` 当前对 `truncate("hello world", 10)` 返回 `"hello w..."`，会切断单词。'
+     "A 要求改变这个结果，B 则要求保留。现有 pytest 基线为 **3 项通过**；代码修改、补测、使用说明和独立审阅均待选择后进行。",
+     ("**A：优先完整单词**，允许截断结果发生变化。", "**B：优先下游兼容**，保留所有现有输出，包括切断单词的情况。")),
+    # A list above the line is prose: it may be what was checked.
+    (_REVIEW_RETRY, "请选择 A 还是 B？", ()),
+    (_FRONT_DOOR_BY_THE_RULE, "你选择哪种 count 输出格式？",
+     ("A：只输出数字，例如 `2`，保持现状。", "B：输出带标签的格式，例如 `words: 2`。")),
+])
+def test_round_four_questions_are_read(text: str, question: str, options: tuple[str, ...]) -> None:
+    assert read_baton_line(text) == Handoff("operator", question, options)
+
+
+def test_round_four_engineer_question_parks_instead_of_reaching_the_reviewer(tmp_path: Path) -> None:
+    result, rounds, labels = _run(tmp_path, ("engineer-r1", CannedResponse(message=_ENGINEER)))
+    assert (result, labels) == ("blocked", ["engineer-r1"])
+    assert [option["label"] for option in rounds[0].review.operator_options] == [
+        "**A：优先完整单词**，允许截断结果发生变化。", "**B：优先下游兼容**，保留所有现有输出，包括切断单词的情况。",
+    ]
+
+
+def test_a_review_asking_on_two_lines_is_refused_with_the_rule() -> None:
+    actions = ReviewActions()
+    with pytest.raises(ValueError) as refused:
+        actions.dispatch("submit_review", {"review": _REVIEW_FIRST})
+    assert OPERATOR_CHOICES_RULE in str(refused.value)
 
 
 def test_a_person_reads_the_prose_without_the_protocol() -> None:
@@ -274,8 +374,9 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
         "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-        "`→ operator: <one question>`. When the operator picks among a few answers, "
-        "list each under `→ operator:` as `- <answer>`. The Reviewer you hand to with "
+        "`→ operator: <one question>`. Ask on the `→ operator:` line itself; any answers "
+        "to pick from go one per line below: `→ operator: Keep it?`, `- Yes`, `- No`. "
+        "The Reviewer you hand to with "
         "`→ reviewer` does the independent review; do not start a review of your own."
     )
 

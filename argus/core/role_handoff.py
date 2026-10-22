@@ -54,7 +54,8 @@ _BATON = re.compile(
 _CHOICE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(?P<choice>\S.*?)\s*$")
 #: How a role offers the operator choices, said once for every role's prompt.
 OPERATOR_CHOICES_RULE = (
-    "When the operator picks among a few answers, list each under `→ operator:` as `- <answer>`."
+    "Ask on the `→ operator:` line itself; any answers to pick from go one per line below: "
+    "`→ operator: Keep it?`, `- Yes`, `- No`."
 )
 
 
@@ -130,22 +131,29 @@ def read_baton_line(text: str) -> Handoff | None:
     Only the decision region is read: after the last ``Decision:``, else the
     last five non-empty lines above the choices an operator question lists,
     so an arrow quoted from the task cannot route the work. No line, an
-    unknown holder, two lines that disagree, or ``operator:`` with nothing
-    after it is unreadable; nothing unreadable is ever ``done``. A list that
+    unknown holder or two lines that disagree is unreadable; nothing
+    unreadable is ever ``done``. ``operator:`` with nothing after it asks, as
+    written, the last line of prose above it (above ``Decision:`` when there
+    is one) if it lists choices, and is unreadable otherwise. A list that
     cannot be read as choices leaves the question standing without them.
     """
-    from .role_reply import decision_footer_text
+    from .role_reply import _DECISION_FOOTER, decision_footer_text
 
-    footer = decision_footer_text(text)
+    source = str(text or "")
+    footer = decision_footer_text(source)
     lines = [line for line in footer.splitlines() if line.strip()]
     start = _choices_start(lines)
     lines, choices = lines[:start], tuple(map(_choice, lines[start:]))
-    if footer == str(text or ""):
+    if footer == source:
         lines = lines[-5:]
     named = set(baton_lines("\n".join(lines)))
     if len(named) != 1:
         return None
     ((holder, argument),) = named
+    if holder == "operator" and not argument and choices:
+        prose = source[:len(source) - len(footer)] if footer != source else "\n".join(lines[:-1])
+        argument = next((line.strip() for line in reversed(prose.splitlines())
+                         if line.strip() and not _DECISION_FOOTER.match(line)), "")
     if not holder or (holder == "operator" and not argument):
         return None
     return Handoff(holder, argument[:500], choices) if holder == "operator" else Handoff(holder)

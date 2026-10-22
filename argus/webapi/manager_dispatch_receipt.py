@@ -26,7 +26,10 @@ def _dispatch_ack_text(
         return say("ack_plan_awaits_start", zh)
     question = str(item.get("pending_question") or "").strip()
     if question:
-        return say("ack_needs_your_call", zh, question=question)
+        from ..life.supervisor.pending_notify import numbered_options
+
+        options = numbered_options((item.get("operator_decision") or {}).get("options"), zh)
+        return "\n\n".join(filter(None, (say("ack_needs_your_call", zh, question=question), options)))
 
     # The endpoint's fresh startup result outranks the bridge's earlier queue
     # observation. A daemon may disappear between those two observations.
