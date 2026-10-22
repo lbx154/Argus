@@ -37,9 +37,9 @@ export function PendingReplyDialog({
   // One click on an offered option answers with it; what is typed goes with
   // it as a note. The written answer is the card's own `custom` choice.
   const choices = reply.options.filter((option) => option.id !== 'custom');
-  const submit = (optionId: string, requiresNote: boolean) => {
+  const submit = (optionId: string) => {
     if (busy) return;
-    if (requiresNote && !note.trim()) {
+    if (optionId === 'custom' && !note.trim()) {
       setValidationError(t('decision.noteRequired'));
       return;
     }
@@ -50,7 +50,7 @@ export function PendingReplyDialog({
     if (isImeComposing(event)) return;
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      submit('custom', true);
+      submit('custom');
     }
   };
 
@@ -89,7 +89,7 @@ export function PendingReplyDialog({
             <button
               key={option.id}
               type="button"
-              onClick={() => submit(option.id, option.requires_note)}
+              onClick={() => submit(option.id)}
               disabled={busy}
               className="w-full rounded-md border border-line bg-bg/30 p-3 text-left hover:border-blue hover:bg-blue/5 disabled:opacity-60"
             >
@@ -125,7 +125,7 @@ export function PendingReplyDialog({
                 for a while before it returns; the dialog can be put away
                 meanwhile and the work continues in the map. */}
             <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-xs text-ink-dim hover:bg-bg">{busy ? t('decision.closeContinue') : t('decision.later')}</button>
-            <button type="button" onClick={() => submit('custom', true)} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
+            <button type="button" onClick={() => submit('custom')} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
               {busy ? t('decision.applying') : t('decision.sendAnswer')}
             </button>
           </div>

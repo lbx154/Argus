@@ -72,15 +72,27 @@ def _choice(line: str) -> str:
     return match["choice"] if match else ""
 
 
-def _choices_start(lines: list[str]) -> int:
-    """Where the choices listed under a closing operator question begin.
-
-    ``len(lines)`` when the list closing ``lines`` (blank lines aside) does not
-    sit directly under an operator line: then it is prose, not choices.
-    """
+def _list_start(lines: list[str]) -> int:
+    """Where the list closing ``lines`` (blank lines aside) begins."""
     start = len(lines)
     while start and (not lines[start - 1].strip() or _choice(lines[start - 1])):
         start -= 1
+    return start
+
+
+def listed_choices(text: str) -> tuple[str, ...]:
+    """The answers a question offers, listed one per line at the close of ``text``."""
+    lines = str(text or "").splitlines()
+    return tuple(filter(None, map(_choice, lines[_list_start(lines):])))
+
+
+def _choices_start(lines: list[str]) -> int:
+    """Where the choices listed under a closing operator question begin.
+
+    ``len(lines)`` when the closing list does not sit directly under an
+    operator line: then it is prose, not choices.
+    """
+    start = _list_start(lines)
     asked = _baton(lines[start - 1]) if start else None
     if asked and _HOLDERS.get(asked["owner"].casefold()) == "operator":
         return start
@@ -161,6 +173,7 @@ __all__ = [
     "OPERATOR_CHOICES_RULE",
     "Handoff",
     "baton_lines",
+    "listed_choices",
     "read_baton_line",
     "strip_handoff",
 ]

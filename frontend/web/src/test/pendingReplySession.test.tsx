@@ -243,8 +243,8 @@ it('opens an intake on the map, submits its typed choice once, and retains the d
     id: 'intake-new', kind: 'domain_intake', item_id: '', status: 'pending',
     title: 'Choose how to proceed', task_title: 'Interpret a calendar date', question: 'How should I proceed?',
     options_source: 'workflow', options: [
-      { id: 'direct', label: 'Do it directly', requires_note: false },
-      { id: 'build', label: 'Build a specialist workflow', requires_note: false },
+      { id: 'direct', label: 'Do it directly' },
+      { id: 'build', label: 'Build a specialist workflow' },
     ],
   } }];
   let finish!: (value: { kind: string; reply: string }) => void;

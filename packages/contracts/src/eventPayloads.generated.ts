@@ -443,7 +443,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "reason": string;
   "next_action"?: string;
   "operator_question"?: string;
-  "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
+  "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; }>;
   "review_source"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;

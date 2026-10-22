@@ -45,7 +45,7 @@ vi.mock("../usePendingReplySession", () => ({
       question: "Continue with the local baseline?",
       reason: "An operator decision is required to continue.",
       evidence: [],
-      options: [{ id: "local", label: "Run the local baseline", description: "", requires_note: false }],
+      options: [{ id: "local", label: "Run the local baseline", description: "" }],
     },
   }),
 }));

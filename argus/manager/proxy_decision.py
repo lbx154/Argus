@@ -79,7 +79,6 @@ def _prompt(card: Mapping[str, Any], *, why: str, context: str) -> str:
     options = "\n".join(
         f"- {row.get('id')}: {row.get('label')}"
         + (f" — {row.get('description')}" if row.get("description") else "")
-        + (" (needs a NOTE)" if row.get("requires_note") else "")
         for row in card.get("options", ())
         if isinstance(row, Mapping)
     )
@@ -105,7 +104,7 @@ def _prompt(card: Mapping[str, Any], *, why: str, context: str) -> str:
         + "\nEnd your reply with these fields, each on its own line in the form KEY: value:\n"
         f"DECISION_ID: {card.get('id')}\n"
         "OPTION: the id of your choice\n"
-        "NOTE: guidance for the team (required for custom or an option that needs one)\n"
+        "NOTE: guidance for the team (required for custom)\n"
         "REASON: why this is the operator's best choice here\n"
         "EVIDENCE_REFS: semicolon-separated paths you relied on\n"
     )

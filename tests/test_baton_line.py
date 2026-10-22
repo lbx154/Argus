@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.role_handoff import Handoff, read_baton_line, strip_handoff
+from argus.core.role_handoff import Handoff, listed_choices, read_baton_line, strip_handoff
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.roles.prompts import engineer as engineer_prompts
@@ -134,6 +134,11 @@ def test_an_operator_question_lists_its_options_under_the_line(text: str, option
 ])
 def test_a_list_that_cannot_be_read_as_options_leaves_the_question_standing(text: str) -> None:
     assert read_baton_line(text) == Handoff("operator", "Keep the old date format?")
+
+
+def test_the_same_list_reads_under_any_question() -> None:
+    assert listed_choices("DOMAIN_QUESTION=Which?\n- Keep it\n\n2. Switch") == ("Keep it", "Switch")
+    assert listed_choices("DOMAIN_QUESTION=Keep it or switch?") == ()
 
 
 def test_a_list_under_another_holder_is_prose_not_options() -> None:

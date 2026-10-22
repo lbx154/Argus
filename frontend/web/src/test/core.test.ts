@@ -261,7 +261,7 @@ describe('shared frontend core', () => {
         reason: 'Dataset access is required.',
         question: 'Which dataset should the process use?',
         evidence: [],
-        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.', requires_note: true }],
+        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.' }],
         selected_option: '',
         note: '',
       },

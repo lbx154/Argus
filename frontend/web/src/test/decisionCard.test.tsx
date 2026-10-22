@@ -16,9 +16,9 @@ const card = {
   evidence: [{ label: 'Provider log', path: 'logs/run.txt', summary: 'refused' }],
   options_source: 'agent' as const,
   options: [
-    { id: 'recommended', label: 'Use local fallback', description: 'Continue locally.', requires_note: false },
-    { id: 'custom', label: 'Other guidance', description: 'Describe another route.', requires_note: true },
-    { id: 'stop', label: 'Stop this campaign', description: 'Stop.', requires_note: false },
+    { id: 'recommended', label: 'Use local fallback', description: 'Continue locally.' },
+    { id: 'custom', label: 'Other guidance', description: 'Describe another route.' },
+    { id: 'stop', label: 'Stop this campaign', description: 'Stop.' },
   ],
   selected_option: '',
   note: '',
@@ -31,7 +31,6 @@ describe('operator decision cards', () => {
       [{ id: 'legacy', title: 'Legacy', pending_question: 'What now?' }],
     );
     expect(rows.map((row) => row.id)).toEqual(['decision-item-1', 'legacy-legacy']);
-    expect(rows[0].options[1].requires_note).toBe(true);
     expect(rows[1].legacy).toBe(true);
   });
 
@@ -70,9 +69,9 @@ describe('operator decision cards', () => {
         options_source: undefined,
         evidence: [{ label: 'Acceptance check', path: '', summary: 'internal process detail' }],
         options: [
-          { id: 'recommended', label: '按建议继续', description: 'Resume after the operator answers the pending question.', requires_note: false },
-          { id: 'custom', label: '给出其他指示', description: card.question, requires_note: true },
-          { id: 'stop', label: '保留当前结果并停止', description: 'Stop.', requires_note: false },
+          { id: 'recommended', label: '按建议继续', description: 'Resume after the operator answers the pending question.' },
+          { id: 'custom', label: '给出其他指示', description: card.question },
+          { id: 'stop', label: '保留当前结果并停止', description: 'Stop.' },
         ],
       },
     }], []);
@@ -162,36 +161,12 @@ describe('operator decision cards', () => {
     expect(unknownHtml).not.toContain('<time');
   });
 
-  it('keeps note-required choices clickable so validation can explain the requirement', () => {
-    const html = renderToStaticMarkup(
-      <PendingReplyDialog
-        reply={{
-          ...card,
-          options: [{
-            id: 'needs-note',
-            label: 'Use another format',
-            description: 'Describe the format.',
-            requires_note: true,
-          }],
-        }}
-        open
-        busy={false}
-        onClose={vi.fn()}
-        onSubmit={vi.fn()}
-      />,
-    );
-
-    expect(html).toContain('Use another format');
-    expect(html).not.toContain('disabled=""');
-  });
-
   it('answers with one click on an option, or with the words typed instead', () => {
     const [row] = operatorDecisionCards([{ id: 'item-1', operator_decision: {
       ...card,
       options: [
-        { id: 'option-1', label: 'Keep the v1 API', description: '', requires_note: false },
-        { id: 'option-2', label: 'Ship the v2 schema', description: '', requires_note: false },
-        { id: 'option-3', label: 'Another format', description: '', requires_note: true },
+        { id: 'option-1', label: 'Keep the v1 API', description: '' },
+        { id: 'option-2', label: 'Ship the v2 schema', description: '' },
       ],
     } }], []);
     const onSubmit = vi.fn();
@@ -204,8 +179,8 @@ describe('operator decision cards', () => {
     act(() => button('Ship the v2 schema').props.onClick());
     expect(onSubmit).toHaveBeenLastCalledWith('option-2', '');
 
-    // An option that needs a note waits for one; nothing is sent meanwhile.
-    act(() => button('Another format').props.onClick());
+    // A written answer needs words; nothing is sent without them.
+    act(() => button('Send answer').props.onClick());
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(view.root.findByProps({ role: 'alert' })).toBeTruthy();
 
@@ -220,8 +195,8 @@ it('renders a workflow choice as options with optional details and no blocked-ta
   const [row] = operatorDecisionCards([{ operator_decision: {
     ...card, id: 'intake-1', kind: 'domain_intake', item_id: '', options_source: 'workflow',
     title: 'Choose how to proceed', task_title: 'Interpret a calendar date', reason: '', evidence: [],
-    options: [{ id: 'direct', label: 'Do it directly', description: 'One agent.', requires_note: false },
-      { id: 'build', label: 'Build a specialist workflow', description: 'Clarify and research.', requires_note: false }],
+    options: [{ id: 'direct', label: 'Do it directly', description: 'One agent.' },
+      { id: 'build', label: 'Build a specialist workflow', description: 'Clarify and research.' }],
   } }], [], 'old-task');
   const html = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} error="Please retry" onClose={vi.fn()} onSubmit={vi.fn()} />);
   expect(row.kind).toBe('domain_intake');

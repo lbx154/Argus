@@ -1604,9 +1604,6 @@
               },
               "description": {
                 "type": "string"
-              },
-              "requires_note": {
-                "type": "boolean"
               }
             }
           }

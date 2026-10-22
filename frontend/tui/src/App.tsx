@@ -464,7 +464,7 @@ export function App({
     const freeform = pendingDecision.options.length === 0;
     const option = pendingDecision.options[decisionSelection];
     const note = decisionNote.value.trim();
-    if ((freeform || option?.requires_note) && !note) {
+    if ((freeform || option?.id === 'custom') && !note) {
       setDecisionError('Type the requested answer before confirming.');
       return;
     }
@@ -506,7 +506,7 @@ export function App({
       if (pendingDecision && paste.text) {
         const freeform = pendingDecision.options.length === 0;
         const selected = pendingDecision.options[decisionSelection];
-        const custom = selected?.requires_note || pendingDecision.kind === 'domain_intake'
+        const custom = selected?.id === 'custom' || pendingDecision.kind === 'domain_intake'
           ? decisionSelection
           : pendingDecision.options.findIndex((option) => option.id === 'custom');
         if (freeform || custom >= 0) {
@@ -574,7 +574,7 @@ export function App({
         return;
       }
       const selected = pendingDecision.options[decisionSelection];
-      if (selected?.requires_note || (pendingDecision.kind === 'domain_intake' && (decisionNote.value || !/^[1-9]$/.test(input)))) {
+      if (selected?.id === 'custom' || (pendingDecision.kind === 'domain_intake' && (decisionNote.value || !/^[1-9]$/.test(input)))) {
         if (key.leftArrow) setDecisionNote(left);
         else if (key.rightArrow) setDecisionNote(right);
         else if (key.backspace || key.delete) setDecisionNote(backspace);
