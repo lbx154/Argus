@@ -886,7 +886,7 @@ def test_explicit_daemon_resume_rearms_provider_fence_once_per_command(
     assert first["command_status"] == "applied"
     assert memory.backlog.all()[0].status == "pending"
     assert memory.backlog.all()[0].attempt == 2
-    memory.backlog.update(item.id, status="paused_provider_fence")
+    memory.backlog.update(item.id, park_reason="provider_fence")
 
     duplicate = client.post(url, json=body).json()
     stale = client.post(url, json={**body, "command_id": "stale-resume"}).json()

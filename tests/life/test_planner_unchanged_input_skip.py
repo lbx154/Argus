@@ -464,7 +464,7 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
             title="Choose the dataset", objective="Train on the dataset the operator picks.",
         ))
         supervisor.memory.backlog.update(
-            item.id, status="paused_operator", pending_question="Which dataset should I use?",
+            item.id, park_reason="operator_pause", pending_question="Which dataset should I use?",
         )
 
     start = time.time()

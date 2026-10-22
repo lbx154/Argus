@@ -19,16 +19,14 @@ from ...core.acceptance_dependencies import (
 from ...core.models import RunnerOptions
 from ...core.operator_messages import uses_cjk
 from ...core.run_gateway import run_exec
-from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
+from ...core.stop_kinds import normalize_stop_kind, run_park_reason
 
 
 def _stopped(
     reason: str, *, stop_kind: str | None = None, assessment=None, operator_question: str = "",
 ):
     contract_blocked = assessment is not None
-    park = "" if contract_blocked else (
-        stop_park_reason(stop_kind) or ("infra" if stop_kind == "backend_unavailable" else "")
-    )
+    park = "" if contract_blocked else run_park_reason(stop_kind)
     return SimpleNamespace(
         success=False,
         status=(

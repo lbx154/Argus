@@ -1212,7 +1212,7 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
     ))
     mem.backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="Which dataset should the baseline use?",
     )
     config = LifeSupervisorConfig(
@@ -1291,7 +1291,7 @@ def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path) ->
 def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     item = mem.backlog.add(BacklogItem.new(title="选数据集", objective="跑基线"))
-    mem.backlog.update(item.id, status="paused_operator", pending_question="基线用哪个数据集？")
+    mem.backlog.update(item.id, park_reason="operator_pause", pending_question="基线用哪个数据集？")
     sink = _RecordingSink(mem.root)
     LifeSupervisor(
         memory=mem,

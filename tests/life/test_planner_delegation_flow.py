@@ -181,7 +181,7 @@ def test_planner_retires_pending_tasks_without_requiring_new_work(
     parked = backlog.add(BacklogItem.new(title="Waiting for a GPU job", objective="d"))
     backlog.update(
         parked.id,
-        status="paused_external_work",
+        park_reason="external_work",
         outcome={"external_wait": {"work_id": "training", "workdir": str(project)}},
     )
     done = backlog.add(BacklogItem.new(title="Completed work", objective="c"))

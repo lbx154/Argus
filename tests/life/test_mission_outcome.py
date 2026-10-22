@@ -850,7 +850,7 @@ def test_an_old_background_job_pause_resumes_without_being_watched(tmp_path) -> 
     )
     supervisor.memory.backlog.update(
         item.id,
-        status="paused_external_work",
+        park_reason="external_work",
         outcome={"external_wait": {"kind": "subagent", "work_id": "job-1"}},
     )
 

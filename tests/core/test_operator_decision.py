@@ -196,7 +196,7 @@ def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:
     )
     backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="choose",
         operator_decision=card,
     )
@@ -232,7 +232,7 @@ def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
     )
     backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="choose",
         operator_decision=card,
     )
@@ -264,7 +264,7 @@ def test_failed_decision_write_leaves_original_card_retriable(tmp_path, monkeypa
     )
     backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="choose",
         operator_decision=card,
     )

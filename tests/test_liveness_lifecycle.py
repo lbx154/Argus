@@ -104,7 +104,7 @@ def test_planner_sees_and_retires_a_wedging_park_and_its_dependents_are_released
     )
     question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
     backlog.update(
-        question.id, status="paused_operator", pending_question="Which venue?"
+        question.id, park_reason="operator_pause", pending_question="Which venue?"
     )
 
     digest = supervisor._planner_current_reality_note()
@@ -448,7 +448,7 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
     backlog = LifeMemory.open(tmp_path / "life").backlog
     asked = BacklogItem.new(title="asked", objective="a", tags=["planner", CANARY_TAG])
     backlog.add(asked)
-    backlog.update(asked.id, status="paused_operator", pending_question="Go on?")
+    backlog.update(asked.id, park_reason="operator_pause", pending_question="Go on?")
 
     resumed, answered = backlog.resume_with_operator_reply(asked.id, "Yes.")
 
@@ -658,7 +658,7 @@ def test_a_manager_wait_is_no_planner_input_until_its_evidence_moves(
     supervisor = _supervisor(project, tmp_path / "life", planner)
     backlog = supervisor.memory.backlog
     question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
-    backlog.update(question.id, status="paused_operator", pending_question="Venue?")
+    backlog.update(question.id, park_reason="operator_pause", pending_question="Venue?")
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert _supervisor(project, tmp_path / "life", planner)._plan_next_work() == PLAN_AWAITING

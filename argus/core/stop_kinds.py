@@ -83,6 +83,13 @@ def stop_park_reason(value: Any) -> StopKind | None:
     return kind if kind in NON_FAILURE_STOP_KINDS and kind != "operator_abort" else None
 
 
+def run_park_reason(value: Any) -> str:
+    """Where a stopped run waits: a non-failure stop under its own kind, a host
+    that could not start (``backend_unavailable``) on ``infra``; else ""."""
+    kind = normalize_stop_kind(value)
+    return "infra" if kind == "backend_unavailable" else stop_park_reason(kind) or ""
+
+
 def stop_kind_is_recoverable(value: Any) -> bool:
     return normalize_stop_kind(value) in RECOVERABLE_STOP_KINDS
 
@@ -258,6 +265,7 @@ __all__ = [
     "park_clause",
     "park_reason_of",
     "park_rule",
+    "run_park_reason",
     "stop_kind_clause",
     "stop_kind_from_external_interrupt",
     "stop_kind_is_recoverable",
