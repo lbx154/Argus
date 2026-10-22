@@ -147,7 +147,13 @@ not guess on the model's behalf whether there is progress. The full design is in
   `reviewer/_parsing.py` that nothing calls anymore.
 - Done when: in tests, prose only the first time and a normal submission the second time lets the task continue instead
   of failing.
-- Status: the prose-parsing code is deleted with HO-16e (`reviewer/_parsing.py` is gone); the retry message is not done.
+- Status: done (`8cf14717`). The prose-parsing code went with HO-16e. A Reviewer turn that replied (or whose
+  `submit_review` calls were all refused, e.g. for a bad handoff line) but submitted no verdict is a missing
+  submission, not a backend failure: it does not count toward the failure streak, wait out the backoff or raise the
+  alert. The Reviewer is asked again on the same Engineer output in the same session, told plainly that it did not
+  submit a verdict, how to submit it with `submit_review` and the handoff line, and why its last call was refused; only
+  if it still does not submit does the task stop, with a reason that says so. An empty turn is still a backend
+  failure.
 
 #### HO-5 A Manager "hold on" must not throw away a result that already passed
 `0.2` · `M` · Depends on: none
