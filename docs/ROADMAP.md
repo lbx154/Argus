@@ -928,10 +928,21 @@ fixed address; data that can be exported and deleted; a full security review pas
 - Do: first add a workspace boundary at the tool layer for the Engineer and Reviewer, forbidding reads and writes of
   other projects' and other tenants' user data; in the long run, move to sandbox isolation.
 - Done when: the SE-2 isolation tests pass.
+- Status: the tool-layer boundary is done (`6ae03543`). An Engineer or Reviewer call has every other project's
+  state and workdir closed, as are the runtime's Pi and Copilot session stores and the directories named in
+  `ARGUS_SKILL_FOREIGN_ROOTS`; the enrolled native trial workspace names every other tenant's directory and the
+  portal's state there. The pre-tool hooks of Claude Code, Copilot CLI, Codex and Pi enforce it; Qoder, Cursor,
+  OpenCode, Grok and dsh run without it. File tools are checked exactly, shell commands only by the paths they name,
+  so a script the model writes or an encoded path gets past it. A project whose workdir is the home directory, or
+  contains another project's workdir, cannot be separated this way. Sandbox isolation is still to do.
 
 #### SE-2 Tenant isolation tests
 `0.2` · `M` · Depends on: SE-1
 - Do: two tenants, two projects, each Agent tries to read the other's files; every attempt must fail.
+- Status: done (`6ae03543`). `tests/core/test_workspace_isolation.py` runs the real hook with each CLI's tool calls
+  for two tenants and two projects: all 360 attempts are refused and each role's own files stay open.
+  `tests/agent_cli/test_workspace_boundary_cli.py` drives the real Pi, Copilot, Claude Code and Codex CLIs against a
+  local scripted model (opt-in with `ARGUS_TEST_BOUNDARY_CLIS`).
 
 #### SE-3 Accounts and project permissions
 `0.6` · `L` · Depends on: SE-1
