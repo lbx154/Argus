@@ -358,6 +358,14 @@ describe('the web feed line', () => {
     expect(row!.text).toContain('moved on to the implement_cli stage');
   });
 
+  it('names a stage the Manager closes in the reader\'s words', () => {
+    // Trial s-757b9dac: the Manager's row read "「delivery」阶段完成".
+    expect(zh({
+      type: 'life.manager.stage_decision', action: 'complete', source: 'manager_llm',
+      target_stage: 'delivery', reason: '可以交付。',
+    })!.text).toBe('「成果交付」阶段完成 · 可以交付。');
+  });
+
   it('renders mission terminal outcomes truthfully', () => {
     // Without an independent review the summary is the only account of the result.
     expect(line({

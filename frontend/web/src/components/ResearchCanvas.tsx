@@ -18,7 +18,8 @@ import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 import { theme } from '../lib/theme';
-import { plainProgress, plainRouteStatus, plainStage, plainStatus } from '../lib/plainStatus';
+import { plainProgress, plainRouteStatus, plainStatus } from '../lib/plainStatus';
+import { stageName } from '../../../core/src/eventRender';
 import { WorkStatusBar } from './WorkStatusBar';
 import { currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
@@ -207,7 +208,7 @@ function LiveProgressPreview({
     <div className="min-h-0 flex-1 overflow-y-auto p-5 text-sm text-ink-dim scroll-thin">
       <section className="rounded-lg border border-blue-deep/30 bg-blue-deep/10 p-4">
         <dl className="grid grid-cols-2 gap-3 text-xs">
-          <div><dt className="text-ink-faint">{t('mission.stage')}</dt><dd className="mt-1 text-sm font-medium text-blue-sky">{plainStage(view.stage.id, locale) !== view.stage.id ? plainStage(view.stage.id, locale) : view.stage.label || view.stage.id || '—'}</dd></div>
+          <div><dt className="text-ink-faint">{t('mission.stage')}</dt><dd className="mt-1 text-sm font-medium text-blue-sky">{stageName(view.stage.id, locale) !== view.stage.id ? stageName(view.stage.id, locale) : view.stage.label || view.stage.id || '—'}</dd></div>
           <div><dt className="text-ink-faint">{t('research.totalTime')}</dt><dd className="mt-1 text-sm text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</dd></div>
           <div><dt className="text-ink-faint">{t('mission.round')}</dt><dd className="mt-1 text-sm text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</dd></div>
           <div><dt className="text-ink-faint">{t('research.dagProgress')}</dt><dd className="mt-1 text-sm text-ink">{plainProgress(completed, view.dag.length, locale)}</dd></div>
