@@ -221,8 +221,10 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   }
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
-    // A finished task says so once: what the review found is on its own row.
-    const summary = presentation.tone === 'ok' ? '' : trunc(S(ev, 'summary'), 240);
+    // An independent review told its conclusion on its own row; without
+    // one, the summary is the only account of the result, told here once.
+    const reviewed = presentation.tone === 'ok' && S(ev, 'review_source') === 'reviewer';
+    const summary = reviewed ? '' : trunc(S(ev, 'summary'), 240);
     return {
       role: 'engineer',
       label: 'Engineer',

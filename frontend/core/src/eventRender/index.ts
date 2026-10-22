@@ -383,14 +383,13 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event), context.locale);
-      // A finished task says so once: what the review found is on its own row.
-      if (presentation.tone === 'ok') {
-        return stringField(event, 'residual_risk')
-          ? model('engineer', 'role.engineer', '⚠', localized(context, 'completed with residual risk', '已完成，但有残余风险'), 'warn', { rule: true })
-          : model('engineer', 'role.engineer', presentation.glyph, presentation.label, presentation.tone, { rule: true });
-      }
-      const summary = clean(stringField(event, 'summary'), 240);
-      return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
+      // An independent review told its conclusion on its own row; without
+      // one, the summary is the only account of the result, told here once.
+      const reviewed = presentation.tone === 'ok' && stringField(event, 'review_source') === 'reviewer';
+      const summary = reviewed ? '' : clean(stringField(event, 'summary'), 240);
+      const risky = presentation.tone === 'ok' && Boolean(stringField(event, 'residual_risk'));
+      const label = risky ? localized(context, 'completed with residual risk', '已完成，但有残余风险') : presentation.label;
+      return model('engineer', 'role.engineer', risky ? '⚠' : presentation.glyph, summary ? `${label} · ${summary}` : label, risky ? 'warn' : presentation.tone, { rule: true });
     }
     case 'life.mission.failed':
       return model('engineer', 'role.engineer', '❌', `${localized(context, 'this task failed', '这项任务失败了')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err', { rule: true });

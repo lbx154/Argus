@@ -313,8 +313,14 @@ describe('the web feed line', () => {
   });
 
   it('renders mission terminal outcomes truthfully', () => {
+    // Without an independent review the summary is the only account of the result.
     expect(line({
       type: 'life.mission.completed', status: 'done', success: true,
+      summary: 'Created RESULT.txt and verified its contents.',
+    })).toMatchObject({ text: 'The task was completed. · Created RESULT.txt and verified its contents.', tone: 'ok', rule: true });
+    // A reviewed task's conclusion is on the review row; this row says it once.
+    expect(line({
+      type: 'life.mission.completed', status: 'done', success: true, review_source: 'reviewer',
       summary: 'Created RESULT.txt and verified its contents.',
     })).toMatchObject({ text: 'The task was completed.', tone: 'ok', rule: true });
     expect(line({ type: 'life.mission.completed', status: 'done', success: true, final_submission_certified: true }))
