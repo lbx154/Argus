@@ -148,16 +148,16 @@ describe('Sidebar session identity and health', () => {
       activityAt: null, activityAgeSeconds: null, reason: 'operator_input',
     } satisfies WorkStatus };
     const markup = sidebarMarkup(projects, activeWork);
-    expect(markup).toContain('This task is waiting for your reply');
+    expect(markup).toContain('A question is waiting for your answer');
     expect(markup).toContain('data-session-work-state="paused"');
     expect(markup).toContain('Background online · 2m');
     expect(markup).not.toContain('running · 2m');
     expect(markup).not.toContain('aria-label="Resume"');
     const switching = sidebarMarkup(projects, { ...activeWork, sessionId: 'remote' });
-    expect(switching).not.toContain('This task is waiting for your reply');
+    expect(switching).not.toContain('A question is waiting for your answer');
     expect(switching).not.toContain('data-session-work-state=');
     const disconnected = sidebarMarkup(projects, { ...activeWork, connected: false });
     expect(disconnected).toContain('Live connection lost');
-    expect(disconnected).not.toContain('This task is waiting for your reply');
+    expect(disconnected).not.toContain('A question is waiting for your answer');
   });
 });

@@ -802,11 +802,12 @@ export function MapCanvas({
   const complete = tally.done;
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
-  const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
-    ? projectBrief(data.tasks, data.events, zh, writtenOutcome) : null, [data.tasks, data.events, zh, writtenOutcome]);
   const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
   const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
     currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
+  const live = status.state === 'running' || status.state === 'waiting' || status.reason === 'operator_input' ? currentWork : '';
+  const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
+    ? projectBrief(data.tasks, data.events, zh, writtenOutcome, live) : null, [data.tasks, data.events, zh, writtenOutcome, live]);
   const statusSentence = mapStatusSentence({
     total: data.tasks.length,
     qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
@@ -967,7 +968,7 @@ export function MapCanvas({
       </div>}
       {data.kind === "live" && !replaying && brief && (
         <dl className="map-brief" aria-label={zh ? "任务进展" : "Task progress"}>
-          <div><dt>{zh ? "正在做" : "Now"}</dt><dd title={brief.goal}>{status.state === 'running' || status.state === 'waiting' || status.reason === 'operator_input' ? currentWork : brief.current}</dd></div>
+          <div><dt>{zh ? "正在做" : "Now"}</dt><dd title={brief.goal}>{brief.current}</dd></div>
           <div><dt>{zh ? "已有结果" : "Results"}</dt><dd>{brief.conclusion}</dd></div>
           <div><dt>{zh ? "接下来" : "Next"}</dt><dd>{brief.next}</dd></div>
         </dl>

@@ -176,6 +176,17 @@ it("leads the brief with a question waiting on the reader, then the work under w
   expect([finished.goal, finished.current]).toEqual(["Pick A or B for truncate", "已完成"]);
 });
 
+it("keeps a waiting question at the head of the brief over what the runtime reports live", () => {
+  // Trial s-934a4569: with char_count finished, the live status "waiting for
+  // the next step" covered the brief's "waiting on you".
+  const asked: MapTask = { id: "t", title: "Settle truncate", objective: "Pick A or B", status: "parked", deps: [], ts: 1, pending_question: "A or B?" };
+  const counting: MapTask = { id: "c", title: "Add char_count", objective: "Add char_count", status: "running", deps: [], ts: 2 };
+  expect(projectBrief([asked, { ...counting, status: "done", finished_ts: 5 }], [], true, () => "", "等待下一步工作").current).toBe("等你回答");
+  expect(projectBrief([asked, counting], [], true, () => "", "运行终端命令：Add char_count").current).toBe("等你回答");
+  expect(projectBrief([{ ...asked, pending_question: "", status: "done" }, counting], [], true, () => "", "运行终端命令：Add char_count").current)
+    .toBe("运行终端命令：Add char_count");
+});
+
 it("says the next step once, under the brief's own Next label", () => {
   // 2026-10-21: the map read 接下来：下一步：回答这个问题.
   const asked: MapTask = { id: "q", title: "Settle truncate", objective: "Pick A or B", status: "parked", deps: [], ts: 1, pending_question: "A or B?" };
