@@ -240,27 +240,6 @@ def enqueue_mission(
                          if domain_display.get("execution_task") == body else "")
     display_title = (str(domain_display.get("title") or "")
                      if domain_display.get("execution_task") == body else "")
-    if chat_state.get("blocked_item_id"):
-        prior = str(chat_state.get("last_objective") or body)
-        blocked_id = chat_state.pop("blocked_item_id", None)
-        chat_state.pop("blocked_question", None)
-        try:
-            from ..apps._inbox import queue_inbox_message
-
-            queue_inbox_message(
-                front_door._life_dir_for(mem),
-                body,
-                source="manager.answer",
-            )
-        except Exception:  # noqa: BLE001 - the durable mission remains authoritative
-            pass
-        if blocked_id:
-            try:
-                mem.backlog.update(blocked_id, pending_question="")
-            except Exception:  # noqa: BLE001 - do not drop the operator reply
-                pass
-        body = f"{prior}\n\nOperator reply: {body}"
-
     if prepared_handoff is None:
         prepared_handoff = front_door.prepare_manager_execution_task(
             mem, body, chat_state, root_task_id=root_task_id,

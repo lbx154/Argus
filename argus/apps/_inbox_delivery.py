@@ -26,10 +26,12 @@ def _identity(claim: Any) -> str:
     return json.dumps(claim.identity, sort_keys=True, separators=(",", ":"))
 
 
-# Inbox sources the host wrote itself (an older release's background-job
-# reports, still queued in some projects). Their messages carry no operator
-# authority: the running round reads them once, and nothing is frozen.
-HOST_REPORT_SOURCES = frozenset({"subagent"})
+# Inbox sources the host wrote itself: an older release's background-job
+# reports, still queued in some projects, and the note that an answered
+# question resumed its task (the answer was applied where it was given).
+# Their messages carry no operator authority: the running round reads them
+# once, nothing is frozen, and the front door does not classify them again.
+HOST_REPORT_SOURCES = frozenset({"subagent", "manager.answer"})
 
 
 def _host_report(claim: Any) -> bool:
