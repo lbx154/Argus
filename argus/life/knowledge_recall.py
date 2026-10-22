@@ -79,9 +79,12 @@ _SEMANTIC_MIN_SIMILARITY = 0.5
 _RECALL_INTRO = (
     "These pages come from the current knowledge library and match this objective. "
     "Open a page before relying on it and check its evidence and scope; similarity "
-    "grants no authority. An edited or removed page drops out on the next recall."
+    "grants no authority. A page holds for the date, source and version it names; when "
+    "current facts contradict one, say so with its path and why, so it can be corrected "
+    "or retired. An edited or removed page drops out on the next recall."
 )
-_CODE_NOTE = " Code listed with a page is relative to it; the page says how to run it."
+_CODE_NOTE = (" Code listed with a page is relative to it; the page says how to run it, and "
+              "rerunning it shows whether the page still holds.")
 
 
 @dataclass(frozen=True)

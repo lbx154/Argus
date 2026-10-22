@@ -1,15 +1,17 @@
-"""The knowledge journal: one line each time a page is learned, recalled or shared.
+"""The knowledge journal: one line each time a page is learned, recalled, shared or retired.
 
 ``<global_root>/knowledge-journal.jsonl`` is the host-wide record of how the
 knowledge library is used. A ``learned`` line is written when a role writes a
-new page, a ``recalled`` line when a page is placed in front of a role, and a
-``promoted`` line when a project page is copied into a shared tier. The Web UI
+new page, a ``recalled`` line when a page is placed in front of a role, a
+``promoted`` line when a project page is copied into a shared tier, a
+``corrected`` line when a page is fixed in place and a ``retired`` line, naming
+who and why, when a page that no longer holds is taken out of the library. The Web UI
 reads it as a live feed and counts the ``recalled`` lines per page so a reader
 can see which lessons keep paying off.
 
 Every record has the same shape::
 
-    {"ts": float, "kind": "learned"|"recalled"|"promoted",
+    {"ts": float, "kind": "learned"|"recalled"|"promoted"|"corrected"|"retired",
      "scope": "project"|"vertical"|"global", "vertical": str,
      "path": str, "title": str, "source_project": str, "mission_id": str,
      "role": str, "page_kind": str, "note": str}
@@ -43,7 +45,7 @@ log = logging.getLogger(__name__)
 
 JOURNAL_FILENAME = "knowledge-journal.jsonl"
 JOURNAL_LOCK_FILENAME = ".knowledge-journal.lock"
-KINDS: tuple[str, ...] = ("learned", "recalled", "promoted", "corrected")
+KINDS: tuple[str, ...] = ("learned", "recalled", "promoted", "corrected", "retired")
 SCOPES: tuple[str, ...] = ("private", "project", "vertical", "global")
 RECORD_FIELDS: tuple[str, ...] = (
     "kind", "scope", "vertical", "path", "title",

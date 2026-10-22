@@ -7,8 +7,8 @@ import { libraryVertical } from '../lib/libraryPresentation';
 
 /**
  * The host's knowledge journal as a live feed: what Argus learned after a
- * mission, what it read back into a prompt, and what it promoted to a shared
- * level. Shared by the knowledge browser (its default tab) and the sidebar entry.
+ * mission, what it read back into a prompt, what it promoted to a shared
+ * level, and what it retired because it no longer held. Shared by the knowledge browser (its default tab) and the sidebar entry.
  */
 
 export const KNOWLEDGE_FEED_LIMIT = 50;
@@ -30,8 +30,8 @@ export function useKnowledgeFeed(enabled = true, limit = KNOWLEDGE_FEED_LIMIT) {
 }
 
 export const knowledgeKindLabels: Record<'en' | 'zh', Record<KnowledgeEventKind, string>> = {
-  en: { learned: 'Learned', recalled: 'Recalled', promoted: 'Promoted', corrected: 'Corrected' },
-  zh: { learned: '学到了', recalled: '读取了', promoted: '提升了', corrected: '纠正了' },
+  en: { learned: 'Learned', recalled: 'Recalled', promoted: 'Promoted', corrected: 'Corrected', retired: 'Retired' },
+  zh: { learned: '学到了', recalled: '读取了', promoted: '提升了', corrected: '纠正了', retired: '退役了' },
 };
 const scopeLabels: Record<'en' | 'zh', Record<WikiScope, string>> = {
   en: { private: 'About you', global: 'Global', vertical: 'Vertical', project: 'Project' },
@@ -80,6 +80,7 @@ const badgeTone: Record<KnowledgeEventKind, string> = {
   recalled: 'bg-line/60 text-ink-dim',
   promoted: 'bg-ok/10 text-ok',
   corrected: 'bg-warn/10 text-warn',
+  retired: 'bg-err/10 text-err',
 };
 
 export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query = '', onSelect, selected }: {
