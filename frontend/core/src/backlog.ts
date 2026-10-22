@@ -1,9 +1,10 @@
 import type { BacklogItem } from './types.js';
 
-const TERMINAL = new Set(['done', 'completed', 'failed', 'skipped']);
+// The backlog's sinks (`_TERMINAL_STATUSES` in argus/life/memory.py).
+const TERMINAL = new Set(['done', 'completed', 'failed', 'aborted', 'skipped', 'superseded']);
 const UNDER_WAY = new Set(['pending', 'claimed', 'running', 'in_progress']);
 
-export function isTerminalBacklogItem(item: BacklogItem): boolean {
+export function isTerminalBacklogItem(item: Pick<BacklogItem, 'status'>): boolean {
   return TERMINAL.has(item.status);
 }
 
@@ -11,6 +12,12 @@ export function isTerminalBacklogItem(item: BacklogItem): boolean {
  * result yet; the earlier one is not shown as its current result. */
 export function currentOutcome(item: BacklogItem): BacklogItem['outcome'] {
   return UNDER_WAY.has(item.status) ? undefined : item.outcome;
+}
+
+/** A task repeats once it has been taken up again. `iterate` only lets its
+ * domain re-arm it after a result falls short, which most domains never do. */
+export function isRepeating(item: BacklogItem): boolean {
+  return Boolean(item.iterate) && (item.iteration_cycles_done ?? 0) > 0;
 }
 
 export function visibleBacklogItems(items: BacklogItem[], history: boolean): BacklogItem[] {

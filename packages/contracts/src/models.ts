@@ -67,6 +67,8 @@ export interface BacklogItem {
   original_objective?: string;
   orphan_retries?: number;
   deps?: string[];
+  /** The Planner's plan this task belongs to; empty for a task taken from a request. */
+  plan_id?: string;
   acceptance_check?: string;
   plan_hypothesis?: string;
   goal_contribution?: string;
