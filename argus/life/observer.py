@@ -71,7 +71,7 @@ def _earlier_remarks(root: Path) -> list[str]:
         raw_markers=(EventType.LIFE_OBSERVER_NOTE.value.encode(),),
         predicate=lambda row: row.get("type") == EventType.LIFE_OBSERVER_NOTE,
     )
-    return [str(row.get("text") or "") for row in rows]
+    return [str(row.get("evidence") or row.get("text") or "") for row in rows]
 
 
 def remarks(reply: str) -> list[str]:
@@ -245,13 +245,13 @@ class ObserverSink:
     def _say(self, task: str, text: str, delivered: bool) -> None:
         """One remark on ``task``, as one event: for the Manager, else an alert for the operator."""
         event: dict[str, Any] = {"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "text": text}
+        # Readers see the remark; where it was seen stays on record.
+        said = _EVIDENCE.sub("", text).strip()
+        if said and said != text:
+            event.update(text=said, evidence=text)
         if task:
             event["item_id"] = task
         if self.supervisor.manager is None or delivered:
-            # The operator reads the remark; where it was seen stays on record.
-            said = _EVIDENCE.sub("", text).strip()
-            if said and said != text:
-                event.update(text=said, evidence=text)
             event.update(to="operator", operator_alert=True)
         else:
             event["to"] = "manager"

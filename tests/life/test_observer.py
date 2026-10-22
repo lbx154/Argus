@@ -210,9 +210,12 @@ def test_a_remark_goes_to_the_manager_s_supervision(team):
     team.backend.replies = [f"The Planner spins.\n{SPIN}"]
     _turn(team, "planner")
     (note,) = team.feed.notes()
-    assert (note["to"], note["agent_layer"], note["text"]) == ("manager", "observer", SPIN.split(": ", 1)[1])
+    said = SPIN.split(": ", 1)[1]
+    assert (note["to"], note["agent_layer"], note["evidence"]) == ("manager", "observer", said)
+    # Readers see the remark; the Manager also gets where it was seen.
+    assert note["text"] == "the Planner woke 14 times in 70 min only to keep waiting"
     assert "operator_alert" not in note and "item_id" not in note
-    assert _asked(team).endswith("says: " + note["text"])
+    assert _asked(team).endswith("says: " + said)
 
 
 def test_a_remark_names_the_task_it_was_about(team):
@@ -240,7 +243,7 @@ def test_the_same_remark_is_not_made_twice(team):
     for _ in range(3):
         _turn(team, "planner")
     assert len(team.backend.calls) == 3
-    assert [note["text"] for note in team.feed.notes()] == [
+    assert [note["evidence"] for note in team.feed.notes()] == [
         SPIN.split(": ", 1)[1], SPIN.replace("14 times", "20 times").split(": ", 1)[1],
     ]
     assert SPIN in team.backend.calls[1]["prompt"]

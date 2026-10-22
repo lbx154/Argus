@@ -293,8 +293,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
     case 'life.observer.note': {
       const to = renderLabel(`role.${stringField(event, 'to')}`, context.locale);
-      // The evidence pointer the observer cites ("(events.jsonl ts …)") is for the record.
-      const text = stringField(event, 'text').replace(/\s*[（(][^（()）]*events\.jsonl[^（()）]*[)）]/g, '');
+      const text = stringField(event, 'text');
       return model('observer', 'role.observer', '👁', localized(context, `to ${to}: ${text}`, `对${to}：${text}`), 'warn', { expandable: true });
     }
     case 'life.manager.supervision.failed': {
