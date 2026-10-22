@@ -32,6 +32,7 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from ..life.memory import Backlog
+from ..reviewer.tools import unsubmitted_review_note
 from .reviewer_findings import (
     own_reviewer_thread,
     render_previous_findings,
@@ -353,6 +354,7 @@ class RoundReviewerMixin:
         process_ownership_note: str,
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
+        retry_note: str = "",
     ) -> ReviewDecision:
         """Call the Reviewer once; direct project-wiki edits are durable output."""
         operator_messages = _active_manager_directive_for_reviewer(
@@ -407,6 +409,7 @@ class RoundReviewerMixin:
             include_previous_review=not previous_findings.has_reviewer_findings,
         )
         shared_context_parts = (
+            retry_note,
             mission_brief,
             _unreviewed_turns_block(state),
             capsule_block,
@@ -560,7 +563,9 @@ class RoundReviewerMixin:
                 ),
                 static_fingerprint=review.static_fingerprint,
             )
-            if review.backend_unavailable:
+            if review.backend_unavailable and not review.review_unsubmitted:
+                # A reply that was only not submitted keeps its thread: the
+                # Reviewer submits what it already read and wrote.
                 reviewer_session.rotate("backend_failure")
         prompt_stats = review.prompt_block_stats or {}
         prompt_chars = int(
@@ -682,6 +687,8 @@ class RoundReviewerMixin:
         # (xhigh) engineer turn. We leave this inner loop with a real verdict,
         # or by failing loud once the reviewer-backend streak hits threshold.
         reviewer_turn_cap_restarts = 0
+        unsubmitted_reviews = 0
+        retry_note = ""
         while True:
             from .round_manager_wait import manager_wait_terminal
 
@@ -703,7 +710,9 @@ class RoundReviewerMixin:
                 process_ownership_note=process_ownership_note,
                 state=state,
                 on_event=on_event,
+                retry_note=retry_note,
             )
+            retry_note = ""
             reviewer_fatal_error = str(review.backend_fatal_error or "")
             reviewer_exit_code = int(review.backend_exit_code or 0)
             reviewer_stop_kind = normalize_stop_kind(
@@ -857,6 +866,40 @@ class RoundReviewerMixin:
             # model decision and follows normal classification.
             if not review.backend_unavailable:
                 break
+            if review.review_unsubmitted:
+                # The Reviewer replied but submitted no verdict: a missing
+                # submission, not a model-service fault. Ask it again on the
+                # same Engineer output, saying so plainly, without touching the
+                # backend failure streak, its backoff or its operator alert;
+                # a Reviewer that still does not submit stops the task.
+                unsubmitted_reviews += 1
+                if unsubmitted_reviews < max(2, int(supervised_config.backend_failure_threshold or 1)):
+                    retry_note = unsubmitted_review_note(review.refused_submission)
+                    continue
+                state.rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=_no_reviewer_judgment(review),
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                stopped_because = (
+                    f"审阅者连续 {unsubmitted_reviews} 次写了审阅却没有提交结论，"
+                    "Argus 选择停下这项任务，而不是在没有真正审阅的情况下结束这一轮。"
+                    if uses_cjk(objective)
+                    else (
+                        f"The Reviewer wrote its review {unsubmitted_reviews} times "
+                        "without submitting a verdict, so Argus stopped this task "
+                        "rather than settle the round without a real judgment. "
+                    )
+                )
+                return control_return((
+                    "error",
+                    state.rounds,
+                    state.last_engineer_message,
+                    stopped_because + review.reason,
+                    None,
+                ))
             if (
                 fatal_error_looks_like_provider_turn_cap(reviewer_fatal_error)
                 and reviewer_turn_cap_restarts < 1

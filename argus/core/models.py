@@ -237,6 +237,11 @@ class ReviewDecision:
     backend_fatal_error: str = ""
     backend_exit_code: int | None = None
     backend_stop_kind: StopKind | None = None
+    # The Reviewer wrote a reply but never submitted it through submit_review
+    # (or every call it made was refused): no judgment, yet no backend fault.
+    # ``refused_submission`` is the host's refusal of its last call, if any.
+    review_unsubmitted: bool = False
+    refused_submission: str = ""
     # Runtime provenance for the pre-Reviewer operator-abort short circuit.
     engineer_aborted_before_review: bool = False
     research_result: dict[str, Any] | None = None

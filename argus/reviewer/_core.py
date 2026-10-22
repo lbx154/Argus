@@ -936,6 +936,7 @@ class Reviewer:
                     options=options, run_label="reviewer",
                 )
                 decision = actions.decision
+                refusal = actions.refusal
             changed = _changed_during_review(config.snapshots)
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             stopped_by = (
@@ -981,18 +982,30 @@ class Reviewer:
                     backend_stop_kind=stopped_by or "backend_unavailable",
                 ))
             if decision is None:
+                # A Reviewer that wrote a reply, or whose call was refused, did
+                # its work and only missed the submission: that is asked for
+                # again, not counted as a model-service fault. An empty turn
+                # stays a backend failure.
+                wrote = any(
+                    str(text or "").strip()
+                    for text in (getattr(result, "agent_messages", None) or [])
+                )
+                unsubmitted = wrote or bool(refusal)
                 return with_call_metadata(ReviewDecision(
                     status="blocked",
                     reason=(
                         "The Reviewer ended without submitting a review action. "
                         "Its reply was not interpreted as acceptance or rejection."
+                        + (f" Its last submit_review call was refused: {refusal}" if refusal else "")
                     ),
                     next_action=(
                         "Ask the independent Reviewer to submit its judgment through "
                         "submit_review."
                     ),
                     backend_unavailable=True,
-                    backend_stop_kind="backend_unavailable",
+                    backend_stop_kind=None if unsubmitted else "backend_unavailable",
+                    review_unsubmitted=unsubmitted,
+                    refused_submission=refusal,
                 ))
             decision = with_call_metadata(decision)
             decision.manuscript_snapshot = reviewed_manuscript_snapshot
