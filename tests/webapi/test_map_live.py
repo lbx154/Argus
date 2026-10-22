@@ -68,6 +68,7 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
             {"type": "life.observer.note", "agent_layer": "observer", "to": "manager", "ts": 8, "text": "Idle."},
             {"type": "life.operator_question.answered", "item_id": "ask",
              "question": "A or B?", "manager_decision": "A", "decided_by": "operator", "ts": 9},
+            {"type": "life.mission.started", "item_id": "ask", "agent_layer": "engineer", "ts": 10},
         ):
             f.write(json.dumps(row) + "\n")
     data = read_map(sid, tmp_path, life)
@@ -85,8 +86,10 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
     assert tasks["budget"]["park_reason"] == "budget_exhausted" and "park_reason" not in tasks["ask"]
     # The answered task reads as the work it is again, and depends on nothing new.
     assert (tasks["ask"]["status"], tasks["ask"]["deps"]) == ("running", [])
-    # The question is the Planner's; the mission is the Engineer's.
-    assert (tasks["ask"]["role"], tasks["task-a"]["role"]) == ("planner", "engineer")
+    # A task is in the hands of whoever wrote its latest record: the Engineer
+    # took the answered task up again; one with no record names nobody.
+    assert (tasks["ask"]["role"], tasks["task-a"]["role"]) == ("engineer", "engineer")
+    assert "role" not in tasks["budget"]
 
 
 def test_an_engineer_handoff_is_the_engineers_record_not_a_review():

@@ -621,7 +621,6 @@ def read_map(
                 # owns_paths (and deps) are operator-visible strings too.
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
-        task["role"] = "engineer"
         tasks.append(task)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
@@ -716,14 +715,11 @@ def read_map(
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
     visible_events = events[-2000:]
-    # A task is the work of the role whose record it holds first: an Engineer's
-    # mission, or a question the Planner put to the operator.
-    roles: dict[str, str] = {}
-    for event in visible_events:
-        if event["association"] == "explicit":
-            roles.setdefault(event["item_id"], event["role"])
+    # A task is in the hands of the role that wrote its latest record.
+    roles = {event["item_id"]: event["role"] for event in visible_events if event["association"] == "explicit"}
     for task in tasks:
-        task["role"] = roles.get(task["id"], task["role"])
+        if task["id"] in roles:
+            task["role"] = roles[task["id"]]
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if
