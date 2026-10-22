@@ -35,6 +35,9 @@ describe('progress in plain words', () => {
       [tool('glob: {"pattern": "**/*"}', 'glob'), '查找所有文件'],
       [tool('glob: {"pattern": "src/**/*.ts"}', 'glob'), '查找 src 里的 .ts 文件'],
       [tool('glob: {"pattern": "src/**/*"}', 'glob'), '查找 src 里的所有文件'],
+      // Alternatives in braces say nothing a reader can follow.
+      [tool('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', 'glob'), '查找文件'],
+      [tool('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*", "paths": ["/srv/state/skills"]}', 'glob'), '查找文件'],
       [tool('rg: {"pattern": "route", "paths": "/data/proj/a.md"}', 'rg'), '搜索：route'],
       [tool('mystery: {"x": 1}', 'mystery'), '调用 mystery'],
     ];
@@ -44,6 +47,7 @@ describe('progress in plain words', () => {
       expect(said).not.toMatch(/[{/]/);
     }
     expect(readableGlob('**/*.py', 'en')).toBe('.py files');
+    expect(readableGlob('**/*.{ts,tsx}', 'en')).toBe('files');
   });
 
   it('a LIVE badge says how old its news is once it is not fresh', () => {
@@ -88,6 +92,12 @@ describe('real rows from a dogfood session', () => {
     const cases: Array<[string, string, string]> = [
       ['/repo/.autors/learn/wiki/pages/deepinfer-inference-architecture.md', '查阅知识页 deepinfer-inference-architecture', 'Read wiki page deepinfer-inference-architecture'],
       ['/repo/.autors/learn/wiki', '查阅知识库', 'Read the wiki'],
+      // A shared wiki under the Argus home is a knowledge base too; a project's own docs/wiki is the work.
+      ['/srv/home/wiki/_shared_verticals/software/pages/lessons/20261020-cli-stdin-validation.md', '查阅知识页 20261020-cli-stdin-validation', 'Read wiki page 20261020-cli-stdin-validation'],
+      ['/srv/home/wiki/_global/pages/house-style.md', '查阅知识页 house-style', 'Read wiki page house-style'],
+      ['/srv/home/wiki/_shared_verticals/software', '查阅知识库', 'Read the wiki'],
+      ['/repo/.autors/learn/wiki/INDEX.md', '查阅知识页 INDEX', 'Read wiki page INDEX'],
+      ['/repo/docs/wiki/pages/setup.md', '查阅 setup.md', 'Read setup.md'],
       ['/runtime/tmp/1792644657527-copilot-tool-output-87d59816852246238961139c2f724073.txt', '查阅工具输出', 'Read a saved tool output'],
       ['/srv/state/workspaces/s-8d313a94', '查阅项目目录', 'Read the project folder'],
     ];

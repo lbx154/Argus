@@ -10,6 +10,7 @@ from argus.core.progress_step import (
     describe_progress_step,
     strip_shell_wrapper,
 )
+from argus.skills.builtins import builtin_skill_source_path
 
 
 def test_command_step_shows_the_real_command_not_a_euphemism() -> None:
@@ -121,6 +122,10 @@ def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
         ('glob: {"pattern": "src/**/*.ts"}', "查找 src 里的 .ts 文件"),
         ('glob: {"pattern": "src/**/*"}', "查找 src 里的所有文件"),
         ('glob: {"pattern": "METHOD.md"}', "查找 METHOD.md"),
+        # Alternatives in braces say nothing a reader can follow.
+        ('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', "查找文件"),
+        ('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*"}', "查找文件"),
+        ('glob: {"pattern": "**/*.{py,ts}"}', "查找文件"),
         ('rg: {"pattern": "route", "paths": "/work/proj/notes.md"}', "搜索：route"),
         ('grep: {"query": "see /work/proj/deep/notes.md"}', "搜索：see notes.md"),
     ],
@@ -159,8 +164,15 @@ def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> Non
         # A recalled knowledge page is material the role reads, not plumbing.
         ("/repo/.autors/learn/wiki/pages/deepinfer-inference-architecture.md",
          "查阅知识页 deepinfer-inference-architecture"),
+        # A shared wiki under the Argus home is a knowledge base too.
+        ("/srv/home/wiki/_shared_verticals/software/pages/lessons/20261020-cli-stdin-validation.md",
+         "查阅知识页 20261020-cli-stdin-validation"),
+        ("/srv/home/wiki/_global/pages/house-style.md", "查阅知识页 house-style"),
+        ("/srv/home/wiki/_shared_verticals/software", "查阅知识库"),
         ("/srv/state/workspaces/s-1/.autors/s-1/wiki/INDEX.md", "查阅知识页 INDEX"),
         ("/repo/.autors/learn/wiki", "查阅知识库"),
+        # The project's own wiki folder is the work.
+        ("/repo/docs/wiki/pages/setup.md", "查阅 setup.md"),
         # Argus' own directories are plumbing too, not only the files in them.
         ("/repo/.autors", "查阅 Argus 内部文件"),
         # The backend spills a long tool output to a temp file and reads it back.
@@ -200,6 +212,17 @@ def test_backend_session_paths_in_a_command_are_cut_to_their_last_name() -> None
     assert label == "$ mkdir -p …/files && python -m pytest -q 2>&1 | tee …/pytest.log"
     kept, _ = describe_progress_step({"kind": "command_execution", "text": "git -C /work/repo status"}, _WS)
     assert kept == "$ git -C /work/repo status", "a path of the work stays as it is"
+
+
+def test_paths_into_the_installed_argus_package_are_cut_in_a_command() -> None:
+    builtin = str(builtin_skill_source_path())
+    label, _ = describe_progress_step({
+        "kind": "command_execution",
+        "text": f"rg -n '^name:' /srv/state/skills {builtin} -g SKILL.md",
+    }, _WS)
+    assert label == "$ rg -n '^name:' …/skills …/builtin_skills -g SKILL.md"
+    event = {"kind": "tool_use", "text": f'view: {{"path": "{builtin}/engineer/SKILL.md"}}'}
+    assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:

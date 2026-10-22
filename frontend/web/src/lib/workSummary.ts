@@ -16,9 +16,9 @@ export function workSummary(status: WorkStatus, view: MissionView | null | undef
   const tool = latestAgentTool(events, status.role, status.taskId, started);
   if (latest?.detail && ['agent_message', 'assistant_message'].includes(latest.kind)
     && (!tool || Number(tool.ts || 0) < latest.ts)) return shortWorkText(latest.detail, 150);
+  // The action alone: the task's title is not what the tool is doing.
   if (tool && (!latest || Number(tool.ts || 0) >= latest.ts)) {
-    const action = activityTitle(String(tool.kind), locale === 'zh-CN', String(tool.tool_name || ''));
-    return status.title ? `${action}${locale === 'zh-CN' ? '：' : ': '}${shortWorkText(status.title, 70)}` : action;
+    return activityTitle(String(tool.kind), locale === 'zh-CN', String(tool.tool_name || ''));
   }
   if (latest && ['tool_use', 'command_execution', 'file_change'].includes(latest.kind)) {
     return activityTitle(latest.kind, locale === 'zh-CN');
