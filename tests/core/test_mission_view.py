@@ -155,6 +155,29 @@ def test_manager_stage_decision_uses_human_action_and_status(tmp_path: Path) -> 
     assert view["role_work"][-1]["detail"] == "The submission evidence is stale."
 
 
+def test_a_deterministic_stage_decision_keeps_the_runtime_record_apart(tmp_path: Path) -> None:
+    emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数")
+    reason = "Reviewer accepted the direct task and deterministic completion checks passed"
+    view = emit(
+        tmp_path, "life.manager.stage_decision", 2,
+        action="complete", target_stage="delivery", source="manager_deterministic", reason=reason,
+    )
+    row = view["timeline"][-1]
+    assert (row["title"], row["detail"], row["technical"]) == ("交付阶段已完成。", "", reason)
+    # A stage without a Chinese name reads as itself, set off by the sentence, not by stray spaces.
+    view = emit(tmp_path, "life.manager.stage_decision", 3, action="complete", target_stage="field_trial")
+    assert view["timeline"][-1]["title"] == "field trial 阶段已完成。"
+
+
+def test_a_role_still_waiting_says_so_in_the_session_language(tmp_path: Path) -> None:
+    from argus.core.mission_view import merge_mission_view_snapshot
+
+    view = emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数")
+    view = merge_mission_view_snapshot(view, session={}, daemon={}, roles=[], backlog=[])
+    labels = {row["role"]: row["label"] for row in view["roles"]}
+    assert labels["engineer"] == labels["reviewer"] == "等待中"
+
+
 def test_load_normalizes_persisted_legacy_manager_failure_label(
     tmp_path: Path,
 ) -> None:

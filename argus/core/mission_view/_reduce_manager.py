@@ -173,23 +173,21 @@ def reduce_manager_event(
         )
         if stage:
             view["stage"] = {"id": stage, "label": stage_label(stage, chinese)}
+        # The Manager's own decision is said in its words; a reason the runtime
+        # wrote (a deterministic completion, a hold) is its record, kept beside.
+        reason = _text(event, "reason", 4000)
+        said, record = (reason, "") if _text(event, "source") in {"", "manager_llm"} else ("", reason)
         _set_role(view, "manager", "done", title, ts, kind=kind)
-        _timeline(
-            view,
-            event,
-            role="manager",
-            kind=kind,
-            title=title,
-            detail=_text(event, "reason"),
-        )
+        _timeline(view, event, role="manager", kind=kind, title=title, detail=said, technical=record)
         _role_work(
             view,
             event,
             role="manager",
             kind="stage_decision",
             title=title,
-            detail=_text(event, "reason", 4000),
+            detail=said,
             status="done",
+            technical=record,
         )
 
 

@@ -487,6 +487,7 @@ _STAGE_NAMES_ZH = {
     "analysis": "分析",
     "design": "设计",
     "submission": "投稿",
+    "delivery": "交付",
     "run": "运行",
 }
 
@@ -543,16 +544,13 @@ def session_is_chinese(view: Mapping[str, Any], *texts: str) -> bool:
 def stage_name(stage_id: str, chinese: bool) -> str:
     """The stage as a reader would name it; the identifier stays the code."""
     stage = str(stage_id or "").strip()
-    if not stage:
-        return ""
-    if chinese:
-        return _STAGE_NAMES_ZH.get(stage, f" {stage.replace('_', ' ')} ")
-    return stage.replace("_", " ")
+    name = stage.replace("_", " ")
+    return _STAGE_NAMES_ZH.get(stage, name) if chinese else name
 
 
 def stage_label(stage_id: str, chinese: bool) -> str:
     """The stage's display label for ``view["stage"]``."""
-    name = stage_name(stage_id, chinese).strip()
+    name = stage_name(stage_id, chinese)
     return name if chinese else name.title()
 
 
