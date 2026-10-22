@@ -20,6 +20,7 @@ from typing import Any, Iterable
 from urllib.parse import unquote, urlsplit
 
 from ..core.file_facts import file_facts
+from ..core.launch_settings import strip_launch_note
 
 DELIVERY_SCHEMA_VERSION = 1
 MAX_DELIVERY_TARGETS = 6
@@ -595,7 +596,8 @@ def build_delivery_receipt(
         "delivery_id": f"delivery:{normalized_item_id}:{kind}:{revision}",
         "kind": kind,
         "item_id": normalized_item_id,
-        "title": str(title or "Completed task").strip()[:240] or "Completed task",
+        # The settings a request was launched with are not what was delivered.
+        "title": strip_launch_note(title)[:240] or "Completed task",
         "summary": str(summary or "").strip()[:1200],
         "status": str(status or "done").strip()[:80] or "done",
         "review_status": str(review_status or "not_assessed").strip()[:80]

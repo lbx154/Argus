@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from argus.core.launch_settings import launch_note
 from argus.core.planner_verdict import PlannerVerdictStatus
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
@@ -188,6 +189,17 @@ def _delivery_supervisor(tmp_path) -> tuple[LifeSupervisor, LifeMemory]:
         "delivery_id": "",
     })
     return supervisor, memory
+
+
+def test_project_delivery_is_titled_by_the_request_without_its_launch_settings(tmp_path) -> None:
+    # Trial s-757b9dac: the completion card's title went on with
+    # "【开工设置（我在界面上选的）】 - 成果形式：可以运行的代码和使用说明。".
+    supervisor, _memory = _delivery_supervisor(tmp_path)
+    request = "给 timefmt 加一个 format_hours(seconds)"
+    supervisor.config.continuous_objective = request + launch_note({"deliverable": "code"}, language_hint=request)
+    delivery = supervisor._build_terminal_project_delivery("All planned work is done.")
+    assert delivery is not None
+    assert delivery["title"] == request
 
 
 def test_terminal_delivery_survives_journal_noise_after_the_settlement(tmp_path) -> None:

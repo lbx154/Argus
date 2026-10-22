@@ -16,6 +16,7 @@ from typing import Any
 
 from ..apps.cli._follow import _read_recent_project_events
 from ..core import paths as core_paths
+from ..core.launch_settings import strip_launch_note
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import operator_objective, snapshot_mission_view
 from ..core.role_config import RoleConfig, resolve_all_roles
@@ -292,9 +293,7 @@ def _goal_text(life_dir: Path, items: list[Any]) -> str:
         operator_objective(vars(item)) for item in items
         if item.original_objective.strip() == contract.objective.strip()
     ), contract.objective)
-    for marker in ("\n\n【开工设置", "\n\n[Launch settings"):
-        text = text.split(marker, 1)[0]
-    return text.strip()[:600]
+    return strip_launch_note(text)[:600]
 
 
 def _storage_view(session: dict[str, Any], life_dir: Path) -> dict[str, Any] | None:
