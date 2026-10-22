@@ -237,7 +237,7 @@ def test_a_stop_kind_question_parks_for_the_manager_when_the_operator_cannot_be_
         engineer_prompt_builder=lambda _next_action, _include_static=True: "verify it",
         supervised_config=SupervisedConfig(
             max_rounds=2,
-            operator_question_policy_root=tmp_path,
+            state_root=tmp_path,
         ),
         workdir=tmp_path,
     )
@@ -275,7 +275,7 @@ def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
         engineer_prompt_builder=lambda _next, _static=True: "run it",
         supervised_config=SupervisedConfig(
             max_rounds=2,
-            operator_question_policy_root=tmp_path,
+            state_root=tmp_path,
         ),
         workdir=tmp_path,
         on_event=events.append,

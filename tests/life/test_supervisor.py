@@ -234,6 +234,32 @@ def test_crash_after_mission_claim_requeues_audit_and_reemits_started(
     assert started[0]["item_id"] == item.id
 
 
+def test_an_answered_task_starts_and_ends_under_the_operator_s_request(tmp_path) -> None:
+    """Trial, 2026-10-21: the mission view's top read the roles' English
+    decision brief once an answered task ran."""
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.backlog.add(BacklogItem.new(
+        title="pick A", objective="Authoritative Manager operator-answer decision:\nA",
+        tags=["scope:bounded"],
+        manager_decision={
+            "routed": True, "vertical": "software", "workflow_mode": "direct",
+            "display_objective": "选 A 还是 B？",
+        },
+    ))
+    sink = _RecordingSink(memory.root)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_MaintenanceRunner(), sink=sink,
+        config=LifeSupervisorConfig(project_worktree=tmp_path, artifact_root=tmp_path),
+    )
+    supervisor._vertical_resolved = True
+    supervisor.tick()
+
+    ends = (EventType.LIFE_MISSION_STARTED, EventType.LIFE_MISSION_COMPLETED)
+    assert {event["type"]: event["objective"] for event in sink.events if event["type"] in ends} == {
+        EventType.LIFE_MISSION_STARTED: "选 A 还是 B？", EventType.LIFE_MISSION_COMPLETED: "选 A 还是 B？",
+    }
+
+
 def test_serial_claim_lost_does_not_rollback_another_ready_item(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1136,9 +1162,6 @@ class _TechnicalQuestionRunner:
         outcome.final_review_next_action = (
             "Validate one smaller row, then replan the full measurement."
         )
-        outcome.final_planner_report = {
-            "plan_signal": "reconsider",
-        }
         return outcome
 
 
@@ -1212,7 +1235,7 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
     ))
     mem.backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="Which dataset should the baseline use?",
     )
     config = LifeSupervisorConfig(
@@ -1291,7 +1314,7 @@ def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path) ->
 def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     item = mem.backlog.add(BacklogItem.new(title="选数据集", objective="跑基线"))
-    mem.backlog.update(item.id, status="paused_operator", pending_question="基线用哪个数据集？")
+    mem.backlog.update(item.id, park_reason="operator_pause", pending_question="基线用哪个数据集？")
     sink = _RecordingSink(mem.root)
     LifeSupervisor(
         memory=mem,
@@ -1303,7 +1326,7 @@ def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> 
         ),
     ).run()
 
-    statuses = [event.get("text", "") for event in sink.events if event.get("type") == "life.status"]
+    statuses = [event.get("text", "") for event in sink.events if event.get("type") == "life.operator_status"]
     assert "在等你回答：基线用哪个数据集？（不需要这个答复的工作照常进行）" in statuses
 
 

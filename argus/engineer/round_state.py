@@ -41,7 +41,7 @@ class RoundLoopState:
     # Engineer turn, the candidate each Reviewer is shown the diff to, and
     # what each holder last held the work as.
     snapshots: WorkspaceSnapshots | None = None
-    # The outside inputs (``round_self_review.outside_inputs``) the current
+    # The outside inputs (``round_routing.outside_inputs``) the current
     # holder was handed the work under; recorded beside its hold.
     handed_inputs: list[object] | None = None
     # A Reviewer's verdict handed the work back to the Engineer, which has not

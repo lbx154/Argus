@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.workspace_facts import fact_text
 from ..memory import BacklogItem
@@ -165,17 +166,7 @@ class PlanningCycleCompletionMixin:
             backlog_signature=backlog_signature,
             operator_context_revision=getattr(self, "_planning_operator_context_revision", 0),
         )
-        message = (
-            f"我已经连续 {count} 次想收尾，每次都因为同一个原因被退回：{reason}\n"
-            "为了不再白花钱，我先不试了。等任务有变化或你回复后再试；"
-            "如果这个要求本身不对，直接告诉我，我换个做法。"
-            if self._operator_chinese()
-            else f"I've tried to wrap this project up {count} times in a row, "
-            f"and each time it was turned back for the same reason: {reason}\n"
-            "I'm pausing those attempts so they stop costing money. I'll try "
-            "again when the work changes or you reply here; if the requirement "
-            "itself is wrong, tell me and I'll take a different path."
-        )
+        message = say("wrap_up_paused", self._operator_chinese(), count=count, reason=reason)
         try:
             from ...core.operator_messages import publish_operator_message
 

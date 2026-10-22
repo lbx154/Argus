@@ -83,14 +83,30 @@ def stop_park_reason(value: Any) -> StopKind | None:
     return kind if kind in NON_FAILURE_STOP_KINDS and kind != "operator_abort" else None
 
 
+def interrupt_outcome(reason: Any) -> tuple[Literal["aborted", "parked"], StopKind]:
+    """How an interrupt ends a run, with its stop kind: an operator abort aborts
+    it; any other parks it under its own park, or the operator's pause."""
+    kind = stop_kind_from_external_interrupt(reason)
+    if kind == "operator_abort":
+        return "aborted", kind
+    return "parked", stop_park_reason(kind) or "operator_pause"
+
+
+def run_park_reason(value: Any) -> str:
+    """Where a stopped run waits: a non-failure stop under its own kind, a host
+    that could not start (``backend_unavailable``) on ``infra``; else ""."""
+    kind = normalize_stop_kind(value)
+    return "infra" if kind == "backend_unavailable" else stop_park_reason(kind) or ""
+
+
 def stop_kind_is_recoverable(value: Any) -> bool:
     return normalize_stop_kind(value) in RECOVERABLE_STOP_KINDS
 
 
-# What each stop kind means to a reader, as a clause that completes a sentence
-# such as "The task was paused because …". The kinds themselves stay machine
-# codes; only these clauses are shown to people.
-_STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
+# Why work stopped or waits, as a clause that completes a sentence such as
+# "The task was paused because …": every stop kind, and the parks no backend
+# stop explains. The codes stay machine codes; only these clauses are shown.
+_CLAUSES: dict[str, tuple[str, str]] = {
     "budget_exhausted": (
         "the project reached its budget limit",
         "项目达到了预算上限",
@@ -107,7 +123,10 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
         "the model provider is not accepting calls right now",
         "模型服务当前不接受调用",
     ),
-    "daemon_shutdown": ("Argus was stopped", "Argus 被停止"),
+    "daemon_shutdown": (
+        "the Argus background service stopped or restarted",
+        "Argus 后台服务停止或重启了",
+    ),
     "operator_pause": ("you paused the work", "你暂停了工作"),
     "operator_abort": ("you cancelled the task", "你取消了这项任务"),
     "backend_unavailable": ("the model service was unavailable", "模型服务不可用"),
@@ -119,15 +138,31 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
         "an error that will not clear on its own stopped the call",
         "一个不会自行消失的错误中止了调用",
     ),
+    "external_work": (
+        "work outside Argus had to finish first",
+        "需要先等 Argus 之外的工作完成",
+    ),
+    "operator_question": (
+        "a question is waiting for your answer",
+        "有个问题在等你回答",
+    ),
+    "infra": (
+        "the program that runs the work could not start",
+        "运行环境无法启动",
+    ),
 }
+_UNSAID = ("the work was interrupted", "工作被打断了")
 
 
-def stop_kind_clause(value: Any, *, chinese: bool = False) -> str:
-    """The reason a call stopped, worded for a reader; empty for unknown kinds."""
-    kind = normalize_stop_kind(value)
-    if kind is None:
-        return ""
-    english, zh = _STOP_KIND_CLAUSES[kind]
+def stop_kind_clause(value: Any, *, chinese: bool = False, neutral: bool = False) -> str:
+    """Why work stopped or waits, by its stop kind or park reason.
+
+    Empty when the record does not say why, or with ``neutral`` a clause that
+    blames no one.
+    """
+    english, zh = _CLAUSES.get(
+        str(value or "").strip().lower(), _UNSAID if neutral else ("", ""),
+    )
     return zh if chinese else english
 
 
@@ -186,18 +221,6 @@ OPERATOR_RESUMED_PARKS = frozenset(
     reason for reason, rule in _PARK_RULES.items() if rule.holder != "planner"
 )
 
-_PARK_REASON_CLAUSES: dict[str, tuple[str, str]] = {
-    "external_work": (
-        "work outside Argus had to finish first",
-        "需要先等 Argus 之外的工作完成",
-    ),
-    "operator_question": (
-        "a question is waiting for your answer",
-        "有个问题在等你回答",
-    ),
-}
-
-
 def park_reason_of(status: Any, recorded: Any = "") -> str | None:
     """Why a row or event with ``status`` is parked; ``None`` when it is not.
 
@@ -232,9 +255,6 @@ def park_clause(status: Any, recorded: Any = "", *, chinese: bool = False) -> st
     reason = park_reason_of(status, recorded)
     if reason is None:
         return ""
-    if reason in _PARK_REASON_CLAUSES:
-        english, zh = _PARK_REASON_CLAUSES[reason]
-        return zh if chinese else english
     return stop_kind_clause(reason, chinese=chinese) or (
         "工作被暂停" if chinese else "the work was paused"
     )
@@ -249,11 +269,13 @@ __all__ = [
     "STOP_KINDS",
     "ParkRule",
     "StopKind",
+    "interrupt_outcome",
     "is_pause_status",
     "normalize_stop_kind",
     "park_clause",
     "park_reason_of",
     "park_rule",
+    "run_park_reason",
     "stop_kind_clause",
     "stop_kind_from_external_interrupt",
     "stop_kind_is_recoverable",

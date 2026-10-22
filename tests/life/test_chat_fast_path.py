@@ -229,7 +229,7 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     assert state.config.vertical_state_root == state_root
     assert state.config.require_independent_review is True
     assert state.config.operator_questions_allowed is False
-    assert state.config.operator_question_policy_root == state_root
+    assert state.config.state_root == state_root
     assert not (
         workdir / "research" / "DOMAINS" / "physical_archive_restoration.json"
     ).exists()
@@ -312,8 +312,8 @@ def test_a_sandboxed_engineer_may_read_its_own_handoff_directory(tmp_path) -> No
         workflow_mode_override="direct",
     )
 
-    assert str(handoff.resolve()) in state.config.read_dirs
-    assert str(state_root.resolve()) not in state.config.read_dirs
+    assert str(handoff.resolve()) in state.config.add_dirs
+    assert str(state_root.resolve()) not in state.config.add_dirs
 
 
 # ---------- Manager SELF fast-path: runner unit tests ----------------------
@@ -735,8 +735,7 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
-    assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
-               for e in sink.events)
+    assert {"type": "loop.done", "status": "done", "rounds": 1} in sink.events
     assert "算 17*23" in backend.calls[0]["prompt"]
     assert "Answer the request yourself" in backend.calls[0]["prompt"]
     assert "Runtime maintenance must use an isolated worktree" not in backend.calls[0]["prompt"]

@@ -53,7 +53,6 @@ class _QuestionRunner:
         )
         outcome.final_review_reason = "Two requirements conflict."
         outcome.final_review_next_action = ""
-        outcome.final_planner_report = {"plan_signal": "continue"}
         return outcome
 
 
@@ -310,6 +309,17 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     assert text.startswith("Decided without asking you")
     assert "Two release rules conflict." in text
     assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
+
+
+def test_a_manager_answer_is_named_the_same_way_everywhere(tmp_path) -> None:
+    from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
+
+    record_autonomous_assumption(
+        tmp_path, item_id="x", conflict="Which rule wins?", reading="The newer one.",
+        source="manager_decision",
+    )
+    assert "the Manager decided for you: The newer one." in render_autonomous_assumptions(tmp_path)
+    assert "经理替你定了：The newer one." in render_autonomous_assumptions(tmp_path, chinese=True)
 
 
 # --- --no-operator lasts one run ---------------------------------------------

@@ -8,8 +8,8 @@
 // separately so it can live in a tooltip instead of the page.
 
 import type { Locale } from '../i18n';
-import { parkReason } from '../../../core/src/missionOutcome';
-import { humanizeHarnessNote, splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
+import { parkReason, stopClause } from '../../../core/src/missionOutcome';
+import { splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
 type Pair = readonly [zh: string, en: string];
 
@@ -95,7 +95,6 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   'event.model_call.started': ['开始调用模型', 'Model call started'],
   'event.model_call.completed': ['模型调用完成', 'Model call completed'],
   'event.model_call.failed': ['模型调用失败', 'Model call failed'],
-  'event.usage.recorded': ['已记录用量', 'Usage recorded'],
   'event.budget.reserved': ['已预留预算', 'Budget reserved'],
   'event.budget.settled': ['预算已结算', 'Budget settled'],
   'event.model_turn': ['与模型完成一次往返', 'One exchange with the model'],
@@ -121,29 +120,6 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
 
 /** @deprecated Kept for callers written against the first draft; use PLAIN_BY_KIND. */
 export const PLAIN_BY_CODE = PLAIN_BY_KIND;
-
-/**
- * Why work stopped, by the stop kind or park reason the backend records.
- * Each entry is a short clause so it fits after a label ("Task ended — …")
- * and inside a sentence ("The work stopped because …").
- */
-const STOP_KINDS: Record<string, Pair> = {
-  daemon_shutdown: ['Argus 被暂停', 'Argus was paused'],
-  operator_pause: ['你暂停了它', 'you paused it'],
-  operator_question: ['在等你回答一个问题', 'a question is waiting for you'],
-  operator_abort: ['你停止了它', 'you stopped it'],
-  budget_exhausted: ['预算用完了', 'the budget ran out'],
-  budget_pause: ['预算用完了', 'the budget ran out'],
-  provider_cooldown: ['模型服务正在限流', 'the model service is cooling down'],
-  provider_fence: ['模型服务不可用', 'the model service is unavailable'],
-  backend_unavailable: ['模型服务不可用', 'the model service is unavailable'],
-  infra: ['运行环境无法启动', 'the program that runs the work could not start'],
-  external_work: ['等待外部工作完成', 'it was waiting for external work'],
-  transient_error: ['出现了暂时性的问题', 'a temporary problem came up'],
-  permanent_error: ['遇到了无法自动恢复的错误', 'an error could not be recovered from'],
-  operator_input_required: ['需要你的回复', 'your reply is needed'],
-  planner_empty_plan: ['需要一份新的计划', 'a new plan is needed'],
-};
 
 /** Route and mission statuses as short words. */
 const STATUSES: Record<string, Pair> = {
@@ -204,7 +180,6 @@ const CAUSES: Record<string, Pair> = {
   sign_in_failed: ['模型服务的登录没有成功。', 'Signing in to the model service did not succeed.'],
   paused: ['任务被暂停了。', 'The task was paused.'],
   unknown: ['原因暂时不明。', 'The reason is not known yet.'],
-  retry_wait_cut_short: ['在等待重试时 Argus 被要求停止。', 'Argus was asked to stop while waiting to retry.'],
 };
 
 /** Research stages by id or label. */
@@ -234,7 +209,6 @@ const EVENT_TYPES: Record<string, string> = {
   'provider.request.failed': 'event.model_call.failed',
   'agent.io.start': 'event.model_call.started',
   'agent.io.complete': 'event.model_call.completed',
-  'usage.recorded': 'event.usage.recorded',
   'budget.reservation.created': 'event.budget.reserved',
   'budget.reservation.settled': 'event.budget.settled',
   'role.session.turn': 'event.model_turn',
@@ -273,24 +247,15 @@ function stopKey(kind: string | null | undefined): string {
 
 export function plainStopKind(kind: string | null | undefined, locale: Locale): string {
   const key = stopKey(kind);
-  const pair = STOP_KINDS[key];
-  return pair ? pick(pair, locale) : key;
+  return stopClause(key, locale === 'zh-CN') || key;
 }
 
 /** The stop kind as a whole sentence, for a line of its own. */
 export function plainStopSentence(kind: string | null | undefined, locale: Locale): string {
   const key = stopKey(kind);
-  const pair = STOP_KINDS[key];
-  if (!pair) return key;
-  return locale === 'zh-CN' ? `因为${pair[0]}，工作停了下来。` : `The work stopped because ${pair[1]}.`;
-}
-
-function withStopSuffix(base: string, stopKind: string | undefined, locale: Locale): string {
-  if (!stopKind) return base;
-  const reason = plainStopKind(stopKind, locale);
-  return locale === 'zh-CN'
-    ? `${base.replace(/。$/, '')}（${reason}）。`
-    : `${base.replace(/\.$/, '')} — ${reason}.`;
+  const why = stopClause(key, locale === 'zh-CN');
+  if (!why) return key;
+  return locale === 'zh-CN' ? `因为${why}，工作停了下来。` : `The work stopped because ${why}.`;
 }
 
 export function plainProgress(done: number, total: number, locale: Locale): string {
@@ -320,7 +285,6 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^(?:Planning next work|Planning started)$/i, 'planning_started'],
   [/^Planning complete$/i, 'planning_complete'],
   [/^Planner waiting$/i, 'planner_waiting'],
-  [/^Nothing new to plan until the current work moves\.?$/i, 'planner_no_new_work'],
   [/^Project reviewed$/i, 'project_finished'],
   [/^Research branch added$/i, 'research_route_added'],
   [/^Task added$/i, 'task_added'],
@@ -349,15 +313,11 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^Knowledge retired$/i, 'knowledge_retired'],
   [/^(?:request · started|io · start)$/i, 'event.model_call.started'],
   [/^(?:request · completed|io · complete)$/i, 'event.model_call.completed'],
-  [/^usage · recorded$/i, 'event.usage.recorded'],
   [/^reservation · created$/i, 'event.budget.reserved'],
   [/^reservation · settled$/i, 'event.budget.settled'],
   [/^Round (\d+) started$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.round_started, locale), { n: match[1] })],
   [/^Running round (\d+)$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.round_running, locale), { n: match[1] })],
   [/^Stage (?:·|→) (.+)$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.stage_entered, locale), { stage: plainStage(match[1], locale) })],
-  [/^Mission (ended|incomplete|stalled|blocked|failed)(?: · (\S+))?$/i, (match, locale) => withStopSuffix(
-    pick(PLAIN_BY_KIND[`mission_${match[1].toLowerCase()}`], locale), match[2], locale,
-  )],
   [/^(Manager|Planner|Engineer|Reviewer) failed$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.role_failed, locale), { role: match[1] })],
   [/^(\d+) \/ (\d+) complete$/i, (match, locale) => plainProgress(Number(match[1]), Number(match[2]), locale)],
   [/^Not planned$/i, (_match, locale) => plainProgress(0, 0, locale)],
@@ -459,13 +419,6 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
     })],
   // "review: skipped (backend failure) — " only announces the sentence that follows it.
   [/^review: \w+(?: \([^)]*\))? — /i, ['', '']],
-  [/^status=(\S+) rounds=(\d+) reason=/i, (match, locale) => {
-    const stop = STOP_KINDS[stopKey(match[1])];
-    const how = stop ? pick(stop, locale) : plainRouteStatus(match[1], locale);
-    return locale === 'zh-CN'
-      ? `任务已结束（${how}），共 ${match[2]} 轮。`
-      : `Task ended — ${how}, after ${match[2]} rounds.`;
-  }],
   [/^engineer round (\d+) \((?:fresh session|new session)\)\.?$/i,
     (match, locale) => locale === 'zh-CN' ? `第 ${match[1]} 轮，在新的会话里开始。` : `Round ${match[1]}, started in a fresh session.`],
   [/^engineer round (\d+) \([^)]*\)\.?$/i,
@@ -483,12 +436,6 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
       : `The reviewer's model service did not respond ${match[1]} times in a row, so this round was not reviewed.`],
   [/^The Reviewer's session ended before it reached a conclusion, so this round was not judged\.?/i,
     ['审阅者在得出结论前就中断了，这一轮没有被评判。', 'The reviewer stopped before reaching a conclusion, so this round was not judged.']],
-  [/^The wait after a repeated backend failure ended early: daemon stop requested\.?/i,
-    ['在等待重试时 Argus 被要求停止，任务随之暂停。', 'Argus was asked to stop while waiting to retry, so the task paused.']],
-  [/^Backend call paused before a trustworthy completed turn \(stop_kind=(\w+)\); reviewer skipped\.?/i,
-    (match, locale) => locale === 'zh-CN'
-      ? `这一轮在得出可信结果前被暂停（${plainStopKind(match[1], locale)}），所以没有人审阅。`
-      : `This round was paused before it produced a trustworthy result (${plainStopKind(match[1], locale)}), so no one reviewed it.`],
   [/^One Engineer call used its whole per-call provider-turn allowance \([^)]*\); reviewer skipped\. The work so far is kept and the task continues in a fresh session from the checkpoint\.?/i,
     ['这一轮用完了单次调用的额度；已做的工作保留，会在新的会话里接着做，本轮没有审阅。', 'This round used up its per-call allowance; the work so far is kept and continues in a fresh session. No review this round.']],
   [/^Execution host is unavailable; reviewer skipped\.?/i,
@@ -499,21 +446,10 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
     (match, locale) => locale === 'zh-CN' ? `规划完成，共 ${match[1]} 步。` : `Planning finished with ${match[1]} steps.`],
   [/^Retry in a fresh \w+ session; do not resume the failed thread\.(?:\s*If this repeats, pause the daemon and reduce concurrent \w+ load\.)?/i,
     ['接下来会在新的会话里重试这一轮。', 'The round will be retried in a fresh session.']],
-  [/^Restart the daemon to resume this mission from its checkpoint\.?/i,
-    ['重新运行 Argus 即可从保存的进度继续。', 'Run Argus again to continue from the saved progress.']],
-  [/^Resume this mission when the operator is ready\.?/i,
-    ['准备好后即可恢复这项任务。', 'Resume the task whenever you are ready.']],
-  [/^Resume from the persisted checkpoint after the blocking budget or provider condition has been cleared\.?/i,
-    ['预算或模型服务恢复后，即可从保存的进度继续。', 'Once the budget or model service is back, the task continues from the saved progress.']],
   [/^inspecting project state$/i, ['正在查看项目状态', 'Looking at the project state']],
   [/^running project command$/i, ['正在运行项目命令', 'Running a project command']],
   [/^using a tool$/i, ['正在使用工具', 'Using a tool']],
 ];
-
-const DAEMON_STOP_SENTENCES = new Set([
-  "The Argus background service stopped or restarted in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
-  "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.",
-]);
 
 /** Text that reads as a counter, a receipt or an exit code rather than a sentence. */
 const TECHNICAL_TAIL = /^(?:[\w.]+_(?:streak|code|error|kind)=|error=|exit=|fatal_error=|Runner receipt:|stop_kind=|backend_)/i;
@@ -651,18 +587,12 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
     }
     const reason = part.match(/^(?:Reason:|原因：)\s*(.*)$/);
     if (reason) {
+      // The runtime's receipt goes aside; the reason is said as recorded.
       const record = splitHarnessRecord(reason[1]);
-      // Only the exact sentences daemon_stop_review_decision writes (today's
-      // and an older one); interruption mentioned in research prose is not one.
-      if (DAEMON_STOP_SENTENCES.has(record.prose)) {
-        const note = humanizeHarnessNote(reason[1], zh);
-        if (record.receipt) technical.push(record.receipt);
-        return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`
-          : `At that time, ${note.summary.charAt(0).toLowerCase()}${note.summary.slice(1)}. Work done so far was kept, and no retry was made then.`;
-      }
-      const detail = plainDetail(reason[1], locale);
-      if (detail.text !== reason[1].trim() || detail.technical) {
-        if (detail.technical) technical.push(detail.technical);
+      const detail = plainDetail(record.prose, locale);
+      const receipt = [record.receipt, detail.technical].filter(Boolean).join(' ');
+      if (detail.text !== reason[1].trim() || receipt) {
+        if (receipt) technical.push(receipt);
         return `${zh ? '当时记录的原因：' : 'Reason recorded at the time: '}${detail.text}`;
       }
     }

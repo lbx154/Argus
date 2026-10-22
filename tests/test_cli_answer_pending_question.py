@@ -34,7 +34,7 @@ def _paused(backlog, item_id: str, question: str) -> None:
             objective="work",
         )
     )
-    backlog.update(item_id, status="paused_operator", pending_question=question)
+    backlog.update(item_id, park_reason="operator_pause", pending_question=question)
 
 
 def _args(_tmp_path, **over):

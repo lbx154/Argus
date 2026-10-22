@@ -51,7 +51,7 @@ def test_a_manager_stop_parks_the_run_it_was_decided_on(tmp_path):
     record = supervision.supervise(manager, tmp_path, stall)
 
     assert record["status"] == "applied" and record["effects"]["effect"] == "mission parked"
-    config = SupervisedConfig(operator_question_policy_root=tmp_path, session_id="grouped")
+    config = SupervisedConfig(state_root=tmp_path, session_id="grouped")
     status, rounds, message, reason, thread = manager_wait_terminal(config, RoundLoopState())
     assert (status, reason) == ("manager_stop", f"Manager decision: {REASON}")
     settler = MissionSettlementMixin()

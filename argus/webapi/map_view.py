@@ -8,9 +8,11 @@ from pathlib import Path
 
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
+from ..core.mission_view import operator_objective
 from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
+from ..core.stop_kinds import NON_FAILURE_STOP_KINDS
 from ..life.memory import LifeMemory, _jsonl_history_paths, park_reason
 from .map_outcomes import project_map_outcomes, public_outcome
 
@@ -304,15 +306,18 @@ def normalize_events(
             elif kind.startswith(SEGMENT_CLOSERS):
                 _close_segment(segments, owner, said)
         if collected:
+            # A task the Reviewer accepted closes in the Reviewer's words. A
+            # handoff or self-check the Engineer wrote closes a round as a
+            # review would, but no Reviewer took part: it is the Engineer's.
+            accepted = (kind == "life.mission.completed" and row.get("success") is True
+                        and row.get("review_source") == "reviewer")
             e = {
                 "id": event_id(row),
                 "item_id": owner,
                 "type": kind,
                 "ts": row.get("ts", 0),
                 "association": association,
-                # A handoff or self-check the Engineer wrote closes a round as
-                # a review would, but no Reviewer took part: it is the Engineer's.
-                "role": str(
+                "role": "reviewer" if accepted else str(
                     row.get("agent_layer")
                     or row.get("role")
                     or row.get("decided_by")
@@ -335,6 +340,9 @@ def normalize_events(
                 e["review_source"] = text(row["review_source"], 120)
             if row.get("park_reason"):
                 e["park_reason"] = text(row["park_reason"], 80)
+            if row.get("stop_kind") in NON_FAILURE_STOP_KINDS:
+                # Stopped, not failed: by whom or what, as the record names it.
+                e["stop_kind"] = row["stop_kind"]
             if isinstance(row.get("outcome"), dict):
                 e["outcome"] = public_outcome(row["outcome"])
             outcome = row.get("outcome")
@@ -600,20 +608,12 @@ def read_map(
 ) -> dict:
     memory = LifeMemory.open(life_dir)
     tasks = []
-    # An answered question's work goes on in a new task: the answer is what
-    # that task is built on, drawn as its dependency.
-    continues = {}
     for item in memory.backlog.history():
         raw = item.to_jsonable()
-        decision = raw.get("operator_decision") or {}
-        if continuation := decision.get("continuation_item_id"):
-            continues[continuation] = item.id
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         if reason := park_reason(item):
             task["park_reason"] = reason
-        display_objective = (raw.get("manager_decision") or {}).get("display_objective")
-        if isinstance(display_objective, str) and display_objective.strip():
-            task["objective"] = display_objective
+        task["objective"] = operator_objective(raw)
         for k, v in list(task.items()):
             if k == "outcome":
                 task[k] = public_outcome(v)
@@ -623,15 +623,7 @@ def read_map(
                 # owns_paths (and deps) are operator-visible strings too.
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
-        if continuation:
-            # Answered: where it ended is the answer, and its work goes on there.
-            task["continued_by"] = continuation
-            task["summary"] = text(decision.get("manager_decision") or decision.get("note")) or task["summary"]
-        task["role"] = "engineer"
         tasks.append(task)
-    for task in tasks:
-        if task["id"] in continues:
-            task["deps"] = [*task.get("deps", []), continues[task["id"]]]
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
     path = life_dir / "events.jsonl"
@@ -725,14 +717,11 @@ def read_map(
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
     visible_events = events[-2000:]
-    # A task is the work of the role whose record it holds first: an Engineer's
-    # mission, or a question the Planner put to the operator.
-    roles: dict[str, str] = {}
-    for event in visible_events:
-        if event["association"] == "explicit":
-            roles.setdefault(event["item_id"], event["role"])
+    # A task is in the hands of the role that wrote its latest record.
+    roles = {event["item_id"]: event["role"] for event in visible_events if event["association"] == "explicit"}
     for task in tasks:
-        task["role"] = roles.get(task["id"], task["role"])
+        if task["id"] in roles:
+            task["role"] = roles[task["id"]]
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if

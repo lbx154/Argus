@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import CancelledError
+from functools import partial
 from inspect import signature
 from pathlib import Path
 from typing import Any, Callable
@@ -44,6 +45,7 @@ _GUARD = threading.Lock()
 _CLOSED = False
 _STOPPED_ROOTS: set[str] = set()
 MAX_PENDING_PROJECTS = 64
+_CHANGED_PATHS_SHOWN = 20
 
 
 class SupervisionBusy(RuntimeError):
@@ -557,10 +559,9 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     A task still settling is delivered to at the next boundary; the question
     the card already holds is not asked twice.
     """
-    from ..core.operator_decision import build_operator_decision
     from ..life.event_log import JsonlEventSink
     from ..life.memory import Backlog
-    from ..life.supervisor.pending_notify import notify_pending_question
+    from ..life.supervisor.pending_notify import ask_operator
 
     item_id = str(record.get("trigger", {}).get("item_id") or "")
     backlog = Backlog(root / "backlog.jsonl")
@@ -570,18 +571,10 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     if task.status == "running":
         raise SupervisionBusy("the task the question is about is still settling")
     if task.pending_question != question:
-        card = build_operator_decision(
-            item_id=task.id, title=task.title, reason=record["decision"]["reason"],
-            question=question, project_id=root.name, previous_decision=task.operator_decision,
+        ask_operator(
+            root, task, question, reason=record["decision"]["reason"], layer="manager",
+            save=partial(backlog.update, task.id), emit=JsonlEventSink(None, life_dir=root).append,
         )
-        task = backlog.update(
-            task.id, park_reason="operator_question", pending_question=question, operator_decision=card,
-        ) or task
-        notify_pending_question(root, task)
-        JsonlEventSink(None, life_dir=root).append({
-            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": task.id,
-            "title": task.title, "question": question, "agent_layer": "manager",
-        })
     return task.id
 
 
@@ -1009,7 +1002,7 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """
     changed = event.get("changed_during_review")
     if changed:
-        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
+        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:_CHANGED_PATHS_SHOWN]))}); "
                 "its verdict stands as written: decide whether this review counts")
     handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (
@@ -1041,7 +1034,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
             "and restarts the Engineer with your directive"
         )
     elif event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager":
-        reason = f"the Observer, who watches how the team works, says: {event.get('text')}"
+        said = event.get("evidence") or event.get("text")
+        reason = f"the Observer, who watches how the team works, says: {said}"
         event = {**event, "stall_reason": "observer"}
     if reason == "":
         # Nothing is put to the Manager; a boundary only delivers its issued decision.

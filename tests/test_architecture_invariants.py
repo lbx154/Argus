@@ -1093,7 +1093,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "life/supervisor/_planning_cycle_verdict.py -> daemon",
     "manager/_session_ops.py -> daemon",
     "manager/directive.py -> daemon",
-    "manager/dispatch.py -> apps",
     "manager/dispatch.py -> daemon",
     "manager/front_door.py -> apps",
     "manager/front_door.py -> daemon",
@@ -1159,7 +1158,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
     "maintenance -> argus.agent_cli._process_control",
-    "manager -> argus.apps._inbox",
     "manager -> argus.apps._life_actions",
     "manager -> argus.apps._runtime",
     "manager -> argus.apps.cli._follow",
@@ -1888,7 +1886,7 @@ def test_retired_names_do_not_spread() -> None:
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
-MEMORY_ROOT_READS = 68
+MEMORY_ROOT_READS = 65
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

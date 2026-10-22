@@ -4,15 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 from ..core.file_facts import file_facts
 from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.models import RunnerOptions
+from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..skills.layered import shared_skill_scope_dir
+from ..skills.layered import shared_skill_scope_dir, skill_code_files
 from ..skills.vertical_select import resolve_skill_scope
 from ..wiki.promote import declared_vertical
 from .source_writeback import atomic_write
@@ -124,18 +124,6 @@ def _role_skill_paths(root: Path, roles: Iterable[str] = _TEAM_ROLES) -> list[Pa
     return paths
 
 
-def _skill_code(path: Path) -> list[str]:
-    """The files a ``SKILL.md`` carries beside it."""
-    if path.name != "SKILL.md":
-        return []
-    found = (item.relative_to(path.parent) for item in islice(path.parent.rglob("*"), 64))
-    return sorted(
-        item.as_posix() for item in found
-        if (path.parent / item).is_file() and item != Path(path.name)
-        and not any(part.startswith(".") for part in item.parts)
-    )[:_MAX_CANDIDATE_FILES]
-
-
 def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     snapshot: dict[Path, tuple[int, int]] = {}
     for path in paths:
@@ -162,7 +150,7 @@ def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[s
             path.relative_to(project_skills).as_posix(): path
             for path in _role_skill_paths(project_skills, (role for role in _TEAM_ROLES if role != "engineer"))
         }
-    native = workspace / ".agents" / "skills"
+    native = workspace / NATIVE_SKILLS_DIR
     for path in sorted(native.glob("*/SKILL.md")):
         if path.is_file() and not path.parent.name.startswith((".", "_")):
             files.setdefault(f"engineer/{path.parent.name}/SKILL.md", path.resolve())
@@ -261,7 +249,7 @@ def _candidate_evidence(
         if not excerpt:
             continue
         presented.add(key)
-        code = _skill_code(path)
+        code = skill_code_files(path)
         rendered.append(
             f"- {key}\n"
             + (f"  code beside it in `{path.parent}`: {', '.join(code)}\n" if code else "")
@@ -282,7 +270,6 @@ def _team_learning_prompt(
     shared_root: Path,
     scope: str,
     mission_objective: str,
-    mission_success: bool,
     mission_result: str,
 ) -> tuple[str, frozenset[str]]:
     candidates, presented = _candidate_evidence(
@@ -294,7 +281,7 @@ def _team_learning_prompt(
         "has ended and its canonical verdict is complete. Do not continue the "
         "mission, answer the operator, run builds or tests, or edit the project and "
         "session state.\n\n"
-        f"Mission verdict: {'success' if mission_success else 'failure'}\n"
+        "Mission verdict: success\n"
         f"Mission result: {mission_result[:2000] or '(not supplied)'}\n\n"
         "Decide whether the mission demonstrated a durable role procedure "
         "that would materially improve later sessions. A successful mission with a "
@@ -315,9 +302,7 @@ def _team_learning_prompt(
         "observable benefit and a checked different-input or boundary case, not just "
         "a successful answer. Do not reject it merely "
         "because it came from one session, and do not require novelty beyond improving "
-        "future execution. For a failure, write "
-        "only when the root cause is concretely verified or recent session evidence shows "
-        "the same mechanism/assumption failing repeatedly. Capture a reusable detection, "
+        "future execution. Capture a reusable detection, "
         "research, stopping, or recovery procedure—not the task-specific outcome. A "
         "single transient, ambiguous, interrupted, or unresolved failure produces no "
         "Skill edit. Reviewer self-evolution belongs in `reviewer/`: use repeated "
@@ -368,23 +353,6 @@ def _team_learning_prompt(
     return prompt, presented
 
 
-def propagate_runtime_skills_to_shared(
-    runtime_store: Any,
-    *,
-    shared_root: Path,
-    ledger_path: Path,
-    classify_batch: Callable[[list[dict[str, str]]], Any],
-    on_event: Any = None,
-) -> dict[str, int]:
-    """Compatibility entry point retained for older callers.
-
-    Promotion now needs full mission evidence and is performed by
-    :func:`propagate_after_mission`.
-    """
-    _ = (runtime_store, shared_root, ledger_path, classify_batch, on_event)
-    return dict(_ZERO_SHARED)
-
-
 def propagate_after_mission(
     project_root: Path | str,
     runner: Any,
@@ -411,7 +379,6 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
             "reason": "mission failed",
         })
         return counts
@@ -476,7 +443,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no project skill delta",
         })
         return counts
@@ -484,7 +450,6 @@ def _review_into_vertical(
         counts["stayed"] = len(pending_paths)
         _emit(on_event, {
             "type": "team.learning.review.skipped", "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no resolved vertical; candidates stay in project, not global",
         })
         return counts
@@ -495,14 +460,12 @@ def _review_into_vertical(
         shared_root=shared,
         scope=scope,
         mission_objective=mission_objective,
-        mission_success=True,
         mission_result=mission_result,
     )
     if not presented_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": True,
             "reason": "no readable project skill delta",
         })
         return counts
@@ -511,7 +474,6 @@ def _review_into_vertical(
         "type": "team.learning.review.started",
         "agent_layer": "manager",
         "mission_objective": mission_objective[:500],
-        "mission_success": True,
         "scope": "vertical", "vertical": scope,
     })
 
@@ -521,7 +483,7 @@ def _review_into_vertical(
         if (shared / role).is_dir()
     ]
     # Only the code of a presented candidate is read outside the vertical root.
-    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if _skill_code(files[key])]
+    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if skill_code_files(files[key])]
     try:
         result = gateway_run_exec(
             backend,
@@ -542,7 +504,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": True,
             "error": f"{type(exc).__name__}: {exc}",
         })
         return counts
@@ -555,7 +516,6 @@ def _review_into_vertical(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": True,
             "error": str(getattr(result, "fatal_error", "") or ""),
         })
         return counts
@@ -587,7 +547,6 @@ def _review_into_vertical(
     _emit(on_event, {
         "type": "team.learning.review.completed",
         "agent_layer": "manager",
-        "mission_success": True,
         "created": len(created),
         "updated": len(updated),
         "quarantined": len(quarantined),
@@ -653,5 +612,4 @@ def _quarantine_uncertified(
 __all__ = [
     "names_the_verifier",
     "propagate_after_mission",
-    "propagate_runtime_skills_to_shared",
 ]

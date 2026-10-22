@@ -414,7 +414,7 @@ class CommandBuilderMixin:
         if mode is None:
             # Gate OFF: byte-for-byte legacy behaviour for EVERY role.
             return options
-        merged = list(dict.fromkeys([*(options.add_dirs or []), *writable_roots()]))
+        merged = [*(options.add_dirs or []), *writable_roots()]
         # Fail closed: a sandboxed role with no -C would root its writable
         # workspace at the inherited cwd (the daemon's "/"). Pin a contained dir.
         working_dir = options.working_dir or fail_closed_workdir()

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.mission_view import say, sentences, uses_cjk
 from .manager_dispatch_receipt import record_task_dispatch_ack as record_task_dispatch_ack
 
 
@@ -211,31 +212,6 @@ def _decision_stale(reason: str) -> dict[str, Any]:
     }
 
 
-_CAMPAIGN_STAYS_STOPPED = "Everything else stays stopped until you resume it."
-_CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，其余工作先停着。"
-_STOPPED_REPLY = ("已停下，做到的部分都保留着。", "Stopped. The work done so far is kept.")
-
-
-def _zh(*texts: Any) -> bool:
-    from ..core.operator_messages import uses_cjk
-
-    return any(uses_cjk(str(text or "")) for text in texts)
-
-
-def _dropped_reply(chinese: bool, stopped: bool) -> str:
-    if chinese:
-        return f"已放下这项任务。{_CAMPAIGN_STAYS_STOPPED_ZH}" if stopped else "已放下这项任务，其余工作照常。"
-    return (
-        f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}" if stopped
-        else "Dropped this task; the rest of the work carries on."
-    )
-
-
-def _delivered(answer: str) -> str:
-    """The reply to an answer, in the operator's language."""
-    return "收到，按你定的继续做。" if _zh(answer) else "Got it, carrying on with your choice."
-
-
 def campaign_stop_reason(project_root: Path | str) -> str:
     """Why a disarmed campaign stopped, or "" while nothing holds it.
 
@@ -258,14 +234,12 @@ def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
     """
     if not campaign_stop_reason(mem.project_root):
         return False
-    from ..core.operator_messages import uses_cjk
-
     result["resume_requested"] = False
     reply = str(result.get("reply") or "").strip()
     chinese = uses_cjk(reply)
-    stays = _CAMPAIGN_STAYS_STOPPED_ZH if chinese else _CAMPAIGN_STAYS_STOPPED
+    stays = say("campaign_stays_stopped", chinese)
     if stays not in reply:
-        result["reply"] = f"{reply}{'' if chinese else ' '}{stays}".strip()
+        result["reply"] = sentences(chinese, reply, stays)
     return True
 
 
@@ -305,11 +279,7 @@ def _record_decision_turns(
         if decided_by == "operator"
         else ((
             "argus",
-            (
-                f"这个问题你暂时没空回答，我先替你选了：{choice}"
-                if _zh(choice, reply)
-                else f"You weren't available, so I chose for you: {choice}"
-            ) + f"\n\n{reply}",
+            say("answered_for_operator", uses_cjk(choice, reply), choice=choice) + f"\n\n{reply}",
         ),)
     )
     for role, text in turns:
@@ -336,8 +306,9 @@ def _drop_decision_item(
     # ended waiting for this answer included) continues; a recorded pause,
     # stop, completion or Planner hold stands, as after any answer.
     stopped_for = campaign_stop_reason(mem.project_root)
-    reply = _dropped_reply(
-        _zh(operator_text, item.pending_question, item.title), bool(stopped_for),
+    reply = say(
+        "answer_dropped_while_stopped" if stopped_for else "answer_dropped",
+        uses_cjk(operator_text, item.pending_question, item.title),
     )
     dropped = mem.backlog.stop_for_operator_decision(
         item.id,
@@ -355,7 +326,7 @@ def _drop_decision_item(
             (row for row in mem.backlog.history() if row.id == item.id), item,
         )
         replay = _resolved_decision_replay(
-            mem, current, decision_id=decision_id, option_id="drop", note=note,
+            current, decision_id=decision_id, option_id="drop", note=note,
         )
         return replay or _decision_stale("decision changed while applying")
     card = dropped.operator_decision
@@ -371,7 +342,6 @@ def _drop_decision_item(
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
-        "continuation_item_id": "",
         "question": str(item.pending_question or ""),
         "manager_decision": "drop task",
         "decision_id": decision_id,
@@ -399,7 +369,6 @@ def _drop_decision_item(
 
 
 def _resolved_decision_replay(
-    mem: Any,
     item: Any,
     *,
     decision_id: str,
@@ -433,7 +402,7 @@ def _resolved_decision_replay(
             "application_status": "already_applied",
             "resolution_id": str(card.get("resolution_id") or ""),
             "resume_requested": False,
-            "reply": str(card.get("reply") or _dropped_reply(_zh(card.get("question")), False)),
+            "reply": str(card.get("reply") or say("answer_dropped", uses_cjk(card.get("question")))),
         }
     if card.get("decision_kind") == "framework_deployment":
         return {
@@ -447,16 +416,6 @@ def _resolved_decision_replay(
             "deployment": dict(card.get("deployment") or {}),
             "maintenance_cleanup": dict(card.get("maintenance_cleanup") or {}),
         }
-    continuation_id = str(card.get("continuation_item_id") or "").strip()
-    continuation = next(
-        (row for row in mem.backlog.history() if row.id == continuation_id),
-        None,
-    ) if continuation_id else None
-    if option_id != "stop" and continuation is None:
-        return {
-            "error": "resolved decision is missing its continuation item",
-            "application_status": "stale",
-        }
     result: dict[str, Any] = {
         "answered_item_id": item.id,
         "decision_id": decision_id,
@@ -464,19 +423,16 @@ def _resolved_decision_replay(
         "application_status": "already_applied",
         "resolution_id": str(card.get("resolution_id") or ""),
         "resume_requested": bool(card.get("resume_requested", option_id != "stop")),
-        "reply": str(card.get("reply") or "").strip()
-        or (
-            _STOPPED_REPLY[0 if _zh(card.get("question")) else 1]
-            if option_id == "stop"
-            else "这个决定之前已经收到了。" if _zh(card.get("question"))
-            else "I already have this decision."
+        "reply": str(card.get("reply") or "").strip() or say(
+            "answer_stopped" if option_id == "stop" else "answer_already_taken",
+            uses_cjk(card.get("question")),
         ),
     }
     if option_id == "stop":
         result["stopped"] = True
     else:
         result["manager_decision"] = str(card.get("manager_decision") or "")
-        result["item"] = continuation.to_jsonable()
+        result["item"] = item.to_jsonable()
     return result
 
 
@@ -577,7 +533,7 @@ def _apply_framework_deployment_decision(
     card.update({
         "status": "resolved", "selected_option": option_id, "note": note.strip(),
         "resolved_from_revision": revision, "revision": revision + 1,
-        "continuation_item_id": "", "resume_requested": False,
+        "resume_requested": False,
         "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
         "reply": reply, "deployment": deployment, "decided_by": decided_by,
     })
@@ -599,7 +555,7 @@ def _apply_framework_deployment_decision(
     mem.backlog.update(item.id, operator_decision=card)
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
         "type": "life.operator_question.answered", "item_id": item.id,
-        "continuation_item_id": "", "question": str(item.pending_question or ""),
+        "question": str(item.pending_question or ""),
         "manager_decision": option_id, "decision_id": decision_id,
         "decision_revision": revision, "deployment": deployment, "maintenance_cleanup": cleanup,
         "decided_by": decided_by,
@@ -659,7 +615,7 @@ def _apply_operator_answer(
     from ..life.event_log import JsonlEventSink
 
     question = str(item.pending_question or "").strip()
-    manager_reply = manager_reply or _delivered(answer)
+    manager_reply = manager_reply or say("answer_taken", uses_cjk(answer))
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
@@ -676,7 +632,6 @@ def _apply_operator_answer(
     if not answered:
         if decision_id:
             replay = _resolved_decision_replay(
-                mem,
                 resumed,
                 decision_id=decision_id,
                 option_id=decision_option,
@@ -700,7 +655,6 @@ def _apply_operator_answer(
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
-        "continuation_item_id": resumed.id,
         "question": question,
         "manager_decision": manager_decision,
         "decision_id": decision_id,
@@ -910,7 +864,6 @@ def manager_answer_pending_question(
         if not str(item.pending_question or "").strip():
             if decision_id:
                 replay = _resolved_decision_replay(
-                    mem,
                     item,
                     decision_id=decision_id,
                     option_id=decision_option,
@@ -979,12 +932,7 @@ def manager_answer_pending_question(
                 result["projection_error"] = projection_error
         # A failed answer keeps its diagnostic in ``error``; the operator
         # reads what happened to their answer.
-        reply = str(result.get("reply") or "").strip() or (
-            "这个回答没能用上：问题可能已经答过，或者已经不在了。"
-            if _zh(text)
-            else "That answer couldn't be applied: the question may already be "
-            "answered or gone."
-        )
+        reply = str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(text))
         append_turn(
             mem.project_root,
             "argus",
@@ -1045,7 +993,6 @@ def manager_resolve_operator_decision(
             return None
 
         replay = _resolved_decision_replay(
-            mem,
             item,
             decision_id=decision_id,
             option_id=option_id,
@@ -1096,7 +1043,7 @@ def manager_resolve_operator_decision(
                 item.id,
                 note=note,
                 decision_id=decision_id,
-                reply=_STOPPED_REPLY[0 if _zh(operator_text, card.get("question")) else 1],
+                reply=say("answer_stopped", uses_cjk(operator_text, card.get("question"))),
                 decided_by=decided_by,
             )
             if stopped is None:
@@ -1105,7 +1052,6 @@ def manager_resolve_operator_decision(
                     item,
                 )
                 replay = _resolved_decision_replay(
-                    mem,
                     current,
                     decision_id=decision_id,
                     option_id=option_id,
@@ -1140,7 +1086,6 @@ def manager_resolve_operator_decision(
             JsonlEventSink(None, life_dir=mem.project_root).append({
                 "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
                 "item_id": item.id,
-                "continuation_item_id": item.id,
                 "question": str(item.pending_question or ""),
                 "manager_decision": "stop campaign",
                 "decision_id": decision_id,

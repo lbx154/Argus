@@ -304,7 +304,7 @@ def test_idle_bounded_instruction_settles_only_when_planner_declares_it(
 
 def test_legacy_idle_subagent_report_no_longer_rides_along(tmp_path: Path) -> None:
     # Reports are ephemeral host input since 2026-09-30; an idle one persisted
-    # by older code is hidden from every role. A report bound to a running
+    # by older code is revoked once, for every role. A report bound to a running
     # mission, an ordinary idle instruction, and a report the operator pasted
     # (with an instruction after it) once reports were ephemeral are unaffected.
     store = OperatorContextStore(tmp_path)
@@ -333,6 +333,7 @@ def test_legacy_idle_subagent_report_no_longer_rides_along(tmp_path: Path) -> No
         for record in store.project("engineer", mission_id="mission-a").directives
     ] == [bound.revision]
     assert legacy.revision not in _visible(tmp_path)
+    assert legacy.revision in OperatorContextStore(tmp_path)._load().state["revoked"]
 
 
 def test_settlement_ignores_instructions_that_are_not_idle_planner_input(

@@ -114,6 +114,10 @@ def test_unchanged_inputs_skip_the_model_call(tmp_path: Path, monkeypatch) -> No
     assert skipped, "the skipped cycle must still be visible in the event log"
     assert "without another model call" in str(skipped[-1].get("reason") or "")
 
+    # Waiting is said once, not on every pass that finds nothing new.
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert [event for event in _events(life) if event.get("model_call_skipped") is True] == skipped
+
 
 def test_new_backlog_evidence_calls_the_planner_again(
     tmp_path: Path, monkeypatch
@@ -464,7 +468,7 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
             title="Choose the dataset", objective="Train on the dataset the operator picks.",
         ))
         supervisor.memory.backlog.update(
-            item.id, status="paused_operator", pending_question="Which dataset should I use?",
+            item.id, park_reason="operator_pause", pending_question="Which dataset should I use?",
         )
 
     start = time.time()

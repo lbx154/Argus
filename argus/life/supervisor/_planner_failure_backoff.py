@@ -40,7 +40,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
+from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.event_catalog import EventType
 from ...core.file_facts import file_facts
 from ...core.workspace_facts import fact_text
@@ -547,27 +547,11 @@ class PlannerFailureBackoffMixin:
             told = self._planner_stop_notices = set()
         if notice not in told:
             told.add(notice)
-            if record.get("kind") == FAILURE_KIND_INTERNAL:
-                english = (
-                    "Planning kept hitting an internal error in Argus for three hours, "
-                    "so I stopped retrying. Send me a message to try again, and please "
-                    "report it along with the run log."
-                )
-                chinese = (
-                    "规划时 Argus 自己连着出错三个小时，我先不再自动重试。"
-                    "给我发条消息就会再试；也请把运行日志一起反馈给我们。"
-                )
-            else:
-                english = (
-                    "The Planner's model service kept failing for three hours, so I "
-                    "stopped retrying. Send me a message, or switch the Planner's model "
-                    "in Settings, to try again."
-                )
-                chinese = (
-                    "规划者用的模型服务连着三个小时都失败，我先不再自动重试。"
-                    "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。"
-                )
-            self._tell_operator(notice, english, chinese)
+            self._tell_operator(notice, (
+                "planner_retries_stopped_internal"
+                if record.get("kind") == FAILURE_KIND_INTERNAL
+                else "planner_retries_stopped_service"
+            ), hours=AUTOMATIC_RETRY_WINDOW_HOURS)
         return PLAN_AWAITING
 
 

@@ -259,23 +259,6 @@ export interface AgentIoErrorEvent extends EventMsg {
   "error": string;
 }
 
-export interface UsageRecordedEvent extends EventMsg {
-  type: "usage.recorded";
-  payload_schema_version?: 2;
-  "call_id": string;
-  "schema_version": 2;
-  "project_id"?: string;
-  "mission_id"?: string | null;
-  "thread_id"?: string | null;
-  "provider": string;
-  "model"?: string;
-  "run_label"?: string;
-  "status": "completed" | "error" | "denied";
-  "duration_ms"?: number;
-  "usage": Record<string, unknown>;
-  "pricing": Record<string, unknown>;
-}
-
 export interface ProviderRequestStartedEvent extends EventMsg {
   type: "provider.request.started";
   payload_schema_version?: 1;
@@ -462,7 +445,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "operator_question"?: string;
   "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
   "review_source"?: string;
-  "plan_signal"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
   "review_skipped"?: boolean;
@@ -746,7 +728,6 @@ export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
   type: "life.operator_question.answered";
   payload_schema_version?: 1;
   "item_id": string;
-  "continuation_item_id": string;
   "question": string;
   "manager_decision": string;
   "decision_id"?: string;
@@ -778,6 +759,7 @@ export interface RoleSessionTurnEvent extends EventMsg {
   "persistence_warning"?: string;
   "signal_kind"?: "repeated_contradiction" | "reviewer_confusion" | "quality_degradation";
   "signal_detail"?: string;
+  "ends_work"?: boolean;
 }
 
 export interface EngineerProgressEvent extends EventMsg {
@@ -1143,7 +1125,8 @@ export interface LoopStartEvent extends EventMsg {
 export interface LoopDoneEvent extends EventMsg {
   type: "loop.done";
   payload_schema_version?: 1;
-  "text"?: string;
+  "status"?: string;
+  "rounds"?: number;
   "success"?: boolean;
   "stop_reason"?: string;
 }
@@ -1177,7 +1160,13 @@ export interface LifeStatusEvent extends EventMsg {
   type: "life.status";
   payload_schema_version?: 1;
   "text"?: string;
+}
+
+export interface LifeOperatorStatusEvent extends EventMsg {
+  type: "life.operator_status";
+  payload_schema_version?: 1;
   "kind"?: string;
+  "text"?: string;
 }
 
 export interface LifePhaseStartedEvent extends EventMsg {
@@ -1823,14 +1812,12 @@ export interface TeamLearningReviewStartedEvent extends EventMsg {
   "vertical"?: string;
   "agent_layer"?: string;
   "mission_objective"?: string;
-  "mission_success": boolean;
 }
 
 export interface TeamLearningReviewSkippedEvent extends EventMsg {
   type: "team.learning.review.skipped";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success": boolean;
   "reason": string;
 }
 
@@ -1840,7 +1827,6 @@ export interface TeamLearningReviewCompletedEvent extends EventMsg {
   "scope"?: "vertical";
   "vertical"?: string;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "created": number;
   "updated": number;
   "quarantined": number;
@@ -1851,7 +1837,6 @@ export interface TeamLearningReviewFailedEvent extends EventMsg {
   type: "team.learning.review.failed";
   payload_schema_version?: 1;
   "agent_layer"?: string;
-  "mission_success"?: boolean;
   "error": string;
 }
 
@@ -1960,7 +1945,6 @@ export interface EventPayloadByType {
   "agent.io.stream": AgentIoStreamEvent;
   "agent.io.complete": AgentIoCompleteEvent;
   "agent.io.error": AgentIoErrorEvent;
-  "usage.recorded": UsageRecordedEvent;
   "provider.request.started": ProviderRequestStartedEvent;
   "provider.request.completed": ProviderRequestCompletedEvent;
   "provider.request.denied": ProviderRequestDeniedEvent;
@@ -2035,6 +2019,7 @@ export interface EventPayloadByType {
   "round.reviewer_backend_failure": RoundReviewerBackendFailureEvent;
   "engineer.skill_maintenance.completed": EngineerSkillMaintenanceCompletedEvent;
   "life.status": LifeStatusEvent;
+  "life.operator_status": LifeOperatorStatusEvent;
   "life.phase.started": LifePhaseStartedEvent;
   "life.mission.failed": LifeMissionFailedEvent;
   "life.mission.skipped": LifeMissionSkippedEvent;

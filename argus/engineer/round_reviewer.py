@@ -20,12 +20,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ..core.command_record import backend_records_command_results
 from ..core.event_catalog import EventType
-from ..core.models import LoopStatus, ReviewDecision, RoundRecord
-from ..core.operator_messages import uses_cjk
+from ..core.mission_view import uses_cjk
+from ..core.models import ReviewDecision, RoundRecord
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
+    interrupt_outcome,
     normalize_stop_kind,
     stop_kind_from_external_interrupt,
     stop_park_reason,
@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 def mission_state_root(supervised_config: Any) -> Path | None:
     """The project state directory the mission belongs to, if it has one."""
-    root = getattr(supervised_config, "operator_question_policy_root", None)
+    root = getattr(supervised_config, "state_root", None)
     if root:
         return Path(root)
     packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
@@ -71,6 +71,18 @@ def mission_state_root(supervised_config: Any) -> Path | None:
         if len(parents) >= 3:
             return parents[2]
     return None
+
+
+def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
+    from ..core.autonomy import operator_questions_can_be_asked
+
+    root = getattr(supervised_config, "state_root", None)
+    if root is not None:
+        return operator_questions_can_be_asked(root)
+    return (
+        bool(getattr(supervised_config, "operator_questions_allowed", True))
+        and operator_questions_can_be_asked()
+    )
 
 
 def _mission_packet(supervised_config: Any) -> dict[str, Any]:
@@ -178,10 +190,10 @@ def _active_manager_directive_for_reviewer(
 ) -> list[str]:
     """Load the Reviewer-trimmed projection from the one operator store."""
     candidates: list[Path] = []
-    if supervised_config.operator_question_policy_root is not None:
+    if supervised_config.state_root is not None:
         # An explicit source owns even an empty/revoked projection. The log
         # and packet paths only locate context for older callers without it.
-        candidates.append(Path(supervised_config.operator_question_policy_root))
+        candidates.append(Path(supervised_config.state_root))
     else:
         if supervised_config.engineer_log_path:
             candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
@@ -248,31 +260,11 @@ def backlog_history(root: Path | None) -> list[Any] | None:
 
 
 def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, Any]]:
-    """Resolved operator decision cards on this item and the items it continues.
-
-    An answer resolves the card on the task it parked, which resumes; an older
-    release continued the work as a new item, whose answering card sits on the
-    item it continues.
-    """
+    """This item's operator decision card, once resolved: an answer resolves it and the item resumes."""
     # An unreadable backlog accepts nothing.
-    items = backlog_history(root) if item_id else []
-    if not items:
-        return []
-    continued = {
-        str((item.operator_decision or {}).get("continuation_item_id") or ""): item for item in items
-        if isinstance(item.operator_decision, dict)
-    }
-    by_id = {item.id: item for item in items}
-    cards: list[dict[str, Any]] = []
-    current, seen = item_id, set()
-    while current and current not in seen:
-        seen.add(current)
-        own = by_id.get(current)
-        if own is not None and isinstance(own.operator_decision, dict) and own.operator_decision:
-            cards.append(dict(own.operator_decision))
-        previous = continued.get(current)
-        current = previous.id if previous is not None else ""
-    return [card for card in cards if card.get("status") == "resolved"]
+    items = (backlog_history(root) if item_id else None) or ()
+    card = next((item.operator_decision for item in items if item.id == item_id), None)
+    return [dict(card)] if isinstance(card, dict) and card.get("status") == "resolved" else []
 
 
 def _recorded_facts(value: object) -> list[int] | None:
@@ -299,7 +291,6 @@ def mission_grounding(
     this mission; when it cannot, accepting a risk is the Manager's.
     """
     from ..core.residual_risk import active_residual_risks
-    from .round_settlement import _operator_questions_allowed
 
     contract = mission_contract(supervised_config)
     refs = tuple(
@@ -515,9 +506,6 @@ class RoundReviewerMixin:
                         if state.snapshots and state.snapshots.take("candidate")
                         else None
                     ),
-                    engineer_records_commands=backend_records_command_results(
-                        getattr(self, "engineer_runner", None)
-                    ),
                     mission_grounding=_mission_grounding(supervised_config, state),
                 ),
                 prev_review_summary=_previous_review_summary(state),
@@ -586,6 +574,7 @@ class RoundReviewerMixin:
             on_event({
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "reviewer",
+                **({"ends_work": True} if review.status == "done" else {}),
                 "policy": reviewer_session.policy,
                 "action": reviewer_session.action,
                 "rotation_reason": reviewer_session.rotation_reason,
@@ -982,10 +971,7 @@ class RoundReviewerMixin:
                     backoff_seconds, retry_runner=getattr(getattr(self, "reviewer", None), "runner", None),
                 )
                 if interrupt_reason:
-                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason)
-                    status: LoopStatus = "aborted" if interrupt_kind == "operator_abort" else "parked"
-                    if status == "parked":
-                        interrupt_kind = stop_park_reason(interrupt_kind) or "operator_pause"
+                    status, interrupt_kind = interrupt_outcome(interrupt_reason)
                     reason_text = (
                         "The wait after a Reviewer backend failure ended "
                         f"early: {interrupt_reason}."

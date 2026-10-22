@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -239,27 +240,6 @@ def enqueue_mission(
                          if domain_display.get("execution_task") == body else "")
     display_title = (str(domain_display.get("title") or "")
                      if domain_display.get("execution_task") == body else "")
-    if chat_state.get("blocked_item_id"):
-        prior = str(chat_state.get("last_objective") or body)
-        blocked_id = chat_state.pop("blocked_item_id", None)
-        chat_state.pop("blocked_question", None)
-        try:
-            from ..apps._inbox import queue_inbox_message
-
-            queue_inbox_message(
-                front_door._life_dir_for(mem),
-                body,
-                source="manager.answer",
-            )
-        except Exception:  # noqa: BLE001 - the durable mission remains authoritative
-            pass
-        if blocked_id:
-            try:
-                mem.backlog.update(blocked_id, pending_question="")
-            except Exception:  # noqa: BLE001 - do not drop the operator reply
-                pass
-        body = f"{prior}\n\nOperator reply: {body}"
-
     if prepared_handoff is None:
         prepared_handoff = front_door.prepare_manager_execution_task(
             mem, body, chat_state, root_task_id=root_task_id,
@@ -298,11 +278,7 @@ def enqueue_mission(
         compact = " ".join(title_body.split()).replace("`", "")
         # The Manager's short topic names the task wherever it is mentioned;
         # without one, the request's opening clause does, never the whole text.
-        named = front_door._derive_session_name(
-            str(getattr(prepared_handoff.decision, "session_title", "") or ""), limit=32,
-        )
-        if named.casefold() in {"none", "keep", "null"} or named.isdecimal():
-            named = ""
+        topic = str(getattr(prepared_handoff.decision, "session_title", "") or "")
         manager_decision = decision_evidence(division) or {"routed": True}
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
@@ -327,7 +303,7 @@ def enqueue_mission(
         )
         item = BacklogItem.new(
             item_id=root_task_id,
-            title=brief_title(display_title or named or compact),
+            title=brief_title(display_title or topic or compact),
             objective=execution_body,
             priority=min(head_priority - 1, -1),
             tags=["manager", "scope:bounded", "review:required", *kind_tags],
@@ -344,19 +320,10 @@ def enqueue_mission(
         )
         question = str(getattr(prepared_handoff.decision, "operator_question", "") or "")
         if question:
-            # Only the operator can decide before this work starts: it waits on
-            # their answer, which continues it like any parked question.
-            from ..core.operator_decision import build_operator_decision
+            # Only the operator can decide before this work starts: it is never
+            # queued, and their answer continues it like any parked question.
             from ..life.memory import park_item
 
-            item.pending_question = question
-            item.operator_decision = build_operator_decision(
-                item_id=item.id,
-                title=item.title,
-                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
-                question=question,
-                project_id=life_dir.name,
-            )
             park_item(item, "operator_question")
         try:
             mem.backlog.add(item)
@@ -367,32 +334,29 @@ def enqueue_mission(
                 "The mission remains pending in memory and was not dispatched."
             ) from exc
         persisted["item"] = item
-        try:
-            from ..life.event_log import JsonlEventSink
+        from ..life.event_log import JsonlEventSink
 
-            event = {
-                "type": "life.planner.task_added",
-                "item_id": item.id,
-                "title": item.title,
-                "objective": item.objective,
-                "deps": list(item.deps),
-                "priority": item.priority,
-                "source": "manager_direct" if direct else "manager_operator",
-            }
-            if not direct:
-                event["operator_priority"] = True
-            sink = JsonlEventSink(None, life_dir=life_dir)
-            sink.append(event)
-            if question:
-                sink.append({
-                    "type": "life.operator_question.pending",
-                    "item_id": item.id,
-                    "title": item.title,
-                    "question": question,
-                    "agent_layer": "manager",
-                })
-        except Exception:  # noqa: BLE001 - backlog persistence is authoritative
-            pass
+        event = {
+            "type": "life.planner.task_added",
+            "item_id": item.id,
+            "title": item.title,
+            "objective": item.objective,
+            "deps": list(item.deps),
+            "priority": item.priority,
+            "source": "manager_direct" if direct else "manager_operator",
+        }
+        if not direct:
+            event["operator_priority"] = True
+        sink = JsonlEventSink(None, life_dir=life_dir)
+        sink.append(event)
+        if question:
+            from ..life.supervisor.pending_notify import ask_operator
+
+            ask_operator(
+                life_dir, item, question, layer="manager",
+                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
+                save=partial(mem.backlog.update, item.id), emit=sink.append,
+            )
         return item
 
     if direct and campaign_running:

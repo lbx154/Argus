@@ -291,7 +291,7 @@ def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_pa
     # failure as a review. A real unanswered live question still appears.
     review_path.unlink()
     stub.memory.backlog.update(
-        live.id, status="paused_operator", pending_question="Which licensed dataset may I use?",
+        live.id, park_reason="operator_pause", pending_question="Which licensed dataset may I use?",
     )
     updated = stub._letter_facts(since=time.time() - 60, now=time.time())
     assert updated["latest_review"] == ""

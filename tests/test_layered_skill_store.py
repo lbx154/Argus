@@ -40,7 +40,7 @@ def test_native_project_root_is_read_only_and_does_not_replace_managed_writes(
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",
         global_dir=tmp_path / "global",
-        native_project_dir=native_root,
+        execution_project_root=tmp_path / "repo",
     )
 
     assert store.library_roots()[:2] == [
@@ -70,7 +70,7 @@ def test_missing_native_project_root_preserves_existing_roots(tmp_path: Path) ->
         project_dir=tmp_path / "project",
         vertical_dir=tmp_path / "vertical",
         global_dir=tmp_path / "global",
-        native_project_dir=tmp_path / "repo" / ".agents" / "skills",
+        execution_project_root=tmp_path / "repo",
     )
 
     assert not (tmp_path / "repo" / ".agents").exists()
@@ -99,7 +99,6 @@ def test_native_project_root_symlink_cannot_escape_execution_project(
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",
         global_dir=tmp_path / "global",
-        native_project_dir=native_root,
         execution_project_root=repo,
     )
 
@@ -126,7 +125,6 @@ def test_native_project_child_symlink_cannot_escape_execution_project(
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",
         global_dir=tmp_path / "global",
-        native_project_dir=native_root,
         execution_project_root=repo,
     )
 
@@ -143,7 +141,6 @@ def test_contained_native_project_children_remain_available(tmp_path: Path) -> N
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",
         global_dir=tmp_path / "global",
-        native_project_dir=native_root,
         execution_project_root=repo,
     )
 

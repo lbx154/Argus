@@ -11,7 +11,7 @@ from .round_state import RoundLoopState, TerminalResult
 def manager_wait_terminal(config: SupervisedConfig, state: RoundLoopState) -> TerminalResult | None:
     from ..manager.supervision import mission_stop_reason, mission_wait_reason
 
-    root, mission = config.operator_question_policy_root, config.session_id
+    root, mission = config.state_root, config.session_id
     status, reason = "manager_wait", mission_wait_reason(root, mission)
     if not reason:
         # A stopped run parks where the Planner can retire it or the operator

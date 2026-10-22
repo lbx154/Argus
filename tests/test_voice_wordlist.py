@@ -50,7 +50,7 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus/cli/event_format.py",
     "argus/core/operator_messages.py",
     "argus/engineer/round_reviewer.py",
-    "argus/engineer/round_self_review.py",
+    "argus/engineer/round_routing.py",
     "argus/engineer/round_settlement.py",
     "argus/life/supervisor/_mission_execution_settlement.py",
     "argus/reviewer/_core.py",

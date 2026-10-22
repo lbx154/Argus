@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
-from ..core.operator_messages import uses_cjk
+from ..core.mission_view import say, uses_cjk
 
 
 def _dispatch_ack_text(
@@ -20,65 +20,39 @@ def _dispatch_ack_text(
     """The first reply to a task: what happens next, without echoing the request."""
     raw_item = result.get("item")
     item = raw_item if isinstance(raw_item, dict) else {}
-    zh = uses_cjk(operator_text or str(item.get("title") or item.get("objective") or ""))
+    zh = uses_cjk(operator_text or item.get("title") or item.get("objective"))
     dispatch_state = result.get("dispatch_state")
     if result.get("launch_hold"):
-        return (
-            "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。"
-            if zh else
-            "The plan is ready, but nothing has started. Check what I understood and "
-            "the plan in the card above; work starts when you press Start."
-        )
+        return say("ack_plan_awaits_start", zh)
     question = str(item.get("pending_question") or "").strip()
     if question:
-        return f"开始之前需要你定一下：\n{question}" if zh else f"Before I start, I need your call:\n{question}"
+        return say("ack_needs_your_call", zh, question=question)
 
     # The endpoint's fresh startup result outranks the bridge's earlier queue
     # observation. A daemon may disappear between those two observations.
     if isinstance(daemon, dict):
         if daemon.get("admission_required"):
-            return (
-                "记下了。现在同时在做的事已经满了，空出来就开始，不用重发。"
-                if zh else
-                "Got it. Everything that can run at once is busy; this starts as soon "
-                "as a slot frees up, no need to resend."
-            )
+            return say("ack_waits_for_slot", zh)
         if daemon.get("control_busy"):
-            return (
-                "记下了，正在确认能不能开始，稍后告诉你。"
-                if zh else "Got it. Checking whether it can start; I'll let you know."
-            )
+            return say("ack_checking_start", zh)
         if int(daemon.get("rc", 0)) != 0:
             diagnostic = str(daemon.get("startup_diagnostic") or daemon.get("diagnostic")
                              or daemon.get("error") or "unknown error")
             daemon["diagnostic"] = diagnostic
             daemon["error"] = "The background worker could not start."
-            return (
-                "记下了，但没能开始工作。你的要求已经保存，可以点“启动详情”看原因，或者稍后再试。"
-                if zh else
-                "Saved, but the work couldn't start. Your request is kept; see the "
-                "startup details for why, or try again later."
-            )
+            return say("ack_start_failed", zh)
     if dispatch_state == "already_queued":
         status = str(item.get("status") or "pending")
-        state = {
-            "pending": ("还没开始", "not started yet"),
-            "running": ("正在做", "in progress"),
-            "done": ("已经做完", "done"),
-            "parked": ("暂停着", "paused"),
-            "failed": ("上次没做成", "it didn't succeed last time"),
-        }.get(status, ("已经记下", "saved"))
-        return (
-            f"这件事之前已经交代过了（{state[0]}），没有再加一遍。" if zh
-            else f"You already asked for this ({state[1]}); I didn't add it again."
-        )
+        if status not in {"pending", "running", "done", "parked", "failed"}:
+            status = "saved"
+        return say("ack_already_asked", zh, state=say(f"asked_{status}", zh))
     if dispatch_state == "queued_after_current" and daemon_alive:
-        return "收到，等手头这项做完就开始。" if zh else "Got it. This starts once the current work is done."
+        return say("ack_after_current", zh)
     if dispatch_state == "running" and daemon_alive:
-        return "收到，已经接手了。" if zh else "Got it, it's been picked up."
+        return say("ack_picked_up", zh)
     if dispatch_state == "planner_pending":
-        return "目标已更新，正在安排下一步。" if zh else "Goal updated; working out the next step."
-    return "收到，马上开始。" if zh else "Got it, starting now."
+        return say("ack_goal_updated", zh)
+    return say("ack_starting", zh)
 
 
 def record_task_dispatch_ack(
@@ -142,11 +116,7 @@ def record_task_dispatch_ack(
                 return ""
             fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as exc:
-        text = (
-            "任务已经记下了，只是这条确认没能保存。"
-            if uses_cjk(operator_text or text)
-            else "The task is saved; only this confirmation couldn't be recorded."
-        )
+        text = say("ack_not_recorded", uses_cjk(operator_text or text))
         result["ack_error"] = text
         result["ack_diagnostic"] = f"{transcript_path}: {exc}"
 

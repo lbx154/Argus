@@ -228,7 +228,7 @@ def test_mission_grounding_carries_the_planner_record_and_the_objective_baseline
 
     class _Config:
         context_packet_path = str(contract)
-        operator_question_policy_root = str(state)
+        state_root = str(state)
 
     from argus.core.grounding_baseline import objective_baseline
 
@@ -668,7 +668,7 @@ def test_saying_dont_ask_gives_the_manager_risk_authority(tmp_path, monkeypatch)
     # Manager's acceptance, and is not sent to an operator nobody may ask.
     class _Config:
         context_packet_path = ""
-        operator_question_policy_root = str(root)
+        state_root = str(root)
 
     from argus.reviewer._core import _review_grounding
 
@@ -773,7 +773,7 @@ def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[
         objective=_OBJECTIVE,
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
         supervised_config=SupervisedConfig(
-            max_rounds=0, operator_question_policy_root=root, session_id=session_id,
+            max_rounds=0, state_root=root, session_id=session_id,
         ),
         workdir=workdir,
         on_event=events.append,

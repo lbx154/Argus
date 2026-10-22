@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say
 from ...core.planner_verdict import PlannerVerdictStatus
 from ._constants import (
     MANAGER_FEEDBACK_REPLAN_LIMIT,
@@ -46,8 +47,8 @@ class PlanningCycleIntakeMixin:
 
         def _emit_status(self, text: str) -> None: ...
         def _operator_chinese(self) -> bool: ...
-        def _enter_idle_backoff(self) -> float: ...
-        def _enter_pause_backoff(self) -> float: ...
+        def _enter_idle_backoff(self) -> None: ...
+        def _enter_pause_backoff(self) -> None: ...
         def _hold_on_unresolved_vertical(
             self, exc: Exception, item: BacklogItem | None = None,
         ) -> dict[str, Any]: ...
@@ -212,11 +213,7 @@ class PlanningCycleIntakeMixin:
             return ""
         # The operator reads this reason on the timeline and the Manager
         # reports from it: say what happened, not which certificate allowed it.
-        return (
-            "要求的工作已经全部完成。"
-            if self._operator_chinese()
-            else "All the requested work is done."
-        )
+        return say("requested_work_done", self._operator_chinese())
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.

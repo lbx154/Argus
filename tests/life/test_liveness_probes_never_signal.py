@@ -12,7 +12,7 @@ import pytest
 
 from argus.apps.cli import _follow
 from argus.core import daemon_lock
-from argus.life import answer_learning
+from argus.life import reflection_status
 
 
 @pytest.fixture
@@ -28,14 +28,14 @@ def test_learning_status_checks_the_reflection_owner_without_signalling_it(
     tmp_path, monkeypatch, no_signals, owner_alive, expected,
 ):
     asked = []
-    monkeypatch.setattr(answer_learning, "is_pid_running", lambda pid: asked.append(pid) or owner_alive)
+    monkeypatch.setattr(reflection_status, "is_pid_running", lambda pid: asked.append(pid) or owner_alive)
     seen = {}
 
     def run(_capture):
-        seen.update(answer_learning.learning_status(tmp_path, "s-test"))
+        seen.update(reflection_status.learning_status(tmp_path, "s-test"))
         return {}
 
-    answer_learning.observe_mission(tmp_path, "s-test", "mission-1", run, None)
+    reflection_status.observe_mission(tmp_path, "s-test", "mission-1", run, None)
 
     assert asked == [os.getpid()]
     assert [job["status"] for job in seen["jobs"]] == [expected]

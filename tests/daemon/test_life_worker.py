@@ -2955,7 +2955,7 @@ def test_bounded_daemon_runs_an_old_background_job_pause_again(
         title="Assess the existing build", objective="Check the completed build",
     ))
     memory.backlog.update(
-        item.id, status="paused_external_work",
+        item.id, park_reason="external_work",
         outcome={"external_wait": {"work_id": "data-build", "workdir": str(project)}},
     )
     executed: list[str] = []

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, LoaderCircle, Sparkles } from 'lucide-react';
 import { api, type LearningChannel } from '../api';
 import { useI18n } from '../i18n';
+import { stopClause } from '../../../core/src/missionOutcome';
 
 /** Poll independently of foreground work: reflection runs after a mission ends. */
 export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: {
@@ -33,16 +34,10 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
   const job = active ?? jobs[0];
   const busy = Boolean(active) || query.data.pending > 0;
   const paused = !busy && job.status === 'skipped' && job.outcome.reason === 'paused';
-  // Nothing to learn from this turn: there is no status worth showing. A policy pause is
+  // Nothing to learn from this mission: there is no status worth showing. A policy pause is
   // explained by the chat reply itself; the libraries, where learning lives, say why too.
   if (!busy && job.status === 'skipped' && (!paused || !channel)) return null;
-  const pauseReasons: Record<string, [string, string]> = {
-    cost_unreconciled: ['上一次模型调用的费用尚未结算，结算前暂停新的模型调用', 'model calls are paused until an earlier call\'s cost is settled'],
-    budget_exhausted: ['今日模型预算已用完', 'today\'s model budget is used up'],
-    provider_cooldown: ['模型服务暂时限流', 'the model provider is briefly rate-limited'],
-    operator_pause: ['模型调用已暂停', 'model calls are paused'],
-  };
-  const pauseReason = pauseReasons[job.outcome.detail ?? ''] ?? pauseReasons.operator_pause;
+  const pauseReason = stopClause(job.outcome.detail, zh) || stopClause('operator_pause', zh);
   const settled = paused || (!busy && job.status === 'failed');
   const names = zh ? { knowledge: '知识库', skills: '技能库', preferences: '用户偏好' }
     : { knowledge: 'Knowledge base', skills: 'Skill library', preferences: 'Preferences' };
@@ -61,15 +56,15 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
     <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
       {busy ? <LoaderCircle className="h-3 w-3 animate-spin text-blue" />
         : settled ? <Info className="h-3 w-3 text-ink-faint" /> : <Sparkles className="h-3 w-3 text-blue" />}
-      {paused && <span>{zh ? `本轮未学习：${pauseReason[0]}。回复不受影响。` : `Learning skipped: ${pauseReason[1]}. Your reply is unaffected.`}</span>}
-      {!busy && job.status === 'failed' && <span>{zh ? '本轮学习未完成，回复不受影响。'
-        : 'Learning from this turn did not finish. Your reply is unaffected.'}</span>}
+      {paused && <span>{zh ? `任务结束后没有学习：${pauseReason}。任务结果不受影响。` : `No learning after the mission: ${pauseReason}. The mission result is unaffected.`}</span>}
+      {!busy && job.status === 'failed' && <span>{zh ? '任务结束后的学习没有完成，任务结果不受影响。'
+        : 'Learning after the mission did not finish. The mission result is unaffected.'}</span>}
       {!settled && channels.map(kind => <span key={kind}>{message(kind)}</span>)}
-      {query.data.pending > 1 && <span>{zh ? `还有 ${query.data.pending - 1} 轮待学习` : `${query.data.pending - 1} more queued`}</span>}
+      {query.data.pending > 1 && <span>{zh ? `还有 ${query.data.pending - 1} 个任务在学习` : `${query.data.pending - 1} more missions learning`}</span>}
     </div>
-    {busy && !channel && <p className="text-ink-faint">{zh ? '正在整理本轮的知识、方法和偏好，你可以继续工作。' : 'Saving useful knowledge, methods and preferences. You can keep working.'}</p>}
+    {busy && !channel && <p className="text-ink-faint">{zh ? '任务结束了，正在整理学到的知识、方法和偏好，你可以继续工作。' : 'The mission ended; saving useful knowledge, methods and preferences. You can keep working.'}</p>}
     {items.length > 0 && !channel && <details className="mt-0.5">
-      <summary className="cursor-pointer text-blue">{zh ? '查看本轮学到了什么' : 'What this turn taught Argus'}</summary>
+      <summary className="cursor-pointer text-blue">{zh ? '查看这次任务学到了什么' : 'What this mission taught Argus'}</summary>
       <ul className="pl-4 list-disc">{items.map((item, index) => <li key={index}>
         {(item.channel === 'skills' ? onOpenSkills : onOpenKnowledge)
           ? <button type="button" className="text-left underline" onClick={item.channel === 'skills' ? onOpenSkills : onOpenKnowledge}>{item.title}</button>

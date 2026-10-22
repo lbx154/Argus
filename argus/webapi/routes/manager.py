@@ -286,7 +286,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         Slow status reads run outside the lifecycle lock. Only startup and its
         acknowledgement share the same lock as daemon control commands.
         """
-        from ...core.operator_messages import uses_cjk
+        from ...core.mission_view import uses_cjk
         from ...daemon.commands import daemon_command_execution_lock
         from ..manager_pending_question import record_task_dispatch_ack
 

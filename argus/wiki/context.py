@@ -51,10 +51,16 @@ def render_knowledge_wiki_block(
     roots = discover_wikis(Path(project_root).expanduser())
     if not roots and not shared_roots:
         return ""
-    paths_text = "\n".join(f"- `{path.resolve()}`" for path in roots)
+    # Only a project Wiki keeps an INDEX.md; a shared one is named by its
+    # pages, so no role is sent to an index that does not exist.
+    directories = (
+        "Wiki directories, each with an `INDEX.md` for progressive disclosure:\n"
+        + "\n".join(f"- `{path.resolve()}`" for path in roots) + "\n\n"
+        if roots else ""
+    )
     shared = ""
     if shared_roots:
-        shared_lines = "\n".join(f"- `{Path(path).resolve()}`" for path in shared_roots)
+        shared_lines = "\n".join(f"- `{(Path(path) / 'pages').resolve()}`" for path in shared_roots)
         shared = (
             "\n\nShared knowledge (read before deciding; written by the host after review):\n"
             f"{shared_lines}\n\n"
@@ -66,11 +72,10 @@ def render_knowledge_wiki_block(
     return (
         "## Shared project Wiki\n"
         f"Role: {role}\n"
-        "Wiki directories:\n"
-        f"{paths_text}\n\n"
+        f"{directories}"
         "Search and read the Wiki yourself. Pages live under semantic paths in "
         "`pages/` and contain only `title`, `description`, and Markdown content. "
-        "Use `INDEX.md` for progressive disclosure. When durable declarative "
+        "When durable declarative "
         "knowledge changes, edit the relevant semantic page and INDEX directly. "
         "Project architecture and contracts, support/limitation matrices, stable "
         "environment constraints, and scope-qualified measurements belong here. "

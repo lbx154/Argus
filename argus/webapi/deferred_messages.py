@@ -17,8 +17,9 @@ from urllib.parse import quote
 
 import portalocker
 
-from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
-from ..core.operator_messages import publish_operator_message, uses_cjk
+from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, AUTOMATIC_RETRY_WINDOW_SECONDS
+from ..core.mission_view import uses_cjk
+from ..core.operator_messages import publish_operator_message
 
 log = logging.getLogger(__name__)
 
@@ -131,9 +132,9 @@ class DeferredMessages:
         record["status"] = "needs_attention"
         _write_record(path, record)
         request = record["request"]
-        reply = ("模型调用名额连续三小时都没有空出来，这条消息已停止自动重试，原消息已保留。请稍后再发送一次。"
+        reply = (f"模型调用名额连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时都没有空出来，这条消息已停止自动重试，原消息已保留。请稍后再发送一次。"
                  if uses_cjk(request["text"]) else
-                 "Model capacity stayed busy for three hours, so Argus stopped retrying this message. "
+                 f"Model capacity stayed busy for {AUTOMATIC_RETRY_WINDOW_HOURS} hours, so Argus stopped retrying this message. "
                  "It is saved; please send it again later.")
         publish_operator_message(life_dir, text=reply,
                                  message_id=f"{request['turn_id']}-busy-expired",

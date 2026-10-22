@@ -1,7 +1,7 @@
 """Observable learning after a mission."""
 from fastapi import Depends
 
-from ...life.answer_learning import learning_status
+from ...life.reflection_status import learning_status
 from .context import ServerContext
 
 

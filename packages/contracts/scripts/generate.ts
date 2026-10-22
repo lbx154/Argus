@@ -17,6 +17,7 @@ const readJson = (path: string): unknown => JSON.parse(readFileSync(new URL(path
 const payload = readJson('packages/contracts/schemas/event_payload_schemas.json') as {
   schema_version: number; events: Record<string, Schema>;
 };
+const batonHolders = readJson('packages/contracts/schemas/baton_holders.json') as Record<string, string[]>;
 const api = readJson('packages/contracts/schemas/api_protocol.json') as {
   API_SERVICE: string; API_PROTOCOL_NAME: string; API_PROTOCOL_MAJOR: number;
   API_PROTOCOL_MINOR: number; SNAPSHOT_SCHEMA_VERSION: number; API_CAPABILITIES: string[];
@@ -65,6 +66,10 @@ const artifacts = new Map<string, string>([
   ['packages/contracts/src/eventPayloads.generated.ts', eventTypes()],
   ['frontend/core/src/eventPayloads.generated.ts',
     `${header}\nexport * from '../../../packages/contracts/src/eventPayloads.generated.js';\n`],
+  ['frontend/core/src/batonHolders.generated.ts', `${header}
+/** Every name a baton line may give the next holder (argus/core/role_handoff.py). */
+export const BATON_HOLDER_NAMES = ${JSON.stringify(Object.values(batonHolders).flat())} as const;
+`],
   ['packages/contracts/src/apiProtocol.generated.ts', `${header}
 export const API_SERVICE = ${JSON.stringify(api.API_SERVICE)};
 export const API_PROTOCOL = { name: ${JSON.stringify(api.API_PROTOCOL_NAME)}, major: ${api.API_PROTOCOL_MAJOR}, minServerMinor: ${api.API_PROTOCOL_MINOR} } as const;

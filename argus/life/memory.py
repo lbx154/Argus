@@ -770,6 +770,13 @@ def park_item(item: BacklogItem, reason: str) -> None:
     item.outcome = {**item.outcome, "park": {"reason": reason}}
 
 
+def _rearm(item: BacklogItem) -> None:
+    """Queue ``item`` again, on a fresh usage attempt."""
+    item.status, item.last_error = "pending", ""
+    item.attempt = max(1, int(item.attempt or 1)) + 1
+    item.started_ts = item.finished_ts = None
+
+
 def _holds_resources(item: Any) -> bool:
     """Running work holds its GPUs and paths; parked work holds nothing."""
     return getattr(item, "status", "") == "running"
@@ -806,6 +813,33 @@ def objective_started_at(state_root: Path | str, objective: str) -> float | None
     ) if objective else []
     ts = rows[-1].get("ts") if rows else None
     return float(ts) if isinstance(ts, (int, float)) else None
+
+
+def operator_answers(backlog: Backlog, objective: str) -> list[str]:
+    """Answers on question cards since ``objective`` began, oldest first, as ``question → answer (who)``.
+
+    An objective is written before the questions it raises, so a role that
+    judges against the objective reads these beside it: an answer is the
+    later word wherever the two conflict. With no record of when the
+    objective began, the live backlog's own cards bound them.
+    """
+    since = objective_started_at(backlog.path.parent, objective)
+    cards = sorted(
+        (
+            card for row in (backlog.history() if since is not None else backlog.active())
+            if (card := row.operator_decision).get("status") == "resolved"
+            and float(card.get("asked_at") or 0) >= (since or 0.0)
+        ),
+        key=lambda card: float(card.get("asked_at") or 0),
+    )
+    answers = []
+    for card in cards:
+        question = " ".join(str(card.get("question") or "").split())
+        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())
+        if question and answer:
+            who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
+            answers.append(f"{question} → {answer} ({who})")
+    return answers
 
 
 def manager_direct_in_hand(item: Any) -> bool:
@@ -2251,12 +2285,7 @@ class Backlog:
         self, item_id: str, *, _mission_delivery: dict[str, Any] | None = None,
         park_reason: str | None = None, **fields: Any,
     ) -> BacklogItem | None:
-        """Write ``fields`` onto one row; ``park_reason`` parks it for that reason.
-
-        An older release's park status names its own reason and parks the same way.
-        """
-        if park_reason is None and fields.get("status") not in {None, "parked"}:
-            park_reason = park_reason_of(fields["status"])
+        """Write ``fields`` onto one row; ``park_reason`` parks it for that reason."""
         if park_reason is not None:
             fields["status"] = "parked"
         if _mission_delivery is not None:
@@ -2472,6 +2501,9 @@ class Backlog:
                 if decided_by == "operator"
                 else "Manager decision in the operator's place"
             )
+            # The roles read the answer in the objective; the operator goes
+            # on reading their own request.
+            item.manager_decision = {"display_objective": item.objective.strip(), **item.manager_decision}
             if decision:
                 item.objective = (
                     "Authoritative Manager operator-answer decision:\n"
@@ -2509,11 +2541,7 @@ class Backlog:
                 "manager-approved",
                 "review:required",
             ]))
-            item.status = "pending"
-            item.attempt = max(1, int(item.attempt or 1)) + 1
-            item.started_ts = None
-            item.finished_ts = None
-            item.last_error = ""
+            _rearm(item)
             item.pending_question = ""
             if card:
                 resolved_from_revision = int(card.get("revision", 1) or 1)
@@ -2523,7 +2551,6 @@ class Backlog:
                     "note": decision_note.strip() if decision_id else answer,
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
-                    "continuation_item_id": item.id,
                     "manager_decision": decision,
                     "reply": manager_reply.strip(),
                     "decided_by": decided_by,
@@ -2578,7 +2605,6 @@ class Backlog:
                     "note": note.strip(),
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
-                    "continuation_item_id": "",
                     "manager_decision": manager_decision,
                     "reply": reply,
                     "decided_by": decided_by,
@@ -2842,11 +2868,7 @@ class Backlog:
                     continue
                 if str(item.pending_question or "").strip():
                     continue
-                item.status = "pending"
-                item.attempt = max(1, int(item.attempt or 1)) + 1
-                item.started_ts = None
-                item.finished_ts = None
-                item.last_error = ""
+                _rearm(item)
                 resumed.append(item)
             if resumed:
                 self._cascade_blocked(

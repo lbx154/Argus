@@ -362,13 +362,12 @@ class ReviewActions:
             operator_question=handoff.question,
             operator_options=normalize_agent_options(options),
             research_result=research,
-            planner_report={"plan_signal": "reconsider" if holder == "planner" else "continue"},
             session_signal=payload.get("session_signal", {}),
         )
         judged = payload.get("learning")
         if holder == "done" and isinstance(judged, dict):
-            decision.planner_report["learning"] = judged["verdict"]
-            decision.planner_report["learning_reason"] = str(judged.get("reason") or "")[:500]
+            decision.learning = judged["verdict"]
+            decision.learning_reason = str(judged.get("reason") or "")[:500]
         decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):

@@ -94,7 +94,6 @@ const MINIMAP_STATUS: Record<string, string> = {
   done: "#a9c4b6",
   running: "#9fb6cc",
   question: "#dcc797",
-  answered: "#a9c4b6",
   failed: "#d9a79f",
   review_unavailable: "#cdbba3",
   held: "#cdbba3",

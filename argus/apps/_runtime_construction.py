@@ -326,7 +326,6 @@ class _RunnerConstructionMixin:
                         global_dir,
                         active_skill_scope,
                     ),
-                    native_project_dir=execution_workdir / ".agents" / "skills",
                     execution_project_root=execution_workdir,
                 )
             return SkillStore(global_dir)

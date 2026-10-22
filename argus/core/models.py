@@ -189,20 +189,6 @@ class RunnerResult:
         return self.agent_messages[-1]
 
 
-#: Reviewer judgments that route the host's own calls (post-mission
-#: reflection). When the host rewrites a verdict's status or strips its
-#: signals, these no longer describe what the Reviewer saw, so they are
-#: dropped and read as absent: reflection runs.
-REVIEW_ROUTING_JUDGMENTS = ("learning", "learning_reason")
-
-
-def without_routing_judgments(report: Any) -> dict[str, Any]:
-    """A copy of a planner report without the Reviewer's routing judgments."""
-    if not isinstance(report, dict):
-        return {}
-    return {key: value for key, value in report.items() if key not in REVIEW_ROUTING_JUDGMENTS}
-
-
 @dataclass
 class ReviewDecision:
     """Reviewer verdict on one Engineer round."""
@@ -212,9 +198,10 @@ class ReviewDecision:
     next_action: str
     operator_question: str = ""
     operator_options: list[dict[str, Any]] = field(default_factory=list)
-    # Strategic judgment beside the verdict (plan challenges, authority impact),
-    # separate from bounded implementation acceptance.
-    planner_report: dict[str, Any] = field(default_factory=dict)
+    # On an accepting verdict, the Reviewer's judgment whether the finished
+    # mission is worth a post-mission reflection, and why.
+    learning: str = ""
+    learning_reason: str = ""
     # Explicit role-session signal, supplied through the native review action.
     session_signal: dict[str, str] = field(default_factory=dict)
     # The Reviewer's own judgment that the fact it disputes cannot be observed
@@ -331,9 +318,8 @@ class ReviewDecision:
             payload["venue_review_required"] = self.venue_review_required
             payload["venue_review_passed"] = self.venue_review_passed
             payload["venue_review_snapshot"] = self.venue_review_snapshot
-        report = self.planner_report if isinstance(self.planner_report, dict) else {}
-        for key in ("plan_signal", "learning", "learning_reason"):
-            value = str(report.get(key) or "").strip()
+        for key in ("learning", "learning_reason"):
+            value = str(getattr(self, key) or "").strip()
             if value:
                 payload[key] = value
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
@@ -395,12 +381,6 @@ class LoopOutcome:
     @property
     def round_count(self) -> int:
         return len(self.rounds)
-
-    @property
-    def final_planner_report(self) -> dict[str, Any]:
-        if not self.rounds:
-            return {}
-        return dict(self.rounds[-1].review.planner_report or {})
 
     @property
     def final_review_reason(self) -> str:

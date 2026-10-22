@@ -16,7 +16,7 @@ def _paused_with_card(tmp_path):
     backlog.add(item)
     backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="May I create ./.venv?",
         operator_decision={"id": "d1", "status": "pending", "revision": 1},
     )

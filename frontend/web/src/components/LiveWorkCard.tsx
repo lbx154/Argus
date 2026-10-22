@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, FilePen, Flag, Loader2, MessageSquareText, Search, SquareTerminal } from 'lucide-react';
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
+import { roleLabel } from '../lib/enumLabels';
 import { clockLabel, liveActivity, type LiveLine } from '../lib/liveActivity';
 import { progressAgeLabel } from '../lib/workStatus';
 import './liveWork.css';
@@ -17,8 +18,6 @@ function writeExpanded(value: boolean) {
   try { globalThis.localStorage?.setItem(EXPANDED_KEY, value ? '1' : '0'); } catch { /* per-browser convenience only */ }
 }
 
-const ROLE_NAMES_ZH: Record<string, string> = { engineer: '工程师', planner: '规划者', reviewer: '审阅者', manager: 'Argus' };
-const ROLE_NAMES_EN: Record<string, string> = { engineer: 'Engineer', planner: 'Planner', reviewer: 'Reviewer', manager: 'Argus' };
 const ICONS = { command: SquareTerminal, tool: Search, edit: FilePen, message: MessageSquareText, milestone: Flag };
 
 /** Ticks once a second without recomputing the activity above it. */
@@ -58,7 +57,7 @@ export function LiveWorkCard({ snapshot, view, events, onPause }: {
   events: EventMsg[];
   onPause?: () => void;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const [expanded, setExpanded] = useState(readExpanded);
   // Activity is recomputed every few seconds; the clocks tick on their own.
@@ -71,7 +70,7 @@ export function LiveWorkCard({ snapshot, view, events, onPause }: {
   const activity = useMemo(() => liveActivity(snapshot, view, events, now, locale),
     [snapshot, view, events, now, locale]);
   if (!activity.show) return null;
-  const roleName = (role: string) => (zh ? ROLE_NAMES_ZH : ROLE_NAMES_EN)[role] ?? 'Argus';
+  const roleName = (role: string) => roleLabel(role, t);
   const visible = expanded ? activity.lines : activity.lines.slice(-COLLAPSED_LINES);
   const toggle = () => { setExpanded((value) => { writeExpanded(!value); return !value; }); };
   return <section className="live-work" data-tone={activity.tone} data-expanded={expanded} data-testid="live-work"
@@ -111,13 +110,13 @@ export const StepProcessContext = createContext<((taskId: string) => LiveLine[])
 
 /** "查看过程" under a step's report: what the team did for it, folded away. */
 export function StepProcessDisclosure({ taskId }: { taskId: string }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const lookup = useContext(StepProcessContext);
   const [open, setOpen] = useState(false);
   const lines = useMemo(() => (lookup && taskId ? lookup(taskId) : []), [lookup, taskId]);
   if (!lines.length) return null;
-  const roleName = (role: string) => (zh ? ROLE_NAMES_ZH : ROLE_NAMES_EN)[role] ?? 'Argus';
+  const roleName = (role: string) => roleLabel(role, t);
   return <div className="live-work-process" data-open={open}>
     <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
       {open ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}

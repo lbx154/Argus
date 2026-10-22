@@ -3,7 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
-from argus.life.answer_learning import _database
+from argus.life.reflection_status import _database
 from argus.webapi.server import create_app
 
 
@@ -14,7 +14,9 @@ def test_learning_status_is_project_scoped_and_does_not_expose_the_transcript(tm
     with _database(root) as db:
         db.execute("INSERT INTO jobs (id,sid,payload,status,created,updated) VALUES (?,?,?,'failed',1,2)",
                    ("mission-one:m1", "one", json.dumps({"reply": "private transcript"})))
-        # A row the retired per-answer queue left behind is not shown.
+        # A database from before the retired per-answer queue was cleared:
+        # its leftover row is dropped once and never shown.
+        db.execute("PRAGMA user_version = 0")
         db.execute("INSERT INTO jobs (id,sid,payload,status,created,updated) VALUES (?,?,?,'queued',3,4)",
                    ("one:turn", "one", json.dumps({"reply": "private transcript"})))
     client = TestClient(create_app(global_root=root, auth_token="token"))

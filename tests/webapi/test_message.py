@@ -1738,7 +1738,9 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     assert continuation.tags == [
         "paper", "operator-reply", "manager-approved", "review:required",
     ]
-    assert continuation.manager_decision == {"routed": True}
+    assert continuation.manager_decision == {
+        "display_objective": "Write the camera-ready paper", "routed": True,
+    }
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)

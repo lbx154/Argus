@@ -45,6 +45,7 @@ _EVENT_HANDLERS: dict[str, _FamilyReducer] = {
         EventType.LIFE_MANAGER_INTENT_COMPLETED,
         EventType.LIFE_MANAGER_INTENT_FAILED,
         EventType.LIFE_MANAGER_STAGE_DECISION,
+        EventType.MANAGER_TURN_STARTED,
     ),
     **_handlers_for(
         reduce_planner_event,

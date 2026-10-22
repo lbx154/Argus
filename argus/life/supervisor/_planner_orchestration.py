@@ -116,17 +116,9 @@ class PlannerOrchestrationMixin:
             for item in backlog_rows
             if str(getattr(item, "pending_question", "") or "").strip()
         ]
-        from ...core.operator_decision import operator_answers
-        from ..memory import objective_started_at
+        from ..memory import operator_answers
 
-        # The answers given since the objective began; with no record of when
-        # that was, the live backlog's own cards bound them.
-        since = objective_started_at(
-            self._project_state_root(), str(self.config.continuous_objective or ""),
-        )
-        answered = operator_answers(
-            backlog_rows if since is not None else self.memory.backlog.active(), since=since or 0.0,
-        )
+        answered = operator_answers(self.memory.backlog, str(self.config.continuous_objective or ""))
         backlog_counts: dict[str, int] = {}
         for item in backlog_rows:
             status = str(getattr(item, "status", "") or "unknown")

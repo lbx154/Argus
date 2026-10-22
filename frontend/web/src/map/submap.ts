@@ -12,7 +12,7 @@ import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
 import { visibleAgentText } from "../../../core/src/events";
-import { isPauseStatus, parkReason } from "../../../core/src/missionOutcome";
+import { isPauseStatus, parkReason, stopClause } from "../../../core/src/missionOutcome";
 import { plainStopSentence } from "../lib/plainStatus";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
@@ -424,7 +424,7 @@ export function buildSubmap(
         kind: said.kind,
         // The Manager may answer in the operator's place; that is not the operator's answer.
         title: e.type.endsWith(".answered") && e.role !== "operator"
-          ? zh ? "Argus 代你答复" : "Argus answered for you"
+          ? zh ? "经理替你定了" : "The Manager decided for you"
           : said.title[zh ? 0 : 1],
         summary: clipSentence(record) || undefined,
         detail: record || noDetails(zh),
@@ -478,7 +478,12 @@ export function buildSubmap(
             // Only a round can be under way, and its step says so while it is.
             ? "recorded"
             : "started");
-    const note = humanizeHarnessNote(e.text || "", zh);
+    const recorded = humanizeHarnessNote(e.text || "", zh);
+    // A round stopped rather than failed says by whom or what, as its record names it.
+    const stopped = stopClause(e.stop_kind, zh);
+    const note = stopped ? { ...recorded, summary: zh
+      ? `${stopped}，这一轮没有做完；这不是对工作本身的评价`
+      : `This round was cut short because ${stopped}; this says nothing about the work itself` } : recorded;
     const raw = String(e.text || "");
     const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
     const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
@@ -493,7 +498,7 @@ export function buildSubmap(
               ? zh ? "审阅未通过" : "Review not passed"
               : "";
     // Harness plumbing never names a step; only research prose does.
-    const interrupted = note.kind === "interrupt";
+    const interrupted = Boolean(stopped);
     const clause = kind === "execution" && !note.summary ? titleClause(prose) : "";
     const title = reviewUnavailable
       ? zh ? "当次审查异常" : "Review error on this attempt"

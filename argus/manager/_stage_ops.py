@@ -34,28 +34,20 @@ def fallback_project_report(
     completion_context: Mapping[str, Any], continuous_objective: str = "",
 ) -> str:
     """The completion report Argus can state without the Manager model."""
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import say, sentences, uses_cjk
 
     paths = [
         str(row["path"])
         for row in completion_context.get("current_artifact_evidence") or ()
         if isinstance(row, dict) and row.get("path")
     ][:3]
+    chinese = uses_cjk(continuous_objective)
     increment = completion_context.get("completion_scope") == "certified_increment"
-    if uses_cjk(continuous_objective):
-        return (
-            ("这一部分做完了，长期目标还在继续。" if increment else "项目完成了。")
-            + (f"结果在 {'、'.join(paths)}。" if paths else "")
-            + "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）"
-        )
-    return (
-        (
-            "This piece is done; the longer-term goal continues. "
-            if increment else "The project is done. "
-        )
-        + (f"The results are in {', '.join(paths)}. " if paths else "")
-        + "(The model service was unavailable while this summary was written, "
-        "so the final files were not checked one by one.)"
+    return sentences(
+        chinese,
+        say("increment_done" if increment else "project_done", chinese),
+        say("results_in", chinese, paths=("、" if chinese else ", ").join(paths)) if paths else "",
+        say("summary_unchecked", chinese),
     )
 
 
@@ -89,18 +81,15 @@ class _StageDecisionMixin:
     def _stage_operator_context(self) -> str:
         """What the operator has said, with the answers they gave since the objective was written."""
         from ..core.operator_context import build_operator_context_block
-        from ..core.operator_decision import operator_answers
-        from ..life.memory import Backlog, objective_started_at
+        from ..life.memory import Backlog, operator_answers
         from .control_state import CampaignControlStore
 
         root = Path(self.manager_session_root)
         context, _revision = build_operator_context_block("manager", root, consume_once=False)
         try:
             backlog = Backlog(root / "backlog.jsonl")
-            # Since the objective began; with no record of when, the live backlog bounds it.
-            since = objective_started_at(root, CampaignControlStore(root).campaign_identity().objective)
             answers = operator_answers(
-                backlog.history() if since is not None else backlog.active(), since=since or 0.0,
+                backlog, CampaignControlStore(root).campaign_identity().objective,
             ) if backlog.path.is_file() else []
         except Exception:  # noqa: BLE001 - context only; the decision stands without it
             answers = []
@@ -174,10 +163,9 @@ class _StageDecisionMixin:
         review_source = field("review_source")
         backend_unavailable = field("backend_unavailable")
         backend_fatal_error = field("backend_fatal_error")
-        planner_report = field("planner_report")
         session_signal = field("session_signal")
 
-        if not (
+        return (
             isinstance(status, str)
             and status.strip().lower() == "done"
             and isinstance(reason, str)
@@ -194,31 +182,9 @@ class _StageDecisionMixin:
             and not backend_unavailable
             and isinstance(backend_fatal_error, str)
             and not backend_fatal_error.strip()
-            and isinstance(planner_report, dict)
             and isinstance(session_signal, dict)
             and not session_signal
-        ):
-            return False
-
-        allowed_plan_fields = {
-            "plan_signal",
-            # The reflection judgment says nothing about whether the stage is accepted.
-            "learning",
-            "learning_reason",
-        }
-        if not set(planner_report).issubset(allowed_plan_fields):
-            return False
-        for name in ("learning", "learning_reason"):
-            if name in planner_report and not isinstance(planner_report[name], str):
-                return False
-        if "plan_signal" in planner_report:
-            signal = planner_report["plan_signal"]
-            if not isinstance(signal, str):
-                return False
-            signal = signal.strip().lower()
-            if signal not in {"", "continue", "reconsider"}:
-                return False
-        return True
+        )
 
     def _gather_stage_context(
         self,

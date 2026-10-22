@@ -250,7 +250,7 @@ class _ExecuteState:
         self.new_tid: str | None = None
         self.auth_fail: Any = None
         self.rounds_list: list = []
-        self.final_planner_report: dict[str, Any] = {}
+        self.final_learning: str = ""
         self.plan_challenge: dict[str, Any] = {}
         self.operator_question: str = ""
         self.operator_options: list[dict[str, Any]] = []

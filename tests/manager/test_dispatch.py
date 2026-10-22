@@ -552,7 +552,7 @@ def test_the_operator_item_satisfies_the_review_only_contract(memory):
 
 def test_the_operator_mission_gets_an_independent_reviewer(memory):
     """Read through the same helper the mission runtime uses. Without the tag,
-    ``round_self_review`` settles the mission on the Engineer's own
+    ``round_routing`` settles the mission on the Engineer's own
     MILESTONE_STATUS=DONE and no Reviewer ever runs.
     """
     from argus.life.supervisor._planning_context import PlanningContextMixin

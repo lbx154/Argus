@@ -340,10 +340,16 @@ class Planner:
         details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
         if failed:
             session.rotate("backend_failure")
+        verdict = None if failed else (
+            parse_planner_payload(process_decision)
+            if process_decision is not None
+            else parse_planner_text(text)
+        )
         if callable(cfg.on_event):
             cfg.on_event({
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "planner",
+                **({"ends_work": True} if verdict is not None and verdict.project_done else {}),
                 "policy": session.policy,
                 "action": session.action,
                 "rotation_reason": session.rotation_reason,
@@ -389,11 +395,7 @@ class Planner:
                 error=details
                 or f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
             )
-        verdict = (
-            parse_planner_payload(process_decision)
-            if process_decision is not None
-            else parse_planner_text(text)
-        )
+        assert verdict is not None
         rejection = verdict.error
         if (
             not rejection

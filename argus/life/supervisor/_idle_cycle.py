@@ -48,7 +48,7 @@ class IdleCycleMixin:
         def _emit_status(self, text: str) -> None: ...
         def _tell_status(self, kind: str, **params: Any) -> None: ...
         def _operator_words(self, kind: str, **params: Any) -> dict[str, str]: ...
-        def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None: ...
+        def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None: ...
 
     def _artifact_root(self) -> Path:
         raise NotImplementedError
@@ -513,10 +513,7 @@ class IdleCycleMixin:
                     from ...core.operator_messages import brief_title
 
                     self._tell_operator(
-                        f"proxy-undecided-{key}",
-                        f"I couldn't decide “{brief_title(item.title)}” for you, so "
-                        "it waits for your answer.",
-                        f"“{brief_title(item.title)}”我没法替你决定，等你回来再定。",
+                        f"proxy-undecided-{key}", "proxy_undecided", title=brief_title(item.title),
                     )
                 continue
             record_autonomous_assumption(
@@ -593,20 +590,18 @@ class IdleCycleMixin:
         self._idle_since = None
         self._last_open_ended_project_done_signature = ""
 
-    def _enter_idle_backoff(self) -> float:
-        """Register one more no-work plan-cycle and return the suggested sleep."""
+    def _enter_idle_backoff(self) -> None:
+        """Register one more no-work plan-cycle and its suggested sleep."""
         self._consecutive_idle_planner_cycles += 1
         if getattr(self, "_idle_since", None) is None:
             self._idle_since = time.monotonic()
         self._suggested_sleep_s = self._idle_backoff_seconds()
-        return self._suggested_sleep_s
 
-    def _enter_pause_backoff(self) -> float:
+    def _enter_pause_backoff(self) -> None:
         """Back off a recoverable pause without starting the idle-exit clock."""
         self._consecutive_idle_planner_cycles += 1
         self._idle_since = None
         self._suggested_sleep_s = self._idle_backoff_seconds()
-        return self._suggested_sleep_s
 
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.

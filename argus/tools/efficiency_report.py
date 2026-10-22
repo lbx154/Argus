@@ -11,8 +11,8 @@ A call is a row of the ledger, placed among the events where it completed; its
 role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
 that added no new work, and a Manager supervision whose decision was never
-applied or kept the course. ``avoided`` counts the Planner calls skipped because
-nothing it reads had changed (``model_call_skipped``).
+applied or kept the course. ``avoided`` counts the times the Planner began to
+wait without a call because nothing it reads had changed (``model_call_skipped``).
 """
 from __future__ import annotations
 
@@ -57,21 +57,18 @@ def _rows(log: Path) -> Iterator[dict[str, Any]]:
                     yield row
 
 
-def _events(life_dir: Path) -> Iterator[dict[str, Any]]:
-    """The event log with each ledger call inserted where it completed.
-
-    Older logs also carried a ``usage.recorded`` copy of each call; the ledger
-    is the one source, so those copies are skipped.
-    """
+def _timeline(life_dir: Path) -> Iterator[tuple[float, str | None, dict[str, Any]]]:
+    """``(when, event type, row)`` in order: the event log, and each ledger call
+    (type ``None``) where it completed."""
     events = (
-        row for row in _rows(life_dir / "events.jsonl")
-        if canonical_event_type(row.get("type")) != "usage.recorded"
+        (float(row.get("ts") or 0), canonical_event_type(row.get("type")), row)
+        for row in _rows(life_dir / "events.jsonl")
     )
     calls = (
-        {**row, "type": "usage.recorded", "ts": row.get("completed_at")}
+        (float(row.get("completed_at") or 0), None, row)
         for row in _rows(life_dir / "usage.jsonl")
     )
-    return heapq.merge(events, calls, key=lambda row: float(row.get("ts") or 0))
+    return heapq.merge(events, calls, key=lambda entry: entry[0])
 
 
 def _tally(rows: Iterable[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -113,10 +110,9 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     elapsed: defaultdict[str, float] = defaultdict(float)
     session_turns: defaultdict[str, defaultdict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
 
-    for event in _events(Path(life_dir)):
-        kind = canonical_event_type(event.get("type"))
+    for _, kind, event in _timeline(Path(life_dir)):
         task = str(event.get("item_id") or "")
-        if kind == "usage.recorded":
+        if kind is None:
             call = str(event.get("call_id") or f"#{len(calls)}")
             calls[call] = event
             if role_of(event.get("run_label")) == "planner":

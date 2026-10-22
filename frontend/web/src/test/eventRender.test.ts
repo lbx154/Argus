@@ -32,6 +32,11 @@ describe('the web feed line', () => {
     expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
     expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })).toBeNull();
   });
+  it('shows the status the operator is told and hides the developer log', () => {
+    expect(line({ type: 'life.operator_status', kind: 'service_back', text: 'The model service is answering again.' }))
+      .toMatchObject({ text: 'The model service is answering again.' });
+    expect(line({ type: 'life.status', text: 'planner idle' })).toBeNull();
+  });
   it('shows a remark of the Observer with whom it is for, under its own name', () => {
     const remark = { type: 'life.observer.note', agent_layer: 'observer', to: 'manager', text: 'the Planner woke 14 times on the same running job' };
     expect(zh(remark)).toMatchObject({ role: 'observer', label: '监督者', text: '对经理：the Planner woke 14 times on the same running job' });
@@ -154,9 +159,9 @@ describe('the web feed line', () => {
       reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
     };
     expect(line(event)?.text).toBe('Handing this to the team, in stages.\n'
-      + 'Done once this goal is met. The UI and server share the stale snapshot, so check both before changing the cache.');
+      + 'This wraps up once it is done. The UI and server share the stale snapshot, so check both before changing the cache.');
     expect(zh(event)?.text).toContain('交给团队，分几个阶段做。');
-    expect(zh(event)?.text).toContain('做完这次的目标就结束。');
+    expect(zh(event)?.text).toContain('这件事做完就收尾。');
     expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
   });
 
@@ -167,7 +172,7 @@ describe('the web feed line', () => {
       objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
       reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
     };
-    expect(zh(event)?.text).toBe('交给团队直接做。\n之后会持续跟进。');
+    expect(zh(event)?.text).toBe('交给团队来做。\n之后会持续跟进。');
     expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
   });
 
@@ -313,10 +318,16 @@ describe('the web feed line', () => {
   });
 
   it('renders mission terminal outcomes truthfully', () => {
+    // Without an independent review the summary is the only account of the result.
     expect(line({
       type: 'life.mission.completed', status: 'done', success: true,
       summary: 'Created RESULT.txt and verified its contents.',
     })).toMatchObject({ text: 'The task was completed. · Created RESULT.txt and verified its contents.', tone: 'ok', rule: true });
+    // A reviewed task's conclusion is on the review row; this row says it once.
+    expect(line({
+      type: 'life.mission.completed', status: 'done', success: true, review_source: 'reviewer',
+      summary: 'Created RESULT.txt and verified its contents.',
+    })).toMatchObject({ text: 'The task was completed.', tone: 'ok', rule: true });
     expect(line({ type: 'life.mission.completed', status: 'done', success: true, final_submission_certified: true }))
       .toMatchObject({ text: 'The final submission was checked and approved.', tone: 'ok' });
     expect(line({ type: 'life.mission.completed', status: 'research_incomplete', success: false }))

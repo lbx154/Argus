@@ -80,7 +80,6 @@ _WEB_UI_DROPPED_EVENT_TYPES = frozenset(
         EventType.AGENT_IO_START,
         EventType.AGENT_IO_STREAM,
         EventType.AGENT_IO_COMPLETE,
-        EventType.USAGE_RECORDED,
         EventType.CODEX_UTIL_COMPLETED,
         EventType.SKILL_COST_COMPLETED,
         EventType.BUDGET_RESERVATION_CREATED,

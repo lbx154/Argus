@@ -29,6 +29,14 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       rule: true,
     },
   );
+  // A reviewed task's conclusion is on the review row; this row says it once.
+  assert.equal(
+    renderEvent({
+      type: 'life.mission.completed', status: 'done', success: true, review_source: 'reviewer',
+      summary: 'Created RESULT.txt and verified its contents.',
+    } as EventMsg).text,
+    'The task was completed.',
+  );
 
   assert.deepEqual(
     renderEvent({
@@ -210,12 +218,12 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     'life.manager.intent.failed': { text: "couldn't work out how to handle this request (the model service did not answer), so nothing was started" },
     // The shared renderer explains the selected plan and its recorded rationale.
     'life.manager.intent.completed': {
-      text: 'Handing this to the team, in stages.\nDone once this goal is met. the current operation needs attention',
+      text: 'Handing this to the team, in stages.\nThis wraps up once it is done. the current operation needs attention',
     },
     // The goal is the operator's own words; the shared renderer does not say it back.
     'life.planner.start': { text: 'working out the next step' },
     'life.manager.stage_decision': { text: 'moved on to the review stage' },
-    'loop.done': { text: 'the run finished' },
+    'loop.done': { text: 'the run finished after 1 round' },
     // Bookkeeping retried or repaired on its own is not news to the operator.
     'round.orphan_process_group': { visibility: 'hidden' },
     'life.planner.verdict': { visibility: 'hidden' },

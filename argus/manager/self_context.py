@@ -77,7 +77,6 @@ def self_skill_context(
             project_dir=store.project.skills_dir if layered else root / "skills",
             global_dir=global_dir,
             vertical_dir=vertical_dir,
-            native_project_dir=Path(manager.execution_workdir) / ".agents" / "skills",
             execution_project_root=Path(manager.execution_workdir),
         )
 

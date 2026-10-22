@@ -2,7 +2,7 @@ import type { EventMsg } from '../types.js';
 import type { TypedArgusEvent } from '../eventPayloads.generated.js';
 import { canonicalEventType } from '../eventCatalog.js';
 import { isStructuredAgentPayload, visibleAgentText } from '../events.js';
-import { missionOutcomePresentation } from '../missionOutcome.js';
+import { missionOutcomePresentation, stopClause } from '../missionOutcome.js';
 import { managerIntentSummary } from '../managerIntent.js';
 
 export type RenderLocale = 'en' | 'zh-CN';
@@ -120,15 +120,10 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
     trial_quota_exceeded: ['the trial quota is running low', '试用额度不够了'],
     observation_incomplete: ["it couldn't read all the project files it needed", '没能读全需要的项目资料'],
     timeout: ['the model took too long to answer', '模型太久没有回应'],
-    budget_exhausted: ['the project hit its budget limit', '项目预算到上限了'],
-    provider_cooldown: ['the model service asked to wait a little', '模型服务要求稍等一会儿'],
-    provider_fence: ['the model service is not taking calls right now', '模型服务现在不接受调用'],
-    backend_unavailable: ['the model service was unavailable', '模型服务暂时不可用'],
-    transient_error: ['the model service had a temporary error', '模型服务临时出错'],
-    permanent_error: ['the model call failed', '模型调用失败了'],
   };
-  const cause = [code, stopKind].map((key) => (Object.hasOwn(why, key) ? why[key] : undefined)).find(Boolean);
-  const [en, zh] = cause ? [` (${cause[0]})`, `（${cause[1]}）`] : ['', ''];
+  const cause = (chinese: boolean) => (Object.hasOwn(why, code) ? why[code][chinese ? 1 : 0] : '')
+    || stopClause(code, chinese) || stopClause(stopKind, chinese);
+  const [en, zh] = cause(false) ? [` (${cause(false)})`, `（${cause(true)}）`] : ['', ''];
   const text = stage === 'commit' && ['continue', 'wait', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, `The Manager decided on an adjustment, but it couldn't be applied${en}; the work carries on as it was.`, `经理想调整一下工作，但没能生效${zh}；工作按原样继续。`)
     : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later and the work carries on.`, `经理这次没能看完进展${zh}，稍后再看，工作照常进行。`);
@@ -298,8 +293,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
     case 'life.observer.note': {
       const to = renderLabel(`role.${stringField(event, 'to')}`, context.locale);
-      // The evidence pointer the observer cites ("(events.jsonl ts …)") is for the record.
-      const text = stringField(event, 'text').replace(/\s*[（(][^（()）]*events\.jsonl[^（()）]*[)）]/g, '');
+      const text = stringField(event, 'text');
       return model('observer', 'role.observer', '👁', localized(context, `to ${to}: ${text}`, `对${to}：${text}`), 'warn', { expandable: true });
     }
     case 'life.manager.supervision.failed': {
@@ -383,14 +377,14 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event), context.locale);
-      const summary = clean(stringField(event, 'summary'), 240);
-      const residualRisk = clean(stringField(event, 'residual_risk'), 200);
-      if (residualRisk && presentation.tone === 'ok') {
-        const label = localized(context, 'completed with residual risk', '已完成，但有残余风险');
-        const detail = summary.includes(residualRisk) ? summary : `${residualRisk}${summary ? ` · ${summary}` : ''}`;
-        return model('engineer', 'role.engineer', '⚠', `${label} · ${detail}`, 'warn', { rule: true });
-      }
-      return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
+      // An independent review told its conclusion on its own row and closes the task
+      // under its name; without one, the summary is the only account of the result, told here once.
+      const reviewed = row(event).success === true && stringField(event, 'review_source') === 'reviewer';
+      const by = reviewed ? 'reviewer' : 'engineer';
+      const summary = reviewed && presentation.tone === 'ok' ? '' : clean(stringField(event, 'summary'), 240);
+      const risky = presentation.tone === 'ok' && Boolean(stringField(event, 'residual_risk'));
+      const label = risky ? localized(context, 'completed with residual risk', '已完成，但有残余风险') : presentation.label;
+      return model(by, `role.${by}`, risky ? '⚠' : presentation.glyph, summary ? `${label} · ${summary}` : label, risky ? 'warn' : presentation.tone, { rule: true });
     }
     case 'life.mission.failed':
       return model('engineer', 'role.engineer', '❌', `${localized(context, 'this task failed', '这项任务失败了')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err', { rule: true });
@@ -399,9 +393,9 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       if (stringField(event, 'item_id')) return hidden();
       return model('engineer', 'role.engineer', '▶', clean(stringField(event, 'text') || stringField(event, 'objective'), context.density === 'full' ? 16_000 : 160), 'info', { expandable: context.density === 'full' });
     case 'loop.done': {
-      const rounds = stringField(event, 'text').match(/\brounds=(\d+)/)?.[1];
+      const rounds = Number(row(event).rounds) || 0;
       return model('engineer', 'role.engineer', '🏁', rounds
-        ? localized(context, `the run finished after ${count(Number(rounds), 'round')}`, `这次运行结束，共 ${rounds} 轮`)
+        ? localized(context, `the run finished after ${count(rounds, 'round')}`, `这次运行结束，共 ${rounds} 轮`)
         : localized(context, 'the run finished', '这次运行结束'), 'dim');
     }
     case 'life.inbox.queued':
@@ -429,12 +423,10 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'round.stall':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
     case 'life.budget.pause':
-      if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
+      if (stringField(event, 'stop_kind') === 'cost_unreconciled')
         return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
       return model('system', 'event.watch', '⏸', localized(context, `budget cap reached — paused · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`, `已达到预算上限 — 已暂停 · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`), 'warn');
     case 'budget.reservation.denied':
-      if (stringField(event, 'reason').startsWith('unresolved provider cost'))
-        return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
       return model('system', 'event.budget', '$', `${localized(context, 'budget denied', '预算申请被拒绝')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err', { rule: true });
     case 'budget.unpriced.blocked':
       return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
@@ -571,14 +563,13 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         : hidden();
     }
 
-    case 'life.status': {
-      // Status lines are the developer log; the few meant for you carry a kind.
-      const said = stringField(event, 'text');
-      return stringField(event, 'kind') && said ? model('system', 'role.system', 'ℹ', said, 'info') : hidden();
-    }
+    case 'life.operator_status':
+      return model('system', 'role.system', 'ℹ', stringField(event, 'text'), 'info');
 
+    // Status lines are the developer log.
+    case 'life.status':
     case 'agent.io.start': case 'agent.io.stream': case 'agent.io.complete': case 'agent.io.error':
-    case 'usage.recorded': case 'provider.request.started': case 'provider.request.completed':
+    case 'provider.request.started': case 'provider.request.completed':
     case 'codex.util.completed': case 'skill.cost.completed':
     case 'budget.reservation.created': case 'budget.reservation.settled': case 'budget.reservation.released':
     case 'round.secret_redacted':
@@ -624,10 +615,11 @@ export function renderText(modelValue: RenderModel): string {
   return modelValue.segments.map((segment) => segment.text).join('');
 }
 
-// The team members by the names the reader uses; a critic reviews, so it is
-// shown as the Reviewer. The other keys name who is speaking when it is not
-// a role — the person at the keyboard, or Argus keeping watch.
-const LABELS: Record<string, [english: string, chinese: string]> = {
+/** The team members by the names the reader uses, the one copy every frontend
+ *  shows; a critic reviews, so it is shown as the Reviewer. The last keys name
+ *  who is speaking when it is not a role — Argus keeping watch, or the person
+ *  at the keyboard. */
+export const ROLE_NAMES: Record<string, [english: string, chinese: string]> = {
   'role.manager': ['Manager', '经理'],
   'role.planner': ['Planner', '规划者'],
   'role.engineer': ['Engineer', '工程师'],
@@ -639,6 +631,10 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.system': ['Argus', 'Argus'],
   'role.argus': ['Argus', 'Argus'],
   'role.operator': ['You', '你'],
+};
+
+const LABELS: Record<string, [english: string, chinese: string]> = {
+  ...ROLE_NAMES,
   'event.notice': ['Notice', '通知'],
   'event.watch': ['Watch', '监控'],
   'event.budget': ['Budget', '预算'],

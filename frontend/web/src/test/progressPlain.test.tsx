@@ -74,4 +74,15 @@ describe('real rows from a dogfood session', () => {
     const ev = tool('apply_patch: *** Begin Patch *** Update File: /data/state/config.json @@ { + "SOME_SETTING": "x", "OTHER": "copilot" } *** End Patch', 'apply_patch');
     expect(plainToolLabel(ev, 'zh-CN')).toBe('修改 config.json');
   });
+
+  it("names no file of Argus' own plumbing", () => {
+    const ev = tool('view: {"path": "/fastdata/argus/state/projects/7f066b2919cb"}', 'view');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('查阅文件');
+  });
+
+  it("the Reviewer's verdict reads as submitting the review, not as an internal tool", () => {
+    const ev = tool('argus_review_actions-submit_review: {"decision": "approve"}', 'argus_review_actions-submit_review');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('提交审阅结论');
+    expect(plainToolLabel(ev, 'en')).toBe('Submit the review');
+  });
 });

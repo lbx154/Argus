@@ -41,17 +41,19 @@ def test_block_lists_shared_roots_and_the_audience_sentence(tmp_path):
         tmp_path, role="Manager", shared_roots=[vertical_root, global_root]
     )
     assert "Shared knowledge (read before deciding; written by the host after review):\n" in block
-    assert f"- `{vertical_root.resolve()}`\n- `{global_root.resolve()}`" in block
+    assert f"- `{vertical_root.resolve()}/pages`\n- `{global_root.resolve()}/pages`" in block
     assert AUDIENCE_SENTENCE in block
-    assert block.index("Wiki directories:") < block.index("Shared knowledge")
+    assert block.index("Wiki directories") < block.index("Shared knowledge")
 
 
 def test_shared_knowledge_is_available_without_a_project_wiki(tmp_path):
     shared = tmp_path / "shared" / "pages"
     shared.mkdir(parents=True)
     block = render_knowledge_wiki_block(tmp_path, role="Engineer", shared_roots=[shared.parent])
-    assert str(shared.parent) in block
+    assert f"`{shared.resolve()}`" in block
     assert "Search and read the Wiki yourself" in block
+    # Trial 2: "直接做" opened `wiki/_global/INDEX.md`, which a shared Wiki never has.
+    assert "INDEX.md" not in block and "Wiki directories" not in block
     assert render_knowledge_wiki_block(tmp_path, role="Engineer") == ""
 
 

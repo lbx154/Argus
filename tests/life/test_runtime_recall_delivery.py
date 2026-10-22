@@ -64,7 +64,7 @@ class RuntimeRunner(SkillLoopExecuteMixin):
             require_post_task_learning=False, wiki_enabled=False, auto_init_wiki=False,
             session_id=kwargs["mission_id"], context_packet_path=kwargs["context_packet_path"],
             engineer_log_path=str(self.memory.root / "engineer.jsonl"),
-            operator_question_policy_root=self.memory.root,
+            state_root=self.memory.root,
         )
 
     def _refresh_manager_skill_store(self, *_args, **_kwargs):

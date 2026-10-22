@@ -36,7 +36,7 @@ def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
     """
     return ReviewDecision(
         status=HANDOFF_STATUS[holder],
-        reason=strip_handoff(message)[-1200:] or f"Engineer handed the work to the {holder}.",
+        reason=strip_handoff(message) or f"Engineer handed the work to the {holder}.",
         next_action="",
         operator_question=question,
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
@@ -168,7 +168,7 @@ def reused_record(verdict: dict) -> ReviewDecision:
     )
 
 
-class RoundSelfReviewMixin:
+class RoundRoutingMixin:
     """Hand a turn to the holder its baton line names."""
 
     def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, list[str]]:
@@ -190,7 +190,7 @@ class RoundSelfReviewMixin:
             state.snapshots.hold(holder, label, outside_inputs(state))
         return holder, passed
 
-    def _handle_progress_and_self_review(
+    def _route_turn(
         self,
         *,
         round_index: int,
@@ -254,4 +254,4 @@ class RoundSelfReviewMixin:
         )
 
 
-__all__ = ["RoundSelfReviewMixin"]
+__all__ = ["RoundRoutingMixin"]

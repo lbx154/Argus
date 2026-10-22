@@ -522,7 +522,7 @@ def external_pause_review_decision(
             "Resume from the saved progress once the budget or model-service "
             "condition that paused the work has cleared."
         )
-    why = stop_kind_clause(stop_kind) or "the work was interrupted"
+    why = stop_kind_clause(stop_kind, neutral=True)
     return ReviewDecision(
         status="blocked",
         reason=(

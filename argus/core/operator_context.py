@@ -95,26 +95,6 @@ class OperatorDeliveryCapacityError(OperatorContextCapacityError):
     """Replay metadata is full; the source must retain its pending delivery."""
 
 
-# Heading of tools/subagent/_reporting.py completion reports. They reach the
-# inbox as ephemeral host reports since db79822a, so only an idle copy stored
-# before then is one the ledger kept on Argus's own behalf; a later one is text
-# the operator pasted, possibly with an instruction after it.
-_LEGACY_SUBAGENT_REPORT_PREFIX = "## Subagent Report:"
-_HOST_REPORTS_EPHEMERAL_SINCE = datetime(2026, 9, 30, 9, 58, 20, tzinfo=timezone.utc)
-
-
-def _legacy_subagent_report(record: DirectiveRecord) -> bool:
-    if not record.text.startswith(_LEGACY_SUBAGENT_REPORT_PREFIX):
-        return False
-    try:
-        created = datetime.fromisoformat(str(record.created_at).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
-    return created < _HOST_REPORTS_EPHEMERAL_SINCE
-
-
 def operator_context_state_root(memory: Any) -> Path:
     value = getattr(memory, "project_root", None) or getattr(memory, "root", None)
     if value is None:
@@ -507,6 +487,24 @@ class OperatorContextStore:
                 # cache has vanished, there is no evidence authorizing replay.
                 doc.state["consumed_once"] = uncertain
                 doc.state["legacy_consumption_uncertain"] = True
+        # Subagent completion reports reach the inbox as ephemeral host reports
+        # since db79822a; an idle copy stored before then was delivered long
+        # ago, and no Planner decision settles a report another job wrote (a
+        # later one is text the operator pasted). Revoke each, once. Records
+        # carry UTC ISO time, which orders as text.
+        revoked = set(doc.state.get("revoked", []))
+        stale = {
+            row["revision"] for row in doc.records
+            if row["type"] == "directive" and row["lifetime"] == "bounded_increment"
+            and row["revision"] not in revoked
+            and row["text"].startswith("## Subagent Report:")
+            and row["created_at"] < "2026-09-30T09:58:20Z"
+            and bounded_mission(row["mission_id"], row["revision"], doc.state["bounded_missions"])
+            == _NO_MISSION
+        }
+        if stale:
+            doc.state["revoked"] = sorted(revoked | stale)
+            doc.needs_checkpoint = True
         return doc
 
     def _ensure_ownership(self) -> None:
@@ -833,11 +831,6 @@ class OperatorContextStore:
                             # Recorded while nothing ran; it lasts until the
                             # Planner declares the increment that handles it.
                             if record.revision in settled:
-                                continue
-                            # A report stored before host reports became
-                            # ephemeral was delivered long ago, and no Planner
-                            # decision ever settles a report another job wrote.
-                            if _legacy_subagent_report(record):
                                 continue
                             idle_revisions.add(record.revision)
                     if record.lifetime == "once" and consume_once:

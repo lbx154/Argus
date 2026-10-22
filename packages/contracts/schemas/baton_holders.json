@@ -1,0 +1,8 @@
+{
+  "engineer": ["engineer", "工程师", "执行"],
+  "reviewer": ["reviewer", "审阅者", "复核"],
+  "planner": ["planner", "规划者", "规划"],
+  "manager": ["manager", "经理", "统筹"],
+  "operator": ["operator", "你", "操作员"],
+  "done": ["done", "完成"]
+}

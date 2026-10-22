@@ -26,6 +26,7 @@ from typing import Any, Iterator
 from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
 from ..core.secret_guard import known_secret_values, redact_secrets_text
+from ..core.stop_kinds import OPERATOR_RESUMED_PARKS
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
 
 CIRCUIT_FILENAME = "runtime-failure-circuit.json"
@@ -424,6 +425,17 @@ def clear_runtime_failure_circuit(
     return True
 
 
+def operator_resume(root: Path | str) -> list[Any]:
+    """The operator's Run: end a provider outage's circuit, then every park the Planner does not own.
+
+    Never automatic. The circuit goes first: the backlog write wakes a sleeping daemon.
+    """
+    from .memory import LifeMemory
+
+    clear_runtime_failure_circuit(root, reason="operator Run", fingerprint=PROVIDER_OUTAGE)
+    return LifeMemory.open(root).backlog.resume_parked(OPERATOR_RESUMED_PARKS)
+
+
 __all__ = [
     "CANARY_COOLDOWN_KNOB",
     "CANARY_TAG",
@@ -433,6 +445,7 @@ __all__ = [
     "claim_runtime_failure_half_open",
     "clear_runtime_failure_circuit",
     "normalize_runtime_failure_message",
+    "operator_resume",
     "provider_outage_failure",
     "record_runtime_failure_circuit",
     "runtime_failure_canary_cooldown_seconds",

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..event_catalog import EventType, canonical_event_type
+from ..paths import NATIVE_SKILLS_DIR
 from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
@@ -117,6 +118,12 @@ def _refresh_review_projection(root: Path, view: dict[str, Any]) -> None:
                 view["active_role"] = ""
 
 
+def operator_objective(row: Mapping[str, Any]) -> str:
+    """A task's objective as the operator reads it: their own request when one is kept."""
+    shown = (row.get("manager_decision") or {}).get("display_objective")
+    return shown if isinstance(shown, str) and shown.strip() else str(row.get("objective") or "")
+
+
 def merge_mission_view_snapshot(
     view: dict[str, Any],
     *,
@@ -153,7 +160,7 @@ def merge_mission_view_snapshot(
     )
     selected = active or owner
     objective = str(
-        (selected or {}).get("objective")
+        operator_objective(selected or {})
         or (selected or {}).get("title")
         or (
             (continuous or {}).get("objective")
@@ -253,12 +260,12 @@ def merge_mission_view_snapshot(
     else:
         for existing in role_rows:
             if existing.get("status") == "active":
-                existing.update({
-                    "status": "waiting",
-                    "kind": "waiting",
-                    "label": say("waiting", chinese),
-                })
+                existing.update({"status": "waiting", "kind": "waiting"})
         view["active_role"] = ""
+    # A waiting role says so in the session's language, however long it has waited.
+    for existing in role_rows:
+        if existing.get("kind") == "waiting":
+            existing["label"] = say("waiting", chinese)
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:
@@ -294,7 +301,7 @@ def merge_mission_view_snapshot(
         _upsert(dag, "id", item_id, {
             "id": item_id,
             "title": str(item.get("title") or "")[:240],
-            "objective": str(item.get("objective") or ""),
+            "objective": operator_objective(item),
             "status": str(item.get("status") or "pending"),
             "deps": [str(dep) for dep in (item.get("deps") or [])],
             "branch_id": item_id,
@@ -473,7 +480,7 @@ def _enrich_skill_content(
     backlog: list[Mapping[str, Any]],
     workdir: str,
 ) -> None:
-    native, state = Path(workdir or root) / ".agents" / "skills", root / "skills"
+    native, state = Path(workdir or root) / NATIVE_SKILLS_DIR, root / "skills"
     _discover_project_skills(native, state, view, backlog)
     allowed_roots = [native.resolve(), state.resolve()]
     if root.parent.name == "projects":

@@ -16,11 +16,13 @@ import logging
 import shutil
 import subprocess
 import time
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
+from ...core.mission_view import operator_objective
 from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
 from ...core.usage import UsageLedger, UsageRecord
 from ..memory import BacklogItem, park_reason
@@ -458,8 +460,8 @@ class MissionExecutionRuntimeMixin:
             "title": item.title,
             # Carry the objective on the event itself (not just the journal
             # entry) so the live mission-context line renders the
-            # real goal instead of "objective=-".
-            "objective": item.objective,
+            # real goal instead of "objective=-": the operator's own words.
+            "objective": operator_objective(vars(item)),
             "scope": state.item_scope,
             "independent_review_required": (
                 self._item_requires_independent_review(item)
@@ -1229,23 +1231,36 @@ class MissionExecutionRuntimeMixin:
                 state.stop_reason = f"{RETRY_WINDOW_SPENT_REASON} ({state.stop_reason})."
             return None
 
-        from ...core.operator_decision import build_operator_decision
-        from .pending_notify import notify_pending_question
+        from ...core.mission_view import say
+        from .pending_notify import ask_operator
 
         usage_summary = state.usage_summary
         assert usage_summary is not None, "provider parking requires metered outcome"
-        question = (
-            "The model configuration for this task has failed the same way "
-            f"{streak} times in a row: {state.stop_reason} "
-            "I have stopped retrying this configuration so the failures stop "
-            "costing money. Fix the model name or provider access, then reply "
-            "here to resume this task — or tell me to drop it."
+        question = say(
+            "ask_fix_model_configuration", self._operator_chinese(),
+            streak=streak, reason=state.stop_reason,
         )
-        decision_card = build_operator_decision(
-            item_id=item.id,
-            title=item.title,
-            reason=str(state.stop_reason or ""),
-            question=question,
+        pause_outcome = mission_outcome_dimensions(
+            status="parked",
+            success=False,
+            review_status=str(
+                getattr(state.outcome, "final_review_status", "") or ""
+            ),
+            stop_kind=state.stop_kind,
+            resumable=True,
+            park_reason="operator_question",
+        )
+        ask_operator(
+            self.memory.root, item, question, reason=str(state.stop_reason or ""), layer="manager",
+            save=partial(
+                self.memory.backlog.update, item.id,
+                finished_ts=time.time(),
+                last_error=state.stop_reason,
+                outcome=pause_outcome,
+                provider_cooldown_streak=streak,
+                provider_cooldown_signature=signature,
+            ),
+            emit=self._emit,
             options=[
                 {
                     "id": "resume",
@@ -1265,36 +1280,10 @@ class MissionExecutionRuntimeMixin:
                 },
             ],
             evidence=list(getattr(item, "context_refs", None) or []),
-            project_id=self.memory.root.name,
-            previous_decision=item.operator_decision,
+            # Host-authored options: "drop" here means stop this item, which an
+            # agent-authored option that happens to be called "drop" must not.
+            decision_kind="provider_configuration",
         )
-        # Host-authored options: "drop" here means stop this item, which an
-        # agent-authored option that happens to be called "drop" must not.
-        decision_card["decision_kind"] = "provider_configuration"
-        pause_outcome = mission_outcome_dimensions(
-            status="parked",
-            success=False,
-            review_status=str(
-                getattr(state.outcome, "final_review_status", "") or ""
-            ),
-            stop_kind=state.stop_kind,
-            resumable=True,
-            park_reason="operator_question",
-        )
-        self.memory.backlog.update(
-            item.id,
-            park_reason="operator_question",
-            finished_ts=time.time(),
-            last_error=state.stop_reason,
-            outcome=pause_outcome,
-            pending_question=question,
-            operator_decision=decision_card,
-            provider_cooldown_streak=streak,
-            provider_cooldown_signature=signature,
-        )
-        item.pending_question = question
-        item.operator_decision = decision_card
-        notify_pending_question(self.memory.root, item)
         self._emit({
             "type": "life.mission.provider_configuration_disabled",
             "item_id": item.id,
@@ -1304,13 +1293,6 @@ class MissionExecutionRuntimeMixin:
             "error": state.stop_reason,
             "operator_alert": True,
             "text": question,
-        })
-        self._emit({
-            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-            "item_id": item.id,
-            "title": item.title,
-            "question": question,
-            "agent_layer": "manager",
         })
         self._emit({
             "type": EventType.LIFE_MISSION_COMPLETED,

@@ -155,6 +155,29 @@ def test_manager_stage_decision_uses_human_action_and_status(tmp_path: Path) -> 
     assert view["role_work"][-1]["detail"] == "The submission evidence is stale."
 
 
+def test_a_deterministic_stage_decision_keeps_the_runtime_record_apart(tmp_path: Path) -> None:
+    emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数")
+    reason = "Reviewer accepted the direct task and deterministic completion checks passed"
+    view = emit(
+        tmp_path, "life.manager.stage_decision", 2,
+        action="complete", target_stage="delivery", source="manager_deterministic", reason=reason,
+    )
+    row = view["timeline"][-1]
+    assert (row["title"], row["detail"], row["technical"]) == ("交付阶段已完成。", "", reason)
+    # A stage without a Chinese name reads as itself, set off by the sentence, not by stray spaces.
+    view = emit(tmp_path, "life.manager.stage_decision", 3, action="complete", target_stage="field_trial")
+    assert view["timeline"][-1]["title"] == "field trial 阶段已完成。"
+
+
+def test_a_role_still_waiting_says_so_in_the_session_language(tmp_path: Path) -> None:
+    from argus.core.mission_view import merge_mission_view_snapshot
+
+    view = emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数")
+    view = merge_mission_view_snapshot(view, session={}, daemon={}, roles=[], backlog=[])
+    labels = {row["role"]: row["label"] for row in view["roles"]}
+    assert labels["engineer"] == labels["reviewer"] == "等待中"
+
+
 def test_load_normalizes_persisted_legacy_manager_failure_label(
     tmp_path: Path,
 ) -> None:
@@ -1553,6 +1576,27 @@ def test_chinese_request_gets_chinese_sentences_with_stable_codes(tmp_path: Path
     assert view["timeline"][-1]["title"] == "第 9 轮工作开始。"
 
 
+def test_a_chinese_sentence_spaces_a_latin_parameter_but_not_its_own_text() -> None:
+    from argus.core.mission_view import say
+
+    assert say("stage_advanced", True, stage="experiment") == "项目进入 experiment 阶段。"
+    assert say("update_done", True, subject="写出实验1结果.csv") == "完成了：写出实验1结果.csv。"
+
+
+def test_an_answered_task_shows_the_operator_their_request_at_the_top(tmp_path: Path) -> None:
+    """Trial, 2026-10-21: once a question was answered, the top of the
+    mission view showed the roles' English decision brief."""
+    request = "truncate 选 A 还是 B？"
+    row = {
+        "id": "t-1", "title": "确认 truncate 的取舍", "status": "running",
+        "objective": "Authoritative Manager operator-answer decision:\nA", "manager_decision": {"display_objective": request},
+    }
+    view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[row])
+
+    assert view["mission"]["objective"] == request
+    assert view["dag"][0]["objective"] == request
+
+
 def test_round_the_model_service_dropped_is_explained_without_runtime_words(
     tmp_path: Path,
 ) -> None:
@@ -1650,22 +1694,24 @@ def test_round_skipped_because_argus_stopped_is_classified_by_stop_kind(
     assert entry["technical"] == "error=daemon stop requested"
 
 
-@pytest.mark.parametrize("opening", [
-    "You stopped Argus before the Reviewer could finish reading this round",
-    "The Argus background service stopped or restarted in the middle of this round",
-    "The run was interrupted before the Reviewer could finish reading this round",
+@pytest.mark.parametrize("stop_kind,said", [
+    ("operator_pause", "The task stopped because you paused the work."),
+    ("daemon_shutdown", "The task stopped because the Argus background service stopped or restarted."),
 ])
-def test_a_task_closed_by_an_interrupted_round_is_recognized(tmp_path: Path, opening: str) -> None:
-    reason = f"{opening}; nothing here is a judgment on the work. Technical record: exit=130"
+def test_a_task_closed_by_a_stop_says_why_from_its_stop_kind(
+    tmp_path: Path, stop_kind: str, said: str,
+) -> None:
+    # Whatever the runtime's sentence says, who stopped the task is its stop kind.
+    reason = "You stopped Argus in the middle of this round. Technical record: exit=130"
     view = emit(
         tmp_path, "life.mission.completed", 1,
         item_id="task-1", title="Portfolio", success=False, status="failed",
-        failure_reason=reason, stop_reason=reason,
+        failure_reason=reason, stop_reason=reason, stop_kind=stop_kind,
     )
     entry = view["timeline"][-1]
-    assert entry["cause"] == "argus_stopped"
-    assert entry["detail"] == "Argus was stopped while this task was running; its progress is saved."
+    assert entry["detail"] == said
     assert entry["technical"] == "exit=130"
+    assert "cause" not in entry
 
 
 def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Path) -> None:
@@ -1699,7 +1745,7 @@ def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Pa
     entry = view["timeline"][-1]
     assert view["mission"]["status"] == "ended"
     assert role["kind"] == "mission_paused"
-    assert role["label"] == "任务在完成前暂停，因为 Argus 被停止；进度已保存，可以继续。"
+    assert role["label"] == "任务在完成前暂停，因为 Argus 后台服务停止或重启了；进度已保存，可以继续。"
     assert entry["kind"] == "mission_paused"
     assert entry["title"] == role["label"]
     assert entry["technical"] == "paused_daemon_shutdown"
@@ -1758,7 +1804,7 @@ def test_version_six_view_is_rebuilt_with_codes_and_sentences(tmp_path: Path) ->
     assert load_mission_view(tmp_path)["schema_version"] == 7
 
 
-def test_failed_task_closing_row_explains_the_runtime_record(tmp_path: Path) -> None:
+def test_failed_task_closing_row_says_its_stop_and_keeps_the_record_apart(tmp_path: Path) -> None:
     emit(
         tmp_path,
         "life.manager.intent.completed",
@@ -1782,17 +1828,13 @@ def test_failed_task_closing_row_explains_the_runtime_record(tmp_path: Path) -> 
         status="failed",
         failure_reason=raw,
         stop_reason=raw,
+        stop_kind="backend_unavailable",
     )
     entry = view["timeline"][-1]
     assert entry["kind"] == "mission_failed"
     assert entry["title"] == "任务没能完成。"
-    assert entry["cause"] == "reviewer_unreachable"
-    assert entry["detail"] == (
-        "审阅者连续 2 次没能给出判断，Argus 选择停下这项任务，"
-        "而不是在没有真正审阅的情况下结束一轮。"
-    )
+    assert entry["detail"] == "任务停了下来，因为模型服务不可用。"
     assert entry["technical"] == "exit=1, fatal_error=Copilot CLI exited with code 1."
-    assert view["role_work"][-1]["cause"] == "reviewer_unreachable"
     assert view["role_work"][-1]["detail"] == entry["detail"]
 
 
@@ -1811,34 +1853,6 @@ def test_failed_task_keeps_a_roles_own_reason_verbatim(tmp_path: Path) -> None:
     assert entry["detail"] == "The proof relies on a lemma that does not hold for n = 0."
     assert "cause" not in entry
     assert "technical" not in entry
-
-
-def test_failed_task_with_new_runtime_wording_is_explained_in_english(tmp_path: Path) -> None:
-    view = emit(
-        tmp_path,
-        "life.mission.completed",
-        1,
-        item_id="task-1",
-        title="Run the sweep",
-        success=False,
-        status="error",
-        failure_reason=(
-            "The model service dropped the Engineer's session before it produced a "
-            "result that could be checked, so this round was not judged; Argus "
-            "retries in a fresh session. Technical record: consecutive failures=2, "
-            "limit=2, error=Copilot CLI exited with code 1."
-        ),
-    )
-    entry = view["timeline"][-1]
-    assert entry["cause"] == "engineer_service_dropped"
-    assert entry["detail"] == (
-        "The model service kept dropping the Engineer's session before it produced "
-        "a result that could be checked, so Argus stopped this task; it can be "
-        "retried later."
-    )
-    assert entry["technical"] == (
-        "consecutive failures=2, limit=2, error=Copilot CLI exited with code 1."
-    )
 
 
 def test_round_skipped_for_an_unreachable_model_service_names_the_cause(
@@ -1929,6 +1943,17 @@ def test_task_paused_for_an_unreachable_model_service_is_explained_in_english(
     assert entry["technical"] == (
         "paused_provider_cooldown; error=Copilot CLI exited with code 1."
     )
+
+
+def test_direct_turn_steps_are_named_in_the_operators_language(tmp_path: Path) -> None:
+    emit(tmp_path, "manager.turn.started", 9, message_id="web-4", text="帮我看看调度代码")
+    view = emit(
+        tmp_path, "engineer.progress", 10, status="running", agent_layer="manager",
+        kind="tool_use", item_id="turn:web-4", message_id="web-4:c1", text="查阅 scheduler.hpp",
+        call_id="c1", turn_step=True,
+    )
+    row = next(row for row in view["role_work"] if row["role"] == "manager")
+    assert row["title"] == "正在使用工具"
 
 
 def test_manager_turn_steps_keep_one_work_record_per_call_with_its_status(tmp_path: Path) -> None:
