@@ -19,6 +19,10 @@ def build_observer_prompt(
     """The first look at a task carries the whole brief; a resumed look, from ``since``, only what is new."""
     ended = "\n".join(map(_turn_line, turns))
     earlier = "\n".join(f"→ manager: {text}" for text in said) or "(none)"
+    # The operator reads the remark as written: in their language, with their names for the roles.
+    language = f"in {'Chinese' if chinese else 'English'}, the operator's language" + (
+        ", calling the roles 经理, 规划者, 工程师 and 审阅者" if chinese else ""
+    )
     if since:
         return (
             "## Another look\n"
@@ -26,7 +30,7 @@ def build_observer_prompt(
             "the events from then on; the earlier ones are already in this conversation:\n"
             f"{ended}\n"
             f"Your earlier remarks:\n{earlier}\n"
-            f"Write a remark in {'Chinese' if chinese else 'English'}, the operator's language.\n"
+            f"Write a remark {language}.\n"
         )
     return (
         "## The Observer\n"
@@ -61,7 +65,7 @@ def build_observer_prompt(
         "When it is off, write one line for the Manager, who decides what to do:\n"
         "→ manager: <one sentence> (<where you saw it, e.g. events.jsonl ts ...>)\n"
         "Say a thing once: repeat an earlier remark only with new evidence. Write the "
-        f"sentence in {'Chinese' if chinese else 'English'}, the operator's language.\n\n"
+        f"sentence {language}.\n\n"
         "## This look\n"
         "These turns just ended. Read the flow back to where their task started, not only "
         "these turns; for the Planner, back to when a task last started or finished:\n"
