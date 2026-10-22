@@ -84,6 +84,10 @@ _TASK_OWNED_BLOCKS = (
 #
 # The read-only forms then went: every Reviewer has the Engineer's tools and
 # gets the executing form alone. Measured at 5_198.
+#
+# HO-3 then named what goes to the Manager rather than back to the Engineer:
+# a file the Reviewer cannot read, a tool or access it lacks, criteria that
+# contradict each other (~120 chars). Measured at 5_625.
 FIXED_PROSE_BUDGET = 5_700
 
 
