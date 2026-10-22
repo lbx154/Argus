@@ -262,11 +262,15 @@ class Planner:
             return full_prompt, prompt
 
         full_prompt, prompt = render(bool(resume_thread_id))
+        libraries = self.mission.libraries()
+        # A sandboxed backend reads only what it is given: the Skill libraries
+        # the prompt names are read where they lie.
+        add_dirs = [*(cfg.add_dirs or ()), *(str(path) for path in libraries.library_roots)]
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
             working_dir=cfg.working_dir,
-            add_dirs=list(cfg.add_dirs) if cfg.add_dirs else None,
+            add_dirs=add_dirs or None,
             # Planner chooses and delegates work; it does not execute it. Keep
             # the boundary role-owned so an upstream yolo setting cannot grant
             # shell, network, build, test, or write tools to this call.
@@ -281,9 +285,7 @@ class Planner:
             excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-            skill_paths=[
-                str(path) for path in self.mission.libraries().native_paths
-            ],
+            skill_paths=[str(path) for path in libraries.native_paths],
             external_interrupt_reason_provider=cfg.external_interrupt_reason_provider,
         )
         started_at = time.monotonic()

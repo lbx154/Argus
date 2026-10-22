@@ -16,7 +16,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.apps._inbox import queue_inbox_message
 from argus.core.operator_context import append_directive
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus.life.context_packet import create_mission_context
+from argus.life.context_packet import create_mission_context, render_mission_brief
 from argus.life.memory import Backlog, BacklogItem
 from argus.reviewer import Reviewer, ReviewerConfig
 
@@ -166,6 +166,21 @@ def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path)
     assert record.review.review_source == "unchanged_return"
     assert "the engineer and the planner" in record.review.reason
     assert "to the manager" in record.review.reason
+
+
+def test_the_brief_says_where_the_engineer_handed_the_work(tmp_path: Path) -> None:
+    """The next role read s-757b9dac's `→ planner` turn as work awaiting review."""
+    state = _state(tmp_path)
+    packet = create_mission_context(life_dir=state, mission_id="parser-1", stage="", objective="repair the parser")
+    first = MemoryBackend()
+    first.queue("engineer-r1", CannedResponse(message="Two rounding rules conflict.\n→ planner"))
+    _run(tmp_path, first, packet=packet)
+
+    brief = render_mission_brief(packet)
+
+    assert "awaiting review" not in brief and "Unreviewed" not in brief
+    assert "- Latest Engineer work (→ planner): `" in brief
+    assert "- Engineer work (→ planner): Two rounding rules conflict." in brief
 
 
 def test_only_a_handoff_to_the_reviewer_resumes_at_review(tmp_path: Path) -> None:

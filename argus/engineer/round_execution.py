@@ -35,6 +35,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
     stop_park_reason,
 )
+from .round_routing import sent_to
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -218,14 +219,13 @@ class RoundExecutionMixin:
             engineer_result,
             decisive_output=engineer_message,
         )
-        handoff = read_baton_line(raw_engineer_message)
+        holder = sent_to(read_baton_line(raw_engineer_message), supervised_config)
         if on_event:
             on_event({
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "engineer",
                 # Accepting its own work ends the task where no review is required.
-                **({"ends_work": True} if handoff and handoff.holder == "done"
-                   and not supervised_config.require_independent_review else {}),
+                **({"ends_work": True} if holder == "done" else {}),
                 "policy": engineer_session.policy,
                 "action": engineer_session.action,
                 "rotation_reason": engineer_session.rotation_reason,
@@ -252,6 +252,7 @@ class RoundExecutionMixin:
                     engineer_summary=engineer_message,
                     checkpoint_path=checkpoint_path,
                     thread_id=str(round_thread_id or ""),
+                    holder=holder,
                 )
             except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
                 log.exception("failed to persist Engineer context packet")
