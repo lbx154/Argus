@@ -632,6 +632,12 @@ def render_reviewer_prompt(
             )
         )
     )
+    # One switch says whether a question reaches the operator (core.autonomy);
+    # while it does not, the Manager decides in their place, so the Reviewer is
+    # never told to ask them.
+    from ...core.autonomy import operator_questions_can_be_asked
+
+    asking = operator_questions_can_be_asked()
     handoff_policy = (
         "Hand off `→ done` when a direct task meets its requirements and decisive "
         "check, `→ planner` only to change the plan, and `→ engineer` naming the next "
@@ -644,8 +650,12 @@ def render_reviewer_prompt(
             "proves no impossibility; a missed threshold describes only that run. "
             "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
             "evidence plus profiling, timing, or a controlled comparison. Integrity is "
-            "required, not scientific value. Ask only for operator-owned authority/facts. "
-            "`→ done` closes a task; final-submission may close the project."
+            "required, not scientific value. "
+            + (
+                "Ask only for operator-owned authority/facts. " if asking else
+                "Operator-owned authority/facts go to `→ manager`, which decides in their place. "
+            )
+            + "`→ done` closes a task; final-submission may close the project."
         )
     )
     decision_policy = (
@@ -656,9 +666,14 @@ def render_reviewer_prompt(
         "(e.g. \"char_count is delivered; its default count, ignored whitespace and "
         "package export were checked\"). "
         "End it with one line naming "
-        "who holds the work next: `→ done`, `→ engineer`, `→ planner`, `→ manager` or "
-        "`→ operator: <one question>`. " + OPERATOR_CHOICES_RULE + " No JSON or other "
-        "closing line is read. "
+        "who holds the work next: `→ done`, `→ engineer`, `→ planner`, "
+        + (
+            "`→ manager` or `→ operator: <one question>`. " + OPERATOR_CHOICES_RULE
+            if asking else
+            "or `→ manager`; the operator cannot be asked in this run, so the Manager "
+            "decides in their place."
+        )
+        + " No JSON or other closing line is read. "
         "Before accepting, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "
@@ -708,7 +723,9 @@ def render_reviewer_prompt(
         "`→ done` meets this profile; check relevant uncertainty. "
         "Leave source/output/build files unchanged; use the vertical command for judgments. "
         "Use `→ engineer` for one material gap in scope, `→ planner` for a wrong target or "
-        "scope change, and `→ manager` or `→ operator` only for obstacles the team cannot "
+        "scope change, and "
+        + ("`→ manager` or `→ operator`" if asking else "`→ manager`")
+        + " only for obstacles the team cannot "
         "remove. Use primary sources "
         "for external claims; community code may ground implementation details. "
         "Stay within this profile; require no future-proofing. "

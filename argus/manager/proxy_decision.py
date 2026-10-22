@@ -2,9 +2,9 @@
 
 Only while the operator cannot be asked (principle 8): they said not to be, or
 the run has none. The Manager names the card and one of its options in typed
-fields (its own answer only on a card that offers none); the host applies that
-choice on the path an operator's choice takes and records it in the Manager's
-name.
+fields (its own answer only on a card that offers none), or ends the task; the
+host applies that choice on the path an operator's choice takes and records it
+in the Manager's name.
 """
 from __future__ import annotations
 
@@ -23,14 +23,33 @@ class ProxyChoice:
     evidence_refs: tuple[str, ...]
 
 
+def end_option(card: Mapping[str, Any]) -> str:
+    """The choice on ``card`` that ends its task: the host's own, else ``END_TASK_OPTION``."""
+    from ..core.operator_decision import END_TASK_OPTION
+
+    if card.get("decision_kind") == "provider_configuration":
+        return "drop"
+    if card.get("decision_kind") == "framework_deployment":
+        return "decline"
+    return END_TASK_OPTION
+
+
 def _option_ids(card: Mapping[str, Any]) -> list[str]:
-    """What the Manager may choose on ``card``: one of its options, its own answer where it has none."""
+    """What the Manager may choose on ``card``.
+
+    One of its options, or its own answer where it has none, and always the
+    choice that ends the task. A choice that needs what only the operator
+    holds is not offered: resuming after a model configuration is fixed waits
+    on a fix the Manager cannot make, so it can only drop that task.
+    """
+    if card.get("decision_kind") == "provider_configuration":
+        return ["drop"]
     ids = [
         str(row.get("id") or "")
         for row in card.get("options", ())
         if isinstance(row, Mapping)
     ]
-    return ids or ["custom"]
+    return list(dict.fromkeys([*(ids or ["custom"]), end_option(card)]))
 
 
 def decide_for_operator(
@@ -76,14 +95,19 @@ def decide_for_operator(
 
 
 def _prompt(card: Mapping[str, Any], *, why: str, context: str) -> str:
+    allowed = _option_ids(card)
     options = "\n".join(
         f"- {row.get('id')}: {row.get('label')}"
         + (f" — {row.get('description')}" if row.get("description") else "")
         for row in card.get("options", ())
-        if isinstance(row, Mapping)
+        if isinstance(row, Mapping) and row.get("id") in allowed
     )
-    if "custom" in _option_ids(card):
+    if "custom" in allowed:
         options += "\n- custom: your own answer, written in NOTE"
+    if end_option(card) not in {
+        str(row.get("id") or "") for row in card.get("options", ()) if isinstance(row, Mapping)
+    }:
+        options += f"\n- {end_option(card)}: end this task without finishing it"
     evidence = "\n".join(
         f"- {row.get('path')}: {row.get('summary') or row.get('label') or ''}"
         for row in card.get("evidence", ())
@@ -92,8 +116,9 @@ def _prompt(card: Mapping[str, Any], *, why: str, context: str) -> str:
     return (
         f"You are the project Manager. {why}, so you hold the operator's authority "
         "and decide this question in their place. That authority covers spending, "
-        "irreversible or outward-facing steps and releases; credentials you do not "
-        "hold stay out of reach, so choose a way forward without them. Decide as "
+        "irreversible or outward-facing steps and releases; credentials or a "
+        "configuration fix you cannot supply stay out of reach, so choose a way "
+        "forward without them, or end the task. Decide as "
         "the operator would for their objective. Your decision is recorded in your "
         "name and listed for the operator to review.\n\n"
         + (f"{context.strip()}\n\n" if context.strip() else "")

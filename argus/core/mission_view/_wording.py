@@ -570,8 +570,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "请在“设置 → 高级设置”里给经理换一个模型，重启后再试。",
     ),
     "proxy_undecided": (
-        "I couldn't decide “{title}” for you, so it waits for your answer.",
-        "“{title}”我没法替你决定，等你回来再定。",
+        "The Manager couldn't decide “{title}” for you, so that task was ended; you can run it again.",
+        "“{title}”经理没能替你定下来，这项任务就先结束了；你可以再把它跑一遍。",
     ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),

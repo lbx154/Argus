@@ -17,6 +17,13 @@ def _human_reason(reason: str, *, language_hint: str) -> str:
     return humanize_runtime_reason(reason, language_hint=language_hint)
 
 
+#: The Manager's own way out of any card it decides in the operator's place:
+#: end that task (principle 8: what it cannot supply, it bypasses or ends). Only
+#: the host offers it, so an agent's option never takes this id.
+END_TASK_OPTION = "end-task"
+_RESERVED_OPTION_IDS = frozenset({"custom", END_TASK_OPTION})
+
+
 def normalize_option_id(value: Any) -> str:
     """The id an option's raw ``id`` becomes on a card ("" when none survives)."""
     raw_id = str(value or "").strip().casefold()
@@ -42,7 +49,7 @@ def normalize_agent_options(
         option_id = normalize_option_id(row.get("id"))
         if not option_id:
             option_id = f"option-{index + 1}"
-        elif option_id == "custom":
+        elif option_id in _RESERVED_OPTION_IDS:
             option_id = f"option-{index + 1}"
         base_id = option_id
         suffix = 2
@@ -150,6 +157,8 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
         if not note:
             raise ValueError("this decision requires an answer")
         return note
+    if option_id == END_TASK_OPTION:
+        return "End this task without finishing it." + (f"\n\nNote: {note}" if note else "")
     option = next(
         (
             row
@@ -165,6 +174,7 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
 
 
 __all__ = [
+    "END_TASK_OPTION",
     "build_operator_decision",
     "card_answer",
     "normalize_agent_options",

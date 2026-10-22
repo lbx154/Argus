@@ -1170,10 +1170,11 @@ def build_project_completion_report_prompt(
         "verified (such as test counts); report what it found as facts about the "
         "work, never that you adopt or carry over its verdict.\n\n"
         + (
-            "Name each recorded assumption in autonomous_assumptions in its own line: "
-            "the reading chosen for them without asking (with the conflict behind it, "
-            "when recorded), which they can have changed. A choice made for them is "
-            "part of the result, not an internal exchange.\n\n"
+            "Name each recorded assumption in autonomous_assumptions in its own line, "
+            "leaving none out: the reading chosen for them without asking (with the "
+            "conflict behind it, when recorded), and that you chose it in their place "
+            "when its source is manager_decision; they can have it changed. A choice "
+            "made for them is part of the result, not an internal exchange.\n\n"
             if completion_context.get("autonomous_assumptions")
             else ""
         )

@@ -425,3 +425,105 @@ def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_p
     block, _ = build_operator_context_block("engineer", tmp_path / "life")
     assert "CHECKPOINT.md and the run report" in block
     assert "in the deliverable" not in block
+
+
+# --- HO-6: one policy, nothing waits for the operator --------------------------
+def test_the_reviewer_prompt_never_says_to_ask_an_operator_who_cannot_be_asked(monkeypatch) -> None:
+    from argus.reviewer import Reviewer
+
+    def static() -> str:
+        return Reviewer(runner=None, skill_store=None)._build_static_preamble(
+            objective="o", operator_messages=[], planner_review_instruction="",
+            round_index=1, session_id=None, main_summary="s", main_error=None,
+            prior_checkpoint={},
+        )
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    assert "→ operator" in static()
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    text = static()
+    assert "→ operator" not in text and "Ask only for operator-owned" not in text
+    assert "the Manager decides in their place" in text
+
+
+def test_every_decision_taken_for_the_operator_is_listed(tmp_path) -> None:
+    from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
+
+    for index in range(12):
+        record_autonomous_assumption(
+            tmp_path, item_id=f"t{index}", conflict=f"Question {index}?", reading=f"Answer {index}.",
+            source="manager_decision",
+        )
+    lines = render_autonomous_assumptions(tmp_path).splitlines()[1:]
+    assert len(lines) == 12 and "Answer 0." in lines[0]
+
+
+def test_the_manager_can_end_any_card_it_decides_but_not_fix_what_it_cannot(
+    tmp_path, monkeypatch,
+) -> None:
+    """Principle 8's credential exception: what the operator alone can supply,
+    the Manager can only work around or end."""
+    from argus.core.operator_decision import END_TASK_OPTION, build_operator_decision
+    from argus.manager.proxy_decision import decide_for_operator
+
+    card = build_operator_decision(
+        item_id="t", title="Publish", reason="r", question="Which token?",
+        options=["Use the release token", {"id": END_TASK_OPTION, "label": "an agent's own option"}],
+    )
+    # Only the host offers the way out; an agent's option never takes its id.
+    assert [row["id"] for row in card["options"]] == ["option-1", "option-2"]
+    ends = _ProxyManager(DECISION_ID=card["id"], OPTION=END_TASK_OPTION, REASON="No token here.")
+    assert decide_for_operator(ends, card, why="w").option == END_TASK_OPTION
+    assert f"- {END_TASK_OPTION}: end this task" in ends.prompts[0]
+
+    provider = build_operator_decision(
+        item_id="p", title="t", reason="r", question="Fix the model?",
+        options=[{"id": "resume", "label": "Resume after fixing the configuration"},
+                 {"id": "drop", "label": "Drop this task"}],
+    ) | {"decision_kind": "provider_configuration"}
+    resumes = _ProxyManager(DECISION_ID=provider["id"], OPTION="resume", REASON="Try again.")
+    assert decide_for_operator(resumes, provider, why="w") is None
+    assert "- resume:" not in resumes.prompts[0] and "- drop:" in resumes.prompts[0]
+
+
+def test_the_manager_ends_a_task_through_the_path_an_answer_takes(tmp_path, monkeypatch) -> None:
+    from argus.core.autonomy import read_autonomous_assumptions
+    from argus.core.operator_decision import END_TASK_OPTION
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    manager = _ProxyManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
+    supervisor._record_planner_handoff(_planner_question())
+    card = _card(supervisor)
+    manager.fields = {
+        "DECISION_ID": card.operator_decision["id"], "OPTION": END_TASK_OPTION,
+        "REASON": "Only the operator holds the release key.",
+    }
+
+    assert supervisor._decide_parked_questions() is True
+    ended = next(row for row in supervisor.memory.backlog.history() if row.id == card.id)
+    assert ended.status == "aborted" and not ended.pending_question
+    assert ended.operator_decision["decided_by"] == "manager"
+    assert ended.operator_decision["selected_option"] == END_TASK_OPTION
+    row = read_autonomous_assumptions(supervisor._project_state_root())[-1]
+    assert row["source"] == "manager_decision" and row["reading"].startswith("End this task")
+
+
+def test_no_operator_wait_is_left_once_the_operator_cannot_be_asked() -> None:
+    """Architecture: every place that parks work for an operator answer or
+    ends with "operator input required" reads the one switch first, and the
+    operator is never told that something waits for them while the Manager
+    holds their authority."""
+    import re
+    from pathlib import Path
+
+    import argus
+    from argus.core.mission_view._wording import _SENTENCES
+
+    root = Path(argus.__file__).parent
+    for path in root.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if '"operator_input_required"' in text and "stop_kinds.py" not in path.name:
+            assert "operator_questions_can_be_asked" in text, path
+    english, chinese = _SENTENCES["proxy_undecided"]
+    assert not re.search(r"waits? for your answer", english) and "等你" not in chinese
