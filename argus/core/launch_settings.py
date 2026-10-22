@@ -12,6 +12,9 @@ from .mission_view import uses_cjk
 TARGET_LEVELS = ("auto", "exploratory", "publishable")
 DELIVERABLES = ("any", "report", "code", "paper", "data")
 
+# The heading of the settings block appended to a request, by language (Chinese first).
+_HEADINGS = ("【开工设置（我在界面上选的）】", "[Launch settings I chose in the UI]")
+
 _DELIVERABLE_TEXT = {
     "report": ("一份书面报告（结论、证据和局限）", "a written report (conclusions, evidence, limitations)"),
     "code": ("可以运行的代码和使用说明", "runnable code with usage notes"),
@@ -93,8 +96,16 @@ def launch_note(settings: dict[str, Any] | None, *, language_hint: str = "") -> 
         lines.append(f"成果形式：{zh}。" if chinese else f"Output form: {en}.")
     if not lines:
         return ""
-    heading = "【开工设置（我在界面上选的）】" if chinese else "[Launch settings I chose in the UI]"
+    heading = _HEADINGS[0] if chinese else _HEADINGS[1]
     return "\n\n" + heading + "\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def strip_launch_note(text: str) -> str:
+    """The request as the operator wrote it, without the :func:`launch_note` appended to it."""
+    body = str(text or "")
+    for heading in _HEADINGS:
+        body = body.split(heading, 1)[0]
+    return body.strip()
 
 
 def launch_target_level_stated(text: str) -> bool:

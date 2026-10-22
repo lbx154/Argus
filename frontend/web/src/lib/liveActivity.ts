@@ -40,7 +40,7 @@ const WORK_EVENT = /^(?:engineer\.progress|round\.|life\.(?:mission|phase|planne
 const field = (event: EventMsg, key: string) => String((event as Record<string, unknown>)[key] ?? '');
 const clip = (text: string, n: number) => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
 
-function stepLine(step: FeedStep, locale: Locale): LiveLine | null {
+function stepLine(step: FeedStep, locale: Locale, workspace: string): LiveLine | null {
   const zh = locale === 'zh-CN';
   const event = step.ev;
   const ts = Number(step.latest.ts || event.ts || 0);
@@ -49,7 +49,7 @@ function stepLine(step: FeedStep, locale: Locale): LiveLine | null {
   if (field(event, 'type') === 'engineer.progress') {
     const kind = field(event, 'kind');
     if (kind === 'command_execution') {
-      const command = clip(plainCommand(field(event, 'text') || field(event, 'command') || field(event, 'action_summary')), 120);
+      const command = clip(plainCommand(field(event, 'text') || field(event, 'command') || field(event, 'action_summary'), workspace), 120);
       return command ? { ...base, kind: 'command', text: `${zh ? '运行' : 'Run'} ${command}` } : null;
     }
     if (kind === 'tool_use' || kind === 'file_change') {
@@ -81,14 +81,14 @@ function ownEvents(events: EventMsg[], taskId: string, since: number, until = In
   });
 }
 
-function linesFrom(own: EventMsg[], locale: Locale): LiveLine[] {
+function linesFrom(own: EventMsg[], locale: Locale, workspace: string): LiveLine[] {
   const { list } = renderFeedRows(own, { locale, showReasoning: false });
-  return pairCalls(list).map((step) => stepLine(step, locale)).filter((line): line is LiveLine => Boolean(line)).slice(-MAX_LINES);
+  return pairCalls(list).map((step) => stepLine(step, locale, workspace)).filter((line): line is LiveLine => Boolean(line)).slice(-MAX_LINES);
 }
 
-/** A task's actions within its time window, oldest first. */
-export function liveLines(events: EventMsg[], taskId: string, since: number, locale: Locale, until = Infinity): LiveLine[] {
-  return linesFrom(ownEvents(events, taskId, since, until), locale);
+/** A task's actions within its time window, oldest first; paths in `workspace` read from there. */
+export function liveLines(events: EventMsg[], taskId: string, since: number, locale: Locale, until = Infinity, workspace = ''): LiveLine[] {
+  return linesFrom(ownEvents(events, taskId, since, until), locale, workspace);
 }
 
 function headlineFor(status: WorkStatus, zh: boolean, title: string): string {
@@ -138,7 +138,7 @@ export function liveActivity(
   const lastAt = Math.max(status.activityAt || 0, ...own.map((event) => Number(event.ts || 0))) || null;
   // Some agents never echo a successful call, so "still running" holds only
   // for the very last action, and only while nothing at all came after it.
-  const lines = linesFrom(own, locale).map((line, index, all) => ({
+  const lines = linesFrom(own, locale, snapshot.session.workdir || snapshot.session.cwd).map((line, index, all) => ({
     ...line, running: line.running && index === all.length - 1 && (lastAt ?? 0) <= line.ts + 1,
   }));
   const lastLine = lines.at(-1);

@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -46,12 +46,15 @@ type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
+/** The project root the agents work in; a command's path in it reads from there. */
+const WorkspaceContext = createContext('');
+
 /** A row as the feed says it: a call reads as "verb + object" or as the command
  * it ran, with its raw text kept for the tooltip; a report in plain words. */
-function rowText(ev: EventMsg, r: RenderedLine, locale: Locale): PlainDetail {
+function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: string): PlainDetail {
   const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
   if (call === 'tool_use') return { text: plainToolLabel(ev, locale), technical: r.text };
-  if (call === 'command_execution') return { text: plainCommand(r.text), technical: r.text };
+  if (call === 'command_execution') return { text: plainCommand(r.text, workspace), technical: r.text };
   const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
   return plainDetail(report, locale);
 }
@@ -80,7 +83,8 @@ function EventRow({
   const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
-  const plain = rowText(ev, r, locale);
+  const workspace = useContext(WorkspaceContext);
+  const plain = rowText(ev, r, locale, workspace);
   const resultText = result ? plainDetail(result.r.text, locale).text : '';
   const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (
@@ -389,7 +393,8 @@ function RoleLogGroup({
   const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
   // The collapsed header says the newest row as the log below says it.
   const latest = folded[folded.length - 1];
-  const preview = !latest ? '' : latest.kind === 'group' ? groupSummary(latest, t, locale) : rowText(latest.ev, latest.r, locale).text;
+  const workspace = useContext(WorkspaceContext);
+  const preview = !latest ? '' : latest.kind === 'group' ? groupSummary(latest, t, locale) : rowText(latest.ev, latest.r, locale, workspace).text;
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -776,6 +781,7 @@ export function EventStream({
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
+  const workspace = snapshot?.session.workdir || snapshot?.session.cwd || '';
   // A finished step keeps its process: the actions between its task's start
   // and end, computed only when a report asks for them.
   const stepProcess = useMemo(() => {
@@ -786,11 +792,11 @@ export function EventStream({
       if (cached) return cached;
       const task = tasks.get(taskId);
       const since = Number(task?.started_ts || 0);
-      const lines = since > 0 ? liveLines(deferredEvents, taskId, since, locale, Number(task?.finished_ts || 0) || Infinity) : [];
+      const lines = since > 0 ? liveLines(deferredEvents, taskId, since, locale, Number(task?.finished_ts || 0) || Infinity, workspace) : [];
       cache.set(taskId, lines);
       return lines;
     };
-  }, [deferredEvents, locale, snapshot?.backlog]);
+  }, [deferredEvents, locale, snapshot?.backlog, workspace]);
   const work = useMemo(
     () => snapshot ? currentWorkStatus(snapshot, missionView, deferredEvents) : null,
     [deferredEvents, missionView, snapshot],
@@ -817,8 +823,8 @@ export function EventStream({
     const displayEvents = skipFirst > 0
       ? deferredEvents.slice(skipFirst)
       : deferredEvents;
-    return renderFeedRows(displayEvents, { locale, showReasoning, filter, query });
-  }, [deferredEvents, showReasoning, filter, query, skipFirst, locale]);
+    return renderFeedRows(displayEvents, { locale, showReasoning, filter, query, workspace });
+  }, [deferredEvents, showReasoning, filter, query, skipFirst, locale, workspace]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {
@@ -946,6 +952,7 @@ export function EventStream({
 
   return (
     <StepProcessContext.Provider value={stepProcess}>
+    <WorkspaceContext.Provider value={workspace}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1038,6 +1045,7 @@ export function EventStream({
         </button>
       )}
     </section>
+    </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
   );
 }

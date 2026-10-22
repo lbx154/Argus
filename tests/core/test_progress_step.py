@@ -125,8 +125,14 @@ def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
         ('glob: {"pattern": "src/**/*.ts"}', "查找 src 里的 .ts 文件"),
         ('glob: {"pattern": "src/**/*"}', "查找 src 里的所有文件"),
         ('glob: {"pattern": "METHOD.md"}', "查找 METHOD.md"),
-        # Alternatives in braces say nothing a reader can follow.
-        ('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', "查找文件"),
+        # Alternatives in braces name the files among them, the first few
+        # (trial s-7d356ee9 read "查找文件" four times); a wildcard is no name.
+        ('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}',
+         "查找 pyproject.toml、setup.cfg、setup.py 等文件"),
+        ('glob: {"pattern": "{SKILL.md,*/SKILL.md,reviewer/**/*.md}"}', "查找 SKILL.md 等文件"),
+        ('glob: {"pattern": "{SKILL.md,reviewer/**/SKILL.md}"}', "查找 SKILL.md"),
+        ('glob: {"pattern": ".venv/bin/{python,pip}"}', "查找 python、pip"),
+        ('glob: {"pattern": "**/*{review,python,date,审阅}*"}', "查找文件"),
         ('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*"}', "查找文件"),
         ('glob: {"pattern": "**/*.{py,ts}"}', "查找文件"),
         # Trial s-36ca9747 read "查找 .*"; any other wildcard is files too.
@@ -188,8 +194,10 @@ def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> Non
         ("/srv/argus/builtin_skills/reviewer/argus-reviewer-role.md", "查阅技能 argus-reviewer-role"),
         # A role's notes for the next holder, whatever file holds them.
         ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅交接记录"),
-        # Argus' own directories are plumbing too, not only the files in them.
-        ("/repo/.autors", "查阅 Argus 内部文件"),
+        # .autors holds the project's wiki and nothing else (trial s-757b9dac
+        # read "查阅文件" twice for these folders).
+        ("/repo/.autors", "查阅知识库"),
+        ("/repo/.autors/learn", "查阅知识库"),
         # The backend spills a long tool output to a temp file and reads it back.
         ("/tmp/1792644657527-copilot-tool-output-87d59816852246238961139c2f724073.txt", "查阅工具输出"),
     ],
@@ -229,6 +237,22 @@ def test_backend_session_paths_in_a_command_are_cut_to_their_last_name() -> None
     assert kept == "$ git -C /work/repo status", "a path of the work stays as it is"
 
 
+def test_paths_in_the_project_read_from_its_root() -> None:
+    # Trial s-7d356ee9: "rm -r -- /fastdata/…/work/datefmt/build" spelled out the project's path.
+    label, _ = describe_progress_step({
+        "kind": "command_execution",
+        "text": "rm -r -- /work/proj/build /work/proj2/build && ls /work/proj",
+    }, _WS)
+    assert label == "$ rm -r -- build /work/proj2/build && ls ."
+    # Trial s-757b9dac: a result line named the package by its whole path;
+    # a path outside the project keeps the rules it had.
+    result, _ = describe_progress_step({
+        "kind": "tool_result",
+        "text": "Public package: /work/proj/timefmt/__init__.py | /usr/lib/python3/site-packages/x.py",
+    }, _WS)
+    assert result == "↳ Public package: timefmt/__init__.py | /usr/lib/python3/site-packages/x.py"
+
+
 def test_paths_into_the_installed_argus_package_are_cut_in_a_command() -> None:
     builtin = str(builtin_skill_source_path())
     label, _ = describe_progress_step({
@@ -247,7 +271,7 @@ def test_a_tool_result_cuts_plumbing_paths_as_a_command_does() -> None:
         "kind": "tool_result",
         "text": f"{builtin}/engineer/minimal-coding-agent.md:3:description: x | /work/proj/a.py",
     }, _WS)
-    assert label == "↳ …/minimal-coding-agent.md:3:description: x | /work/proj/a.py"
+    assert label == "↳ …/minimal-coding-agent.md:3:description: x | a.py"
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:

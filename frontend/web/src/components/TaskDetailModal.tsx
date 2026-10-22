@@ -41,7 +41,9 @@ export function TaskDetailModal({
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
   const terminal = item ? isTerminalBacklogItem(item) : false;
-  const outcome = outcomeLabels(item && currentOutcome(item), t);
+  // A task a newer plan replaced came to that; its last attempt's pause and error are not its result.
+  const replaced = item?.status === 'superseded';
+  const outcome = replaced ? [statusLabel('superseded', t)] : outcomeLabels(item && currentOutcome(item), t);
   const objective = <div className="mt-1 whitespace-pre-wrap rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
     {item?.objective || item?.original_objective || t('task.noObjective')}
   </div>;
@@ -113,7 +115,7 @@ export function TaskDetailModal({
                 </div>
               </section>
             ) : null}
-            {item.last_error ? (
+            {item.last_error && !replaced ? (
               <section className="rounded-lg border border-err/30 bg-err/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-err">{t('task.lastError')}</div>
                 <p className="mt-1 whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-dim">{item.last_error}</p>

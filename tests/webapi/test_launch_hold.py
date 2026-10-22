@@ -9,6 +9,7 @@ from argus.core.launch_settings import (
     launch_note,
     launch_target_level_stated,
     normalize_launch_settings,
+    strip_launch_note,
 )
 from argus.core.project_contract import AUTHORITY_MANAGER, AUTHORITY_OPERATOR, load_contract
 from argus.core.session import SessionMeta, write_session_meta
@@ -37,6 +38,9 @@ def test_launch_note_states_each_choice_in_the_request_language():
     assert "within 1 day" in en and "Research ambition: exploratory" in en
     assert launch_note(None) == ""
     assert not launch_target_level_stated(launch_note({"first_result_hours": 2.0}, language_hint="研究"))
+    # Titles and summaries read the request without the note appended to it.
+    assert strip_launch_note("帮我研究一下这个问题" + zh) == "帮我研究一下这个问题"
+    assert strip_launch_note("study this" + en) == "study this"
 
 
 def _status(life, item_id):

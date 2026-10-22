@@ -35,6 +35,8 @@ REPLY_KINDS = frozenset({"assistant_message", "agent_message", "message"})
 
 _LABEL_LIMIT = 96
 _DETAIL_LIMIT = 240
+# How many files a step names before it says "and others".
+_NAMES_SHOWN = 3
 
 _SHELL_PREFIXES = (
     "/bin/bash -lc ",
@@ -115,9 +117,10 @@ def _parts(path: str) -> list[str]:
     return [part for part in path.replace("\\", "/").split("/") if part]
 
 
-# The root of a knowledge wiki: a project's own under ``.autors``, the shared
-# ones under the Argus home (``wiki/_global``, ``wiki/_shared_verticals/<v>``).
-_WIKI_ROOTS = ((".autors", "*", "wiki"), ("wiki", "_global"), ("wiki", "_shared_verticals", "*"))
+# The root of a knowledge wiki: a project's own under ``.autors`` (which holds
+# nothing else), the shared ones under the Argus home (``wiki/_global``,
+# ``wiki/_shared_verticals/<v>``).
+_WIKI_ROOTS = ((".autors",), ("wiki", "_global"), ("wiki", "_shared_verticals", "*"))
 # The root of a skill library: the shared and per-project ones under the Argus
 # home, and the ones Argus ships.
 _SKILL_ROOTS = (
@@ -134,8 +137,7 @@ _HELPER_TOOLS = frozenset({"task", "agent"})
 # skill libraries and wikis, handoff checkpoints, the shipped verticals, and
 # the installed Argus package itself (its built-in skills).
 _PLUMBING_SEGMENTS = (
-    ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
-    ("argus", "verticals"), (".autors",),
+    ("state", "projects"), ("state", "skills"), ("argus", "verticals"),
     ("role-sessions",), ("copilot-home",), *_WIKI_ROOTS,
     tuple(_parts(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))),
 )
@@ -187,15 +189,22 @@ def _short_name(path: str, workspace: str = "") -> str:
     return parts[-1]
 
 
-def plain_command(command: str) -> str:
+def plain_command(command: str, workspace: str = "") -> str:
     """A command line as the operator follows it.
 
     A path into Argus' plumbing (a backend session's scratch files, a session
-    store) is cut to its last name; every other path is the work and stays.
+    store) is cut to its last name; a path in the project ``workspace`` reads
+    from the project root; any other path stays as it is.
     """
+    root = _parts(workspace)
+
     def short(match: re.Match[str]) -> str:
         parts = _parts(match.group())
-        return f"…/{parts[-1]}" if _marker_end(parts, _PLUMBING_SEGMENTS) else match.group()
+        if _marker_end(parts, _PLUMBING_SEGMENTS):
+            return f"…/{parts[-1]}"
+        if root and parts[:len(root)] == root:
+            return "/".join(parts[len(root):]) or "."
+        return match.group()
 
     return _ABSOLUTE_PATH.sub(short, command)
 
@@ -236,17 +245,38 @@ def _is_glob_tool(name: str) -> bool:
     return key in {"glob", "find", "find_files", "list_files", "file_search"}
 
 
+_GLOB_WILDCARD = re.compile(r"[*?\[]")
+_BRACES = re.compile(r"([^{}]*)\{([^{}]*)\}([^{}]*)")
+
+
+def _brace_names(pattern: str) -> str:
+    """``{pyproject.toml,setup.py,*.cfg}`` -> ``pyproject.toml、setup.py 等文件``.
+
+    The first few alternatives that name a file are said; with none, or with
+    braces in braces, it is plain "files".
+    """
+    match = _BRACES.fullmatch(pattern)
+    leaves = [f"{match[1]}{alternative}{match[3]}".rsplit("/", 1)[-1]
+              for alternative in match[2].split(",")] if match else []
+    names = list(dict.fromkeys(leaf for leaf in leaves if leaf and not _GLOB_WILDCARD.search(leaf)))
+    if not names:
+        return "文件"
+    shown = "、".join(names[:_NAMES_SHOWN])
+    return shown if len(names) == len(set(leaves)) <= _NAMES_SHOWN else f"{shown} 等文件"
+
+
 def _readable_glob(pattern: str) -> str:
     """``**/*.py`` -> ``.py 文件``; ``src/**/*`` -> ``src 里的所有文件``.
 
     A glob is read as "which files": the directory part becomes the folder
     the search ran in (last segment only) and the file part becomes the kind
     of file, so no slash reaches the status line. A pattern with ``{a,b}``
-    alternatives, or any other wildcard, reads as plain "files".
+    alternatives names the files among them; any other wildcard reads as
+    plain "files".
     """
     text = pattern.strip().strip("'\"").replace("\\", "/")
     if "{" in text:
-        return "文件"
+        return _clip(_brace_names(text), 60)
     parts = [part for part in text.split("/") if part and part not in {"**", "."}]
     leaf = parts[-1] if parts else "*"
     folders = [part for part in parts[:-1] if "*" not in part and "?" not in part]
@@ -254,7 +284,7 @@ def _readable_glob(pattern: str) -> str:
         what = "所有文件"
     elif re.fullmatch(r"\*\.[\w.]+", leaf):
         what = f"{leaf[1:]} 文件"
-    elif re.search(r"[*?\[]", leaf):
+    elif _GLOB_WILDCARD.search(leaf):
         what = "文件"
     else:
         what = _clip(leaf, 40)
@@ -325,6 +355,7 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         kind = str(event.get("kind") or "").strip()
         raw_text = redact_secrets_text(str(event.get("text") or ""))
         summary = " ".join(str(event.get("action_summary") or "").split())
+        workspace = str(event.get("workspace") or event.get("cwd") or workspace or "")
 
         if kind == "command_execution":
             command = strip_shell_wrapper(raw_text).strip()
@@ -335,7 +366,7 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
                 # Argus' own tool: the operator is told one ran, not shown its command line.
                 return "运行 Argus 内部工具", _clip(command, _DETAIL_LIMIT)
             if head:
-                label = f"{marker} {_clip(plain_command(head), _LABEL_LIMIT - 2)}"
+                label = f"{marker} {_clip(plain_command(head, workspace), _LABEL_LIMIT - 2)}"
                 # Only carry a detail when it actually adds something (a
                 # multi-line or clipped command); never echo the label back.
                 detail = _clip(command, _DETAIL_LIMIT)
@@ -345,7 +376,6 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         if kind in {"tool_use", "tool_call"}:
             name, args = _tool_label(raw_text)
             if name:
-                workspace = str(event.get("workspace") or event.get("cwd") or workspace or "")
                 label = _clip(_humane_tool_label(name, args, workspace), _LABEL_LIMIT)
                 # The raw arguments stay available in the (collapsed) detail.
                 return label, _clip(f"{name}: {args}" if args else "", _DETAIL_LIMIT)
@@ -356,8 +386,8 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
             if isinstance(changed, list) and changed:
                 names = [str(item) for item in changed if str(item).strip()]
                 if names:
-                    head = ", ".join(names[:3])
-                    extra = f" +{len(names) - 3}" if len(names) > 3 else ""
+                    head = ", ".join(names[:_NAMES_SHOWN])
+                    extra = f" +{len(names) - _NAMES_SHOWN}" if len(names) > _NAMES_SHOWN else ""
                     return _clip(f"✎ {head}{extra}", _LABEL_LIMIT), ""
             first = _first_line(raw_text)
             if first:
@@ -375,9 +405,9 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
             name = " ".join(str(event.get("tool_name") or "").split())
             # A result names paths the way a command line does.
             if name and status:
-                excerpt = plain_command(" ".join(str(event.get("output_excerpt") or "").split()))
+                excerpt = plain_command(" ".join(str(event.get("output_excerpt") or "").split()), workspace)
                 return _clip(f"↳ {name} · {status}", _LABEL_LIMIT), _clip(excerpt, _DETAIL_LIMIT)
-            first = plain_command(_first_line(raw_text))
+            first = plain_command(_first_line(raw_text), workspace)
             return (_clip(f"↳ {first}", _LABEL_LIMIT) if first else "reading a tool result"), ""
 
         if kind in REPLY_KINDS:

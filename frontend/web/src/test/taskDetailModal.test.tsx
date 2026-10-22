@@ -50,3 +50,16 @@ describe('task details', () => {
     expect(replaced).not.toContain('>done<');
   });
 });
+
+describe('a task a newer plan replaced', () => {
+  it('says only that it was replaced, without the pause, the resume or the last error of its last attempt', () => {
+    // Trial s-757b9dac: "已由新方案替代" above "工作已暂停 / 结果检查暂时无法继续 / 可以继续" and a "最近错误".
+    item = { id: 't', title: 'Add format_hours', objective: 'x', status: 'superseded', priority: 1,
+      outcome: { ...blocked, interruption_kind: 'operator_pause', resumable: true },
+      last_error: 'format_hours is not delivered yet' } as BacklogItem;
+    const html = markup();
+    expect(html).toContain('Outcome');
+    expect(html.match(/Replaced by a newer plan/g)).toHaveLength(2);
+    for (const said of ['Work blocked', 'Can resume', 'Last error', 'format_hours is not delivered yet']) expect(html).not.toContain(said);
+  });
+});

@@ -9,9 +9,10 @@ export function isTerminalBacklogItem(item: Pick<BacklogItem, 'status'>): boolea
 }
 
 /** What the task's last settled attempt came to. A task taken up again has no
- * result yet; the earlier one is not shown as its current result. */
+ * result yet, and one a newer plan replaced has none of its own; the earlier
+ * attempt is not shown as its current result. */
 export function currentOutcome(item: BacklogItem): BacklogItem['outcome'] {
-  return UNDER_WAY.has(item.status) ? undefined : item.outcome;
+  return UNDER_WAY.has(item.status) || item.status === 'superseded' ? undefined : item.outcome;
 }
 
 /** A task repeats once it has been taken up again. `iterate` only lets its
