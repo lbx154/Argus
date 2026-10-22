@@ -746,7 +746,7 @@ def test_an_answered_task_still_shows_the_operator_their_own_request(tmp_path: P
     task = next(t for t in read_map("s-answered", tmp_path, life)["tasks"] if t["id"] == asked.id)
     assert task["objective"] == "wait for my choice"
     # Its card's words are written from the request and the answer beside it
-    # (s-43d4ae2f's card went on saying the work waited on the choice).
+    # (a trial's card went on saying the work waited on the choice).
     assert task["answered"] == "A or B? → A. (the operator)"
 
 
@@ -794,7 +794,7 @@ def test_planner_and_manager_read_every_answer_given_since_the_objective_began(
 def test_the_question_asked_while_the_objective_was_framed_is_answered_since_it_began(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    """Trial s-43d4ae2f, 2026-10-21: the front door asked "A or B?" while it
+    """Trial, 2026-10-21: the front door asked "A or B?" while it
     framed the objective, 10 ms before it wrote the framing complete. Read from
     the completion, the operator's answer was older than the objective: the
     Planner and the Manager's stage decision went on reading "wait for my

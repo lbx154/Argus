@@ -123,7 +123,7 @@ def test_runtime_incident_evidence_remains_visible_to_manager(tmp_path) -> None:
 
 
 def test_the_operator_s_answer_is_observed_beside_the_objective(tmp_path) -> None:
-    """Trial s-43d4ae2f, 2026-10-21: after the operator chose A, the Manager's
+    """Trial, 2026-10-21: after the operator chose A, the Manager's
     supervision saw only the objective that said to wait for their choice."""
     from argus.core.operator_decision import build_operator_decision
 

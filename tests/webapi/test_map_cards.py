@@ -103,7 +103,7 @@ def test_a_running_task_is_described_by_what_was_asked_and_rewritten_when_it_set
 
 
 def test_a_running_task_is_described_with_the_answer_it_was_given(tmp_path, model):
-    """Trial s-43d4ae2f, 2026-10-21: the card of the task the operator had just
+    """Trial, 2026-10-21: the card of the task the operator had just
     answered was written from their request alone and still said the change
     waited on their choice."""
     model([{"id": "t1", "title": "按 A 修改", "summary": "正在按选定的 A 修改。"}])

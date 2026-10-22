@@ -1741,7 +1741,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     assert continuation.manager_decision == {
         "display_objective": "Write the camera-ready paper", "routed": True,
     }
-    # The task's details read as the map does (s-43d4ae2f showed the brief).
+    # The task's details read as the map does, not the roles' brief.
     detail = client.get(f"/api/projects/s-msgtest0/backlog/{blocked.id}").json()["item"]
     assert detail["objective"] == "Write the camera-ready paper"
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
@@ -1793,15 +1793,15 @@ def test_pending_answer_supersedes_conflicting_inherited_objective(
         "This supersedes the inherited image-2 requirement."
     ) < continuation.objective.index("Generate the core figure with image-2.")
     assert (
-        "This decision supersedes every conflicting requirement"
-        in continuation.objective
-    )
-    assert continuation.acceptance_check.startswith(
-        "The Manager operator-answer decision in this continuation is authoritative."
-    )
-    assert continuation.non_goals[0].startswith(
-        "Subject to the authoritative Manager operator-answer decision"
-    )
+        "This decision supersedes every conflicting requirement in the inherited "
+        "blocked mission objective below and every conflicting acceptance check "
+        "or non-goal of this task."
+    ) in continuation.objective
+    # The task's own acceptance check and non-goals stay as they were written,
+    # and the decision is not offered back as a revisable hypothesis.
+    assert continuation.acceptance_check == "The figure must come from image-2."
+    assert continuation.non_goals == ["Do not use an editable deterministic renderer."]
+    assert continuation.plan_hypothesis == ""
 
 
 def test_concurrent_pending_answers_resume_the_task_once(

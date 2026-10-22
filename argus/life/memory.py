@@ -806,7 +806,7 @@ def objective_started_at(state_root: Path | str, objective: str) -> float | None
     ``life.manager.intent.completed`` naming the objective it hands on, both
     under one intent id. The objective began when the latest framing naming
     it started: a framing asks what only the operator can decide before it
-    ends (in s-43d4ae2f, 10 ms before), and that question is the objective's.
+    ends, and that question is the objective's.
     """
     objective = str(objective or "").strip()
 
@@ -2516,28 +2516,13 @@ class Backlog:
                     "Authoritative Manager operator-answer decision:\n"
                     f"{decision}\n\n"
                     "This decision supersedes every conflicting requirement in the "
-                    "inherited blocked mission objective below.\n\n"
+                    "inherited blocked mission objective below and every conflicting "
+                    "acceptance check or non-goal of this task.\n\n"
                     "Inherited blocked mission objective (retain only non-conflicting "
                     "context):\n"
                     f"{item.objective.strip()}\n\n"
                     f"{response}:\n{answer}"
                 )
-                if item.acceptance_check:
-                    item.acceptance_check = (
-                        "The Manager operator-answer decision in this continuation "
-                        "is authoritative. Apply this inherited acceptance check only "
-                        "where it does not conflict with that decision:\n"
-                        f"{item.acceptance_check}"
-                    )
-                item.non_goals = [
-                    (
-                        "Subject to the authoritative Manager operator-answer "
-                        "decision, preserve this inherited non-goal only where it "
-                        f"does not conflict: {goal}"
-                    )
-                    for goal in item.non_goals
-                ]
-                item.plan_hypothesis = decision
                 item.manager_decision = {**item.manager_decision, "routed": True}
             else:
                 item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"
