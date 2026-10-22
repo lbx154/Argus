@@ -16,7 +16,12 @@ from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
-from ..core.role_handoff import HANDOFF_STATUS, read_baton_line, strip_handoff
+from ..core.role_handoff import (
+    HANDOFF_STATUS,
+    OPERATOR_CHOICES_RULE,
+    read_baton_line,
+    strip_handoff,
+)
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
 
@@ -337,7 +342,7 @@ class ReviewActions:
         handoff = read_baton_line(review)
         holder = handoff.holder if handoff is not None else ""
         if holder not in HANDOFF_STATUS:
-            raise ValueError(HANDOFF_LINE)
+            raise ValueError(f"{HANDOFF_LINE} {OPERATOR_CHOICES_RULE}")
         if holder != "done" and "residual_risk" in payload:
             raise ValueError("residual_risk records an accepted risk: it goes with `→ done`.")
         if holder == "done" and ("unverifiable" in payload or "impossible_because" in payload):
