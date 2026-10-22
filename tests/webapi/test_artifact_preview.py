@@ -151,17 +151,20 @@ def test_preview_and_bundle_require_auth_and_an_allowlisted_html_entry(tmp_path)
 
     # The served preview page carries a self-sandboxing policy so the site's own
     # inline styles and scripts run, reachable by header or, for an iframe that
-    # cannot send one, the same token in the query.
+    # cannot send one, the HttpOnly cookie the preview set; never a URL token.
     page_route = f"{route}/preview/page"
-    assert client.get(page_route, params={"path": "index.html"}).status_code == 401
+    assert "httponly" in preview.headers["set-cookie"].lower()
+    bare = TestClient(client.app)
+    assert bare.get(page_route, params={"path": "index.html"}).status_code == 401
     assert (
-        client.get(page_route, params={"path": "index.html", "token": "wrong"}).status_code == 401
+        bare.get(page_route, params={"path": "index.html", "token": "test-token"}).status_code == 401
     )
-    for auth in ({"headers": headers}, {"params_token": "test-token"}):
-        params = {"path": "index.html"}
-        if "params_token" in auth:
-            params["token"] = auth["params_token"]
-        page = client.get(page_route, params=params, headers=auth.get("headers"))
+    # The cookie authenticates that page alone.
+    assert client.get(f"{route}/bundle", params={"path": "index.html"}).status_code == 401
+    for page in (
+        bare.get(page_route, params={"path": "index.html"}, headers=headers),
+        client.get(page_route, params={"path": "index.html"}),
+    ):
         assert page.status_code == 200
         assert page.headers["content-type"].startswith("text/html")
         csp = page.headers["content-security-policy"]

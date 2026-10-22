@@ -740,7 +740,6 @@ export class ApiClient {
 
   /**
    * Open the live event stream. Returns the socket so the caller can close it.
-   * The token (if any) rides the query string — browsers/ws can't set WS headers.
    */
   connectStream(handlers: {
     onEvent: (ev: EventMsg) => void;
@@ -751,9 +750,8 @@ export class ApiClient {
   }): WebSocket {
     const q = new URLSearchParams();
     if (handlers.replay != null) q.set('replay', String(handlers.replay));
-    if (this.token) q.set('token', this.token);
     const url = `${this.wsBase}/api/projects/${encodeURIComponent(this.project)}/stream?${q}`;
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, { headers: this.authHeaders() });
     ws.on('open', () => handlers.onOpen?.());
     ws.on('message', (data) => {
       try {

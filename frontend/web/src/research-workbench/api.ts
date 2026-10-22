@@ -11,7 +11,7 @@ import type {
   StatusView,
   Turn,
 } from './types';
-import { api as webApi, authHeaders, authToken, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
+import { api as webApi, authHeaders, compatibleApiMeta, requestWithTimeout, requireDaemonCommand, streamProtocols } from '../api';
 import type { TimelineEntry, TimelineInput, TimelineReport } from './timeline/types';
 
 const LOCAL_READ_TIMEOUT_MS = 12_000;
@@ -270,11 +270,9 @@ export function openEventStream(
   const connect = () => {
     if (closed) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams({ replay: '40', view: 'ui' });
-    const auth = authToken();
-    if (auth) params.set('token', auth);
     socket = new WebSocket(
-      `${protocol}//${window.location.host}${projectPath(sid, '/stream')}?${params}`,
+      `${protocol}//${window.location.host}${projectPath(sid, '/stream')}?replay=40&view=ui`,
+      streamProtocols(),
     );
     socket.onopen = () => {
       delay = 800;

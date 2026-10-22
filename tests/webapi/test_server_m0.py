@@ -29,6 +29,7 @@ from argus.webapi.protocol import (
 )
 
 fastapi = pytest.importorskip("fastapi")
+from fastapi import Request  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 
@@ -997,10 +998,13 @@ def test_system_resources_requires_auth_and_hides_device_identity(
     )
     auth = route.dependant.dependencies[0].call
 
+    def request(*authorization: str) -> Request:
+        return Request({"type": "http", "headers": [(b"authorization", a.encode()) for a in authorization]})
+
     with pytest.raises(fastapi.HTTPException) as rejected:
-        auth(None)
+        auth(request())
     assert rejected.value.status_code == 401
-    assert auth("Bearer secret") is None
+    assert auth(request("Bearer secret")) is None
 
     payload = route.endpoint()
     assert payload == {

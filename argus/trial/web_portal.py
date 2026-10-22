@@ -155,7 +155,7 @@ WS_ROUTE = re.compile(r"^/api/projects/[^/]+/stream$")
 # the delivered site and denies it every network destination; its policy is kept
 # on the response so the site's own styles and scripts run inside the sandbox.
 PREVIEW_PAGE_ROUTE = re.compile(r"^/api/projects/[^/]+/artifact/preview/page$")
-# The websocket library can log its token-bearing upgrade URL at DEBUG.
+# The websocket library can log its upgrade request headers at DEBUG.
 WS_LOGGER = logging.Logger("argus.trial.private.websocket", level=logging.CRITICAL + 1)
 
 
@@ -1232,9 +1232,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await ws.close(code=4403)
             return
         backend = settings.tenants[identity["tenant"]]
-        query = clean_query(ws)
-        query += ("&" if query else "") + urlencode({"token": backend.token})
-        url = backend.url.replace("http", "ws", 1) + "/" + quote(path, safe="/") + "?" + query
+        url = backend.url.replace("http", "ws", 1) + "/" + quote(path, safe="/") + "?" + clean_query(ws)
         accepted = False
         try:
             options = {

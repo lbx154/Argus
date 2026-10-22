@@ -533,9 +533,14 @@ export function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-/** Shared bearer value for non-HTTP transports such as project WebSockets. */
-export function authToken(): string {
-  return token() ?? '';
+/** Subprotocols that authenticate a project stream. A browser cannot set a
+ * WebSocket header, so the token rides hex-encoded beside `argus`, the one the
+ * server selects, never in a URL that servers and proxies log. */
+export function streamProtocols(): string[] {
+  const t = token();
+  if (!t) return [];
+  const hex = Array.from(new TextEncoder().encode(t), (b) => b.toString(16).padStart(2, '0')).join('');
+  return ['argus', `argus.bearer.${hex}`];
 }
 
 const API_META_TIMEOUT_MS = 8_000;
@@ -806,15 +811,10 @@ const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}$
 
 /** URL of the served, self-sandboxing preview page for an HTML result. A
  * sandboxed iframe loads it by URL so the delivered site keeps its own styles
- * and scripts; the token rides in the query only when the app itself holds one,
- * since an iframe cannot send an auth header (a hosted portal adds it upstream,
- * and a localhost app needs none). */
-export function previewPageUrl(sid: string, path: string): string {
-  const params = new URLSearchParams({ path });
-  const t = authToken();
-  if (t) params.set('token', t);
-  return P(sid, `/artifact/preview/page?${params.toString()}`);
-}
+ * and scripts; it cannot send an auth header, so it presents the cookie that
+ * `api.artifactPreview` received (a hosted portal adds the header upstream). */
+export const previewPageUrl = (sid: string, path: string): string =>
+  P(sid, `/artifact/preview/page?${new URLSearchParams({ path })}`);
 export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const commandId = newRequestId;
@@ -1620,15 +1620,13 @@ export function openStream(
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
   q.set('view', 'ui');
-  const t = token();
-  if (t) q.set('token', t);
   const url = `${proto}//${window.location.host}${P(sid, '/stream')}?${q}`;
   let ws: WebSocket | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
   const connect = () => {
     if (closed) return;
-    ws = new WebSocket(url);
+    ws = new WebSocket(url, streamProtocols());
     ws.onopen = () => opts.onOpen?.();
     ws.onmessage = (e) => {
       try {

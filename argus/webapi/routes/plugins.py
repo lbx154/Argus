@@ -136,15 +136,7 @@ def register_plugin_routes(app, ctx):
         if not compatible["supported"]:
             raise HTTPException(409, compatible["reason"])
         response = JSONResponse({"url": f"/plugins/{plugin_id}/"})
-        if ctx.token:
-            response.set_cookie(
-                "argus_plugin_access",
-                ctx.token,
-                httponly=True,
-                samesite="strict",
-                secure=request.url.scheme == "https",
-                path=f"/api/plugins/{plugin_id}",
-            )
+        ctx.grant_cookie(request, response, "argus_plugin_access", f"/api/plugins/{plugin_id}")
         return response
 
     # Route an installed version on demand, so install/update/uninstall take

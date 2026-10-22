@@ -422,10 +422,10 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
             return
         row = config["tenants"][tenant]
         await socket.accept()
-        query = dict(socket.query_params)
-        query["token"] = row["web_token"]
+        query = {key: value for key, value in socket.query_params.items() if key != "token"}
         try:
-            async with unix_connect(row["socket"], uri="ws://localhost/api/" + path + "?" + urlencode(query), max_size=8 * 1024 * 1024) as backend:
+            async with unix_connect(row["socket"], uri="ws://localhost/api/" + path + "?" + urlencode(query), max_size=8 * 1024 * 1024,
+                                    extra_headers={"Authorization": "Bearer " + row["web_token"]}) as backend:
                 async def outward():
                     async for message in backend:
                         await socket.send_text(message)

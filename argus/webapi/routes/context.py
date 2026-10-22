@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import hmac
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from fastapi import Header, HTTPException
+from fastapi import HTTPException, Request, Response
+from starlette.requests import HTTPConnection
 
 from ...core import paths as core_paths
 from ...core.session import durable_session_activity, read_session_meta
 from ..daemon_services import DaemonServices
 from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_seconds
+
+# A browser offers its token as the hex-encoded ``argus.bearer.`` subprotocol
+# beside ``argus``, which a project stream selects.
+STREAM_PROTOCOL = "argus"
+BEARER_PROTOCOL = "argus.bearer."
 
 
 class ServerContext:
@@ -48,29 +55,30 @@ class ServerContext:
         self.index_cache.invalidate()
         self.snapshot_cache.invalidate()
 
-    def require_auth(self, authorization: str | None = Header(default=None)) -> None:
+    def authorized(self, connection: HTTPConnection, cookie: str | None = None) -> bool:
+        """Whether a request or WebSocket presents the token (no token: localhost
+        mode). A browser cannot set the bearer header on a WebSocket or on a
+        document it loads by URL, so it offers the token as a subprotocol or, for
+        such a document, as ``cookie``; never in a URL that servers log."""
         if not self.token:
-            return  # unauthenticated (localhost-only) mode
-        expected = "Bearer " + str(self.token)
-        if authorization != expected:
+            return True
+        offered = [(connection.headers.get("authorization"), "Bearer " + self.token)]
+        offered += [(protocol, BEARER_PROTOCOL + self.token.encode().hex())
+                    for protocol in connection.scope.get("subprotocols", ())]
+        if cookie:
+            offered.append((connection.cookies.get(cookie), self.token))
+        return any(value is not None and hmac.compare_digest(value.encode(), expected.encode())
+                   for value, expected in offered)
+
+    def require_auth(self, request: Request) -> None:
+        if not self.authorized(request):
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
-    def authorize_read(self, authorization: str | None, token_param: str | None) -> None:
-        """Accept the bearer header or, for a document a sandboxed iframe loads
-        by URL, the same token as a query value. An iframe cannot set a header,
-        so a token-protected deployment (a hosted portal supplies the header
-        itself) still reaches a read-only, self-sandboxing preview page. The
-        comparison is constant time; every other route keeps header-only auth."""
-        if not self.token:
-            return
-        import hmac
-
-        expected = "Bearer " + str(self.token)
-        if authorization is not None and hmac.compare_digest(authorization, expected):
-            return
-        if token_param is not None and hmac.compare_digest(str(token_param), str(self.token)):
-            return
-        raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+    def grant_cookie(self, request: Request, response: Response, name: str, path: str) -> None:
+        """Let documents the browser loads by URL under ``path`` authenticate."""
+        if self.token:
+            response.set_cookie(name, self.token, httponly=True, samesite="strict",
+                                secure=request.url.scheme == "https", path=path)
 
     def root_for_project(self, sid: str) -> Path | None:
         for root in self.roots:

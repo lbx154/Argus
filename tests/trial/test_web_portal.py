@@ -1407,7 +1407,7 @@ def test_websocket_forwarding_identity_auth_and_disconnect(provisioned, monkeypa
             ws.send_bytes(b"binary")
             assert ws.receive_bytes() == b"binary"
         url, kwargs, upstream = connections[-1]
-        assert url == "ws://trial-01:8080/api/projects/trial-02-project/stream?view=ui&token=internal-trial-01-secret"
+        assert url == "ws://trial-01:8080/api/projects/trial-02-project/stream?view=ui"
         assert kwargs["extra_headers"] == {"Authorization": "Bearer " + config["tenants"]["trial-01"]["token"]}
         assert "browser-secret" not in url + str(kwargs)
         assert upstream.closed and upstream.messages == ["hello", b"binary"]
@@ -1583,7 +1583,7 @@ def test_websocket_uds_uses_own_socket_and_authenticated_uri(provisioned, monkey
             assert ws.receive_text() == "message"
         path, uri, kwargs, socket = connections[0]
         assert path == config["tenants"]["trial-02"]["uds"]
-        assert uri == "ws://localhost/api/projects/trial-01-project/stream?view=ui&token=internal-trial-02-secret"
+        assert uri == "ws://localhost/api/projects/trial-01-project/stream?view=ui"
         assert kwargs["extra_headers"]["Authorization"] == "Bearer internal-trial-02-secret"
         assert socket.closed
 
