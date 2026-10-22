@@ -2725,6 +2725,9 @@
         },
         "signal_detail": {
           "type": "string"
+        },
+        "ends_work": {
+          "type": "boolean"
         }
       }
     },

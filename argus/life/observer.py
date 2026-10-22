@@ -14,7 +14,8 @@ the tools reading needs. Within a task it resumes its session and reads only
 the events added since its last look; the session ends with the task, and
 planning, which belongs to no task, is looked at afresh each time. A turn
 nobody took, such as a Planner call skipped on unchanged inputs, is not looked
-at. When all is well it says nothing and leaves no record of its own. A remark
+at, nor the turn that ends the work (``→ done``, or the Planner declaring the
+project done): after it nothing is left to flow. When all is well it says nothing and leaves no record of its own. A remark
 is one ``life.observer.note`` event, naming its task, for the Manager, who
 hears it through its supervision and decides what to do; with no Manager, or
 once the task is delivered, the operator gets it as an alert.
@@ -57,7 +58,7 @@ def _model(reviewer_model: str) -> str:
 def _ended_turn(event: dict[str, Any]) -> dict[str, Any] | None:
     """The turn this event ends: the role, its task and when, or None."""
     role = str(event.get("role") or "")
-    if event.get("type") != EventType.ROLE_SESSION_TURN or role not in WATCHED_ROLES:
+    if event.get("type") != EventType.ROLE_SESSION_TURN or role not in WATCHED_ROLES or event.get("ends_work"):
         return None
     return {"role": role, "item_id": str(event.get("item_id") or ""), "ts": float(event.get("ts") or time.time())}
 

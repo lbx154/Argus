@@ -872,6 +872,7 @@
         "cached_input_tokens": 1,
         "capsule_path": "capsule path",
         "duration_ms": 1,
+        "ends_work": true,
         "input_tokens": 1,
         "metadata_persisted": true,
         "payload_schema_version": 1,

@@ -593,6 +593,7 @@ class RoundReviewerMixin:
             on_event({
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "reviewer",
+                **({"ends_work": True} if review.status == "done" else {}),
                 "policy": reviewer_session.policy,
                 "action": reviewer_session.action,
                 "rotation_reason": reviewer_session.rotation_reason,

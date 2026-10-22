@@ -777,6 +777,7 @@ export interface RoleSessionTurnEvent extends EventMsg {
   "persistence_warning"?: string;
   "signal_kind"?: "repeated_contradiction" | "reviewer_confusion" | "quality_degradation";
   "signal_detail"?: string;
+  "ends_work"?: boolean;
 }
 
 export interface EngineerProgressEvent extends EventMsg {
