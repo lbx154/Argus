@@ -207,5 +207,5 @@ def test_the_engineer_does_not_force_its_way_past_an_environment_limit(compact_t
         task=_TASK, skill_text="", next_action=None, include_static=True,
         compact_team=compact_team,
     ))
-    assert "Do nothing the task does not ask, and never get around a limit the environment sets" in flat
+    assert "Add no work the task does not ask for (checks of your own change are part of the task), and never get around a limit the environment sets" in flat
     assert "say so and hand off instead of forcing another way in" in flat

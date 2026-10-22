@@ -99,7 +99,8 @@ _EXPERIMENT_PREREQUISITE_RULE = (
 )
 _SCOPE_RULE = (
     "Fix reported symptoms within design rules; intended behavior needs task-text support. "
-    "Do nothing the task does not ask, and never get around a limit the environment sets "
+    "Add no work the task does not ask for (checks of your own change are part of the task), "
+    "and never get around a limit the environment sets "
     "(an offline switch, a disabled package index): when it blocks what you need, say so "
     "and hand off instead of forcing another way in."
 )
