@@ -745,6 +745,9 @@ def test_an_answered_task_still_shows_the_operator_their_own_request(tmp_path: P
     assert asked.objective.startswith("Authoritative Manager operator-answer decision")
     task = next(t for t in read_map("s-answered", tmp_path, life)["tasks"] if t["id"] == asked.id)
     assert task["objective"] == "wait for my choice"
+    # Its card's words are written from the request and the answer beside it
+    # (s-43d4ae2f's card went on saying the work waited on the choice).
+    assert task["answered"] == "A or B? → A. (the operator)"
 
 
 def _answers_read(supervisor: LifeSupervisor, project: Path) -> tuple[str, str]:

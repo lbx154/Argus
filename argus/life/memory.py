@@ -47,6 +47,7 @@ import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.json_codec import loads_finite_json
+from ..core.operator_decision import card_answer
 from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.stop_kinds import PARK_STATUSES, park_reason_of, park_rule
 
@@ -841,19 +842,11 @@ def operator_answers(backlog: Backlog, objective: str) -> list[str]:
     cards = sorted(
         (
             card for row in (backlog.history() if since is not None else backlog.active())
-            if (card := row.operator_decision).get("status") == "resolved"
-            and float(card.get("asked_at") or 0) >= (since or 0.0)
+            if float((card := row.operator_decision).get("asked_at") or 0) >= (since or 0.0)
         ),
         key=lambda card: float(card.get("asked_at") or 0),
     )
-    answers = []
-    for card in cards:
-        question = " ".join(str(card.get("question") or "").split())
-        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())
-        if question and answer:
-            who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
-            answers.append(f"{question} → {answer} ({who})")
-    return answers
+    return [answer for card in cards if (answer := card_answer(card))]
 
 
 def manager_direct_in_hand(item: Any) -> bool:

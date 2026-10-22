@@ -71,12 +71,15 @@ def lines_source(dataset_id: str, locale: str) -> str:
 def _told(task: dict) -> dict:
     """What the model is told about a task. A running task's result is still
     moving, so it is described by what was asked of it and nothing else: the
-    note for its line then stays put until the task settles."""
+    note for its line then stays put until the task settles. What was asked
+    includes the operator's answer to the task's question, which overrides
+    the request wherever the two disagree."""
     settled = task.get("status") not in {"running", "pending", "queued"}
     told = {
         "id": task["id"],
         "title": text(task.get("title"), 200),
         "asked": text(task.get("objective"), 600),
+        **({"answered": text(task["answered"], 600)} if task.get("answered") else {}),
         "contributes": text(task.get("goal_contribution"), 300),
         "status": text(task.get("status"), 40),
     }

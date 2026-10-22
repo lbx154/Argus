@@ -9,6 +9,7 @@ from pathlib import Path
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
 from ..core.mission_view import operator_objective
+from ..core.operator_decision import card_answer
 from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
@@ -621,6 +622,10 @@ def read_map(
         if reason := park_reason(item):
             task["park_reason"] = reason
         task["objective"] = operator_objective(raw)
+        if answered := card_answer(item.operator_decision):
+            # The objective stays the operator's request; what they answered
+            # since is part of what the task now asks.
+            task["answered"] = answered
         for k, v in list(task.items()):
             if k == "outcome":
                 task[k] = public_outcome(v)
