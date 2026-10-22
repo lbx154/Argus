@@ -861,3 +861,56 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
     line = format_event_message(completed)
     assert "Completed with residual risk: Ingest the feed." in line
     assert risk in line
+
+
+# --- HO-6. One operator policy: no question offered that settlement refuses --
+
+
+def _descriptions(node) -> list[str]:
+    """Every description in a tool schema, the tool's own included."""
+    if isinstance(node, dict):
+        found = [node["description"]] if isinstance(node.get("description"), str) else []
+        return found + [text for value in node.values() for text in _descriptions(value)]
+    if isinstance(node, list):
+        return [text for value in node for text in _descriptions(value)]
+    return []
+
+
+def test_without_an_operator_no_review_tool_description_says_to_ask_them() -> None:
+    asking = " ".join(_descriptions(ReviewActions(grounding=_grounding(operator=True)).tools))
+    assert "→ operator" in asking and "accept_risk" in asking
+    tools = ReviewActions(grounding=_grounding(operator=False)).tools
+    text = " ".join(_descriptions(tools))
+    assert "→ operator" not in text and "ask them" not in text
+    assert "accept_risk" not in text
+    assert "accept_risk" not in tools[0]["inputSchema"]["properties"]
+    assert "the Manager decides in their place" in text
+
+
+def test_without_an_operator_a_question_about_a_risk_is_refused() -> None:
+    """Asking would raise a card whose answer no Reviewer could cite: only the
+    Manager's acceptance counts while the operator cannot be asked."""
+    actions = ReviewActions(grounding=_grounding(operator=False))
+    with pytest.raises(ValueError, match="`→ manager`") as refused:
+        actions.dispatch("submit_review", {
+            "review": "Only the grader has the token.\n→ operator: Leave the live feed check unverified?",
+            "accept_risk": {"check": _CHECK, "risk": "Live feed behaviour is unverified."},
+        })
+    assert "→ operator" not in str(refused.value)
+    with pytest.raises(ValueError) as unrouted:
+        actions.dispatch("submit_review", {"review": "No closing line here."})
+    assert "→ operator" not in str(unrouted.value)
+    assert actions.decision is None
+
+
+def test_a_risk_the_manager_accepts_is_listed_for_the_run_report(tmp_path, no_operator, monkeypatch) -> None:
+    from argus.core.autonomy import read_autonomous_assumptions, render_autonomous_assumptions
+
+    monkeypatch.setenv("ARGUS_AUTONOMY_RUN_ID", "risk-run")
+    item, event = _supervised_project(tmp_path)
+    record = _supervise(tmp_path, event, _ACCEPT)
+    assert record["status"] == "applied", record
+    (row,) = read_autonomous_assumptions(tmp_path)
+    assert row["source"] == "manager_decision" and row["item_id"] == item.id
+    assert _CHECK in row["conflict"] and "Live feed behaviour is unverified." in row["reading"]
+    assert "the Manager decided for you" in render_autonomous_assumptions(tmp_path)

@@ -461,7 +461,8 @@ class IdleCycleMixin:
         recorded for the run report in the Manager's name. A card the Manager
         names no valid choice for, or whose choice cannot be applied, is asked
         again after an idle backoff, at most ``PROXY_DECISION_ATTEMPTS`` times;
-        then it waits, with a notice, until it changes or the operator returns.
+        then its task ends in the Manager's name, the one choice every card
+        offers it, rather than waiting for an operator who cannot be asked.
         Returns whether any card was resolved.
         """
         from ...core.autonomy import (
@@ -469,7 +470,7 @@ class IdleCycleMixin:
             record_autonomous_assumption,
         )
         from ...core.operator_decision import selected_decision_text
-        from ...manager.proxy_decision import decide_for_operator
+        from ...manager.proxy_decision import ProxyChoice, decide_for_operator, end_option
 
         resolver = getattr(self.config, "pending_question_resolver", None)
         root = self._project_state_root()
@@ -509,13 +510,27 @@ class IdleCycleMixin:
                         f"The Manager has not yet decided “{item.title}” in the "
                         "operator's place; it will be asked again"
                     )
-                else:
-                    from ...core.operator_messages import brief_title
+                    continue
+                choice = ProxyChoice(
+                    decision_id=str(card.get("id") or ""), option=end_option(card), note="",
+                    reason=(
+                        f"The Manager named no choice it could apply in {PROXY_DECISION_ATTEMPTS} "
+                        "tries, and nobody else can decide while the operator cannot be asked"
+                    ),
+                    evidence_refs=(),
+                )
+                try:
+                    result = resolver(item, choice)
+                except Exception:  # noqa: BLE001 - the card stays as it is
+                    log.exception("could not end task %s for its undecided card", item.id)
+                    result = None
+                if not (isinstance(result, dict) and result.get("resolved")):
+                    continue
+                from ...core.operator_messages import brief_title
 
-                    self._tell_operator(
-                        f"proxy-undecided-{key}", "proxy_undecided", title=brief_title(item.title),
-                    )
-                continue
+                self._tell_operator(
+                    f"proxy-undecided-{key}", "proxy_undecided", title=brief_title(item.title),
+                )
             record_autonomous_assumption(
                 root,
                 item_id=item.id,

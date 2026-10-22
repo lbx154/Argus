@@ -252,6 +252,11 @@ def _is_host_drop_option(item: Any, card: dict[str, Any], option_id: str) -> boo
     agent-authored option that happens to be called "drop" keeps its ordinary
     meaning, so only the host's card qualifies.
     """
+    from ..core.operator_decision import END_TASK_OPTION
+
+    if option_id == END_TASK_OPTION:
+        # Only the host offers it (the Manager's way out of any card).
+        return True
     if option_id != "drop":
         return False
     if card.get("decision_kind") == "provider_configuration":
@@ -294,13 +299,14 @@ def _drop_decision_item(
     decision_id: str,
     note: str,
     decided_by: str = "operator",
+    option_id: str = "drop",
 ) -> dict[str, Any]:
     """Resolve a host "drop" choice by ending only its item; no continuation."""
     from ..core.event_catalog import EventType
     from ..core.operator_decision import selected_decision_text
     from ..life.event_log import JsonlEventSink
 
-    operator_text = selected_decision_text(item.operator_decision, "drop", note)
+    operator_text = selected_decision_text(item.operator_decision, option_id, note)
     revision = int(item.operator_decision.get("revision", 1) or 1)
     # Dropping one task is not a resume: an armed campaign (one whose worker
     # ended waiting for this answer included) continues; a recorded pause,
@@ -314,7 +320,7 @@ def _drop_decision_item(
         item.id,
         note=note,
         decision_id=decision_id,
-        selected_option="drop",
+        selected_option=option_id,
         manager_decision="drop task",
         reply=reply,
         last_error=f"{decided_by} dropped this task",
@@ -326,7 +332,7 @@ def _drop_decision_item(
             (row for row in mem.backlog.history() if row.id == item.id), item,
         )
         replay = _resolved_decision_replay(
-            current, decision_id=decision_id, option_id="drop", note=note,
+            current, decision_id=decision_id, option_id=option_id, note=note,
         )
         return replay or _decision_stale("decision changed while applying")
     card = dropped.operator_decision
@@ -1041,6 +1047,7 @@ def manager_resolve_operator_decision(
         if _is_host_drop_option(item, card, option_id):
             return _drop_decision_item(
                 mem, item, decision_id=decision_id, note=note, decided_by=decided_by,
+                option_id=option_id,
             )
         if option_id == "stop":
             try:

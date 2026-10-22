@@ -157,10 +157,12 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
     ]
 
 
-def render_autonomous_assumptions(
-    state_root: Path | str, *, limit: int = 8, chinese: bool = False,
-) -> str:
-    rows = read_autonomous_assumptions(state_root)[-limit:]
+def render_autonomous_assumptions(state_root: Path | str, *, chinese: bool = False) -> str:
+    """Every decision this run took without asking the operator, one line each.
+
+    None is left out: each is the operator's to review and change.
+    """
+    rows = read_autonomous_assumptions(state_root)
     if not rows:
         return ""
     lines = [say("assumed_head", chinese)]

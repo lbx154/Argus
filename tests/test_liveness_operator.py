@@ -819,13 +819,23 @@ def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(
     parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
     assert parked.status == "parked"
 
-    # A card the Manager keeps failing gets a bounded number of tries.
+    # A card the Manager keeps failing gets a bounded number of tries; then its
+    # task ends in the Manager's name instead of waiting for an operator who
+    # cannot be asked.
+    ended = []
     for _ in range(10):
         supervisor._proxy_retry = {
             key: (attempts, 0.0) for key, (attempts, _retry_at) in supervisor._proxy_retry.items()
         }
-        assert supervisor._decide_parked_questions() is False
+        ended.append(supervisor._decide_parked_questions())
     assert len(manager.prompts) == PROXY_DECISION_ATTEMPTS
+    assert ended.count(True) == 1
+    dropped = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
+    assert dropped.status == "aborted" and not dropped.pending_question
+    assert dropped.operator_decision["selected_option"] == "drop"
+    assert dropped.operator_decision["decided_by"] == "manager"
+    row = read_autonomous_assumptions(life)[-1]
+    assert row["source"] == "manager_decision" and "no choice it could apply" in row["reading"]
 
 
 def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(

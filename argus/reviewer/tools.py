@@ -38,6 +38,20 @@ HANDOFF_LINE = (
     "in the acceptance criteria only the Manager can settle; `→ operator: <one "
     "question>` a decision only the operator can make."
 )
+#: The same line while the operator cannot be asked: the Manager decides in
+#: their place (``core.autonomy``), so nothing here tells the Reviewer to ask.
+NO_OPERATOR_HANDOFF_LINE = (
+    "End the review with one line naming who holds the work next: `→ done` "
+    "accepts this candidate; `→ engineer` returns concrete in-scope repairs; "
+    "`→ planner` the task or plan is wrong; `→ manager` an obstacle, a conflict "
+    "in the acceptance criteria, or a decision that would be the operator's: they "
+    "cannot be asked in this run, so the Manager decides in their place."
+)
+
+
+def handoff_line(operator_available: bool) -> str:
+    """The closing-line rule for a run where the operator can or cannot be asked."""
+    return HANDOFF_LINE if operator_available else NO_OPERATOR_HANDOFF_LINE
 
 
 #: An optional routing judgment on the accepting verdict; a malformed one is
@@ -204,12 +218,13 @@ class ReviewActions:
             "required": [key for key, _ in RESULT_FIELD_CHOICES[:4]],
             "additionalProperties": False,
         }
+        asking = self.grounding.operator_available
         fields: dict[str, Any] = {
             "review": {
                 "type": "string", "minLength": 1,
                 "description": (
                     "Your complete natural-language review, including evidence and what "
-                    "the next holder needs. " + HANDOFF_LINE
+                    "the next holder needs. " + handoff_line(asking)
                 ),
             },
             "research_result": research,
@@ -234,7 +249,7 @@ class ReviewActions:
                     "risk left. " + (
                         "Leaving it unverified is the operator's decision: ask them with "
                         "`→ operator: <question>` and accept_risk."
-                        if self.grounding.operator_available else
+                        if asking else
                         "The operator cannot be asked, so the Manager sees this and "
                         "decides whether to accept that risk."
                     )
@@ -245,10 +260,15 @@ class ReviewActions:
                 "type": "object",
                 "description": (
                     "Only with `→ done`, when one decisive check stays unverified because "
-                    "it is impossible here and leaving it so was accepted: by the operator "
-                    "choosing to accept it on the question you raised with accept_risk, "
-                    "or, in a run with no operator, by the Manager (cite the risk id "
-                    "listed under Accepted residual risk). Name the check exactly as "
+                    "it is impossible here and leaving it so was accepted: "
+                    + (
+                        "by the operator choosing to accept it on the question you raised "
+                        "with accept_risk. "
+                        if asking else
+                        "by the Manager, who decides in place of the operator in this run "
+                        "(cite the risk id listed under Accepted residual risk). "
+                    )
+                    + "Name the check exactly as "
                     "accepted. Without that acceptance, do not accept the candidate. "
                     "The evidence you judged it from must be something you read yourself. "
                     + FIXTURE_EVIDENCE_RULE
@@ -263,9 +283,8 @@ class ReviewActions:
                     "acceptance": {
                         "type": "string", "minLength": 3,
                         "description": (
-                            "The Manager's risk id, or the operator's decision id; the host "
-                            "checks the recorded choice, not this text."
-                        ),
+                            "The operator's decision id" if asking else "The Manager's risk id"
+                        ) + "; the host checks the recorded choice, not this text.",
                     },
                 },
                 "required": [
@@ -288,6 +307,9 @@ class ReviewActions:
                 "additionalProperties": False,
             },
         }
+        if not asking:
+            # No question reaches the operator, so there is none to raise.
+            del fields["accept_risk"]
         if self.venue_required:
             fields["recommendation"] = {
                 "type": "string", "enum": list(RECOMMENDATIONS),
@@ -324,6 +346,13 @@ class ReviewActions:
             self.decision = None
         schema = self.tools[0]["inputSchema"]
         payload = dict(payload)
+        asking = self.grounding.operator_available
+        if "accept_risk" in payload and not asking:
+            raise ValueError(
+                "The operator cannot be asked in this run, so no question about this risk "
+                "reaches them: name the check in unverifiable and hand the work on with "
+                "`→ manager`; the Manager decides whether to accept that risk."
+            )
         if "learning" in payload:
             try:
                 validate(payload["learning"], _LEARNING_FIELD)
@@ -342,7 +371,7 @@ class ReviewActions:
         handoff = read_baton_line(review)
         holder = handoff.holder if handoff is not None else ""
         if holder not in HANDOFF_STATUS:
-            raise ValueError(f"{HANDOFF_LINE} {OPERATOR_CHOICES_RULE}")
+            raise ValueError(handoff_line(asking) + (f" {OPERATOR_CHOICES_RULE}" if asking else ""))
         if holder != "done" and "residual_risk" in payload:
             raise ValueError("residual_risk records an accepted risk: it goes with `→ done`.")
         if holder == "done" and ("unverifiable" in payload or "impossible_because" in payload):
