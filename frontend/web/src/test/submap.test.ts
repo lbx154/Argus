@@ -64,6 +64,18 @@ describe("task submap evidence", () => {
     expect(by("e7").title).toBe("经理替你定了");
   });
 
+  it("says which offered option an answer chose, and who chose it", () => {
+    const rows = buildSubmap({ ...task, status: "parked" }, [
+      event("e1", "life.operator_question.pending", { role: "engineer", text: "Which wins?\n1. Keep v1\n2. Ship v2" }),
+      event("e2", "life.operator_question.answered", { role: "operator", text: "Keep v1", option: "Keep v1" }),
+      event("e3", "life.operator_question.answered", { role: "manager", text: "Ship v2", option: "Ship v2" }),
+    ], false);
+    const by = (id: string) => rows.find((row) => row.id === id)!;
+    expect([by("e1").title, by("e1").detail]).toEqual(["A question for you", "Which wins?\n1. Keep v1\n2. Ship v2"]);
+    expect([by("e2").title, by("e2").detail]).toEqual(["You chose", "Keep v1"]);
+    expect([by("e3").title, by("e3").detail]).toEqual(["The Manager chose for you", "Ship v2"]);
+  });
+
   it("shows reviewer failure as an error rather than rejection and keeps later review independent", () => {
     const rows = buildSubmap({ ...task, status: "failed" }, [
       event("e1", "life.mission.started"),

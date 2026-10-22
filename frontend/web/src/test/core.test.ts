@@ -272,7 +272,9 @@ describe('shared frontend core', () => {
     }));
     expect(html).toContain('Decision required');
     expect(html).toContain('Which dataset should the process use?');
-    expect(html).toContain('Choose dataset');
+    // A written answer is the text box and its send button.
+    expect(html).toContain('Answer in your own words');
+    expect(html).toContain('Send answer');
     expect(html).toContain('Your answer applies to this task.');
   });
 

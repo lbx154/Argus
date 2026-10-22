@@ -78,6 +78,8 @@ export interface MapEvent {
   finished_ts?: number | null;
   updated_ts?: number;
   next_action?: string;
+  /** An answered question: the option chosen, as the card offered it. */
+  option?: string;
   association?: "explicit" | "single_active_window";
 }
 export interface Dataset {

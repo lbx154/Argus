@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import type { OperatorDecisionCard } from '../../../core/src/decisions';
 import { Modal, ModalHeader } from './Modal';
 import { isImeComposing } from '../lib/ime';
@@ -24,41 +24,33 @@ export function PendingReplyDialog({
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const defaultOption = useMemo(
-    () => reply?.options[0]?.id ?? 'custom',
-    [reply],
-  );
-  const [optionId, setOptionId] = useState(defaultOption);
   const [note, setNote] = useState('');
   const [validationError, setValidationError] = useState('');
   useEffect(() => {
     if (!open) return;
-    setOptionId(defaultOption);
     setNote('');
     setValidationError('');
-  }, [defaultOption, open, reply?.id]);
+  }, [open, reply?.id]);
   if (!reply) return null;
 
-  const freeform = reply.options.length === 0;
   const intake = reply.kind === 'domain_intake';
-  const selected = reply.options.find((option) => option.id === optionId);
-  const canSubmit = freeform
-    ? Boolean(note.trim())
-    : Boolean(selected && (!selected.requires_note || note.trim()));
-  const submit = () => {
+  // One click on an offered option answers with it; what is typed goes with
+  // it as a note. The written answer is the card's own `custom` choice.
+  const choices = reply.options.filter((option) => option.id !== 'custom');
+  const submit = (optionId: string, requiresNote: boolean) => {
     if (busy) return;
-    if (!canSubmit) {
+    if (requiresNote && !note.trim()) {
       setValidationError(t('decision.noteRequired'));
       return;
     }
     setValidationError('');
-    onSubmit(freeform ? 'custom' : optionId, note.trim());
+    onSubmit(optionId, note.trim());
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposing(event)) return;
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      submit();
+      submit('custom', true);
     }
   };
 
@@ -91,45 +83,37 @@ export function PendingReplyDialog({
 
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{reply.question}</p>
 
-        {reply.options.length ? (
+        {choices.length ? (
           <div className="space-y-2">
-            {reply.options.map((option) => (
+            {choices.map((option) => (
             <button
               key={option.id}
               type="button"
-              onClick={() => {
-                setOptionId(option.id);
-                setValidationError('');
-              }}
+              onClick={() => submit(option.id, option.requires_note)}
               disabled={busy}
-              aria-pressed={optionId === option.id}
-              className={`w-full rounded-md border p-3 text-left ${
-                optionId === option.id ? 'border-blue bg-blue/5' : 'border-line bg-bg/30'
-              }`}
+              className="w-full rounded-md border border-line bg-bg/30 p-3 text-left hover:border-blue hover:bg-blue/5 disabled:opacity-60"
             >
               <div className="text-sm font-medium text-ink">{option.label}</div>
-              <div className="mt-1 text-xs leading-relaxed text-ink-dim">{option.description}</div>
+              {option.description ? <div className="mt-1 text-xs leading-relaxed text-ink-dim">{option.description}</div> : null}
             </button>
             ))}
           </div>
         ) : null}
 
-        {intake || freeform || selected?.requires_note || note ? (
-          <textarea
-            data-autofocus
-            value={note}
-            onChange={(event) => {
-              setNote(event.target.value);
-              setValidationError('');
-            }}
-            onKeyDown={onKeyDown}
-            rows={3}
-            disabled={busy}
-            aria-label={intake ? (zh ? '你的回答或补充说明' : 'Your answer or additional details') : t('decision.notePlaceholder')}
-            placeholder={intake ? (selected?.requires_note ? (zh ? '填写你的回答…' : 'Enter your answer…') : (zh ? '补充说明（可选）' : 'Additional details (optional)')) : t('decision.notePlaceholder')}
-            className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed text-ink outline-none focus:border-blue disabled:opacity-60"
-          />
-        ) : null}
+        <textarea
+          data-autofocus
+          value={note}
+          onChange={(event) => {
+            setNote(event.target.value);
+            setValidationError('');
+          }}
+          onKeyDown={onKeyDown}
+          rows={3}
+          disabled={busy}
+          aria-label={intake ? (zh ? '你的回答或补充说明' : 'Your answer or additional details') : t('decision.notePlaceholder')}
+          placeholder={intake ? (zh ? '补充说明（可选）' : 'Additional details (optional)') : t('decision.notePlaceholder')}
+          className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed text-ink outline-none focus:border-blue disabled:opacity-60"
+        />
         {validationError || error ? (
           <p role="alert" className="text-xs text-err">{validationError || error}</p>
         ) : null}
@@ -141,14 +125,8 @@ export function PendingReplyDialog({
                 for a while before it returns; the dialog can be put away
                 meanwhile and the work continues in the map. */}
             <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-xs text-ink-dim hover:bg-bg">{busy ? t('decision.closeContinue') : t('decision.later')}</button>
-            <button type="button" onClick={submit} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
-              {busy
-                ? t('decision.applying')
-                : freeform || optionId === 'custom'
-                  ? t('decision.sendAnswer')
-                  : optionId === 'stop'
-                    ? t('decision.stopCampaign')
-                    : t('decision.useOption')}
+            <button type="button" onClick={() => submit('custom', true)} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
+              {busy ? t('decision.applying') : t('decision.sendAnswer')}
             </button>
           </div>
         </div>
