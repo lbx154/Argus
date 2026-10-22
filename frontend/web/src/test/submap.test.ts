@@ -328,7 +328,7 @@ it("shows the result prose without runner-control fields", () => {
     ),
   ).toBe("完成 200 个独立种子。");
   expect(readableRecord("完成 200 个独立种子。\n→ reviewer")).toBe("完成 200 个独立种子。");
-  expect(readableRecord("等结果。\n- → 等待: `seed-200`")).toBe("等结果。");
+  expect(readableRecord("等结果。\n- → 经理: `seed-200`")).toBe("等结果。");
 });
 
 it("reuses geometry for streaming prose while recalculating changed content bounds", () => {

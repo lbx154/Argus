@@ -7,9 +7,11 @@ line is the only handoff the host reads.
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
+from .contract_resources import contract_schema_path
 from .models import ReviewStatus
 from .role_decision import ROLE_DECISION_PREFIX
 
@@ -30,14 +32,14 @@ _RESULT_KEY = re.compile(
 # A role-decision event line (``core.role_decision``): read by the host, never by a person.
 _ROLE_DECISION_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]*)?`?" + re.escape(ROLE_DECISION_PREFIX))
 # The holders a baton line may name, in English or by the role names the
-# operator sees; the older Chinese names stay readable.
+# operator sees; the older Chinese names stay readable. The frontend hides
+# these lines by the same names (generated from the same contract).
 _HOLDERS = {
-    "engineer": "engineer", "工程师": "engineer", "执行": "engineer",
-    "reviewer": "reviewer", "审阅者": "reviewer", "复核": "reviewer",
-    "planner": "planner", "规划者": "planner", "规划": "planner",
-    "manager": "manager", "经理": "manager", "统筹": "manager",
-    "operator": "operator", "你": "operator", "操作员": "operator",
-    "done": "done", "完成": "done",
+    name: holder
+    for holder, names in json.loads(
+        contract_schema_path("baton_holders.json").read_text(encoding="utf-8")
+    ).items()
+    for name in names
 }
 # One holder after an arrow, optionally with ``: <argument>``; a bullet, bold,
 # backticks around the holder and a full-width colon are decoration.
