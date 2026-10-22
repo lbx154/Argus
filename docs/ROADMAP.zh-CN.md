@@ -759,10 +759,18 @@ Reviewer 放过多少、冤枉多少，有数，而且公开。
 `0.2` · `M`，长期 `L` · 依赖：无 · **优先级最高**
 - 要做：先在 Engineer 和 Reviewer 的工具层加上工作区边界，禁止读写其他项目和其他租户的用户数据；长期改为沙箱隔离。
 - 做完的样子：SE-2 的隔离测试通过。
+- 状态：工具层边界已完成（`6ae03543`）。Engineer 和 Reviewer 的每次调用都不能碰其他项目的状态目录和工作目录、
+  运行时里 Pi 和 Copilot 的会话记录，以及 `ARGUS_SKILL_FOREIGN_ROOTS` 列出的目录；以原生方式接入的试用工作区在这里列出
+  其他所有租户的目录和门户自己的状态。由 Claude Code、Copilot CLI、Codex 和 Pi 各自的工具调用前钩子执行；Qoder、Cursor、
+  OpenCode、Grok 和 dsh 上没有这道边界。文件工具按路径精确检查，shell 命令只按命令里写出的路径检查，模型自己写的脚本或
+  编码过的路径可以绕过。工作目录是用户主目录、或包含另一个项目工作目录的项目，用这种方式分不开。沙箱隔离还没做。
 
 #### SE-2 租户隔离测试
 `0.2` · `M` · 依赖：SE-1
 - 要做：两个租户、两个项目，各自的 Agent 尝试读取对方的文件，测试必须全部失败。
+- 状态：已完成（`6ae03543`）。`tests/core/test_workspace_isolation.py` 用两个租户、两个项目，把各个 CLI 实际发出的
+  工具调用交给真实的钩子：360 次尝试全部被拒绝，各自的文件照常可读。`tests/agent_cli/test_workspace_boundary_cli.py`
+  让真实的 Pi、Copilot、Claude Code 和 Codex CLI 对着本地脚本模型跑一遍（用 `ARGUS_TEST_BOUNDARY_CLIS` 开启）。
 
 #### SE-3 账号和项目权限
 `0.6` · `L` · 依赖：SE-1

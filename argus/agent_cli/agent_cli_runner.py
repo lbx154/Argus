@@ -22,7 +22,7 @@ import subprocess  # noqa: F401 -- re-exported so tests can patch `agent_cli_run
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 # Re-exported: ``tests/agent_cli/test_incomplete_turn_error.py`` imports this
 # name directly from ``agent_cli_runner`` rather than from ``_env``.
@@ -128,11 +128,14 @@ class RunnerOptions:
     # bound to the call before spawn (``--session-id``). Never set together
     # with a resume identity; a resumed call keeps its original session.
     provider_session_id: str | None = None
+    # See ``argus.core.models.RunnerOptions.workspace_boundary``.
+    workspace_boundary: Any = None
     # Internal transport fields must survive the real run_exec sandbox policy's
     # dataclasses.replace. They are never populated from ordinary user options.
     _training_extension: str | None = field(default=None, repr=False, compare=False)
     _training_environment: PrivateRunnerEnvironment | None = field(default=None, repr=False, compare=False)
     _output_schema_path: str | None = field(default=None, repr=False, compare=False)
+    _boundary_hook: list[str] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         # Callers concatenate what each concern needs; the CLI gets each once.

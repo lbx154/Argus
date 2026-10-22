@@ -33,6 +33,7 @@ from ..core.stop_kinds import (
     stop_kind_clause,
     stop_kind_from_external_interrupt,
 )
+from ..core.workspace_boundary import role_workspace_boundary
 from ..core.workspace_snapshot import WorkspaceSnapshots
 from .tools import review_action_tools
 
@@ -406,6 +407,10 @@ def _parallel_final_review_passes(
                 skip_git_repo_check=config.skip_git_repo_check,
                 extra_args=list(config.extra_args) if config.extra_args else None,
                 working_dir=str(working_dirs[label]),
+                workspace_boundary=role_workspace_boundary(
+                    working_dir=working_dirs[label],
+                    own_dirs=[workdir, config.vertical_state_root, *config.add_dirs],
+                ),
             ),
             run_label=f"reviewer-{label.lower()}",
         )
@@ -917,6 +922,16 @@ class Reviewer:
                     add_dirs=add_dirs or None,
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
+                    # Its own project, the Engineer's record and the libraries
+                    # it reads stay open; other projects' data does not (SE-1).
+                    workspace_boundary=role_workspace_boundary(
+                        working_dir=config.working_dir,
+                        own_dirs=[
+                            *add_dirs, config.artifact_root, config.vertical_state_root,
+                            *(Path(value).expanduser().parent
+                              for value in (engineer_log_path, checkpoint_path) if value),
+                        ],
+                    ),
                     # Search is available for the rare turn that proposes a
                     # skill; ordinary review turns need not invoke it.
                     live_search=True,

@@ -25,6 +25,7 @@ from ..core.secret_guard import (
     known_secret_values,
     redact_secrets_record,
 )
+from ..core.workspace_boundary import WorkspaceBoundary, role_workspace_boundary
 from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
 from .checkpoint import resolve_shared_checkpoint
@@ -468,6 +469,9 @@ class SupervisedEngineer(
                     # agent CLI's own tools it never uses stay out of requests.
                     lean_tool_surface=True,
                     working_dir=str(workdir),
+                    workspace_boundary=_engineer_workspace_boundary(
+                        workdir, self.engineer_config, supervised_config,
+                    ),
                     live_search=_engineer_live_search(
                         self.engineer_config.vertical_state_root or workdir,
                         self.engineer_config.live_search_stages,
@@ -503,6 +507,28 @@ class SupervisedEngineer(
                 stderr_lines=[msg],
                 stop_kind="backend_unavailable",
             ), 0
+
+
+def _engineer_workspace_boundary(
+    workdir: Path,
+    engineer_config: EngineerConfig,
+    supervised_config: SupervisedConfig | None,
+) -> WorkspaceBoundary:
+    """The Engineer's own workspace, project state and the directories it is
+    given stay open; other projects' and tenants' data is closed (SE-1)."""
+    own: list[str | Path | None] = [*(engineer_config.add_dirs or ()), engineer_config.vertical_state_root]
+    if supervised_config is not None:
+        own.append(supervised_config.state_root)
+        own += [
+            Path(value).expanduser().parent
+            for value in (
+                supervised_config.checkpoint_path,
+                supervised_config.context_packet_path,
+                supervised_config.engineer_log_path,
+            )
+            if value
+        ]
+    return role_workspace_boundary(working_dir=workdir, own_dirs=own)
 
 
 __all__ = [

@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 
+from ._workspace_boundary import boundary_command_args
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
@@ -521,6 +522,7 @@ class CommandBuilderMixin:
             # disabled/cached/indexed/live; force ``live`` so idea discovery does
             # real live searches instead of the cached default.
             command.extend(["-c", 'web_search="live"'])
+        command.extend(boundary_command_args(BACKEND_CODEX, options))
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
@@ -580,6 +582,8 @@ class CommandBuilderMixin:
         trusted = getattr(options, "trusted_tool_names", None) or []
         if trusted and not options.disable_tools:
             command.extend(["--allowedTools", ",".join(trusted)])
+        if not is_qoder:
+            command.extend(boundary_command_args(BACKEND_CLAUDE, options))
         # --add-dir
         if options.add_dirs:
             for dir_path in options.add_dirs:
@@ -833,6 +837,7 @@ class CommandBuilderMixin:
         training_extension = getattr(options, "_training_extension", None)
         if training_extension:
             command.extend(["--extension", training_extension])
+        command.extend(boundary_command_args(BACKEND_PI, options))
         if options.model:
             command.extend(["--model", _pi_model(options.model)])
         if options.reasoning_effort:

@@ -469,6 +469,7 @@ class AgentCliBackend:
                 getattr(options, "disabled_mcp_servers", ()) or ()
             ),
             on_agent_message=options.on_agent_message,
+            workspace_boundary=getattr(options, "workspace_boundary", None),
         )
 
     def _translate_result(
