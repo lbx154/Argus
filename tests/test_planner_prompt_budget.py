@@ -70,7 +70,8 @@ def _build_scope_prompt(
         runtime_change_summary=runtime_context,
         open_ended=True,
     )
-    return prompt, objective
+    # Measured without the test's own directory, whose length varies by machine and worker.
+    return prompt.replace(str(tmp_path), "<project>"), objective
 
 
 def test_scope_prompt_is_compact_and_deduplicated(
