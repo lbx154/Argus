@@ -423,6 +423,8 @@ def _reviewed_facts_section(candidate: dict[str, Any] | None, pointer: str) -> s
 
 
 _NO_FACT = "none"
+_WROTE_PREFIX = "WROTE:"
+_NO_FACT_WRITTEN = "nothing"
 
 
 def _reviewed_fact_line(text: str) -> dict[str, Any] | str | None:
@@ -447,6 +449,24 @@ def _reviewed_fact_line(text: str) -> dict[str, Any] | str | None:
         if isinstance(value, dict):
             found = value
     return found
+
+
+def _wrote_claim(text: str) -> str:
+    """What the last ``WROTE:`` line of the final message claims.
+
+    ``"nothing"`` or ``"paths"``; ``""`` when the message has no such line.
+    Recorded so a reflection that changed nothing says whether the model
+    chose to keep nothing or claimed writes the host did not find.
+    """
+    claim = ""
+    for raw in str(text or "").splitlines():
+        line = raw.strip().strip("`").strip()
+        if not line.upper().startswith(_WROTE_PREFIX):
+            continue
+        body = line[len(_WROTE_PREFIX):].strip().strip("`").strip()
+        if body:
+            claim = "nothing" if body.lower().startswith(_NO_FACT_WRITTEN) else "paths"
+    return claim
 
 
 def judge_reviewed_fact_alone(
@@ -898,7 +918,7 @@ def _reflect_after_mission(
         "created": created, "updated": updated, "ignored": ignored, "promoted": promoted,
         "retired": retired,
         "failure": failure, "stop_kind": stop_kind, "prompt_chars": len(prompt),
-        "reviewed_fact_recorded": fact_recorded,
+        "reviewed_fact_recorded": fact_recorded, "wrote": _wrote_claim(answer),
     }
     if not failure:
         _write_receipt(life_dir, mission_id, {

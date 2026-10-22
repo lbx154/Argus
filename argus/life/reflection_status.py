@@ -78,6 +78,19 @@ def _pause_reason(result: dict) -> str:
     return kind if kind in _PAUSE_KINDS else ""
 
 
+def _unchanged_detail(result: dict) -> str:
+    """Why a reflection that ran to the end added no page or Skill (LE-5)."""
+    if result.get("retired"):
+        return "retired_only"
+    # The model is asked to add INDEX lines itself; an INDEX edit alone is not a page.
+    if any(Path(str(path)).name != "INDEX.md" for path in result.get("ignored") or ()):
+        return "unreadable_page"
+    if result.get("reviewed_fact_recorded"):
+        return "reviewed_fact_only"
+    return {"nothing": "wrote_nothing", "paths": "claimed_write_missing"}.get(
+        str(result.get("wrote") or ""), "no_wrote_line")
+
+
 def _finish(root: Path, job_id: str, result: dict, entries: list[dict]) -> None:
     counts = {"knowledge": 0, "skills": 0, "preferences": 0}
     items = []
@@ -97,10 +110,12 @@ def _finish(root: Path, job_id: str, result: dict, entries: list[dict]) -> None:
     elif result.get("skipped") and not any(counts.values()):
         # Nothing to learn from (learning off, no backend): stay quiet.
         status, outcome["reason"] = "skipped", "not_needed"
+        outcome["detail"] = str(result["skipped"])[:120]
     elif any(counts.values()):
         status, outcome["reason"] = "completed", "saved"
     else:
         status, outcome["reason"] = "unchanged", "no_new_learning"
+        outcome["detail"] = _unchanged_detail(result)
     with _database(root) as db:
         db.execute("UPDATE jobs SET status=?, updated=?, outcome=? WHERE id=?",
                    (status, time.time(), json.dumps(outcome, ensure_ascii=False), job_id))
