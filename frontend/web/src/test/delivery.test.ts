@@ -80,8 +80,8 @@ describe('completed delivery presentation', () => {
       type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',
       title: 'Ingest the feed', summary: `Verified with residual risk: ${risk}. Built ingest.`, residual_risk: risk,
     }, context);
-    expect(completed?.text).toContain('completed with residual risk');
-    expect(completed?.text).toContain(risk);
+    // The risk itself is told once, on the review row.
+    expect(completed?.text).toBe('completed with residual risk');
   });
   it('opens the receipt primary target before a stale live checkpoint', () => {
     const view = emptyMissionView();

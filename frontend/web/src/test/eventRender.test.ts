@@ -316,7 +316,7 @@ describe('the web feed line', () => {
     expect(line({
       type: 'life.mission.completed', status: 'done', success: true,
       summary: 'Created RESULT.txt and verified its contents.',
-    })).toMatchObject({ text: 'The task was completed. · Created RESULT.txt and verified its contents.', tone: 'ok', rule: true });
+    })).toMatchObject({ text: 'The task was completed.', tone: 'ok', rule: true });
     expect(line({ type: 'life.mission.completed', status: 'done', success: true, final_submission_certified: true }))
       .toMatchObject({ text: 'The final submission was checked and approved.', tone: 'ok' });
     expect(line({ type: 'life.mission.completed', status: 'research_incomplete', success: false }))
