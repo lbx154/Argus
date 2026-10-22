@@ -110,6 +110,12 @@ describe('what the project is doing right now', () => {
     expect(plainCommand(`mkdir -p ${files} && pytest -q | tee ${files}/pytest.log`)).toBe('mkdir -p …/files && pytest -q | tee …/pytest.log');
     expect(plainCommand('git -C /work/repo status')).toBe('git -C /work/repo status');
   });
+
+  it("cuts a path into Argus' own package or a shared wiki, and keeps a project's docs/wiki", () => {
+    expect(plainCommand("rg -n '^name:' /opt/argus-src/argus/builtin_skills /srv/home/wiki/_shared_verticals/software -g SKILL.md"))
+      .toBe("rg -n '^name:' …/builtin_skills …/software -g SKILL.md");
+    expect(plainCommand('ls /repo/docs/wiki/pages')).toBe('ls /repo/docs/wiki/pages');
+  });
 });
 
 describe('the live work card', () => {

@@ -26,16 +26,13 @@ export function managerIntentSummary(event: EventMsg, locale: 'en' | 'zh-CN'): s
     plan = zh ? '处理方式定好了。' : 'The approach is set.';
   }
 
+  // A bounded task ending when it is done is the default and goes unsaid.
   let scope = '';
   if ((event.lifetime === 'standing' && event.open_ended !== false)
     || (!event.lifetime && event.open_ended === true)) {
     scope = zh ? '之后会持续跟进。' : "I'll keep following up after this.";
   } else if (event.lifetime === 'bounded_increment') {
     scope = zh ? '先做一部分，做完再看下一步。' : 'One piece first, then I decide what comes next.';
-  } else if (event.lifetime === 'bounded') {
-    scope = event.continuous === true && event.open_ended === false
-      ? (zh ? '这件事做完就收尾。' : 'This wraps up once it is done.')
-      : (zh ? '只做这次的目标。' : 'Only this goal is in scope.');
   }
 
   // Older producers used Division.headline() as the reason. It repeats internal
@@ -43,5 +40,6 @@ export function managerIntentSummary(event: EventMsg, locale: 'en' | 'zh-CN'): s
   const reason = text(event.reason, 320);
   const usefulReason = reason && !/^(?:\[manager\]|manager routed\b|\{)/i.test(reason)
     && reason !== (text(event.execution_task, 320) || text(event.objective, 320)) ? reason : '';
-  return [plan, [scope, usefulReason].filter(Boolean).join(zh ? '' : ' ')].filter(Boolean).join('\n');
+  // One paragraph: a line break would read as a stray space wherever it is shown on one line.
+  return [plan, scope, usefulReason].filter(Boolean).join(zh ? '' : ' ');
 }

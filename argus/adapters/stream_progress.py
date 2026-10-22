@@ -26,6 +26,7 @@ import time
 from typing import Any, Callable
 
 from ..core.command_record import anonymous_call_id, captures_for, output_digest
+from ..core.progress_step import plain_command
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 # Items larger than this are truncated in the cooked progress event so a
@@ -300,7 +301,9 @@ def make_stream_progress_callback(
             "type": "engineer.progress",
             "kind": kind,
             "text": _safe_progress_text(
-                text,
+                # Cut paths into Argus' plumbing before the clip, so a long
+                # command keeps its words rather than half of a session path.
+                plain_command(text) if kind == "command_execution" else text,
                 limit=None if final_delivery or agent_speech else _PROGRESS_TEXT_LIMIT,
             ),
             "actor": actor,

@@ -371,11 +371,14 @@ const clip = (text: string, n: number) => (text.length <= n ? text : `${text.sli
 const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, ''), 48);
 // Only the path: a patch saved on one line carries its hunks after it.
 const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
-// Argus' own plumbing (session stores, handoffs, skill libraries) is not the
-// work, so a step names no file of it; mirrors argus/core/progress_step.py.
-const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|argus\/verticals)(?:\/|$)/;
-// ...except a page of a project's knowledge wiki, which the roles read as material.
-const WIKI = /\/wiki(?:\/|$)/;
+// A knowledge wiki, the project's own under .autors or a shared one under the
+// Argus home; the roles read its pages as material. Group 1 is a page in it.
+const WIKI = /\/(?:\.autors\/[^/]+\/wiki|wiki\/(?:_global|_shared_verticals\/[^/]+))(\/[^/].*)?\/?$/;
+// Argus' own plumbing (session stores, handoffs, skill libraries, shared wikis,
+// the shipped package) is not the work, so a step names no file of it; mirrors
+// argus/core/progress_step.py, which knows where Argus is installed: the web
+// names the package directories the roles are pointed at instead.
+const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|wiki\/(?:_global|_shared_verticals\/[^/]+)|argus\/(?:verticals|builtin_skills))(?:\/|$)/;
 // The Copilot CLI spills a long tool output to a temp file and reads it back.
 const TOOL_OUTPUT = /-copilot-tool-output-[^/]*$/;
 // A project without a folder of its own works in one named by the project id.
@@ -392,10 +395,9 @@ function fileName(file: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
   if (TOOL_OUTPUT.test(file)) return zh ? '工具输出' : 'a saved tool output';
   if (PROJECT_DIR.test(file)) return zh ? '项目目录' : 'the project folder';
-  if (!PLUMBING.test(file)) return basename(file);
-  if (!WIKI.test(file)) return '';
-  const page = basename(file).replace(/\.\w+$/, '');
-  return page === 'wiki' ? (zh ? '知识库' : 'the wiki') : `${zh ? '知识页' : 'wiki page'} ${page}`;
+  const wiki = file.match(WIKI);
+  if (wiki) return wiki[1] ? `${zh ? '知识页' : 'wiki page'} ${basename(file).replace(/\.\w+$/, '')}` : (zh ? '知识库' : 'the wiki');
+  return PLUMBING.test(file) ? '' : basename(file);
 }
 
 /** A command's first line, unwrapped from its shell, with a path into Argus' plumbing cut to its last name. */
@@ -458,8 +460,10 @@ export function toolTarget(ev: EventMsg, locale: Locale): string {
 
 // A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
 // "src/" + "**" + "/*" becomes "src 里的所有文件".
+// A pattern with {a,b} alternatives reads as plain "files".
 export function readableGlob(pattern: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
+  if (pattern.includes('{')) return zh ? '文件' : 'files';
   const parts = pattern.trim().replace(/\\/g, '/').split('/').filter((part) => part && part !== '**' && part !== '.');
   const leaf = parts[parts.length - 1] ?? '*';
   const folders = parts.slice(0, -1).filter((part) => !/[*?]/.test(part));

@@ -44,7 +44,8 @@ describe('human task progress', () => {
     const events = [{ type: 'engineer.progress', kind: 'tool_use', tool_name: 'rg',
       agent_layer: 'engineer', item_id: 'login', ts: 220, text: 'rg private-token --debug' }];
     const text = workSummary(status, view, events, 'zh-CN');
-    expect(text).toBe('检索项目文件：修复登录错误');
+    // The action alone: the task's title is not what the tool is doing.
+    expect(text).toBe('检索项目文件');
     expect(text).not.toContain('private-token');
   });
 

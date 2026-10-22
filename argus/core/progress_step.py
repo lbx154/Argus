@@ -111,25 +111,31 @@ _URL_KEYS = ("url", "uri", "href")
 _PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
 
 
+def _parts(path: str) -> list[str]:
+    return [part for part in path.replace("\\", "/").split("/") if part]
+
+
+# The root of a knowledge wiki: a project's own under ``.autors``, the shared
+# ones under the Argus home (``wiki/_global``, ``wiki/_shared_verticals/<v>``).
+_WIKI_ROOTS = ((".autors", "*", "wiki"), ("wiki", "_global"), ("wiki", "_shared_verticals", "*"))
 # Path segments that only Argus' own plumbing uses: session stores, shared
-# skill libraries, handoff checkpoints, the shipped verticals.
+# skill libraries and wikis, handoff checkpoints, the shipped verticals, and
+# the installed Argus package itself (its built-in skills).
 _PLUMBING_SEGMENTS = (
     ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
     ("argus", "verticals"), (".autors",),
-    ("role-sessions",), ("copilot-home",),
+    ("role-sessions",), ("copilot-home",), *_WIKI_ROOTS,
+    tuple(_parts(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))),
 )
 
 
-def _is_plumbing(parts: list[str]) -> bool:
-    for marker in _PLUMBING_SEGMENTS:
+def _marker_end(parts: list[str], markers: tuple[tuple[str, ...], ...]) -> int:
+    """Where the first of ``markers`` found in ``parts`` ends; 0 when none is there."""
+    for marker in markers:
         for start in range(len(parts) - len(marker) + 1):
             if all(want in {"*", parts[start + offset]} for offset, want in enumerate(marker)):
-                return True
-    return False
-
-
-def _parts(path: str) -> list[str]:
-    return [part for part in path.replace("\\", "/").split("/") if part]
+                return start + len(marker)
+    return 0
 
 
 def _phrase(verb: str, target: str) -> str:
@@ -141,11 +147,11 @@ def _short_name(path: str, workspace: str = "") -> str:
     """Return a path the operator can read: a basename, never an absolute path.
 
     Files of Argus' own plumbing (session stores, skill libraries) are named
-    as such rather than spelled out; a page of a project's knowledge wiki is
-    named as the page it is, because roles read it as material. Any other
-    file -- including a repository outside the session workspace that the
-    operator asked about -- is named by its file name, because reading it is
-    the work.
+    as such rather than spelled out; a page of a knowledge wiki, the
+    project's own or a shared one, is named as the page it is, because roles
+    read it as material. Any other file -- including a repository outside
+    the session workspace that the operator asked about -- is named by its
+    file name, because reading it is the work.
     """
     text = str(path or "").strip().strip("'\"")
     parts = _parts(text)
@@ -153,17 +159,17 @@ def _short_name(path: str, workspace: str = "") -> str:
         return text
     if _TOOL_OUTPUT_FILE.search(parts[-1]):
         return "工具输出"
-    if _is_plumbing(parts):
-        if "wiki" not in parts:
-            return _INTERNAL_FILE
-        page = os.path.splitext(parts[-1])[0]
-        return "知识库" if page == "wiki" else f"知识页 {page}"
+    wiki = _marker_end(parts, _WIKI_ROOTS)
+    if wiki:
+        return f"知识页 {os.path.splitext(parts[-1])[0]}" if len(parts) > wiki else "知识库"
+    if _marker_end(parts, _PLUMBING_SEGMENTS):
+        return _INTERNAL_FILE
     if workspace and os.path.normpath(text) == os.path.normpath(workspace):
         return "项目目录"
     return parts[-1]
 
 
-def _plain_command(command: str) -> str:
+def plain_command(command: str) -> str:
     """A command line as the operator follows it.
 
     A path into Argus' plumbing (a backend session's scratch files, a session
@@ -171,7 +177,7 @@ def _plain_command(command: str) -> str:
     """
     def short(match: re.Match[str]) -> str:
         parts = _parts(match.group())
-        return f"…/{parts[-1]}" if _is_plumbing(parts) else match.group()
+        return f"…/{parts[-1]}" if _marker_end(parts, _PLUMBING_SEGMENTS) else match.group()
 
     return _ABSOLUTE_PATH.sub(short, command)
 
@@ -217,9 +223,12 @@ def _readable_glob(pattern: str) -> str:
 
     A glob is read as "which files": the directory part becomes the folder
     the search ran in (last segment only) and the file part becomes the kind
-    of file, so no slash reaches the status line.
+    of file, so no slash reaches the status line. A pattern with ``{a,b}``
+    alternatives reads as plain "files".
     """
     text = pattern.strip().strip("'\"").replace("\\", "/")
+    if "{" in text:
+        return "文件"
     parts = [part for part in text.split("/") if part and part not in {"**", "."}]
     leaf = parts[-1] if parts else "*"
     folders = [part for part in parts[:-1] if "*" not in part and "?" not in part]
@@ -227,8 +236,6 @@ def _readable_glob(pattern: str) -> str:
         what = "所有文件"
     elif re.fullmatch(r"\*\.[\w.]+", leaf):
         what = f"{leaf[1:]} 文件"
-    elif re.fullmatch(r"\*\.\{[\w,]+\}", leaf):
-        what = "、".join(f".{ext}" for ext in leaf[3:-1].split(",")) + " 文件"
     else:
         what = _clip(leaf, 40)
     return _clip(_phrase(f"{folders[-1]} 里的", what) if folders else what, 60)
@@ -304,7 +311,7 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
                 # Argus' own tool: the operator is told one ran, not shown its command line.
                 return "运行 Argus 内部工具", _clip(command, _DETAIL_LIMIT)
             if head:
-                label = f"{marker} {_clip(_plain_command(head), _LABEL_LIMIT - 2)}"
+                label = f"{marker} {_clip(plain_command(head), _LABEL_LIMIT - 2)}"
                 # Only carry a detail when it actually adds something (a
                 # multi-line or clipped command); never echo the label back.
                 detail = _clip(command, _DETAIL_LIMIT)
@@ -515,6 +522,7 @@ __all__ = [
     "ProgressDeduper",
     "ProgressTally",
     "describe_progress_step",
+    "plain_command",
     "plain_step_label",
     "strip_shell_wrapper",
 ]
