@@ -57,9 +57,11 @@ def _rows(log: Path) -> Iterator[dict[str, Any]]:
                     yield row
 
 
-def _timeline(life_dir: Path) -> Iterator[tuple[float, str | None, dict[str, Any]]]:
+def _timeline(
+    life_dir: Path, since: float | None = None, until: float | None = None,
+) -> Iterator[tuple[float, str | None, dict[str, Any]]]:
     """``(when, event type, row)`` in order: the event log, and each ledger call
-    (type ``None``) where it completed."""
+    (type ``None``) where it completed; only ``since <= when < until`` when given."""
     events = (
         (float(row.get("ts") or 0), canonical_event_type(row.get("type")), row)
         for row in _rows(life_dir / "events.jsonl")
@@ -68,7 +70,10 @@ def _timeline(life_dir: Path) -> Iterator[tuple[float, str | None, dict[str, Any
         (float(row.get("completed_at") or 0), None, row)
         for row in _rows(life_dir / "usage.jsonl")
     )
-    return heapq.merge(events, calls, key=lambda entry: entry[0])
+    return (
+        entry for entry in heapq.merge(events, calls, key=lambda entry: entry[0])
+        if (since is None or entry[0] >= since) and (until is None or entry[0] < until)
+    )
 
 
 def _tally(rows: Iterable[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -98,7 +103,11 @@ def _context(rows: list[dict[str, Any]], turns: dict[str, list[int]]) -> dict[st
     }
 
 
-def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
+def efficiency_report(
+    life_dir: Path | str, *, since: float | None = None, until: float | None = None,
+) -> dict[str, Any]:
+    """The report over the whole log, or over the calls and events with
+    ``since <= ts < until`` (the weekly report's window)."""
     calls: dict[str, dict[str, Any]] = {}  # call_id -> usage row
     planner_cycle: list[str] = []  # this Planner cycle's calls, until its outcome
     planner_idle: list[str] = []
@@ -106,11 +115,15 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     supervisions: dict[str, tuple[str, str]] = {}  # supervision_id -> (call_id, action)
     applied: set[str] = set()
     tasks: defaultdict[str, Counter[str]] = defaultdict(Counter)
-    passed: dict[str, bool] = {}
+    passed: dict[str, bool] = {}  # task -> its last settlement passed
+    outcome: dict[str, str] = {}  # task -> passed / failed / parked, by its last settlement
+    started: dict[str, int] = {}  # task -> the attempt it last started
+    first_round: set[str] = set()  # passed on its first attempt in one round
+    reviews: Counter[str] = Counter()
     elapsed: defaultdict[str, float] = defaultdict(float)
     session_turns: defaultdict[str, defaultdict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
 
-    for _, kind, event in _timeline(Path(life_dir)):
+    for _, kind, event in _timeline(Path(life_dir), since, until):
         task = str(event.get("item_id") or "")
         if kind is None:
             call = str(event.get("call_id") or f"#{len(calls)}")
@@ -131,11 +144,20 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         elif kind == "life.manager.supervision.applied":
             applied.add(str(event.get("supervision_id")))
         elif kind == "round.review.completed":
+            reviews["completed"] += 1
             if event.get("status") == "continue":
+                reviews["continue"] += 1
                 tasks[task]["continue"] += 1
-        elif kind == "life.mission.completed":
+        elif kind == "life.mission.started":
+            started[task] = int(event.get("attempt") or 1)
+        elif kind in ("life.mission.completed", "life.mission.failed"):
             elapsed[task] += float(event.get("elapsed_seconds") or 0)
             passed[task] = event.get("success") is True
+            outcome[task] = "passed" if passed[task] else "parked" if event.get("status") == "parked" else "failed"
+            if passed[task] and started.get(task, 1) == 1 and int(event.get("rounds") or 0) == 1:
+                first_round.add(task)
+            else:
+                first_round.discard(task)
         elif kind == "role.session.turn":
             turn = int(event.get("turns_on_session") or 0)
             bucket = next(name for bound, name in TURN_BUCKETS if turn <= bound)
@@ -172,6 +194,12 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
                 of_calls=len(supervisions), avoided=0,
             ),
         },
+        "tasks": {
+            "started": len(started),
+            **{name: sum(value == name for value in outcome.values()) for name in ("passed", "failed", "parked")},
+            "first_round_passed": len(first_round),
+        },
+        "reviews": {"completed": reviews["completed"], "continue": reviews["continue"]},
         "cost_per_passed_task": cost_per_passed_task(
             total["cost_usd"], sum(passed.values()),
         ),

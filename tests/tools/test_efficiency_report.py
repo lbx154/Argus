@@ -137,6 +137,19 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
     }
     assert report["failures"]["failed"]["calls"] == 1 and report["failures"]["failed"]["cost_usd"] == 2.0
     assert report["failures"]["retries"]["calls"] == 1 and report["failures"]["retries"]["cost_usd"] == 0.5
+    # A task's last settlement decides it; aaa took three reviews, so none passed in one round.
+    assert report["tasks"] == {"started": 1, "passed": 2, "failed": 1, "parked": 0, "first_round_passed": 0}
+    assert report["reviews"] == {"completed": 4, "continue": 3}
+
+
+def test_report_over_a_window(project: Path) -> None:
+    """EV-4 reads one week: only the calls and events inside the window count."""
+    older = efficiency_report(project, until=len(OLDER))
+    assert (older["total"]["calls"], older["total"]["cost_usd"]) == (1, 1.0)
+    assert older["no_new_information"]["planner_no_new_work"]["avoided"] == 2
+    current = efficiency_report(project, since=len(OLDER))
+    assert (current["total"]["calls"], current["total"]["cost_usd"]) == (16, 16.5)
+    assert current["tasks"]["passed"] == 2 and current["cost_per_passed_task"] == 8.25
 
 
 def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
