@@ -780,6 +780,12 @@ proofs.
 #### EV-4 Weekly metrics report
 `0.2` · `S` · Depends on: HO-1, CE-1 · good first issue
 - Do: automatically summarize handoff, cost, success-rate, and other metrics every week.
+- Run: `python -m argus.tools.weekly_report [<argus-home or project-state-dir> ...] [--week YYYY-Www] [--json]
+  [--out DIR]` (read-only unless `--out`; the HO-1 report over each project's week, summed across projects, with the
+  change from the week before).
+- Status: done (`fb7348cb`): tasks started, passed, failed and parked, success rate, first-round pass rate, reviews per
+  passed task, spend and cost per passed task (CE-1). The daemon does not schedule it, since each daemon serves one
+  project; the weekly run is a systemd timer or cron line, given in [daemon-lifecycle.md](daemon-lifecycle.md).
 
 #### EV-5 Write down negative results and abandoned designs too
 `0.4` · `S` · Depends on: none · good first issue
