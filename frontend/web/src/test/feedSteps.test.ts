@@ -139,7 +139,7 @@ describe('foldFeedRows · tool groups (rule a, b)', () => {
     const cut = call('view', {});
     cut.text = 'view: {"path": "/very/long/path/to/notes.md", "view_range": [1, -1], "forceReadLarg';
     const [step] = fold([cut]) as FeedStep[];
-    expect(stepTarget(step)).toBe('notes.md');
+    expect(stepTarget(step, 'en')).toBe('notes.md');
   });
 });
 

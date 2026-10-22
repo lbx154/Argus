@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
 import type { EventMsg, Snapshot } from '../../../core/src/types';
 import { LiveWorkCard, StepProcessContext, StepProcessDisclosure } from '../components/LiveWorkCard';
-import { liveActivity, liveLines, plainCommand, QUIET_AFTER_S } from '../lib/liveActivity';
+import { plainCommand } from '../lib/feedSteps';
+import { liveActivity, liveLines, QUIET_AFTER_S } from '../lib/liveActivity';
 import { useAutosizeTextarea } from '../useAutosizeTextarea';
 
 const NOW = 10_000;
@@ -102,6 +103,12 @@ describe('what the project is doing right now', () => {
     expect(plainCommand("/bin/bash -lc 'pytest -q tests'")).toBe('pytest -q tests');
     expect(plainCommand('bash -c "nvidia-smi"')).toBe('nvidia-smi');
     expect(plainCommand('python eval.py\nsecond line')).toBe('python eval.py');
+  });
+
+  it("cuts a path into a backend session's scratch files to its last name, and keeps the work's own paths", () => {
+    const files = '/srv/state/copilot-home/session-state/09822296-0a3e/files';
+    expect(plainCommand(`mkdir -p ${files} && pytest -q | tee ${files}/pytest.log`)).toBe('mkdir -p …/files && pytest -q | tee …/pytest.log');
+    expect(plainCommand('git -C /work/repo status')).toBe('git -C /work/repo status');
   });
 });
 

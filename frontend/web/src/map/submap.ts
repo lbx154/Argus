@@ -158,30 +158,6 @@ const STEP_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
 const shorten = (value: string, limit: number) =>
   value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
 
-/** The one argument a reader wants to see for a tool call: a path, a pattern, a URL. */
-function stepArgument(label: string): string {
-  const raw = label.slice(label.indexOf(":") + 1).trim();
-  if (!raw) return "";
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      for (const key of ["path", "file", "file_path", "pattern", "query", "url", "command", "paths"]) {
-        const value = record[key];
-        if (typeof value === "string" && value.trim()) return value.trim();
-        if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-      }
-      const first = Object.values(record).find((value) => typeof value === "string" && value.trim());
-      return typeof first === "string" ? first.trim() : "";
-    }
-  } catch {
-    // Not JSON, or JSON the recorder cut short.
-  }
-  if (!/^[{[]/.test(raw)) return raw;
-  // Cut-short JSON still names what was touched; a reader is never shown the braces.
-  return /"(?:path|file|file_path|pattern|query|url|command)"\s*:\s*"([^"]+)/.exec(raw)?.[1] ?? "";
-}
-
 type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
 function stepVerb(step: WorkStep): StepVerb {
   const name = (step.tool || step.label.replace(STEP_GLYPH, "").split(":")[0] || "").trim().toLowerCase();
@@ -196,29 +172,19 @@ function stepVerb(step: WorkStep): StepVerb {
   return "other";
 }
 
-/** One tool call as a short plain phrase — what was done, to what. */
+/** One tool call as a short plain phrase. The backend already says each call
+ * plainly ("查阅 main.py", "$ pytest -q"); a command line is shown as one. */
 export function stepPhrase(step: WorkStep, zh: boolean): string {
   const tool = (step.tool || "").trim();
   const label = step.label.replace(STEP_GLYPH, "").trim();
-  // The Copilot desktop agent titles each call in plain words; the streaming
-  // runners give a bare tool name plus its arguments.
+  // The Copilot desktop agent titles each call in plain words.
   const titled = tool && /\s/.test(tool) && tool.length > 8;
-  const argument = shorten(stepArgument(label), 72);
   const command = shorten(label, 72);
-  const verb = stepVerb(step);
   const phrase = titled
     ? tool
-    : verb === "run"
+    : /^(?:✗ )?\$/u.test(step.label)
       ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
-      : verb === "read"
-        ? zh ? `查看 ${argument || (zh ? "一份文件" : "")}` : `Read ${argument || "a file"}`
-        : verb === "search"
-          ? zh ? `查找 ${argument || "内容"}` : `Looked for ${argument || "something"}`
-          : verb === "fetch"
-            ? zh ? `读取网页 ${argument || ""}`.trim() : `Fetched ${argument || "a page"}`
-            : verb === "edit"
-              ? zh ? `修改文件 ${argument || ""}`.trim() : `Edited ${argument || "a file"}`
-              : shorten(/^[^:{]*:\s*[{[]/.test(label) ? label.slice(0, label.indexOf(":")) : label, 80);
+      : shorten(label, 80);
   return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
 }
 

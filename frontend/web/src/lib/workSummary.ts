@@ -10,7 +10,7 @@ export function workSummary(status: WorkStatus, view: MissionView | null | undef
   const fallback = workStatusLabel(status, locale, connected);
   if (!connected || status.state !== 'running' || status.foreground || !status.taskId || !status.role) return fallback;
   const started = Math.max(notBefore, view?.mission.id === status.taskId ? view.mission.started_at || 0 : 0);
-  const rows = agentWork(view, status.role, status.taskId, started);
+  const rows = agentWork(view, status.role, status.taskId, started, locale);
   const latest = rows.find(row => (row.detail && ['agent_message', 'assistant_message'].includes(row.kind))
     || ['tool_use', 'command_execution', 'file_change'].includes(row.kind));
   const tool = latestAgentTool(events, status.role, status.taskId, started);
