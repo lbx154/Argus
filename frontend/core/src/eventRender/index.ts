@@ -377,15 +377,14 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event), context.locale);
-      const summary = clean(stringField(event, 'summary'), 240);
-      // A task the Reviewer accepted closes under its name, once: what the review
-      // found, and any risk left, is on its own row. A task closed without one keeps its summary.
-      const by = row(event).success === true && stringField(event, 'review_source') === 'reviewer' ? 'reviewer' : 'engineer';
-      if (stringField(event, 'residual_risk') && presentation.tone === 'ok') {
-        return model(by, `role.${by}`, '⚠', localized(context, 'completed with residual risk', '已完成，但有残余风险'), 'warn', { rule: true });
-      }
-      const detail = by === 'reviewer' && presentation.tone === 'ok' ? '' : summary;
-      return model(by, `role.${by}`, presentation.glyph, detail ? `${presentation.label} · ${detail}` : presentation.label, presentation.tone, { rule: true });
+      // An independent review told its conclusion on its own row and closes the task
+      // under its name; without one, the summary is the only account of the result, told here once.
+      const reviewed = row(event).success === true && stringField(event, 'review_source') === 'reviewer';
+      const by = reviewed ? 'reviewer' : 'engineer';
+      const summary = reviewed && presentation.tone === 'ok' ? '' : clean(stringField(event, 'summary'), 240);
+      const risky = presentation.tone === 'ok' && Boolean(stringField(event, 'residual_risk'));
+      const label = risky ? localized(context, 'completed with residual risk', '已完成，但有残余风险') : presentation.label;
+      return model(by, `role.${by}`, risky ? '⚠' : presentation.glyph, summary ? `${label} · ${summary}` : label, risky ? 'warn' : presentation.tone, { rule: true });
     }
     case 'life.mission.failed':
       return model('engineer', 'role.engineer', '❌', `${localized(context, 'this task failed', '这项任务失败了')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err', { rule: true });

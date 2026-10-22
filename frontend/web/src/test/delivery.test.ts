@@ -79,10 +79,11 @@ describe('completed delivery presentation', () => {
     const completed = renderLine({
       type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',
       title: 'Ingest the feed', summary: `Verified with residual risk: ${risk}. Built ingest.`, residual_risk: risk,
+      review_source: 'reviewer',
     }, context);
     // The risk itself is told once, on the review row.
     expect(completed?.text).toBe('completed with residual risk');
-    expect(completed?.role).toBe('engineer');
+    expect(completed?.role).toBe('reviewer');
     // A task the Reviewer accepted is closed in the Reviewer's words, under its name.
     const accepted = renderLine({
       type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',

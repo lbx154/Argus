@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ...core.event_catalog import EventType
-from ...core.mission_view import say
+from ...core.mission_view import operator_objective, say
 from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
@@ -972,7 +972,7 @@ class MissionExecutionSettlementMixin:
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
             "title": item.title,
-            "objective": item.objective,
+            "objective": operator_objective(vars(item)),
             "scope": state.item_scope,
             "independent_review_required": (
                 self._item_requires_independent_review(item)

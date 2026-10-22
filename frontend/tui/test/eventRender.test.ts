@@ -24,10 +24,18 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '🎉',
-      text: 'The task was completed.',
+      text: 'The task was completed. · Created RESULT.txt and verified its contents.',
       tone: 'ok',
       rule: true,
     },
+  );
+  // A reviewed task's conclusion is on the review row; this row says it once.
+  assert.equal(
+    renderEvent({
+      type: 'life.mission.completed', status: 'done', success: true, review_source: 'reviewer',
+      summary: 'Created RESULT.txt and verified its contents.',
+    } as EventMsg).text,
+    'The task was completed.',
   );
 
   assert.deepEqual(
