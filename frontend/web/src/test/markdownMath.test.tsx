@@ -110,3 +110,13 @@ it('preserves each surface’s existing links and code display', () => {
     expect(html).not.toContain('data-math-error-count');
   }
 });
+
+it.each(surfaces)('%s keeps the underscores of a path and still reads emphasis in prose', (_name, Surface) => {
+  // Trial s-757b9dac: the report's [timefmt/__init__.py](…) read "timefmt/**init**.py".
+  const source = '实现位于 [timefmt/__init__.py](timefmt/__init__.py)，另见 __main__.py 与 pkg/__pycache__/x；__这句__ 和 _那句_ 照常强调。';
+  const html = renderToStaticMarkup(<Surface>{source}</Surface>);
+  expect(html).toContain('>timefmt/__init__.py<');
+  expect(html).toContain('另见 __main__.py 与 pkg/__pycache__/x；');
+  expect(html).toMatch(/<strong[^>]*>这句<\/strong> 和 <em>那句<\/em>/);
+  expect(html).not.toMatch(/<strong[^>]*>(?:init|main|pycache)</);
+});

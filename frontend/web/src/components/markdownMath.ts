@@ -1,13 +1,45 @@
 import type { Root } from 'hast';
+import type { Parent, Root as MarkdownRoot, Text } from 'mdast';
 import type { PluggableList } from 'unified';
 import type { VFile } from 'vfile';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math-extended';
 import rehypeKatex from 'rehype-katex';
 
+// What touches underscore emphasis that is part of a path: a separator
+// before it, a separator or a file extension after it.
+const PATH_SEPARATOR = /[\\/]/;
+const PATH_AFTER = /^(?:[\\/]|\.\w)/;
+
+/**
+ * A path keeps its underscores. CommonMark counts `/` and `.` as punctuation,
+ * so the `__` of "timefmt/__init__.py" opens and closes strong emphasis and the
+ * link reads "timefmt/**init**.py"; the parser has no switch for underscores
+ * alone. Emphasis written with underscores inside a path goes back to the text
+ * it was written as.
+ */
+function remarkPathUnderscores() {
+  return (tree: MarkdownRoot, file: VFile) => {
+    const source = String(file.value);
+    const restore = (parent: Parent) => {
+      parent.children = parent.children.flatMap((child) => {
+        if ('children' in child) restore(child);
+        const start = child.position?.start.offset ?? -1;
+        const end = child.position?.end.offset ?? -1;
+        const inPath = PATH_SEPARATOR.test(source.charAt(start - 1)) || PATH_AFTER.test(source.slice(end, end + 2));
+        if ((child.type !== 'emphasis' && child.type !== 'strong') || source[start] !== '_' || !inPath) return [child];
+        const marker: Text = { type: 'text', value: child.type === 'strong' ? '__' : '_' };
+        return [marker, ...child.children, { ...marker }];
+      });
+    };
+    restore(tree);
+  };
+}
+
 export const markdownRemarkPlugins: PluggableList = [
   remarkGfm,
   [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
+  remarkPathUnderscores,
 ];
 
 const mathOptions = { output: 'htmlAndMathml' as const };
