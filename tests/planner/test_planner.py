@@ -500,6 +500,11 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'Assigning work' in _PLANNER_CORE_CONTRACT
     assert 'Read state, never edit' in _PLANNER_CORE_CONTRACT
     assert 'Engineer implements and tests' in _PLANNER_CORE_CONTRACT
+    # 2026-10-22: a task asking for "a different Reviewer" had the Engineer start
+    # a reviewer subagent of its own; who does and reviews work is the handoffs' call.
+    assert "not who does or reviews it; handoffs decide" in " ".join(
+        _PLANNER_CORE_CONTRACT.split()
+    )
     assert "ARGUS_ROLE_DECISION=" not in _PLANNER_CORE_CONTRACT
     assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT

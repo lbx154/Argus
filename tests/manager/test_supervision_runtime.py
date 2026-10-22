@@ -911,6 +911,11 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert asked.pending_question == asked.operator_decision["question"] == "Keep A or B?"
     assert [option["label"] for option in asked.operator_decision["options"]] == ["Keep A", "Keep B"]
     assert len(backend.calls) == 1
+    # 2026-10-22: rounding "consistent with the package's whole-unit functions"
+    # read two ways with two public behaviors; the Manager chose one itself and
+    # the operator never heard of the other.
+    prompt = " ".join(backend.calls[0][0].split())
+    assert "open to readings that change the delivered public behavior is such a choice" in prompt
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING

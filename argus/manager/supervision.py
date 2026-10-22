@@ -476,6 +476,8 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         + ("" if holds else (
             "When work handed to you waits on a choice only the operator can make, make that "
             "last line `→ operator: <one question>` instead: the task then waits on their answer. "
+            "A requirement of theirs open to readings that change the delivered public behavior "
+            "is such a choice; offer the readings as the answers. "
             + OPERATOR_CHOICES_RULE + "\n"
         ))
         + "\n"

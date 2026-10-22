@@ -57,8 +57,8 @@ _HANDOFF_RULE = (
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
     "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
     "`→ operator: <one question>`. " + OPERATOR_CHOICES_RULE + " The Reviewer you "
-    "hand to with `→ reviewer` does the independent review; do not start a review "
-    "of your own."
+    "hand to with `→ reviewer` does the independent review; do not start one "
+    "yourself or through a subagent."
 )
 
 

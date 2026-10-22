@@ -377,7 +377,7 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "`→ operator: <one question>`. Ask on the `→ operator:` line itself; any answers "
         "to pick from go one per line below: `→ operator: Keep it?`, `- Yes`, `- No`. "
         "The Reviewer you hand to with "
-        "`→ reviewer` does the independent review; do not start a review of your own."
+        "`→ reviewer` does the independent review; do not start one yourself or through a subagent."
     )
 
 
