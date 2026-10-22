@@ -51,7 +51,8 @@ Harbor calls `ArgusHarborAgent.run(...)`. The adapter then:
 2. configures Harbor's model credentials for Argus's Codex backend;
 3. uploads the Harbor instruction as `argus-objective.txt`, without placing the
    objective in process arguments;
-4. starts `argus --daemon-fg --continuous --bounded`;
+4. starts `argus --daemon-fg --continuous --bounded --no-operator`, so the
+   Manager decides and records what a headless run cannot ask;
 5. treats the one-shot task as stage-closing and requires the native independent
    Reviewer even for low-risk verticals;
 6. waits for the complete Argus runtime to finish;

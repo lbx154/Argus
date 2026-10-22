@@ -37,10 +37,7 @@ flowchart TD
     U[Operator message] --> F[Manager front door]
     F -->|SELF| S[Manager SELF turn]
     S --> SR[Reply]
-    SR --> SL{Five operator turns since last SELF review?}
-    SL -->|Yes| SLR[Isolated SELF learning review]
-    SL -->|No| IDLE[Ready]
-    SLR --> IDLE
+    SR --> IDLE[Ready]
 
     F -->|TEAM| M[Manager initial vertical, workflow, lifetime]
     M -->|operator item| Q[Durable backlog]
@@ -146,7 +143,8 @@ contract does not require one.
 
 ## 3. Durable task and daemon behavior
 
-- A project daemon runs at most one mission at a time.
+- A project daemon runs up to `--mission-width` missions at a time (default 2;
+  `1` is serial); parallel missions are Planner tasks with disjoint paths.
 - Later TEAM requests are persisted and ordered without interrupting the active
   mission.
 - A recent identical request reuses the existing backlog item by directly
@@ -226,8 +224,9 @@ These are runtime design invariants:
 
 ## 4. Verticals and workflows
 
-Argus includes built-in verticals for recurring software, research,
-mathematical, literary, hardware, and optimization work.
+Argus includes built-in `software` and `research` verticals; others, such as
+`math` and `kernel_engineering`, install from the
+[Vertical Store](vertical-store.md).
 
 When no existing capability fits:
 
@@ -253,20 +252,10 @@ interchangeable.
 
 ### SELF evolution
 
-- Events: `self.learning.review.started`, `self.learning.review.completed`, and
-  `self.learning.review.failed`.
-- Trigger: after a successful SELF/chat reply when at least five operator turns
-  have accumulated since the previous SELF review.
-- Execution: an asynchronous post-answer review that never delays or changes the
-  answer that triggered it.
-- Input: at most the latest twelve transcript turns.
-- Learns: stable terminology, interpretation rules, reply preferences, and
-  reusable SELF answer/tool procedures.
-- Excludes: one-off history, transient paths and process IDs, unresolved
-  failures, secrets, and generic advice.
-- Destination: at most one related Skill under profile `skills/self/`.
-- First use: the next applicable turn in the same session.
-- Reuse: later tasks and later sessions using the same profile.
+A SELF turn keeps what it learned in that same turn; there is no separate SELF
+learning review. While `ARGUS_SKILL_LEARNING` is on, the SELF prompt sends a
+reusable procedure to the workspace's `.agents/skills/` and a lasting fact to
+the project Wiki. See [learning during work](continuous-learning.md).
 
 ### TEAM evolution
 
@@ -375,7 +364,7 @@ Consequences:
 
 | Learning source | Same task | Next task, same session | New session | Different machine/profile |
 | --- | --- | --- | --- | --- |
-| SELF review | Cannot change the reply that triggered it | Available | Available | Only if the profile is copied or synced |
+| SELF turn | Written during the reply itself | Available | Available when the same workspace is reused | Only if the workspace is copied or synced |
 | TEAM review | Cannot change the settled mission | Available | Available | Only if the profile is copied or synced |
 | Wiki edit | Available to later turns after the edit | Available | Available when the same project workspace is reused | Only if the project workspace is copied or synced |
 | Framework self-maintenance | Never mutates the active turn in place | Available only after reviewed deployment | Available through the adopted runtime revision | Available only when that runtime revision is installed |
@@ -414,9 +403,8 @@ Token controls:
   model-classified.
 - Follow-up SELF turns and turns with learned Skills use the persistent
   Skill-aware Manager session so speed does not discard context.
-- Deterministic long commands use durable `direct` mode and therefore do not pay
-  periodic Supervisor model calls. `supervised` is reserved for semantic
-  monitoring or discussion.
+- Long commands run detached and the Engineer waits for them in its own turn
+  (see Long commands above); no model call watches them.
 - Planner does not run a second planning pass for a preplanned backlog node.
 - Reviewer receives the mission objective and necessary evidence rather than a
   full project transcript.

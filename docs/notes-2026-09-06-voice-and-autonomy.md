@@ -1,5 +1,7 @@
 # Notes, 6 September 2026: how Argus speaks, and two new habits
 
+> **Historical record (RL-4, 2026-10-22):** this describes Argus as of 2026-09-06; the second reading of the evidence (`SECOND_READING.json`, `life.research.second_reading`) has since been removed (`448d829f`), and the `argus_skill/...` paths now live under `argus/` (`db35af7f`). It is not current guidance; see [How Argus speaks](how-argus-speaks.md) and [Features](FEATURES.md).
+
 This batch does three things: it gives Argus a voice, a second reading of the
 evidence when doubt has accumulated, and the habit of writing home.
 

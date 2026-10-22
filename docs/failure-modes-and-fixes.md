@@ -1,5 +1,11 @@
 # What Goes Wrong, and What We Did About It
 
+> **Outdated (checked 2026-10-22, RL-4):** the failure analysis still holds, but several
+> quoted fixes are no longer in the shipped Skills: the recency rule quoted from
+> `training-infrastructure.md` in §2, and the results-reviewer questions and the
+> `research-grind.md` rule on repeated `partial` rounds in §6. For current wording read the
+> Skills themselves, e.g. [research-grind.md](../argus/verticals/research/skills/engineer/research-grind.md).
+
 Argus runs unattended for days. That produces a specific class of failure, and
 most of it is not the class people expect. The agent rarely goes rogue, rarely
 fabricates, and rarely gets stuck. It does something more insidious: **it behaves
@@ -103,7 +109,6 @@ independent reviews** before one selector:
 | Mechanism | What it looks up |
 | --- | --- |
 | [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
-| [`venue_research.py`](../argus/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
@@ -133,8 +138,8 @@ ours, and it is a design defect.**
 
 **The fix we tried first, and why it was wrong.** Our first instinct was to add a
 gate: a required artifact of ten candidate directions, eleven reasoning columns
-each, six novelty scores, and failure codes `NSL-000` through `NSL-005`. It is in
-the tree. An earlier version of this document presented it as the answer.
+each, six novelty scores, and failure codes `NSL-000` through `NSL-005`. It has
+since been deleted from the tree. An earlier version of this document presented it as the answer.
 
 It is not the answer, and the instinct behind it is the disease rather than the
 cure. You cannot enumerate the ways a system can be unambitious, so no set of
@@ -159,8 +164,8 @@ substantive judgement to make — then get out of its way.
 | **Planner** | Decomposition — turn a direction into steps that can really be carried out. |
 | **Engineer** | Execution — with its own internal backtracking, review, and planning, rather than waiting to be told. |
 
-The posture already exists in one place, and it works. The kernel Reviewer is
-told, in as many words, to ignore the ceremony and judge the substance:
+The posture already exists in one place, and it works. The kernel Reviewer (the
+`kernel_engineering` vertical, now installed from the Vertical Store) is told, in as many words, to ignore the ceremony and judge the substance:
 
 > Ignore GROUND_TRUTH/gate/marker/status/provenance files […] and artifact
 > hygiene — the scorer's number is the only evidence.
@@ -180,7 +185,7 @@ checklist, a decomposition template. That would recreate exactly the problem thi
 section is about. Four roles with clear judgement and real authority is not a
 complicated system, and it should not be made into one.
 
-**What is still open.** The gates described above are still in the tree. The
+**What is still open.** The gates described above have been deleted. The
 generalization is not done, and until it is, this section describes a direction
 rather than a finished change.
 
@@ -211,7 +216,8 @@ maturity of the claim rather than applying uniformly. From
 > yet reproducible. A performance claim is not.
 
 **What is still open, and where this does not go far enough.** The posture
-separation is currently written into the **`kernel_engineering` vertical only**,
+separation is currently written into the **`kernel_engineering` vertical only**
+(now in the [Vertical Store](vertical-store.md)),
 and should be generalized. But scaling ceremony to the maturity of a claim is the
 weaker half of the answer. Per §3, the stronger question to ask of any check is
 not *when* it applies but **whether it earns its place at all** — a hash that

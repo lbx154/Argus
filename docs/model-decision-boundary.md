@@ -56,15 +56,16 @@ described as already eliminated:
   resolution booleans plus the role-clean decision or clarification reply.
 - **Planner:** project-done/reason or plan reason, repeated task fields and
   dependencies, optional stage advance/wait fields, and optional plan update.
-- **Engineer:** milestone status, material result, next owner, and optional
-  operator question/options.
-- **Reviewer:** status, reason, next action, forward-progress and plan signals,
-  with optional plan challenge, authority impact, operator question/options,
-  and research-result fields. Older Reviewer bookkeeping fields remain readable
-  for compatibility but are not all requested.
+- **Engineer:** the baton line its turn ends with (`→ reviewer`, `→ planner`,
+  `→ operator: <question>` with `- <answer>` lines under it, and so on). The
+  older footer keys (`MILESTONE_STATUS`, `NEXT_OWNER`, `OPERATOR_QUESTION`, ...)
+  are no longer read.
+- **Reviewer:** the `submit_review` tool call (the review prose, which ends with
+  the baton line, plus optional research-result, session-signal and residual-risk
+  fields). The prose verdict parser and its `STATUS=` footer reader are gone.
 
-Current parsers accept named lines and, where supported, assistant-authored
-`ARGUS_ROLE_DECISION` payloads or legacy JSON. Those are still model-output
+Current Manager and Planner parsers accept named lines and, where supported,
+assistant-authored `ARGUS_ROLE_DECISION` payloads or legacy JSON. Those are still model-output
 carriers, not trusted backend-independent events.
 
 ## Removing further carriers

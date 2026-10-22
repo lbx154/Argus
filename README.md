@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Argus v0.1.6 · Source updates and packaged desktop previews are separate channels.**
+**Argus v0.1.8 · Source updates and packaged desktop previews are separate channels.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -52,14 +52,15 @@ to do each other's jobs:
 | **Manager** | Stage transitions, and where an admitted lesson is kept | Perform the work it is admitting |
 | **Planner** | The next task, and the evidence it must produce | Move the campaign to the next stage |
 | **Engineer** | Implementation, research, experiments, artifacts | Declare its own work complete |
-| **Reviewer** | The verdict — correctness, evidence, limitations; may return `blocked` | Edit anything. It runs **read-only** |
+| **Reviewer** | The verdict — correctness, evidence, limitations; may return `blocked` | Edit the work it judges. It runs with the Engineer's access, and any file it changes during review is recorded beside its verdict |
 
-Credentials, payment, irreversible actions, and publication always stop for a human.
+Credentials, payment, irreversible actions, and publication always stop for a decision:
+yours, or, when you have said not to be asked, the Manager's in your place, recorded for you.
 
 It also improves without retraining: admitted Skills and source-linked Wiki findings are
 scoped `project` → `vertical` → `global` by how far they were shown to hold, and new
-domains ship as **verticals** against a core that does not change — seven built in and
-seventeen more in the community package [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals),
+domains ship as **verticals** against a core that does not change — four built in and
+twenty more in the community package [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals),
 with zero references to the authority boundary in any of them.
 
 Because the worker cannot grade its own work, nobody has to watch it: across 27 campaigns
@@ -303,11 +304,11 @@ advisor). Use `argus doctor --advisor none --verify` for deterministic,
 no-model verification. An explicitly requested active repair may take several
 minutes because it performs a real Agent turn; it is not a quick version check.
 
-Windows currently supports installation, Manager chat, pairing, Web/TUI,
-terminal-scoped daemon control, and native durable subagents. On native Windows,
-a detached worker owns direct or supervised long commands, persists registry and
-log state, and uses bounded process-tree cleanup; WSL2 remains optional rather
-than required for this path. The Windows Desktop installer is documented separately in
+Windows currently supports installation, Manager chat, pairing, Web/TUI, and
+terminal-scoped daemon control. On native Windows, each provider turn owns a
+private Job Object: a long command a role starts stays in that turn and is
+cleaned up with it (see [process ownership](docs/windows-process-ownership.md));
+WSL2 remains optional rather than required for this path. The Windows Desktop installer is documented separately in
 **[Windows Desktop](docs/windows-desktop.md)**.
 
 ### macOS — managed command install, no manual virtual environment
@@ -808,7 +809,7 @@ logs.
 - `argus/core/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
 - `argus/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
 - `argus/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
-- `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
+- `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 4 built-in verticals (20 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
 - `argus/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
 - `argus/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
 - `argus/daemon/` — the detached 7x24 worker.

@@ -1,5 +1,7 @@
 # What Argus Grew
 
+> **Historical record (RL-4, 2026-10-22):** this quotes runs recorded up to 2026-09-30. Code paths have moved since: the `argus_skill/...` paths in the "Runtime code" table are now under `argus/` (`db35af7f`), and the math vertical moved to the Vertical Store (`d23658c7`). It is not current guidance; see [Features](FEATURES.md) and [The Vertical Store](vertical-store.md).
+
 There are two questions you can ask about a long-running agent.
 
 The first is *what did it learn* — which routes are dead, which measurements are

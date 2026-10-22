@@ -2,12 +2,12 @@
 
 每个 proposal 有具体完成时间、乐观到悲观区间、实验依赖及资源排布。
 用户选择 idea、期限或资源后可重新计算；记录版本后可以追溯初版估计、
-历次修改、实际延期与具体原因。模块位于 research vertical，不引入新 daemon。
+历次修改、实际延期与具体原因。模块位于 `argus/core/timeline*.py`，不引入新 daemon。
 
 ## 在网页版验证
 
-功能开发在公开仓库 `lbx154/Argus` 的 `dev` 分支。入口：选择项目 → 顶部
-**更多 → 工作台 → 研究排期**。也可在当前网页版地址后加
+功能开发在公开仓库 `lbx154/Argus` 的 `dev` 分支。入口：选择项目 →
+**工作台 → 研究排期**。也可在当前网页版地址后加
 `?project=<项目ID>&view=workbench&module=timeline` 直接进入。
 
 1. 点击 **加载论文示例**。显示两个候选 proposal、点估计与区间，以及实验时间条。
@@ -90,7 +90,7 @@ Authorization: Bearer <configured-token>
 
 所有接口使用现有认证。保存路径由服务端绑定的项目工作目录解析，浏览器不能指定
 任意磁盘路径；拒绝越出项目的 timeline 符号链接。预估与版本保存不改变 backlog。
-自然语言 proposal 由现有 Agent 按 `research-timeline` Skill 形成输入，不用关键词猜任务。
+自然语言 proposal 由现有 Agent 整理成上述 JSON 输入，不用关键词猜任务（仓库里已没有单独的 `research-timeline` Skill）。
 
 ## 时间的含义
 
@@ -180,7 +180,6 @@ provider 中断、额外控制实验或关键假设不成立；`evidence` 指向
 
 Engineer 在实验里程碑或用户修改约束后更新预测；Planner 使用结果调整现有 backlog。
 模块本身不会定时监控进程、自动收集实际用时、自动派实验或发送延期通知。
-采用的 Skill 已接入 Idea 与 Experiment playbook 的按需入口。
 
 ## 实现与验证
 

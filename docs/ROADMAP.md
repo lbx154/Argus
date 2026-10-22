@@ -1077,6 +1077,8 @@ the docs say what the code does.
 #### RL-4 List of outdated docs
 `0.2` · `S` · Depends on: none · good first issue
 - Do: list the docs that disagree with the code, and fix each one or mark it as outdated.
+- Status: done (`12b2d4f9`): the list is `docs/audits/stale-docs-2026-10-22.md`; small errors are fixed in place,
+  and plans, audits and dated notes that read like current guidance carry a banner linking the current doc.
 
 #### RL-5 Keep Chinese and English docs in step
 `0.9` · `S` · Depends on: none · good first issue
