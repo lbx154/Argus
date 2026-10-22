@@ -7,6 +7,7 @@ from typing import Any
 
 from ..life.event_log import JsonlEventSink
 from .mission_view import say, uses_cjk
+from .residual_risk import sanitize_text
 from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
@@ -104,8 +105,12 @@ def brief_title(text: str, limit: int = 50) -> str:
 
 
 def first_sentence(text: str) -> str:
-    """The sentence ``text`` opens with, its closing mark kept."""
-    said = " ".join(str(text or "").split())
+    """The sentence ``text`` opens with, as plain text, its closing mark kept.
+
+    The markup goes first: a sentence cut from ``**Not done.** Because…``
+    would otherwise keep the opening ``**`` and lose the closing one.
+    """
+    said = sanitize_text(text, limit=None)
     end = _SENTENCE_END.search(said)
     return said[: end.end()] if end else said
 

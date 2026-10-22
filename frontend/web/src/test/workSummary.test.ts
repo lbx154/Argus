@@ -19,6 +19,9 @@ describe('human task progress', () => {
       { ...record('reasoning', '内部推理', 260), kind: 'reasoning' },
       record('receipt', '{"verdict":"done"}', 270)];
     expect(workSummary(status, view, [], 'zh-CN')).toBe('正在检查登录参数，确认哪里传错了。');
+    // A status line is cut from the message: its markup goes first, so no cut keeps half a pair.
+    view.role_work = [record('said', '已实现并导出 `format_mib`：复用 `_check`，**24 passed**，`sizefmt/__init__.py` 已导出。')];
+    expect(workSummary(status, view, [], 'zh-CN')).toBe('已实现并导出 format_mib：复用 _check，24 passed，sizefmt/__init__.py 已导出。');
   });
 
   it('does not reuse a previous attempt or claim success from a failed result', () => {
