@@ -99,6 +99,16 @@ describe('what the project is doing right now', () => {
     expect(lines.map((line) => line.text)).toEqual(['Run ls']);
   });
 
+  it('reads a command\'s paths in the project from its root', () => {
+    const snapshot = running();
+    const events = [progress(NOW - 60, 'command_execution', 'rm -r -- /w/build /w2/build')];
+    expect(liveActivity(snapshot, null, events, NOW, 'zh-CN').lines.map((line) => line.text)).toEqual(['运行 rm -r -- build /w2/build']);
+    snapshot.session.workdir = '/work/datefmt';
+    const moved = [progress(NOW - 60, 'command_execution', 'rm -r -- /work/datefmt/build')];
+    expect(liveActivity(snapshot, null, moved, NOW, 'zh-CN').lines.map((line) => line.text)).toEqual(['运行 rm -r -- build']);
+    expect(plainCommand('ls /work/datefmt/', '/work/datefmt/')).toBe('ls .');
+  });
+
   it('unwraps shell boilerplate from commands', () => {
     expect(plainCommand("/bin/bash -lc 'pytest -q tests'")).toBe('pytest -q tests');
     expect(plainCommand('bash -c "nvidia-smi"')).toBe('nvidia-smi');
