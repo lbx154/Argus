@@ -11,8 +11,8 @@ A call is a row of the ledger, placed among the events where it completed; its
 role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
 that added no new work, and a Manager supervision whose decision was never
-applied or kept the course. ``avoided`` counts the Planner calls skipped because
-nothing it reads had changed (``model_call_skipped``).
+applied or kept the course. ``avoided`` counts the times the Planner began to
+wait without a call because nothing it reads had changed (``model_call_skipped``).
 """
 from __future__ import annotations
 
