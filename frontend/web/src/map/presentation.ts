@@ -1,5 +1,5 @@
 import type { Dataset, MapEvent, MapTask } from "./model";
-import { ACTIVE, isStageHold, latestCertifiedTask, statusKey } from "./model";
+import { ACTIVE, attentionTasks, isStageHold, latestCertifiedTask, latestMissionCompletion, statusKey } from "./model";
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
 
@@ -91,7 +91,15 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
   const recent = [...work].sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0));
   const focus = recent.find((task) => statusKey(task) === "question") ?? running ?? recent[0];
   const goal = focus ? clip((focus.objective || focus.title).trim()) : (zh ? "还没有任务" : "No task yet");
-  const accepted = latestCertifiedTask(tasks, events);
+  // A question waiting on the reader keeps the project open, not the results
+  // already reviewed: those are said, as their cards say them, beside it.
+  const asked = attentionTasks(tasks).filter((task) => task.pending_question);
+  const accepted = latestCertifiedTask(tasks.filter((task) => !asked.includes(task)), events);
+  // What the accepted task found, in the words that closed it; its title names
+  // what was asked, which reads wrong after "confirmed".
+  const result = accepted
+    ? clip(readableRecord(written(accepted) || latestMissionCompletion(accepted, events)?.text || accepted.title), 160)
+    : "";
   const label = (task: MapTask) => {
     const key = statusKey(task);
     return ({
@@ -108,8 +116,9 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
   // The goal line already names the task; saying its title again under the
   // conclusion only repeats it.
   const conclusion = accepted
-    ? zh ? `已确认：${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
-      : `Confirmed: ${clip(readableRecord(written(accepted) || accepted.summary || accepted.title), 160)}`
+    ? asked.length
+      ? zh ? `审阅通过（还有一项在等你回答）：${result}` : `Reviewed (another item is waiting for your answer): ${result}`
+      : zh ? `已确认：${result}` : `Confirmed: ${result}`
     : focus
       ? statusKey(focus) === 'review_unavailable'
         ? zh ? '这次结果检查没有完成，暂时不能确认结果。' : 'The result check did not finish, so the result is not yet confirmed.'
