@@ -47,12 +47,11 @@ def test_live_map_preserves_evidence_and_ignores_partial_line(tmp_path):
 def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
     sid, life = sample(tmp_path)
     memory = LifeMemory.open(life)
+    # Answered in place: the task that asked resumed and is running again.
     memory.backlog.add(BacklogItem(
-        id="ask", ts=4, title="Planner needs operator direction", objective="A or B", status="failed",
-        outcome={"park": {"reason": "operator_question"}},
-        operator_decision={"status": "resolved", "continuation_item_id": "next", "manager_decision": "A"},
+        id="ask", ts=4, title="Planner needs operator direction", objective="A or B", status="running",
+        operator_decision={"status": "resolved", "manager_decision": "A"},
     ))
-    memory.backlog.add(BacklogItem(id="next", ts=9, title="Do A", objective="A", status="pending"))
     memory.backlog.add(BacklogItem(id="budget", ts=10, title="Later", objective="Later", status="pending"))
     memory.backlog.update("budget", park_reason="budget_exhausted")
     with (life / "events.jsonl").open("a") as f:
@@ -67,8 +66,9 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
              "title": "Planner needs operator direction", "question": "A or B?", "ts": 7},
             # Nothing runs: a remark naming no task has no task to stand on.
             {"type": "life.observer.note", "agent_layer": "observer", "to": "manager", "ts": 8, "text": "Idle."},
-            {"type": "life.operator_question.answered", "item_id": "ask", "continuation_item_id": "next",
+            {"type": "life.operator_question.answered", "item_id": "ask",
              "question": "A or B?", "manager_decision": "A", "decided_by": "operator", "ts": 9},
+            {"type": "life.mission.started", "item_id": "ask", "agent_layer": "engineer", "ts": 10},
         ):
             f.write(json.dumps(row) + "\n")
     data = read_map(sid, tmp_path, life)
@@ -83,12 +83,13 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
     assert said[("task-a", "life.mission.completed")]["park_reason"] == "operator_question"
     assert "Idle." not in [e["text"] for e in data["events"]]
     tasks = {t["id"]: t for t in data["tasks"]}
-    # The work an answer went on with is drawn from the question it answered.
-    assert tasks["next"]["deps"] == ["ask"]
     assert tasks["budget"]["park_reason"] == "budget_exhausted" and "park_reason" not in tasks["ask"]
-    # The question is the Planner's, answered and carried on; the mission is the Engineer's.
-    assert (tasks["ask"]["role"], tasks["ask"]["continued_by"], tasks["ask"]["summary"]) == ("planner", "next", "A")
-    assert tasks["task-a"]["role"] == "engineer" and "continued_by" not in tasks["task-a"]
+    # The answered task reads as the work it is again, and depends on nothing new.
+    assert (tasks["ask"]["status"], tasks["ask"]["deps"]) == ("running", [])
+    # A task is in the hands of whoever wrote its latest record: the Engineer
+    # took the answered task up again; one with no record names nobody.
+    assert (tasks["ask"]["role"], tasks["task-a"]["role"]) == ("engineer", "engineer")
+    assert "role" not in tasks["budget"]
 
 
 def test_an_engineer_handoff_is_the_engineers_record_not_a_review():

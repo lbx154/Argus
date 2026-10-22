@@ -118,9 +118,18 @@ def test_loop_done_supports_structured_and_text_events() -> None:
     assert "the work here ended in success" in format_event_message(
         {"type": "loop.completed", "success": True}
     )
-    assert format_event_message({"type": "loop.done", "text": "review complete"}) == (
-        "🏁 review complete"
+    assert format_event_message({"type": "loop.done", "status": "done", "rounds": 2}) == (
+        "🏁 the work here has wrapped up"
     )
+
+
+def test_status_lines_are_the_developer_log_and_operator_status_is_shown(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_EVENT_VERBOSITY", raising=False)
+    told = {"type": "life.operator_status", "kind": "service_back", "text": "The service is back."}
+    assert format_event_message({"type": "life.status", "text": "planner idle"}) == ""
+    assert format_event_message(told) == "ℹ️ The service is back."
+    monkeypatch.setenv("ARGUS_SKILL_EVENT_VERBOSITY", "full")
+    assert format_event_message({"type": "life.status", "text": "planner idle"}) == "ℹ️ planner idle"
 
 
 def test_life_mission_completed_leads_with_outcome_then_metrics() -> None:

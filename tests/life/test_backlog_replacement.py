@@ -63,7 +63,7 @@ def test_replacement_supersedes_all_pending_work_including_legacy_bootstrap(
         )
     )
     paused = backlog.add(BacklogItem.new(title="paused old work", objective="paused"))
-    backlog.update(paused.id, status="paused_daemon_shutdown")
+    backlog.update(paused.id, park_reason="daemon_shutdown")
     running = backlog.add(BacklogItem.new(title="running work", objective="running"))
     backlog.update(running.id, status="running")
 

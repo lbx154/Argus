@@ -27,7 +27,7 @@ import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes } from '../lib/format';
 import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
 import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
-import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
+import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
 import {
   selectPreferredLiveArtifact,
   selectPreferredPreviewArtifact,
@@ -58,15 +58,11 @@ beforeEach(() => {
 });
 afterEach(() => queryClient.clear());
 
-const typedUsageEvent: UsageRecordedEvent = {
-  type: 'usage.recorded',
-  payload_schema_version: 2,
+const typedCallEvent: AgentIoCompleteEvent = {
+  type: 'agent.io.complete',
+  payload_schema_version: 1,
   call_id: 'call-1',
-  schema_version: 2,
-  provider: 'codex',
-  status: 'completed',
-  usage: {},
-  pricing: {},
+  run_label: 'engineer-r1',
 };
 
 describe('shared frontend core', () => {
@@ -249,8 +245,7 @@ describe('shared frontend core', () => {
   });
 
   it('uses the canonical event catalog and explicit legacy aliases', () => {
-    expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
-    expect(typedUsageEvent.payload_schema_version).toBe(2);
+    expect(EVENT_TYPES.AGENT_IO_COMPLETE).toBe(typedCallEvent.type);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
   });
@@ -510,12 +505,12 @@ describe('shared frontend core', () => {
       [
         // A paused task says why it paused and that it can resume; the raw status stays technical.
         { status: 'paused_daemon_shutdown', success: false, stop_kind: 'backend_unavailable', resumable: true },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
         // A `parked` status carries its reason; it reads like the `paused_*` status it replaces.
         { status: 'parked', park_reason: 'daemon_shutdown', success: false },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
       ],
       [
         { status: 'parked', park_reason: 'external_work', success: false },

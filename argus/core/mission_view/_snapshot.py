@@ -254,12 +254,12 @@ def merge_mission_view_snapshot(
     else:
         for existing in role_rows:
             if existing.get("status") == "active":
-                existing.update({
-                    "status": "waiting",
-                    "kind": "waiting",
-                    "label": say("waiting", chinese),
-                })
+                existing.update({"status": "waiting", "kind": "waiting"})
         view["active_role"] = ""
+    # A waiting role says so in the session's language, however long it has waited.
+    for existing in role_rows:
+        if existing.get("kind") == "waiting":
+            existing["label"] = say("waiting", chinese)
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:

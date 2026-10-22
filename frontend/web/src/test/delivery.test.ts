@@ -82,6 +82,13 @@ describe('completed delivery presentation', () => {
     }, context);
     // The risk itself is told once, on the review row.
     expect(completed?.text).toBe('completed with residual risk');
+    expect(completed?.role).toBe('engineer');
+    // A task the Reviewer accepted is closed in the Reviewer's words, under its name.
+    const accepted = renderLine({
+      type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',
+      review_source: 'reviewer', summary: 'I checked every listed function against the code.',
+    }, context);
+    expect(accepted?.role).toBe('reviewer');
   });
   it('opens the receipt primary target before a stale live checkpoint', () => {
     const view = emptyMissionView();

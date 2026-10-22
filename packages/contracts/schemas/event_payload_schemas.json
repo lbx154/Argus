@@ -934,70 +934,6 @@
         }
       }
     },
-    "usage.recorded": {
-      "version": 2,
-      "required": [
-        "call_id",
-        "schema_version",
-        "provider",
-        "status",
-        "usage",
-        "pricing"
-      ],
-      "properties": {
-        "call_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "schema_version": {
-          "type": "integer",
-          "const": 2
-        },
-        "project_id": {
-          "type": "string"
-        },
-        "mission_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "thread_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "provider": {
-          "type": "string",
-          "minLength": 1
-        },
-        "model": {
-          "type": "string"
-        },
-        "run_label": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "completed",
-            "error",
-            "denied"
-          ]
-        },
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "usage": {
-          "type": "object"
-        },
-        "pricing": {
-          "type": "object"
-        }
-      }
-    },
     "provider.request.started": {
       "version": 1,
       "required": [
@@ -2584,7 +2520,6 @@
       "version": 1,
       "required": [
         "item_id",
-        "continuation_item_id",
         "question",
         "manager_decision"
       ],
@@ -2592,9 +2527,6 @@
         "item_id": {
           "type": "string",
           "minLength": 1
-        },
-        "continuation_item_id": {
-          "type": "string"
         },
         "question": {
           "type": "string",
@@ -3810,8 +3742,12 @@
     "loop.done": {
       "version": 1,
       "properties": {
-        "text": {
+        "status": {
           "type": "string"
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 0
         },
         "success": {
           "type": "boolean"
@@ -3882,8 +3818,16 @@
       "properties": {
         "text": {
           "type": "string"
-        },
+        }
+      }
+    },
+    "life.operator_status": {
+      "version": 1,
+      "properties": {
         "kind": {
+          "type": "string"
+        },
+        "text": {
           "type": "string"
         }
       }

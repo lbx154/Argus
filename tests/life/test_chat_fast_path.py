@@ -735,8 +735,7 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
-    assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
-               for e in sink.events)
+    assert {"type": "loop.done", "status": "done", "rounds": 1} in sink.events
     assert "算 17*23" in backend.calls[0]["prompt"]
     assert "Answer the request yourself" in backend.calls[0]["prompt"]
     assert "Runtime maintenance must use an isolated worktree" not in backend.calls[0]["prompt"]

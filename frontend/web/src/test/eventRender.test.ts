@@ -32,6 +32,11 @@ describe('the web feed line', () => {
     expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
     expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })).toBeNull();
   });
+  it('shows the status the operator is told and hides the developer log', () => {
+    expect(line({ type: 'life.operator_status', kind: 'service_back', text: 'The model service is answering again.' }))
+      .toMatchObject({ text: 'The model service is answering again.' });
+    expect(line({ type: 'life.status', text: 'planner idle' })).toBeNull();
+  });
   it('shows a remark of the Observer with whom it is for, under its own name', () => {
     const remark = { type: 'life.observer.note', agent_layer: 'observer', to: 'manager', text: 'the Planner woke 14 times on the same running job' };
     expect(zh(remark)).toMatchObject({ role: 'observer', label: '监督者', text: '对经理：the Planner woke 14 times on the same running job' });

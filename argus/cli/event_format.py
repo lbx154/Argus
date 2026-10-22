@@ -7,7 +7,6 @@ plain strings.
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 from typing import Any, Callable
@@ -16,6 +15,7 @@ from ..core.event_catalog import EventType, canonical_event_type
 from ..core.mission_view import uses_cjk
 from ..core.secret_guard import redact_secrets_text
 from ..core.stop_kinds import is_pause_status, park_clause
+from ..life.event_log import event_verbosity
 from ..life.mission_outcome import mission_outcome_class
 
 # Canonical live events with dedicated presentation. Unknown/internal events
@@ -34,6 +34,7 @@ _EVENT_ICONS: dict[str, str] = {
     EventType.LIFE_MISSION_COMPLETED: "■",
     EventType.LIFE_MISSION_FAILED: "💥",
     EventType.LIFE_STATUS: "ℹ️",
+    EventType.LIFE_OPERATOR_STATUS: "ℹ️",
     EventType.LIFE_PLANNER_VERDICT: "📋",
     "match.info": "🎯",
 }
@@ -241,11 +242,7 @@ def annotate_progress_result(line: str, event: dict[str, Any]) -> str:
 def format_event_message(event: dict[str, Any]) -> str:
     """Render one event after collapsing historical aliases to canonical types."""
     kind = canonical_event_type(event.get("type")) or "?"
-    if (
-        kind == EventType.LIFE_STATUS
-        and not event.get("kind")
-        and os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "").strip().lower() != "full"
-    ):
+    if kind == EventType.LIFE_STATUS and event_verbosity() != "full":
         # Status lines are the developer log; a full-verbosity run prints them.
         return ""
     icon = _EVENT_ICONS.get(kind, "")
@@ -357,9 +354,8 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
 
 
 def _render_loop_done(event: dict[str, Any]) -> str:
-    text = str(event.get("text") or "").strip()
     if "success" not in event:
-        return _trunc(text, 200) if text else "the work here has wrapped up"
+        return "the work here has wrapped up"
     head = (
         "the work here ended in success"
         if event.get("success")

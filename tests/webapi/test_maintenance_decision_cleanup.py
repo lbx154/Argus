@@ -64,7 +64,7 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
     )
     card["decision_kind"] = "framework_deployment"
     mem.backlog.update(
-        item.id, status="paused_operator", pending_question=card["question"],
+        item.id, park_reason="operator_pause", pending_question=card["question"],
         operator_decision=card,
     )
     sidecar_root = root if layout == "global" else mem.project_root

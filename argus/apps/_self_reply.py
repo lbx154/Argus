@@ -890,10 +890,7 @@ class SelfReplyMixin:
                     reviewer_artifacts=paths,
                     artifact_source="solo_output",
                 )
-        sink.handle_event({
-            "type": "loop.done",
-            "text": f"status={status} rounds=1 (simple)",
-        })
+        sink.handle_event({"type": "loop.done", "status": status, "rounds": 1})
         return _Outcome(
             success=success,
             status=status,

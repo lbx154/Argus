@@ -98,23 +98,20 @@ def _technical_note(reason: str) -> str:
 def _skipped_round_cause(event: Mapping[str, Any]) -> tuple[str, str]:
     """Classify why a round was not judged from the event's structured fields.
 
-    Returns ``(cause code, stop kind)``. The stop kind comes from the event
-    when it carries one; otherwise the fixed ``review: skipped (…)`` opening
-    the runtime writes into the event text names the path that skipped.
+    Returns ``(cause code, stop kind)``. Who stopped the round is its stop
+    kind; otherwise the fixed ``review: skipped (…)`` opening the runtime
+    writes into the event text names the path that skipped.
     """
     stop_kind = normalize_stop_kind(event.get("stop_kind")) or ""
     named_kind, _named_line = _named_failure(event)
     if named_kind:
         return named_kind, stop_kind
-    opening = ""
-    match = _SKIPPED_OPENING_RE.match(_text(event, "text", 400))
-    if match:
-        opening = match.group(1).strip().casefold()
-        stop_kind = stop_kind or (normalize_stop_kind(opening) or "")
-    if stop_kind == "daemon_shutdown" or "daemon stop" in opening:
+    if stop_kind == "daemon_shutdown":
         return "argus_stopped", stop_kind
-    if stop_kind == "operator_abort" or "operator abort" in opening:
+    if stop_kind == "operator_abort":
         return "task_cancelled", stop_kind
+    match = _SKIPPED_OPENING_RE.match(_text(event, "text", 400))
+    opening = match.group(1).strip().casefold() if match else ""
     if "reviewer backend" in opening:
         return "reviewer_unreachable", stop_kind
     if "provider-turn" in opening or "provider turn" in opening:
@@ -140,78 +137,6 @@ def _skipped_round_cause(event: Mapping[str, Any]) -> tuple[str, str]:
             stop_kind,
         )
     return "unknown", stop_kind
-
-
-# Openings the runtime itself writes when it stops a task (both the wording
-# in use and the wording of records written before it changed), mapped to the
-# code of the sentence that explains them. A Reviewer's or Engineer's own prose
-# never starts this way, so it is left untouched.
-_RUNTIME_STOP_OPENINGS: tuple[tuple[str, str], ...] = (
-    ("reviewer backend unavailable for", "reviewer_unreachable"),
-    ("the reviewer could not reach a judgment", "reviewer_unreachable"),
-    ("审阅者连续", "reviewer_unreachable"),
-    ("engineer backend failed before a trustworthy", "engineer_service_dropped"),
-    ("the model service dropped the engineer's session", "engineer_service_dropped"),
-    ("the wait after a repeated backend failure ended early", "retry_wait_cut_short"),
-    ("argus was stopped by its operator", "argus_stopped"),
-    ("the argus background service stopped or restarted", "argus_stopped"),
-    ("you stopped argus", "argus_stopped"),
-    ("the run was interrupted before the reviewer", "argus_stopped"),
-    ("execution host is unavailable", "tools_unavailable"),
-    ("the tool environment the engineer needs", "tools_unavailable"),
-    ("configured model is unavailable", "model_unavailable"),
-    ("the configured model is unavailable", "model_unavailable"),
-    ("one engineer call used its whole per-call provider-turn", "session_length_limit"),
-    ("the engineer's session reached the length limit", "session_length_limit"),
-    ("backend call paused before a trustworthy", "paused"),
-    ("the work was paused before the engineer finished", "paused"),
-)
-_ATTEMPT_COUNT_RE = re.compile(r"(\d+)\s*(?:consecutive|times?\b)|连续\s*(\d+)\s*次")
-
-
-def _runtime_stop_record(
-    reason: str,
-    *,
-    chinese: bool,
-    stop_kind: str | None,
-) -> tuple[str, str, str] | None:
-    """Explain a task-closing reason the runtime wrote, or return None.
-
-    Returns ``(sentence, cause, technical)``. Only records that begin with one
-    of the runtime's own openings are rewritten; anything else is a role's own
-    words and is shown as it is.
-    """
-    text = str(reason or "").strip()
-    lowered = text.casefold()
-    cause = next(
-        (code for opening, code in _RUNTIME_STOP_OPENINGS if lowered.startswith(opening)),
-        "",
-    )
-    if not cause:
-        return None
-    technical = _technical_note(text)
-    if technical == text:
-        technical = ""
-    if cause == "reviewer_unreachable":
-        match = _ATTEMPT_COUNT_RE.search(text)
-        attempts = next((group for group in (match.groups() if match else ()) if group), "")
-        sentence = (
-            say("task_stopped_reviewer_unreachable", chinese, attempts=attempts)
-            if attempts
-            else say("task_stopped_reviewer_unreachable_repeatedly", chinese)
-        )
-    elif cause in {"engineer_service_dropped", "argus_stopped", "retry_wait_cut_short"}:
-        sentence = say(f"task_stopped_{cause}", chinese)
-    elif cause == "paused":
-        sentence = say(
-            "cause_paused",
-            chinese,
-            why=stop_kind_clause(stop_kind, chinese=chinese)
-            or ("工作被打断" if chinese else "the work was interrupted"),
-        )
-    else:
-        sentence = say(f"cause_{cause}", chinese)
-    return sentence, cause, technical
 
 
 def _mission_outcome_presentation(
@@ -250,32 +175,18 @@ def _mission_outcome_presentation(
     elif outcome_class == "ended":
         raw_status = _text(event, "status")
         technical = raw_status
-        outcome = event.get("outcome") if isinstance(event.get("outcome"), dict) else {}
-        stop_kind = (
-            normalize_stop_kind(event.get("stop_kind"))
-            or normalize_stop_kind(outcome.get("interruption_kind"))
-        )
-        named_kind, named_line = _named_failure(event)
-        why = (
-            say(f"why_{named_kind}", chinese, cause=named_line)
-            if named_kind
-            else park_clause(raw_status, event.get("park_reason"), chinese=chinese)
-            or stop_kind_clause(stop_kind, chinese=chinese)
-        )
         if is_pause_status(raw_status) or event.get("resumable") is True:
-            kind = "mission_paused"
-            return (
-                mission_status,
-                role_status,
-                kind,
-                say(
-                    kind,
-                    chinese,
-                    why=why or ("工作被打断" if chinese else "the work was interrupted"),
-                ),
-                tone,
-                technical,
+            outcome = event.get("outcome") if isinstance(event.get("outcome"), dict) else {}
+            stop_kind = event.get("stop_kind") or outcome.get("interruption_kind")
+            named_kind, named_line = _named_failure(event)
+            why = (
+                say(f"why_{named_kind}", chinese, cause=named_line)
+                if named_kind
+                else park_clause(raw_status, event.get("park_reason"), chinese=chinese)
+                or stop_kind_clause(stop_kind, chinese=chinese, neutral=True)
             )
+            kind = "mission_paused"
+            return mission_status, role_status, kind, say(kind, chinese, why=why), tone, technical
     return mission_status, role_status, kind, say(kind, chinese), tone, technical
 
 
@@ -398,23 +309,20 @@ def reduce_mission_lifecycle_event(
         cause = ""
         detail = _text(event, "summary", 1200)
         if not detail:
-            # Without the Engineer's own summary the closing row falls back
-            # to the reason the task stopped. When the runtime wrote that
-            # reason, say what it means and keep its record apart.
+            # Without the Engineer's own summary the closing row says why the
+            # task stopped: the failure or stop the event names, with the
+            # runtime's own record kept apart; otherwise the reason as written.
             reason = _text(event, "stop_reason", 2000) or _text(event, "failure_reason", 2000)
             named_kind, named_line = _named_failure(event)
-            record = (
-                (say(f"cause_{named_kind}", chinese, cause=named_line), named_kind, _technical_note(reason))
-                if named_kind
-                else _runtime_stop_record(
-                    reason,
-                    chinese=chinese,
-                    stop_kind=normalize_stop_kind(event.get("stop_kind")),
+            why = stop_kind_clause(event.get("stop_kind"), chinese=chinese)
+            if named_kind or why:
+                detail = (
+                    say(f"cause_{named_kind}", chinese, cause=named_line)
+                    if named_kind
+                    else say("task_stopped", chinese, why=why)
                 )
-            )
-            if record is not None:
-                detail, cause, record_technical = record
-                technical = "; ".join(part for part in (technical, record_technical) if part)
+                cause = named_kind
+                technical = "; ".join(part for part in (technical, _technical_note(reason)) if part)
             else:
                 detail = reason or _text(event, "title", 500)
         _timeline(
@@ -468,12 +376,7 @@ def _reduce_review_completed(
         _named_kind, named_line = _named_failure(event)
         title = say("round_not_judged", chinese)
         explanation = (
-            say(
-                "cause_paused",
-                chinese,
-                why=stop_kind_clause(stop_kind, chinese=chinese)
-                or ("工作被打断" if chinese else "the work was interrupted"),
-            )
+            say("cause_paused", chinese, why=stop_kind_clause(stop_kind, chinese=chinese, neutral=True))
             if cause == "paused"
             else say(f"cause_{cause}", chinese, cause=named_line)
             if named_line

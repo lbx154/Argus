@@ -85,7 +85,7 @@ def test_changed_control_or_evidence_cannot_park_even_an_unchanged_question(
     assert result.outcome == item.outcome
 
 
-@pytest.mark.parametrize("status", ["pending", "paused_operator", "done", "aborted", "superseded"])
+@pytest.mark.parametrize("status", ["pending", "parked", "done", "aborted", "superseded"])
 def test_newer_state_or_archived_terminal_item_is_preserved(tmp_path: Path, status: str) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item = running(backlog)

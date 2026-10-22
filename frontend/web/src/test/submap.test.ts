@@ -58,7 +58,7 @@ describe("task submap evidence", () => {
     const by = (id: string) => rows.find((row) => row.id === id)!;
     expect([by("e2").kind, by("e2").title, by("e2").status, by("e2").detail]).toEqual(["plan", "经理的督导", "recorded", "Wait for the choice."]);
     expect([by("e3").kind, by("e3").title, by("e3").source]).toEqual(["revision", "监督者的提醒", "interval"]);
-    expect(by("e4").detail).toBe("因为在等你回答一个问题，工作停了下来。");
+    expect(by("e4").detail).toBe("因为有个问题在等你回答，工作停了下来。");
     expect([by("e5").title, by("e5").detail]).toEqual(["向你提问", "A or B?"]);
     expect([by("e6").title, by("e6").detail]).toEqual(["你的答复", "A."]);
     expect(by("e7").title).toBe("经理替你定了");
@@ -579,8 +579,8 @@ describe("where the task stands", () => {
   });
 
   it.each([
-    ["paused_external_work", "operator_pause", "因为等待外部工作完成，工作停了下来。"],
-    ["parked", "operator_pause", "因为你暂停了它，工作停了下来。"],
+    ["paused_external_work", "operator_pause", "因为需要先等 Argus 之外的工作完成，工作停了下来。"],
+    ["parked", "operator_pause", "因为你暂停了工作，工作停了下来。"],
     ["parked", undefined, "这项任务的工作暂停了。"],
   ])("describes a %s mission as paused, with the reason it names", (status, park_reason, detail) => {
     const rows = buildSubmap({ ...parent, status }, [

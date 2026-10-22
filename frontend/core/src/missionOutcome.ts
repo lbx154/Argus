@@ -108,35 +108,38 @@ const LABELS: Record<MissionOutcomeKind, Pair> = {
   mission_ended: ['The task ended without a recorded outcome.', '任务已结束，没有记录到明确的结果。'],
 };
 
-// Why a call stopped, as a clause; mirrors argus/core/stop_kinds.py.
-const STOP_KIND_CLAUSES: Record<string, Pair> = {
+// Why work stopped or waits, by stop kind or park reason, as a clause; mirrors
+// argus/core/stop_kinds.py, the one table either side keeps.
+const CLAUSES: Record<string, Pair> = {
   budget_exhausted: ['the project reached its budget limit', '项目达到了预算上限'],
   cost_unreconciled: ['provider charges are awaiting reconciliation or explicit risk approval', '模型费用尚待核对或明确的风险确认'],
   provider_cooldown: ['the model service asked Argus to wait before calling again', '模型服务要求 Argus 稍后再调用'],
   provider_fence: ['the model provider is not accepting calls right now', '模型服务当前不接受调用'],
-  daemon_shutdown: ['Argus was stopped', 'Argus 被停止'],
+  daemon_shutdown: ['the Argus background service stopped or restarted', 'Argus 后台服务停止或重启了'],
   operator_pause: ['you paused the work', '你暂停了工作'],
   operator_abort: ['you cancelled the task', '你取消了这项任务'],
   backend_unavailable: ['the model service was unavailable', '模型服务不可用'],
   transient_error: ['a temporary error interrupted the call', '一次临时错误中断了调用'],
   permanent_error: ['an error that will not clear on its own stopped the call', '一个不会自行消失的错误中止了调用'],
-};
-
-const PARK_REASON_CLAUSES: Record<string, Pair> = {
   external_work: ['work outside Argus had to finish first', '需要先等 Argus 之外的工作完成'],
   operator_question: ['a question is waiting for your answer', '有个问题在等你回答'],
+  infra: ['the program that runs the work could not start', '运行环境无法启动'],
 };
 
 function normalizedString(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
+/** Why work stopped or waits, by its stop kind or park reason; empty when the record does not say. */
+export function stopClause(kind: unknown, zh: boolean): string {
+  const key = normalizedString(kind);
+  return Object.hasOwn(CLAUSES, key) ? CLAUSES[key][zh ? 1 : 0] : '';
+}
+
 function pauseClause(status: string, recorded: unknown, stopKind: string, zh: boolean): string {
   const reason = parkReason(status, recorded);
-  const pick = (pair: Pair) => pair[zh ? 1 : 0];
-  const known = (reason && (PARK_REASON_CLAUSES[reason] || STOP_KIND_CLAUSES[reason])) || STOP_KIND_CLAUSES[stopKind];
-  if (known) return pick(known);
-  return reason === null ? pick(['the work was interrupted', '工作被打断了']) : pick(['the work was paused', '工作被暂停了']);
+  return stopClause(reason, zh) || stopClause(stopKind, zh) ||
+    (reason === null ? (zh ? '工作被打断了' : 'the work was interrupted') : (zh ? '工作被暂停了' : 'the work was paused'));
 }
 
 function normalizedOutcomeClass(value: unknown): MissionOutcomeClass | null {

@@ -385,36 +385,16 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "The work did not reach a result that could be checked.",
         "执行没有得出可信的结果。",
     ),
-    # Why a whole task stopped, when the runtime rather than a role wrote the
-    # reason. These stand in for the runtime's own record in the task's
-    # closing row; the record itself moves to the technical field.
-    "task_stopped_reviewer_unreachable": (
-        "The Reviewer could not reach a judgment {attempts} times in a row, so "
-        "Argus stopped this task rather than settle a round without a real judgment.",
-        "审阅者连续 {attempts} 次没能给出判断，Argus 选择停下这项任务，"
-        "而不是在没有真正审阅的情况下结束一轮。",
+    # Why a whole task stopped, from the stop its record names; the
+    # runtime's own record moves to the technical field.
+    "task_stopped": (
+        "The task stopped because {why}.",
+        "任务停了下来，因为{why}。",
     ),
-    "task_stopped_reviewer_unreachable_repeatedly": (
-        "The Reviewer repeatedly could not reach a judgment, so Argus stopped "
-        "this task rather than settle a round without a real judgment.",
-        "审阅者多次没能给出判断，Argus 选择停下这项任务，"
-        "而不是在没有真正审阅的情况下结束一轮。",
-    ),
-    "task_stopped_engineer_service_dropped": (
-        "The model service kept dropping the Engineer's session before it "
-        "produced a result that could be checked, so Argus stopped this task; "
-        "it can be retried later.",
-        "模型服务一再在工程师得出可核对的结果之前中断会话，Argus 停下了这项任务；"
-        "之后可以重试。",
-    ),
-    "task_stopped_argus_stopped": (
-        "Argus was stopped while this task was running; its progress is saved.",
-        "Argus 在这项任务进行中被停止；进度已保存。",
-    ),
-    "task_stopped_retry_wait_cut_short": (
-        "Argus was stopped while waiting to retry after repeated model-service "
-        "failures; the task can resume from its saved progress.",
-        "Argus 在等待重试（此前模型服务多次失败）时被停止；任务可以从保存的进度继续。",
+    "review_interrupted": (
+        "The Reviewer could not finish reading this round because {why}; "
+        "nothing here is a judgment on the work.",
+        "审阅者没能读完这一轮，因为{why}；这里没有任何对工作本身的评价。",
     ),
     # Questions Argus itself puts to the operator.
     "ask_direction": (
@@ -806,6 +786,7 @@ _STAGE_NAMES_ZH = {
     "analysis": "分析",
     "design": "设计",
     "submission": "投稿",
+    "delivery": "交付",
     "run": "运行",
 }
 
@@ -865,16 +846,13 @@ def session_is_chinese(view: Mapping[str, Any], *texts: str) -> bool:
 def stage_name(stage_id: str, chinese: bool) -> str:
     """The stage as a reader would name it; the identifier stays the code."""
     stage = str(stage_id or "").strip()
-    if not stage:
-        return ""
-    if chinese:
-        return _STAGE_NAMES_ZH.get(stage, f" {stage.replace('_', ' ')} ")
-    return stage.replace("_", " ")
+    name = stage.replace("_", " ")
+    return _STAGE_NAMES_ZH.get(stage, name) if chinese else name
 
 
 def stage_label(stage_id: str, chinese: bool) -> str:
     """The stage's display label for ``view["stage"]``."""
-    name = stage_name(stage_id, chinese).strip()
+    name = stage_name(stage_id, chinese)
     return name if chinese else name.title()
 
 

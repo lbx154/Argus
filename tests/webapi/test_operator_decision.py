@@ -64,7 +64,7 @@ def _blocked_project(tmp_path, sid: str = "s-decision"):
     )
     mem.backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="Use the fallback?",
         operator_decision=card,
     )
@@ -103,7 +103,7 @@ def _bound_blocked_project(tmp_path, sid: str = "s-decision"):
     )
     mem.backlog.update(
         item.id,
-        status="paused_operator",
+        park_reason="operator_pause",
         pending_question="Use the fallback?",
         operator_decision=card,
     )

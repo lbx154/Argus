@@ -131,17 +131,6 @@ def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
                 identity.update((key, row[key]) for key in ("run_label", "backend", "model") if key in row)
             yield {**identity, **row}
 
-# Idle-poll chatter that pollutes the persistent log without telling
-# operators anything actionable. We keep these on the in-process sink
-# (so the daemon log / stderr still see them) but skip writing them to
-# events.jsonl. Match by ``type`` + literal ``text``; an exact-match
-# table avoids false positives.
-DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
-    (EventType.LIFE_STATUS, "backlog empty; exiting"),
-    (EventType.LIFE_STATUS, "stop requested while idle"),
-})
-
-
 # High-value event types ALWAYS persisted, even in "signal" verbosity: mission
 # / round lifecycle, verdicts, skill-memory mutations, planner decisions, and
 # escalations. The noise we drop in "signal" mode is the
@@ -156,6 +145,13 @@ _SIGNAL_TEXT_MARKERS = (
     "RESULT", "correct=true", "cand_ms", "Traceback", "Error:",
     "exit_code", "FAILED", "NO_TRACE", "RUNTIME_ERROR",
 )
+
+
+def event_verbosity(requested: str | None = None) -> str:
+    """``signal`` or ``full``: as requested, else as ARGUS_SKILL_EVENT_VERBOSITY says."""
+    if requested is None:
+        requested = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
+    return "signal" if str(requested).strip().lower() == "signal" else "full"
 
 
 def _should_persist_for_verbosity(event: dict[str, Any], verbosity: str) -> bool:
@@ -204,9 +200,7 @@ class JsonlEventSink:
         # command/idle/heartbeat churn. "full" keeps everything for deep debug.
         # Errors are NEVER dropped (full, untruncated, via markers). Explicit arg
         # wins; else env; else "signal".
-        if verbosity is None:
-            verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
-        self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"
+        self._verbosity = event_verbosity(verbosity)
 
     # --- Sink protocol -----------------------------------------------
 
@@ -214,8 +208,6 @@ class JsonlEventSink:
         call_guard.observe(event)
         safe_event = self._normalize(event)
         if safe_event.get("transient") is True:
-            persisted = True
-        elif self._is_idle_chatter(safe_event):
             persisted = True
         elif not _should_persist_for_verbosity(safe_event, self._verbosity):
             persisted = True
@@ -261,12 +253,6 @@ class JsonlEventSink:
                 closer()
         except Exception:  # noqa: BLE001
             pass
-
-    @staticmethod
-    def _is_idle_chatter(event: dict[str, Any]) -> bool:
-        t = str(event.get("type", ""))
-        text = str(event.get("text", ""))
-        return (t, text) in DROP_FROM_DISK
 
     # --- public so tests / migrations can drop one-shot lines --------
 
@@ -423,5 +409,4 @@ __all__ = [
     "ROLL_BYTES",
     "EVENT_FILE",
     "ROLL_FILE",
-    "DROP_FROM_DISK",
 ]

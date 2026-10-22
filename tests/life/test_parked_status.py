@@ -79,19 +79,6 @@ def test_an_older_row_loads_as_the_park_it_names(tmp_path: Path, status: str, re
     assert park_reason(loaded) == reason
 
 
-@pytest.mark.parametrize(("status", "reason"), _LEGACY)
-def test_a_writer_naming_an_older_status_parks_with_its_reason(
-    tmp_path: Path, status: str, reason: str,
-) -> None:
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    item = backlog.add(BacklogItem.new(title="t", objective="o"))
-
-    written = backlog.update(item.id, status=status, outcome={"resumable": True})
-
-    assert written.status == "parked"
-    assert written.outcome == {"resumable": True, "park": {"reason": reason}}
-
-
 def test_a_parked_row_carries_its_reason_and_survives_a_reload(tmp_path: Path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item = _parked(backlog, "operator_pause")

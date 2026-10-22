@@ -371,6 +371,9 @@ const clip = (text: string, n: number) => (text.length <= n ? text : `${text.sli
 const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, ''), 48);
 // Only the path: a patch saved on one line carries its hunks after it.
 const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
+// Argus' own plumbing (session stores, handoffs, skill libraries) is not the
+// work, so a step names no file of it; mirrors argus/core/progress_step.py.
+const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|argus\/verticals)\//;
 
 /** A named argument, read from parsed JSON or, when the text was cut short, from the raw string. */
 function argument(parsed: Record<string, unknown> | null, raw: string, keys: string[]): string {
@@ -411,6 +414,7 @@ export function toolTarget(ev: EventMsg): string {
     }
   }
   const file = argument(parsed, args, ['path', 'file_path', 'filePath', 'file', 'filename', 'target_file', 'notebook_path', 'paths']);
+  if (file && PLUMBING.test(file)) return '';
   if (file && !/^\.\/?$/.test(file)) return basename(file);
   const url = argument(parsed, args, ['url', 'uri']);
   if (url) return shortUrl(url);
@@ -455,6 +459,8 @@ export function plainToolLabel(ev: EventMsg, locale: Locale): string {
     if (pattern) target = clip(pattern, 48);
   }
   if (action === 'search' && GLOB_TOOLS.test(name) && target) return `${zh ? '查找' : 'Find'} ${readableGlob(target, locale)}`;
+  // The Reviewer's verdict goes through Argus' own action, not a tool of the work.
+  if (name.endsWith('submit_review')) return zh ? '提交审阅结论' : 'Submit the review';
   const shown = target.startsWith('/') ? basename(target) : target;
   const say: Record<ToolAction, [string, string, string, string]> = {
     read: ['查阅', '查阅文件', 'Read', 'Read a file'],

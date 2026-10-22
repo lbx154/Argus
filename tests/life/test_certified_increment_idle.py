@@ -412,7 +412,7 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
     elif blocker in {"pending", "paused"}:
         item = supervisor.memory.backlog.add(BacklogItem.new(title="New work", objective="New work"))
         if blocker == "paused":
-            supervisor.memory.backlog.update(item.id, status="paused_operator", pending_question="Approve?")
+            supervisor.memory.backlog.update(item.id, park_reason="operator_pause", pending_question="Approve?")
     elif blocker == "nonterminal_stage":
         path = campaign.project / ".argus" / "PIPELINE_STATE.json"
         pipeline = json.loads(path.read_text())
@@ -969,7 +969,7 @@ def test_meaningful_state_change_invalidates_idle(campaign, monkeypatch, change)
         )
         if change == "paused_operator":
             campaign.supervisor.memory.backlog.update(
-                item.id, status="paused_operator", pending_question="Which direction?",
+                item.id, park_reason="operator_pause", pending_question="Which direction?",
             )
     else:
         (campaign.project / "result.txt").write_text("new increment\n")

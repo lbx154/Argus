@@ -2285,12 +2285,7 @@ class Backlog:
         self, item_id: str, *, _mission_delivery: dict[str, Any] | None = None,
         park_reason: str | None = None, **fields: Any,
     ) -> BacklogItem | None:
-        """Write ``fields`` onto one row; ``park_reason`` parks it for that reason.
-
-        An older release's park status names its own reason and parks the same way.
-        """
-        if park_reason is None and fields.get("status") not in {None, "parked"}:
-            park_reason = park_reason_of(fields["status"])
+        """Write ``fields`` onto one row; ``park_reason`` parks it for that reason."""
         if park_reason is not None:
             fields["status"] = "parked"
         if _mission_delivery is not None:
@@ -2556,7 +2551,6 @@ class Backlog:
                     "note": decision_note.strip() if decision_id else answer,
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
-                    "continuation_item_id": item.id,
                     "manager_decision": decision,
                     "reply": manager_reply.strip(),
                     "decided_by": decided_by,
@@ -2611,7 +2605,6 @@ class Backlog:
                     "note": note.strip(),
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
-                    "continuation_item_id": "",
                     "manager_decision": manager_decision,
                     "reply": reply,
                     "decided_by": decided_by,

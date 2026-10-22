@@ -220,11 +220,9 @@ def _run_map_turn(
             # Preserve the real call receipt even when execution or output validation fails.
             on_result(result)
     if result.exit_code or result.fatal_error:
-        reason = str(result.fatal_error or "").lower()
         code = (
             "map_timeout" if time.monotonic() >= deadline else
-            "cost_unreconciled" if result.stop_kind == "cost_unreconciled" or "unresolved provider cost" in reason else
-            "budget_exhausted" if result.stop_kind == "budget_exhausted" else
+            result.stop_kind if result.stop_kind in {"cost_unreconciled", "budget_exhausted"} else
             "provider_error"
         )
         raise MapGenerationError(code)

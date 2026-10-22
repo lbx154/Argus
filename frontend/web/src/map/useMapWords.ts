@@ -6,7 +6,6 @@ import type { Dataset } from "./model";
 export type CardWords = { title: string; summary: string };
 export type MapCardWords = { cards: Record<string, CardWords>; available: boolean; retry_after?: number };
 
-const SETTLED = new Set(["done", "failed", "cancelled", "recorded", "skipped", "aborted", "superseded"]);
 const EMPTY: Record<string, CardWords> = {};
 
 /** A short title and a sentence for every task's card.
@@ -25,16 +24,17 @@ export function useMapWords(
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
   const name = data.id.replace(/^live:/, "");
-  // Words are written against what a task has settled into, so a task
-  // finishing is a reason to ask again and a progress event is not.
+  // Words are written against where a task stands, so a change of status
+  // (it finished, or an answer set it going again) is a reason to ask again
+  // and a progress event is not.
   const signature = useMemo(
     () => JSON.stringify(data.tasks
       .filter((task) => task.kind !== "turn" && task.turn_kind !== "qa")
       .slice(-40)
-      .map((task) => [task.id, SETTLED.has(task.status || "")])),
+      .map((task) => [task.id, task.status])),
     [data.tasks],
   );
-  const tasks = useMemo(() => (JSON.parse(signature) as Array<[string, boolean]>).map(([id]) => id), [signature]);
+  const tasks = useMemo(() => (JSON.parse(signature) as Array<[string, string]>).map(([id]) => id), [signature]);
   const scope = ["map-card-words", source, name, locale, sessionId, signature];
   const saved = useQuery({
     queryKey: [...scope, "saved"],

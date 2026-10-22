@@ -9,7 +9,7 @@ const renderEvent = (event: Parameters<typeof renderLine>[0]) => renderLine(even
 
 describe("unknown cost recovery presentation", () => {
   it("distinguishes pending provider usage from an exhausted monetary cap", () => {
-    const waiting = renderEvent({ type: "budget.reservation.denied", reason: "unresolved provider cost: call=map" });
+    const waiting = renderEvent({ type: "budget.unpriced.blocked", call_id: "map", reason: "1 call awaiting usage" });
     expect(waiting?.text).toContain("awaits reconciliation");
     expect(waiting?.text).not.toContain("budget denied");
     const exhausted = renderEvent({ type: "budget.reservation.denied", reason: "global daily budget exhausted" });

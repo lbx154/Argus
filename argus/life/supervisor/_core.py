@@ -674,7 +674,7 @@ class LifeSupervisor(
                 # items via the file get picked up). Sleep is bounded
                 # by the stop_event so a Ctrl-C shuts us down quickly.
                 if self._wait_idle():
-                    self._emit_status("stop requested while idle")
+                    log.info("stop requested while idle")
                     stopped_by = "stop_requested"
                     break
                 # Re-check: if backlog still empty, exit cleanly so
@@ -698,7 +698,7 @@ class LifeSupervisor(
                     else self.memory.backlog.next_pending()
                 )
                 if next_item is None:
-                    self._emit_status("backlog empty; exiting")
+                    log.info("backlog empty; exiting")
                     stopped_by = "backlog_empty"
                     break
                 continue
@@ -1926,7 +1926,7 @@ class LifeSupervisor(
 
     def _tell_status(self, kind: str, **params: Any) -> None:
         """A status line the operator reads, unlike the developer log."""
-        self._emit({"type": "life.status", **self._operator_words(kind, **params)})
+        self._emit({"type": EventType.LIFE_OPERATOR_STATUS, **self._operator_words(kind, **params)})
 
     def _operator_chinese(self) -> bool:
         """Whether the operator writes Chinese, as their objective reads."""

@@ -951,8 +951,9 @@ class PlanningContextMixin:
             self._enter_idle_backoff()
         else:
             self._enter_pause_backoff()
-        self._emit(
-            {
+        # Said once when the Planner starts waiting, not on every pass that finds nothing new.
+        if self._should_journal_idle_repeat("direct_handoff" if direct_only else "inputs_unchanged"):
+            self._emit({
                 "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
                 "reason": (
@@ -963,12 +964,7 @@ class PlanningContextMixin:
                     "decision; keeping that decision without another model call"
                 ),
                 "model_call_skipped": True,
-            }
-        )
-        self._emit_status(
-            "planner inputs unchanged; keeping the previous decision "
-            "without a model call"
-        )
+            })
         return PLAN_AWAITING
 
     def _arm_unchanged_planner_skip(self, state: Any) -> None:

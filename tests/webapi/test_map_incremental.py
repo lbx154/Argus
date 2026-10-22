@@ -202,6 +202,16 @@ def test_unknown_cursor_and_replaced_log_return_a_full_projection(tmp_path):
     assert not feed.read(other, tmp_path, other_life, first["cursor"])["incremental"]
 
 
+def test_with_nothing_under_way_the_current_task_is_the_one_that_finished_last(tmp_path):
+    # Created first, it was answered and resumed, and finished after the later one.
+    resumed = {"id": "asked", "ts": 1, "status": "done", "finished_ts": 9}
+    later = {"id": "later", "ts": 2, "status": "done", "finished_ts": 5}
+    (tmp_path / "events.jsonl").write_text("")
+    info = map_history.history_info({"tasks": [resumed, later]}, tmp_path)
+    assert info["current_task_id"] == "asked"
+    assert map_history.history_info({"tasks": []}, tmp_path)["current_task_id"] is None
+
+
 def test_history_size_check_never_reads_events_or_generates_copy(tmp_path, monkeypatch):
     sid, life, _ = setup_session(tmp_path)
     with (life / "events.jsonl").open("ab") as stream:

@@ -16,9 +16,6 @@ describe('plainStatus', () => {
     expect(plainStatus('Review not performed', 'en')).toBe('No one reviewed this round.');
     expect(plainStatus('Goal framed', 'zh-CN')).toBe('已经理解这项请求，项目目标已经确定。');
     expect(plainStatus('Planning complete', 'zh-CN')).toBe('下一步的计划已经排好。');
-    expect(plainStatus('Mission ended', 'zh-CN')).toBe('任务已结束。');
-    expect(plainStatus('Mission ended · paused_daemon_shutdown', 'zh-CN')).toBe('任务已结束（Argus 被暂停）。');
-    expect(plainStatus('Mission ended · paused_daemon_shutdown', 'en')).toBe('The task ended — Argus was paused.');
     expect(plainStatus('idle', 'zh-CN')).toBe('空闲');
     expect(plainStatus('Round 9 started', 'zh-CN')).toBe('第 9 轮工作开始。');
     expect(plainStatus('Running round 3', 'en')).toBe('Round 3 is in progress.');
@@ -79,9 +76,10 @@ describe('plainStatus', () => {
     expect(plainRouteStatus('failed', 'zh-CN')).toBe('失败');
     expect(plainRouteStatus('pending', 'en')).toBe('Waiting');
     expect(plainRouteStatus('mystery', 'en')).toBe('mystery');
-    expect(plainStopKind('daemon_shutdown', 'en')).toBe('Argus was paused');
+    expect(plainStopKind('daemon_shutdown', 'en')).toBe('the Argus background service stopped or restarted');
+    expect(plainStopKind('paused_budget', 'zh-CN')).toBe('项目达到了预算上限');
     expect(plainStopSentence('backend_unavailable', 'zh-CN')).toBe('因为模型服务不可用，工作停了下来。');
-    expect(plainStopSentence('budget_exhausted', 'en')).toBe('The work stopped because the budget ran out.');
+    expect(plainStopSentence('budget_exhausted', 'en')).toBe('The work stopped because the project reached its budget limit.');
     expect(plainProgress(0, 0, 'zh-CN')).toBe('尚未规划');
     expect(plainProgress(1, 3, 'en')).toBe('1 of 3 done');
     expect(plainEventName('provider.request.started', 'zh-CN')).toBe('开始调用模型');
@@ -105,16 +103,10 @@ describe('plainStatus', () => {
       text: "The reviewer's model service did not respond 2 times in a row, so this round was not reviewed. The reviewer stopped before reaching a conclusion, so this round was not judged.",
       technical: 'Runner receipt: exit=1, fatal_error=Copilot CLI exited with code 1.',
     });
-    expect(plainDetail('The wait after a repeated backend failure ended early: daemon stop requested.', 'zh-CN').text)
-      .toBe('在等待重试时 Argus 被要求停止，任务随之暂停。');
     expect(plainDetail('review: skipped (backend failure) — Engineer backend failed before a trustworthy completed turn; reviewer skipped. backend_failure_streak=3/2; error=Copilot CLI exited with code 1.', 'en'))
       .toEqual({ text: 'The model service did not complete this round, so no one reviewed it.', technical: 'backend_failure_streak=3/2; error=Copilot CLI exited with code 1.' });
-    expect(plainDetail('status=paused_daemon_shutdown rounds=9 reason=The wait after a repeated backend failure ended early: daemon stop requested.', 'zh-CN').text)
-      .toBe('任务已结束（Argus 被暂停），共 9 轮。在等待重试时 Argus 被要求停止，任务随之暂停。');
     expect(plainDetail('backend failure; retrying in a fresh Codex session after 15.0s', 'en').text)
       .toBe('The model service call failed; retrying in a fresh session after 15.0 seconds.');
-    expect(plainDetail('未能完成：Build the portfolio。\n原因：The wait after a repeated backend failure ended early: daemon stop requested.\n下一步：Argus 会诊断原因并选择可恢复的方案。', 'zh-CN').text)
-      .toBe('未能完成：Build the portfolio。\n原因：在等待重试时 Argus 被要求停止，任务随之暂停。\n下一步：Argus 会诊断原因并选择可恢复的方案。');
     expect(plainDetail('The backend has failed the same way 9 times in a row (Copilot CLI exited with code 1.). Waiting 3600s before the next attempt so a standing failure stops costing money; if this is a configuration problem, fix it first.', 'zh-CN'))
       .toEqual({ text: '模型服务已连续 9 次以同样的方式失败；为了不让持续的故障白白花钱，3600 秒后再试。', technical: 'Copilot CLI exited with code 1.' });
   });

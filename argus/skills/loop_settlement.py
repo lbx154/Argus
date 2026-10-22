@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..core.event_catalog import EventType
 from ..core.models import LoopOutcome, LoopStatus
-from ..core.stop_kinds import stop_kind_is_recoverable
+from ..core.stop_kinds import run_park_reason, stop_kind_is_recoverable
 from .loop_state import MissionContext, SkillLibraryState
 
 _MANAGER_PARKS = {"manager_wait": "operator_question", "manager_stop": "research_open"}
@@ -27,13 +27,12 @@ class MissionSettlementMixin:
     ) -> LoopOutcome:
         stop_kind = rounds[-1].stop_kind if rounds else None
         # The Manager parks a run without a round of its own; any other park
-        # is its last round's stop, and a host that could not start is the
-        # infrastructure's.
+        # is its last round's stop.
         park_reason = _MANAGER_PARKS.get(status, "")
         if park_reason:
             status, stop_kind = "parked", None
         elif status == "parked":
-            park_reason = "infra" if stop_kind == "backend_unavailable" else str(stop_kind or "")
+            park_reason = run_park_reason(stop_kind)
         outcome = LoopOutcome(
             status=status,
             rounds=rounds,
@@ -45,10 +44,5 @@ class MissionSettlementMixin:
             recoverable=stop_kind_is_recoverable(stop_kind),
             park_reason=park_reason,
         )
-        self._emit(
-            {
-                "type": EventType.LOOP_DONE,
-                "text": f"status={status} rounds={len(rounds)} reason={reason[:80]}",
-            }
-        )
+        self._emit({"type": EventType.LOOP_DONE, "status": status, "rounds": len(rounds)})
         return outcome
