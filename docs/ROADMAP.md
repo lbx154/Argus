@@ -155,6 +155,10 @@ not guess on the model's behalf whether there is progress. The full design is in
   resume the Engineer starts over from round 1.
 - Do: in `engineer/round_settlement.py`, settle the passing verdict first, or resume from it.
 - Done when: in tests, "pass, then wait right away, then resume" does not redo work that already passed.
+- Status: done (`6fb6759a`). The Manager's wait action survived HO-15, and the bug reproduced on current `dev`: the
+  wait parked the task, on resume the Engineer ran round 1 again, and the pass, refused once the task was sent back,
+  went to the Planner. A pass now settles first; any other verdict still parks on the wait. Test:
+  `tests/test_pass_before_manager_wait.py`.
 
 #### HO-6 One answer to "can we ask the operator", and the Manager decides when we can't
 `0.2` · `M` · Depends on: none · in progress

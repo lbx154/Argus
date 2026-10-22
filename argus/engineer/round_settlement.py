@@ -151,7 +151,9 @@ class RoundSettlementMixin:
         terminal_status, reason = self._classify(review=review)
         from .round_manager_wait import manager_wait_terminal
 
-        paused = manager_wait_terminal(supervised_config, state)
+        # A pass settles before a Manager WAIT or STOP: parked, the resumed
+        # run would redo the work and the host would refuse the pass.
+        paused = None if terminal_status == "done" else manager_wait_terminal(supervised_config, state)
         if paused is not None:
             return control_return(paused)
         if terminal_status is not None:
