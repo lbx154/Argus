@@ -1741,6 +1741,9 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     assert continuation.manager_decision == {
         "display_objective": "Write the camera-ready paper", "routed": True,
     }
+    # The task's details read as the map does (s-43d4ae2f showed the brief).
+    detail = client.get(f"/api/projects/s-msgtest0/backlog/{blocked.id}").json()["item"]
+    assert detail["objective"] == "Write the camera-ready paper"
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
