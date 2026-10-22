@@ -564,8 +564,8 @@ def build_reflection_prompt(
         f"{_clip(host_round_log, 3_500) or '(no round log kept)'}\n\n"
         "### Run reality\n"
         f"{_clip(run_reality, 2_500) or '(no run summary kept)'}",
-        "## Lessons this vertical already has (do not repeat one; extend it only with "
-        "new evidence)\n"
+        f"## Lessons this vertical already has, in `{lesson_dir}` (do not repeat one; "
+        "extend it only with new evidence)\n"
         f"{known}",
         "## What you may write\n"
         "Look for useful knowledge, corrections and repeatable methods in every task. "

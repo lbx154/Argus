@@ -38,6 +38,8 @@ log = logging.getLogger(__name__)
 
 HISTORY_DIRNAME = ".history"
 HISTORY_HEADING = "## History"
+# A kept copy is named ``<stem>.<HISTORY_STAMP>[-<n>]<suffix>``, in UTC.
+HISTORY_STAMP = "%Y%m%dT%H%M%SZ"
 RETIRE_PREFIX = "RETIRE:"
 _FRONT_MATTER_CHARS = 8_000
 _TEXT_LIMIT = 4_000
@@ -223,12 +225,13 @@ def _update_index_line(library: Path, relative: str, line: str) -> bool:
     return True
 
 
-def _keep_history_copy(library: Path, relative: str, target: Path, stamp: datetime) -> Path:
-    """Copy the page as it is into ``.history``; a name already taken gets a counter, never overwritten."""
+def _keep_history_copy(library: Path, relative: str, target: Path, stamp: datetime,
+                       data: bytes | None = None) -> Path:
+    """Keep the page (or ``data`` in its place) in ``.history``; a taken name gets a counter."""
     folder = (library / HISTORY_DIRNAME / Path(relative).relative_to("pages")).parent
     folder.mkdir(parents=True, exist_ok=True)
-    base = f"{target.stem}.{stamp.strftime('%Y%m%dT%H%M%SZ')}"
-    data = target.read_bytes()
+    base = f"{target.stem}.{stamp.strftime(HISTORY_STAMP)}"
+    data = target.read_bytes() if data is None else data
     counter = 0
     while True:
         copy = folder / (f"{base}{target.suffix}" if not counter else f"{base}-{counter}{target.suffix}")
@@ -391,9 +394,9 @@ def retire_page(
     front = front or {}
     stamp = _utc(now)
     entry = f"- {stamp.date().isoformat()}, retired by {retired_by}: {_sentence(reason)}"
-    retired_body = "\n".join(_with_history(body.split("\n"), entry)) + "\n"
-    _atomic_write_text(target, text[: len(text) - len(body)] + retired_body)
-    kept = _keep_history_copy(library, relative, target, stamp)
+    head = text[: len(text) - len(body)]
+    retired = head + "\n".join(_with_history(body.split("\n"), entry)) + "\n"
+    kept = _keep_history_copy(library, relative, target, stamp, retired.encode("utf-8"))
     target.unlink()
     _update_index_line(library, relative, "")
     if global_root is not None:
@@ -460,6 +463,7 @@ def retire_named(
 __all__ = [
     "HISTORY_DIRNAME",
     "HISTORY_HEADING",
+    "HISTORY_STAMP",
     "RETIRE_PREFIX",
     "PageCorrection",
     "PageCorrectionError",

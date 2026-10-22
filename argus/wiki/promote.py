@@ -11,7 +11,8 @@ to (a small check under ``checks/``), and lists them in that Wiki's
 
 Everything here is plain filesystem work. A page that cannot be read or parsed
 is skipped, never raised; an older shared copy is only replaced when the
-project's page is newer.
+project's page is newer, and a shared copy retired after the project's page
+last changed stays retired.
 """
 from __future__ import annotations
 
@@ -19,12 +20,14 @@ import logging
 import os
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .auto_hooks import discover_wikis
+from .correct import HISTORY_DIRNAME, HISTORY_STAMP
 from .schema import parse_page
 
 log = logging.getLogger(__name__)
@@ -151,6 +154,16 @@ def _copy_if_newer(source: Path, destination: Path) -> bool:
     return True
 
 
+def _retired_since(source: Path, target_root: Path, relative: Path) -> bool:
+    """Whether the shared copy is gone and its library kept it after ``source`` last changed."""
+    if (target_root / "pages" / relative).exists():
+        return False
+    since = datetime.fromtimestamp(source.stat().st_mtime, tz=timezone.utc).strftime(HISTORY_STAMP)
+    kept = re.compile(rf"{re.escape(relative.stem)}\.(\d{{8}}T\d{{6}}Z)(-\d+)?\.md")
+    return any((match := kept.fullmatch(path.name)) is not None and match[1] > since
+               for path in (target_root / HISTORY_DIRNAME / relative.parent).glob("*.md"))
+
+
 def promote_wiki_pages(workspace: Path, *, vertical: str, shared_root: Path) -> dict[str, list[str]]:
     """Copy audience-tagged pages of every Wiki under ``workspace`` into ``shared_root``.
 
@@ -184,6 +197,8 @@ def promote_wiki_pages(workspace: Path, *, vertical: str, shared_root: Path) -> 
                 continue
             rel_posix = relative.as_posix()
             try:
+                if _retired_since(source, target_root, relative):
+                    continue
                 copied = _copy_if_newer(source, target_root / "pages" / relative)
                 # The checks a page links to travel with it, so its links hold
                 # in the shared copy.

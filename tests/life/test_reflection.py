@@ -326,6 +326,8 @@ def test_a_saved_page_the_mission_showed_outdated_is_retired_with_who_and_why(ro
     )
 
     prompt = backend.calls[0]["prompt"]
+    # Listed by file name under a heading that names their directory, so a full path can be written.
+    assert f"## Lessons this vertical already has, in `{lessons}`" in prompt
     assert "- Set PYTHONPATH under PYTHONSAFEPATH (`20260901-safe-path.md`)" in prompt
     assert "`RETIRE: <full path> — <why>`" in prompt
     assert "names it in its description" in prompt
