@@ -55,6 +55,22 @@ request words, source metadata and history. Weak positive embedding similarity
 alone does not make a page relevant. Existing derived indexes are refreshed
 automatically without changing the canonical Markdown.
 
+A page that no longer holds at all — later facts overturned it, or the problem
+it describes has been fixed — is retired. Each recalled page shows when it was
+written and where it came from, and a page that holds only for one version or
+environment names it in its description, so a role can tell what the page was
+true for and rerun a check it carries. A role that finds current facts
+contradicting a page says so with its path. The mission reflection, which reads
+that account, and the shared-principles pass, which sees a vertical's lessons
+side by side, name such a page on a `RETIRE: <page> — <why>` line; the judgment
+is the model's, and nothing expires by age or usage count. The host retires only
+a page of a library recall reads for that project: it moves the whole page into
+the library's `.history`, ending with a `- <date>, retired by <who>: <why>`
+History entry, drops its INDEX line and writes a `retired` record to the
+knowledge journal, so recall, browsing, promotion and the principles stop
+reading it and the feed shows who retired it and why. Skills are not retired
+this way.
+
 `answer-learning.sqlite3` in the operator home records each mission's
 reflection pass. A write lock serializes reflection against shared knowledge and
 profiles. Status responses contain only state and saved-entry metadata.
