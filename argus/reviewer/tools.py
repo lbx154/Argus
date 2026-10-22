@@ -191,6 +191,9 @@ class ReviewActions:
             operator_available=operator_questions_can_be_asked()
         )
         self.decision: ReviewDecision | None = None
+        # Why the last submit_review call was refused, kept so a turn that
+        # ends with no verdict can be told what to correct.
+        self.refusal = ""
         self.tools = self._tools()
 
     def _tools(self) -> list[dict[str, Any]]:
@@ -317,6 +320,13 @@ class ReviewActions:
             return {"tools": self.tools}
         if action != ACTION:
             raise ValueError(f"Unknown review action: {action}")
+        try:
+            return self._submit(payload)
+        except ValueError as exc:
+            self.refusal = str(exc)
+            raise
+
+    def _submit(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self.decision is not None and self.decision.status == "done":
             # A new verdict replaces an acceptance. If this one is refused, the
             # turn must not settle on the acceptance it was correcting; any other
@@ -394,6 +404,7 @@ class ReviewActions:
         # A native action belongs to this call. Prose, tool output printed in a
         # message, and saved project files cannot manufacture this assignment.
         self.decision = decision
+        self.refusal = ""
         return {"recorded": holder}
 
     def _check_grounding(self, payload: dict[str, Any]) -> None:
@@ -468,6 +479,23 @@ class ReviewActions:
                 "return the work to the Engineer."
             )
         return f"{card.get('id') or 'decision'}: the operator chose \"{ACCEPT_OPTION_LABEL}\""
+
+
+def unsubmitted_review_note(refusal: str = "") -> str:
+    """What a Reviewer is told when its last turn on this round submitted no verdict."""
+    refused = (
+        f"Your last {ACTION} call was refused: {' '.join(refusal.split())} Correct that and "
+        "call it again. "
+        if refusal.strip() else ""
+    )
+    return (
+        "## You did not submit a verdict\n"
+        "Your previous turn on this round ended without a submitted review, so it "
+        "judged nothing: a reply in chat, or a handoff line written there, is never "
+        f"read as a verdict. {refused}Submit your judgment now with the {ACTION} "
+        f"action (from the {SERVER} tools), the whole review in its `review` "
+        f"argument. {HANDOFF_LINE}"
+    )
 
 
 def _residual_risk_record(risk: dict[str, Any], acceptance: str) -> tuple[str, dict[str, Any]]:
