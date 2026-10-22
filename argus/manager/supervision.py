@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import CancelledError
+from functools import partial
 from inspect import signature
 from pathlib import Path
 from typing import Any, Callable
@@ -558,10 +559,9 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     A task still settling is delivered to at the next boundary; the question
     the card already holds is not asked twice.
     """
-    from ..core.operator_decision import build_operator_decision
     from ..life.event_log import JsonlEventSink
     from ..life.memory import Backlog
-    from ..life.supervisor.pending_notify import notify_pending_question
+    from ..life.supervisor.pending_notify import ask_operator
 
     item_id = str(record.get("trigger", {}).get("item_id") or "")
     backlog = Backlog(root / "backlog.jsonl")
@@ -571,18 +571,10 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     if task.status == "running":
         raise SupervisionBusy("the task the question is about is still settling")
     if task.pending_question != question:
-        card = build_operator_decision(
-            item_id=task.id, title=task.title, reason=record["decision"]["reason"],
-            question=question, project_id=root.name, previous_decision=task.operator_decision,
+        ask_operator(
+            root, task, question, reason=record["decision"]["reason"], layer="manager",
+            save=partial(backlog.update, task.id), emit=JsonlEventSink(None, life_dir=root).append,
         )
-        task = backlog.update(
-            task.id, park_reason="operator_question", pending_question=question, operator_decision=card,
-        ) or task
-        notify_pending_question(root, task)
-        JsonlEventSink(None, life_dir=root).append({
-            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": task.id,
-            "title": task.title, "question": question, "agent_layer": "manager",
-        })
     return task.id
 
 

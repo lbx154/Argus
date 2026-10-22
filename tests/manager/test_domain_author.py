@@ -648,7 +648,8 @@ def test_grounded_vertical_prompt_preserves_manager_agency_and_planner_boundary(
     assert "no task work or Live View" in prompt
     assert "presentations" not in prompt
     assert 'omit it for a standalone existing route' in prompt
-    assert "Include `execution_task` only to make the instructions standalone" in prompt
+    # A Task with conversation context needs the handoff on the first try.
+    assert "or when the Task carries conversation context" in prompt
 
 
 def test_read_only_repository_audit_avoids_maintenance_meta_review() -> None:

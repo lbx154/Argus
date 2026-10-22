@@ -20,7 +20,7 @@ export function managerIntentSummary(event: EventMsg, locale: 'en' | 'zh-CN'): s
       : (zh ? '分几个阶段做。' : 'Working on this in stages.');
   } else if (mode === 'direct') {
     plan = route === 'team'
-      ? (zh ? '交给团队直接做。' : 'Handing this to the team to do directly.')
+      ? (zh ? '交给团队来做。' : 'The team will take this on.')
       : (zh ? '直接做。' : 'Doing this directly.');
   } else {
     plan = zh ? '处理方式定好了。' : 'The approach is set.';
@@ -34,7 +34,7 @@ export function managerIntentSummary(event: EventMsg, locale: 'en' | 'zh-CN'): s
     scope = zh ? '先做一部分，做完再看下一步。' : 'One piece first, then I decide what comes next.';
   } else if (event.lifetime === 'bounded') {
     scope = event.continuous === true && event.open_ended === false
-      ? (zh ? '做完这次的目标就结束。' : 'Done once this goal is met.')
+      ? (zh ? '这件事做完就收尾。' : 'This wraps up once it is done.')
       : (zh ? '只做这次的目标。' : 'Only this goal is in scope.');
   }
 

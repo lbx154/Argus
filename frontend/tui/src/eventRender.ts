@@ -221,7 +221,8 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   }
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
-    const summary = trunc(S(ev, 'summary'), 240);
+    // A finished task says so once: what the review found is on its own row.
+    const summary = presentation.tone === 'ok' ? '' : trunc(S(ev, 'summary'), 240);
     return {
       role: 'engineer',
       label: 'Engineer',

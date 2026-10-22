@@ -92,3 +92,14 @@ def test_existing_handoff_carries_an_agent_title_without_an_extra_call(fast, str
     assert decision is not None
     assert decision.session_title == "Refund calculation"
     assert decision.vertical == "software"
+
+
+@pytest.mark.parametrize("placeholder", ["none", "KEEP", "42"])
+def test_a_placeholder_topic_titles_nothing(placeholder):
+    """The Manager's session_title names the session and the task; a
+    placeholder in its place is no title for either."""
+    fields = dict(choice="existing", vertical="software", workflow_mode="direct", confidence=0.9,
+                  rationale="A small change", session_title=placeholder, execution_task="Fix the formula")
+    raw = "\n".join(f"{key.upper()}={value}" for key, value in fields.items())
+    decision = parse_vertical_decision(raw, known_verticals=("software",))
+    assert decision is not None and decision.session_title == ""

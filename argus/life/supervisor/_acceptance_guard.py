@@ -16,8 +16,8 @@ from ...core.acceptance_dependencies import (
     parse_assessment,
     validate_assessment,
 )
+from ...core.mission_view import uses_cjk
 from ...core.models import RunnerOptions
-from ...core.operator_messages import uses_cjk
 from ...core.run_gateway import run_exec
 from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
 
@@ -67,7 +67,7 @@ def acceptance_guard_outcome(supervisor: Any, state: Any) -> Any | None:
     if not needs_dependency_assessment(contract):
         return None
     fingerprint = contract_fingerprint(contract)
-    chinese = uses_cjk(str(contract.get("original_objective") or contract.get("objective") or ""))
+    chinese = uses_cjk(contract.get("original_objective") or contract.get("objective"))
     unavailable = (
         "任务开始前的内部检查暂时无法运行，已有工作已保留。"
         if chinese else "The internal check before starting work is temporarily unavailable; existing work is preserved."

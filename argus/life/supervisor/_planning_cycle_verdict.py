@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say
 from ...core.runner_errors import is_execution_host_startup_error
 from ._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
 from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
@@ -93,15 +95,9 @@ class PlanningCycleVerdictMixin:
                 f"so autonomous retry/backoff remains active: {reason[:240]}"
             )
             return PLAN_ERROR
-        question = (
-            "接下来往哪个方向做，我拿不准"
-            + (f"：{reason[:900]}" if reason else "。")
-            + "\n你可以指定方向、补上缺的决定或资源，或者让我先停下。"
-            if self._operator_chinese()
-            else "I'm not sure which direction to take next"
-            + (f": {reason[:900]}" if reason else ".")
-            + "\nYou can name a direction, supply the missing decision or "
-            "resource, or tell me to stop."
+        question = say(
+            "ask_direction_because" if reason else "ask_direction",
+            self._operator_chinese(), why=reason[:900],
         )
         self._enter_pause_backoff()
         if not self._park_planner_question(state, question, reason):
@@ -161,33 +157,12 @@ class PlanningCycleVerdictMixin:
                     iterate=False,
                 )
             )
-        try:
-            from ...core.operator_decision import build_operator_decision
+        from .pending_notify import ask_operator
 
-            card = build_operator_decision(
-                item_id=item.id,
-                title=item.title,
-                reason=reason or question,
-                question=question,
-                project_id=self.memory.root.name,
-                previous_decision=item.operator_decision,
-            )
-        except Exception:  # noqa: BLE001 - the plain question is sufficient
-            card = {}
-        self.memory.backlog.update(
-            item.id,
-            park_reason="operator_question",
-            pending_question=question,
-            operator_decision=card,
-            last_error=reason,
+        ask_operator(
+            self.memory.root, item, question, reason=reason or question, layer="planner",
+            save=partial(self.memory.backlog.update, item.id, last_error=reason), emit=self._emit,
         )
-        self._emit({
-            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-            "item_id": item.id,
-            "title": item.title,
-            "question": question,
-            "agent_layer": "planner",
-        })
         return True
 
     def _pc_invoke_planner(self, state: _PlanCycleState) -> Any | None:

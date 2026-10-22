@@ -24,7 +24,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '🎉',
-      text: 'The task was completed. · Created RESULT.txt and verified its contents.',
+      text: 'The task was completed.',
       tone: 'ok',
       rule: true,
     },
@@ -210,7 +210,7 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     'life.manager.intent.failed': { text: "couldn't work out how to handle this request (the model service did not answer), so nothing was started" },
     // The shared renderer explains the selected plan and its recorded rationale.
     'life.manager.intent.completed': {
-      text: 'Handing this to the team, in stages.\nDone once this goal is met. the current operation needs attention',
+      text: 'Handing this to the team, in stages.\nThis wraps up once it is done. the current operation needs attention',
     },
     // The goal is the operator's own words; the shared renderer does not say it back.
     'life.planner.start': { text: 'working out the next step' },

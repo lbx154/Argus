@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.event_catalog import EventType
+from ..core.mission_view import uses_cjk
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
-from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
     normalize_stop_kind,

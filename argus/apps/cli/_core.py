@@ -2018,18 +2018,9 @@ def _cmd_lifecycle_transition(
         sys.stderr.write(f"argus: cannot persist transition: {exc}\n")
         return 1
 
-    resumed_items = []
-    if action == "resume":
-        from ...life.memory import LifeMemory
-        from ...life.runtime_failure_circuit import (
-            PROVIDER_OUTAGE,
-            clear_runtime_failure_circuit,
-        )
+    from ...life.runtime_failure_circuit import operator_resume
 
-        clear_runtime_failure_circuit(
-            lifecycle_root, reason="operator resume", fingerprint=PROVIDER_OUTAGE,
-        )
-        resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_parked()
+    resumed_items = operator_resume(lifecycle_root) if action == "resume" else []
 
     print(
         f"argus: lifecycle transition "

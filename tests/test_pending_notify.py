@@ -10,13 +10,13 @@ sending it can disturb the mission that just paused.
 """
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from argus.life.supervisor.pending_notify import (
+    ask_operator,
     notify_pending_question,
     pending_question_message,
     should_report_pending_wait,
@@ -230,13 +230,19 @@ def test_an_unwritable_ledger_still_sends(tmp_path: Path, channel, monkeypatch) 
 
 # -- the wiring -------------------------------------------------------------
 
-def test_the_settlement_path_notifies_when_it_parks_a_mission() -> None:
-    from argus.life.supervisor import _mission_execution_settlement as mod
+def test_asking_the_operator_announces_only_a_recorded_question(project, monkeypatch) -> None:
+    order: list[str] = []
+    monkeypatch.setattr(
+        "argus.life.supervisor.pending_notify._send_telegram",
+        lambda _message: order.append("operator told") or True,
+    )
+    monkeypatch.setattr("argus.life.supervisor.pending_notify._send_feishu", lambda _message: False)
+    ask_operator(
+        project, _item(pending_question=""), "which dataset?", reason="two disagree", layer="planner",
+        save=lambda **fields: order.append(f"saved {fields['pending_question']}"),
+        emit=lambda event: order.append(f"{event['agent_layer']} asked"),
+    )
 
-    source = inspect.getsource(mod)
-    park_at = source.index("pending_question=operator_question")
-    notify_at = source.index("notify_pending_question(")
-
-    # Must fire after the question reaches the backlog, or a crash between the
-    # two would announce a decision that was never recorded.
-    assert park_at < notify_at
+    # The question reaches the backlog before anyone hears of it, or a crash
+    # between the two would announce a decision that was never recorded.
+    assert order == ["saved which dataset?", "operator told", "planner asked"]

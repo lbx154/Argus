@@ -14,14 +14,14 @@ these sentences. Rows that need them carry a separate ``technical`` field.
 from __future__ import annotations
 
 import re
+from string import Formatter
 from typing import Any, Mapping
 
 _CJK_RE = re.compile(r"[㐀-鿿]")
 # A Latin word or number set into a Chinese sentence reads best with a thin
-# gap on each side ("因为 Argus 被停止"); parameters are inserted raw, so the
-# gap is added afterwards wherever the two scripts touch.
-_CJK_THEN_LATIN_RE = re.compile(r"(?<=[㐀-鿿])(?=[A-Za-z0-9])")
-_LATIN_THEN_CJK_RE = re.compile(r"(?<=[A-Za-z0-9])(?=[㐀-鿿])")
+# gap on each side ("因为 Argus 被停止"); the gap goes only where a parameter
+# meets the sentence, so a parameter (a path, a quoted answer) stays as given.
+_SCRIPTS_MEET_RE = re.compile(r"[㐀-鿿][A-Za-z0-9]|[A-Za-z0-9][㐀-鿿]")
 
 # (English, Chinese) for every code. Placeholders are filled by ``say``.
 _SENTENCES: dict[str, tuple[str, str]] = {
@@ -75,6 +75,7 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "A new research route was added to the plan.",
         "计划中加入了一条新的研究路线。",
     ),
+    "requested_work_done": ("All the requested work is done.", "要求的工作已经全部完成。"),
     "planning_complete": (
         "The plan for the next step is ready.",
         "下一步的计划已经排好。",
@@ -415,6 +416,304 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "failures; the task can resume from its saved progress.",
         "Argus 在等待重试（此前模型服务多次失败）时被停止；任务可以从保存的进度继续。",
     ),
+    # Questions Argus itself puts to the operator.
+    "ask_direction": (
+        "I'm not sure which direction to take next.\nYou can name a direction, "
+        "supply the missing decision or resource, or tell me to stop.",
+        "接下来往哪个方向做，我拿不准。\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
+    ),
+    "ask_direction_because": (
+        "I'm not sure which direction to take next: {why}\nYou can name a direction, "
+        "supply the missing decision or resource, or tell me to stop.",
+        "接下来往哪个方向做，我拿不准：{why}\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
+    ),
+    "ask_adopt_reviewed_change": (
+        "The Reviewer read the change for “{title}” and it holds. "
+        "Publish this reviewed version and use it at the next task boundary?",
+        "审阅者看过“{title}”的改动，结论成立。要发布这个审阅过的版本，并在下一项任务开始时换上吗？",
+    ),
+    "ask_fix_model_configuration": (
+        "The model configuration for this task has failed the same way {streak} "
+        "times in a row: {reason} I have stopped retrying this configuration so the "
+        "failures stop costing money. Fix the model name or provider access, then "
+        "reply here to resume this task — or tell me to drop it.",
+        "这项任务用的模型配置已经连续 {streak} 次以同样的方式失败：{reason} 为了不再白花钱，"
+        "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
+        "也可以让我放下它。",
+    ),
+    # A task's update in the operator's conversation.
+    "this_task": ("the current task", "这项任务"),
+    "update_done": ("Done: {subject}.", "完成了：{subject}。"),
+    "update_canceled": ("Canceled: {subject}.", "已取消：{subject}。"),
+    "update_continuing": ("Still working on {subject}.", "还在继续：{subject}。"),
+    "update_stuck": ("Stuck for now: {subject}.", "「{subject}」暂时做不下去了。"),
+    "update_new_approach": ("Needs a different approach: {subject}.", "「{subject}」需要换个做法。"),
+    "update_not_finished": ("Couldn't finish: {subject}.", "没能完成：{subject}。"),
+    "update_provider_fenced": (
+        "The model provider is restricting calls, so {subject} is paused.",
+        "模型服务限制了调用，「{subject}」先停下了。",
+    ),
+    "update_run_to_continue": (
+        "Once it is resolved, click Run to continue; nothing retries on its own until then.",
+        "问题解决后点“运行”就能继续；在那之前不会自动重试。",
+    ),
+    "update_reason": ("Reason: {why}", "原因：{why}"),
+    "update_next": ("Next: {action}", "接下来：{action}"),
+    "update_advice": ("Next: {action}", "建议：{action}"),
+    "update_your_call": ("Your call: {action}", "需要你定：{action}"),
+    "update_needs_decision": (
+        "I need your decision before this can continue.",
+        "需要你定一下才能继续。",
+    ),
+    "update_will_investigate": (
+        "Next: I'll find out what went wrong and pick a way forward.",
+        "接下来：我先查清原因，再找个能走通的办法。",
+    ),
+    # What was decided while the operator could not be asked.
+    "assumed_head": (
+        "Decided without asking you (please look these over):",
+        "这些是没问你就定下的，请过目：",
+    ),
+    "assumed_by_manager": ("the Manager decided for you", "经理替你定了"),
+    "assumed_by_me": ("I went with", "我按这个理解做的"),
+    "assumed_choice": ("{conflict} → {verb}: {reading}", "{conflict} → {verb}：{reading}"),
+    "assumed_reading": ("{verb}: {reading}", "{verb}：{reading}"),
+    "assumed_conflict": (
+        "{conflict} (the reading chosen is in CHECKPOINT.md)",
+        "{conflict}（选定的理解记在 CHECKPOINT.md）",
+    ),
+    # A finished task, told in the operator's conversation.
+    "final_submission_ready": (
+        "The final submission passed independent review and is ready.",
+        "最终稿通过了独立审核，可以交付了。",
+    ),
+    "all_done": ("Done.", "做完了。"),
+    "all_done_reviewed": (
+        "Done, and an independent reviewer found nothing that needs fixing.",
+        "做完了，独立审阅也没发现要改的地方。",
+    ),
+    "item_done": (
+        "This item is done; the rest of the plan is still under way.",
+        "这一项做完了；计划里的其他工作还在进行。",
+    ),
+    "item_done_reviewed": (
+        "This item is done, and an independent reviewer found nothing that needs "
+        "fixing; the rest of the plan is still under way.",
+        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。",
+    ),
+    "step_done": ("One step done: {title}.", "做完一步：{title}。"),
+    "task_ended": ("This task has ended: {title}.", "这项任务结束了：{title}。"),
+    "review_continue": ("The review asked for more work.", "审阅认为还要再完善。"),
+    "review_blocked": ("The review found a blocking problem.", "审阅发现了卡住的问题。"),
+    "review_stale": (
+        "The manuscript changed after the review, so the review is out of date.",
+        "审阅之后稿件又改过，审阅结论已经过时。",
+    ),
+    "review_other": ("Review: {review}.", "审阅结果：{review}。"),
+    "result_in": ("The result is in {path}.", "结果在 {path}。"),
+    "interim_result_in": (
+        "Interim results are in {path} (the overall goal is not done yet).",
+        "阶段成果在 {path}（整体目标还没完成）。",
+    ),
+    "no_file_produced": ("This run produced no file you can open.", "这次没有产出可以打开的文件。"),
+    "needs_your_call": ("{title} needs your call: {question}", "「{title}」需要你定一下：{question}"),
+    "will_continue": ("I'll pick up the remaining work automatically.", "我会自动接着做剩下的部分。"),
+    "nothing_queued": (
+        "Nothing is queued yet; the next step is being considered.",
+        "计划里暂时没有下一项，正在考虑接下来做什么。",
+    ),
+    "next_item": ("the next item", "下一项"),
+    "next_up": ("Next up: {title}.", "接下来做：{title}。"),
+    "next_up_and_one": ("Next up: {title}, with one more queued after it.", "接下来做：{title}，之后还有 1 项。"),
+    "next_up_and_more": (
+        "Next up: {title}, with {more} more queued after it.",
+        "接下来做：{title}，之后还有 {more} 项。",
+    ),
+    "done_so_far": ("({done} done so far)", "（目前已完成 {done} 项）"),
+    "project_done": ("The project is done.", "项目完成了。"),
+    "increment_done": (
+        "This piece is done; the longer-term goal continues.",
+        "这一部分做完了，长期目标还在继续。",
+    ),
+    "results_in": ("The results are in {paths}.", "结果在 {paths}。"),
+    "summary_unchecked": (
+        "(The model service was unavailable while this summary was written, "
+        "so the final files were not checked one by one.)",
+        "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）",
+    ),
+    # Notices Argus posts to the operator's conversation on its own.
+    "planner_retries_stopped_internal": (
+        "Planning kept hitting an internal error in Argus for {hours} hours, so I "
+        "stopped retrying. Send me a message to try again, and please report it "
+        "along with the run log.",
+        "规划时 Argus 自己连着出错{hours}个小时，我先不再自动重试。"
+        "给我发条消息就会再试；也请把运行日志一起反馈给我们。",
+    ),
+    "planner_retries_stopped_service": (
+        "The Planner's model service kept failing for {hours} hours, so I stopped "
+        "retrying. Send me a message, or switch the Planner's model in Settings, "
+        "to try again.",
+        "规划者用的模型服务连着{hours}个小时都失败，我先不再自动重试。"
+        "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。",
+    ),
+    "wrap_up_paused": (
+        "I've tried to wrap this project up {count} times in a row, and each time it "
+        "was turned back for the same reason: {reason}\nI'm pausing those attempts so "
+        "they stop costing money. I'll try again when the work changes or you reply "
+        "here; if the requirement itself is wrong, tell me and I'll take a different path.",
+        "我已经连续 {count} 次想收尾，每次都因为同一个原因被退回：{reason}\n"
+        "为了不再白花钱，我先不试了。等任务有变化或你回复后再试；"
+        "如果这个要求本身不对，直接告诉我，我换个做法。",
+    ),
+    "background_calls_paused": (
+        "The background made {calls} model calls in a row without any progress: no "
+        "new task, no finished work, and no message from you. I've stopped those "
+        "background calls so they stop costing money; running tasks are not affected. "
+        "They resume as soon as something changes or you reply here.",
+        "后台连着调用了 {calls} 次模型，一直没有进展：没有新任务、没有做完的工作，"
+        "你也没发新消息。为了不再白花钱，我先停了这些后台调用，正在做的任务不受影响。"
+        "一有新进展，或者你在这里回一句，就会恢复。",
+    ),
+    "manager_model_mismatch": (
+        "The model the Manager uses ({model}) failed several times in a row to work "
+        "out how to handle requests, so nothing was started. Pick another model for "
+        "the Manager in Settings → Advanced settings, restart, and try again.",
+        "现在给经理用的模型（{model}）连续几次都没弄懂该怎么处理请求，所以这次没有开始任何工作。"
+        "请在“设置 → 高级设置”里给经理换一个模型，重启后再试。",
+    ),
+    "proxy_undecided": (
+        "I couldn't decide “{title}” for you, so it waits for your answer.",
+        "“{title}”我没法替你决定，等你回来再定。",
+    ),
+    # Replies in the conversation with the operator.
+    "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
+    "understanding_request": ("Understanding your request…", "正在理解你的请求…"),
+    "steer_unclear": (
+        "It sounds like you want to change direction, but I couldn't tell how, "
+        "so nothing has changed yet. Could you say a bit more?",
+        "听起来你想调整当前任务的方向，但我没听出具体要怎么改，所以先没动。能再说具体一点吗？",
+    ),
+    "steer_taken": ("Got it, carrying on in that direction.", "好，接下来按你说的方向做。"),
+    "steer_taken_ongoing": (
+        "Got it, carrying on in that direction. This is now ongoing work; "
+        "after this round I'll plan the next piece.",
+        "好，接下来按你说的方向做。这件事改成长期做下去，这一轮做完会接着安排下一项。",
+    ),
+    "steer_taken_not_ongoing": (
+        "Got it, carrying on in that direction. The direction is noted, but I "
+        "couldn't make this ongoing work; the current setup stays as it is.",
+        "好，接下来按你说的方向做。方向记下了，但没能改成长期任务，原来的安排不变。",
+    ),
+    "paused": (
+        "Paused. Everything so far is saved; I'll pick it up when you say continue.",
+        "已暂停。做到的部分都保存了，你说继续我再接着做。",
+    ),
+    "paused_stopping": (
+        "Paused; stopping what was running. Everything so far is saved; "
+        "I'll pick it up when you say continue.",
+        "已暂停，正在停下手上的事。做到的部分都保存了，你说继续我再接着做。",
+    ),
+    "gathering_options": ("Putting together options for this task…", "正在结合你的任务整理几个选项…"),
+    "options_failed": (
+        "I couldn't put the options together just now. Your task and answer are "
+        "kept; please try again in a moment.",
+        "这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。",
+    ),
+    "retry_no_action": ("Nothing was actually done yet; trying once more…", "还没真正动手，再试一次…"),
+    "retry_resumed": (
+        "The model stopped responding; picking the conversation up again…",
+        "模型这次没有回应，接着刚才的对话再试一次…",
+    ),
+    "retry_stalled": ("The model stopped responding; trying once more…", "模型这次没有回应，再试一次…"),
+    "retry_dropped": (
+        "The connection to the model service dropped; trying once more…",
+        "连接模型服务时断了，再试一次…",
+    ),
+    "reply_empty": (
+        "No reply came back for this request. No new task was added, and the "
+        "current task was not changed.",
+        "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。",
+    ),
+    "reply_cut_off": ("The model didn't finish its answer.", "模型这次没把话说完。"),
+    "reply_stopped_midway": (
+        "This stopped before it finished: {said}\n\nThe progress messages above "
+        "don't mean it's done, and some files may be half-written. No new task was added.",
+        "这次没做完就停下了：{said}\n\n"
+        "上面的进度消息不代表已经做完，可能留下了做到一半的文件；没有新增任务。",
+    ),
+    "reply_stopped_before_reply": (
+        "This stopped before I could reply: {said}\n\n"
+        "No new task was added, and the current work is unchanged.",
+        "这次还没回复就停下了：{said}\n\n没有新增任务，正在做的事也没变。",
+    ),
+    "reply_incomplete": ("No completed reply was received.", "没有收到完整回复。"),
+    "reply_failed": (
+        "This request did not finish. No new task was added.\n\nReason: {said}",
+        "这次没能处理完你的请求，没有新增任务。\n\n原因：{said}",
+    ),
+    # The first reply to a task the operator hands over.
+    "ack_plan_awaits_start": (
+        "The plan is ready, but nothing has started. Check what I understood and "
+        "the plan in the card above; work starts when you press Start.",
+        "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。",
+    ),
+    "ack_needs_your_call": ("Before I start, I need your call:\n{question}", "开始之前需要你定一下：\n{question}"),
+    "ack_waits_for_slot": (
+        "Got it. Everything that can run at once is busy; this starts as soon "
+        "as a slot frees up, no need to resend.",
+        "记下了。现在同时在做的事已经满了，空出来就开始，不用重发。",
+    ),
+    "ack_checking_start": (
+        "Got it. Checking whether it can start; I'll let you know.",
+        "记下了，正在确认能不能开始，稍后告诉你。",
+    ),
+    "ack_start_failed": (
+        "Saved, but the work couldn't start. Your request is kept; see the "
+        "startup details for why, or try again later.",
+        "记下了，但没能开始工作。你的要求已经保存，可以点“启动详情”看原因，或者稍后再试。",
+    ),
+    "ack_already_asked": (
+        "You already asked for this ({state}); I didn't add it again.",
+        "这件事之前已经交代过了（{state}），没有再加一遍。",
+    ),
+    "asked_pending": ("not started yet", "还没开始"),
+    "asked_running": ("in progress", "正在做"),
+    "asked_done": ("done", "已经做完"),
+    "asked_parked": ("paused", "暂停着"),
+    "asked_failed": ("it didn't succeed last time", "上次没做成"),
+    "asked_saved": ("saved", "已经记下"),
+    "ack_after_current": ("Got it. This starts once the current work is done.", "收到，等手头这项做完就开始。"),
+    "ack_picked_up": ("Got it, it's been picked up.", "收到，已经接手了。"),
+    "ack_goal_updated": ("Goal updated; working out the next step.", "目标已更新，正在安排下一步。"),
+    "ack_starting": ("Got it, starting now.", "收到，马上开始。"),
+    "ack_not_recorded": (
+        "The task is saved; only this confirmation couldn't be recorded.",
+        "任务已经记下了，只是这条确认没能保存。",
+    ),
+    # Replies to the operator's answer to a question.
+    "answer_taken": ("Got it, carrying on with your choice.", "收到，按你定的继续做。"),
+    "answer_already_taken": ("I already have this decision.", "这个决定之前已经收到了。"),
+    "answer_not_applied": (
+        "That answer couldn't be applied: the question may already be answered or gone.",
+        "这个回答没能用上：问题可能已经答过，或者已经不在了。",
+    ),
+    "answered_for_operator": (
+        "You weren't available, so the Manager decided for you: {choice}",
+        "这个问题你暂时没空回答，经理替你定了：{choice}",
+    ),
+    "answer_stopped": ("Stopped. The work done so far is kept.", "已停下，做到的部分都保留着。"),
+    "answer_dropped": (
+        "Dropped this task; the rest of the work carries on.",
+        "已放下这项任务，其余工作照常。",
+    ),
+    "answer_dropped_while_stopped": (
+        "Dropped this task. Everything else stays stopped until you resume it.",
+        "已放下这项任务。在你恢复之前，其余工作先停着。",
+    ),
+    "campaign_stays_stopped": (
+        "Everything else stays stopped until you resume it.",
+        "在你恢复之前，其余工作先停着。",
+    ),
     # Judgments on a round.
     "self_check_accepted": (
         "The Engineer's own check of the result was accepted.",
@@ -514,23 +813,26 @@ _STAGE_NAMES_ZH = {
 def say(kind: str, chinese: bool, **params: Any) -> str:
     """Return the sentence for *kind* in the requested language."""
     english, zh = _SENTENCES[kind]
-    sentence = zh if chinese else english
     if not params:
-        return sentence
-    filled = sentence.format(**params)
-    if chinese:
-        filled = _LATIN_THEN_CJK_RE.sub(" ", _CJK_THEN_LATIN_RE.sub(" ", filled))
+        return zh if chinese else english
+    if not chinese:
+        return english.format(**params)
+    filled = ""
+    for literal, field, spec, _conversion in Formatter().parse(zh):
+        for piece in (literal, "" if field is None else format(params[field], spec or "")):
+            gap = " " if _SCRIPTS_MEET_RE.fullmatch(filled[-1:] + piece[:1]) else ""
+            filled += gap + piece
     return filled
 
 
-def uses_cjk(text: str) -> bool:
-    """Whether *text* is written in a CJK script.
+def sentences(chinese: bool, *parts: str) -> str:
+    """Whole sentences run together as the language writes them: a space apart in English."""
+    return ("" if chinese else " ").join(part for part in parts if part)
 
-    The same test ``argus.core.operator_messages.uses_cjk`` applies to
-    chat replies; it is repeated here so the read model does not import the
-    chat transport.
-    """
-    return bool(_CJK_RE.search(str(text or "")))
+
+def uses_cjk(*texts: Any) -> bool:
+    """Whether any of *texts* is written in a CJK script: the operator writes Chinese."""
+    return any(_CJK_RE.search(str(text or "")) for text in texts)
 
 
 def remember_language(view: dict[str, Any], text: str) -> None:
@@ -579,6 +881,7 @@ def stage_label(stage_id: str, chinese: bool) -> str:
 __all__ = [
     "remember_language",
     "say",
+    "sentences",
     "session_is_chinese",
     "stage_label",
     "stage_name",

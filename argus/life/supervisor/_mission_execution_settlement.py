@@ -13,10 +13,12 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ...core.event_catalog import EventType
+from ...core.mission_view import say
 from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
@@ -34,7 +36,7 @@ from ._constants import (
     PLANNER_SCOPE_FINAL_SUBMISSION,
 )
 from ._mission_execution_helpers import _MissionRunState
-from .pending_notify import notify_pending_question
+from .pending_notify import ask_operator
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +76,8 @@ class MissionExecutionSettlementMixin:
         def _project_workdir(self) -> Path: ...
 
         def _budget_global_root(self) -> Path: ...
+
+        def _operator_chinese(self) -> bool: ...
 
     # ------------------------------------------------------------------
     # Phase: restricted validator-repair capability settlement
@@ -663,6 +667,16 @@ class MissionExecutionSettlementMixin:
         def fail(*, error: str, outcome: dict[str, Any]) -> None:
             commit(status="failed", finished_ts=time.time(), last_error=error, outcome=outcome)
 
+        def parked_outcome(reason: str, *, succeeded: bool) -> dict[str, Any]:
+            """Settle the run as parked for ``reason``; the outcome the park records."""
+            nonlocal status, resumable
+            status, state.park_reason, resumable = "parked", reason, True
+            return mission_outcome_dimensions(
+                status=status, success=succeeded, review_status=final_review_status,
+                stage_transition=stage_transition, stop_kind=state.stop_kind,
+                resumable=True, park_reason=reason,
+            )
+
         from ...manager.supervision import HANDED_TO_MANAGER
 
         # Update backlog row. A bounded research cycle that did not achieve its
@@ -678,22 +692,17 @@ class MissionExecutionSettlementMixin:
             # transition allowed here: running -> pending on the same item.
             commit(outcome=outcome_dimensions)
         elif maintenance_reviewed:
-            from ...core.operator_decision import build_operator_decision
-
-            status, state.park_reason = "parked", "operator_question"
-            resumable = True
-            operator_question = (
-                f"The Reviewer read the change for “{item.title}” and it holds. "
-                "Publish this reviewed version and use it at the next task boundary?"
-            )
-            decision_card = build_operator_decision(
-                item_id=item.id,
-                title=f"Adopt reviewed change: {item.title}",
+            outcome_dimensions = parked_outcome("operator_question", succeeded=True)
+            ask_operator(
+                self.memory.root, item,
+                say("ask_adopt_reviewed_change", self._operator_chinese(), title=item.title),
                 reason=str(
                     getattr(outcome, "final_review_reason", "")
                     or "The Reviewer read the maintenance change and it holds."
                 ),
-                question=operator_question,
+                layer="manager",
+                save=partial(commit, finished_ts=time.time(), last_error="", outcome=outcome_dimensions),
+                emit=self._emit,
                 options=[
                     {
                         "id": "adopt",
@@ -712,90 +721,32 @@ class MissionExecutionSettlementMixin:
                     },
                 ],
                 evidence=list(item.context_refs),
-                project_id=self.memory.root.name,
-                previous_decision=item.operator_decision,
+                title=f"Adopt reviewed change: {item.title}",
+                decision_kind="framework_deployment",
+                reviewed_candidate=maintenance_candidate,
             )
-            decision_card["decision_kind"] = "framework_deployment"
-            decision_card["reviewed_candidate"] = maintenance_candidate
-            outcome_dimensions = mission_outcome_dimensions(
-                status=status,
-                success=True,
-                review_status=final_review_status,
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=True,
-                park_reason=state.park_reason,
-            )
-            commit(
-                park_reason=state.park_reason,
-                finished_ts=time.time(),
-                last_error="",
-                outcome=outcome_dimensions,
-                pending_question=operator_question,
-                operator_decision=decision_card,
-            )
-            item.pending_question = operator_question
-            item.operator_decision = decision_card
-            notify_pending_question(self.memory.root, item)
-            self._emit({
-                "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-                "item_id": item.id,
-                "title": item.title,
-                "question": operator_question,
-                "agent_layer": "manager",
-            })
         elif success:
             commit(status="done", finished_ts=time.time(), outcome=outcome_dimensions)
         elif status == "blocked" and operator_question:
-            from ...core.operator_decision import build_operator_decision
-
-            decision_root = self.memory.root
-            evidence = list(getattr(item, "context_refs", None) or [])
-            decision_card = build_operator_decision(
-                item_id=item.id,
-                title=item.title,
-                reason=str(getattr(outcome, "final_review_reason", "") or err),
-                question=operator_question,
-                options=list(getattr(outcome, "operator_options", []) or []),
-                evidence=evidence,
-                project_id=decision_root.name,
-                previous_decision=item.operator_decision,
-            )
-            # Status and the authority-bearing question must reach disk in one
-            # backlog transaction. Keep the row nonterminal so dependency
+            # Status and the authority-bearing question reach disk in one
+            # backlog transaction. The row stays nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
             # operator is deciding; their answer resumes this same row.
-            commit(
-                park_reason="operator_question",
-                finished_ts=time.time(),
-                last_error=err,
-                outcome=outcome_dimensions,
-                pending_question=operator_question,
-                operator_decision=decision_card,
+            ask_operator(
+                self.memory.root, item, operator_question,
+                reason=str(getattr(outcome, "final_review_reason", "") or err), layer="manager",
+                save=partial(commit, finished_ts=time.time(), last_error=err, outcome=outcome_dimensions),
+                emit=self._emit,
+                options=list(getattr(outcome, "operator_options", []) or []),
+                evidence=list(getattr(item, "context_refs", None) or []),
             )
-            # The mission is now parked on the operator. Nobody watches a
-            # long-running daemon's portal, so tell them where they already
-            # are — otherwise the wait lasts until someone happens to look.
-            item.pending_question = operator_question
-            item.operator_decision = decision_card
-            notify_pending_question(self.memory.root, item)
         elif status == "blocked" and str(
             getattr(outcome, "final_review_source", "") or ""
         ) in HANDED_TO_MANAGER:
             # Handed to the Manager, who holds it now: it parks where a Manager
             # stop leaves work, for the Manager to put to the operator, the
             # Planner to retire or the operator to resume.
-            status, state.park_reason = "parked", "research_open"
-            resumable = True
-            outcome_dimensions = mission_outcome_dimensions(
-                status=status,
-                success=False,
-                review_status=final_review_status,
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=True,
-                park_reason=state.park_reason,
-            )
+            outcome_dimensions = parked_outcome("research_open", succeeded=False)
             commit(
                 park_reason=state.park_reason,
                 finished_ts=time.time(),
@@ -854,25 +805,6 @@ class MissionExecutionSettlementMixin:
                     "item_id": item.id,
                     "circuit_cleared": circuit_cleared,
                 })
-
-        # A "blocked" round with a question is a role handing the work to the
-        # OPERATOR (``→ operator: <question>``) — not a bug/crash; while the
-        # operator cannot be asked, the Manager decides the parked card in
-        # their place. Persist the question
-        # onto the (now-terminal) item so it outlives this one event:
-        # /status can list every currently-unanswered question across ALL
-        # projects/restarts, not just whatever a cockpit happened to be tailing
-        # live when it was asked (the old process-local state
-        # ``blocked_question``, which was lost the moment that process exited).
-        # The operator pause and question were persisted atomically above.
-        if status == "blocked" and operator_question:
-            self._emit({
-                "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-                "item_id": item.id,
-                "title": item.title,
-                "question": operator_question,
-                "agent_layer": "manager",
-            })
 
         capture_state()
 

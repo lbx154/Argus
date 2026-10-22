@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
 from ..core.role_handoff import read_baton_line
+from ..core.session import topic_name
 from ..roles.prompts.manager import (
     build_research_target_prompt,
     build_vertical_decision_prompt,
@@ -681,7 +682,7 @@ def parse_fast_vertical_decision(
         needs_grounding=False,
         workflow_profile=str(obj.get("workflow_profile") or "").strip(),
         workflow_requested_stages=workflow_stages,
-        session_title=str(obj.get("session_title") or "").strip(),
+        session_title=topic_name(obj.get("session_title")),
         vertical=name,
         domain=domain,
         workflow_mode=workflow_mode,
@@ -1027,7 +1028,7 @@ def parse_vertical_decision(
                 choice="existing",
                 workflow_profile=str(obj.get("workflow_profile") or "").strip(),
                 workflow_requested_stages=workflow_stages,
-                session_title=str(obj.get("session_title") or "").strip(),
+                session_title=topic_name(obj.get("session_title")),
                 vertical=name,
                 domain=domain,
                 workflow_mode=workflow_mode,
@@ -1076,7 +1077,7 @@ def parse_vertical_decision(
         start_stage = str(obj.get("start_stage") or "").strip().lower()
         return VerticalDecision(
             choice="new",
-            session_title=str(obj.get("session_title") or "").strip(),
+            session_title=topic_name(obj.get("session_title")),
             vertical=proposal.name,
             domain="",
             workflow_mode=workflow_mode,

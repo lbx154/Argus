@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,6 +11,7 @@ from ..core.knobs import (
     resolve_role_model,
     resolve_role_reasoning_effort,
 )
+from ..core.mission_view import say, uses_cjk
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.progress_step import (
@@ -271,7 +271,7 @@ class SelfReplyMixin:
                 _phase("正在读取运行状态…")
                 root = self._manager_state_path()
                 facts = observe_runtime_status(root, mode)
-                reply = render_runtime_status(facts, chinese=bool(re.search(r"[\u3400-\u9fff]", objective)))
+                reply = render_runtime_status(facts, chinese=uses_cjk(objective))
                 self._last_self_mode = mode
                 sink.handle_event({
                     "type": "round.main.completed", "round_index": 1,
@@ -748,24 +748,12 @@ class SelfReplyMixin:
                     "type": "engineer.progress",
                     "kind": "provider_retry",
                     "agent_layer": "manager",
-                    "text": (
-                        (
-                            "还没真正动手，再试一次…"
-                            if no_action else
-                            "模型这次没有回应，接着刚才的对话再试一次…"
-                            if stalled and stall_resume else
-                            "模型这次没有回应，再试一次…"
-                            if stalled else
-                            "连接模型服务时断了，再试一次…"
-                        )
-                        if re.search(r"[\u3400-\u9fff]", objective) else
-                        "Nothing was actually done yet; trying once more…"
-                        if no_action else
-                        "The model stopped responding; picking the conversation up again…"
-                        if stalled and stall_resume else
-                        "The model stopped responding; trying once more…"
-                        if stalled else
-                        "The connection to the model service dropped; trying once more…"
+                    "text": say(
+                        "retry_no_action" if no_action
+                        else "retry_resumed" if stalled and stall_resume
+                        else "retry_stalled" if stalled
+                        else "retry_dropped",
+                        uses_cjk(objective),
                     ),
                 })
                 result = gateway_run_exec(

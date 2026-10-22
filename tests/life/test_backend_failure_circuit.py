@@ -534,6 +534,9 @@ class _RuntimeHarness(MissionExecutionRuntimeMixin):
     def _emit(self, event) -> None:
         self.events.append(dict(event))
 
+    def _operator_chinese(self) -> bool:
+        return False
+
     def _project_state_root(self) -> Path:
         return Path(self.memory.root)
 

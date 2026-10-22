@@ -787,29 +787,19 @@ class LifeWorkerRunMixin:
         import re
 
         from ..core.call_guard import BACKGROUND_CALL_BUDGET
-        from ..core.operator_messages import publish_operator_message, uses_cjk
+        from ..core.mission_view import say, uses_cjk
+        from ..core.operator_messages import publish_operator_message
 
         supervisor = rf_state.sup
         # Which calls they were is the developer's record, not the operator's.
         kinds = ", ".join(sorted({re.sub(r"\d+", "N", label) for label in labels}))[:300]
-        if uses_cjk(str(getattr(supervisor.config, "continuous_objective", "") or "")):
-            text = (
-                f"后台连着调用了 {BACKGROUND_CALL_BUDGET} 次模型，一直没有进展："
-                "没有新任务、没有做完的工作，你也没发新消息。为了不再白花钱，"
-                "我先停了这些后台调用，正在做的任务不受影响。"
-                "一有新进展，或者你在这里回一句，就会恢复。"
-            )
-        else:
-            text = (
-                f"The background made {BACKGROUND_CALL_BUDGET} model calls in a row "
-                "without any progress: no new task, no finished work, and no message "
-                "from you. I've stopped those background calls so they stop costing "
-                "money; running tasks are not affected. They resume as soon as "
-                "something changes or you reply here."
-            )
         publish_operator_message(
             supervisor._manager_project_report_root(),
-            text=text,
+            text=say(
+                "background_calls_paused",
+                uses_cjk(getattr(supervisor.config, "continuous_objective", "")),
+                calls=BACKGROUND_CALL_BUDGET,
+            ),
             message_id=f"background-calls-paused-{int(time.time())}",
             event_fields={"background_calls_paused": True},
         )

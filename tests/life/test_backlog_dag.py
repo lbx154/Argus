@@ -354,7 +354,9 @@ def test_operator_answer_resumes_the_task_its_dependents_wait_on(tmp_path: Path)
     )
 
     assert answered and resumed.id == blocked.id
-    assert resumed.manager_decision == {"vertical": "software", "routed": True}
+    assert resumed.manager_decision == {
+        "display_objective": "choose a GPU", "vertical": "software", "routed": True,
+    }
     assert "review:required" in resumed.tags
     stored_downstream = next(item for item in b.all() if item.id == downstream.id)
     assert stored_downstream.deps == [blocked.id]

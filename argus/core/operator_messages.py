@@ -6,18 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from ..life.event_log import JsonlEventSink
+from .mission_view import say, uses_cjk
 from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
-_CJK_RE = re.compile(r"[\u3400-\u9fff]")
 _TIMEOUT_RE = re.compile(
     r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
     flags=re.IGNORECASE,
 )
-
-def uses_cjk(text: str) -> bool:
-    """Return whether *text* indicates a CJK operator-language message."""
-    return bool(_CJK_RE.search(str(text or "")))
 
 
 def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive: bool = False) -> str:
@@ -118,59 +114,38 @@ def render_operator_update(
 ) -> str:
     """Render structured runtime state as a short, plain operator update."""
     chinese = uses_cjk(language_hint or title)
-    subject = brief_title(title) or ("这项任务" if chinese else "the current task")
+    subject = brief_title(title) or say("this_task", chinese)
     state = str(status or "").strip().lower()
     park = park_reason_of(state, park_reason)
     why = humanize_runtime_reason(reason, language_hint=language_hint or subject)
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
-    reason_label = "原因：" if chinese else "Reason: "
     if park == "provider_fence":
         return "\n".join(part for part in (
-            f"模型服务限制了调用，「{subject}」先停下了。"
-            if chinese
-            else f"The model provider is restricting calls, so {subject} is paused.",
-            reason_label + why if why else "",
-            ("建议：" if chinese else "Next: ") + action if action else "",
-            "问题解决后点“运行”就能继续；在那之前不会自动重试。"
-            if chinese
-            else "Once it is resolved, click Run to continue; nothing retries on its own until then.",
+            say("update_provider_fenced", chinese, subject=subject),
+            why and say("update_reason", chinese, why=why),
+            action and say("update_advice", chinese, action=action),
+            say("update_run_to_continue", chinese),
         ) if part)
     finished = state in {"done", "completed", "success"}
     canceled = state in {"aborted", "cancelled", "canceled"}
-    if finished:
-        first = f"完成了：{subject}。" if chinese else f"Done: {subject}."
-    elif canceled:
-        first = f"已取消：{subject}。" if chinese else f"Canceled: {subject}."
-    elif state in {"continue", "running", "in_progress", "stage_continues"}:
-        first = f"还在继续：{subject}。" if chinese else f"Still working on {subject}."
-    elif state == "blocked" or park is not None:
-        first = f"「{subject}」暂时做不下去了。" if chinese else f"Stuck for now: {subject}."
-    elif state in {"replan_requested", "revise"}:
-        first = f"「{subject}」需要换个做法。" if chinese else f"Needs a different approach: {subject}."
-    else:
-        first = f"没能完成：{subject}。" if chinese else f"Couldn't finish: {subject}."
-    lines = [first]
+    lines = [say(
+        "update_done" if finished
+        else "update_canceled" if canceled
+        else "update_continuing" if state in {"continue", "running", "in_progress", "stage_continues"}
+        else "update_stuck" if state == "blocked" or park is not None
+        else "update_new_approach" if state in {"replan_requested", "revise"}
+        else "update_not_finished",
+        chinese, subject=subject,
+    )]
     if why and not canceled:
         # A finished task's note is what it found, not why it stopped.
-        lines.append(why if finished else reason_label + why)
+        lines.append(why if finished else say("update_reason", chinese, why=why))
     if action:
-        lines.append((
-            ("需要你定：" if chinese else "Your call: ")
-            if user_action_required
-            else ("接下来：" if chinese else "Next: ")
-        ) + action)
+        lines.append(say("update_your_call" if user_action_required else "update_next", chinese, action=action))
     elif not (finished or canceled):
-        lines.append(
-            ("需要你定一下才能继续。" if chinese else "I need your decision before this can continue.")
-            if user_action_required
-            else (
-                "接下来：我先查清原因，再找个能走通的办法。"
-                if chinese
-                else "Next: I'll find out what went wrong and pick a way forward."
-            )
-        )
+        lines.append(say("update_needs_decision" if user_action_required else "update_will_investigate", chinese))
     return "\n".join(lines)
 
 
@@ -206,5 +181,4 @@ __all__ = [
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",
-    "uses_cjk",
 ]

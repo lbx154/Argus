@@ -264,7 +264,7 @@ def _manager_message(
     ``_TurnEmitter``.
     """
     from ..core.launch_settings import launch_note, normalize_launch_settings
-    from ..core.operator_messages import uses_cjk
+    from ..core.mission_view import say, uses_cjk
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.front_door import mission_is_running
@@ -690,8 +690,7 @@ def _manager_message(
             previous_intake = read_intake(life_dir)
             try:
                 if previous_intake.get("phase") in {"offered", "clarifying"} and domain_decision.get("action") in {"ask", "prepare", "dialogue"}:
-                    emitter.phase("正在结合你的任务整理几个选项…" if uses_cjk(operator_text) else
-                                  "Putting together options for this task…")
+                    emitter.phase(say("gathering_options", uses_cjk(operator_text)))
                     domain_decision = manager_intake_decision(mem, chat_state, operator_text, root_task_id=root_task_id)
                     if _cancelled():
                         return _cancelled_result()
@@ -702,9 +701,9 @@ def _manager_message(
                 if _cancelled():
                     return _cancelled_result()
                 log.warning("Manager workflow dialogue failed: %s", type(exc).__name__)
-                reply = ("这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。" if uses_cjk(operator_text) else
-                         "I couldn't put the options together just now. Your task and answer are kept; please try again in a moment.")
-                return emitter.respond(reply, {"kind": "error", "resolved": False})
+                return emitter.respond(
+                    say("options_failed", uses_cjk(operator_text)), {"kind": "error", "resolved": False},
+                )
             if intake is not None:
                 if "reply" in intake:
                     return emitter.respond(intake["reply"], {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})

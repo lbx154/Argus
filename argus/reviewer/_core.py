@@ -18,13 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
+from ..core.mission_view import uses_cjk
 from ..core.models import (
     READING_ROLE_UNUSED_COPILOT_TOOLS,
     ReviewDecision,
     RunnerOptions,
     RunnerResult,
 )
-from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import StopKind, normalize_stop_kind, stop_kind_from_external_interrupt

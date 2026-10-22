@@ -383,13 +383,13 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event), context.locale);
-      const summary = clean(stringField(event, 'summary'), 240);
-      const residualRisk = clean(stringField(event, 'residual_risk'), 200);
-      if (residualRisk && presentation.tone === 'ok') {
-        const label = localized(context, 'completed with residual risk', '已完成，但有残余风险');
-        const detail = summary.includes(residualRisk) ? summary : `${residualRisk}${summary ? ` · ${summary}` : ''}`;
-        return model('engineer', 'role.engineer', '⚠', `${label} · ${detail}`, 'warn', { rule: true });
+      // A finished task says so once: what the review found is on its own row.
+      if (presentation.tone === 'ok') {
+        return stringField(event, 'residual_risk')
+          ? model('engineer', 'role.engineer', '⚠', localized(context, 'completed with residual risk', '已完成，但有残余风险'), 'warn', { rule: true })
+          : model('engineer', 'role.engineer', presentation.glyph, presentation.label, presentation.tone, { rule: true });
       }
+      const summary = clean(stringField(event, 'summary'), 240);
       return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone, { rule: true });
     }
     case 'life.mission.failed':

@@ -48,7 +48,7 @@ class IdleCycleMixin:
         def _emit_status(self, text: str) -> None: ...
         def _tell_status(self, kind: str, **params: Any) -> None: ...
         def _operator_words(self, kind: str, **params: Any) -> dict[str, str]: ...
-        def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None: ...
+        def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None: ...
 
     def _artifact_root(self) -> Path:
         raise NotImplementedError
@@ -513,10 +513,7 @@ class IdleCycleMixin:
                     from ...core.operator_messages import brief_title
 
                     self._tell_operator(
-                        f"proxy-undecided-{key}",
-                        f"I couldn't decide “{brief_title(item.title)}” for you, so "
-                        "it waits for your answer.",
-                        f"“{brief_title(item.title)}”我没法替你决定，等你回来再定。",
+                        f"proxy-undecided-{key}", "proxy_undecided", title=brief_title(item.title),
                     )
                 continue
             record_autonomous_assumption(

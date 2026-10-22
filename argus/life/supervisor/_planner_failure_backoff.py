@@ -547,27 +547,11 @@ class PlannerFailureBackoffMixin:
             told = self._planner_stop_notices = set()
         if notice not in told:
             told.add(notice)
-            if record.get("kind") == FAILURE_KIND_INTERNAL:
-                english = (
-                    f"Planning kept hitting an internal error in Argus for {AUTOMATIC_RETRY_WINDOW_HOURS} "
-                    "hours, so I stopped retrying. Send me a message to try again, and please "
-                    "report it along with the run log."
-                )
-                chinese = (
-                    f"规划时 Argus 自己连着出错 {AUTOMATIC_RETRY_WINDOW_HOURS} 个小时，我先不再自动重试。"
-                    "给我发条消息就会再试；也请把运行日志一起反馈给我们。"
-                )
-            else:
-                english = (
-                    f"The Planner's model service kept failing for {AUTOMATIC_RETRY_WINDOW_HOURS} hours, "
-                    "so I stopped retrying. Send me a message, or switch the Planner's model "
-                    "in Settings, to try again."
-                )
-                chinese = (
-                    f"规划者用的模型服务连着 {AUTOMATIC_RETRY_WINDOW_HOURS} 个小时都失败，我先不再自动重试。"
-                    "给我发条消息，或者在设置里换一个规划者用的模型，就会再试。"
-                )
-            self._tell_operator(notice, english, chinese)
+            self._tell_operator(notice, (
+                "planner_retries_stopped_internal"
+                if record.get("kind") == FAILURE_KIND_INTERNAL
+                else "planner_retries_stopped_service"
+            ), hours=AUTOMATIC_RETRY_WINDOW_HOURS)
         return PLAN_AWAITING
 
 
