@@ -952,8 +952,12 @@ class PlanningContextMixin:
             self._enter_idle_backoff()
         else:
             self._enter_pause_backoff()
+        # While live work holds a question, the next move is the operator's.
+        handoff = "operator" if any(item.pending_question.strip() for item in live) else ""
         # Said once when the Planner starts waiting, not on every pass that finds nothing new.
-        if self._should_journal_idle_repeat("direct_handoff" if direct_only else "inputs_unchanged"):
+        if self._should_journal_idle_repeat(
+            f"{'direct_handoff' if direct_only else 'inputs_unchanged'}:{handoff}"
+        ):
             self._emit({
                 "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
@@ -964,6 +968,7 @@ class PlanningContextMixin:
                     "nothing the Planner reads has changed since its last "
                     "decision; keeping that decision without another model call"
                 ),
+                "handoff": handoff,
                 "model_call_skipped": True,
             })
         return PLAN_AWAITING

@@ -47,6 +47,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   task_delivered: ['成果已交付。', 'The result was delivered.'],
   planner_waiting: ['规划者在等待前一步完成。', 'The Planner is waiting for the previous step.'],
   planner_no_new_work: ['手头的工作还没做完，先不安排新的。', 'Nothing new to plan until the current work moves.'],
+  planner_awaits_answer: ['在等你回答，先不安排新的。', 'Waiting for your answer before planning anything new.'],
   planner_idle: ['暂时没有需要规划的工作。', 'Nothing to plan right now.'],
   planning_failed: ['这次规划没有成功。', 'Planning did not succeed this time.'],
   mission_started: ['开始处理这项任务', 'Work on the task started'],

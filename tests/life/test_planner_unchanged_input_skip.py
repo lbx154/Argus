@@ -258,6 +258,26 @@ def test_work_the_manager_handed_to_an_engineer_is_not_planner_input_until_it_en
     assert choice.id in {item.id for item in backlog.active()}
 
 
+def test_a_planner_left_waiting_on_a_question_hands_the_next_move_to_the_operator(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """2026-10-21: a direct task parked on the operator's choice left the
+    Planner saying it waited for unfinished work, not for the operator."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _install_planner(monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    item = backlog.add(BacklogItem.new(title="Change truncate", objective="truncate", tags=["manager", "manager_direct"]))
+    backlog.update(item.id, park_reason="operator_question", pending_question="A or B?")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    backlog.update(item.id, status="running", pending_question="")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+
+    waits = [event for event in _events(tmp_path / "life") if event["type"] == "life.planner.idle"]
+    assert [event["handoff"] for event in waits] == ["operator", ""]
+
+
 def test_a_manager_steer_wakes_the_planner_only_when_handed_to_it(
     tmp_path: Path, monkeypatch
 ) -> None:

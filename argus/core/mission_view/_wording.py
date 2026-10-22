@@ -92,6 +92,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Nothing new to plan until the current work moves.",
         "手头的工作还没做完，先不安排新的。",
     ),
+    "planner_awaits_answer": (
+        "Waiting for your answer before planning anything new.",
+        "在等你回答，先不安排新的。",
+    ),
     "planner_idle": (
         "Nothing is left to plan for now.",
         "目前没有需要规划的工作。",
