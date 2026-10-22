@@ -734,6 +734,19 @@ def _answered(backlog, question: str, answer: str, asked_at: float) -> BacklogIt
     return resumed
 
 
+def test_an_answered_task_still_shows_the_operator_their_own_request(tmp_path: Path) -> None:
+    """Trial, 2026-10-21: once answered, the map showed the roles' English
+    decision brief as the task's objective in place of the operator's words."""
+    from argus.webapi.map_view import read_map
+
+    life = tmp_path / "projects" / "s-answered"
+    asked = _answered(LifeMemory.open(life).backlog, "A or B?", "A.", 100.0)
+
+    assert asked.objective.startswith("Authoritative Manager operator-answer decision")
+    task = next(t for t in read_map("s-answered", tmp_path, life)["tasks"] if t["id"] == asked.id)
+    assert task["objective"] == "wait for my choice"
+
+
 def _answers_read(supervisor: LifeSupervisor, project: Path) -> tuple[str, str]:
     """What the Planner's digest and the Manager's stage decision say was answered."""
     from argus.manager import Manager

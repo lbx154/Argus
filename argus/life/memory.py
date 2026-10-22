@@ -2506,6 +2506,9 @@ class Backlog:
                 if decided_by == "operator"
                 else "Manager decision in the operator's place"
             )
+            # The roles read the answer in the objective; the operator goes
+            # on reading their own request.
+            item.manager_decision = {"display_objective": item.objective.strip(), **item.manager_decision}
             if decision:
                 item.objective = (
                     "Authoritative Manager operator-answer decision:\n"
