@@ -724,6 +724,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "until something outside it is resolved.",
         "结果未被接受，且需要先解决外部问题才能继续。",
     ),
+    "choice_left_to_you": (
+        "The Reviewer leaves the choice to you; the work goes on once you decide.",
+        "审阅者把选择交给你，等你决定后再继续。",
+    ),
     "replan_requested": (
         "The results were checked; the plan needs to change before the work continues.",
         "结果已核对，计划需要调整后才能继续。",

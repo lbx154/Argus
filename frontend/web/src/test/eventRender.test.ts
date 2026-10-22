@@ -238,6 +238,17 @@ describe('the web feed line', () => {
     expect(line({ type: 'round.review.completed', status: 'continue', reason: 'x' })!.tone).toBe('warn');
   });
 
+  it('says a review that hands the choice to the operator waits on them, not that the work is stuck', () => {
+    // Trial s-934a4569: `→ operator: A or B?` read "审阅者认为工作卡住了".
+    const asked = { type: 'round.review.completed', status: 'blocked', reason: 'A and B conflict.', operator_question: 'A or B?' };
+    expect(zh(asked)).toMatchObject({ text: '审阅者把选择交给你 · A and B conflict.', tone: 'warn', glyph: '❓' });
+    expect(line(asked)!.text).toBe('the Reviewer leaves the choice to you · A and B conflict.');
+    expect(zh({ ...asked, operator_question: '' })!.text).toMatch(/^审阅者认为工作卡住了/);
+    // The task it ended is parked on that question, as its row is.
+    expect(zh({ type: 'life.mission.completed', status: 'blocked', outcome_class: 'blocked', success: false, operator_question: 'A or B?' }))
+      .toMatchObject({ text: '任务在完成前暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
+  });
+
   it('presents an explicitly skipped review as an informational interruption, in both languages', () => {
     const event = { type: 'round.review.completed', status: 'continue', reason: 'Turn allowance reached.', review_skipped: true };
     expect(line(event)).toMatchObject({ tone: 'info', text: 'no review this round · Turn allowance reached.' });

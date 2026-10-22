@@ -79,6 +79,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   results_accepted: ['结果通过了核对。', 'The result passed the check.'],
   another_attempt_requested: ['审阅者要求再试一次。', 'The reviewer asked for another attempt.'],
   attempt_blocked: ['这次尝试被挡住了。', 'This attempt is blocked.'],
+  choice_left_to_you: ['审阅者把选择交给你，等你决定后再继续。', 'The Reviewer leaves the choice to you; the work goes on once you decide.'],
   replan_requested: ['审阅者要求重新规划。', 'The reviewer asked for a new plan.'],
   results_not_final: ['结果还不是最终的。', 'The result is not final yet.'],
   handed_off: ['已交给下一位。', 'Handed off to the next role.'],

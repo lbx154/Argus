@@ -344,6 +344,9 @@ def normalize_events(
                 e["review_source"] = text(row["review_source"], 120)
             if row.get("park_reason"):
                 e["park_reason"] = text(row["park_reason"], 80)
+            if row.get("operator_question"):
+                # A handoff to the operator settles ``blocked`` and asks this.
+                e["operator_question"] = text(row["operator_question"])
             if row.get("stop_kind") in NON_FAILURE_STOP_KINDS:
                 # Stopped, not failed: by whom or what, as the record names it.
                 e["stop_kind"] = row["stop_kind"]

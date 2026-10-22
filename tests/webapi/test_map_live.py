@@ -61,7 +61,8 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
             {"type": "life.manager.supervision.applied", "agent_layer": "manager", "item_id": "task-a",
              "status": "applied", "action": "wait", "summary": "Wait for the operator's choice.", "ts": 5},
             {"type": "life.mission.completed", "item_id": "task-a", "status": "parked",
-             "park_reason": "operator_question", "success": False, "ts": 6},
+             "park_reason": "operator_question", "success": False, "ts": 6,
+             "operator_question": "Which seed range?"},
             {"type": "life.operator_question.pending", "item_id": "ask", "agent_layer": "planner",
              "title": "Planner needs operator direction", "question": "A or B?", "options": ["A", "B"],
              "ts": 7},
@@ -82,6 +83,9 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
     assert (note["role"], note["association"]) == ("observer", "single_active_window")
     assert said[("task-a", "life.manager.supervision.applied")]["text"] == "Wait for the operator's choice."
     assert said[("task-a", "life.mission.completed")]["park_reason"] == "operator_question"
+    # What a handoff asked the operator, so the map reads it as a question, not a block.
+    assert said[("task-a", "life.mission.completed")]["operator_question"] == "Which seed range?"
+    assert "operator_question" not in said[("ask", "life.mission.started")]
     assert "Idle." not in [e["text"] for e in data["events"]]
     tasks = {t["id"]: t for t in data["tasks"]}
     assert tasks["budget"]["park_reason"] == "budget_exhausted" and "park_reason" not in tasks["ask"]

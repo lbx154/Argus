@@ -1607,6 +1607,29 @@ def test_an_answered_task_shows_the_operator_their_request_at_the_top(tmp_path: 
     assert view["dag"][0]["objective"] == request
 
 
+def test_a_review_handing_the_choice_to_the_operator_waits_on_them(tmp_path: Path) -> None:
+    """Trial s-934a4569: a `→ operator:` review read as "not accepted, needs
+    something outside resolved", and its task as blocked from outside."""
+    emit(tmp_path, "life.mission.started", 1, item_id="t", title="截断取舍", objective="truncate 选 A 还是 B")
+    view = emit(
+        tmp_path, "round.review.completed", 2, item_id="t", status="blocked",
+        reason="两条需求冲突。", operator_question="选 A 还是 B？",
+    )
+    reviewer = next(role for role in view["roles"] if role["role"] == "reviewer")
+    assert reviewer["kind"] == "choice_left_to_you"
+    assert (reviewer["status"], reviewer["label"]) == ("waiting", "审阅者把选择交给你，等你决定后再继续。")
+    assert view["timeline"][-1]["tone"] == "info"
+    # The verdict itself is the record's, unchanged.
+    assert view["review"]["status"] == "blocked"
+    view = emit(
+        tmp_path, "life.mission.completed", 3, item_id="t", status="blocked", outcome_class="blocked",
+        success=False, operator_question="选 A 还是 B？",
+    )
+    engineer = next(role for role in view["roles"] if role["role"] == "engineer")
+    assert engineer["kind"] == "mission_paused"
+    assert "有个问题在等你回答" in engineer["label"]
+
+
 def test_round_the_model_service_dropped_is_explained_without_runtime_words(
     tmp_path: Path,
 ) -> None:
