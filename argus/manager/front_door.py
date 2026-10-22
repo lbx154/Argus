@@ -30,6 +30,7 @@ _PHASE_META_FIELDS = (
 )
 from ..core.runner_errors import is_pre_provider_refusal_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
+from ..core.session import topic_name
 
 log = logging.getLogger(__name__)
 
@@ -384,8 +385,8 @@ def _maybe_name_session(
     decides when a topic changed; later execution handoffs only fill blanks.
     """
     _ = task_text  # Retained for callers; never use a truncated task as a title.
-    name = _derive_session_name(suggested_name, limit=32)
-    if not name or name.casefold() in {"none", "keep", "null"} or name.isdecimal():
+    name = topic_name(_derive_session_name(suggested_name, limit=32))
+    if not name:
         return ""
     sid = chat_state.get("session_id")
     gr = chat_state.get("global_root")

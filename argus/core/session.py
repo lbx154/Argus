@@ -186,6 +186,12 @@ def normalize_session_name(value: str, *, limit: int = 80) -> str:
     return " ".join((value or "").split())[:limit]
 
 
+def topic_name(value: object) -> str:
+    """The topic a model named, or "" when it wrote a placeholder (NONE, keep, a bare number)."""
+    name = str(value or "").strip()
+    return "" if name.casefold() in {"none", "keep", "null"} or name.isdecimal() else name
+
+
 # ``name_source`` for a title derived from the operator's first message. It is
 # shown immediately so a project never surfaces as a raw id, and any later
 # Agent-written topic summary replaces it.
