@@ -111,11 +111,13 @@ class PlanningCycleIntakeMixin:
         ).strip()
         if not objective:
             return None
-        # Paused work still owns this objective and must resume, not be
-        # duplicated by the direct-mission bootstrap on the next planning pass.
+        # The objective is handed out once. Paused work still owns it and must
+        # resume; once work for it has ended (done, superseded or failed),
+        # what is left is the Planner's to judge, not a reason to queue it again.
         if any(
             item.status not in _TERMINAL_TASK_STATUSES
-            for item in self.memory.backlog.active()
+            or (item.original_objective or item.objective).strip() == objective
+            for item in self.memory.backlog.history()
         ):
             return None
 

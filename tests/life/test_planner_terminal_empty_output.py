@@ -1579,6 +1579,112 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
     )
 
 
+def test_direct_objective_is_not_queued_again_once_its_replacement_is_reviewed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """s-6f0e6213: the operator's request ran once, then was done again.
+
+    The front door handed the request straight to an Engineer, who stopped on a
+    rounding conflict; the Planner superseded that task with its own, and a
+    Reviewer accepted it. The next planning pass found no live work and no
+    completion certificate, read that as "never handed out", and queued the
+    operator's words as a new task, so an Engineer and a Reviewer did it all
+    again. The accepted review goes to the Manager instead, and the project ends.
+    """
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        split_memory=True,
+    )
+    objective = (
+        "给 timefmt 加一个 format_hours(seconds)：输出整小时数，例如 7200 → \"2 h\"，"
+        "舍入方式和包里现有的整单位函数保持一致，负数抛 ValueError。"
+    )
+    supervisor.config.open_ended = False
+    supervisor.config.continuous_objective = objective
+    backend.manager_action = "complete"
+    pipeline = Path(supervisor.config.project_worktree) / ".argus" / "PIPELINE_STATE.json"
+    pipeline.write_text(
+        json.dumps({**json.loads(pipeline.read_text(encoding="utf-8")), "workflow_mode": "direct"}),
+        encoding="utf-8",
+    )
+    state_root = supervisor.memory.project_root
+    (state_root / "continuous.json").write_text(
+        json.dumps({"enabled": True, "objective": objective, "generation": 1}),
+        encoding="utf-8",
+    )
+    (state_root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.manager.intent.completed",
+            "execution_task": objective,
+            "continuous_generation": 1,
+            "vertical": "software",
+            "workflow_mode": "direct",
+        }) + "\n",
+        encoding="utf-8",
+    )
+    backlog = supervisor.memory.backlog
+    asked = backlog.add(BacklogItem.new(
+        title="为 timefmt 添加整小时格式化函数",
+        objective=objective,
+        tags=["manager", "scope:bounded", "review:required", "manager_direct",
+              "stage_closing", "stage:delivery"],
+        original_objective=objective,
+    ))
+    backlog.update(asked.id, status="superseded")
+    replacement = backlog.add(BacklogItem.new(
+        title="实现并独立审阅整小时格式化功能",
+        objective="在 timefmt/core.py 添加 format_hours，仿照 format_minutes 截去不足整小时的部分。",
+        tags=["planner", "scope:bounded", "bounded_dag_node", "review:required",
+              "stage:delivery"],
+        original_objective=objective,
+    ))
+    record_reviewed_handoff(
+        mission_context_path=create_mission_context(
+            life_dir=state_root,
+            mission_id=replacement.id,
+            stage="delivery",
+            objective=replacement.objective,
+            scope="bounded",
+        ),
+        round_index=1,
+        engineer_summary="",
+        review=SimpleNamespace(
+            status="done",
+            reason="format_hours 已通过独立审阅，可交付。",
+            next_action="",
+            operator_question="",
+        ),
+        checkpoint_path=None,
+    )
+    backlog.mark_done(replacement.id, outcome={
+        "execution_status": "completed",
+        "review_status": "done",
+        "stage_certification": "deferred",
+        "interruption_kind": "none",
+        "resumable": False,
+    })
+    monkeypatch.setattr(
+        supervisor, "_manager_publish_project_report", lambda _reason, **_kwargs: "reported",
+    )
+
+    assert supervisor._plan_next_work() == PLAN_RETRY
+    assert [row.id for row in backlog.history()] == [asked.id, replacement.id]
+    assert backend.manager_calls == 1
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "complete"
+        and event.get("recovered_item_id") == replacement.id
+        for event in sink.events
+    )
+
+    assert supervisor._plan_next_work() is False
+    assert [row.id for row in backlog.history()] == [asked.id, replacement.id]
+    assert backend.planner_calls == 0
+
+
 def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     tmp_path: Path,
     monkeypatch,

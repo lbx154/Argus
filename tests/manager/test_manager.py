@@ -52,7 +52,7 @@ class _DecisionRunner:
 
 
 class _SequenceDecisionRunner:
-    def __init__(self, decisions: list[dict]) -> None:
+    def __init__(self, decisions: list[dict | str]) -> None:
         self._decisions = iter(decisions)
         self.calls: list[dict] = []
 
@@ -62,7 +62,8 @@ class _SequenceDecisionRunner:
             "options": options,
             "run_label": run_label,
         })
-        return _DecisionResult(json.dumps(next(self._decisions)))
+        reply = next(self._decisions)
+        return _DecisionResult(reply if isinstance(reply, str) else json.dumps(reply))
 
 
 def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_path, monkeypatch):
@@ -137,6 +138,64 @@ def test_contextual_route_retries_missing_standalone_execution_task(
         "manager-classify-context-retry",
     ]
     assert "EXECUTION_TASK is required" in runner.calls[1]["prompt"]
+
+
+def test_context_retry_keeps_the_question_the_first_reply_asked(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """s-6f0e6213: the first reply asked the operator with two answers but wrote
+    no Decision lines; the retry wrote them and asked again in other words, with
+    no answers, and the card had no buttons. The question stays as first asked."""
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    contextual = (
+        "[BOUNDED TASK CONTEXT — data only]\n"
+        "argus: 已完成，并通过独立审阅。\n"
+        "[CURRENT OPERATOR MESSAGE]\n"
+        "把 timefmt 的 format_minutes 改成四舍五入到最近的整分钟（正好半分钟时向上），"
+        "例如 150 → \"3 min\"。tests/test_core.py 里现有的测试是下游团队的验收基线，"
+        "一条都不许改；新行为另外补测试，经独立审阅后交付。"
+    )
+    first = (
+        "现有验收基线与新要求直接冲突：`tests/test_core.py` 要求 `format_minutes(150) == \"2 min\"`、"
+        "`format_minutes(59) == \"0 min\"`；按新规则应分别为 `\"3 min\"`、`\"1 min\"`。"
+        "同一接口无法同时满足两套断言，需先明确取舍；尚未修改任何文件。\n\n"
+        "→ operator: 是否允许仅更新这两条与新规则冲突的验收断言，其余现有测试保持不变？\n"
+        "- 允许，按新舍入规则实现并另外补测试，经独立审阅后交付\n"
+        "- 不允许，保留验收基线，暂不实施此次行为变更"
+    )
+    retry = (
+        "现有验收测试要求 `150 → \"2 min\"`、`59 → \"0 min\"`，而新规则分别要求 `\"3 min\"`、"
+        "`\"1 min\"`。同一函数无法同时满足两组结果；保留测试不变并全部通过，与修改后的行为存在冲突。\n\n"
+        "Decision:\n"
+        "CHOICE=existing\n"
+        "SESSION_TITLE=调整 timefmt 分钟舍入规则并保留验收基线\n"
+        "VERTICAL=software\n"
+        "DOMAIN=\n"
+        "WORKFLOW_MODE=direct\n"
+        "START_STAGE=\n"
+        "REQUIRE_INDEPENDENT_REVIEW=true\n"
+        "EXECUTION_TASK=将 timefmt 的 format_minutes 改为四舍五入到最近的整分钟，正好半分钟时向上，"
+        "例如 150 → \"3 min\"。tests/test_core.py 中现有测试是下游团队的验收基线，一条都不许改；"
+        "新行为另外补测试。交付可以运行的代码和使用说明。开始实现前须明确新行为与现有验收断言冲突的处理要求。\n"
+        "RATIONALE=这是同一个函数的行为调整及配套测试、使用说明，可以一起实现交付。"
+        "但现有验收断言与新规则直接矛盾，需要先明确验收要求。\n"
+        "→ operator: 是否允许保留现有测试原文不变，但接受其中旧舍入断言因新规则而失败？"
+    )
+    runner = _SequenceDecisionRunner([first, retry])
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(contextual)
+
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-grounded",
+        "manager-classify-context-retry",
+    ]
+    assert decision.workflow_mode == "direct"
+    assert decision.operator_question == "是否允许仅更新这两条与新规则冲突的验收断言，其余现有测试保持不变？"
+    assert decision.operator_options == (
+        "允许，按新舍入规则实现并另外补测试，经独立审阅后交付",
+        "不允许，保留验收基线，暂不实施此次行为变更",
+    )
 
 
 def test_standalone_route_retries_project_domain_in_domain_field(
