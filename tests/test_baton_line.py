@@ -251,6 +251,10 @@ def test_a_person_reads_the_prose_without_the_protocol() -> None:
     assert strip_handoff(
         'Prose.\nARGUS_ROLE_DECISION={"role":"planner","payload":{}}\nDecision:\nRESULT=Parser fixed.\n→ reviewer'
     ) == "Prose.\nParser fixed."
+    # Trial s-6f0e6213: the Manager's stage verdict read "… ACTION=hold TARGET_STAGE=delivery REASON=…".
+    assert strip_handoff(
+        "**暂不能交付。** 还没有实现。\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=实现未完成"
+    ) == "**暂不能交付。** 还没有实现。"
 
 
 # --- Routing ----------------------------------------------------------------

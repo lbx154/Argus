@@ -62,11 +62,17 @@ const AGENT_HANDOFF_LINE = new RegExp(
   + `|^[>*\\s-]*(?:→|->|=>)\\s*[\`*]*(?:${BATON_HOLDER_NAMES.join('|')})[\`*]*\\s*(?:$|[:：])`,
   'i',
 );
+// Under the last Decision: marker the host reads its actions (ACTION=hold, …);
+// only a RESULT= sentence there was written for a person.
+const DECISION_MARKER = /^\s*(?:final\s+)?decision\s*:\s*$/i;
+const RESULT_LINE = /^[ \t]*(?:[-*+][ \t]*)?[`*_]*(?:ARGUS_)?RESULT[`*_]*[ \t]*[:=]/i;
 
 export function visibleAgentText(value: unknown): string {
-  return String(value ?? '')
-    .split(/\r?\n/)
-    .filter((line) => !AGENT_HANDOFF_LINE.test(line.trim()))
+  const lines = String(value ?? '').split(/\r?\n/);
+  const footer = lines.map((line) => DECISION_MARKER.test(line)).lastIndexOf(true);
+  return lines
+    .filter((line, index) => (footer < 0 || index < footer || RESULT_LINE.test(line))
+      && !AGENT_HANDOFF_LINE.test(line.trim()))
     .join('\n')
     .trim();
 }

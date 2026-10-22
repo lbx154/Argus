@@ -11,7 +11,6 @@ import {
   plainCommand,
   plainToolLabel,
   renderFeedRows,
-  rowPreview,
   type FeedGroup,
   type FeedRow,
   type FeedRowInput,
@@ -21,15 +20,16 @@ import { theme, toneColor } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
 import { PanelHeader, EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { ArgusMark } from './Wordmark';
-import { useI18n } from '../i18n';
+import { useI18n, type Locale } from '../i18n';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
-import { plainDetail, plainTaskReport } from '../lib/plainStatus';
+import { plainDetail, plainTaskReport, type PlainDetail } from '../lib/plainStatus';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
@@ -45,6 +45,16 @@ import { writeLocalStorage } from '../lib/storage';
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
+
+/** A row as the feed says it: a call reads as "verb + object" or as the command
+ * it ran, with its raw text kept for the tooltip; a report in plain words. */
+function rowText(ev: EventMsg, r: RenderedLine, locale: Locale): PlainDetail {
+  const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
+  if (call === 'tool_use') return { text: plainToolLabel(ev, locale), technical: r.text };
+  if (call === 'command_execution') return { text: plainCommand(r.text), technical: r.text };
+  const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
+  return plainDetail(report, locale);
+}
 
 function EventRow({
   ev,
@@ -70,11 +80,7 @@ function EventRow({
   const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
-  const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
-  const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
-  // A call reads as "verb + object" or as the command it ran; its raw text folds into the tooltip.
-  const plain = call === 'tool_use' ? { text: plainToolLabel(ev, locale), technical: r.text }
-    : call === 'command_execution' ? { text: plainCommand(r.text), technical: r.text } : plainDetail(report, locale);
+  const plain = rowText(ev, r, locale);
   const resultText = result ? plainDetail(result.r.text, locale).text : '';
   const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (
@@ -381,7 +387,9 @@ function RoleLogGroup({
   const [readingHistory, setReadingHistory] = useState(false);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
   const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
-  const preview = folded.length ? rowPreview(folded[folded.length - 1], t, locale) : '';
+  // The collapsed header says the newest row as the log below says it.
+  const latest = folded[folded.length - 1];
+  const preview = !latest ? '' : latest.kind === 'group' ? groupSummary(latest, t, locale) : rowText(latest.ev, latest.r, locale).text;
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -419,7 +427,7 @@ function RoleLogGroup({
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
         <span className="font-mono text-xs text-ink-faint">{folded.length}</span>
-        {preview ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{preview}</span> : <span className="flex-1" />}
+        {preview ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint"><MarkdownExcerpt>{preview}</MarkdownExcerpt></span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>

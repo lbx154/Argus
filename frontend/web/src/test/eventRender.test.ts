@@ -135,6 +135,12 @@ describe('the web feed line', () => {
     expect(rendered?.text).toBe('I need the operator to choose the report format.');
   });
 
+  it('hides the host actions under Decision: and keeps a RESULT= sentence', () => {
+    const say = (text: string) => line({ type: 'engineer.progress', kind: 'agent_message', text, agent_layer: 'manager' })?.text;
+    expect(say('Not ready.\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=work remains')).toBe('Not ready.');
+    expect(say('Built it.\nDecision:\nRESULT=Parser fixed.\n→ reviewer')).toBe('Built it.\nRESULT=Parser fixed.');
+  });
+
   it('shows a credential-shaped token as written and flags it', () => {
     const rendered = line({
       type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
