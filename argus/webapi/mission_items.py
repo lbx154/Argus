@@ -11,6 +11,7 @@ from typing import Any, Mapping, MutableMapping
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..core.config_snapshot import build_config_snapshot
+from ..core.mission_view import operator_objective
 from ..core.role_config import resolve_all_roles
 from ..core.session import (
     session_lifecycle_lock,
@@ -255,7 +256,11 @@ def get_backlog_item(
     *,
     global_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
-    """Return one full backlog item (compact snapshots intentionally omit it)."""
+    """Return one full backlog item (compact snapshots intentionally omit it).
+
+    Its objective reads as on the map and at the top: the operator's own
+    request where the roles work to a brief written from it.
+    """
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
@@ -266,7 +271,10 @@ def get_backlog_item(
         )
     except Exception:  # noqa: BLE001
         return None
-    return item.to_jsonable() if item is not None else None
+    if item is None:
+        return None
+    row = item.to_jsonable()
+    return {**row, "objective": operator_objective(row)}
 
 
 def abort_project_mission(

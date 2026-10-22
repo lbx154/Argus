@@ -139,7 +139,7 @@ describe('foldFeedRows · tool groups (rule a, b)', () => {
     const cut = call('view', {});
     cut.text = 'view: {"path": "/very/long/path/to/notes.md", "view_range": [1, -1], "forceReadLarg';
     const [step] = fold([cut]) as FeedStep[];
-    expect(stepTarget(step)).toBe('notes.md');
+    expect(stepTarget(step, 'en')).toBe('notes.md');
   });
 });
 
@@ -284,11 +284,12 @@ describe('foldFeedRows · a real campaign', () => {
     ), 0);
     const echoes = events.filter((event) => event.type === 'engineer.progress' && event.kind === 'tool_use' && event.status === 'failed').length;
 
-    // 622 events → 196 rendered rows → 118 rows once folded (manager 5→5,
-    // planner 18→11, engineer 157→95, reviewer 13→5, Argus updates 3→2).
+    // 622 events → 194 rendered rows → 116 rows once folded (manager 5→5,
+    // planner 18→11, engineer 155→93, reviewer 13→5, Argus updates 3→2).
     // The recording's two retired idea-portfolio events render as nothing,
-    // nor do Planner errors retried on their own or a task's repeated start.
-    expect(before).toBe(196);
+    // nor do Planner errors retried on their own, a task's repeated start,
+    // or the end of a task's run that its completion row already tells.
+    expect(before).toBe(194);
     expect(after).toBeLessThanOrEqual(Math.round(before * 0.65));
     // Every rendered row is still reachable: as a step, a group member or a repeat.
     expect(preserved + echoes).toBe(before);

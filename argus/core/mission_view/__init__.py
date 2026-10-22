@@ -32,7 +32,12 @@ from __future__ import annotations
 
 from ._dispatch import reduce_mission_view_event, update_mission_view_event
 from ._reduce_helpers import _event_id as work_record_event_id
-from ._snapshot import merge_mission_view_snapshot, operator_objective, snapshot_mission_view
+from ._snapshot import (
+    awaits_operator,
+    merge_mission_view_snapshot,
+    operator_objective,
+    snapshot_mission_view,
+)
 from ._view_state import (
     MISSION_VIEW_FILE,
     MISSION_VIEW_SCHEMA_VERSION,
@@ -45,6 +50,7 @@ from ._wording import say, sentences, session_is_chinese, uses_cjk
 __all__ = [
     "MISSION_VIEW_FILE",
     "MISSION_VIEW_SCHEMA_VERSION",
+    "awaits_operator",
     "empty_mission_view",
     "load_mission_view",
     "merge_mission_view_snapshot",

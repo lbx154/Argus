@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "ask_operator",
     "notify_pending_question",
+    "numbered_options",
     "pending_question_message",
     "should_report_pending_wait",
 ]
@@ -157,6 +158,22 @@ def should_report_pending_wait(
     return True
 
 
+def numbered_options(options: Any, chinese: bool) -> str:
+    """A card's answers, numbered so a reply can be one digit; "" when it offers none."""
+    choices = [
+        str(option.get("label") or option.get("id") or "").strip()
+        for option in (options or [])
+        if isinstance(option, dict)
+    ]
+    choices = [choice for choice in choices if choice]
+    if not choices:
+        return ""
+    return "\n".join([
+        "可选（回复编号即可）：" if chinese else "Options (reply with a number):",
+        *(f"{number}. {choice}" for number, choice in enumerate(choices, 1)),
+    ])
+
+
 def pending_question_message(
     *, project: str, title: str, question: str, options: Any = None
 ) -> str:
@@ -172,17 +189,8 @@ def pending_question_message(
         "",
         question.strip(),
     ]
-    choices = [
-        str(option.get("label") or option.get("id") or "").strip()
-        for option in (options or [])
-        if isinstance(option, dict)
-    ]
-    choices = [choice for choice in choices if choice]
-    if choices:
-        lines += [
-            "",
-            ("可选：" if chinese else "Options: ") + " / ".join(choices[:6]),
-        ]
+    if choices := numbered_options(options, chinese):
+        lines += ["", choices]
     lines += [
         "",
         "直接回复，或在网页端处理。"
@@ -251,9 +259,11 @@ def ask_operator(
     save(park_reason="operator_question", pending_question=question, operator_decision=card)
     item.pending_question, item.operator_decision = question, card
     notify_pending_question(root, item)
+    choices = [option["label"] for option in card["options"]]
     emit({
         "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": item.id,
         "title": item.title, "question": question, "agent_layer": layer,
+        **({"options": choices} if choices else {}),
     })
 
 

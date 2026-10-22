@@ -34,8 +34,7 @@ def turn(root, message, action, **fields):
         fields.setdefault("title", "Build a reusable calendar workflow")
         fields.setdefault("summary", "Explain traditional calendar conventions with cited sources and reuse checks.")
     if action == "ask" and "options" not in fields:
-        fields["options"] = [{"label": "Cultural education", "description": "Cite conventions and uncertainty"},
-                             {"label": "Date conversion", "description": "Calendar table with sources"}]
+        fields["options"] = ["Cultural education", "Date conversion"]
     return handle_intake(root, message, {"action": action, **fields}, route="simple",
                          self_mode="reply", known_verticals=("research", "software"))
 
@@ -132,22 +131,20 @@ def test_ask_without_manager_options_never_replaces_the_card(tmp_path):
     assert read_intake(tmp_path) == previous
 
 
-def test_model_choices_keep_their_meaning_and_enforce_required_details(tmp_path):
+def test_model_choices_answer_in_their_own_words(tmp_path):
     from argus.manager.domain_intake import intake_answer, intake_card
     turn(tmp_path, "Interpret this date", "offer")
-    turn(tmp_path, "Build it", "ask", question="Which level of precision?", options=[
-        {"label": "Use the date only", "description": "Discuss broad cultural conventions."},
-        {"id": "build", "label": "Supply the birth time", "description": "Use hour-level conventions.", "requires_note": True},
-    ])
+    turn(tmp_path, "Build it", "ask", question="Which level of precision?",
+         options=["Use the date only: broad cultural conventions", "Supply the birth time: hour-level conventions"])
     state = read_intake(tmp_path)
     card = intake_card(state)
     assert [o["id"] for o in card["options"]] == ["option-1", "option-2"]
-    text, action = intake_answer(state, {"id": card["id"], "option_id": "option-1"})
-    assert action == "dialogue" and "broad cultural conventions" in text
-    with pytest.raises(ValueError):
-        intake_answer(state, {"id": card["id"], "option_id": "option-2"})
-    text, action = intake_answer(state, {"id": card["id"], "option_id": "option-2", "note": "09:00"})
-    assert action == "dialogue" and "09:00" in text
+    assert intake_answer(state, {"id": card["id"], "option_id": "option-1"}) == (
+        "Use the date only: broad cultural conventions", "dialogue",
+    )
+    assert intake_answer(state, {"id": card["id"], "option_id": "option-2", "note": "09:00"}) == (
+        "Supply the birth time: hour-level conventions\n09:00", "dialogue",
+    )
 
 
 def test_manager_can_prepare_after_explicit_consent_when_requirements_are_already_known(tmp_path):

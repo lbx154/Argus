@@ -39,7 +39,7 @@ export function PendingDecisionPrompt({
           ))}
         </Box>
       ) : null}
-      {intake || freeform || selected?.requires_note ? (
+      {intake || freeform || selected?.id === 'custom' ? (
         <Box marginTop={1}>
           <Text color={theme.accent}>{zh ? '回答 / 补充 › ' : 'Your response › '}</Text>
           <Text>{note.value}</Text>

@@ -288,6 +288,7 @@ def test_direct_dispatch_attaches_reference_deps(
         lifetime="bounded",
         continuous=False,
         open_ended=False,
+        public_objective=None,
         failed=lambda exc: None,
     )
     item, _alive, _pid = dispatch.enqueue_mission(

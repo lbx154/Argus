@@ -52,13 +52,11 @@ def _blocked_project(tmp_path, sid: str = "s-decision"):
                 "id": "local-fallback",
                 "label": "Use the local fallback",
                 "description": "Use the local fallback.",
-                "requires_note": False,
             },
             {
                 "id": "stop",
                 "label": "Stop this campaign",
                 "description": "Keep the current work and stop.",
-                "requires_note": False,
             },
         ],
     )
@@ -90,13 +88,11 @@ def _bound_blocked_project(tmp_path, sid: str = "s-decision"):
                 "id": "local-fallback",
                 "label": "Use the local fallback",
                 "description": "Use the local fallback.",
-                "requires_note": False,
             },
             {
                 "id": "stop",
                 "label": "Stop this campaign",
                 "description": "Keep the current work and stop.",
-                "requires_note": False,
             },
         ],
         project_id=sid,

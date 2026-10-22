@@ -543,8 +543,10 @@ class VerticalDecision:
     workflow_profile: str = ""
     workflow_requested_stages: tuple[str, ...] = ()
     # ``→ operator: <question>``: the operator decides before any work starts,
-    # so the task waits on this question instead of being dispatched.
+    # so the task waits on this question, and the answers listed under it,
+    # instead of being dispatched.
     operator_question: str = ""
+    operator_options: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -966,6 +968,7 @@ def parse_vertical_decision(
     )
     handoff = read_baton_line(raw_text) if isinstance(raw_text, str) else None
     operator_question = handoff.question if handoff is not None else ""
+    operator_options = handoff.options if handoff is not None else ()
     choice = str(obj.get("choice") or "").strip().lower()
     if choice == "existing":
         identity = _resolve_existing_identity(
@@ -1056,6 +1059,7 @@ def parse_vertical_decision(
                 exclusions=exclusions,
                 ambiguities=ambiguities,
                 operator_question=operator_question,
+                operator_options=operator_options,
             )
         return None
     if choice == "new":
@@ -1096,5 +1100,6 @@ def parse_vertical_decision(
             exclusions=exclusions,
             ambiguities=ambiguities,
             operator_question=operator_question,
+            operator_options=operator_options,
         )
     return None

@@ -816,7 +816,14 @@ cleared, with success rate and cost improving as experience grows.
 
 #### LE-3 Retire useless experience
 `0.8` · `M` · Depends on: LE-1
-- Do: mark skills as retired when nobody has used them for a long time or they are linked to failures.
+- Do: experience that no longer holds (later facts overturned it, or the problem it describes was fixed) stops being
+  recalled. Facts and the agents' judgment decide; nothing expires by age and nothing is scored.
+- Status: the knowledge-page part is implemented on `feat/retire-lessons`, not yet merged. Every recalled line carries
+  the date the page was written and where it came from, and a page that holds only for one version or environment
+  names it in its description; a role that finds current facts contradicting a page gives its path and why in its
+  report. The post-mission reflection and the shared-principles pass name such a page on a `RETIRE: <page> — <why>`
+  line, and the host moves the whole page into its library's `.history`, drops its INDEX line, and records who retired
+  it, when and why in the knowledge journal. Retiring Skills is not done.
 
 #### LE-4 Measure knowledge-page reuse across tasks
 `0.8` · `S` · Depends on: none · good first issue

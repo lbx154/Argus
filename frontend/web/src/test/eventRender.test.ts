@@ -55,6 +55,15 @@ describe('the web feed line', () => {
     expect(line({ ...note, tags: ['config'] })).toBeNull();
     expect(line({ ...note, tags: [] })?.text).toContain("Set all Argus roles' model");
   });
+  it('says the Planner updated its plan without calling every plan research', () => {
+    // 2026-10-21: a software task read 规划者：更新了研究计划.
+    expect(zh({ type: 'user.note', title: 'research plan updated', tags: ['planner', 'research_plan'] })?.text).toBe('更新了计划');
+  });
+  it('leaves the end of a team task to its completion row', () => {
+    // 2026-10-21: a task the Reviewer closed also ended with 工程师：这次运行结束，共 1 轮.
+    expect(line({ type: 'loop.done', status: 'done', rounds: 1, item_id: 't-1' })).toBeNull();
+    expect(line({ type: 'loop.done', status: 'done', rounds: 1 })?.text).toBe('the run finished after 1 round');
+  });
   it('explains a refused Manager check without claiming a team decision failed', () => {
     const event = {
       type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',
@@ -158,10 +167,10 @@ describe('the web feed line', () => {
       execution_task: 'Fix the stale goal after Stop.',
       reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
     };
-    expect(line(event)?.text).toBe('Handing this to the team, in stages.\n'
-      + 'This wraps up once it is done. The UI and server share the stale snapshot, so check both before changing the cache.');
-    expect(zh(event)?.text).toContain('交给团队，分几个阶段做。');
-    expect(zh(event)?.text).toContain('这件事做完就收尾。');
+    expect(line(event)?.text).toBe('Handing this to the team, in stages. '
+      + 'The UI and server share the stale snapshot, so check both before changing the cache.');
+    // A bounded task ending when it is done goes unsaid, and no line break turns into a stray space.
+    expect(zh({ ...event, reason: '两项要求互相冲突。' })?.text).toBe('交给团队，分几个阶段做。两项要求互相冲突。');
     expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
   });
 
@@ -172,7 +181,7 @@ describe('the web feed line', () => {
       objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
       reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
     };
-    expect(zh(event)?.text).toBe('交给团队来做。\n之后会持续跟进。');
+    expect(zh(event)?.text).toBe('交给团队来做。之后会持续跟进。');
     expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
   });
 
@@ -189,11 +198,11 @@ describe('the web feed line', () => {
 
   it('does not invent a team, review step or permission for unknown routing fields', () => {
     const missing = { type: 'life.manager.intent.completed', reason: 'Waiting for the operator to choose a dataset.' };
-    expect(line(missing)?.text).toBe('The approach is set.\nWaiting for the operator to choose a dataset.');
+    expect(line(missing)?.text).toBe('The approach is set. Waiting for the operator to choose a dataset.');
     expect(line({ ...missing, workflow_mode: 'constructor', lifetime: 'new-mode' })?.text).toBe(line(missing)?.text);
     expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('我直接来处理。');
     expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('One piece first');
-    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toContain('只做这次的目标。');
+    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toBe(zh(missing)?.text);
     expect(zh({ ...missing, lifetime: 'standing', open_ended: false })?.text).not.toContain('持续跟进');
     expect(line({ ...missing, reason: '[source: latency.csv] Both runs must use the same batch size.' })?.text)
       .toContain('[source: latency.csv] Both runs must use the same batch size.');
@@ -227,6 +236,17 @@ describe('the web feed line', () => {
     expect(line({ type: 'round.review.completed', status: 'done', reason: 'ok' })!.tone).toBe('ok');
     expect(line({ type: 'round.review.completed', status: 'blocked', reason: 'x' })!.tone).toBe('err');
     expect(line({ type: 'round.review.completed', status: 'continue', reason: 'x' })!.tone).toBe('warn');
+  });
+
+  it('says a review that hands the choice to the operator waits on them, not that the work is stuck', () => {
+    // Trial s-934a4569: `→ operator: A or B?` read "审阅者认为工作卡住了".
+    const asked = { type: 'round.review.completed', status: 'blocked', reason: 'A and B conflict.', operator_question: 'A or B?' };
+    expect(zh(asked)).toMatchObject({ text: '审阅者把选择交给你 · A and B conflict.', tone: 'warn', glyph: '❓' });
+    expect(line(asked)!.text).toBe('the Reviewer leaves the choice to you · A and B conflict.');
+    expect(zh({ ...asked, operator_question: '' })!.text).toMatch(/^审阅者认为工作卡住了/);
+    // The task it ended is parked on that question, as its row is.
+    expect(zh({ type: 'life.mission.completed', status: 'blocked', outcome_class: 'blocked', success: false, operator_question: 'A or B?' }))
+      .toMatchObject({ text: '任务在完成前暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
   });
 
   it('presents an explicitly skipped review as an informational interruption, in both languages', () => {

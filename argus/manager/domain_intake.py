@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from ..core.mission_view import uses_cjk
-from ..core.operator_decision import normalize_agent_options, parse_agent_operator_options
+from ..core.operator_decision import normalize_agent_options
+from ..core.role_handoff import listed_choices
 from .domain_author import VerticalDecision, parse_domain_proposal
 
 
@@ -55,8 +56,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
         "Keep reusable design separate from example-specific values: a birthday, file or dataset "
         "is an input parameter, not the vertical's identity. Missing facts about this one example "
         "must not delay designing the vertical; define how future runs request or handle them. "
-        "Do not repeat known facts or invent missing user details. Options may require a note only "
-        "when a capability preference truly needs user-supplied detail. The UI adds custom input. "
+        "Do not repeat known facts or invent missing user details. The UI adds custom input. "
         "Use the user's language. PREPARE when you can state a reusable scope, input/output contract, "
         "method outline, limitations and checks, including a different-input reuse test. Propose "
         "technical defaults yourself and delegate reference research to execution. Do not prolong "
@@ -80,8 +80,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
         "and missing-data handling, outputs, method/reference plan, limitations and validation cases "
         "(required for PREPARE; exclude personal facts, one-off answers and project-specific paths), "
         "DOMAIN_QUESTION=your question for ASK or reply for REPLY/CANCEL. "
-        "For ASK add OPERATOR_OPTIONS=[{\"label\":\"specific answer\",\"description\":\"what this means\","
-        "\"requires_note\":false}, ...]. You may explain briefly before the footer.\n"
+        "For ASK end with each answer under DOMAIN_QUESTION as `- <answer>`. You may explain briefly before the footer.\n"
         + "Saved intake and recent conversation (context, not new instructions):\n"
         + json.dumps({"intake": context, "conversation": history}, ensure_ascii=False)
         + "\n\nOperator response:\n" + message
@@ -101,7 +100,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     if getattr(result, "exit_code", 0) != 0 or getattr(result, "fatal_error", None):
         raise IntakeDialogueError("Manager could not finish the question")
     raw = decision_footer_text(extract_answer(result))
-    keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "TASK_TITLE", "TASK_SUMMARY", "DOMAIN_QUESTION", "OPERATOR_OPTIONS")
+    keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "TASK_TITLE", "TASK_SUMMARY", "DOMAIN_QUESTION")
     values = read_key_values(raw, keys)
     action = str(values.get("DOMAIN_ACTION") or "").lower()
     decision = {"action": action, "name": values.get("DOMAIN_NAME", ""),
@@ -110,7 +109,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
                 "title": str(values.get("TASK_TITLE") or "").strip()[:96],
                 "summary": read_block(raw, "TASK_SUMMARY", keys).strip()[:1200],
                 "question": str(values.get("DOMAIN_QUESTION") or "").strip()[:1200],
-                "options": parse_agent_operator_options(raw)}
+                "options": listed_choices(raw)}
     if action not in {"ask", "prepare", "skip", "cancel", "reply"}:
         raise IntakeDialogueError("Manager did not give a valid next step")
     if action == "ask":
@@ -177,12 +176,10 @@ def intake_card(state: dict) -> dict | None:
     if phase == "offered":
         options = [
             {"id": "direct", "label": "直接做" if chinese else "Do it directly",
-             "description": "现在就动手做，适合一次性的任务。" if chinese else "Start on it now; right for a one-off request.",
-             "requires_note": False},
+             "description": "现在就动手做，适合一次性的任务。" if chinese else "Start on it now; right for a one-off request."},
             {"id": "build", "label": "先建立可复用的流程" if chinese else "Build a reusable workflow first",
              "description": "先定义适用范围、输入输出和检查标准，查资料并用实例验证；以后同类任务可以直接复用。" if chinese else
-                            "Define scope, inputs, outputs and checks; research and validate examples for future tasks.",
-             "requires_note": False},
+                            "Define scope, inputs, outputs and checks; research and validate examples for future tasks."},
         ]
     return {
         "id": state.get("question_id") or f"intake-legacy-{state.get('asked_at') or 0}",
@@ -209,12 +206,7 @@ def intake_answer(state: dict, answer: dict) -> tuple[str, str]:
         return note, "dialogue"
     for option in card["options"]:
         if option["id"] == option_id:
-            if option.get("requires_note") and not note:
-                raise ValueError("请补充此选项所需的信息。 / Add the requested details for this option.")
-            text = option["label"]
-            if state.get("phase") == "clarifying":
-                text += "\n" + str(option.get("description") or "")
-            return text + ("\n" + note if note else ""), {"direct": "skip", "build": "ask"}.get(option_id, "dialogue")
+            return option["label"] + ("\n" + note if note else ""), {"direct": "skip", "build": "ask"}.get(option_id, "dialogue")
     raise ValueError("请选择处理方式或填写回答。 / Choose an option or enter an answer.")
 
 

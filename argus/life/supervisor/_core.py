@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
-from ...core.mission_view import say, sentences, uses_cjk
+from ...core.mission_view import awaits_operator, say, sentences, uses_cjk
 from ...core.planner_verdict import (
     PlannerVerdictStatus,
     build_planner_verdict_event,
@@ -1505,6 +1505,12 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - a status line must not break settlement
             return 0
 
+    def _question_waits(self) -> bool:
+        try:
+            return awaits_operator(vars(row) for row in self.memory.backlog.active())
+        except Exception:  # noqa: BLE001 - a status line must not break settlement
+            return False
+
     def _project_report_tells(self, event: dict[str, Any]) -> bool:
         """Whether this finished task is the whole project, told by its report.
 
@@ -1543,6 +1549,7 @@ class LifeSupervisor(
         try:
             from ...core.operator_messages import (
                 brief_title,
+                first_sentence,
                 publish_operator_message,
                 render_operator_update,
             )
@@ -1737,14 +1744,15 @@ class LifeSupervisor(
                     },
                 )
                 return
+            reviewed = event.get("review_source") == "reviewer"
             reviewer_found_nothing = bool(
-                overall_complete and independent_review_required and review == "done"
-                and event.get("review_source") == "reviewer"
+                overall_complete and independent_review_required and review == "done" and reviewed
             )
-            # The item is done while other planned work goes on.
-            deferred = (
-                not campaign_continues
-                and str(outcome.get("stage_certification") or "").strip() == "deferred"
+            # The item is done while other planned work goes on, or while
+            # another task waits on the operator's answer.
+            deferred = not campaign_continues and (
+                str(outcome.get("stage_certification") or "").strip() == "deferred"
+                or self._question_waits()
             )
             if final_submission_certified:
                 headline = say("final_submission_ready", chinese)
@@ -1780,7 +1788,9 @@ class LifeSupervisor(
                     part
                     for part in (
                         headline,
-                        summary,
+                        # A Reviewer's summary is told in full on its review row;
+                        # here only its first sentence, the one it writes for the operator.
+                        first_sentence(summary) if reviewed else summary,
                         delivery_line,
                         continuation,
                         assumptions_line,

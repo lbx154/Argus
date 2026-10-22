@@ -85,6 +85,15 @@ def _tool_label(text: str) -> tuple[str, str]:
 
 
 _INTERNAL_FILE = "Argus 内部文件"
+_CJK = re.compile(r"[㐀-鿿]")
+# The Copilot CLI spills a long tool output to ``<ts>-copilot-tool-output-<id>.txt``
+# and reads it back from there.
+_TOOL_OUTPUT_FILE = re.compile(r"-copilot-tool-output-")
+# Argus' own tools run as ``python -m argus.tools.<name>``.
+_ARGUS_TOOL = re.compile(r"-m\s+argus\.tools\.")
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.~:-])/[^\s'\"`;|&()<>]+")
+# A pattern in regular-expression syntax tells a reader nothing.
+_REGEX_SYNTAX = re.compile(r"[\\^$|\[\]]|\.\*")
 
 _READ_TOOLS = frozenset({"view", "read", "read_file", "readfile", "cat", "open", "open_file", "ls", "list_dir"})
 _SEARCH_TOOLS = frozenset({
@@ -102,40 +111,75 @@ _URL_KEYS = ("url", "uri", "href")
 _PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
 
 
+def _parts(path: str) -> list[str]:
+    return [part for part in path.replace("\\", "/").split("/") if part]
+
+
+# The root of a knowledge wiki: a project's own under ``.autors``, the shared
+# ones under the Argus home (``wiki/_global``, ``wiki/_shared_verticals/<v>``).
+_WIKI_ROOTS = ((".autors", "*", "wiki"), ("wiki", "_global"), ("wiki", "_shared_verticals", "*"))
 # Path segments that only Argus' own plumbing uses: session stores, shared
-# skill libraries, handoff checkpoints, the shipped verticals.
+# skill libraries and wikis, handoff checkpoints, the shipped verticals, and
+# the installed Argus package itself (its built-in skills).
 _PLUMBING_SEGMENTS = (
     ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
     ("argus", "verticals"), (".autors",),
-    ("role-sessions",), ("copilot-home",),
+    ("role-sessions",), ("copilot-home",), *_WIKI_ROOTS,
+    tuple(_parts(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))),
 )
 
 
-def _is_plumbing(parts: list[str]) -> bool:
-    for marker in _PLUMBING_SEGMENTS:
+def _marker_end(parts: list[str], markers: tuple[tuple[str, ...], ...]) -> int:
+    """Where the first of ``markers`` found in ``parts`` ends; 0 when none is there."""
+    for marker in markers:
         for start in range(len(parts) - len(marker) + 1):
             if all(want in {"*", parts[start + offset]} for offset, want in enumerate(marker)):
-                return True
-    return False
+                return start + len(marker)
+    return 0
+
+
+def _phrase(verb: str, target: str) -> str:
+    """``查阅 main.py``, but ``查阅项目目录``: Chinese words take no space between them."""
+    return f"{verb}{'' if _CJK.match(target) else ' '}{target}"
 
 
 def _short_name(path: str, workspace: str = "") -> str:
     """Return a path the operator can read: a basename, never an absolute path.
 
     Files of Argus' own plumbing (session stores, skill libraries) are named
-    as such rather than spelled out. Any other file --
-    including a repository outside the session workspace that the operator
-    asked about -- is named by its file name, because reading it is the work.
+    as such rather than spelled out; a page of a knowledge wiki, the
+    project's own or a shared one, is named as the page it is, because roles
+    read it as material. Any other file -- including a repository outside
+    the session workspace that the operator asked about -- is named by its
+    file name, because reading it is the work.
     """
     text = str(path or "").strip().strip("'\"")
-    if not text:
-        return ""
-    parts = [part for part in text.replace("\\", "/").split("/") if part]
-    if _is_plumbing(parts[:-1]):
+    parts = _parts(text)
+    if not parts:
+        return text
+    if _TOOL_OUTPUT_FILE.search(parts[-1]):
+        return "工具输出"
+    wiki = _marker_end(parts, _WIKI_ROOTS)
+    if wiki:
+        return f"知识页 {os.path.splitext(parts[-1])[0]}" if len(parts) > wiki else "知识库"
+    if _marker_end(parts, _PLUMBING_SEGMENTS):
         return _INTERNAL_FILE
     if workspace and os.path.normpath(text) == os.path.normpath(workspace):
         return "项目目录"
-    return os.path.basename(text.rstrip("/")) or text
+    return parts[-1]
+
+
+def plain_command(command: str) -> str:
+    """A command line as the operator follows it.
+
+    A path into Argus' plumbing (a backend session's scratch files, a session
+    store) is cut to its last name; every other path is the work and stays.
+    """
+    def short(match: re.Match[str]) -> str:
+        parts = _parts(match.group())
+        return f"…/{parts[-1]}" if _marker_end(parts, _PLUMBING_SEGMENTS) else match.group()
+
+    return _ABSOLUTE_PATH.sub(short, command)
 
 
 def _parse_args(args: str) -> Any:
@@ -175,13 +219,16 @@ def _is_glob_tool(name: str) -> bool:
 
 
 def _readable_glob(pattern: str) -> str:
-    """``**/*.py`` -> ``.py 文件``; ``src/**/*`` -> ``src 里的 所有文件``.
+    """``**/*.py`` -> ``.py 文件``; ``src/**/*`` -> ``src 里的所有文件``.
 
     A glob is read as "which files": the directory part becomes the folder
     the search ran in (last segment only) and the file part becomes the kind
-    of file, so no slash reaches the status line.
+    of file, so no slash reaches the status line. A pattern with ``{a,b}``
+    alternatives reads as plain "files".
     """
     text = pattern.strip().strip("'\"").replace("\\", "/")
+    if "{" in text:
+        return "文件"
     parts = [part for part in text.split("/") if part and part not in {"**", "."}]
     leaf = parts[-1] if parts else "*"
     folders = [part for part in parts[:-1] if "*" not in part and "?" not in part]
@@ -189,12 +236,9 @@ def _readable_glob(pattern: str) -> str:
         what = "所有文件"
     elif re.fullmatch(r"\*\.[\w.]+", leaf):
         what = f"{leaf[1:]} 文件"
-    elif re.fullmatch(r"\*\.\{[\w,]+\}", leaf):
-        what = "、".join(f".{ext}" for ext in leaf[3:-1].split(",")) + " 文件"
     else:
         what = _clip(leaf, 40)
-    where = f"{folders[-1]} 里的 " if folders else ""
-    return _clip(f"{where}{what}", 60)
+    return _clip(_phrase(f"{folders[-1]} 里的", what) if folders else what, 60)
 
 
 def _no_paths(text: str) -> str:
@@ -219,14 +263,16 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
         path = args.split()[0]
     if verb == "read":
         target = _short_name(path, workspace)
-        return f"查阅 {target}" if target else "查阅文件"
+        return _phrase("查阅", target) if target else "查阅文件"
     if verb == "search":
         query = _first_value(payload, _QUERY_KEYS)
         if not query and payload is None and args and "{" not in args:
             query = args
         globbed = _first_value(payload, ("glob",)) and not _first_value(payload, ("pattern", "query", "q", "regex"))
         if query and (_is_glob_tool(name) or globbed):
-            return f"查找 {_readable_glob(query)}"
+            return _phrase("查找", _readable_glob(query))
+        if _REGEX_SYNTAX.search(query):
+            return "搜索文件内容"
         return f"搜索：{_clip(_no_paths(query), 48)}" if query else "搜索"
     if verb == "fetch":
         url = _first_value(payload, _URL_KEYS) or (args if payload is None else "")
@@ -234,7 +280,7 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
         return f"读取 {host}" if host else "读取网页"
     if verb == "edit":
         target = _short_name(path, workspace)
-        return f"修改 {target}" if target else "修改文件"
+        return _phrase("修改", target) if target else "修改文件"
     # The Reviewer's verdict goes through Argus' own action, not a tool of the work.
     return "提交审阅结论" if name.endswith("submit_review") else f"调用 {name}"
 
@@ -261,8 +307,11 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
             head = strip_shell_wrapper(_first_line(raw_text))
             status = str(event.get("status") or "").strip().lower()
             marker = "✗ $" if status in {"failed", "error"} else "$"
+            if _ARGUS_TOOL.search(head):
+                # Argus' own tool: the operator is told one ran, not shown its command line.
+                return "运行 Argus 内部工具", _clip(command, _DETAIL_LIMIT)
             if head:
-                label = f"{marker} {_clip(head, _LABEL_LIMIT - 2)}"
+                label = f"{marker} {_clip(plain_command(head), _LABEL_LIMIT - 2)}"
                 # Only carry a detail when it actually adds something (a
                 # multi-line or clipped command); never echo the label back.
                 detail = _clip(command, _DETAIL_LIMIT)
@@ -473,6 +522,7 @@ __all__ = [
     "ProgressDeduper",
     "ProgressTally",
     "describe_progress_step",
+    "plain_command",
     "plain_step_label",
     "strip_shell_wrapper",
 ]

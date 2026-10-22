@@ -243,13 +243,11 @@ test('operator decision prompt shows the full blocker and answer controls', asyn
         id: 'retry',
         label: 'Permission enabled — retry',
         description: 'Resume the same mission and rerun the verification.',
-        requires_note: false,
       },
       {
         id: 'custom',
         label: 'Give different guidance',
         description: 'Tell Argus what to do instead.',
-        requires_note: true,
       },
     ],
     selected_option: '',
@@ -950,8 +948,8 @@ test('workflow choice card shows request, options and optional note in a narrow 
   const [card] = operatorDecisionCards([{ operator_decision: {
     id: 'intake-1', kind: 'domain_intake', status: 'pending', item_id: '', title: '选择处理方式',
     task_title: '给我解释日历日期', question: '你希望怎么处理？', options_source: 'workflow',
-    options: [{ id: 'direct', label: '直接做', description: '单个 agent 处理', requires_note: false },
-      { id: 'build', label: '建立专门流程', description: '确认需求并查资料', requires_note: false }],
+    options: [{ id: 'direct', label: '直接做', description: '单个 agent 处理' },
+      { id: 'build', label: '建立专门流程', description: '确认需求并查资料' }],
   } }], []);
   const output = await renderNode(React.createElement(PendingDecisionPrompt, {
     card, selection: 1, note: { value: '注明来源', cursor: 4 }, busy: false, error: '',

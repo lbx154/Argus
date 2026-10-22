@@ -568,6 +568,20 @@ def test_activity_labels_progress_by_agent_layer(tmp_path):
     assert acts["engineer"].label == "run · pytest -q"
 
 
+def test_activity_names_calls_by_their_kind_without_a_summary(tmp_path):
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "engineer.progress", "kind": "command_execution", "agent_layer": "engineer",
+         "text": "set -o pipefail && pytest -q", "ts": now - 2},
+    ])
+    assert role_activity(tmp_path, now=now)["engineer"].label == "run · set -o pipefail && pytest -q"
+    _write_events(tmp_path, [
+        {"type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
+         "text": 'view: {"path": "/repo/core.py"}', "ts": now - 1},
+    ])
+    assert role_activity(tmp_path, now=now)["engineer"].label == "using view"
+
+
 def test_activity_keeps_action_summary_for_non_engineer_layers(tmp_path):
     now = time.time()
     _write_events(tmp_path, [{

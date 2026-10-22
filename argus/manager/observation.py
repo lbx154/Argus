@@ -107,7 +107,7 @@ class ManagerObservation:
 def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) -> ManagerObservation:
     from ..core.mission_view import load_mission_view
     from ..life.context_packet import mission_context_dir
-    from ..life.memory import Backlog, _read_jsonl_tail_history
+    from ..life.memory import Backlog, _read_jsonl_tail_history, operator_answers
     from ..life.role_activity import role_activity
 
     root = Path(root).expanduser().resolve()
@@ -124,7 +124,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         return value
 
     daemon = read_daemon_status(root)
-    active = Backlog(root / "backlog.jsonl").active()
+    backlog = Backlog(root / "backlog.jsonl")
+    active = backlog.active()
     # Selection limits presentation and per-task artifact reads, not awareness
     # of changes to the already-loaded canonical task inventory.
     backlog_revision = _semantic([
@@ -203,6 +204,9 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     event_rows = [{key: row[key] for key in event_fields if key in row} for row in relevant]
     facts: dict[str, Any] = {
         "objective": continuous.objective,
+        # Asked after the objective was written, the operator's answers are
+        # its later word wherever the two disagree.
+        "operator_answers": operator_answers(backlog, continuous.objective),
         "continuous_enabled": continuous.enabled,
         "daemon": {"alive": daemon.alive, "health": daemon.health_state},
         "tasks": items,

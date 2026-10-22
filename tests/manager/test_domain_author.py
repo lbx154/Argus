@@ -201,6 +201,27 @@ def test_vertical_parser_preserves_explicit_independent_review() -> None:
     assert decision.require_independent_review is True
 
 
+def test_vertical_parser_keeps_the_operator_question_and_its_options() -> None:
+    decision = parse_vertical_decision(
+        "\n".join([
+            "CHOICE=existing",
+            "VERTICAL=software",
+            "WORKFLOW_MODE=direct",
+            "RATIONALE=the two requirements contradict each other",
+            "→ operator: Which requirement wins?",
+            "- Keep the v1 API",
+            "- Ship the v2 schema",
+        ]),
+        known_verticals=("software",),
+        default_execution_task="Implement the cache.",
+    )
+
+    assert decision is not None
+    assert (decision.operator_question, decision.operator_options) == (
+        "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"),
+    )
+
+
 def test_new_domain_starts_with_real_work_not_process_ceremony() -> None:
     prompt = build_vertical_decision_prompt(
         "Optimize an unfamiliar inference runtime.",

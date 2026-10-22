@@ -482,7 +482,9 @@ def test_a_page_names_the_code_it_carries_and_not_the_material_it_cites(tmp_path
 
     lines = recall.recall("quartz").text.splitlines()
 
-    assert lines[1].endswith("Code listed with a page is relative to it; the page says how to run it.")
+    assert lines[1].endswith(
+        "Code listed with a page is relative to it; the page says how to run it, and "
+        "rerunning it shows whether the page still holds.")
     assert next(line for line in lines if "SKILL.md" in line).endswith(
         "code: `check.py`, `templates/case.rs`")
     assert next(line for line in lines if "defaults.md" in line).endswith(

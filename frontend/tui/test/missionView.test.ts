@@ -158,6 +158,14 @@ test('planner task labels are research-specific only for research routes', () =>
 });
 
 
+test('a Planner left waiting on the operator says it waits for their answer', () => {
+  const planner = (handoff: string) => reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.planner.idle', ts: 1, handoff, model_call_skipped: true,
+  }).roles.find((role) => role.role === 'planner');
+  assert.equal(planner('operator')?.kind, 'planner_awaits_answer');
+  assert.equal(planner('')?.kind, 'planner_no_new_work');
+});
+
 test('partial Manager intent events preserve existing routing axes', () => {
   const current = emptyMissionView();
   current.routing = {

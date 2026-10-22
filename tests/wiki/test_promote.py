@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from argus.wiki.correct import retire_page
 from argus.wiki.promote import promote_wiki_pages
 
 
@@ -75,6 +76,25 @@ def test_newer_project_page_replaces_older_shared_copy_but_not_the_reverse(tmp_p
     _write(wiki / "pages" / "notes.md", _page("Notes", "Stale", "Stale body.", audience="vertical"), 100)
     assert promote_wiki_pages(workspace, vertical="research", shared_root=shared) == {}
     assert "New body." in target.read_text(encoding="utf-8")
+
+
+def test_a_retired_shared_copy_stays_retired_until_the_project_page_changes(tmp_path):
+    workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
+    source = _project_wiki(workspace) / "pages" / "env" / "safe-path.md"
+    _write(source, _page("Safe path", "Set PYTHONPATH", "Body.", audience="vertical"), 1_790_000_000)
+    assert promote_wiki_pages(workspace, vertical="software", shared_root=shared) == {"software": ["env/safe-path.md"]}
+    library = shared / "_shared_verticals" / "software"
+    retire_page(library, "env/safe-path.md", reason="The host no longer sets PYTHONSAFEPATH.", now=1_790_000_100)
+
+    # Retired after the project page last changed: promotion does not bring it back.
+    assert promote_wiki_pages(workspace, vertical="software", shared_root=shared) == {}
+    assert not (library / "pages" / "env" / "safe-path.md").exists()
+
+    # Changed at the source after the retirement, the page is shared again.
+    _write(source, _page("Safe path", "Only under PYTHONSAFEPATH", "Body.", audience="vertical"), 1_790_000_200)
+    assert promote_wiki_pages(workspace, vertical="software", shared_root=shared) == {"software": ["env/safe-path.md"]}
+    assert "Only under PYTHONSAFEPATH" in (library / "pages" / "env" / "safe-path.md").read_text(encoding="utf-8")
+    assert "](pages/env/safe-path.md)" in (library / "INDEX.md").read_text(encoding="utf-8")
 
 
 def test_malformed_or_hidden_pages_are_skipped_without_raising(tmp_path):

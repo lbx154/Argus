@@ -26,6 +26,7 @@ import time
 from typing import Any, Callable
 
 from ..core.command_record import anonymous_call_id, captures_for, output_digest
+from ..core.progress_step import plain_command
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 # Items larger than this are truncated in the cooked progress event so a
@@ -70,44 +71,6 @@ def _render_tool_arguments(args: Any) -> str:
         except (TypeError, ValueError):
             return str(args)
     return str(args or "")
-
-
-def _action_summary(kind: str, text: str, item: dict[str, Any]) -> str:
-    """Return a concise user-facing action summary; raw text stays in trace."""
-    if kind == "command_execution":
-        cmd = (text or "").strip()
-        for p in ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c "):
-            if cmd.startswith(p):
-                inner = cmd[len(p):].strip()
-                if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
-                    cmd = inner[1:-1]
-                else:
-                    cmd = inner
-                break
-        head = cmd.split(None, 1)[0].rsplit("/", 1)[-1] if cmd else ""
-        if head in {"pytest", "ruff", "mypy"} or "pytest" in cmd or "ruff check" in cmd:
-            return "running validation"
-        if head in {"python", "python3"} and any(
-            marker in cmd for marker in (" -m pytest", " -m ruff", " -m mypy", "compileall")
-        ):
-            return "running validation"
-        if head in {"rg", "grep", "find", "ls", "sed", "awk", "head", "tail", "cat"}:
-            return "inspecting project state"
-        if head == "git":
-            return "checking repository state"
-        if head in {"ssh", "curl"}:
-            return "checking external/runtime state"
-        return "running project command"
-    if kind == "file_change":
-        changes = item.get("changes") or []
-        return "editing project files" if isinstance(changes, list) and changes else "preparing file changes"
-    if kind == "tool_use":
-        return "using a tool"
-    if kind == "reasoning":
-        return "reasoning about next step"
-    if kind in {"assistant_message", "agent_message", "message"}:
-        return "reporting progress"
-    return "working"
 
 
 def _extract_text(item: dict[str, Any]) -> str:
@@ -338,7 +301,9 @@ def make_stream_progress_callback(
             "type": "engineer.progress",
             "kind": kind,
             "text": _safe_progress_text(
-                text,
+                # Cut paths into Argus' plumbing before the clip, so a long
+                # command keeps its words rather than half of a session path.
+                plain_command(text) if kind == "command_execution" else text,
                 limit=None if final_delivery or agent_speech else _PROGRESS_TEXT_LIMIT,
             ),
             "actor": actor,
@@ -496,7 +461,6 @@ def make_stream_progress_callback(
                         record.start(str(item.get("id") or "") or anonymous_call_id(), "tool", text)
             if output_excerpt:
                 extra["output_excerpt"] = output_excerpt
-            extra["action_summary"] = _action_summary(kind, text, item)
             _emit_progress(
                 kind=kind,
                 text=text,
@@ -552,9 +516,6 @@ def make_stream_progress_callback(
                     actor=actor,
                     extra={
                         "status": "running",
-                        "action_summary": _action_summary(kind, text or name, {
-                            "type": kind, "name": name, "command": command,
-                        }),
                         "tool_name": name,
                     },
                 )
@@ -590,7 +551,6 @@ def make_stream_progress_callback(
                     "status": "failed",
                     "exit_code": exit_code,
                     "output_excerpt": _extract_output_excerpt(item),
-                    "action_summary": _action_summary(old_kind, old_text or old_name, item),
                     "tool_name": old_name,
                 },
             )
@@ -661,7 +621,6 @@ def make_stream_progress_callback(
                 "status": adapted_item["status"],
                 "exit_code": exit_code,
                 "output_excerpt": _extract_output_excerpt(adapted_item),
-                "action_summary": _action_summary(adapted_kind, text, adapted_item),
             }
             _emit_progress(
                 kind=adapted_kind,
@@ -713,9 +672,6 @@ def make_stream_progress_callback(
                     actor=actor,
                     extra={
                         "status": "running",
-                        "action_summary": _action_summary(
-                            kind, text, {"type": kind, "name": name, "command": command}
-                        ),
                         "tool_name": name,
                     },
                 )
@@ -751,7 +707,6 @@ def make_stream_progress_callback(
                 extra={
                     "status": "failed",
                     "output_excerpt": _extract_output_excerpt(item),
-                    "action_summary": _action_summary(kind, text or name, item),
                     "tool_name": name,
                 },
             )
@@ -874,7 +829,6 @@ def make_stream_progress_callback(
             )
             if not text:
                 return
-            item = {"type": kind, "name": name, "command": command}
             if call_id:
                 tool_calls[call_id] = (name, kind, text)
             for record in captures_for(actor):
@@ -889,7 +843,6 @@ def make_stream_progress_callback(
                 actor=actor,
                 extra={
                     "status": "running",
-                    "action_summary": _action_summary(kind, text, item),
                     "tool_name": name,
                     "call_id": call_id,
                 },
@@ -965,7 +918,6 @@ def make_stream_progress_callback(
                     "output_excerpt": (
                         output_digest(result.get("content")) or _extract_output_excerpt(item)
                     ),
-                    "action_summary": _action_summary(kind, text or name, item),
                     "tool_name": name,
                     "call_id": call_id,
                 },

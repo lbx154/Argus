@@ -92,6 +92,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Nothing new to plan until the current work moves.",
         "手头的工作还没做完，先不安排新的。",
     ),
+    "planner_awaits_answer": (
+        "Waiting for your answer before planning anything new.",
+        "在等你回答，先不安排新的。",
+    ),
     "planner_idle": (
         "Nothing is left to plan for now.",
         "目前没有需要规划的工作。",
@@ -719,6 +723,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "The results could not be accepted, and the work cannot continue "
         "until something outside it is resolved.",
         "结果未被接受，且需要先解决外部问题才能继续。",
+    ),
+    "choice_left_to_you": (
+        "The Reviewer leaves the choice to you; the work goes on once you decide.",
+        "审阅者把选择交给你，等你决定后再继续。",
     ),
     "replan_requested": (
         "The results were checked; the plan needs to change before the work continues.",

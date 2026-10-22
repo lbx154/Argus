@@ -167,6 +167,29 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
     assert sink.events[-1]["status"] == "failed"
     assert sink.events[-1]["exit_code"] == 1
     assert "FAILED tests/foo.py::test_x" in sink.events[-1]["output_excerpt"]
+    # No canned English summary ("running validation"): readers say the
+    # command itself, in the operator's language.
+    assert "action_summary" not in sink.events[-1]
+
+
+def test_long_command_cuts_plumbing_paths_before_the_clip() -> None:
+    # 2026-10-22: the clip left "--wheel-dir /…/state/copilot-h…", too cut
+    # for any reader to shorten.
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    files = "/srv/state/copilot-home/session-state/3c6c665c-3b32-40b9-a852-1b29cd3bf47f/files"
+    command = " && ".join(
+        [f"python -m venv {files}/build-env"]
+        + [f"{files}/build-env/bin/python -m pip wheel --wheel-dir {files}/wheels ."] * 4
+    )
+    cb("main.stdout", json.dumps({
+        "type": "item.completed",
+        "item": {"id": "item_0", "type": "command_execution", "command": command},
+    }))
+
+    text = sink.events[-1]["text"]
+    assert "copilot-home" not in text
+    assert text.endswith("--wheel-dir …/wheels .")
 
 
 def test_progress_callback_redacts_secrets_before_live_sink(redact_secrets_on) -> None:

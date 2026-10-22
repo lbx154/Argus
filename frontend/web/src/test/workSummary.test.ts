@@ -44,13 +44,14 @@ describe('human task progress', () => {
     const events = [{ type: 'engineer.progress', kind: 'tool_use', tool_name: 'rg',
       agent_layer: 'engineer', item_id: 'login', ts: 220, text: 'rg private-token --debug' }];
     const text = workSummary(status, view, events, 'zh-CN');
-    expect(text).toBe('检索项目文件：修复登录错误');
+    // The action alone: the task's title is not what the tool is doing.
+    expect(text).toBe('检索项目文件');
     expect(text).not.toContain('private-token');
   });
 
   it('reports waiting, user input and a lost connection without inventing activity', () => {
     expect(workSummary({ ...status, state: 'paused', reason: 'operator_input' }, null, [], 'zh-CN'))
-      .toBe('当前任务等待你的回复');
+      .toBe('有个问题在等你回答');
     expect(workSummary({ ...status, state: 'waiting', reason: 'no_recent_progress' }, null, [], 'zh-CN'))
       .toBe('暂时没有收到新的进展');
     expect(workSummary(status, null, [], 'zh-CN', false)).toBe('实时连接已断开');

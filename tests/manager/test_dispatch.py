@@ -105,11 +105,13 @@ def test_direct_task_arms_a_finite_campaign_with_one_reviewed_mission(
     assert {"manager_direct", "stage_closing", "review:required"} <= set(item.tags)
     assert "planner" not in item.tags
     assert "stage_transition:skip" not in item.tags
+    # The roles read the Manager's brief; the operator reads their own request.
     assert item.manager_decision == {
         "vertical": "software",
         "workflow_mode": "direct",
         "require_independent_review": True,
         "routed": True,
+        "display_objective": "one coherent package",
         "route_source": "manager",
     }
     assert (alive, pid) == (False, None)
@@ -334,6 +336,7 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     assert item.manager_decision == {
         "require_independent_review": True,
         "routed": True,
+        "display_objective": "operator request",
     }
     assert payload["enabled"] is True
     assert payload["objective"] == "managed: operator request"

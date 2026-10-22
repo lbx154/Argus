@@ -1157,6 +1157,9 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
+    # A chat reply to a waiting question is read by the web chat's own reader.
+    "life -> argus.webapi.manager_dispatch._TurnEmitter",
+    "life -> argus.webapi.manager_dispatch._handle_pending_question_turn",
     "maintenance -> argus.agent_cli._process_control",
     "manager -> argus.apps._life_actions",
     "manager -> argus.apps._runtime",

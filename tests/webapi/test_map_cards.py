@@ -102,6 +102,17 @@ def test_a_running_task_is_described_by_what_was_asked_and_rewritten_when_it_set
     assert settled["cards"]["t1"]["summary"] == "初稿已编译。" and len(model.calls) == 2
 
 
+def test_a_running_task_is_described_with_the_answer_it_was_given(tmp_path, model):
+    """Trial, 2026-10-21: the card of the task the operator had just
+    answered was written from their request alone and still said the change
+    waited on their choice."""
+    model([{"id": "t1", "title": "按 A 修改", "summary": "正在按选定的 A 修改。"}])
+    answered = dataset("running")
+    answered["tasks"][1]["answered"] = "A or B? → A. (the operator)"
+    map_cards.words(tmp_path, answered, ["t1"], "zh-CN", project_root=tmp_path, generate=True)
+    assert '"answered": "A or B? → A. (the operator)"' in model.calls[0]["prompt"]
+
+
 def test_without_a_session_or_after_a_failure_nothing_is_asked(tmp_path, model, monkeypatch):
     model([{"id": "t0", "title": "x", "summary": "y"}])
     assert map_cards.words(tmp_path, dataset(), ["t0"], "zh-CN", generate=True) == {"cards": {}, "available": False}

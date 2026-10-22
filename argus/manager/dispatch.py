@@ -280,13 +280,16 @@ def enqueue_mission(
         # without one, the request's opening clause does, never the whole text.
         topic = str(getattr(prepared_handoff.decision, "session_title", "") or "")
         manager_decision = decision_evidence(division) or {"routed": True}
+        # The roles read the Manager's brief; the operator goes on reading
+        # their own request.
+        shown = display_objective or str(prepared_handoff.public_objective or "")
+        if shown.strip() and shown.strip() != execution_body.strip():
+            manager_decision["display_objective"] = shown
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
             # supervisor queues for a finite direct objective, so its certified
             # review finishes the campaign instead of queueing a second run.
             manager_decision["route_source"] = "manager"
-            if display_objective:
-                manager_decision["display_objective"] = display_objective
             stage = _campaign_stage(life_dir, _resolve_manager_workdir(mem))
             kind_tags = [
                 "manager_direct",
@@ -356,6 +359,7 @@ def enqueue_mission(
                 life_dir, item, question, layer="manager",
                 reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
                 save=partial(mem.backlog.update, item.id), emit=sink.append,
+                options=getattr(prepared_handoff.decision, "operator_options", ()),
             )
         return item
 

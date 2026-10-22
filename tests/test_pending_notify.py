@@ -70,15 +70,15 @@ def test_the_message_carries_what_a_decision_needs() -> None:
     assert "s-research1" in text
     assert "survey the literature" in text
     assert "which dataset" in text
-    # Options matter on a phone: reading them beats opening the portal.
-    assert "CIFAR / ImageNet" in text
+    # Options matter on a phone: numbered, one digit answers.
+    assert "Options (reply with a number):\n1. CIFAR\n2. ImageNet" in text
 
 
 def test_options_are_optional() -> None:
     text = pending_question_message(project="p", title="t", question="q?")
 
     assert "q?" in text
-    assert "Options:" not in text
+    assert "Options" not in text
 
 
 def test_malformed_options_do_not_break_the_message() -> None:
@@ -86,7 +86,7 @@ def test_malformed_options_do_not_break_the_message() -> None:
         project="p", title="t", question="q?", options=["not a dict", {}, {"label": ""}]
     )
 
-    assert "Options:" not in text
+    assert "Options" not in text
 
 
 def test_chinese_question_uses_a_chinese_wrapper() -> None:
@@ -100,7 +100,7 @@ def test_chinese_question_uses_a_chinese_wrapper() -> None:
     assert "需要你决定" in text
     assert "项目：研究项目" in text
     assert "任务：选择数据集" in text
-    assert "可选：数据集 A / 数据集 B" in text
+    assert "可选（回复编号即可）：\n1. 数据集 A\n2. 数据集 B" in text
 
 
 # -- sending ----------------------------------------------------------------
@@ -246,3 +246,35 @@ def test_asking_the_operator_announces_only_a_recorded_question(project, monkeyp
     # The question reaches the backlog before anyone hears of it, or a crash
     # between the two would announce a decision that was never recorded.
     assert order == ["saved which dataset?", "operator told", "planner asked"]
+
+
+def test_the_question_event_carries_the_options_a_role_listed(project, channel) -> None:
+    events: list[dict] = []
+    item = _item(pending_question="")
+    ask_operator(
+        project, item, "Which requirement wins?", reason="they conflict", layer="engineer",
+        save=lambda **_fields: None, emit=events.append,
+        options=("Keep the v1 API", "Ship the v2 schema"),
+    )
+
+    assert [option["label"] for option in item.operator_decision["options"]] == [
+        "Keep the v1 API", "Ship the v2 schema",
+    ]
+    assert events[0]["options"] == ["Keep the v1 API", "Ship the v2 schema"]
+    assert "1. Keep the v1 API\n2. Ship the v2 schema" in channel[0]
+
+
+def test_a_numbered_reply_reaches_the_manager_with_the_options_it_numbers() -> None:
+    from argus.roles.prompts.manager import build_pending_question_prompt
+
+    item = SimpleNamespace(
+        id="item-1", title="api", objective="ship the api", pending_question="Which requirement wins?",
+        operator_decision={"options": [{"id": "option-1", "label": "Keep the v1 API"},
+                                       {"id": "option-2", "label": "Ship the v2 schema"}]},
+    )
+
+    prompt = build_pending_question_prompt(item, "2")
+
+    assert "Answers offered, by number:\n1. Keep the v1 API\n2. Ship the v2 schema\n\n" in prompt
+    assert prompt.endswith("Operator response:\n2")
+    assert "Answers offered" not in build_pending_question_prompt(_item(objective="o"), "CIFAR")

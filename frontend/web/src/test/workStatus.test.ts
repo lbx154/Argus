@@ -102,12 +102,35 @@ describe('shared work status', () => {
     ];
     const state = currentWorkStatus(snapshot, view);
     expect(state).toMatchObject({ state: 'paused', taskId: 'current', reason: 'operator_input' });
-    expect(workStatusLabel(state, 'zh-CN')).toBe('当前任务等待你的回复');
-    expect(workStatusLabel(state, 'en')).toBe('This task is waiting for your reply');
+    expect(workStatusLabel(state, 'zh-CN')).toBe('有个问题在等你回答');
+    expect(workStatusLabel(state, 'en')).toBe('A question is waiting for your answer');
     expect(snapshot.daemon.alive).toBe(true);
     snapshot.backlog[1].pending_question = '';
+    // Another task's question still waits on the operator.
+    expect(currentWorkStatus(snapshot, view)).toMatchObject({ reason: 'operator_input', taskId: 'old', title: 'Old question' });
+    snapshot.backlog[0].pending_question = '';
     expect(currentWorkStatus(snapshot, view).reason).toBe('not_running');
     expect(workStatusLabel(state, 'zh-CN', false)).toBe('实时连接已断开');
+  });
+
+  it('does not let a finished task hide another task still waiting for an answer', () => {
+    // Trial s-934a4569: char_count finished while the truncate task waited on
+    // the operator; every status line said "waiting for the next step".
+    const snapshot = fixture(), view = emptyMissionView();
+    Object.assign(view.mission, { id: 'count', status: 'complete' });
+    view.routing.continuous = true;
+    snapshot.backlog = [
+      { id: 'truncate', title: 'strtools truncate', objective: '', status: 'parked', priority: 1, pending_question: 'A or B?' },
+      { id: 'count', title: 'char_count', objective: '', status: 'done', priority: 1 },
+    ];
+    const state = currentWorkStatus(snapshot, view);
+    expect(state).toMatchObject({ state: 'paused', reason: 'operator_input', taskId: 'truncate', title: 'strtools truncate' });
+    expect(workStatusLabel(state, 'zh-CN')).toBe('有个问题在等你回答');
+    snapshot.roles = [{ role: 'planner', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 }];
+    expect(currentWorkStatus(snapshot, view)).toMatchObject({ state: 'running', role: 'planner' });
+    snapshot.roles = [];
+    snapshot.backlog[0].pending_question = '';
+    expect(currentWorkStatus(snapshot, view)).toMatchObject({ state: 'waiting', taskId: 'count' });
   });
 
   it('does not turn repeated planner waiting notices into fresh research progress', () => {

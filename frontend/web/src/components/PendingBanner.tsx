@@ -31,8 +31,9 @@ export function PendingBanner({
       <div className="min-w-0 flex-1">
         {card.title !== card.task_title ? <div className="truncate text-xs font-medium text-gold" title={card.title}>{card.title}</div> : null}
         <PendingDecisionContext card={card} />
-        <div className="truncate text-xs text-ink-dim" title={card.reason || card.question}>
-          {card.reason || card.question}
+        {/* The banner asks the question; why it is asked is on the card it opens. */}
+        <div className="truncate text-xs text-ink-dim" title={card.question || card.reason}>
+          {card.question || card.reason}
         </div>
       </div>
       {cards.length > 1 ? <span className="font-mono text-xs text-ink-faint">+{cards.length - 1}</span> : null}

@@ -1,6 +1,6 @@
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import type { Locale } from '../i18n';
-import { pairCalls, plainToolLabel, renderFeedRows, toolName, type FeedStep } from './feedSteps';
+import { pairCalls, plainCommand, plainToolLabel, renderFeedRows, toolName, type FeedStep } from './feedSteps';
 import { shortWorkText } from './taskLanguage';
 import { currentWorkStartedAt, currentWorkStatus, eventTaskId, type WorkStatus } from './workStatus';
 
@@ -40,14 +40,6 @@ const WORK_EVENT = /^(?:engineer\.progress|round\.|life\.(?:mission|phase|planne
 const field = (event: EventMsg, key: string) => String((event as Record<string, unknown>)[key] ?? '');
 const clip = (text: string, n: number) => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
 
-/** `/bin/bash -lc "python train.py"` → `python train.py`. */
-export function plainCommand(text: string): string {
-  const line = text.trim();
-  const wrapped = line.match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]+)\1\s*$/);
-  const command = wrapped ? wrapped[2] : line.replace(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '');
-  return clip(command.split('\n')[0].trim(), 120);
-}
-
 function stepLine(step: FeedStep, locale: Locale): LiveLine | null {
   const zh = locale === 'zh-CN';
   const event = step.ev;
@@ -57,7 +49,7 @@ function stepLine(step: FeedStep, locale: Locale): LiveLine | null {
   if (field(event, 'type') === 'engineer.progress') {
     const kind = field(event, 'kind');
     if (kind === 'command_execution') {
-      const command = plainCommand(field(event, 'text') || field(event, 'command') || field(event, 'action_summary'));
+      const command = clip(plainCommand(field(event, 'text') || field(event, 'command') || field(event, 'action_summary')), 120);
       return command ? { ...base, kind: 'command', text: `${zh ? '运行' : 'Run'} ${command}` } : null;
     }
     if (kind === 'tool_use' || kind === 'file_change') {

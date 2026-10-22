@@ -1050,13 +1050,11 @@ class _BlockedQuestionRunner:
                     "id": "allow-fp16",
                     "label": "允许 fp16",
                     "description": "接受精度损失并继续优化。",
-                    "requires_note": False,
                 },
                 {
                     "id": "require-fp32",
                     "label": "必须 fp32",
                     "description": "保持 fp32 精度约束。",
-                    "requires_note": False,
                 },
             ],
         )

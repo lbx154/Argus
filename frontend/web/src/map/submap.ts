@@ -12,7 +12,7 @@ import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
 import { visibleAgentText } from "../../../core/src/events";
-import { isPauseStatus, parkReason, stopClause } from "../../../core/src/missionOutcome";
+import { isPauseStatus, parkReason, settledStatus, stopClause } from "../../../core/src/missionOutcome";
 import { plainStopSentence } from "../lib/plainStatus";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
@@ -158,30 +158,6 @@ const STEP_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
 const shorten = (value: string, limit: number) =>
   value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
 
-/** The one argument a reader wants to see for a tool call: a path, a pattern, a URL. */
-function stepArgument(label: string): string {
-  const raw = label.slice(label.indexOf(":") + 1).trim();
-  if (!raw) return "";
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      for (const key of ["path", "file", "file_path", "pattern", "query", "url", "command", "paths"]) {
-        const value = record[key];
-        if (typeof value === "string" && value.trim()) return value.trim();
-        if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-      }
-      const first = Object.values(record).find((value) => typeof value === "string" && value.trim());
-      return typeof first === "string" ? first.trim() : "";
-    }
-  } catch {
-    // Not JSON, or JSON the recorder cut short.
-  }
-  if (!/^[{[]/.test(raw)) return raw;
-  // Cut-short JSON still names what was touched; a reader is never shown the braces.
-  return /"(?:path|file|file_path|pattern|query|url|command)"\s*:\s*"([^"]+)/.exec(raw)?.[1] ?? "";
-}
-
 type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
 function stepVerb(step: WorkStep): StepVerb {
   const name = (step.tool || step.label.replace(STEP_GLYPH, "").split(":")[0] || "").trim().toLowerCase();
@@ -196,29 +172,19 @@ function stepVerb(step: WorkStep): StepVerb {
   return "other";
 }
 
-/** One tool call as a short plain phrase — what was done, to what. */
+/** One tool call as a short plain phrase. The backend already says each call
+ * plainly ("查阅 main.py", "$ pytest -q"); a command line is shown as one. */
 export function stepPhrase(step: WorkStep, zh: boolean): string {
   const tool = (step.tool || "").trim();
   const label = step.label.replace(STEP_GLYPH, "").trim();
-  // The Copilot desktop agent titles each call in plain words; the streaming
-  // runners give a bare tool name plus its arguments.
+  // The Copilot desktop agent titles each call in plain words.
   const titled = tool && /\s/.test(tool) && tool.length > 8;
-  const argument = shorten(stepArgument(label), 72);
   const command = shorten(label, 72);
-  const verb = stepVerb(step);
   const phrase = titled
     ? tool
-    : verb === "run"
+    : /^(?:✗ )?\$/u.test(step.label)
       ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
-      : verb === "read"
-        ? zh ? `查看 ${argument || (zh ? "一份文件" : "")}` : `Read ${argument || "a file"}`
-        : verb === "search"
-          ? zh ? `查找 ${argument || "内容"}` : `Looked for ${argument || "something"}`
-          : verb === "fetch"
-            ? zh ? `读取网页 ${argument || ""}`.trim() : `Fetched ${argument || "a page"}`
-            : verb === "edit"
-              ? zh ? `修改文件 ${argument || ""}`.trim() : `Edited ${argument || "a file"}`
-              : shorten(/^[^:{]*:\s*[{[]/.test(label) ? label.slice(0, label.indexOf(":")) : label, 80);
+      : shorten(label, 80);
   return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
 }
 
@@ -419,13 +385,15 @@ export function buildSubmap(
     const said = SAID[e.type];
     if (said) {
       const record = readableRecord(e.text);
+      // The Manager may answer in the operator's place; that is not the operator's answer.
+      const byManager = e.type.endsWith(".answered") && e.role !== "operator";
       rows.push({
         id: e.id,
         kind: said.kind,
-        // The Manager may answer in the operator's place; that is not the operator's answer.
-        title: e.type.endsWith(".answered") && e.role !== "operator"
-          ? zh ? "经理替你定了" : "The Manager decided for you"
-          : said.title[zh ? 0 : 1],
+        // An answer that is one of the offered options says so.
+        title: e.option
+          ? byManager ? zh ? "经理替你选了" : "The Manager chose for you" : zh ? "你选了" : "You chose"
+          : byManager ? zh ? "经理替你定了" : "The Manager decided for you" : said.title[zh ? 0 : 1],
         summary: clipSentence(record) || undefined,
         detail: record || noDetails(zh),
         status: "recorded",
@@ -468,7 +436,7 @@ export function buildSubmap(
     const reviewUnavailable = e.backend_unavailable === true || (kind === "result" && lastReview?.backend_unavailable === true);
     const scope = reviewUnavailable ? "" : completionScope(e, zh);
     const status =
-      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : e.status) ||
+      (reviewUnavailable ? "review_unavailable" : reviewSkipped ? "skipped" : e.status === "error" ? "failed" : settledStatus(e)) ||
       (e.success === false || e.type.endsWith(".failed")
         ? "failed"
         : e.success === true
@@ -492,6 +460,8 @@ export function buildSubmap(
         ? zh ? "审阅通过" : "Review passed"
         : status === "continue"
           ? zh ? "审阅：要求再改一轮" : "Review: another pass asked for"
+          : status === "question"
+            ? zh ? "审阅：等你决定" : "Review: your decision is needed"
           : ["blocked", "replan", "replan_requested"].includes(status)
             ? zh ? "审阅：建议调整方向" : "Review: a change of course asked for"
             : status === "failed"
@@ -570,9 +540,7 @@ export function buildSubmap(
     });
     if (
       !reviewSkipped && !interrupted && e.next_action &&
-      ["continue", "blocked", "replan", "replan_requested"].includes(
-        e.status || "",
-      )
+      ["continue", "blocked", "replan", "replan_requested"].includes(status)
     ) {
       rows.push({
         id: `${e.id}:next`,
@@ -681,14 +649,18 @@ export function buildSubmap(
 }
 
 /** The task's standing in one line, for its card and its heading: what the
- * last review asked for and the round under way. */
+ * last review of the current attempt asked for and the round under way. A
+ * review of an earlier attempt, one the operator has since answered among
+ * them, no longer stands. */
 export function taskConclusion(steps: SubmapStep[], zh: boolean, active = true): string {
   const parts: string[] = [];
-  const review = [...steps].reverse().find((step) => step.kind === "review"
-    && ["done", "continue", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
+  const attempt = Math.max(0, ...steps.map((step) => step.episode ?? 0));
+  const review = [...steps].reverse().find((step) => step.kind === "review" && (step.episode ?? 0) === attempt
+    && ["done", "continue", "question", "blocked", "replan", "replan_requested", "failed"].includes(step.status));
   if (review) {
     parts.push(review.status === "done" ? zh ? "审阅通过" : "review passed"
       : review.status === "continue" ? zh ? "审阅要求再改一轮" : "the review asked for another pass"
+      : review.status === "question" ? zh ? "等你决定" : "waiting for your decision"
       : review.status === "failed" ? zh ? "审阅没通过" : "review not passed"
       : zh ? "审阅建议换个方向" : "the review asked for a change of course");
   }

@@ -10,6 +10,7 @@ from argus.core.progress_step import (
     describe_progress_step,
     strip_shell_wrapper,
 )
+from argus.skills.builtins import builtin_skill_source_path
 
 
 def test_command_step_shows_the_real_command_not_a_euphemism() -> None:
@@ -61,7 +62,7 @@ _WS = "/work/proj"
         ),
         # A patch with no braces in it still names its file, not its "***" header.
         ("apply_patch: *** Begin Patch\n*** Update File: /work/proj/pkg/core.py\n@@\n def f():", "修改 core.py"),
-        ('view: {"path": "/work/proj"}', "查阅 项目目录"),
+        ('view: {"path": "/work/proj"}', "查阅项目目录"),
         ('argus_review_actions-submit_review: {"review": "ok"}', "提交审阅结论"),
         ('mystery_tool: {"x": 1}', "调用 mystery_tool"),
     ],
@@ -116,10 +117,15 @@ def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('glob: {"pattern": "**/*"}', "查找 所有文件"),
+        ('glob: {"pattern": "**/*"}', "查找所有文件"),
         ('glob: {"pattern": "**/*.py"}', "查找 .py 文件"),
         ('glob: {"pattern": "src/**/*.ts"}', "查找 src 里的 .ts 文件"),
+        ('glob: {"pattern": "src/**/*"}', "查找 src 里的所有文件"),
         ('glob: {"pattern": "METHOD.md"}', "查找 METHOD.md"),
+        # Alternatives in braces say nothing a reader can follow.
+        ('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', "查找文件"),
+        ('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*"}', "查找文件"),
+        ('glob: {"pattern": "**/*.{py,ts}"}', "查找文件"),
         ('rg: {"pattern": "route", "paths": "/work/proj/notes.md"}', "搜索：route"),
         ('grep: {"query": "see /work/proj/deep/notes.md"}', "搜索：see notes.md"),
     ],
@@ -150,6 +156,73 @@ def test_workspace_from_the_caller_marks_internal_files() -> None:
 def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:
     event = {"kind": "tool_use", "text": f'read: {{"path": "{path}"}}'}
     assert describe_progress_step(event, _WS)[0] == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        # A recalled knowledge page is material the role reads, not plumbing.
+        ("/repo/.autors/learn/wiki/pages/deepinfer-inference-architecture.md",
+         "查阅知识页 deepinfer-inference-architecture"),
+        # A shared wiki under the Argus home is a knowledge base too.
+        ("/srv/home/wiki/_shared_verticals/software/pages/lessons/20261020-cli-stdin-validation.md",
+         "查阅知识页 20261020-cli-stdin-validation"),
+        ("/srv/home/wiki/_global/pages/house-style.md", "查阅知识页 house-style"),
+        ("/srv/home/wiki/_shared_verticals/software", "查阅知识库"),
+        ("/srv/state/workspaces/s-1/.autors/s-1/wiki/INDEX.md", "查阅知识页 INDEX"),
+        ("/repo/.autors/learn/wiki", "查阅知识库"),
+        # The project's own wiki folder is the work.
+        ("/repo/docs/wiki/pages/setup.md", "查阅 setup.md"),
+        # Argus' own directories are plumbing too, not only the files in them.
+        ("/repo/.autors", "查阅 Argus 内部文件"),
+        # The backend spills a long tool output to a temp file and reads it back.
+        ("/tmp/1792644657527-copilot-tool-output-87d59816852246238961139c2f724073.txt", "查阅工具输出"),
+    ],
+)
+def test_knowledge_pages_and_spilled_outputs_read_as_what_they_are(path: str, expected: str) -> None:
+    event = {"kind": "tool_use", "text": f'view: {{"path": "{path}"}}'}
+    assert describe_progress_step(event, _WS)[0] == expected
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["^(name|description):.*(engineer|Python)", "class EngineArgs|chunked_prefill", r"\\b_schedule_prefill\\b"],
+)
+def test_a_regular_expression_is_not_shown_raw(pattern: str) -> None:
+    text = f'rg: {{"pattern": "{pattern}", "paths": ["/srv/state/skills"]}}'
+    assert describe_progress_step({"kind": "tool_use", "text": text}, _WS)[0] == "搜索文件内容"
+
+
+def test_argus_own_tool_is_named_not_spelled_out() -> None:
+    command = (
+        "python -m argus.tools.manager_live_view --workspace /srv/state/workspaces/s-1 "
+        "--state-dir /srv/state/projects/s-1 status"
+    )
+    label, detail = describe_progress_step({"kind": "command_execution", "text": command}, _WS)
+    assert label == "运行 Argus 内部工具"
+    assert detail == command, "the command line stays in the folded detail"
+
+
+def test_backend_session_paths_in_a_command_are_cut_to_their_last_name() -> None:
+    files = "/srv/state/copilot-home/session-state/09822296-0a3e-4707-8382-d75ac8da42f6/files"
+    label, _ = describe_progress_step({
+        "kind": "command_execution",
+        "text": f"mkdir -p {files} && python -m pytest -q 2>&1 | tee {files}/pytest.log",
+    }, _WS)
+    assert label == "$ mkdir -p …/files && python -m pytest -q 2>&1 | tee …/pytest.log"
+    kept, _ = describe_progress_step({"kind": "command_execution", "text": "git -C /work/repo status"}, _WS)
+    assert kept == "$ git -C /work/repo status", "a path of the work stays as it is"
+
+
+def test_paths_into_the_installed_argus_package_are_cut_in_a_command() -> None:
+    builtin = str(builtin_skill_source_path())
+    label, _ = describe_progress_step({
+        "kind": "command_execution",
+        "text": f"rg -n '^name:' /srv/state/skills {builtin} -g SKILL.md",
+    }, _WS)
+    assert label == "$ rg -n '^name:' …/skills …/builtin_skills -g SKILL.md"
+    event = {"kind": "tool_use", "text": f'view: {{"path": "{builtin}/engineer/SKILL.md"}}'}
+    assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:

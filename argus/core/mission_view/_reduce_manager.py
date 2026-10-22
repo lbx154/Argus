@@ -307,8 +307,8 @@ def reduce_planner_event(
     # the story: it repeats every pass, and a question it asks reaches the
     # operator on its card.
     elif event_type == EventType.LIFE_PLANNER_IDLE:
-        label = say("planner_no_new_work", chinese)
-        _set_role(view, "planner", "waiting", label, ts, kind="planner_no_new_work")
+        kind = "planner_awaits_answer" if _text(event, "handoff") == "operator" else "planner_no_new_work"
+        _set_role(view, "planner", "waiting", say(kind, chinese), ts, kind=kind)
 
     elif event_type == EventType.LIFE_PLANNER_TERMINAL_IDLE:
         label = say("planner_idle", chinese)

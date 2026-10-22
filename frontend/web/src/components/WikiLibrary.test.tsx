@@ -134,6 +134,19 @@ it('opens on the learning feed, newest first, with recalls by one role folded in
   expect(rows[5].findAllByType('button')).toHaveLength(0);
 });
 
+it('says who retired a page and why, as plain text since the page is gone', async () => {
+  vi.mocked(api.knowledgeFeed).mockResolvedValue({ events: [event('retired', now - 10, items[2], {
+    path: 'pages/lessons/20260901-gone.md', title: 'Gone lesson', role: 'reflection', note: 'The host no longer sets PYTHONSAFEPATH.',
+  })] });
+  await mount();
+  const [row] = feedRows();
+  expect(row.props['data-feed-row']).toBe('retired');
+  expect(content(row)).toContain('Retired');
+  expect(content(row)).toContain('reflection');
+  expect(content(row)).toContain('The host no longer sets PYTHONSAFEPATH.');
+  expect(row.findAllByType('button')).toHaveLength(0);
+});
+
 it('opens the page a feed line points at and keeps the feed on a ten-second refresh', async () => {
   await mount();
   // The browser environment drives the interval; here only the configured period can be observed.

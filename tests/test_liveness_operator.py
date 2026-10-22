@@ -68,12 +68,12 @@ def _offline_manager(monkeypatch) -> None:
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
 
 
-def _park(life: Path, title: str, question: str) -> BacklogItem:
+def _park(life: Path, title: str, question: str, options: tuple[str, ...] = ()) -> BacklogItem:
     item = BacklogItem.new(title=title, objective=f"work on {title}")
     item.status = "paused_operator"
     item.pending_question = question
     item.operator_decision = build_operator_decision(
-        item_id=item.id, title=title, reason="blocked", question=question,
+        item_id=item.id, title=title, reason="blocked", question=question, options=options,
     )
     LifeMemory.open(life).backlog.add(item)
     return item
@@ -434,6 +434,47 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
         assert read_continuous_state(life).enabled is False
 
 
+def _answered_events(life: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"life.operator_question.answered"' in line
+    ]
+
+
+def test_clicking_an_option_answers_with_its_words(tmp_path: Path) -> None:
+    """One click on an offered option is the answer, exactly as the role wrote it."""
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _park(life, "api", "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"))
+
+    result = manager_pending_question.manager_resolve_operator_decision(
+        sid, item.operator_decision["id"], "option-2", "", global_root=tmp_path,
+    )
+
+    assert result["resolved"] is True
+    resumed = _resumed(life, item)
+    assert "Ship the v2 schema" in resumed.objective
+    assert resumed.operator_decision["selected_option"] == "option-2"
+    (answered,) = _answered_events(life)
+    assert (answered["option"], answered["manager_decision"], answered["decided_by"]) == (
+        "Ship the v2 schema", "Ship the v2 schema", "operator",
+    )
+
+
+def test_a_written_answer_names_no_option(tmp_path: Path) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _park(life, "api", "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"))
+
+    manager_pending_question.manager_resolve_operator_decision(
+        sid, item.operator_decision["id"], "custom", "Keep v1 until June.", global_root=tmp_path,
+    )
+
+    (answered,) = _answered_events(life)
+    assert answered["manager_decision"] == "Keep v1 until June." and "option" not in answered
+
+
 @pytest.mark.parametrize(
     ("answer", "reply"),
     [
@@ -717,6 +758,32 @@ def test_manager_answer_continues_an_agent_card_in_its_own_name(
     )
     # Nothing was recorded as the operator's own input.
     assert OperatorContextStore(life).revision == revision
+
+
+def test_manager_answering_a_card_with_options_picks_one_of_them(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    _nobody_to_ask(monkeypatch, life, "forbid")
+    item = _park(life, "api", "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"))
+    decision_id = item.operator_decision["id"]
+    written = _ProxyManager(DECISION_ID=decision_id, OPTION="custom", NOTE="Both.", REASON="r")
+
+    # Its own words are not a choice where the card offers options.
+    assert _supervise(life, written)._decide_parked_questions() is False
+    assert "- option-2: Ship the v2 schema" in written.prompts[0]
+    assert "- custom:" not in written.prompts[0]
+
+    chooses = _ProxyManager(DECISION_ID=decision_id, OPTION="option-2", REASON="The deadline needs v2.")
+    assert _supervise(life, chooses)._decide_parked_questions() is True
+
+    resumed = _resumed(life, item)
+    assert resumed.operator_decision["selected_option"] == "option-2"
+    assert resumed.operator_decision["decided_by"] == "manager"
+    # The record names the option the Manager chose.
+    (answered,) = _answered_events(life)
+    assert (answered["option"], answered["decided_by"]) == ("Ship the v2 schema", "manager")
+    assert read_autonomous_assumptions(life)[-1]["reading"].startswith("Ship the v2 schema")
 
 
 def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(

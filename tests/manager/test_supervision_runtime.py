@@ -122,6 +122,20 @@ def test_runtime_incident_evidence_remains_visible_to_manager(tmp_path) -> None:
     assert recorded["manager_attention_required"] is True
 
 
+def test_the_operator_s_answer_is_observed_beside_the_objective(tmp_path) -> None:
+    """Trial, 2026-10-21: after the operator chose A, the Manager's
+    supervision saw only the objective that said to wait for their choice."""
+    from argus.core.operator_decision import build_operator_decision
+
+    backlog, item = project(tmp_path, question="A or B?")
+    backlog.update(item.id, park_reason="operator_question", operator_decision=build_operator_decision(
+        item_id=item.id, title=item.title, reason="a choice only the operator can make", question="A or B?",
+    ))
+    backlog.resume_with_operator_reply(item.id, "A.", manager_decision="A.")
+
+    assert observe_project(tmp_path).facts["operator_answers"] == ["A or B? → A. (the operator)"]
+
+
 def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp_path, monkeypatch):
     from argus.manager import front_door
     from argus.webapi import manager_bridge, manager_state
@@ -867,7 +881,7 @@ class AskingBackend(EvidenceBackend):
         self.calls.append((prompt, resume_thread_id, run_label))
         text = (
             "ACTION: continue\nREASON: Requirements A and B conflict; only the operator may choose.\n"
-            "EVIDENCE_REFS: backlog.jsonl\n→ operator: Keep A or B?"
+            "EVIDENCE_REFS: backlog.jsonl\n→ operator: Keep A or B?\n- Keep A\n- Keep B"
         )
         return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
 
@@ -895,9 +909,12 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     asked = task_at(backlog, item.id)
     assert park_reason(asked) == "operator_question"
     assert asked.pending_question == asked.operator_decision["question"] == "Keep A or B?"
+    assert [option["label"] for option in asked.operator_decision["options"]] == ["Keep A", "Keep B"]
     assert len(backend.calls) == 1
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
     ]
-    assert [(row["item_id"], row["question"]) for row in pending] == [(item.id, "Keep A or B?")]
+    assert [(row["item_id"], row["question"], row["options"]) for row in pending] == [
+        (item.id, "Keep A or B?", ["Keep A", "Keep B"]),
+    ]

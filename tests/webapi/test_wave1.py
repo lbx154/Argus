@@ -1564,6 +1564,25 @@ def test_dispatch_ack_speaks_the_operator_language_without_echoing_the_task(tmp_
     assert text == "开始之前需要你定一下：\n选 A 还是 B？"
 
 
+def test_dispatch_ack_numbers_the_answers_a_question_offers(tmp_path: Path) -> None:
+    """The chat reply offers the answers the card does, numbered as the IM notice numbers them."""
+    from argus.core.operator_decision import build_operator_decision
+    from argus.life.memory import BacklogItem
+    from argus.webapi.manager_dispatch import _item_to_dict
+    from argus.webapi.manager_pending_question import record_task_dispatch_ack
+
+    (tmp_path / "projects" / "s-ack").mkdir(parents=True)
+    item = BacklogItem.new(title="改 truncate", objective="改 truncate", item_id="t4")
+    item.pending_question = "选 A 还是 B？"
+    item.operator_decision = build_operator_decision(
+        item_id=item.id, title=item.title, reason="两条要求冲突", question=item.pending_question,
+        options=("A：保留完整单词", "B：输出不变"),
+    )
+    result = {"kind": "task", "daemon_alive": True, "daemon": None, "item": _item_to_dict(item, item.title)}
+    text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
+    assert text == "开始之前需要你定一下：\n选 A 还是 B？\n\n可选（回复编号即可）：\n1. A：保留完整单词\n2. B：输出不变"
+
+
 @pytest.mark.parametrize("planner_pending", [False, True])
 def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp_path, planner_pending):
     from argus.webapi.manager_pending_question import record_task_dispatch_ack

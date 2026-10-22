@@ -8,6 +8,7 @@ import { isReasoning, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
+  plainCommand,
   plainToolLabel,
   renderFeedRows,
   rowPreview,
@@ -69,10 +70,11 @@ function EventRow({
   const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
-  const isToolCall = ev.type === 'engineer.progress' && String(ev.kind || '') === 'tool_use';
+  const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
   const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
-  // A tool call reads as "verb + object"; its raw arguments fold into the tooltip.
-  const plain = isToolCall ? { text: plainToolLabel(ev, locale), technical: r.text } : plainDetail(report, locale);
+  // A call reads as "verb + object" or as the command it ran; its raw text folds into the tooltip.
+  const plain = call === 'tool_use' ? { text: plainToolLabel(ev, locale), technical: r.text }
+    : call === 'command_execution' ? { text: plainCommand(r.text), technical: r.text } : plainDetail(report, locale);
   const resultText = result ? plainDetail(result.r.text, locale).text : '';
   const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (

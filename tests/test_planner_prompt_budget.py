@@ -14,9 +14,10 @@ from argus.skills.vertical_select import persist_vertical
 
 # A little above what the staged argus_maintenance prompt costs today
 # (2026-10-20, when math moved to argus-verticals and these guards moved off its
-# prompt). Raise only for fixed policy that earns its space; compress first.
-SCOPE_BUDGET = 9_450
-MATURE_SCOPE_BUDGET = 15_250
+# prompt; raised by 100 on 2026-10-21 for the one line on offering an operator
+# question's answers). Raise only for fixed policy that earns its space; compress first.
+SCOPE_BUDGET = 9_550
+MATURE_SCOPE_BUDGET = 15_350
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 

@@ -130,10 +130,14 @@ export function currentWorkStatus(
     }
   }
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
+  // A question waiting on the operator, whichever task asked it, is where the
+  // project stands whenever nothing else is under way.
+  const card = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)[0];
+  const asked: WorkStatus | null = card ? {
+    ...result, state: 'paused', role: '', reason: 'operator_input', taskId: card.item_id, title: card.task_title || card.title,
+  } : null;
   if (PAUSED.has(missionState) || parkReason(missionState) !== null) {
-    const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
-      .some(card => card.item_id === taskId);
-    return { ...result, state: 'paused', role: '', reason: needsReply ? 'operator_input' : 'not_running' };
+    return asked ?? { ...result, state: 'paused', role: '', reason: 'not_running' };
   }
   if (['failed', 'error'].includes(missionState)) return { ...result, state: 'step_finished', role: '', reason: 'task_failed' };
   if (FINISHED.has(missionState)) {
@@ -142,13 +146,13 @@ export function currentWorkStatus(
     if (snapshot.daemon.alive && liveRoles.some(item => item.role === 'planner')) {
       return { ...result, state: 'running', role: 'planner' };
     }
-    return { ...result, role: '',
+    return asked ?? { ...result, role: '',
       state: snapshot.daemon.alive && (view?.routing?.continuous || snapshot.continuous?.enabled) ? 'waiting' : 'step_finished',
     };
   }
   if (!snapshot.daemon.alive) {
     if (ACTIVE.has(missionState)) return { ...result, state: 'paused', role: '', reason: 'not_running' };
-    return { ...result, role: '' };
+    return asked ?? { ...result, role: '' };
   }
   const backoff = [...events].reverse().find(event => event.type === 'round.backend_failure.backoff'
     && Number(event.ts || 0) >= started && (!taskId || eventTaskId(event) === taskId));
@@ -157,7 +161,7 @@ export function currentWorkStatus(
   if (snapshot.daemon.health?.stalled) return { ...result, state: 'waiting', reason: 'no_recent_progress' };
   if (role) return { ...result, state: 'running' };
   if (parallel && liveRoles.length > 0 && taskId) return { ...result, state: 'unknown' };
-  return { ...result, state: 'waiting', reason: 'awaiting_next_step' };
+  return asked ?? { ...result, state: 'waiting', reason: 'awaiting_next_step' };
 }
 
 /** "3 分钟前" / "3 min ago", for the last time something moved. */
@@ -172,7 +176,7 @@ export function progressAgeLabel(seconds: number | null, locale: Locale): string
 export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {
   const zh = locale === 'zh-CN';
   if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
-  if (status.reason === 'operator_input') return zh ? '当前任务等待你的回复' : 'This task is waiting for your reply';
+  if (status.reason === 'operator_input') return zh ? '有个问题在等你回答' : 'A question is waiting for your answer';
   if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.state === 'running') {

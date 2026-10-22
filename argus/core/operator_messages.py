@@ -14,6 +14,7 @@ _TIMEOUT_RE = re.compile(
     r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
     flags=re.IGNORECASE,
 )
+_SENTENCE_END = re.compile(r"[。！？!?]|\.(?=\s|$)")
 
 
 def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive: bool = False) -> str:
@@ -102,6 +103,13 @@ def brief_title(text: str, limit: int = 50) -> str:
     return title if len(title) <= limit else title[: limit - 1].rstrip() + "…"
 
 
+def first_sentence(text: str) -> str:
+    """The sentence ``text`` opens with, its closing mark kept."""
+    said = " ".join(str(text or "").split())
+    end = _SENTENCE_END.search(said)
+    return said[: end.end()] if end else said
+
+
 def render_operator_update(
     *,
     title: str,
@@ -178,6 +186,7 @@ def publish_operator_message(
 
 __all__ = [
     "brief_title",
+    "first_sentence",
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",

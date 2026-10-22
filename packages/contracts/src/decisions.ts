@@ -8,7 +8,6 @@ export interface DecisionOption {
   id: string;
   label: string;
   description: string;
-  requires_note: boolean;
 }
 
 export interface OperatorDecisionCard {

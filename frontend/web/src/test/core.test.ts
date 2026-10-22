@@ -261,7 +261,7 @@ describe('shared frontend core', () => {
         reason: 'Dataset access is required.',
         question: 'Which dataset should the process use?',
         evidence: [],
-        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.', requires_note: true }],
+        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.' }],
         selected_option: '',
         note: '',
       },
@@ -272,7 +272,9 @@ describe('shared frontend core', () => {
     }));
     expect(html).toContain('Decision required');
     expect(html).toContain('Which dataset should the process use?');
-    expect(html).toContain('Choose dataset');
+    // A written answer is the text box and its send button.
+    expect(html).toContain('Answer in your own words');
+    expect(html).toContain('Send answer');
     expect(html).toContain('Your answer applies to this task.');
   });
 

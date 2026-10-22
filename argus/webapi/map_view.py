@@ -9,7 +9,8 @@ from pathlib import Path
 from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
 from ..core.mission_view import operator_objective
-from ..core.progress_step import plain_step_label
+from ..core.operator_decision import card_answer
+from ..core.progress_step import describe_progress_step, plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..core.stop_kinds import NON_FAILURE_STOP_KINDS
@@ -145,6 +146,9 @@ def _step_from_progress(row: dict, workspace: str = "") -> dict:
             redact_secrets_text(str(label or "")), str(row.get("tool_name") or ""),
             redact_secrets_text(str(row.get("detail") or "")), workspace,
         ) or label
+    elif kind == "command_execution" and not row.get("turn_step"):
+        # "$ <command>" as a turn step says it, Argus' own paths cut short.
+        label = describe_progress_step(row, workspace)[0]
     step = {
         "kind": kind,
         "label": text(label, STEP_LABEL_LIMIT),
@@ -340,6 +344,9 @@ def normalize_events(
                 e["review_source"] = text(row["review_source"], 120)
             if row.get("park_reason"):
                 e["park_reason"] = text(row["park_reason"], 80)
+            if row.get("operator_question"):
+                # A handoff to the operator settles ``blocked`` and asks this.
+                e["operator_question"] = text(row["operator_question"])
             if row.get("stop_kind") in NON_FAILURE_STOP_KINDS:
                 # Stopped, not failed: by whom or what, as the record names it.
                 e["stop_kind"] = row["stop_kind"]
@@ -351,6 +358,13 @@ def normalize_events(
             )
             if certification:
                 e["stage_certification"] = text(certification, 80)
+            if kind == "life.operator_question.pending" and row.get("options"):
+                # The question with the answers it offered, numbered as the operator saw them.
+                e["text"] = "\n".join([said, *(
+                    f"{number}. {text(option, 160)}" for number, option in enumerate(row["options"], 1)
+                )])
+            if kind == "life.operator_question.answered" and row.get("option"):
+                e["option"] = text(row["option"], 160)
             if kind == "life.plan.node.superseded":
                 # Keep the shape lean: structured keys only when present.
                 if row.get("reason"):
@@ -614,6 +628,10 @@ def read_map(
         if reason := park_reason(item):
             task["park_reason"] = reason
         task["objective"] = operator_objective(raw)
+        if answered := card_answer(item.operator_decision):
+            # The objective stays the operator's request; what they answered
+            # since is part of what the task now asks.
+            task["answered"] = answered
         for k, v in list(task.items()):
             if k == "outcome":
                 task[k] = public_outcome(v)
