@@ -34,7 +34,8 @@ ACTION = "submit_review"
 HANDOFF_LINE = (
     "End the review with one line naming who holds the work next: `→ done` "
     "accepts this candidate; `→ engineer` returns concrete in-scope repairs; "
-    "`→ planner` the task or plan is wrong; `→ manager` an obstacle or a conflict "
+    "`→ planner` the task or plan is wrong; `→ manager` an obstacle the Engineer "
+    "cannot remove (a file you cannot read, a tool or access you lack) or a conflict "
     "in the acceptance criteria only the Manager can settle; `→ operator: <one "
     "question>` a decision only the operator can make."
 )
