@@ -106,6 +106,14 @@ def test_an_engineer_handoff_is_the_engineers_record_not_a_review():
     assert roles[2:] == [("round.review.completed", "engineer"), ("round.review.completed", "reviewer")]
 
 
+def test_a_task_the_reviewer_accepted_closes_under_the_reviewer():
+    done = {"type": "life.mission.completed", "item_id": "a", "agent_layer": "engineer", "success": True}
+    rows = [{**done, "ts": 1, "review_source": "reviewer"},
+            {**done, "ts": 2, "review_source": "engineer_self_review"},
+            {**done, "ts": 3, "review_source": "reviewer", "success": False}]
+    assert [e["role"] for e in normalize_events(rows, {"a"})] == ["reviewer", "engineer", "engineer"]
+
+
 def test_ambiguous_rounds_do_not_attach_to_arbitrary_tasks():
     rows = [{"type": "life.mission.started", "item_id": t} for t in ("a", "b")]
     rows += [{"type": "round.start", "round_index": 1}]

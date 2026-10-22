@@ -305,15 +305,18 @@ def normalize_events(
             elif kind.startswith(SEGMENT_CLOSERS):
                 _close_segment(segments, owner, said)
         if collected:
+            # A task the Reviewer accepted closes in the Reviewer's words. A
+            # handoff or self-check the Engineer wrote closes a round as a
+            # review would, but no Reviewer took part: it is the Engineer's.
+            accepted = (kind == "life.mission.completed" and row.get("success") is True
+                        and row.get("review_source") == "reviewer")
             e = {
                 "id": event_id(row),
                 "item_id": owner,
                 "type": kind,
                 "ts": row.get("ts", 0),
                 "association": association,
-                # A handoff or self-check the Engineer wrote closes a round as
-                # a review would, but no Reviewer took part: it is the Engineer's.
-                "role": str(
+                "role": "reviewer" if accepted else str(
                     row.get("agent_layer")
                     or row.get("role")
                     or row.get("decided_by")
