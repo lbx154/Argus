@@ -1,5 +1,5 @@
 import { useBacklogItem } from '../hooks';
-import { isTerminalBacklogItem } from '../../../core/src/backlog';
+import { currentOutcome, isTerminalBacklogItem } from '../../../core/src/backlog';
 import { Modal } from './Modal';
 import { Button, Chip, Spinner } from './primitives';
 import { useI18n } from '../i18n';
@@ -41,7 +41,7 @@ export function TaskDetailModal({
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
   const terminal = item ? isTerminalBacklogItem(item) : false;
-  const outcome = outcomeLabels(item?.outcome, t);
+  const outcome = outcomeLabels(item && currentOutcome(item), t);
   return (
     <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
       <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
@@ -121,10 +121,10 @@ export function TaskDetailModal({
                 <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">{item.notes}</p>
               </section>
             ) : null}
-            {(item.tags?.length || item.deps?.length) ? (
+            {/* Tags are the team's routing marks, never shown to the reader. */}
+            {item.deps?.length ? (
               <div className="flex flex-wrap gap-1.5">
-                {(item.tags ?? []).map((tag) => <Chip key={`tag-${tag}`}>#{tag}</Chip>)}
-                {item.deps?.length ? <Chip>{t('task.dependsOnCount', { count: item.deps.length })}</Chip> : null}
+                <Chip>{t('task.dependsOnCount', { count: item.deps.length })}</Chip>
               </div>
             ) : null}
           </div>

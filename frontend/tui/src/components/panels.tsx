@@ -14,7 +14,7 @@ import type {
   StatusView,
 } from '../api.js';
 import { filterProjects, rankProjects } from '../../../core/src/projects.js';
-import { visibleBacklogItems } from '../../../core/src/backlog.js';
+import { currentOutcome, visibleBacklogItems } from '../../../core/src/backlog.js';
 import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
@@ -414,7 +414,7 @@ function wrapDetail(text: string, width: number): string[] {
 }
 
 function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: number; pageSize: number; width: number }) {
-  const outcome = outcomeDimensionSummary(item.outcome);
+  const outcome = outcomeDimensionSummary(currentOutcome(item));
   const lines = [
     `status      ${item.status}`,
     ...(outcome.length ? outcome.map((row, index) => `${index ? '            ' : 'outcome     '}${row}`) : []),
