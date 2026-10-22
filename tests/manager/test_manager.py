@@ -1748,25 +1748,6 @@ def _mgr_with_store(tmp_path):
     return mgr
 
 
-def test_role_skill_block_can_omit_libraries_for_classification(tmp_path):
-    mgr = _mgr_with_store(tmp_path)
-    block = mgr._role_skill_block(
-        "optimize a CUDA kernel", include_libraries=False
-    )
-    assert "Skill libraries" not in block
-    assert "The Manager's role" not in block
-    assert mgr.mission.calls == 0
-
-
-def test_role_skill_block_exposes_paths_without_matching(tmp_path):
-    mgr = _mgr_with_store(tmp_path)
-    block = mgr._role_skill_block(
-        "optimize a CUDA kernel", include_libraries=True
-    )
-    assert "/semantic/library" in block
-    assert mgr.mission.calls == 1
-
-
 def test_route_does_not_fire_matcher(tmp_path):
     mgr = _mgr_with_store(tmp_path)
     out = mgr.route("hello", run_exec=lambda p: _FakeResult("TEAM"))

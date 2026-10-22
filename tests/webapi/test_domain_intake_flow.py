@@ -39,7 +39,7 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
                          'TASK_TITLE=Build a reusable calendar workflow\n'
                          'TASK_SUMMARY=Explain calendar conventions with cited sources. Validate 2005-07-31 and another date, including missing-calendar input.')
             return SimpleNamespace(exit_code=0, thread_id='manager-conversation', last_agent_message=reply)
-    manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
+    manager = Manager(life, runner=Backend())
     choices = iter([
         {"action": "offer"},
         *([] if cards else [{"action": "ask", "question": "What output and verification do you want?"}]),
@@ -212,7 +212,7 @@ def test_bad_manager_question_keeps_offer_and_does_not_fabricate_options(tmp_pat
             return SimpleNamespace(exit_code=0, thread_id='manager-failed-question',
                 last_agent_message='Decision:\nDOMAIN_ACTION=ASK\nDOMAIN_QUESTION=Who is this for?')
 
-    manager = Manager(life, runner=Backend(), memory_maintenance_enabled=False)
+    manager = Manager(life, runner=Backend())
     monkeypatch.setattr(front_door, '_ensure_manager_runner', lambda *_a: SimpleNamespace(manager=manager))
     app = server.create_app(global_root=tmp_path)
     with TestClient(app) as client:

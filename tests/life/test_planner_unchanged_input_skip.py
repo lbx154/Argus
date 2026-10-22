@@ -372,7 +372,7 @@ def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
         "text": "the Planner woke again only to wait", "stall_reason": "observer",
     }
     supervisor.sink.handle_event(remark)
-    manager = Manager(life, runner=_Steers(), memory_maintenance_enabled=False)
+    manager = Manager(life, runner=_Steers())
     assert supervision.supervise(manager, life, remark)["status"] == "applied"
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
