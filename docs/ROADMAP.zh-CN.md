@@ -277,6 +277,7 @@
 `0.2` · `S` · 依赖：无 · 新人友好
 - 要做：按包统计 `except Exception` 和"出错就返回空值或默认值"的位置，标出在任务主路径上的那些，提交成文档或 issue 列表。
 - 做完的样子：每个包一份清单，主路径上的位置单独标出。
+- 状态：已完成（`c69abbfb`）：`argus/release_tools/swallowed_errors.py` 用 AST 扫描，生成 [audits/swallowed-errors.md](audits/swallowed-errors.md)。当时共 730 个宽泛 `except`（其中 254 个直接返回默认值或 pass）和 850 个较窄但出错就返回默认值的位置；主路径（守护进程派发到结算）上 274 个宽泛、178 个较窄，单独列出。
 
 #### CO-2 按包清理吞错
 `0.9` · `L` · 依赖：CO-1 · 新人友好（按文件拆）
@@ -287,6 +288,7 @@
 #### CO-3 吞错只减不增的护栏
 `0.2` · `S` · 依赖：CO-1 · 新人友好
 - 要做：加一个测试，记录每个包当前的宽泛 `except` 数量，新增就失败（参考现有 mypy 基线的做法）。
+- 状态：已完成（`c69abbfb`）：`tests/tools/test_swallowed_errors_baseline.py` 对照 `tests/tools/swallowed_errors_baseline.json`，某个包变多就失败；变少时通过并提示重新生成基线。
 
 #### CO-4 合并 18 份原子写
 `0.7` · `M` · 依赖：CO-6

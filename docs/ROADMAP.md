@@ -368,6 +368,10 @@ layers with dependencies pointing only downward, so a newcomer can find things f
 - Do: per package, count `except Exception` and places that "return an empty or default value on error"; mark the ones
   on the task's main path; submit as a document or a list of issues.
 - Done when: one list per package, with main-path locations marked separately.
+- Status: done (`c69abbfb`): `argus/release_tools/swallowed_errors.py` scans with `ast` and generates
+  [audits/swallowed-errors.md](audits/swallowed-errors.md). At the time: 730 broad `except` handlers (254 of them return
+  a default or pass) and 850 narrower handlers that return a default on error; the main path (daemon dispatch to
+  settlement) has 274 broad and 178 narrower ones, listed separately.
 
 #### CO-2 Clean up swallowed errors package by package
 `0.9` · `L` · Depends on: CO-1 · good first issue (split by file)
@@ -380,6 +384,9 @@ layers with dependencies pointing only downward, so a newcomer can find things f
 `0.2` · `S` · Depends on: CO-1 · good first issue
 - Do: add a test that records each package's current count of broad `except`, and fails when it grows (like the existing
   mypy baseline).
+- Status: done (`c69abbfb`): `tests/tools/test_swallowed_errors_baseline.py` compares against
+  `tests/tools/swallowed_errors_baseline.json` and fails when any package grows; when one shrinks it passes and says to
+  regenerate the baseline.
 
 #### CO-4 Merge the 18 copies of atomic write
 `0.7` · `M` · Depends on: CO-6
