@@ -22,7 +22,7 @@ import pytest
 from argus.apps._inbox import queue_inbox_message
 from argus.apps._inbox_delivery import DurableInboxReceiver
 from argus.life.event_log import JsonlEventSink
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory, park_reason, planner_may_retire_park
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
 from argus.messaging.inbox import PeerAwareInbox
@@ -256,6 +256,46 @@ def test_work_the_manager_handed_to_an_engineer_is_not_planner_input_until_it_en
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2, "a direct task that ended is"
     assert choice.id in {item.id for item in backlog.active()}
+
+
+def test_a_direct_task_handed_to_the_planner_is_the_planners(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """s-757b9dac: on the Manager's direct task the Engineer found two rounding
+    rules and wrote `→ planner`. The task went back to the queue, so the Planner
+    read it as still the Engineer's ("every live task is the Manager's direct
+    handoff") and the same task ran again, straight into a review of nothing."""
+    project = tmp_path / "project"
+    project.mkdir()
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    runs: list[str] = []
+
+    class _HandsToPlanner:
+        def execute(self, **_kwargs):
+            runs.append("engineer")
+            return SimpleNamespace(
+                success=False, status="replan_requested", rounds=1,
+                stop_reason="format_minutes floors, format_days rounds half up; I cannot pick one.",
+            )
+
+    supervisor.runner = _HandsToPlanner()
+    item = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Add format_hours", objective="Add format_hours with the package's rounding.",
+        tags=["manager", "scope:bounded", "review:required", "manager_direct"],
+    ))
+
+    assert supervisor.run()["stopped_by"] == PLAN_AWAITING
+
+    assert runs == ["engineer"], "the task did not run again on its own"
+    assert calls["count"] == 1, "the Planner was asked"
+    row = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert (row.status, park_reason(row)) == ("parked", "research_open")
+    assert planner_may_retire_park(row)
+    assert not any(
+        "direct handoff" in str(event.get("reason") or "")
+        for event in _events(tmp_path / "life") if event.get("type") == "life.planner.idle"
+    )
 
 
 def test_a_planner_left_waiting_on_a_question_hands_the_next_move_to_the_operator(

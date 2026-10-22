@@ -289,7 +289,9 @@ invariants, and together they are the whole state machine:
    snapshot and the event log. It is counted on the mission's lineage, so
    resuming, replanning, or rewording does not reset it. For the Engineer, a
    review handed to it that it has not yet worked on is new input; the next
-   unchanged return still stops at the Reviewer. A Reviewer that accepted the
+   unchanged return still stops at the Reviewer. An Engineer's own line stands
+   the same way: unchanged work it handed on goes where that line sent it, so
+   only a handoff to the Reviewer resumes at review. A Reviewer that accepted the
    candidate as it is does not pass it up: its acceptance stands without a
    model call, and the record names the verdict it reused. The host refusing
    that acceptance (the task it ended failed, or was sent back to run again)
