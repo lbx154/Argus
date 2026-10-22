@@ -91,6 +91,12 @@ def test_real_message_keeps_routing_context_private_through_intent_events(tmp_pa
         assert read_continuous_state(life).objective == EXECUTION
         pending = Backlog(life / "backlog.jsonl").pending()
         assert len(pending) == 1 and pending[0].objective == EXECUTION
+        # The roles read the Manager's brief; the operator reads their own
+        # request, at the top of the conversation too (trial s-aeb9e18c).
+        assert pending[0].manager_decision["display_objective"] == public_goal
+        from argus.webapi.project_state import build_snapshot
+
+        assert build_snapshot(sid, global_root=tmp_path)["goal"] == public_goal
         view = load_mission_view(life)
         assert view["mission"]["objective"] == EXECUTION
         assert "[BOUNDED TASK CONTEXT" not in json.dumps(view)
