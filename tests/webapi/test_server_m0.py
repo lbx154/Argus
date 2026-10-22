@@ -724,7 +724,7 @@ def test_build_snapshot_marks_running_legacy_daemon_incompatible(
         lambda _life_dir: daemon_worker.DaemonStatus(
             alive=True,
             pid=123,
-            started_at_iso=None,
+            started_at_iso="2026-10-21T00:00:00+00:00",
             uptime_seconds=5.0,
             life_dir=life,
         ),
