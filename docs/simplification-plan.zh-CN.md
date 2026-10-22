@@ -1,5 +1,8 @@
 # 精简计划
 
+> **历史快照（RL-4，2026-10-22）：**本计划的大部分已经执行，文中点名要删的文件（`skills/research_gates.py`、
+> physics 各门和 stages、capability trace）已不存在。不是当前指引，见 [ROADMAP.zh-CN.md](ROADMAP.zh-CN.md)。
+
 一份把 Argus 变小的计划。**这是减重问题，不是重写**：系统是能用的，目标是删掉那些没有在承重
 的东西。
 

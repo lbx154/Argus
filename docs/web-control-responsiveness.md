@@ -3,7 +3,8 @@
 ## Workbench navigation and runtime controls
 
 The main views are Map, Conversation, and Workbench. Workbench modules are
-Research timeline, Execution, AI IDE, and Runtime controls, in that order.
+Research timeline, Work progress, Code workspace (read-only), and Runtime controls,
+in that order.
 Runtime controls replaces the separate operations modal and project overview.
 Legacy `view=mission` links open the conversation; removed or invalid module
 selections open Runtime controls. Task history and execution capabilities are

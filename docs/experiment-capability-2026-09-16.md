@@ -1,5 +1,7 @@
 # Argus 实验能力升级与对照实验(2026-09-16 夜)
 
+> **历史记录（RL-4，2026-10-22）：**本文记录 2026-09-16 时的 Argus；例如 4.10 节的 `ARGUS_SKILL_REFLECTION`、`ARGUS_SKILL_ANSWER_LEARNING`、`ARGUS_SKILL_CONSOLIDATE_INTERVAL_S`、`ARGUS_SKILL_RECALL_SIBLING_WIKIS` 已合并为一个开关 `ARGUS_SKILL_LEARNING`（`21a1be81`），`ARGUS_SKILL_FIGURE_MODEL` 已删除（`d8f7cc72`）。不是当前指引，当前行为见 [工作中学习](continuous-learning.md)。
+
 面向操作者的报告。目标:让 Argus 在研究垂域里做出的实验"方法与代码一致、结果真正 work、复用与效率优先、知识能自进化",并用一次对照运行证明改进。
 
 ## 1. 诊断:问题不在模型,在交接

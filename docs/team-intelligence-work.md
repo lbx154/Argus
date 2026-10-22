@@ -1,5 +1,7 @@
 # Team intelligence implementation and acceptance
 
+> **Historical record (RL-4, 2026-10-22):** this describes Argus as of 2026-09-13 and is no longer an active work record; for example the code moved from `argus_skill/` to `argus/` (`db35af7f`), and Agent Teams (teammate pool, Curator) have since been removed (`62dea9ac`). It is not current guidance; see [Features](FEATURES.md).
+
 The September 13 [integration closeout](evaluations/ARGUS_CLOSEOUT_2026-09-13.md) supersedes the source handoff and pending-regression status below. It incorporates the latest inbox source and current main, records completed regression, and retains the unfinished real-model acceptance. The historical 9d image is not the new integrated source release.
 
 Argus should be an evidence-driven, adaptable team supervised through its persistent Manager. This is the active work record for the full user objective. A validated private candidate does not complete that objective or authorize publication.

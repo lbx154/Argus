@@ -2,7 +2,11 @@
 
 Chinese version: [role-handoff-design.zh-CN.md](role-handoff-design.zh-CN.md)
 
-Status: proposal (2026-10-16). Implementation is tracked in
+Status: proposal (2026-10-16), now largely implemented: the baton line
+replaced the footers, the `paused_*` statuses became one park, and
+`reviewer/_parsing.py` and `skills/round_checkpoint.py` are deleted (roadmap
+HO-16, checked 2026-10-22). Descriptions of the code below are as of the
+proposal. Implementation is tracked in
 [the roadmap](ROADMAP.md); this document explains why each item exists. The
 liveness part ([The baton](#the-baton)) starts with fixes for the defects
 listed under [Handoffs that do not end](#handoffs-that-do-not-end), each an

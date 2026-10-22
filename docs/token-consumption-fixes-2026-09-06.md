@@ -1,5 +1,7 @@
 # Token consumption fixes
 
+> **Historical record (RL-4, 2026-10-22):** this describes Argus as of 2026-09-06; the persistent Copilot ACP session it mentions has since been removed and every Copilot call is one-shot (`9011e8c0`). It is not current guidance; see [Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md).
+
 Argus could repeat unchanged paper assessments, replay duplicate operator rules,
 and lose Reviewer session reuse after writing its own REVIEW.md. Copilot usage
 could also be read from the personal database while the actual child wrote to

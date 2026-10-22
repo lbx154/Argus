@@ -8,7 +8,7 @@ Open **Plugins → Argus CrystalPilot → Install**. Argus downloads the version
 
 The public distribution page is https://crystalpilot-downloads.argusbot.cn/. Immutable wheel and source archives are under `/releases/<version>/`. Argus installs the wheel; it never clones a private repository. The source ZIP is for inspection and independent builds. Upstream scientific binaries, model credentials and research datasets are not included in these artifacts.
 
-The host checks its default and per-role execution backends. CrystalPilot supports Codex, Copilot and Pi, including mixed supported roles. Unsupported backends block workbench access with “暂不支持，敬请期待”. Provider credentials and model choices remain owned by Argus.
+The host checks its execution backend, which every role shares. CrystalPilot supports Codex, Copilot and Pi. Unsupported backends block workbench access with “暂不支持，敬请期待”. Provider credentials and model choices remain owned by Argus.
 
 After installation, `/crystalpilot` in a native Argus session enables scientific tools in that interface. Opening CrystalPilot from Plugins uses its own workbench. The surfaces retain separate conversations, ownership and project bindings.
 

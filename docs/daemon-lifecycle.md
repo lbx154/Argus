@@ -115,7 +115,7 @@ are not a sandbox against children deliberately creating new sessions. A service
 manager's control group also covers simultaneous loss of the execution owner and
 its guard.
 
-A durable run has no time limit: it ends when its command does. A direct run
-whose process tree has used no CPU and written nothing for 30 minutes is
-reported stalled to the Engineer waiting on it, and the Manager is asked once;
-nothing stops it unless one of them decides to.
+A role turn has no time limit by default. An Engineer turn that makes no
+progress (no model stream event and no CPU time in its commands) for 30 minutes
+(`ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS`) is reported to the Manager once;
+nothing stops it unless the Manager decides to.

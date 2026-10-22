@@ -74,8 +74,9 @@ workspace-relative file. Further revisions should stay tied to that file.
    compliance", is not.
 
 9. **The machine's tokens stay with the machine.** Lines such as
-   `ACTION=advance`, `STATUS=done`, `TASK_TITLE=`, `RETIRE_TASK=`,
-   `PLAN_SIGNAL=` are parsed by code and remain exactly as they are. No
+   `ACTION=advance`, `STATUS=done`, `TASK_TITLE=`, `RETIRE_TASK=`, and
+   the baton line a role ends its turn with (`→ reviewer`, `→ done`), are
+   parsed by code and remain exactly as they are. No
    sentence written for a person, whether a reason, a next step, a note, a
    heading, or a question, contains those tokens or their names.
 

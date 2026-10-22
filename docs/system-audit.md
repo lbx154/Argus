@@ -1,5 +1,11 @@
 # System Audit: Six Complaints, Measured
 
+> **Historical snapshot (RL-4, 2026-10-22):** the counts and file paths were measured on the tree
+> at the time of writing; several named files (`skills/capability_trace.py`, the physics gates,
+> `daemon/self_maintenance.py`, the quant and literature ledgers) no longer exist, and role
+> replies now end with one handoff line rather than footer lines. It is not current guidance. See
+> [ROADMAP.md](ROADMAP.md).
+
 Six problems were raised about the runtime. This document checks each against the
 code rather than against impressions. Every number below was measured on the tree
 at the time of writing and can be re-derived with the command given.

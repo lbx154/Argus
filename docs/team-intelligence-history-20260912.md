@@ -1,5 +1,7 @@
 # Team intelligence implementation and acceptance
 
+> **Historical record (RL-4, 2026-10-22):** this describes Argus as of 2026-09-12 and is no longer an active work record; for example role-session rotation has since been removed and the backend manages context (`a2830605`), and client-side budgets were removed (`28bde6e7`). It is not current guidance; see [Features](FEATURES.md).
+
 User objective, 2026-09-12: make Argus an evidence-driven, adaptable team that a person can supervise through its Manager. Improve the architecture through actual trial use. This is an active work record, not a completion claim.
 
 Validation baseline before the final retry-stop fix:

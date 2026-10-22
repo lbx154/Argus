@@ -1,5 +1,11 @@
 # Argus 论文“实验报告味”治理方案
 
+> **已过时（2026-10-22 核对，RL-4）：**第 11.4–11.6 节点名的 `academic_language_review.py`（连同其 `--write`
+> 兼容 CLI）已于 `565d1a09` 删除，`draft_outline.py`、`argument_organization.py`、`reviewer_simulation.py`
+> 也已不在仓库中。四个 operation、`.argus/internal/narrative-runtime/` 和
+> `ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT` 仍与代码一致。当前行为见
+> [research-review-playbook.md](../argus/verticals/research/skills/research-review-playbook.md)。
+
 状态：运行能力已实现；当前修稿契约以原稿为基础，有具体问题才局部修改，允许无需修改。新 semantic-loss / cold-read 信号默认只做 shadow calibration，不改变既有阻断标准。
 
 ## 1. 问题定义
