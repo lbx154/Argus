@@ -205,6 +205,7 @@ class LettersMixin:
     def _letter_facts(self, *, since: float, now: float) -> dict[str, Any]:
         from ...core.mission_view import uses_cjk
         from ...core.operator_presence import operator_presence
+        from ...core.transcript import operator_request
 
         life_dir = Path(self.memory.root)
         objective = str(getattr(self.config, "continuous_objective", "") or "").strip()
@@ -219,16 +220,6 @@ class LettersMixin:
             except OSError:
                 objective = ""
         presence = operator_presence(life_dir, now=now)
-        language_hint = objective
-        try:
-            from ...core.transcript import read_turns
-
-            for turn in reversed(read_turns(life_dir, limit=30)):
-                if turn.get("role") == "operator":
-                    language_hint = str(turn.get("text") or "") or objective
-                    break
-        except Exception:  # noqa: BLE001
-            pass
 
         stage = str(self._current_pipeline_stage() or "")
         tally = ""
@@ -340,7 +331,7 @@ class LettersMixin:
         cost_line = f"About ${cost:.2f} of model use across {len(missions)} finished missions in {hours_window:.1f} hours."
         silence = presence.silence_seconds
         return {
-            "chinese": uses_cjk(language_hint),
+            "chinese": uses_cjk(operator_request(life_dir) or objective),
             "objective": objective[:4000],
             "stage": stage,
             "stage_line": stage_line,

@@ -497,6 +497,22 @@ def test_an_answer_is_acknowledged_in_the_operator_s_language(
     assert result["reply"] == reply
 
 
+def test_a_clicked_option_is_acknowledged_in_the_question_s_language(tmp_path: Path) -> None:
+    """Trial s-7d356ee9: the option clicked under a Chinese question had no
+    Chinese in it, and the reply was "Got it, carrying on with your choice."."""
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _park(life, "format", "请选择采用哪种格式？", (
+        'A：format_date → "2026-10-22"', 'B：format_date → "22.10.2026"',
+    ))
+
+    result = manager_pending_question.manager_resolve_operator_decision(
+        sid, item.operator_decision["id"], "option-2", "", global_root=tmp_path,
+    )
+
+    assert result["reply"].startswith("收到，按你定的继续做。")
+
+
 def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)

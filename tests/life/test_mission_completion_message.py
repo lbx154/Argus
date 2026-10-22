@@ -402,6 +402,36 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
     )
 
 
+def _last_said(supervisor: LifeSupervisor, event: dict, root) -> str:
+    supervisor._emit({"type": "life.mission.completed", **event})
+    return json.loads((root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1])["text"]
+
+
+def test_a_completion_after_an_option_click_keeps_the_operator_s_language(tmp_path) -> None:
+    """Trial s-7d356ee9: the operator clicked 'B：format_date → …', the option's
+    words became their latest turn, and the completion came out in English."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=False, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "datefmt 的 format_date 收到两条互相冲突的需求，必须由我来拍板。")
+    append_turn(memory.root, "operator", 'B：format_date → "22.10.2026"，format_month → "10.2026"')
+
+    assert _last_said(supervisor, {
+        "item_id": "task-date", "title": "Switch format_date to day.month.year",
+        "success": True, "status": "done", "summary": "datefmt 已实现你选定的 B 方案。",
+        "independent_review_required": True, "review_source": "reviewer", "overall_complete": True,
+        "outcome": {"review_status": "done", "stage_certification": "certified"},
+        "delivery": {"delivery_id": "d-date", "primary_target": {"label": "core.py", "path": "datefmt/core.py"}},
+    }, memory.root) == (
+        "做完了，独立审阅也没发现要改的地方。\n"
+        "datefmt 已实现你选定的 B 方案。\n"
+        "结果在 datefmt/core.py。"
+    )
+
+
 def test_a_step_of_a_continuing_project_is_named_as_a_step(tmp_path) -> None:
     """Trial s-6f0e6213 read "做完一步：实现并独立审阅整小时格式化功能"."""
     memory = LifeMemory.open(tmp_path)

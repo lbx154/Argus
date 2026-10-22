@@ -1566,16 +1566,9 @@ class LifeSupervisor(
             def _message_id(legacy: str) -> str:
                 return f"mission-result-{stable_delivery_id}" if stable_delivery_id else legacy
 
-            from ...core.transcript import read_turns
+            from ...core.transcript import operator_request
 
-            language_hint = next(
-                (
-                    str(turn.get("text") or "")
-                    for turn in reversed(read_turns(life_dir, limit=20))
-                    if turn.get("role") == "operator"
-                ),
-                "",
-            )
+            language_hint = operator_request(life_dir)
             chinese = uses_cjk(language_hint)
             title = str(event.get("title") or say("this_task", chinese)).strip()
             success = bool(event.get("success"))
