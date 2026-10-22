@@ -1543,6 +1543,7 @@ class LifeSupervisor(
         try:
             from ...core.operator_messages import (
                 brief_title,
+                first_sentence,
                 publish_operator_message,
                 render_operator_update,
             )
@@ -1737,9 +1738,9 @@ class LifeSupervisor(
                     },
                 )
                 return
+            reviewed = event.get("review_source") == "reviewer"
             reviewer_found_nothing = bool(
-                overall_complete and independent_review_required and review == "done"
-                and event.get("review_source") == "reviewer"
+                overall_complete and independent_review_required and review == "done" and reviewed
             )
             # The item is done while other planned work goes on.
             deferred = (
@@ -1780,7 +1781,9 @@ class LifeSupervisor(
                     part
                     for part in (
                         headline,
-                        summary,
+                        # A Reviewer's summary is told in full on its review row;
+                        # here only its first sentence, the one it writes for the operator.
+                        first_sentence(summary) if reviewed else summary,
                         delivery_line,
                         continuation,
                         assumptions_line,

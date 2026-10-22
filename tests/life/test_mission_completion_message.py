@@ -299,6 +299,41 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         assert internal not in text
 
 
+def test_a_reviewed_completion_gives_the_review_s_first_sentence_and_the_result(tmp_path) -> None:
+    """2026-10-21: two completion messages repeated the Reviewer's whole
+    first-person review, test command and code-point counts included, right
+    under the review row that had just shown it."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=False, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "在 strtools/core.py 加 char_count。")
+    review = (
+        "`char_count` 已完整交付；我独立确认了默认计数和包级导出。 "
+        "我重新运行 `python -m pytest -q`，176 项全部通过。"
+    )
+
+    supervisor._emit({
+        "type": "life.mission.completed", "item_id": "task-count", "title": "新增字符计数函数 char_count",
+        "success": True, "status": "done", "summary": review,
+        "independent_review_required": True, "review_source": "reviewer", "overall_complete": True,
+        "outcome": {"review_status": "done", "stage_certification": "certified"},
+        "delivery": {"delivery_id": "d-1", "primary_target": {"label": "core.py", "path": "strtools/core.py"}},
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )["text"]
+    assert text == (
+        "做完了，独立审阅也没发现要改的地方。\n"
+        "`char_count` 已完整交付；我独立确认了默认计数和包级导出。\n"
+        "结果在 strtools/core.py。"
+    )
+
+
 def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
     from argus.life.memory import BacklogItem
 
