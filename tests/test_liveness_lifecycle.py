@@ -779,9 +779,41 @@ def test_planner_and_manager_read_every_answer_given_since_the_objective_began(
 
     digest, context = _answers_read(supervisor, project)
     answers = [f"Choice {number}? → Option {number}. (the operator)" for number in range(4)]
-    assert "- operator_answers (their later word wherever the objective says otherwise): " + "; ".join(answers) in digest
+    assert (
+        "- operator_answers (their later word wherever the objective or the Manager's "
+        "strategic context says otherwise): " + "; ".join(answers)
+    ) in digest
     assert "## The operator's answers since the objective" in context
     assert all(f"- {answer}" in context for answer in answers)
+    assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context
+
+
+def test_the_question_asked_while_the_objective_was_framed_is_answered_since_it_began(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Trial s-43d4ae2f, 2026-10-21: the front door asked "A or B?" while it
+    framed the objective, 10 ms before it wrote the framing complete. Read from
+    the completion, the operator's answer was older than the objective: the
+    Planner and the Manager's stage decision went on reading "wait for my
+    choice", and the finished work went round twice before it closed."""
+    from argus.daemon.state import write_continuous_config
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    root, backlog = supervisor.memory.root, supervisor.memory.backlog
+    objective = "keep improving the solver"
+    write_continuous_config(root, enabled=True, objective=objective)
+    _answered(backlog, "Keep the old parser?", "Yes.", 100.0)
+    sink = JsonlEventSink(None, life_dir=root)
+    sink.append({"type": EventType.LIFE_MANAGER_INTENT_STARTED, "ts": 200.0, "intent_id": "i-1", "objective": objective})
+    _answered(backlog, "A or B?", "A.", 200.5)
+    sink.append({
+        "type": EventType.LIFE_MANAGER_INTENT_COMPLETED, "ts": 201.0, "intent_id": "i-1", "item_id": "i-1",
+        "objective": objective, "execution_task": objective, "vertical": "software", "stages": ["delivery"],
+    })
+
+    digest, context = _answers_read(supervisor, project)
+    assert "A or B? → A. (the operator)" in digest and "- A or B? → A. (the operator)" in context
     assert "Keep the old parser?" not in digest and "Keep the old parser?" not in context
 
 

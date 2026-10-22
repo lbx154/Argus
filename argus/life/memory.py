@@ -800,18 +800,32 @@ def planner_may_retire_park(item: Any) -> bool:
 def objective_started_at(state_root: Path | str, objective: str) -> float | None:
     """When ``objective`` became the standing objective, or None when no record says.
 
-    Every framing, at daemon start or through the front door, ends in one
-    ``life.manager.intent.completed`` naming the objective it hands on; the
-    latest one naming this objective is when it began.
+    Every framing, at daemon start or through the front door, opens with one
+    ``life.manager.intent.started`` and ends in one
+    ``life.manager.intent.completed`` naming the objective it hands on, both
+    under one intent id. The objective began when the latest framing naming
+    it started: a framing asks what only the operator can decide before it
+    ends (in s-43d4ae2f, 10 ms before), and that question is the objective's.
     """
     objective = str(objective or "").strip()
-    rows = _read_jsonl_tail_history(
-        Path(state_root) / "events.jsonl", 1,
-        raw_markers=(EventType.LIFE_MANAGER_INTENT_COMPLETED.value.encode(),),
-        predicate=lambda row: row.get("type") == EventType.LIFE_MANAGER_INTENT_COMPLETED
-        and str(row.get("execution_task") or "").strip() == objective,
-    ) if objective else []
-    ts = rows[-1].get("ts") if rows else None
+
+    def latest(event_type: EventType, matches: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+        rows = _read_jsonl_tail_history(
+            Path(state_root) / "events.jsonl", 1,
+            raw_markers=(event_type.value.encode(),),
+            predicate=lambda row: row.get("type") == event_type and matches(row),
+        )
+        return rows[-1] if rows else {}
+
+    completed = latest(
+        EventType.LIFE_MANAGER_INTENT_COMPLETED,
+        lambda row: str(row.get("execution_task") or "").strip() == objective,
+    ) if objective else {}
+    intent = completed.get("intent_id")
+    started = latest(
+        EventType.LIFE_MANAGER_INTENT_STARTED, lambda row: row.get("intent_id") == intent,
+    ) if intent else {}
+    ts = (started or completed).get("ts")
     return float(ts) if isinstance(ts, (int, float)) else None
 
 
