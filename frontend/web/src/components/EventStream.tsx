@@ -34,6 +34,7 @@ import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/wo
 import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
+import { earlierRoleWork } from './agentActivityModel';
 import { liveLines, type LiveLine } from '../lib/liveActivity';
 import { ProjectOverviewStrip, type NotificationControl } from './ProjectOverviewStrip';
 export { activeProviderRequest } from '../lib/workStatus';
@@ -826,12 +827,13 @@ export function EventStream({
   // render + whitelist + COALESCE streaming message fragments once per change
   // (see renderFeedRows). Folding into steps happens per displayed list, in the
   // role and system groups, where "consecutive" means what the reader sees.
+  const deferredView = useDeferredValue(missionView);
   const baseRows = useMemo(() => {
     const displayEvents = skipFirst > 0
       ? deferredEvents.slice(skipFirst)
-      : deferredEvents;
+      : [...earlierRoleWork(deferredView, deferredEvents, locale), ...deferredEvents];
     return renderFeedRows(displayEvents, { locale, showReasoning, filter, query, workspace });
-  }, [deferredEvents, showReasoning, filter, query, skipFirst, locale, workspace]);
+  }, [deferredEvents, deferredView, showReasoning, filter, query, skipFirst, locale, workspace]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {

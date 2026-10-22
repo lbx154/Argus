@@ -17,6 +17,7 @@ import {
 } from '../lib/feedSteps';
 import { translate } from '../i18n';
 import { EventStream, partitionRoleRows } from '../components/EventStream';
+import { emptyMissionView } from '../../../core/src/missionView';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -373,5 +374,29 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain('<code>sizefmt/core.py</code>');
     expect(html).not.toContain('**');
     expect(html).toContain('ls sizefmt/__init__.py');
+  });
+
+  it('keeps the lane of a role whose work came before the loaded events', () => {
+    // Trial s-7898efea: after a reload the newest events held none of the
+    // Manager's, and its lane read "经理 0 暂无活动".
+    const missionView = emptyMissionView();
+    const work = { status: 'done', item_id: 'task', title: 'Reporting progress' };
+    missionView.role_work = [
+      { ...work, id: 'm1', role: 'manager', kind: 'decision', title: 'Goal framed', detail: 'Hand it to the team.', ts: 1 },
+      // A stage the runtime closed is bookkeeping the live feed shows no row for either.
+      { ...work, id: 'm2', role: 'manager', kind: 'stage_decision', title: 'Stage → delivery', detail: '', ts: 2 },
+      { ...work, id: 'e1', role: 'engineer', kind: 'agent_message', detail: 'Checking the sources now.', ts: clock + 1 },
+    ];
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [said('Checking the sources now.', { event_id: 'e1' })],
+      missionView,
+      connected: true,
+      showReasoning: false,
+      onToggleReasoning: () => undefined,
+    }));
+
+    expect(html).toMatch(/data-role="manager"[^]*?<span class="font-mono text-xs text-ink-faint">1<[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
+    // Work the loaded events already tell is not told twice.
+    expect(html).toMatch(/data-role="engineer"[^]*?<span class="font-mono text-xs text-ink-faint">1</);
   });
 });
