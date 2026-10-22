@@ -440,12 +440,17 @@ def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
 
 
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
+    from ..core.mission_view import load_mission_view, session_is_chinese
     from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
     from ..core.role_handoff import OPERATOR_CHOICES_RULE
+    from ..roles.prompts.voice import operator_language
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
+    root = getattr(observation, "root", None)
     # Who decides in the operator's place depends on this project's question policy.
-    holds = _manager_holds_operator_authority(getattr(observation, "root", None))
+    holds = _manager_holds_operator_authority(root)
+    # The REASON is shown to the operator as written, like the Observer's remark.
+    language = operator_language(root is not None and session_is_chinese(load_mission_view(root)))
     return (
         "You are the persistent project Manager.\n"
         + asked
@@ -465,7 +470,8 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         )
         + "End your reply with these fields, each on its own line in the form KEY: value:\n"
         + f"ACTION: {'continue, steer or stop' if holds else 'continue, steer, wait or stop'} (the single word)\n"
-        "REASON: the decisive observed condition and what should happen next\n"
+        f"REASON: the decisive observed condition and what should happen next, {language}, "
+        "naming no task ids: the operator reads it\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
         + (
