@@ -466,10 +466,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "assumed_by_me": ("I went with", "我按这个理解做的"),
     "assumed_choice": ("{conflict} → {verb}: {reading}", "{conflict} → {verb}：{reading}"),
     "assumed_reading": ("{verb}: {reading}", "{verb}：{reading}"),
-    "assumed_conflict": (
-        "{conflict} (the reading chosen is in CHECKPOINT.md)",
-        "{conflict}（选定的理解记在 CHECKPOINT.md）",
-    ),
     # A finished task, told in the operator's conversation.
     "final_submission_ready": (
         "The final submission passed independent review and is ready.",

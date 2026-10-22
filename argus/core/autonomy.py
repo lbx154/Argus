@@ -119,8 +119,9 @@ def record_autonomous_assumption(
 ) -> dict[str, Any]:
     """Append one decision taken without asking the operator, for this run.
 
-    ``conflict`` is what forced a decision; ``reading`` is what the team or the
-    Manager actually chose, in its own words, when it has stated one.
+    ``reading`` is what the team or the Manager actually chose, in its own
+    words; ``conflict`` is what forced the decision, when known. Without a
+    reading nothing was decided, so nothing is recorded.
     """
     row = {
         "ts": time.time(),
@@ -132,7 +133,7 @@ def record_autonomous_assumption(
         "source": str(source or ""),
         "evidence_refs": [str(ref) for ref in evidence_refs if str(ref).strip()],
     }
-    if not (row["conflict"] or row["reading"]):
+    if not row["reading"]:
         return row
     path = Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME
     identity = row["key"] or (row["source"] + ":" + row["conflict"] + ":" + row["reading"])
@@ -152,7 +153,7 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
     return [
         row
         for row in _read_run_rows(Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME)
-        if str(row.get("conflict") or row.get("reading") or "").strip()
+        if str(row.get("reading") or "").strip()
     ]
 
 
@@ -169,9 +170,8 @@ def render_autonomous_assumptions(
         verb = say("assumed_by_manager" if row.get("source") == "manager_decision" else "assumed_by_me", chinese)
         lines.append("- " + (
             say("assumed_choice", chinese, conflict=conflict, verb=verb, reading=reading)
-            if reading and conflict
-            else say("assumed_reading", chinese, verb=verb, reading=reading) if reading
-            else say("assumed_conflict", chinese, conflict=conflict)
+            if conflict
+            else say("assumed_reading", chinese, verb=verb, reading=reading)
         ))
     return "\n".join(lines)
 

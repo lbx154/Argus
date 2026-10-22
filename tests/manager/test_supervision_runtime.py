@@ -918,7 +918,7 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     from argus.core.operator_context import JUDGMENT_INSTRUCTION
 
     prompt = " ".join(backend.calls[0][0].split())
-    assert JUDGMENT_INSTRUCTION in prompt and prompt.count("readings") == 1
+    assert prompt.count(JUDGMENT_INSTRUCTION) == 1
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
