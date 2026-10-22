@@ -1,7 +1,7 @@
 {
-  "git_commit": "f0134d001b95ab20639ae953f15ffd7e572ec770",
+  "git_commit": "420470d7aff56cd482f05a1b08340fcc5020b073",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+f0134d001b95",
+  "release_id": "0.1.8+420470d7aff5",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -483,6 +483,7 @@
     "argus/release_tools/preinstall_verticals.py": 2385,
     "argus/release_tools/provision_platon.py": 4715,
     "argus/release_tools/repository_parity.py": 1520,
+    "argus/release_tools/swallowed_errors.py": 13327,
     "argus/release_tools/typecheck_gate.py": 4750,
     "argus/release_tools/verify_plugin_install.py": 2473,
     "argus/reviewer/__init__.py": 742,
