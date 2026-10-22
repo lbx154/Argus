@@ -41,7 +41,10 @@ def history_info(value: dict, life_dir: Path) -> dict:
     tasks = value["tasks"]
     active = [t for t in tasks if t.get("status") in ("running", "in_progress", "claimed")]
     pending = [t for t in tasks if t.get("status") == "pending"]
-    anchor = next(iter(active or pending or tasks[-1:]), {})
+    # With nothing under way or waiting, the task that finished last.
+    anchor = next(iter(active or pending), None) or max(
+        tasks, key=lambda t: t.get("finished_ts") or t.get("ts") or 0, default={},
+    )
     return {
         "task_count": len(tasks), "event_bytes": size,
         "requires_choice": len(tasks) >= 40 or size >= 8 * 1024 * 1024,
