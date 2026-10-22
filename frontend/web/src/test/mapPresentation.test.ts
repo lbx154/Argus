@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildMap, connectMap, type MapTask } from "../map/model";
-import { attentionReason, mergeMapCopy, needsCardCopy, referenceText, requestsFor, splitDraft, type MapCopy } from "../map/presentation";
+import { attentionReason, mergeMapCopy, needsCardCopy, projectBrief, referenceText, requestsFor, splitDraft, type MapCopy } from "../map/presentation";
 import { buildSubmap } from "../map/submap";
 import type { Dataset, MapEvent } from "../map/model";
 
@@ -157,6 +157,23 @@ describe("map presentation and references", () => {
     expect(graph.links).toHaveLength(1);
     expect(tasks[2].deps).toEqual([]);
   });
+});
+
+it("leads the brief with a question waiting on the reader, then the work under way, then the latest finish", () => {
+  // 2026-10-21: the first task waited on the reader's answer while a later
+  // one finished, and the brief only said the later one was done.
+  const asked: MapTask = { id: "t", title: "Settle truncate", objective: "Pick A or B for truncate",
+    status: "parked", deps: [], ts: 1, pending_question: "A or B?" };
+  const counted: MapTask = { id: "c", title: "Add char_count", objective: "Add char_count",
+    status: "done", deps: [], ts: 2, finished_ts: 5 };
+  const waiting = projectBrief([asked, counted], [], true);
+  expect([waiting.goal, waiting.current]).toEqual(["Pick A or B for truncate", "等你回答"]);
+  expect(waiting.next).toMatch(/回答这个问题/);
+  const answered = { ...asked, status: "running", pending_question: "" };
+  const working = projectBrief([answered, counted], [], true);
+  expect([working.goal, working.current]).toEqual(["Pick A or B for truncate", "正在处理：Settle truncate"]);
+  const finished = projectBrief([{ ...answered, status: "done", finished_ts: 9 }, counted], [], true);
+  expect([finished.goal, finished.current]).toEqual(["Pick A or B for truncate", "已完成"]);
 });
 
 it("leaves malformed reference fields as editable text", () => {
