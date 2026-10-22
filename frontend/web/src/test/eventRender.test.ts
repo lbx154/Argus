@@ -154,9 +154,9 @@ describe('the web feed line', () => {
       reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
     };
     expect(line(event)?.text).toBe('Handing this to the team, in stages.\n'
-      + 'Done once this goal is met. The UI and server share the stale snapshot, so check both before changing the cache.');
+      + 'This wraps up once it is done. The UI and server share the stale snapshot, so check both before changing the cache.');
     expect(zh(event)?.text).toContain('交给团队，分几个阶段做。');
-    expect(zh(event)?.text).toContain('做完这次的目标就结束。');
+    expect(zh(event)?.text).toContain('这件事做完就收尾。');
     expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
   });
 
@@ -167,7 +167,7 @@ describe('the web feed line', () => {
       objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
       reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
     };
-    expect(zh(event)?.text).toBe('交给团队直接做。\n之后会持续跟进。');
+    expect(zh(event)?.text).toBe('交给团队来做。\n之后会持续跟进。');
     expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
   });
 

@@ -177,7 +177,7 @@ def intake_card(state: dict) -> dict | None:
     if phase == "offered":
         options = [
             {"id": "direct", "label": "直接做" if chinese else "Do it directly",
-             "description": "由一个 agent 直接完成，适合一次性的任务。" if chinese else "One agent completes it now; right for a one-off request.",
+             "description": "现在就动手做，适合一次性的任务。" if chinese else "Start on it now; right for a one-off request.",
              "requires_note": False},
             {"id": "build", "label": "先建立可复用的流程" if chinese else "Build a reusable workflow first",
              "description": "先定义适用范围、输入输出和检查标准，查资料并用实例验证；以后同类任务可以直接复用。" if chinese else

@@ -82,7 +82,8 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   needs results still in flight.
 - REASON and PLAN_REASON are operator-facing: one plain sentence in the operator's
   language with the decision and next step, as a colleague would say it; no field
-  names, status tokens or routine steps, and nothing the last REASON said.
+  names, status tokens, routine steps or Argus's own bookkeeping (waiting notes,
+  duplicate tasks), and nothing the last REASON said.
 """ + "\n" + RESEARCHER_VOICE + "\n\n" + _PLANNER_DECISION_FOOTER
 
 _RESEARCH_PLAN_CONTRACT = """## Research plan
