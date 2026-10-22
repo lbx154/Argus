@@ -167,6 +167,9 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
     assert sink.events[-1]["status"] == "failed"
     assert sink.events[-1]["exit_code"] == 1
     assert "FAILED tests/foo.py::test_x" in sink.events[-1]["output_excerpt"]
+    # No canned English summary ("running validation"): readers say the
+    # command itself, in the operator's language.
+    assert "action_summary" not in sink.events[-1]
 
 
 def test_progress_callback_redacts_secrets_before_live_sink(redact_secrets_on) -> None:

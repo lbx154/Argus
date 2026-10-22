@@ -1,12 +1,22 @@
 import type { EventMsg, MissionRoleWorkItem, MissionView, Role } from '../../../core/src/types';
 import { visibleAgentText } from '../../../core/src/events';
+import type { Locale } from '../i18n';
+import { plainCommand, plainToolLabel, toolName } from '../lib/feedSteps';
 
 export { AGENT_ROLES } from '../lib/agentRoles';
 const PUBLIC_KINDS = new Set(['grounding', 'task', 'decision', 'agent_message', 'assistant_message', 'command_execution', 'tool_use', 'tool_result', 'handoff', 'review', 'verdict', 'completion', 'plan', 'file_change', 'result']);
-const GENERIC = /^(using a tool|running project command|inspecting project state|working|reporting progress|暂无详细记录)$/i;
+// Placeholder summaries older runtimes wrote; the record's title already says as much.
+const GENERIC = /^(using a tool|running project command|running validation|inspecting project state|checking repository state|checking external\/runtime state|editing project files|preparing file changes|working|reporting progress|暂无详细记录)$/i;
+export const CALL_KINDS = new Set(['command_execution', 'tool_use', 'file_change']);
 export function cleanActivityText(value: string): string {
   const clean = visibleAgentText(value).replace(/^\s*(?:RESULT|SUMMARY)\s*=\s*/gim, '').trim();
   return GENERIC.test(clean) || clean.startsWith('{') ? '' : clean;
+}
+/** A call's record as the activity feed says it; a step already in words stays as it is. */
+function callDetail(kind: string, detail: string, locale: Locale): string {
+  if (kind === 'command_execution') return plainCommand(detail);
+  const event = { type: 'engineer.progress', kind, text: detail } as EventMsg;
+  return toolName(event) ? plainToolLabel(event, locale) : detail;
 }
 export function activityTitle(kind: string, zh: boolean, tool = ''): string {
   if (tool) {
@@ -28,13 +38,14 @@ export function activityTitle(kind: string, zh: boolean, tool = ''): string {
   };
   return (titles[kind] ?? ['处理当前任务', 'Working on the current task'])[zh ? 0 : 1];
 }
-export function agentWork(view: MissionView | null | undefined, role: string, taskId?: string, notBefore = 0): MissionRoleWorkItem[] {
+export function agentWork(view: MissionView | null | undefined, role: string, taskId?: string, notBefore = 0, locale: Locale = 'en'): MissionRoleWorkItem[] {
   const unique = new Map<string, MissionRoleWorkItem>();
   for (const row of view?.role_work ?? []) {
     if (row.role !== role || !PUBLIC_KINDS.has(row.kind) || row.ts < notBefore) continue;
     const owner = row.item_id || row.mission_id;
     if (taskId && owner !== taskId) continue;
-    unique.set(row.id, { ...row, detail: cleanActivityText(row.detail) });
+    const detail = cleanActivityText(row.detail);
+    unique.set(row.id, { ...row, detail: detail && CALL_KINDS.has(row.kind) ? callDetail(row.kind, detail, locale) : detail });
   }
   return [...unique.values()].sort((a, b) => b.ts - a.ts);
 }

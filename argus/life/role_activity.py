@@ -139,10 +139,15 @@ def _describe_engineer_progress(event: dict[str, Any]) -> str:
     text = str(event.get("text") or "")
     t = " ".join(str(text or "").split())
     low = t.lower()
-    is_cmd = t.startswith(("/bin/bash", "./")) or " -lc " in t or low.startswith(_CMD_PREFIXES)
+    is_cmd = (
+        kind == "command_execution" or t.startswith(("/bin/bash", "./"))
+        or " -lc " in t or low.startswith(_CMD_PREFIXES)
+    )
     if is_cmd:
         cmd = _unwrap_shell(t)
         return "run · " + cmd[:72]
+    if kind in {"tool_use", "tool_call"} and t:
+        return "using " + t.split(":", 1)[0][:60]
     return "thinking" + (f" · {t[:60]}" if t else "")
 
 

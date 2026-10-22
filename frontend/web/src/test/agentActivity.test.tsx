@@ -17,6 +17,24 @@ describe('Agent activity', () => {
     expect(rows.map((r) => r.detail).join(' ')).toBe('Checking 500 weighted maps. ');
     expect(cleanActivityText('Useful result.\nDecision:\n→ reviewer')).toBe('Useful result.');
   });
+  it('says each call the way the activity feed does, and drops what older runtimes wrote for every call', () => {
+    const view = emptyMissionView();
+    view.role_work = [
+      record('cmd', 'command_execution', 'set -o pipefail && pytest -q | tee /srv/state/copilot-home/session-state/abc/files/pytest.log'),
+      { ...record('read', 'tool_use', 'view: {"path": "/repo/.autors/learn/wiki/pages/scheduler.md"}'), ts: 101 },
+      { ...record('old', 'command_execution', 'running validation'), ts: 102 },
+      { ...record('legacy', 'command_execution', 'checking repository state'), ts: 103 },
+      { ...record('turn', 'tool_use', '查阅项目目录'), ts: 104 },
+    ];
+    const details = Object.fromEntries(agentWork(view, 'engineer', 'current', 0, 'zh-CN').map((row) => [row.id, row.detail]));
+    expect(details).toEqual({
+      cmd: 'set -o pipefail && pytest -q | tee …/pytest.log',
+      read: '查阅知识页 scheduler',
+      old: '',
+      legacy: '',
+      turn: '查阅项目目录',
+    });
+  });
   it('does not present old records or paused sessions as active work', () => {
     const view = emptyMissionView(); view.mission.id = 'current'; view.mission.status = 'working'; view.active_role = 'engineer';
     expect(agentIsActive(view, [role], 'engineer', false, 'current')).toBe(true);

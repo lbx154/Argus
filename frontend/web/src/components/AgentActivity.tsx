@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { MarkdownContent } from './MarkdownContent';
 import { agentRoleColor, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { currentWorkStartedAt } from '../lib/workStatus';
-import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness, cleanActivityText } from './agentActivityModel';
+import { AGENT_ROLES, CALL_KINDS, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness, cleanActivityText } from './agentActivityModel';
 import { api } from '../api';
 import { CopyButton } from './CopyButton';
 import './agentActivity.css';
@@ -55,10 +55,11 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
   const [now, setNow] = useState(Date.now);
   const role = selectedRole || choice || roles.find((r) => r.active)?.role || view?.active_role || 'manager';
   const active = agentIsActive(view, roles, role, paused, taskId);
-  const records = agentWork(view, role, taskId).map(record => {
+  const records = agentWork(view, role, taskId, 0, locale).map(record => {
     let detail = record.detail;
     for (const event of events) {
-      if (event.kind === 'reasoning') continue;
+      // A call's raw text is not its record; agentWork already said it plainly.
+      if (event.kind === 'reasoning' || CALL_KINDS.has(String(event.kind))) continue;
       const id = String(event.event_id || event.id || '');
       const messageId = String(event.message_id || '');
       if (id !== record.id && (!messageId || record.id !== `${record.role}:${messageId}`)) continue;
@@ -71,7 +72,7 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
   // The work log keeps every attempt. Only the selected current task's card
   // uses its attempt boundary; an unfiltered role can span multiple tasks.
   const started = taskId ? currentWorkStartedAt(undefined, view, taskId) : 0;
-  const currentRecords = started ? agentWork(view, role, taskId, started) : records;
+  const currentRecords = started ? agentWork(view, role, taskId, started, locale) : records;
   const last = currentRecords[0];
   const update = currentRecords.find((row) => row.detail && ['agent_message', 'assistant_message', 'decision', 'verdict', 'handoff', 'review', 'completion'].includes(row.kind));
   const tool = latestAgentTool(events, role, taskId, started);

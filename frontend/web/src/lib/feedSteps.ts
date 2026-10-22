@@ -373,7 +373,39 @@ const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, ''
 const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
 // Argus' own plumbing (session stores, handoffs, skill libraries) is not the
 // work, so a step names no file of it; mirrors argus/core/progress_step.py.
-const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|argus\/verticals)\//;
+const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|argus\/verticals)(?:\/|$)/;
+// ...except a page of a project's knowledge wiki, which the roles read as material.
+const WIKI = /\/wiki(?:\/|$)/;
+// The Copilot CLI spills a long tool output to a temp file and reads it back.
+const TOOL_OUTPUT = /-copilot-tool-output-[^/]*$/;
+// A project without a folder of its own works in one named by the project id.
+const PROJECT_DIR = /\/state\/workspaces\/[^/]+\/?$/;
+const ABSOLUTE_PATH = /(?<![\w.~:-])\/[^\s'"`;|&()<>]+/g;
+// A pattern in regular-expression syntax tells a reader nothing.
+const REGEX_SYNTAX = /[\\^$|[\]]|\.\*/;
+
+/** "查阅 main.py", but "查阅项目目录": Chinese words take no space between them. */
+const phrase = (verb: string, object: string) => `${verb}${/^[\u3400-\u9fff]/.test(object) ? '' : ' '}${object}`;
+
+/** A file as a reader knows it: its name, or what it is when the name would mean nothing; '' for plumbing. */
+function fileName(file: string, locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  if (TOOL_OUTPUT.test(file)) return zh ? '工具输出' : 'a saved tool output';
+  if (PROJECT_DIR.test(file)) return zh ? '项目目录' : 'the project folder';
+  if (!PLUMBING.test(file)) return basename(file);
+  if (!WIKI.test(file)) return '';
+  const page = basename(file).replace(/\.\w+$/, '');
+  return page === 'wiki' ? (zh ? '知识库' : 'the wiki') : `${zh ? '知识页' : 'wiki page'} ${page}`;
+}
+
+/** A command's first line, unwrapped from its shell, with a path into Argus' plumbing cut to its last name. */
+export function plainCommand(text: string): string {
+  const line = text.trim();
+  const wrapped = line.match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]+)\1\s*$/);
+  const command = wrapped ? wrapped[2] : line.replace(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '');
+  const shown = command.replace(ABSOLUTE_PATH, (path) => (PLUMBING.test(path) ? `…/${basename(path)}` : path));
+  return shown.split('\n')[0].trim();
+}
 
 /** A named argument, read from parsed JSON or, when the text was cut short, from the raw string. */
 function argument(parsed: Record<string, unknown> | null, raw: string, keys: string[]): string {
@@ -391,11 +423,11 @@ function argument(parsed: Record<string, unknown> | null, raw: string, keys: str
 }
 
 /** The file, page or pattern a call was about — the word that makes "Read 5 files" specific. */
-export function stepTarget(step: FeedStep): string {
-  return toolTarget(step.ev);
+export function stepTarget(step: FeedStep, locale: Locale): string {
+  return toolTarget(step.ev, locale);
 }
 
-export function toolTarget(ev: EventMsg): string {
+export function toolTarget(ev: EventMsg, locale: Locale): string {
   const text = field(ev, 'text');
   if (progressKind(ev) === 'file_change') {
     const patch = text.match(PATCH_FILE);
@@ -414,19 +446,18 @@ export function toolTarget(ev: EventMsg): string {
     }
   }
   const file = argument(parsed, args, ['path', 'file_path', 'filePath', 'file', 'filename', 'target_file', 'notebook_path', 'paths']);
-  if (file && PLUMBING.test(file)) return '';
-  if (file && !/^\.\/?$/.test(file)) return basename(file);
+  if (file && !/^\.\/?$/.test(file)) return fileName(file, locale);
   const url = argument(parsed, args, ['url', 'uri']);
   if (url) return shortUrl(url);
   const pattern = argument(parsed, args, ['pattern', 'query', 'regex', 'glob', 'q']);
-  if (pattern) return clip(pattern, 32);
+  if (pattern) return REGEX_SYNTAX.test(pattern) ? '' : clip(pattern, 32);
   const patch = args.match(PATCH_FILE);
   if (patch) return basename(patch[1].trim());
   return '';
 }
 
 // A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
-// "src/" + "**" + "/*" becomes "src 里的 所有文件".
+// "src/" + "**" + "/*" becomes "src 里的所有文件".
 export function readableGlob(pattern: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
   const parts = pattern.trim().replace(/\\/g, '/').split('/').filter((part) => part && part !== '**' && part !== '.');
@@ -437,7 +468,7 @@ export function readableGlob(pattern: string, locale: Locale): string {
   else if (/^\*\.[\w.]+$/.test(leaf)) what = zh ? `${leaf.slice(1)} 文件` : `${leaf.slice(1)} files`;
   else what = clip(leaf, 40);
   const folder = folders[folders.length - 1];
-  return folder ? (zh ? `${folder} 里的 ${what}` : `${what} in ${folder}`) : what;
+  return folder ? (zh ? phrase(`${folder} 里的`, what) : `${what} in ${folder}`) : what;
 }
 
 const GLOB_TOOLS = /^(glob|find|find_?files|list_?files|file_?search)$/i;
@@ -451,14 +482,15 @@ export function plainToolLabel(ev: EventMsg, locale: Locale): string {
   const zh = locale === 'zh-CN';
   const name = toolName(ev);
   const action = toolAction(name, progressKind(ev));
-  let target = toolTarget(ev);
+  let target = toolTarget(ev, locale);
   if (action === 'search') {
     // What was searched for says more than where: the pattern, not the path.
     const args = field(ev, 'text').replace(/^[A-Za-z_][\w.-]{0,40}:\s*/, '');
     const pattern = argument(null, args, ['pattern', 'query', 'regex', 'glob', 'q']);
     if (pattern) target = clip(pattern, 48);
   }
-  if (action === 'search' && GLOB_TOOLS.test(name) && target) return `${zh ? '查找' : 'Find'} ${readableGlob(target, locale)}`;
+  if (action === 'search' && GLOB_TOOLS.test(name) && target) return phrase(zh ? '查找' : 'Find', readableGlob(target, locale));
+  if (action === 'search' && REGEX_SYNTAX.test(target)) return zh ? '搜索文件内容' : 'Search file contents';
   // The Reviewer's verdict goes through Argus' own action, not a tool of the work.
   if (name.endsWith('submit_review')) return zh ? '提交审阅结论' : 'Submit the review';
   const shown = target.startsWith('/') ? basename(target) : target;
@@ -473,7 +505,7 @@ export function plainToolLabel(ev: EventMsg, locale: Locale): string {
   const object = action === 'tool' ? name : shown;
   if (!object) return zh ? zhBare : enBare;
   const verb = zh ? zhVerb : enVerb;
-  return verb.endsWith('：') ? `${verb}${object}` : `${verb} ${object}`;
+  return verb.endsWith('：') ? `${verb}${object}` : phrase(verb, object);
 }
 
 /** A tool action in the main status line; its full arguments stay in the record. */
@@ -489,10 +521,10 @@ export function readableToolProgress(event: EventMsg, locale: Locale): { title: 
     fetch: ['读取资料页面', 'Reading a source page'], edit: ['更新项目文件', 'Updating project files'],
     tool: ['执行一个工作步骤', 'Carrying out a work step'],
   };
-  return { title: labels[action][locale === 'zh-CN' ? 0 : 1], detail: toolTarget(event) };
+  return { title: labels[action][locale === 'zh-CN' ? 0 : 1], detail: toolTarget(event, locale) };
 }
 
-function makeGroup(run: FeedStep[]): FeedGroup {
+function makeGroup(run: FeedStep[], locale: Locale): FeedGroup {
   const first = run[0];
   const last = run[run.length - 1];
   const tool = toolName(first.ev) || (progressKind(first.ev) === 'file_change' ? 'file' : 'tool');
@@ -500,7 +532,7 @@ function makeGroup(run: FeedStep[]): FeedGroup {
   const targets: string[] = [];
   let named = 0;
   for (const step of run) {
-    const target = stepTarget(step);
+    const target = stepTarget(step, locale);
     if (!target) continue;
     named += 1;
     if (!targets.includes(target)) targets.push(target);
@@ -523,12 +555,12 @@ function makeGroup(run: FeedStep[]): FeedGroup {
 }
 
 /** Fold runs of `MIN_GROUP_SIZE`+ consecutive same-tool calls into one row each. */
-export function groupTools(steps: FeedStep[]): FeedRow[] {
+export function groupTools(steps: FeedStep[], locale: Locale): FeedRow[] {
   const rows: FeedRow[] = [];
   let run: FeedStep[] = [];
   let runKey: string | null = null;
   const flush = () => {
-    if (run.length >= MIN_GROUP_SIZE) rows.push(makeGroup(run));
+    if (run.length >= MIN_GROUP_SIZE) rows.push(makeGroup(run, locale));
     else rows.push(...run);
     run = [];
     runKey = null;
@@ -556,7 +588,7 @@ export function groupTools(steps: FeedStep[]): FeedRow[] {
 
 /** Rows as displayed → rows as a person would tell them. Pure; safe to call on every change. */
 export function foldFeedRows(rows: FeedRowInput[], locale: Locale): FeedRow[] {
-  return groupTools(collapseRepeats(pairCalls(rows), locale));
+  return groupTools(collapseRepeats(pairCalls(rows), locale), locale);
 }
 
 /** Every step inside a row, so a group and a lone step read the same way. */
