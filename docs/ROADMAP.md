@@ -157,7 +157,7 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: in tests, "pass, then wait right away, then resume" does not redo work that already passed.
 
 #### HO-6 One answer to "can we ask the operator", and the Manager decides when we can't
-`0.2` · `M` · Depends on: none · in progress
+`0.2` · `M` · Depends on: none
 - Today: the Reviewer's tool description reads an environment variable, while settlement reads the project policy; when
   they disagree, the Reviewer is steered into asking a question that settlement will reject. After the operator says
   "don't ask me", decisions about credentials, spending, irreversible actions, releases, and broken model configuration
@@ -170,9 +170,14 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator"; no
   code path waits for the operator or ends as "needs operator"; the Manager can answer only the cards handed to it;
   the delivery report lists each decision it took.
-- Status: the single policy and the Manager taking over the operator's authority are both in `dev`. The four ways to
-  say it (`AUTONOMY_MODE`, `--no-operator`, the front door's question policy, `--operator-wait-exit` with its 30-minute
-  timer) are now one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`; the text-matching boundary regex is gone.
+- Status: done (`712fee6d`). The four ways to say it (`AUTONOMY_MODE`, `--no-operator`, the front door's question
+  policy, `--operator-wait-exit` with its 30-minute timer) are now one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`, and the
+  text-matching boundary regex is gone. The last gaps are closed: when the operator cannot be asked, the Reviewer's tool
+  descriptions, errors and prompt no longer mention `→ operator` and `accept_risk` is not offered; every card the
+  Manager decides lets it end the item, and on a model-configuration card it can only drop; a card it fails to decide
+  in 3 tries ends its item in the Manager's name instead of waiting for the operator; the delivery report lists every
+  decision taken in the operator's place (it used to keep only the last 8), including residual risks the Manager
+  accepted. Each criterion has a test.
 
 #### HO-7 Show the Reviewer a real diff
 `0.3` · `L` · Depends on: none
