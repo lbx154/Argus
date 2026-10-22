@@ -242,7 +242,10 @@ function progress(event: TypedArgusEvent, context: RenderContext): RenderModel {
  * reasoning is worth showing beside it. */
 function stageDecision(event: TypedArgusEvent, context: RenderContext): RenderModel {
   const action = stringField(event, 'action');
-  const target = stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage');
+  const target = stageName(
+    stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage'),
+    context.locale,
+  );
   const own = stringField(event, 'source') === 'manager_llm';
   if (!own && (action === 'complete' || action === 'hold')) return hidden();
   const phrases: Record<string, [string, string]> = {
@@ -373,7 +376,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       }
       const tone: RenderTone = status === 'done' ? 'ok' : status === 'blocked' || status === 'no_progress' ? 'err' : 'warn';
       const glyph = status === 'done' ? '✅' : status === 'blocked' || status === 'no_progress' ? '⛔' : status === 'question' ? '❓' : '↻';
-      return model('reviewer', 'role.reviewer', glyph, `${reviewVerdict(status, context)} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
+      const verdict = roundVerdict(event, status, context);
+      return model(verdict.role, `role.${verdict.role}`, glyph, `${verdict.text} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event), context.locale);
@@ -635,6 +639,33 @@ export const ROLE_NAMES: Record<string, [english: string, chinese: string]> = {
   'role.operator': ['You', '你'],
 };
 
+/** Research stages by id or label. */
+const STAGE_NAMES: Record<string, [english: string, chinese: string]> = {
+  idea: ['Idea', '选题'],
+  scope: ['Scope', '研究定义'],
+  research: ['Literature and hypotheses', '文献与假设'],
+  literature: ['Literature and hypotheses', '文献与假设'],
+  implementation: ['Implementation', '方法实现'],
+  implement: ['Implementation', '方法实现'],
+  experiment: ['Experiments', '实验验证'],
+  experiments: ['Experiments', '实验验证'],
+  analysis: ['Analysis', '结果分析'],
+  writing: ['Writing', '论文写作'],
+  review: ['Final review', '最终审核'],
+  delivery: ['Delivery', '成果交付'],
+  optimize: ['Optimization', '优化'],
+  solve: ['Derivation and verification', '推导与验证'],
+  hold: ['Paused', '已暂停'],
+  paused: ['Paused', '已暂停'],
+};
+
+/** A research stage as a word people use; unknown stages pass through. */
+export function stageName(stage: string | null | undefined, locale: RenderLocale): string {
+  const raw = String(stage ?? '').trim();
+  const pair = STAGE_NAMES[raw.toLowerCase()];
+  return pair ? (locale === 'zh-CN' ? pair[1] : pair[0]) : raw;
+}
+
 const LABELS: Record<string, [english: string, chinese: string]> = {
   ...ROLE_NAMES,
   'event.notice': ['Notice', '通知'],
@@ -696,15 +727,31 @@ export function renderLine(event: EventMsg, context: RenderContext): RenderedLin
   };
 }
 
-/** The Reviewer's verdict in words a reader outside the project understands. */
-function reviewVerdict(status: string, context: RenderContext): string {
-  const verdicts: Record<string, [string, string]> = {
-    done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
-    blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
-    question: ['the Reviewer leaves the choice to you', '审阅者把选择交给你'],
-    no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
+/** Who settled a round and where the work went, in words a reader outside the
+ * project understands. An Engineer's handoff or self-check settles a round as
+ * a review would, but no Reviewer took part (argus/engineer/round_routing.py):
+ * `review_source` says whose it is, read as the map reads it
+ * (argus/webapi/map_view.py), and the settled status where the work went. */
+function roundVerdict(event: TypedArgusEvent, status: string, context: RenderContext): { role: 'engineer' | 'reviewer'; text: string } {
+  const role = stringField(event, 'review_source').startsWith('engineer_') ? 'engineer' : 'reviewer';
+  const verdicts: Record<typeof role, Record<string, [string, string]>> = {
+    reviewer: {
+      done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
+      blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
+      question: ['the Reviewer leaves the choice to you', '审阅者把选择交给你'],
+      no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
+      '': ['the Reviewer gave no verdict', '审阅者没有给出结论'],
+      other: ['the Reviewer asked for another pass', '审阅者要求再改一轮'],
+    },
+    // Each holder the Engineer names settles as one status (HANDOFF_STATUS, argus/core/role_handoff.py).
+    engineer: {
+      done: ['the Engineer checked its own work and called it done', '工程师自查后认为做完了'],
+      blocked: ['the Engineer handed the work to the Manager to decide', '工程师把工作交给经理定夺'],
+      question: ['the Engineer leaves the choice to you', '工程师把选择交给你'],
+      replan_requested: ['the Engineer asked the Planner for a new plan', '工程师请规划者重新安排'],
+      other: ['the Engineer goes on with another round', '工程师接着再做一轮'],
+    },
   };
-  if (!status) return localized(context, 'the Reviewer gave no verdict', '审阅者没有给出结论');
-  const verdict = verdicts[status] ?? ['the Reviewer asked for another pass', '审阅者要求再改一轮'];
-  return localized(context, verdict[0], verdict[1]);
+  const [english, chinese] = verdicts[role][status] ?? verdicts[role].other;
+  return { role, text: localized(context, english, chinese) };
 }

@@ -64,7 +64,7 @@ def test_classification_diagnostics_do_not_wait_for_research_lock(tmp_path, monk
     before = primary_pipeline_state_path(tmp_path).read_bytes()
     record_contract_failure(tmp_path, model_id=model, clause=STRUCTURED_DECISION_CLAUSE)
     manager = Manager(project_root=tmp_path, execution_workdir=tmp_path,
-                      runner=SimpleNamespace(), memory_maintenance_enabled=False)
+                      runner=SimpleNamespace())
 
     def decide(*args, **kwargs):
         if fails:

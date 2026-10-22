@@ -1,9 +1,9 @@
 import { useBacklogItem } from '../hooks';
-import { currentOutcome, isTerminalBacklogItem } from '../../../core/src/backlog';
+import { currentOutcome, isRepeating, isTerminalBacklogItem } from '../../../core/src/backlog';
 import { Modal } from './Modal';
-import { Button, Chip, Spinner } from './primitives';
+import { Button, Chip, RawDisclosure, Spinner } from './primitives';
 import { useI18n } from '../i18n';
-import { outcomeLabels, priorityLabel, statusLabel } from '../lib/enumLabels';
+import { outcomeLabels, statusLabel } from '../lib/enumLabels';
 
 const when = (ts: number | null | undefined): string =>
   ts ? new Date(ts * 1000).toLocaleString() : '—';
@@ -41,7 +41,12 @@ export function TaskDetailModal({
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
   const terminal = item ? isTerminalBacklogItem(item) : false;
-  const outcome = outcomeLabels(item && currentOutcome(item), t);
+  // A task a newer plan replaced came to that; its last attempt's pause and error are not its result.
+  const replaced = item?.status === 'superseded';
+  const outcome = replaced ? [statusLabel('superseded', t)] : outcomeLabels(item && currentOutcome(item), t);
+  const objective = <div className="mt-1 whitespace-pre-wrap rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
+    {item?.objective || item?.original_objective || t('task.noObjective')}
+  </div>;
   return (
     <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
       <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
@@ -53,7 +58,7 @@ export function TaskDetailModal({
         </div>
         {!readOnly && item && !terminal ? (
           <div className="order-3 flex w-full shrink-0 items-center justify-end gap-1 sm:order-none sm:w-auto">
-            {item.iterate ? <Button onClick={() => onStop(item.id)} disabled={busy}>{t('task.stopLoop')}</Button> : null}
+            {isRepeating(item) ? <Button onClick={() => onStop(item.id)} disabled={busy}>{t('task.stopLoop')}</Button> : null}
             <Button onClick={() => onDone(item.id)} disabled={busy}>{t('task.done')}</Button>
             <Button variant="danger" onClick={() => onSkip(item.id)} disabled={busy}>{t('task.skip')}</Button>
           </div>
@@ -80,14 +85,15 @@ export function TaskDetailModal({
                 <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">{item.pending_question}</p>
               </div>
             ) : null}
-            <section>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('task.objective')}</div>
-              <div className="whitespace-pre-wrap rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
-                {item.objective || item.original_objective || t('task.noObjective')}
-              </div>
-            </section>
+            {/* A task the Planner wrote has no request of the reader's own: its
+                title says what it is, and the brief is the team's to read. */}
+            {item.plan_id ? <RawDisclosure label={t('task.teamBrief')}>{objective}</RawDisclosure> : (
+              <section>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('task.objective')}</div>
+                {objective}
+              </section>
+            )}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric label={t('task.priority')} value={priorityLabel(item.priority, t)} />
               <Metric label={t('task.started')} value={when(item.started_ts)} />
               <Metric label={t('task.finished')} value={when(item.finished_ts)} />
             </div>
@@ -99,17 +105,17 @@ export function TaskDetailModal({
                 </div>
               </section>
             ) : null}
-            {item.iterate || item.iteration_cycles_done || item.iteration_cost_usd ? (
+            {item.iteration_cycles_done || item.iteration_cost_usd ? (
               <section>
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('task.iteration')}</div>
                 <div className="grid grid-cols-3 gap-2">
                   <Metric label={t('task.mode')} value={item.iterate ? t('task.autoIterate') : t('task.singlePass')} />
-                  <Metric label={t('task.cycles')} value={`${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'}`} />
+                  <Metric label={t('task.cycles')} value={`${item.iteration_cycles_done ?? 0}${item.iteration_max_cycles ? `/${item.iteration_max_cycles}` : ''}`} />
                   <Metric label={t('task.cost')} value={`$${(item.iteration_cost_usd ?? 0).toFixed(2)}`} />
                 </div>
               </section>
             ) : null}
-            {item.last_error ? (
+            {item.last_error && !replaced ? (
               <section className="rounded-lg border border-err/30 bg-err/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-err">{t('task.lastError')}</div>
                 <p className="mt-1 whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-dim">{item.last_error}</p>

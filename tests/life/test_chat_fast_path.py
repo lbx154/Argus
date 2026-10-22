@@ -429,8 +429,7 @@ def test_every_single_worker_mode_receives_selected_vertical(tmp_path, mode):
     root = tmp_path / "state"
     runner._args.workdir = str(tmp_path / "workspace")
     runner.manager = Manager(root, runner=backend, execution_workdir=runner._args.workdir,
-                            skill_store=LayeredSkillStore(project_dir=root / "skills", global_dir=tmp_path / "skills"),
-                            memory_maintenance_enabled=False)
+                            skill_store=LayeredSkillStore(project_dir=root / "skills", global_dir=tmp_path / "skills"))
     outcome = runner._maybe_chat_outcome(objective="Check this function", sink=_RecordingSink(),
                                         route="simple", self_mode=mode, skill_vertical="software")
     assert outcome.success
@@ -487,7 +486,7 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     runner._args.workdir = str(workspace)
     runner._manager_session_root = state
     runner.manager = Manager(state, runner=backend, execution_workdir=workspace,
-                            learned_vertical_root=tmp_path, memory_maintenance_enabled=False,
+                            learned_vertical_root=tmp_path,
                             skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"))
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)

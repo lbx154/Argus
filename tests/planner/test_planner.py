@@ -500,6 +500,11 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'Assigning work' in _PLANNER_CORE_CONTRACT
     assert 'Read state, never edit' in _PLANNER_CORE_CONTRACT
     assert 'Engineer implements and tests' in _PLANNER_CORE_CONTRACT
+    # 2026-10-22: a task asking for "a different Reviewer" had the Engineer start
+    # a reviewer subagent of its own; who does and reviews work is the handoffs' call.
+    assert "not who does or reviews it; handoffs decide" in " ".join(
+        _PLANNER_CORE_CONTRACT.split()
+    )
     assert "ARGUS_ROLE_DECISION=" not in _PLANNER_CORE_CONTRACT
     assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
@@ -789,6 +794,26 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert options.full_auto is False
     assert options.sandbox_mode == "read-only"
     assert options.add_dirs == ["/tmp/project-state"]
+
+
+def test_plan_next_reads_the_skill_libraries_its_prompt_names(tmp_path, monkeypatch) -> None:
+    """s-757b9dac: the read-only Planner was pointed at the shared vertical
+    library but not given it, so its lookup there failed."""
+    from argus.skills.layered import LayeredSkillStore
+
+    store = LayeredSkillStore(project_dir=tmp_path / "project-skills", global_dir=tmp_path / "shared-skills")
+    runner = _Runner()
+    monkeypatch.setattr(Planner, "_build_planner_prompt", staticmethod(lambda **kwargs: "prompt"))
+
+    Planner(runner, skill_store=store).plan_next(
+        continuous_objective="fix the issue",
+        config=PlannerConfig(working_dir=str(tmp_path / "work"), add_dirs=["/tmp/project-state"]),
+    )
+
+    add_dirs = runner.calls[0]["options"].add_dirs
+    assert add_dirs[0] == "/tmp/project-state"
+    assert {str(root) for root in Planner(None, skill_store=store).mission.libraries().library_roots} <= set(add_dirs)
+    assert str((tmp_path / "shared-skills").resolve()) in add_dirs
 
 
 @pytest.mark.parametrize("offered", [(), (7, 9)])

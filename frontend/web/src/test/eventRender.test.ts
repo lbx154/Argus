@@ -135,6 +135,12 @@ describe('the web feed line', () => {
     expect(rendered?.text).toBe('I need the operator to choose the report format.');
   });
 
+  it('hides the host actions under Decision: and keeps a RESULT= sentence', () => {
+    const say = (text: string) => line({ type: 'engineer.progress', kind: 'agent_message', text, agent_layer: 'manager' })?.text;
+    expect(say('Not ready.\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=work remains')).toBe('Not ready.');
+    expect(say('Built it.\nDecision:\nRESULT=Parser fixed.\n→ reviewer')).toBe('Built it.\nRESULT=Parser fixed.');
+  });
+
   it('shows a credential-shaped token as written and flags it', () => {
     const rendered = line({
       type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
@@ -249,6 +255,21 @@ describe('the web feed line', () => {
       .toMatchObject({ text: '任务在完成前暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
   });
 
+  it("says an Engineer's handoff is the Engineer's, and where it sent the work", () => {
+    // Trial s-6f0e6213: the Engineer handed a rounding conflict to the Manager,
+    // no Reviewer ran, and the feed read "审阅者认为工作卡住了".
+    const handed = { type: 'round.review.completed', status: 'blocked', reason: '现有舍入规则冲突。', review_source: 'engineer_handoff' };
+    expect(zh(handed)).toMatchObject({ role: 'engineer', label: '工程师', text: '工程师把工作交给经理定夺 · 现有舍入规则冲突。' });
+    expect(line(handed)).toMatchObject({ label: 'Engineer', text: 'the Engineer handed the work to the Manager to decide · 现有舍入规则冲突。' });
+    expect(zh({ ...handed, operator_question: 'A or B?' })!.text).toMatch(/^工程师把选择交给你/);
+    expect(zh({ ...handed, status: 'replan_requested' })!.text).toMatch(/^工程师请规划者重新安排/);
+    expect(zh({ ...handed, status: 'continue' })!.text).toMatch(/^工程师接着再做一轮/);
+    expect(zh({ ...handed, status: 'done', review_source: 'engineer_self_review' }))
+      .toMatchObject({ label: '工程师', text: '工程师自查后认为做完了 · 现有舍入规则冲突。' });
+    // A Reviewer's verdict stays the Reviewer's.
+    expect(zh({ ...handed, review_source: 'reviewer' })).toMatchObject({ label: '审阅者', text: '审阅者认为工作卡住了 · 现有舍入规则冲突。' });
+  });
+
   it('presents an explicitly skipped review as an informational interruption, in both languages', () => {
     const event = { type: 'round.review.completed', status: 'continue', reason: 'Turn allowance reached.', review_skipped: true };
     expect(line(event)).toMatchObject({ tone: 'info', text: 'no review this round · Turn allowance reached.' });
@@ -335,6 +356,14 @@ describe('the web feed line', () => {
       current_stage: 'inspect', target_stage: 'implement_cli', reason: 'verified',
     });
     expect(row!.text).toContain('moved on to the implement_cli stage');
+  });
+
+  it('names a stage the Manager closes in the reader\'s words', () => {
+    // Trial s-757b9dac: the Manager's row read "「delivery」阶段完成".
+    expect(zh({
+      type: 'life.manager.stage_decision', action: 'complete', source: 'manager_llm',
+      target_stage: 'delivery', reason: '可以交付。',
+    })!.text).toBe('「成果交付」阶段完成 · 可以交付。');
   });
 
   it('renders mission terminal outcomes truthfully', () => {

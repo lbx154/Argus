@@ -162,13 +162,19 @@ def read_baton_line(text: str) -> Handoff | None:
 def strip_handoff(text: str) -> str:
     """The prose of a handoff, as a person reads it.
 
-    The baton line with the choices listed under it, a bare ``Decision:``
-    marker and a role-decision event line go; a ``RESULT=`` line keeps its
-    sentence, which was always written for the operator.
+    The baton line with the choices listed under it, a role-decision event
+    line and the ``Decision:`` footer the host reads (``ACTION=hold``, …) go;
+    a ``RESULT=`` line keeps its sentence, which was always written for the
+    operator.
     """
-    from .role_reply import _DECISION_FOOTER
+    from .role_reply import _DECISION_FOOTER, decision_footer_text
 
-    lines = _RESULT_KEY.sub("", str(text or "")).splitlines()
+    source = str(text or "")
+    footer = decision_footer_text(source)
+    if footer != source:
+        source = "\n".join([source[: len(source) - len(footer)],
+                            *(line for line in footer.splitlines() if _RESULT_KEY.match(line))])
+    lines = _RESULT_KEY.sub("", source).splitlines()
     return "\n".join(
         line for line in lines[:_choices_start(lines)]
         if not (_baton(line) or _DECISION_FOOTER.match(line) or _ROLE_DECISION_LINE.match(line))

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useI18n } from '../i18n';
 import type { BacklogItem } from '../api';
 import { PanelHeader, Button, EmptyHint, Chip } from './primitives';
-import { visibleBacklogItems } from '../../../core/src/backlog';
-import { priorityLabel, statusLabel } from '../lib/enumLabels';
+import { isRepeating, visibleBacklogItems } from '../../../core/src/backlog';
+import { statusLabel } from '../lib/enumLabels';
 
 const STATUS_COLOR: Record<string, string> = {
   in_progress: 'rgb(var(--blue))',
@@ -59,7 +59,7 @@ export function BacklogPanel({
         )}
         {shown.map((it) => {
           const color = STATUS_COLOR[it.status] ?? 'rgb(var(--ink-faint))';
-          const iterating = it.iterate;
+          const iterating = isRepeating(it);
           return (
             <div key={it.id} className="group border-b border-line/60 px-3 py-2 last:border-0">
               <div className="flex items-start justify-between gap-2">
@@ -75,9 +75,6 @@ export function BacklogPanel({
                   </button>
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <Chip color={color}>{statusLabel(it.status, t)}</Chip>
-                    {typeof it.priority === 'number' && (
-                      <span className="text-[10px] text-ink-faint">{priorityLabel(it.priority, t)}</span>
-                    )}
                     {iterating && <span className="text-[10px] text-blue-sky">↻ {t('backlog.iterating')}</span>}
                   </div>
                 </div>

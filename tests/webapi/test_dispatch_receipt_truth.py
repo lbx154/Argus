@@ -33,7 +33,7 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
     life.mkdir(parents=True)
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life), objective=""))
     manager_state._STATES.pop(sid, None)
-    manager = Manager(life, memory_maintenance_enabled=False)
+    manager = Manager(life)
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("Dispatch receipt regressions must remain offline")

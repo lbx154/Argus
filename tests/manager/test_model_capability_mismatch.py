@@ -77,7 +77,6 @@ def _manager(tmp_path, runner: _MutableRunner) -> Manager:
         project_root=tmp_path,
         execution_workdir=tmp_path,
         runner=runner,
-        memory_maintenance_enabled=False,
     )
 
 
@@ -169,7 +168,6 @@ def test_threshold_changes_message_publishes_alert_and_stays_fail_closed(
         project_root=memory.project_root,
         execution_workdir=tmp_path / "workspace",
         runner=runner,
-        memory_maintenance_enabled=False,
     )
     (tmp_path / "workspace").mkdir(parents=True, exist_ok=True)
     (tmp_path / "workspace" / "pyproject.toml").write_text(

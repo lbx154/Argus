@@ -9,6 +9,7 @@
 
 import type { Locale } from '../i18n';
 import { parkReason, stopClause } from '../../../core/src/missionOutcome';
+import { stageName } from '../../../core/src/eventRender';
 import { splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
 type Pair = readonly [zh: string, en: string];
@@ -37,7 +38,8 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   stage_held: ['当前阶段暂不推进。', 'The current stage is on hold.'],
   stage_rolled_back: ['研究退回到了前一阶段。', 'The research went back a stage.'],
   stage_completed: ['当前阶段已完成。', 'The current stage is complete.'],
-  item_done: ['这一项做完了；计划里的其他工作还在进行。', 'This item is done; the rest of the plan is still under way.'],
+  // A stage closed on one item while another waits on the reader's answer (argus/core/mission_view/_snapshot.py).
+  item_done: ['这一项做完了；另一项在等你回答。', 'This item is done; another item is waiting for your answer.'],
   stage_reconsidered: ['阶段安排已重新考虑。', 'The stage plan was reconsidered.'],
   stage_reviewed: ['阶段已审阅。', 'The stage was reviewed.'],
   planning_started: ['正在规划下一步工作', 'Planning the next step'],
@@ -185,26 +187,6 @@ const CAUSES: Record<string, Pair> = {
   unknown: ['原因暂时不明。', 'The reason is not known yet.'],
 };
 
-/** Research stages by id or label. */
-const STAGES: Record<string, Pair> = {
-  idea: ['选题', 'Idea'],
-  scope: ['研究定义', 'Scope'],
-  research: ['文献与假设', 'Literature and hypotheses'],
-  literature: ['文献与假设', 'Literature and hypotheses'],
-  implementation: ['方法实现', 'Implementation'],
-  implement: ['方法实现', 'Implementation'],
-  experiment: ['实验验证', 'Experiments'],
-  experiments: ['实验验证', 'Experiments'],
-  analysis: ['结果分析', 'Analysis'],
-  writing: ['论文写作', 'Writing'],
-  review: ['最终审核', 'Final review'],
-  delivery: ['成果交付', 'Delivery'],
-  optimize: ['优化', 'Optimization'],
-  solve: ['推导与验证', 'Derivation and verification'],
-  hold: ['已暂停', 'Paused'],
-  paused: ['已暂停', 'Paused'],
-};
-
 /** Raw event types that are pure bookkeeping, named for people. */
 const EVENT_TYPES: Record<string, string> = {
   'provider.request.started': 'event.model_call.started',
@@ -234,13 +216,6 @@ const EVENT_TYPES: Record<string, string> = {
   'team.learning.review.skipped': 'event.lessons.skipped',
   'ui.argus': 'event.argus.reply',
 };
-
-/** A research stage as a word people use; unknown stages pass through. */
-export function plainStage(stage: string | null | undefined, locale: Locale): string {
-  const raw = String(stage ?? '').trim();
-  const pair = STAGES[raw.toLowerCase()];
-  return pair ? pick(pair, locale) : raw;
-}
 
 /** A stop kind or park reason; an older `paused_*` status names its reason. */
 function stopKey(kind: string | null | undefined): string {
@@ -320,7 +295,7 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^reservation · settled$/i, 'event.budget.settled'],
   [/^Round (\d+) started$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.round_started, locale), { n: match[1] })],
   [/^Running round (\d+)$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.round_running, locale), { n: match[1] })],
-  [/^Stage (?:·|→) (.+)$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.stage_entered, locale), { stage: plainStage(match[1], locale) })],
+  [/^Stage (?:·|→) (.+)$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.stage_entered, locale), { stage: stageName(match[1], locale) })],
   [/^(Manager|Planner|Engineer|Reviewer) failed$/i, (match, locale) => fill(pick(PLAIN_BY_KIND.role_failed, locale), { role: match[1] })],
   [/^(\d+) \/ (\d+) complete$/i, (match, locale) => plainProgress(Number(match[1]), Number(match[2]), locale)],
   [/^Not planned$/i, (_match, locale) => plainProgress(0, 0, locale)],

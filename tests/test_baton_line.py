@@ -251,6 +251,10 @@ def test_a_person_reads_the_prose_without_the_protocol() -> None:
     assert strip_handoff(
         'Prose.\nARGUS_ROLE_DECISION={"role":"planner","payload":{}}\nDecision:\nRESULT=Parser fixed.\n→ reviewer'
     ) == "Prose.\nParser fixed."
+    # Trial s-6f0e6213: the Manager's stage verdict read "… ACTION=hold TARGET_STAGE=delivery REASON=…".
+    assert strip_handoff(
+        "**暂不能交付。** 还没有实现。\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=实现未完成"
+    ) == "**暂不能交付。** 还没有实现。"
 
 
 # --- Routing ----------------------------------------------------------------
@@ -370,6 +374,8 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "End with a short handoff in the operator's language: changes with output "
         "paths, the decisive check, what is open, why the next holder. Its first "
         "sentence is what the operator reads: what was done and found, in plain words. "
+        "The operator reads all of it, so call the roles the Manager, Planner and "
+        "Reviewer, and leave Argus' own files such as CHECKPOINT.md out of it. "
         "Then one line naming that holder:\n"
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
@@ -377,7 +383,7 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "`→ operator: <one question>`. Ask on the `→ operator:` line itself; any answers "
         "to pick from go one per line below: `→ operator: Keep it?`, `- Yes`, `- No`. "
         "The Reviewer you hand to with "
-        "`→ reviewer` does the independent review; do not start a review of your own."
+        "`→ reviewer` does the independent review; do not start one yourself or through a subagent."
     )
 
 

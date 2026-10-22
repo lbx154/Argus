@@ -46,17 +46,6 @@ const ROLE_LABELS: Record<string, readonly [string, string]> = {
   idle: ['等待中', 'Waiting'],
 };
 
-const STAGE_LABELS: Record<string, readonly [string, string]> = {
-  scope: ['研究定义', 'Scope'],
-  research: ['文献与假设', 'Literature and hypotheses'],
-  implementation: ['方法实现', 'Implementation'],
-  experiment: ['实验验证', 'Experiments'],
-  analysis: ['结果分析', 'Analysis'],
-  writing: ['论文写作', 'Writing'],
-  review: ['最终审核', 'Final review'],
-  delivery: ['成果交付', 'Delivery'],
-};
-
 const CERTIFICATION_LABELS: Record<string, readonly [string, string]> = {
   certified: ['阶段已通过', 'Stage approved'],
   not_certified: ['阶段未通过', 'Stage not approved'],
@@ -85,10 +74,6 @@ export function roleLabel(value: string | null | undefined, text: WorkbenchText)
   const role = String(value ?? '').toLowerCase();
   if (isAgentRole(role)) return agentRoleName(role, key => text(translate(key, {}, 'zh-CN'), translate(key, {}, 'en')));
   return label(value, ROLE_LABELS, ['Argus', 'Argus'], text);
-}
-
-export function stageLabel(value: string | null | undefined, text: WorkbenchText): string {
-  return label(value, STAGE_LABELS, ['未分阶段', 'Unstaged'], text);
 }
 
 export function certificationLabel(value: string | null | undefined, text: WorkbenchText): string {

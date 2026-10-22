@@ -31,6 +31,8 @@ describe('plainStatus', () => {
     expect(plainStatus('这一轮没有人审阅。', 'zh-CN', backend)).toBe('这一轮没有人审阅。');
     expect(plainStatus('这一轮没有人审阅。', 'en', backend)).toBe('No one reviewed this round.');
     expect(plainStatus('', 'en', { kind: 'mission_paused' })).toBe('The task was paused before it finished; its progress is saved and it can be resumed.');
+    // Trial s-36ca9747: one item was done while the other waited on the reader's answer.
+    expect(plainStatus('', 'zh-CN', { kind: 'item_done' })).toBe('这一项做完了；另一项在等你回答。');
     expect(plainStatus('some text nobody mapped', 'en', { kind: 'unknown_kind', language: 'zh' })).toBe('some text nobody mapped');
     expect(plainStatus('第 9 轮工作开始。', 'en', { kind: 'round_started', language: 'zh' })).toBe('Round 9 started.');
     expect(plainDetail('审阅者的会话在得出结论前就结束了，Argus 会再试一次。', 'en', { cause: 'reviewer_unreachable', language: 'zh', technical: 'exit=1' }))

@@ -449,6 +449,14 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "I need your decision before this can continue.",
         "需要你定一下才能继续。",
     ),
+    "update_manager_decides": (
+        "Next: the Manager is deciding how this goes on.",
+        "接下来：经理在定怎么继续。",
+    ),
+    "update_planner_replans": (
+        "Next: the Planner is reworking the plan.",
+        "接下来：规划者在重新安排。",
+    ),
     "update_will_investigate": (
         "Next: I'll find out what went wrong and pick a way forward.",
         "接下来：我先查清原因，再找个能走通的办法。",
@@ -462,10 +470,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "assumed_by_me": ("I went with", "我按这个理解做的"),
     "assumed_choice": ("{conflict} → {verb}: {reading}", "{conflict} → {verb}：{reading}"),
     "assumed_reading": ("{verb}: {reading}", "{verb}：{reading}"),
-    "assumed_conflict": (
-        "{conflict} (the reading chosen is in CHECKPOINT.md)",
-        "{conflict}（选定的理解记在 CHECKPOINT.md）",
-    ),
     # A finished task, told in the operator's conversation.
     "final_submission_ready": (
         "The final submission passed independent review and is ready.",
@@ -476,17 +480,17 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Done, and an independent reviewer found nothing that needs fixing.",
         "做完了，独立审阅也没发现要改的地方。",
     ),
-    "item_done": (
-        "This item is done; the rest of the plan is still under way.",
-        "这一项做完了；计划里的其他工作还在进行。",
-    ),
+    # An item done while other work goes on: {rest} says what that work is.
+    "item_done": ("This item is done; {rest}.", "这一项做完了；{rest}。"),
     "item_done_reviewed": (
         "This item is done, and an independent reviewer found nothing that needs "
-        "fixing; the rest of the plan is still under way.",
-        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。",
+        "fixing; {rest}.",
+        "这一项做完了，独立审阅也没发现要改的地方；{rest}。",
     ),
-    "step_done": ("One step done: {title}.", "做完一步：{title}。"),
-    "task_ended": ("This task has ended: {title}.", "这项任务结束了：{title}。"),
+    "rest_under_way": ("the rest of the plan is still under way", "计划里的其他工作还在进行"),
+    "rest_awaits_answer": ("another item is waiting for your answer", "另一项在等你回答"),
+    "step_done": ("One step done: {title}.", "「{title}」这一步做完了。"),
+    "task_ended": ("This task has ended: {title}.", "「{title}」这项任务结束了。"),
     "review_continue": ("The review asked for more work.", "审阅认为还要再完善。"),
     "review_blocked": ("The review found a blocking problem.", "审阅发现了卡住的问题。"),
     "review_stale": (

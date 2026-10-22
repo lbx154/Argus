@@ -615,7 +615,8 @@ def _apply_operator_answer(
     from ..life.event_log import JsonlEventSink
 
     question = str(item.pending_question or "").strip()
-    manager_reply = manager_reply or say("answer_taken", uses_cjk(answer))
+    # A clicked option is in the card's words; the question is in the operator's.
+    manager_reply = manager_reply or say("answer_taken", uses_cjk(answer, question))
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,

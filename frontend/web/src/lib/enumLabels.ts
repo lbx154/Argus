@@ -25,6 +25,7 @@ const STATUS_KEYS: Record<string, string> = {
   rejected: 'label.status.needsChanges',
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
+  superseded: 'label.status.superseded',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',
   aborted: 'label.status.cancelled',
@@ -44,17 +45,6 @@ const WORK_KIND_KEYS: Record<string, string> = {
   review: 'label.work.review',
   planning: 'label.work.planning',
   message: 'label.work.update',
-};
-
-const STAGE_KEYS: Record<string, string> = {
-  scope: 'label.stage.scope',
-  research: 'label.stage.research',
-  implementation: 'label.stage.implementation',
-  experiment: 'label.stage.experiment',
-  analysis: 'label.stage.analysis',
-  writing: 'label.stage.writing',
-  review: 'label.stage.review',
-  delivery: 'label.stage.delivery',
 };
 
 const FRONTIER_KEYS: Record<string, string> = {
@@ -143,16 +133,8 @@ export function workKindLabel(value: string | null | undefined, t: Translate): s
   return t(WORK_KIND_KEYS[String(value ?? '').toLowerCase()] ?? 'label.work.update');
 }
 
-export function stageLabel(value: string | null | undefined, t: Translate): string {
-  return t(STAGE_KEYS[String(value ?? '').toLowerCase()] ?? 'label.stage.unstaged');
-}
-
 export function frontierLabel(value: string | null | undefined, t: Translate): string {
   return t(FRONTIER_KEYS[String(value ?? '').toLowerCase()] ?? 'label.frontier.updated');
-}
-
-export function priorityLabel(value: number, t: Translate): string {
-  return t('label.priority', { priority: value });
 }
 
 export function outcomeLabels(

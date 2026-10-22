@@ -323,39 +323,44 @@ class PlanningCycleMixin(
             "trigger": "reviewed_stage_empty_plan_reconciliation",
             "recovered_item_id": item.id,
         })
-        if (
-            decision.action == "complete"
-            and mission_scope.strip().lower() == "final_submission"
-        ):
+        outcome = {**item.outcome, "stage_certification": {
+            "advance": "certified",
+            "complete": "certified",
+            "hold": "not_certified",
+            "rollback": "revoked",
+        }.get(decision.action, "not_assessed")}
+        if decision.action == "complete":
+            # The Manager closed the objective on this task's acceptance: the
+            # task's completion now certifies it, recorded as its settlement
+            # would have recorded it, so the map, the banner and the delivery agree.
+            final = mission_scope.strip().lower() == "final_submission"
             manuscript_binding = getattr(review, "manuscript_snapshot", None)
-            if not isinstance(manuscript_binding, dict):
+            if final and not isinstance(manuscript_binding, dict):
                 return ""
             if not self._emit({
                 "type": EventType.LIFE_MISSION_COMPLETED,
                 "item_id": item.id,
                 "title": item.title,
                 "objective": item.objective,
-                "scope": "final_submission",
+                "scope": mission_scope,
                 "independent_review_required": True,
                 "success": True,
                 "status": "done",
-                "summary": "Recovered the existing independent final certification.",
-                "final_submission_certified": True,
-                "final_submission_signature": self._final_submission_signature(),
-                "manuscript_snapshot": dict(manuscript_binding),
-                "venue_review": getattr(review, "venue_review", None),
-                "venue_review_snapshot": getattr(review, "venue_review_snapshot", None),
+                "summary": review.reason,
+                "review_source": "reviewer",
+                "outcome": outcome,
+                "overall_complete": final or not getattr(self.config, "open_ended", False),
                 "certification_recovered": True,
+                **({
+                    "final_submission_certified": True,
+                    "final_submission_signature": self._final_submission_signature(),
+                    "manuscript_snapshot": dict(manuscript_binding),
+                    "venue_review": getattr(review, "venue_review", None),
+                    "venue_review_snapshot": getattr(review, "venue_review_snapshot", None),
+                } if final else {}),
             }):
                 return ""
         if decision.source in {"manager_llm", "stage_completion_gate_hold"}:
-            outcome = dict(item.outcome)
-            outcome["stage_certification"] = {
-                "advance": "certified",
-                "complete": "certified",
-                "hold": "not_certified",
-                "rollback": "revoked",
-            }.get(decision.action, "not_assessed")
             self.memory.backlog.update(item.id, outcome=outcome)
         if decision.action not in {"advance", "complete", "rollback"}:
             return ""

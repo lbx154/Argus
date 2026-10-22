@@ -105,6 +105,23 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
   );
 });
 
+test("a round the Engineer handed on is the Engineer's, as the web feed says it", () => {
+  // Trial s-6f0e6213: no Reviewer ran, and the row said the Reviewer found the work stuck.
+  assert.deepEqual(
+    renderEvent({
+      type: 'round.review.completed', status: 'blocked', reason: 'Rounding rules conflict.',
+      review_source: 'engineer_handoff',
+    } as EventMsg),
+    {
+      role: 'engineer',
+      label: 'Engineer',
+      glyph: '⛔',
+      text: 'the Engineer handed the work to the Manager to decide · Rounding rules conflict.',
+      tone: 'err',
+    },
+  );
+});
+
 test('agent speech and task handoffs remain fully readable', () => {
   const message = `Implemented the harness.\n${'verification detail '.repeat(40)}`;
   const speech = renderEvent({
@@ -222,7 +239,7 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     },
     // The goal is the operator's own words; the shared renderer does not say it back.
     'life.planner.start': { text: 'working out the next step' },
-    'life.manager.stage_decision': { text: 'moved on to the review stage' },
+    'life.manager.stage_decision': { text: 'moved on to the Final review stage' },
     // Bookkeeping retried or repaired on its own is not news to the operator.
     'round.orphan_process_group': { visibility: 'hidden' },
     'life.planner.verdict': { visibility: 'hidden' },

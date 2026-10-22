@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { EventMsg } from '../api';
+import type { EventMsg, Snapshot } from '../api';
 import { emptyMissionView } from '../../../core/src/missionView';
 import type { MissionRoleWorkItem, Role } from '../../../core/src/types';
 import { AgentActivity } from '../components/AgentActivity';
@@ -35,11 +35,23 @@ describe('progress in plain words', () => {
       [tool('glob: {"pattern": "**/*"}', 'glob'), '查找所有文件'],
       [tool('glob: {"pattern": "src/**/*.ts"}', 'glob'), '查找 src 里的 .ts 文件'],
       [tool('glob: {"pattern": "src/**/*"}', 'glob'), '查找 src 里的所有文件'],
-      // Alternatives in braces say nothing a reader can follow.
-      [tool('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', 'glob'), '查找文件'],
+      // Alternatives in braces name the files among them, the first few
+      // (trial s-7d356ee9 read "查找文件" four times); a wildcard is no name.
+      [tool('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', 'glob'), '查找 pyproject.toml、setup.cfg、setup.py 等文件'],
+      [tool('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,.autors/**/wiki/**.md}"}', 'glob'), '查找 pyproject.toml、setup.cfg、setup.py 等文件'],
+      [tool('glob: {"pattern": "{SKILL.md,*/SKILL.md,reviewer/**/*.md}", "paths": ["/srv/state/skills"]}', 'glob'), '查找 SKILL.md 等文件'],
+      [tool('glob: {"pattern": "{SKILL.md,reviewer/**/SKILL.md}"}', 'glob'), '查找 SKILL.md'],
+      [tool('glob: {"pattern": ".venv/bin/{python,pip}"}', 'glob'), '查找 python、pip'],
+      [tool('glob: {"pattern": "**/*{review,python,date,审阅}*"}', 'glob'), '查找文件'],
       [tool('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*", "paths": ["/srv/state/skills"]}', 'glob'), '查找文件'],
       [tool('rg: {"pattern": "route", "paths": "/data/proj/a.md"}', 'rg'), '搜索：route'],
       [tool('mystery: {"x": 1}', 'mystery'), '调用 mystery'],
+      // Trial s-36ca9747 read "查找 .*": any other wildcard is files too.
+      [tool('glob: {"pattern": ".*"}', 'glob'), '查找文件'],
+      [tool('glob: {"pattern": "tests/test_*.py"}', 'glob'), '查找 tests 里的文件'],
+      // Trial s-6f0e6213 read "调用 task": a helper agent the role starts.
+      [tool('task: {"description": "独立审阅小时格式化接口", "agent_type": "general-purpose", "prompt": "你是本任务的独立 Reviewer'), '交给子助手：独立审阅小时格式化接口'],
+      [tool('task: {"prompt": "check it"}'), '交给一个子助手'],
     ];
     for (const [ev, label] of cases) {
       const said = plainToolLabel(ev, 'zh-CN');
@@ -48,6 +60,7 @@ describe('progress in plain words', () => {
     }
     expect(readableGlob('**/*.py', 'en')).toBe('.py files');
     expect(readableGlob('**/*.{ts,tsx}', 'en')).toBe('files');
+    expect(readableGlob('{pyproject.toml,setup.cfg,*.ini}', 'en')).toBe('pyproject.toml, setup.cfg and other files');
   });
 
   it('a LIVE badge says how old its news is once it is not fresh', () => {
@@ -84,7 +97,13 @@ describe('real rows from a dogfood session', () => {
   it("names no file of Argus' own plumbing", () => {
     const ev = tool('view: {"path": "/fastdata/argus/state/projects/7f066b2919cb"}', 'view');
     expect(plainToolLabel(ev, 'zh-CN')).toBe('查阅文件');
-    expect(plainToolLabel(tool('view: {"path": "/repo/strtools/.autors"}', 'view'), 'zh-CN')).toBe('查阅文件');
+  });
+
+  it('reads .autors, which holds the project\'s wiki and nothing else, as the wiki', () => {
+    // Trial s-757b9dac: the Manager's "查阅文件" twice was .autors and .autors/timefmt.
+    for (const path of ['/repo/strtools/.autors', '/repo/strtools/.autors/strtools']) {
+      expect(plainToolLabel(tool(`view: {"path": "${path}"}`, 'view'), 'zh-CN')).toBe('查阅知识库');
+    }
   });
 
   it('a recalled wiki page, a spilled tool output and the project folder read as what they are', () => {
@@ -97,6 +116,14 @@ describe('real rows from a dogfood session', () => {
       ['/srv/home/wiki/_global/pages/house-style.md', '查阅知识页 house-style', 'Read wiki page house-style'],
       ['/srv/home/wiki/_shared_verticals/software', '查阅知识库', 'Read the wiki'],
       ['/repo/.autors/learn/wiki/INDEX.md', '查阅知识页 INDEX', 'Read wiki page INDEX'],
+      // Trial s-6f0e6213 read "查阅知识页 pages": a folder in the wiki is the wiki.
+      ['/repo/.autors/learn/wiki/pages', '查阅知识库', 'Read the wiki'],
+      // ...and "查阅文件" for a skill, a skill library and the handoff notes.
+      ['/srv/state/skills/_shared_verticals/software/reviewer/software-change-review.md', '查阅技能 software-change-review', 'Read skill software-change-review'],
+      ['/srv/dogfood-code/argus/builtin_skills/reviewer/argus-reviewer-role.md', '查阅技能 argus-reviewer-role', 'Read skill argus-reviewer-role'],
+      ['/srv/dogfood-code/argus/verticals/software/skills/engineer', '查阅技能库', 'Read the skill library'],
+      ['/srv/state/projects/s-6f0e6213/skills', '查阅技能库', 'Read the skill library'],
+      ['/srv/state/projects/s-6f0e6213/handoffs/0b83ab7d6d17/CHECKPOINT.md', '查阅交接记录', 'Read the handoff notes'],
       ['/repo/docs/wiki/pages/setup.md', '查阅 setup.md', 'Read setup.md'],
       ['/runtime/tmp/1792644657527-copilot-tool-output-87d59816852246238961139c2f724073.txt', '查阅工具输出', 'Read a saved tool output'],
       ['/srv/state/workspaces/s-8d313a94', '查阅项目目录', 'Read the project folder'],
@@ -114,6 +141,39 @@ describe('real rows from a dogfood session', () => {
     const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} onToggleReasoning={() => undefined} />);
     expect(html).toContain('>mkdir -p …/files &amp;&amp; pytest -q | tee …/pytest.log<');
     expect(html).toContain(`title="${command.replace(/&/g, '&amp;')}"`);
+  });
+
+  it('a command and a result read paths in the project from its root; the tooltip keeps the command', () => {
+    // Trials s-7d356ee9 and s-757b9dac: "rm -r -- /fastdata/…/work/datefmt/build" and
+    // "Public package: /fastdata/…/work/timefmt/timefmt/__init__.py".
+    const snapshot = {
+      session: { id: 's', display_name: 'datefmt', objective: '', cwd: '/srv/state/projects/s', workdir: '/work/datefmt', last_active: 1 },
+      daemon: { alive: false, pid: null, uptime_seconds: 0, backend: 'pi' }, roles: [], backlog: [], recent_events: [],
+    } as unknown as Snapshot;
+    const command = 'rm -r -- /work/datefmt/build /work/datefmt2/build && ls /work/datefmt';
+    const events = [
+      { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1 },
+      { type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: 'Public package: /work/datefmt/datefmt/__init__.py | /usr/lib/python3/site-packages/x.py', ts: 2 },
+    ] as unknown as EventMsg[];
+    const html = renderToStaticMarkup(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} onToggleReasoning={() => undefined} />);
+    expect(html).toContain('>rm -r -- build /work/datefmt2/build &amp;&amp; ls .<');
+    expect(html).toContain(`title="${command.replace(/&/g, '&amp;')}"`);
+    expect(html).toContain('Public package: datefmt/__init__.py | /usr/lib/python3/site-packages/x.py');
+  });
+
+  it('a patch to the handoff notes names them as the read does', () => {
+    const ev = tool('apply_patch: *** Begin Patch\n*** Update File: /srv/state/projects/s-1/handoffs/0b83/CHECKPOINT.md\n@@\n+# 当前状态', 'apply_patch');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('修改交接记录');
+  });
+
+  it("a feed result row cuts paths into Argus' plumbing as a command row does", () => {
+    // Trial s-36ca9747: the row spelled out the whole path into the built-in skills.
+    const result = '?? .autors/ | /srv/dogfood-code/argus/builtin_skills/engineer/minimal-coding-agent.md:3:description: "用于软件" | /work/numfmt/core.py';
+    const events = [{ type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: result, ts: 1 }] as unknown as EventMsg[];
+    const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} onToggleReasoning={() => undefined} />);
+    expect(html).toContain('…/minimal-coding-agent.md:3:description:');
+    expect(html).not.toContain('/srv/dogfood-code/argus');
+    expect(html).toContain('/work/numfmt/core.py');
   });
 
   it('a regular expression is not shown raw', () => {

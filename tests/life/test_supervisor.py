@@ -1485,8 +1485,9 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
 
 def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
     """The Reviewer's ``replan_requested`` stands however often it repeats:
-    the node goes back to pending and is re-dispatched, never rewritten into a
-    no-progress failure by a host-side count."""
+    a planned node goes back to pending for its plan's revision and is
+    re-dispatched, never rewritten into a no-progress failure by a host-side
+    count."""
     mem = LifeMemory.open(tmp_path / "life")
     runner = _CountingReplanRunner()
     sup = LifeSupervisor(
@@ -1500,6 +1501,7 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
     )
     item = mem.backlog.add(BacklogItem.new(
         title="unsatisfiable node", objective="drain an impossible obligation",
+        plan_id="plan-1", plan_version=1,
     ))
 
     for calls in range(1, 5):

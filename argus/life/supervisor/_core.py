@@ -1566,16 +1566,9 @@ class LifeSupervisor(
             def _message_id(legacy: str) -> str:
                 return f"mission-result-{stable_delivery_id}" if stable_delivery_id else legacy
 
-            from ...core.transcript import read_turns
+            from ...core.transcript import operator_request
 
-            language_hint = next(
-                (
-                    str(turn.get("text") or "")
-                    for turn in reversed(read_turns(life_dir, limit=20))
-                    if turn.get("role") == "operator"
-                ),
-                "",
-            )
+            language_hint = operator_request(life_dir)
             chinese = uses_cjk(language_hint)
             title = str(event.get("title") or say("this_task", chinese)).strip()
             success = bool(event.get("success"))
@@ -1692,10 +1685,9 @@ class LifeSupervisor(
             )
             brief = brief_title(title)
             if not success:
+                # A role that hands the work on gives its reason in its own summary.
                 reason = str(
-                    event.get("stop_reason")
-                    or event.get("failure_reason")
-                    or "The mission ended without a verified result."
+                    event.get("stop_reason") or event.get("failure_reason") or summary
                 ).strip()
                 next_action = str(event.get("next_action") or "").strip()
                 operator_question = str(
@@ -1719,22 +1711,31 @@ class LifeSupervisor(
                         },
                     )
                     return
+                from ...manager.supervision import HANDED_TO_MANAGER
+
+                # Work parked on the operator waits for their decision; work
+                # handed to the Manager is the Manager's to decide, as the
+                # settlement parks it and supervision puts it to the Manager.
+                to_manager = review == "blocked" and event.get("review_source") in HANDED_TO_MANAGER
                 text = render_operator_update(
                     title=title,
                     status=status,
                     park_reason=park,
                     reason=reason,
                     next_action=next_action,
-                    # Only work parked on the operator waits for their decision.
-                    user_action_required=park in {"operator_question", "operator_pause"},
+                    holder=(
+                        "operator" if park in {"operator_question", "operator_pause"}
+                        else "manager" if to_manager
+                        else "planner" if status == "replan_requested" else ""
+                    ),
                     language_hint=language_hint,
                 )
+                # The summary often is the stop reason, its lines run together;
+                # the update gives its first sentence, its row the rest.
+                told = " ".join(summary.split()) in " ".join(f"{reason} {text}".split())
                 publish_operator_message(
                     life_dir,
-                    # The summary often is the stop reason; say it once.
-                    text="\n".join(
-                        part for part in (text, "" if summary in text else summary) if part
-                    ),
+                    text="\n".join(part for part in (text, "" if told else summary) if part),
                     message_id=_message_id(f"mission-result-{item_id}-{status}"),
                     event_fields={
                         "mission_result": True,
@@ -1750,15 +1751,19 @@ class LifeSupervisor(
             )
             # The item is done while other planned work goes on, or while
             # another task waits on the operator's answer.
-            deferred = not campaign_continues and (
-                str(outcome.get("stage_certification") or "").strip() == "deferred"
-                or self._question_waits()
+            question_waits = not campaign_continues and self._question_waits()
+            deferred = question_waits or (
+                not campaign_continues
+                and str(outcome.get("stage_certification") or "").strip() == "deferred"
             )
             if final_submission_certified:
                 headline = say("final_submission_ready", chinese)
             elif overall_complete or deferred:
                 done_kind = "item_done" if deferred else "all_done"
-                headline = say(done_kind + "_reviewed" if reviewer_found_nothing else done_kind, chinese)
+                headline = say(
+                    done_kind + "_reviewed" if reviewer_found_nothing else done_kind, chinese,
+                    rest=say("rest_awaits_answer" if question_waits else "rest_under_way", chinese),
+                )
             else:
                 headline = say("step_done" if campaign_continues else "task_ended", chinese, title=brief)
             if (

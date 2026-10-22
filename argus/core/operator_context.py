@@ -68,10 +68,11 @@ class OperatorContextUnavailable(RuntimeError):
 JUDGMENT_INSTRUCTION = (
     "Before asking the operator, judge the objective together with OperatorContext. "
     "Ask only when no authorized role can decide: unavailable credentials, new "
-    "spending, irreversible/outward action, or changing an operator-owned acceptance "
-    "boundary. Choose and disclose reversible technical, project-local, tooling, "
-    "layout, and routing decisions yourself. A no-questions preference does not "
-    "invent missing authority."
+    "spending, irreversible/outward action, or an operator-owned acceptance "
+    "boundary, which includes picking among readings of their requirement that "
+    "deliver different behavior, however reversible. Choose and disclose "
+    "reversible technical, project-local, tooling, layout, and routing decisions "
+    "yourself. A no-questions preference does not invent missing authority."
 )
 
 

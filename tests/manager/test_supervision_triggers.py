@@ -39,7 +39,7 @@ def admitted(tmp_path, monkeypatch):
     item = BacklogItem.new(item_id="grouped", title="Validate grouped means", objective="Keep missing-value checks")
     Backlog(tmp_path / "backlog.jsonl").add(item)
     monkeypatch.setattr(supervision, "_dispatch_pending", lambda: None)
-    manager = Manager(tmp_path, runner=_Backend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=_Backend())
     supervision.start_supervision(tmp_path)
 
     def schedule(event: dict) -> dict | None:
@@ -157,7 +157,7 @@ def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backend = _Backend(json.dumps({"action": "continue", "reason": "The run is still plausible.", "evidence_refs": ["backlog.jsonl"]}))
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
     assert first["status"] == "applied" and len(backend.prompts) == 1
     assert supervision.supervise(manager, tmp_path, _review(2, forward_progress=False)) == first
@@ -170,7 +170,7 @@ def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
     """The next trigger on the same evidence asks again after a failed or superseded check."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    manager = Manager(tmp_path, runner=_Backend("I am not sure."), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=_Backend("I am not sure."))
     event = {**_review(2), "consult_reason": "the Engineer handed the work to you"}
     assert supervision.supervise(manager, tmp_path, event)["status"] == "failed"
     good = json.dumps({"action": "steer", "reason": "The same failure repeats; change approach.",
@@ -185,7 +185,7 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backend = _Backend(json.dumps({"action": "continue", "reason": "The repair is under way.", "evidence_refs": ["backlog.jsonl"]}))
     event = {**_review(2, forward_progress=False), "consult_reason": "the Engineer handed the work to you"}
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied"
     assert "consulted now because of: the Engineer handed the work to you" in backend.prompts[0]
     assert "ACTION: continue, steer, wait or stop" in backend.prompts[0]
@@ -207,7 +207,7 @@ def test_only_a_steer_not_prompted_by_the_observer_reaches_the_planner(tmp_path,
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backend = _Backend("ACTION: steer\nREASON: Plan the grouping repair apart.\n"
                        "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Split the repair into two tasks.\n→ planner")
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
 
     assert record["status"] == "applied" and record["decision"]["handoff"] == "planner"
     directive = load_active_manager_directive(tmp_path)

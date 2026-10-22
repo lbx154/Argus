@@ -276,9 +276,11 @@ def merge_mission_view_snapshot(
         if existing.get("kind") == "waiting":
             existing["label"] = say("waiting", chinese)
         # A stage closed on one item while a question still waits on the
-        # operator: only that item is done.
+        # operator: only that item is done, and the rest waits on them.
         if existing.get("kind") == "stage_completed" and awaits_operator(backlog):
-            existing.update({"kind": "item_done", "label": say("item_done", chinese)})
+            existing.update({"kind": "item_done", "label": say(
+                "item_done", chinese, rest=say("rest_awaits_answer", chinese),
+            )})
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:

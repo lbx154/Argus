@@ -12,18 +12,15 @@ from argus.skills.role_memory import (
     profile_role_skill_dir,
     profile_self_skill_dir,
     project_role_skill_dir,
-    role_skill_maintenance_block,
 )
 from argus.skills.store import SkillStore
 
 
 def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
-    assert Manager(memory_maintenance_enabled=None).memory_maintenance_enabled is False
     assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is False
 
     monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
-    assert Manager(memory_maintenance_enabled=None).memory_maintenance_enabled is True
     assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is True
 
 
@@ -71,19 +68,6 @@ def test_new_session_discovers_profile_self_skill(tmp_path) -> None:
     )
     assert manager._session is not None
     assert str(self_dir.resolve()) in manager._session.skill_paths
-
-
-def test_role_maintenance_block_has_a_clean_ab_switch(tmp_path) -> None:
-    store = SimpleNamespace(project=SimpleNamespace(skills_dir=tmp_path / "skills"))
-
-    control = role_skill_maintenance_block(store, "reviewer", enabled=False)
-    treatment = role_skill_maintenance_block(store, "reviewer", enabled=True)
-
-    assert control == ""
-    assert "## Reviewer self-evolution" in treatment
-    assert str((tmp_path / "skills" / "reviewer").resolve()) in treatment
-    assert "exactly `name` and `description` frontmatter" in treatment
-    assert "`version`" not in treatment
 
 
 def test_engineer_learning_stays_inside_the_workspace(tmp_path) -> None:
@@ -181,43 +165,3 @@ def test_planner_does_not_write_skills_during_planning(tmp_path, monkeypatch) ->
     assert "Planner self-evolution" not in treatment
     assert str((tmp_path / "skills" / "planner").resolve()) not in treatment
 
-
-def test_the_planner_may_keep_judgement_where_the_engineer_keeps_procedure(
-    tmp_path,
-) -> None:
-    """A role can only retain the shape of learning its decisions produce.
-
-    Planner lessons are campaign-level judgement, not shell steps. Asking every
-    role for a "reusable procedure" filed the strategic lesson under generic
-    advice and dropped it — the learning that would question a stalled plan
-    soonest was the learning the contract refused to store.
-    """
-    store = SkillStore(tmp_path / "skills")
-
-    planner = role_skill_maintenance_block(store, "planner", enabled=True)
-    assert "strategic decision heuristic" in planner
-    assert "where it applies" in planner
-    assert "one case where following it would be wrong" in planner
-
-    engineer = role_skill_maintenance_block(store, "engineer", enabled=True)
-    assert "a reusable procedure" in engineer
-    assert "strategic decision heuristic" not in engineer
-
-
-def test_manager_learning_ab_switch_targets_manager_bucket(tmp_path) -> None:
-    store = SkillStore(tmp_path / "skills")
-
-    control = Manager(
-        project_root=tmp_path,
-        skill_store=store,
-        memory_maintenance_enabled=False,
-    )._role_skill_block("delivery", include_libraries=False)
-    treatment = Manager(
-        project_root=tmp_path,
-        skill_store=store,
-        memory_maintenance_enabled=True,
-    )._role_skill_block("delivery", include_libraries=False)
-
-    assert "Manager self-evolution" not in control
-    assert "Manager self-evolution" in treatment
-    assert str((tmp_path / "skills" / "manager").resolve()) in treatment

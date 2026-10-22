@@ -41,9 +41,10 @@ _PLANNER_DECISION_FOOTER = decision_footer_instruction(
 _PLANNER_CORE_CONTRACT = """
 ## Assigning work
 Read state, never edit; Engineer implements and tests.
-Plan from the mission workspace only; never read sibling projects or parent directories.
+Plan from the mission workspace only; never read sibling or parent directories.
 
-- Reuse settled/Manager decisions; name each task's decision, inputs and check.
+- Reuse settled/Manager decisions; name each task's decision, inputs and check,
+  not who does or reviews it; handoffs decide.
   Emit items that differ only in inputs or config, with disjoint outputs,
   together up to the free slots; a shared code change goes first as their dep.
 - At the digest's measured throughput, can this plan reach its first held-out
@@ -51,9 +52,9 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   work can start this cycle?
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
-  Require a harness hypothesis, executable check, exclusions, isolated
-  Engineer→Reviewer work, and no counters, detectors, gratuitous inspections, or
-  make-work. Deploy only after Reviewer `done` and operator approval.
+  Require a harness hypothesis, executable check, exclusions, isolated reviewed
+  work, and no counters, detectors, gratuitous inspections, or make-work. Deploy
+  only after Reviewer `done` and operator approval.
 - Follow requested actions in order; outputs or alternatives do not replace unmet actions.
   Add no cleanup, docs, rechecks or optional hardening to completed finite work.
 - Ground external algorithms beyond Wiki/Skills in primary sources. Consult papers,
@@ -72,9 +73,8 @@ Plan from the mission workspace only; never read sibling projects or parent dire
 - Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
   literal, relative `TASK_OWNS_PATHS=a|b` (no wildcards); stage-closing and
   framework-maintenance work runs alone. The digest shows slots and ownership.
-- Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
-  per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed
-  repeats; never retire running or done work.
+- Optional `RETIRE_TASK=<item id> | <one-sentence reason>`, one line per item, retires
+  pending refuted/closed work against renamed repeats; never retire running or done work.
 - With nothing new to start, add no `TASK_*` blocks and end with one line naming
   who acts next: `→ engineer` (the work in flight decides what comes next),
   `→ manager` (the stage itself blocks you) or `→ operator: <one question>` (only

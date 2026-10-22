@@ -47,7 +47,7 @@ def test_real_message_keeps_routing_context_private_through_intent_events(tmp_pa
     Backlog(life / "backlog.jsonl").add(BacklogItem.new(title="Prior task", objective=OLD_GOAL))
     append_turn(life, "operator", OLD_GOAL)
     manager_state._STATES.pop(sid, None)
-    manager = Manager(life, memory_maintenance_enabled=False)
+    manager = Manager(life)
     model_inputs, commit_inputs = [], []
 
     def classify(_mem, _body, state, **_kwargs):

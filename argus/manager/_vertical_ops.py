@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.role_decision import latest_role_decision
+from ..core.role_handoff import Handoff, read_baton_line
 from ..skills import vertical_select
 from ..skills.vertical_select import (
     persist_vertical,
@@ -834,12 +835,17 @@ class _VerticalDecisionMixin:
             extra_args=grounded_extra_args,
         )
 
+        # A reply asked again for its other fields keeps the question it put to
+        # the operator, with the answers listed under it: the retry is a fresh
+        # call that never sees that question and does not ask it the same way.
+        asked: Handoff | None = None
+
         def invoke_grounded_route(
             route_prompt: str,
             *,
             run_label: str,
         ) -> tuple[Any, VerticalDecision]:
-            nonlocal attempts_made
+            nonlocal attempts_made, asked
             attempts_made += 1
             try:
                 with self._task_usage_scope(root_task_id):
@@ -891,6 +897,9 @@ class _VerticalDecisionMixin:
                 from .classification_contract import STRUCTURED_DECISION_CLAUSE
                 from .domain_author import vertical_decision_contract_violation
 
+                handoff = read_baton_line(raw_reply) if isinstance(raw_reply, str) else None
+                if asked is None and handoff is not None and handoff.question:
+                    asked = handoff
                 violation = vertical_decision_contract_violation(
                     raw_reply,
                     known_verticals=known_verticals,
@@ -919,6 +928,9 @@ class _VerticalDecisionMixin:
                     model_reply_snippet=raw_reply,
                     task=task,
                 )
+            if asked is not None:
+                route_decision.operator_question = asked.question
+                route_decision.operator_options = asked.options
             return route_result, route_decision
 
         try:

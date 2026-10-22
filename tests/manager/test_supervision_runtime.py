@@ -74,7 +74,7 @@ def test_runtime_incident_escalation_is_admitted_for_manager_supervision(
     from argus.manager import supervision
 
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     key = str(tmp_path.resolve())
     monkeypatch.setattr(supervision, "_CLOSED", False)
     monkeypatch.setattr(supervision, "_PENDING", {})
@@ -142,7 +142,7 @@ def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp
 
     project(tmp_path)
     first = EvidenceBackend()
-    manager = Manager(tmp_path, runner=first, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=first)
     frontend = SimpleNamespace(manager=manager, _backend=first)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: frontend)
     reply = manager_bridge._answer_inline("persistent-sid", tmp_path, "What is running now?")
@@ -151,13 +151,13 @@ def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp
     assert first.calls[0][1] is None
 
     second = EvidenceBackend()
-    restarted = Manager(tmp_path, runner=second, memory_maintenance_enabled=False)
+    restarted = Manager(tmp_path, runner=second)
     record = supervise(restarted, tmp_path, {"type": "life.mission.completed", "item_id": "check"})
     assert record["status"] == "applied"
     assert second.calls[0][1] == "persistent-manager"
 
     manager_state.release_manager_context("persistent-sid")
-    again = SimpleNamespace(manager=Manager(tmp_path, runner=second, memory_maintenance_enabled=False), _backend=second)
+    again = SimpleNamespace(manager=Manager(tmp_path, runner=second), _backend=second)
     result = run_exec(conversation_backend(again), prompt="Explain your last decision", options=RunnerOptions(), run_label="simple-1")
     assert result.thread_id == "persistent-manager"
     assert second.calls[-1][1] == "persistent-manager"
@@ -166,7 +166,7 @@ def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp
 def test_new_review_evidence_changes_the_action_and_steering_reaches_engineer(tmp_path):
     _, item = project(tmp_path)
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     event = {"type": "life.mission.completed", "item_id": item.id}
     review(tmp_path, "done", "Grouping check passed")
     first = supervise(manager, tmp_path, event)
@@ -203,7 +203,7 @@ def test_changed_goal_rejects_a_slow_supervision_result_without_holding_pipeline
             assert release.wait(3)
             return super().run_exec(**kwargs)
 
-    manager = Manager(tmp_path, runner=SlowBackend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=SlowBackend())
     with ThreadPoolExecutor(max_workers=1) as pool:
         pending = pool.submit(supervise, manager, tmp_path, {"type": "life.mission.completed"})
         try:
@@ -224,7 +224,7 @@ def test_changed_goal_rejects_a_slow_supervision_result_without_holding_pipeline
 def test_unchanged_wait_ignores_polling_rounds_and_own_receipts_then_wakes_on_answer(tmp_path):
     backlog, item = project(tmp_path, question="Provide the author declaration")
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     event = {"type": "life.planner.verdict", "item_id": item.id, "reason": "Need author declaration", "ts": 10}
     first = supervise(manager, tmp_path, event)
     assert first["status"] == "applied" and first["decision"]["action"] == "wait"
@@ -250,7 +250,7 @@ def test_failed_provider_does_not_modify_any_team_control(tmp_path):
         def run_exec(self, **kwargs):
             return RunnerResult(exit_code=1, fatal_error="provider failed")
 
-    result = supervise(Manager(tmp_path, runner=FailedBackend(), memory_maintenance_enabled=False),
+    result = supervise(Manager(tmp_path, runner=FailedBackend()),
                        tmp_path, {"type": "life.mission.completed"})
     assert result["status"] == "failed"
     assert not (tmp_path / "inbox.jsonl").exists()
@@ -277,7 +277,7 @@ def test_running_review_schedules_supervision_before_the_mission_pipeline_finish
 
     backlog, item = project(tmp_path)
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     supervisor = LifeSupervisor(
         memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(manager=manager),
         sink=JsonlEventSink(None, life_dir=tmp_path),
@@ -320,7 +320,7 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
             assert release.wait(3)
             return super().run_exec(**kwargs)
 
-    manager = Manager(tmp_path, runner=Uncooperative(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=Uncooperative())
     start_supervision(tmp_path)
     assert schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
@@ -351,7 +351,7 @@ def test_completed_work_only_delivers_an_issued_decision(tmp_path, monkeypatch, 
         supervision._write(tmp_path / "manager-supervision/latest.json", {"status": "issued"})
     dispatched = []
     monkeypatch.setattr(supervision, "_dispatch_pending", lambda: dispatched.append(True))
-    manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=EvidenceBackend())
     supervision.start_supervision(tmp_path)
     try:
         admitted = supervision.schedule_supervision(manager, tmp_path, {
@@ -375,7 +375,7 @@ def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
                 "evidence_refs": ["other-project/private.json"],
             })])
 
-    result = supervise(Manager(tmp_path, runner=Unfounded(), memory_maintenance_enabled=False),
+    result = supervise(Manager(tmp_path, runner=Unfounded()),
                        tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
     assert result["status"] == "failed" and result["cited_refs"] == []
     assert load_active_manager_directive(tmp_path) is None
@@ -393,7 +393,7 @@ def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidenc
         runner._manager_session_root = tmp_path
         runner._args = SimpleNamespace(workdir=str(tmp_path), engineer_model="local-engineer")
         runner._next_seed_thread_id = runner.last_thread_id = None
-        runner.manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+        runner.manager = Manager(tmp_path, runner=backend)
         return runner
 
     sink = SimpleNamespace(handle_event=lambda event: None)
@@ -422,7 +422,7 @@ def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path
     from argus.planner import PlannerVerdict
 
     backlog, item = project(tmp_path, question="Supply the missing author declaration")
-    manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=EvidenceBackend())
     assert supervise(manager, tmp_path, {"type": EventType.LIFE_PLANNER_VERDICT})["status"] == "applied"
     calls = []
 
@@ -480,7 +480,7 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
                     return super().run_exec(**kwargs)
 
             backend = BusyBackend()
-        managers.append(Manager(root, runner=backend, memory_maintenance_enabled=False))
+        managers.append(Manager(root, runner=backend))
         start_supervision(root)
     try:
         for number in range(2):
@@ -532,7 +532,7 @@ def test_an_interactive_ask_neither_waits_for_nor_interrupts_a_background_turn(t
             return super().run_exec(**kwargs)
 
     backend = Background()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: SimpleNamespace(manager=manager, _backend=backend))
     assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "What is the task?")
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -567,7 +567,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
     project(tmp_path)
     review(tmp_path, "continue", "The grouped check failed")
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     event = {"type": EventType.LIFE_MISSION_COMPLETED}
     original = supervision.os.replace
 
@@ -593,7 +593,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
         from argus.manager.supervision import shutdown_supervision
 
-        restarted = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+        restarted = Manager(tmp_path, runner=backend)
         LifeSupervisor(
             memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(manager=restarted),
             sink=JsonlEventSink(None, life_dir=tmp_path),
@@ -604,7 +604,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         finally:
             assert shutdown_supervision(tmp_path) == 0
     else:
-        recovered = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+        recovered = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert len(backend.calls) == 1
     assert not (tmp_path / "inbox.jsonl").exists()
     if failure_point == "continuous":
@@ -625,7 +625,7 @@ def test_partial_delivery_never_overwrites_a_new_operator_direction(tmp_path, mo
     project(tmp_path)
     review(tmp_path, "continue", "Grouping failed")
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     original = directive.set_active_manager_directive
 
     def write_then_crash(*args, **kwargs):
@@ -677,7 +677,7 @@ def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_pat
     task_b = BacklogItem.new(title="Independent lint check", objective="Check local syntax independently")
     backlog.add(task_b)
     backlog.mark_running(task_b.id)
-    manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=EvidenceBackend())
     receipt = supervise(manager, tmp_path, {"type": EventType.LIFE_PLANNER_VERDICT})
     assert receipt["waiting_task_ids"] == [task_a.id]
     assert waiting_for_evidence(tmp_path, task_a.id)
@@ -732,7 +732,7 @@ def test_wait_arriving_during_engineer_work_finishes_the_write_and_skips_reviewe
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message_factory=write_artifact))
     loop = role_loop(tmp_path, item.id, backend)
-    manager = Manager(tmp_path, runner=EvidenceBackend(), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=EvidenceBackend())
     with ThreadPoolExecutor(max_workers=1) as pool:
         work = pool.submit(loop.run, item.objective, workdir=tmp_path)
         try:
@@ -755,7 +755,7 @@ def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, mo
     project(tmp_path)
     event = {"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 2}
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     original = supervision._emit
 
     def unavailable(record, root, phase):
@@ -779,7 +779,7 @@ def test_phase_receipt_survives_a_crash_before_the_latest_index_is_replaced(tmp_
     project(tmp_path)
     event = {"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 2}
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     original = supervision.os.replace
 
     def replace_then_crash(source, destination):
@@ -813,7 +813,7 @@ def test_background_delivery_retries_a_temporarily_busy_control_without_new_evid
 
     project(tmp_path)
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     original = supervision._apply
     attempts = []
 
@@ -840,7 +840,7 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
 
     project(tmp_path)
     backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     attempts = []
 
     def always_busy(*args, **kwargs):
@@ -867,7 +867,7 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
 
     # Once control frees, the same issued decision is delivered without another model call.
     monkeypatch.undo()
-    delivered = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path,
+    delivered = supervise(Manager(tmp_path, runner=backend), tmp_path,
                           {"type": EventType.LIFE_MISSION_COMPLETED})
     assert delivered["status"] == "applied" and len(backend.calls) == 1
     types = [json.loads(line)["type"] for line in (tmp_path / "events.jsonl").read_text().splitlines()]
@@ -895,7 +895,7 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     backlog, item = project(tmp_path)
     backlog.update(item.id, status="running")
     backend = AskingBackend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     event = {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id,
              "consult_reason": "the Engineer handed the work to you: A and B conflict"}
 
@@ -911,6 +911,14 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert asked.pending_question == asked.operator_decision["question"] == "Keep A or B?"
     assert [option["label"] for option in asked.operator_decision["options"]] == ["Keep A", "Keep B"]
     assert len(backend.calls) == 1
+    # 2026-10-22: rounding "consistent with the package's whole-unit functions"
+    # read two ways with two public behaviors. Told separately that such readings
+    # were the operator's and that reversible decisions were its own, the Manager
+    # chose one itself. The one rule every role shares now settles it, once.
+    from argus.core.operator_context import JUDGMENT_INSTRUCTION
+
+    prompt = " ".join(backend.calls[0][0].split())
+    assert prompt.count(JUDGMENT_INSTRUCTION) == 1
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
@@ -918,3 +926,55 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert [(row["item_id"], row["question"], row["options"]) for row in pending] == [
         (item.id, "Keep A or B?", ["Keep A", "Keep B"]),
     ]
+
+
+def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_report(tmp_path, monkeypatch):
+    """With nobody to ask, the Manager's steer chose one reading of a requirement
+    read two ways; the run report says it was chosen for the operator."""
+    from argus.core.autonomy import read_autonomous_assumptions, render_autonomous_assumptions
+    from argus.life.memory import LifeMemory
+    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus.manager import supervision
+    from argus.roles.prompts.manager import build_project_completion_report_prompt
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    monkeypatch.setenv("ARGUS_AUTONOMY_RUN_ID", "assumption-run")
+    reading = "format_hours truncates like format_minutes (5400 → 1 h), not half up like format_days"
+
+    class ChoosingBackend(EvidenceBackend):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append((prompt, resume_thread_id, run_label))
+            text = (
+                "ACTION: steer\nREASON: The rounding requirement reads two ways.\n"
+                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Truncate partial hours.\n"
+                f"ASSUMPTION: {reading}"
+            )
+            return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
+
+    root = tmp_path / "state"
+    _, item = project(root)
+    backend = ChoosingBackend()
+    record = supervise(Manager(root, runner=backend), root,
+                       {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id})
+    assert record["status"] == "applied", record
+    assert "ASSUMPTION:" in backend.calls[0][0]
+    (row,) = read_autonomous_assumptions(root)
+    assert (row["item_id"], row["reading"], row["source"]) == (item.id, reading, "manager_decision")
+    assert f"the Manager decided for you: {reading}" in render_autonomous_assumptions(root)
+
+    class Runner:
+        manager = None
+
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(root), runner=Runner(), sink=JsonlEventSink(None, life_dir=root),
+        config=LifeSupervisorConfig(continuous=True, continuous_objective="o", project_worktree=tmp_path),
+    )
+    report = build_project_completion_report_prompt(
+        objective="o", completion_reason="done",
+        completion_context=supervisor._manager_project_completion_context(),
+    )
+    assert "Name each recorded assumption" in report and reading in report
+    # A field that states nothing records nothing.
+    assert supervision._decision(
+        "ACTION: continue\nREASON: r\nEVIDENCE_REFS: backlog.jsonl\nASSUMPTION: none"
+    )["assumption"] == ""

@@ -762,6 +762,16 @@ class MissionExecutionSettlementMixin:
                 ),
                 outcome=outcome_dimensions,
             )
+        elif replan_requested and not item.plan_id:
+            # Handed to the Planner with no plan to revise (the Manager's direct
+            # task, an operator's): it parks in the Planner's hands, to retire or
+            # replace, not queued back to the Engineer who handed it on.
+            commit(
+                park_reason="research_open",
+                finished_ts=time.time(),
+                last_error=state.stop_reason,
+                outcome=outcome_dimensions,
+            )
         elif replan_requested:
             commit(
                 status="pending",

@@ -943,6 +943,18 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   assert.doesNotMatch(backlog, /Old result/);
 });
 
+test('a task a newer plan replaced shows neither the outcome nor the error of its last attempt', async () => {
+  // Trial s-757b9dac: the replaced task still read as paused, resumable, with a last error.
+  const item = {
+    id: 'task-old', title: 'Add format_hours', objective: 'Add it.', status: 'superseded', priority: 1,
+    outcome: { execution_status: 'blocked', review_status: 'blocked', stage_certification: 'not_certified', interruption_kind: 'none', resumable: true },
+    last_error: 'format_hours is not delivered yet',
+  };
+  const task = await renderPanel({ kind: 'task', data: item }, 80);
+  assert.match(task, /status\s+superseded/);
+  assert.doesNotMatch(task, /outcome|LAST ERROR|not delivered/);
+});
+
 test('workflow choice card shows request, options and optional note in a narrow terminal', async () => {
   const { operatorDecisionCards } = await import('../../core/src/decisions.js');
   const [card] = operatorDecisionCards([{ operator_decision: {

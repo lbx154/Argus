@@ -51,13 +51,82 @@ def test_operator_update_explains_blocker_and_next_action() -> None:
         status="blocked",
         reason="The H100 runner is unavailable.",
         next_action="Choose whether to wait or use a named H200-only track.",
-        user_action_required=True,
+        holder="operator",
     )
 
     assert text.splitlines()[0] == "Stuck for now: run the H100 benchmark."
     assert "Reason: The H100 runner is unavailable." in text
     assert "Your call:" in text
     assert text.strip() not in {"BLOCKED", "REVISE"}
+
+
+@pytest.mark.parametrize(
+    ("holder", "expected"),
+    [
+        # Trial s-6f0e6213: an Engineer's handoff to the Manager read
+        # "接下来：我先查清原因，再找个能走通的办法", as if Argus would look into it.
+        ("manager", "接下来：经理在定怎么继续。"),
+        ("planner", "接下来：规划者在重新安排。"),
+        ("operator", "需要你定一下才能继续。"),
+        ("", "接下来：我先查清原因，再找个能走通的办法。"),
+    ],
+)
+def test_a_paused_task_says_who_holds_it_next(holder: str, expected: str) -> None:
+    text = render_operator_update(
+        title="为 timefmt 添加整小时格式化函数",
+        status="parked",
+        park_reason="research_open",
+        reason="现有舍入规则冲突，需要先定下舍入方式。",
+        holder=holder,
+    )
+
+    assert text.splitlines()[-1] == expected
+
+
+_REVIEW = (
+    "format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。\n\n"
+    "独立运行 `python -m pytest -q` 得到 6 passed，但现有测试完全没有覆盖小时函数。\n\n"
+    "请明确小时函数采用舍弃小数部分还是半数进一，再交由实现方补齐。"
+)
+
+
+@pytest.mark.parametrize(
+    ("holder", "next_line"),
+    [
+        # Trial s-757b9dac: the Reviewer's `→ manager` gave its whole review as
+        # the reason and again as what comes next.
+        ("manager", "接下来：经理在定怎么继续。"),
+        # A next action that only repeats the reason is no next action.
+        ("", "接下来：我先查清原因，再找个能走通的办法。"),
+    ],
+)
+def test_a_handed_on_review_says_its_first_sentence_once(holder: str, next_line: str) -> None:
+    text = render_operator_update(
+        title="为 timefmt 添加整小时格式化函数",
+        status="parked",
+        park_reason="research_open",
+        reason=_REVIEW,
+        next_action=_REVIEW,
+        holder=holder,
+    )
+
+    assert text.splitlines() == [
+        "「为 timefmt 添加整小时格式化函数」暂时做不下去了。",
+        "原因：format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。",
+        next_line,
+    ]
+
+
+def test_work_handed_to_the_manager_names_it_whatever_instruction_came_along() -> None:
+    text = render_operator_update(
+        title="为 timefmt 添加整小时格式化函数",
+        status="blocked",
+        reason="舍入规则冲突。",
+        next_action="请明确小时函数采用哪种舍入。",
+        holder="manager",
+    )
+
+    assert text.splitlines()[-1] == "接下来：经理在定怎么继续。"
 
 
 def test_runtime_timeout_is_explained_without_claiming_the_idea_failed() -> None:
