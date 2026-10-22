@@ -194,6 +194,9 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         assert "output paths" in engineer_prompt
         assert "the decisive check" in engineer_prompt
     assert "Express the complete review naturally in the operator's language" in reviewer
+    # 2026-10-21: Argus's completion message quoted a first sentence in the Reviewer's own "I".
+    assert "its first sentence is what the operator reads: only this work's result" in reviewer
+    assert 'without "I"' in reviewer
     assert "No JSON or other closing line is read" in reviewer
 
 
