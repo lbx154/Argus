@@ -189,8 +189,8 @@ export interface WikiDocument {
   updated_at: number;
 }
 
-/** One line of the host's knowledge journal: something learned, recalled into a prompt, or promoted to a shared level. */
-export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected';
+/** One line of the host's knowledge journal: something learned, recalled into a prompt, promoted to a shared level, corrected or retired. */
+export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected' | 'retired';
 export interface KnowledgeEvent {
   ts: number;
   kind: KnowledgeEventKind;
