@@ -334,6 +334,42 @@ def test_a_reviewed_completion_gives_the_review_s_first_sentence_and_the_result(
     )
 
 
+def test_a_task_finished_while_another_waits_on_the_operator_is_only_that_item(tmp_path) -> None:
+    """Trial s-934a4569: char_count finished while the truncate task waited on
+    the operator's choice, and the message said the whole thing was done."""
+    from argus.life.memory import BacklogItem, park_item
+
+    memory = LifeMemory.open(tmp_path)
+    asked = BacklogItem.new(title="strtools truncate 冲突需求裁决", objective="truncate 选 A 还是 B")
+    asked.pending_question = "请选择 A 还是 B？"
+    park_item(asked, "operator_question")
+    memory.backlog.add(asked)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "在 strtools/core.py 加 char_count。")
+    event = {
+        "type": "life.mission.completed", "item_id": "task-count", "title": "新增字符计数函数 char_count",
+        "success": True, "status": "done", "summary": "`char_count` 已完整交付。",
+        "independent_review_required": True, "review_source": "reviewer",
+        "overall_complete": True, "campaign_continues": False,
+        "outcome": {"review_status": "done", "stage_certification": "certified"},
+    }
+
+    supervisor._emit(event)
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )["text"]
+    assert text == (
+        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。\n"
+        "`char_count` 已完整交付。"
+    )
+
+
 def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
     from argus.life.memory import BacklogItem
 

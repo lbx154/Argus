@@ -37,6 +37,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   stage_held: ['当前阶段暂不推进。', 'The current stage is on hold.'],
   stage_rolled_back: ['研究退回到了前一阶段。', 'The research went back a stage.'],
   stage_completed: ['当前阶段已完成。', 'The current stage is complete.'],
+  item_done: ['这一项做完了；计划里的其他工作还在进行。', 'This item is done; the rest of the plan is still under way.'],
   stage_reconsidered: ['阶段安排已重新考虑。', 'The stage plan was reconsidered.'],
   stage_reviewed: ['阶段已审阅。', 'The stage was reviewed.'],
   planning_started: ['正在规划下一步工作', 'Planning the next step'],

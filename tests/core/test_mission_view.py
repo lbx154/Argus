@@ -1630,6 +1630,24 @@ def test_a_review_handing_the_choice_to_the_operator_waits_on_them(tmp_path: Pat
     assert "有个问题在等你回答" in engineer["label"]
 
 
+def test_a_stage_closed_on_one_task_is_not_the_project_while_a_question_waits(tmp_path: Path) -> None:
+    """Trial s-934a4569: char_count closed the delivery stage while the truncate
+    task waited on the operator, and the Manager read "交付阶段已完成"."""
+    emit(tmp_path, "life.manager.intent.completed", 1, item_id="c", objective="新增字符计数函数", current_stage="delivery")
+    emit(tmp_path, "life.manager.stage_decision", 2, item_id="c", action="complete", target_stage="delivery")
+    asked = {"id": "t", "title": "截断取舍", "status": "parked", "pending_question": "选 A 还是 B？"}
+    done = {"id": "c", "title": "新增字符计数函数", "status": "done"}
+
+    def manager(backlog):
+        view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=backlog)
+        return next(role for role in view["roles"] if role["role"] == "manager")
+
+    assert manager([asked, done])["label"] == "这一项做完了；计划里的其他工作还在进行。"
+    assert manager([{**asked, "status": "done", "pending_question": ""}, done])["label"] == "交付阶段已完成。"
+    # The overlay is the response's; the recorded view keeps the Manager's decision.
+    assert next(role for role in load_mission_view(tmp_path)["roles"] if role["role"] == "manager")["kind"] == "stage_completed"
+
+
 def test_round_the_model_service_dropped_is_explained_without_runtime_words(
     tmp_path: Path,
 ) -> None:
