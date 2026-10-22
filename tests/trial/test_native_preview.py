@@ -100,6 +100,8 @@ def test_login_cookie_auth_and_tenant_budgets(config, ledger):
     assert client.post('/api/projects/test/config/set', json={}).status_code == 403
     client.post('/login', data={'invite': 'invite-b'}, follow_redirects=False)
     assert client.get('/trial/budget').json()['used_usd'] == 0
+    # Alone: which of two same-named cookies arrives last depends on the HTTP client.
+    client.cookies.clear()
     client.cookies.set(COOKIE, 'alice:9999999999:forged')
     assert client.get('/trial/budget').status_code == 401
 
