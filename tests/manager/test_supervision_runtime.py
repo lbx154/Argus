@@ -954,7 +954,7 @@ def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_r
     root = tmp_path / "state"
     _, item = project(root)
     backend = ChoosingBackend()
-    record = supervise(Manager(root, runner=backend, memory_maintenance_enabled=False), root,
+    record = supervise(Manager(root, runner=backend), root,
                        {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id})
     assert record["status"] == "applied", record
     assert "ASSUMPTION:" in backend.calls[0][0]
