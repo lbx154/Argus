@@ -197,3 +197,15 @@ def test_the_engineer_fixes_a_symptom_within_the_design(compact_team) -> None:
     assert _ENGINEER_RULE in flat
     # The Engineer and the Reviewer ask for the same support.
     assert "never call it intended" not in flat
+
+
+@pytest.mark.parametrize("compact_team", [False, True])
+def test_the_engineer_does_not_force_its_way_past_an_environment_limit(compact_team) -> None:
+    """2026-10-22: for a packaging check nobody asked for, an Engineer twice ran
+    `pip --isolated install --index-url https://pypi.org/simple` past PIP_NO_INDEX=1."""
+    flat = _flat(build_mission_prompt(
+        task=_TASK, skill_text="", next_action=None, include_static=True,
+        compact_team=compact_team,
+    ))
+    assert "Do nothing the task does not ask, and never get around a limit the environment sets" in flat
+    assert "say so and hand off instead of forcing another way in" in flat
