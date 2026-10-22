@@ -17,8 +17,8 @@ let client: QueryClient;
 let renderer: ReactTestRenderer | undefined;
 let latest: Record<string, CardWords> = {};
 
-function Probe() {
-  latest = useMapWords(data, true, true, "s-words");
+function Probe({ dataset = data }: { dataset?: Dataset }) {
+  latest = useMapWords(dataset, true, true, "s-words");
   return null;
 }
 
@@ -52,4 +52,16 @@ it("asks again when the server says to, so a finished task gets its words withou
   // Written: nothing more is asked for.
   await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
   expect(call).toHaveBeenCalledTimes(3);
+});
+
+it("asks again when an answered question sets a task going", async () => {
+  const waiting = { ...data, tasks: [{ ...data.tasks[0], status: "parked", pending_question: "A or B?" }] };
+  const call = vi.spyOn(api, "mapCardWords").mockResolvedValue({ cards: { wrap: { title: "等你选择", summary: "" } }, available: true });
+  const mount = (dataset: Dataset) => <QueryClientProvider client={client}><Probe dataset={dataset} /></QueryClientProvider>;
+  act(() => { renderer = create(mount(waiting)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(call).toHaveBeenCalledTimes(1);
+  act(() => renderer!.update(mount({ ...data, tasks: [{ ...data.tasks[0], status: "running" }] })));
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(call).toHaveBeenCalledTimes(2);
 });
