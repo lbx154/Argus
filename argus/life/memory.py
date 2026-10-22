@@ -47,6 +47,7 @@ import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.json_codec import loads_finite_json
+from ..core.operator_decision import card_answer
 from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.stop_kinds import PARK_STATUSES, park_reason_of, park_rule
 
@@ -800,18 +801,32 @@ def planner_may_retire_park(item: Any) -> bool:
 def objective_started_at(state_root: Path | str, objective: str) -> float | None:
     """When ``objective`` became the standing objective, or None when no record says.
 
-    Every framing, at daemon start or through the front door, ends in one
-    ``life.manager.intent.completed`` naming the objective it hands on; the
-    latest one naming this objective is when it began.
+    Every framing, at daemon start or through the front door, opens with one
+    ``life.manager.intent.started`` and ends in one
+    ``life.manager.intent.completed`` naming the objective it hands on, both
+    under one intent id. The objective began when the latest framing naming
+    it started: a framing asks what only the operator can decide before it
+    ends, and that question is the objective's.
     """
     objective = str(objective or "").strip()
-    rows = _read_jsonl_tail_history(
-        Path(state_root) / "events.jsonl", 1,
-        raw_markers=(EventType.LIFE_MANAGER_INTENT_COMPLETED.value.encode(),),
-        predicate=lambda row: row.get("type") == EventType.LIFE_MANAGER_INTENT_COMPLETED
-        and str(row.get("execution_task") or "").strip() == objective,
-    ) if objective else []
-    ts = rows[-1].get("ts") if rows else None
+
+    def latest(event_type: EventType, matches: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+        rows = _read_jsonl_tail_history(
+            Path(state_root) / "events.jsonl", 1,
+            raw_markers=(event_type.value.encode(),),
+            predicate=lambda row: row.get("type") == event_type and matches(row),
+        )
+        return rows[-1] if rows else {}
+
+    completed = latest(
+        EventType.LIFE_MANAGER_INTENT_COMPLETED,
+        lambda row: str(row.get("execution_task") or "").strip() == objective,
+    ) if objective else {}
+    intent = completed.get("intent_id")
+    started = latest(
+        EventType.LIFE_MANAGER_INTENT_STARTED, lambda row: row.get("intent_id") == intent,
+    ) if intent else {}
+    ts = (started or completed).get("ts")
     return float(ts) if isinstance(ts, (int, float)) else None
 
 
@@ -827,19 +842,11 @@ def operator_answers(backlog: Backlog, objective: str) -> list[str]:
     cards = sorted(
         (
             card for row in (backlog.history() if since is not None else backlog.active())
-            if (card := row.operator_decision).get("status") == "resolved"
-            and float(card.get("asked_at") or 0) >= (since or 0.0)
+            if float((card := row.operator_decision).get("asked_at") or 0) >= (since or 0.0)
         ),
         key=lambda card: float(card.get("asked_at") or 0),
     )
-    answers = []
-    for card in cards:
-        question = " ".join(str(card.get("question") or "").split())
-        answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())
-        if question and answer:
-            who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
-            answers.append(f"{question} → {answer} ({who})")
-    return answers
+    return [answer for card in cards if (answer := card_answer(card))]
 
 
 def manager_direct_in_hand(item: Any) -> bool:
@@ -2509,28 +2516,13 @@ class Backlog:
                     "Authoritative Manager operator-answer decision:\n"
                     f"{decision}\n\n"
                     "This decision supersedes every conflicting requirement in the "
-                    "inherited blocked mission objective below.\n\n"
+                    "inherited blocked mission objective below and every conflicting "
+                    "acceptance check or non-goal of this task.\n\n"
                     "Inherited blocked mission objective (retain only non-conflicting "
                     "context):\n"
                     f"{item.objective.strip()}\n\n"
                     f"{response}:\n{answer}"
                 )
-                if item.acceptance_check:
-                    item.acceptance_check = (
-                        "The Manager operator-answer decision in this continuation "
-                        "is authoritative. Apply this inherited acceptance check only "
-                        "where it does not conflict with that decision:\n"
-                        f"{item.acceptance_check}"
-                    )
-                item.non_goals = [
-                    (
-                        "Subject to the authoritative Manager operator-answer "
-                        "decision, preserve this inherited non-goal only where it "
-                        f"does not conflict: {goal}"
-                    )
-                    for goal in item.non_goals
-                ]
-                item.plan_hypothesis = decision
                 item.manager_decision = {**item.manager_decision, "routed": True}
             else:
                 item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"

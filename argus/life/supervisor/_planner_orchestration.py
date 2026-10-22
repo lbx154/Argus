@@ -352,7 +352,8 @@ class PlannerOrchestrationMixin:
                 *(
                     [
                         "- operator_answers (their later word wherever the objective "
-                        "says otherwise): " + "; ".join(answered)
+                        "or the Manager's strategic context says otherwise): "
+                        + "; ".join(answered)
                     ]
                     if answered
                     else []

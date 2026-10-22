@@ -134,6 +134,16 @@ def build_operator_decision(
     return card
 
 
+def card_answer(card: Mapping[str, Any]) -> str:
+    """What a resolved card was answered, as ``question → answer (who)``; "" when it holds no answer."""
+    question = " ".join(str(card.get("question") or "").split())
+    answer = " ".join(str(card.get("manager_decision") or card.get("note") or "").split())
+    if card.get("status") != "resolved" or not question or not answer:
+        return ""
+    who = "the Manager, in the operator's place" if card.get("decided_by") == "manager" else "the operator"
+    return f"{question} → {answer} ({who})"
+
+
 def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -> str:
     note = note.strip()
     if option_id == "custom":
@@ -156,6 +166,7 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
 
 __all__ = [
     "build_operator_decision",
+    "card_answer",
     "normalize_agent_options",
     "selected_decision_text",
 ]
