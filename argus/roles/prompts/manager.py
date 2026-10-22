@@ -1164,7 +1164,8 @@ def build_project_completion_report_prompt(
         "numbers. Cite the current output paths in the report. When "
         "final_delivery_review.review_source is reviewer, its summary is the "
         "independent Reviewer's verdict on the final delivered work, with what it "
-        "verified (such as test counts); report from it.\n\n"
+        "verified (such as test counts); report what it found as facts about the "
+        "work, never that you adopt or carry over its verdict.\n\n"
         + (
             "Name each recorded assumption in autonomous_assumptions (the conflict "
             "and the reading chosen) in its own line, as decided without an operator.\n\n"
