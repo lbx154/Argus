@@ -348,6 +348,37 @@ def test_stubbed_model_produces_principles_event_and_journal(tmp_path: Path, mon
     assert "[Principles for research](principles.md)" in index and "## Lessons" in index
 
 
+def test_a_lesson_the_model_retires_leaves_the_principles_the_count_and_the_index(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home, root = _home(tmp_path)
+    _three_lessons(root)
+    stale = _lesson(root, "20260910-set-pythonpath", "Set PYTHONPATH under safe-path mode")
+    doc = _principles_doc([
+        ["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"],
+        ["pages/lessons/20260916-smoke-first.md", "pages/lessons/20260917-read-logs.md"],
+    ])
+    # The RETIRE line follows the list directly; it must not join the last principle.
+    calls = _stub_model(monkeypatch, doc + "RETIRE: pages/lessons/20260910-set-pythonpath.md — "
+                        "the host no longer sets PYTHONSAFEPATH\n")
+
+    result = _run(home)
+
+    assert "`RETIRE: <its path> — <why>`" in calls[0]["prompt"]
+    assert result["outcome"] == "compiled" and result["lessons"] == 3
+    assert not stale.exists()
+    text = (root / "principles.md").read_text(encoding="utf-8")
+    assert "RETIRE" not in text and text.rstrip().endswith(f"- {TODAY}: 2 principles from 3 lessons")
+    assert "set-pythonpath" not in (root / "INDEX.md").read_text(encoding="utf-8")
+    [record] = read_knowledge_events(home, kinds=["retired"])
+    assert (record["role"], record["scope"], record["vertical"], record["path"]) == (
+        "consolidation", "vertical", VERTICAL, "pages/lessons/20260910-set-pythonpath.md")
+    assert record["note"] == "the host no longer sets PYTHONSAFEPATH"
+    assert read_receipt(root).lessons_compiled == lesson_facts(lesson_pages(list_pages(root)))
+    # The retirement changed the pages; the next pass finds nothing new to compile.
+    assert _run(home, now=NOW + HOUR)["outcome"] == "skipped_unchanged" and len(calls) == 1
+
+
 def test_a_bad_reply_restores_the_previous_principles_and_records_the_failure(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)

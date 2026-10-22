@@ -297,6 +297,52 @@ def test_a_lesson_without_a_vertical_goes_to_the_global_wiki(roots: _Roots) -> N
     assert _learned(roots.events, scope="global", path=f"pages/lessons/{LESSON_NAME}")
 
 
+def test_a_saved_page_the_mission_showed_outdated_is_retired_with_who_and_why(roots: _Roots) -> None:
+    lessons = roots.vertical_root / "pages" / "lessons"
+    lessons.mkdir(parents=True)
+    stale = lessons / "20260901-safe-path.md"
+    stale.write_text(
+        "---\ntitle: Set PYTHONPATH under PYTHONSAFEPATH\n"
+        "description: Safe-path mode hides the source tree from CLI subprocesses.\n"
+        "kind: lesson\nsource: s-old/m-0\ncreated: 2026-09-01\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+    (roots.vertical_root / "INDEX.md").write_text(
+        "# Research knowledge\n\n## Lessons\n\n- [Set PYTHONPATH under PYTHONSAFEPATH]"
+        "(pages/lessons/20260901-safe-path.md) — Safe-path mode hides the source tree.\n",
+        encoding="utf-8",
+    )
+    outside = roots.workspace / "notes.md"
+    outside.write_text("# Not a library page\n", encoding="utf-8")
+    backend = _ReplyBackend(replies=[
+        f"RETIRE: {stale} — PYTHONSAFEPATH is no longer set; the CLI tests pass without PYTHONPATH.\n"
+        f"RETIRE: {outside} — not a page\n"
+        "WROTE: nothing"
+    ])
+
+    result = roots.reflect(
+        backend, run_reality="All tests pass without PYTHONPATH; the recalled lesson "
+        f"{stale} no longer holds because PYTHONSAFEPATH is unset.",
+    )
+
+    prompt = backend.calls[0]["prompt"]
+    assert "- Set PYTHONPATH under PYTHONSAFEPATH (`20260901-safe-path.md`)" in prompt
+    assert "`RETIRE: <full path> — <why>`" in prompt
+    assert "names it in its description" in prompt
+    assert result["retired"] == [str(stale)]
+    assert not stale.exists() and outside.exists()
+    assert "safe-path" not in (roots.vertical_root / "INDEX.md").read_text(encoding="utf-8")
+    [kept] = (roots.vertical_root / ".history" / "lessons").iterdir()
+    assert "retired by reflection: PYTHONSAFEPATH is no longer set" in kept.read_text(encoding="utf-8")
+    [record] = read_knowledge_events(roots.home, kinds=["retired"])
+    assert (record["scope"], record["vertical"], record["path"]) == (
+        "vertical", VERTICAL, "pages/lessons/20260901-safe-path.md")
+    assert (record["role"], record["mission_id"], record["source_project"]) == ("reflection", MISSION, "s-old/m-0")
+    assert record["note"].startswith("PYTHONSAFEPATH is no longer set")
+    # Retiring is not learning: no page is announced as learned.
+    assert _learned(roots.events) == []
+
+
 # --------------------------------------------------------------------------- facts + skills
 
 

@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from argus.life.knowledge_recall import KnowledgeRoot, MarkdownKnowledgeRecall
-from argus.wiki.correct import HISTORY_DIRNAME, PageCorrectionError, correct_page
+from argus.wiki.correct import (
+    HISTORY_DIRNAME,
+    PageCorrectionError,
+    correct_page,
+    retire_named,
+    retire_page,
+)
 from argus.wiki.journal import journal_path
 
 PAGE = (
@@ -144,7 +150,7 @@ def test_recall_shows_the_correction_and_the_new_summary_and_not_the_history(tmp
         [KnowledgeRoot("research knowledge", root / "pages", root, scope="vertical", vertical="research", library=root)],
     )
     before = recall.recall("roofline regime classification from the control file")
-    assert "corrected" not in before.text
+    assert before.hits and "corrected" not in before.hits[0].line
     correct_page(
         root, "lessons/regime.md",
         statement="The evaluator classifies the regime itself; the spec-sheet peak was the mistake.",
@@ -237,4 +243,73 @@ def test_a_page_whose_front_matter_does_not_parse_is_refused_untouched(tmp_path)
     with pytest.raises(PageCorrectionError):
         correct_page(root, "notes/bad.md", statement="s", reason="r", now=NOW)
     assert (root / "pages" / "notes" / "bad.md").read_text(encoding="utf-8") == text
+    assert not (root / HISTORY_DIRNAME).exists()
+
+
+def test_a_retired_page_leaves_recall_and_the_index_and_says_who_retired_it_and_why(tmp_path):
+    root = library(tmp_path / "wiki")
+    recall = MarkdownKnowledgeRecall(
+        tmp_path / "index.sqlite3",
+        [KnowledgeRoot("research knowledge", root / "pages", root, scope="vertical", vertical="research", library=root)],
+    )
+    assert recall.recall("roofline regime classification from the control file").hits
+
+    kept = retire_page(
+        root, "pages/lessons/regime.md", reason="the evaluator was rewritten and classifies the regime itself",
+        retired_by="reflection", scope="vertical", vertical="research", global_root=tmp_path / "home",
+        mission_id="m-7", now=NOW,
+    )
+
+    assert not (root / "pages" / "lessons" / "regime.md").exists()
+    assert kept == root / HISTORY_DIRNAME / "lessons" / "regime.20260930T092000Z.md"
+    text = kept.read_text(encoding="utf-8")
+    assert text.startswith(PAGE.split("\n---\n", 1)[0])
+    assert text.rstrip().endswith(
+        "## History\n\n- 2026-09-30, retired by reflection: "
+        "the evaluator was rewritten and classifies the regime itself.")
+    assert "regime.md" not in (root / "INDEX.md").read_text(encoding="utf-8")
+    [row] = [json.loads(line) for line in journal_path(tmp_path / "home").read_text().splitlines()]
+    assert (row["kind"], row["role"], row["mission_id"], row["path"]) == (
+        "retired", "reflection", "m-7", "pages/lessons/regime.md")
+    assert row["source_project"] == "s-02d3c282/c2ff7e67cdf2" and row["page_kind"] == "lesson"
+    assert row["note"] == "the evaluator was rewritten and classifies the regime itself"
+    assert not recall.recall("roofline regime classification from the control file").hits
+
+
+def test_only_retire_lines_naming_a_page_of_the_given_libraries_with_a_reason_are_carried_out(tmp_path):
+    first = library(tmp_path / "first")
+    second = library(tmp_path / "second", relative="facts/venv.md")
+    stray = tmp_path / "stray.md"
+    stray.write_text("# Not in a library\n", encoding="utf-8")
+    reply = (
+        "Two pages no longer hold.\n"
+        f"- `RETIRE: {first / 'pages' / 'lessons' / 'regime.md'} — the evaluator was rewritten`\n"
+        "RETIRE: pages/facts/venv.md: the venv moved\n"
+        f"RETIRE: {stray} — not a page\n"
+        "RETIRE: pages/lessons/missing.md — gone already\n"
+        "RETIRE: pages/facts/venv.md\n"
+        "WROTE: nothing\n"
+    )
+
+    retired = retire_named(
+        reply, {first: ("vertical", "research"), second: ("project", "")},
+        retired_by="consolidation", global_root=tmp_path / "home",
+    )
+
+    assert retired == [str(first / "pages" / "lessons" / "regime.md"), "pages/facts/venv.md"]
+    assert not (first / "pages" / "lessons" / "regime.md").exists()
+    assert not (second / "pages" / "facts" / "venv.md").exists()
+    assert stray.exists()
+    rows = [json.loads(line) for line in journal_path(tmp_path / "home").read_text().splitlines()]
+    assert [(row["scope"], row["path"], row["note"]) for row in rows] == [
+        ("vertical", "pages/lessons/regime.md", "the evaluator was rewritten"),
+        ("project", "pages/facts/venv.md", "the venv moved"),
+    ]
+
+
+def test_a_retirement_without_a_reason_changes_nothing(tmp_path):
+    root = library(tmp_path / "wiki")
+    with pytest.raises(PageCorrectionError):
+        retire_page(root, "lessons/regime.md", reason=" ")
+    assert (root / "pages" / "lessons" / "regime.md").read_text(encoding="utf-8") == PAGE
     assert not (root / HISTORY_DIRNAME).exists()

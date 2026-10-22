@@ -5,15 +5,17 @@ This module gives Argus that pause. ``reflect_after_mission`` runs once per
 finished mission and asks a small model to write, at most, one lesson page
 into the vertical's shared Wiki, two fact pages into the project Wiki and one
 procedure into the workspace's Agent Skills — or nothing, when nothing durable
-was learned. A SELF turn has no such pass: the Manager keeps what it learned
-in the same turn.
+was learned — and to name any saved page the mission showed no longer holds,
+which the host retires. A SELF turn has no such pass: the Manager keeps what
+it learned in the same turn.
 
 The host owns everything deterministic: which directories the model may write
 into, the snapshot before and after the call, the front matter check, the
-INDEX line, the ``knowledge.learned`` event, the journal record and the
-receipt that keeps a mission from being reflected on twice. The model owns
-only the judgment of what is worth keeping. Nothing here blocks a mission;
-every failure is logged and swallowed.
+INDEX line, the ``knowledge.learned`` event, the journal record, the
+retirement and the receipt that keeps a mission from being reflected on
+twice. The model owns only the judgment of what is worth keeping and what no
+longer holds. Nothing here blocks a mission; every failure is logged and
+swallowed.
 """
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ from ..core.models import RunnerOptions
 from ..core.paths import NATIVE_SKILLS_DIR
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..wiki.auto_hooks import discover_wikis
+from ..wiki.correct import RETIRE_PREFIX, retire_named
 from ..wiki.journal import append_knowledge_event
 from ..wiki.schema import parse_page
 
@@ -472,10 +475,11 @@ def judge_reviewed_fact_alone(
 
 def _existing_titles(root: Path, folder: str) -> list[str]:
     titles: list[str] = []
-    for path in _markdown_files(root / "pages" / folder):
+    pages = root / "pages" / folder
+    for path in _markdown_files(pages):
         meta = _page_meta(path)
         if meta:
-            titles.append(meta["title"])
+            titles.append(f"{meta['title']} (`{path.relative_to(pages).as_posix()}`)")
         if len(titles) >= _MAX_EXISTING_TITLES:
             break
     return titles
@@ -569,7 +573,8 @@ def build_reflection_prompt(
         "knowledge can still be new and useful to this project. Write nothing only "
         "when there is no supported, non-duplicate learning. Never copy task history, chat, or run "
         "output into a page; at most 300 words per page; claim only what the evidence "
-        "above supports. These pages are read by other projects and other people: keep "
+        "above supports. A page that holds only for one version or environment names it "
+        "in its description. These pages are read by other projects and other people: keep "
         "the operator's own affairs out of them (their names, company, holdings, plans, "
         "figures about them) and keep the general finding.\n\n"
         + _LEARNING_PROSE + "\n\n"
@@ -589,6 +594,10 @@ def build_reflection_prompt(
         "what can go wrong and how to check the result; use steps where helpful, not "
         "mandatory headings. A procedure that exists there "
         "already is edited, not duplicated.\n\n"
+        "A saved page this task showed wrong for the current facts, or whose problem has "
+        "since been fixed (a lesson above, or a page the run account names), is retired, "
+        f"not written around: add a line `{RETIRE_PREFIX} <full path> — <why>` before the "
+        "WROTE line and the host takes it out of the library, recording why.\n\n"
         "You may write only inside these directories:\n"
         + "\n".join(f"- `{item}`" for item in writable)
         + "\nDo not edit anything else. Finish with one line: `WROTE: <paths>` or "
@@ -803,11 +812,12 @@ def _reflect_after_mission(
     ):
         failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
         stop_kind = str(getattr(result, "stop_kind", "") or "")
+    from ..manager.stage_decider import extract_answer
+
+    answer = "" if failure or result is None else extract_answer(result)
     fact_recorded = False
     if reviewed_fact:
-        from ..manager.stage_decider import extract_answer
-
-        chosen = None if failure or result is None else _reviewed_fact_line(extract_answer(result))
+        chosen = _reviewed_fact_line(answer)
         if chosen is None:
             # The call that carried the judgment failed or gave no answer to it.
             judge_alone()
@@ -826,6 +836,16 @@ def _reflect_after_mission(
         else:
             fact_state["handled"] = True
 
+    retired: list[str] = []
+    if RETIRE_PREFIX in answer.upper():
+        from .knowledge_recall import knowledge_roots
+
+        # A page is retired where recall would show it to this project.
+        libraries = {root.library: (root.scope, root.vertical)
+                     for root in knowledge_roots(life_dir, global_root, workspace)
+                     if root.library is not None}
+        retired = retire_named(answer, libraries, retired_by="reflection", global_root=global_root,
+                               mission_id=mission_id)
     after = _snapshot(path for root, _scope in roots for path in _markdown_files(root))
     created_paths, updated_paths = _changed(before, after)
     created: list[str] = []
@@ -876,6 +896,7 @@ def _reflect_after_mission(
 
     outcome = {
         "created": created, "updated": updated, "ignored": ignored, "promoted": promoted,
+        "retired": retired,
         "failure": failure, "stop_kind": stop_kind, "prompt_chars": len(prompt),
         "reviewed_fact_recorded": fact_recorded,
     }

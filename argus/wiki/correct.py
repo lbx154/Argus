@@ -11,10 +11,16 @@ line: the front matter keeps the two fields of :mod:`argus.wiki.schema`, and
 only its summary line is rewritten, so comments and other keys stay as written.
 The knowledge journal records the correction so the feed shows it.
 
+A page that no longer holds at all -- its problem was fixed, later facts
+overturned it -- is retired: it moves whole into ``.history`` with a
+``retired by`` History entry, so nothing reads it again, and the journal
+records who retired it and why.
+
 Layer: capabilities
 """
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import time
@@ -28,8 +34,11 @@ import yaml
 from .journal import append_knowledge_event
 from .store import _atomic_write_text
 
+log = logging.getLogger(__name__)
+
 HISTORY_DIRNAME = ".history"
 HISTORY_HEADING = "## History"
+RETIRE_PREFIX = "RETIRE:"
 _FRONT_MATTER_CHARS = 8_000
 _TEXT_LIMIT = 4_000
 # Lines that open something other than a prose paragraph.
@@ -196,7 +205,8 @@ def _set_front_value(front_text: str, key: str, value: str) -> str:
     return "\n".join([*lines, *new])
 
 
-def _update_index_line(library: Path, relative: str, title: str, description: str) -> bool:
+def _update_index_line(library: Path, relative: str, line: str) -> bool:
+    """Replace the INDEX.md entry linking ``relative`` with ``line``; an empty ``line`` drops it."""
     index_path = library / "INDEX.md"
     try:
         existing = index_path.read_text(encoding="utf-8")
@@ -205,7 +215,6 @@ def _update_index_line(library: Path, relative: str, title: str, description: st
     marker = f"]({relative})"
     if marker not in existing:
         return False
-    line = f"- [{title}]({relative}) — {description}\n"
     lines = existing.splitlines(keepends=True)
     changed = [line if marker in old else old for old in lines]
     if changed == lines:
@@ -319,7 +328,8 @@ def correct_page(
 
     history_copy = _keep_history_copy(library, relative, target, stamp)
     _atomic_write_text(target, new_text)
-    index_updated = _update_index_line(library, relative, title, new_description)
+    index_updated = _update_index_line(
+        library, relative, f"- [{title}]({relative}) — {new_description}\n")
 
     if global_root is not None:
         append_knowledge_event(
@@ -350,10 +360,111 @@ def correct_page(
     )
 
 
+def retire_page(
+    library: str | Path,
+    page: str | Path,
+    *,
+    reason: str,
+    retired_by: str = "operator",
+    scope: str = "project",
+    vertical: str = "",
+    global_root: str | Path | None = None,
+    mission_id: str = "",
+    now: float | None = None,
+) -> Path:
+    """Take a page that no longer holds out of its library; return where it is kept.
+
+    The page gains a ``- <date>, retired by <who>: <reason>`` History entry and
+    moves into the library's ``.history`` directory, which browsing, recall,
+    promotion and consolidation skip. Its INDEX line goes, and when
+    ``global_root`` is given the knowledge journal records the retirement.
+    """
+    library = Path(library).expanduser().resolve()
+    reason = _one_paragraph(reason, name="reason")
+    retired_by = " ".join(str(retired_by or "").split()) or "operator"
+    target, relative = _resolve_page(library, page)
+    try:
+        text = target.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except (OSError, UnicodeError) as exc:
+        raise PageCorrectionError(f"cannot read {relative}: {exc}") from exc
+    front, _front_text, body = _split_front_matter(text)
+    front = front or {}
+    stamp = _utc(now)
+    entry = f"- {stamp.date().isoformat()}, retired by {retired_by}: {_sentence(reason)}"
+    retired_body = "\n".join(_with_history(body.split("\n"), entry)) + "\n"
+    _atomic_write_text(target, text[: len(text) - len(body)] + retired_body)
+    kept = _keep_history_copy(library, relative, target, stamp)
+    target.unlink()
+    _update_index_line(library, relative, "")
+    if global_root is not None:
+        append_knowledge_event(
+            global_root,
+            kind="retired",
+            scope=scope,
+            vertical=vertical,
+            path=relative,
+            title=_title_of(front, body, target),
+            source_project=str(front.get("source") or "").strip(),
+            mission_id=mission_id,
+            role=retired_by,
+            page_kind=str(front.get("kind") or "").strip().lower() or "page",
+            note=reason,
+        )
+    return kept
+
+
+def retirement(line: str) -> tuple[str, str] | None:
+    """The page and reason a ``RETIRE: <page> — <reason>`` line names; None for any other line."""
+    line = line.strip().lstrip("-*").strip().strip("`").strip()
+    if line[:len(RETIRE_PREFIX)].upper() != RETIRE_PREFIX:
+        return None
+    page, _, reason = line[len(RETIRE_PREFIX):].strip().partition(" ")
+    return page.strip("`").rstrip(":"), reason.strip().lstrip("—–-:").strip()
+
+
+def retire_named(
+    text: str,
+    libraries: dict[Path, tuple[str, str]],
+    *,
+    retired_by: str,
+    global_root: str | Path,
+    mission_id: str = "",
+) -> list[str]:
+    """Carry out the ``RETIRE: <page> — <reason>`` lines of a model's reply.
+
+    The model judges which pages no longer hold; the host only retires a named
+    page that sits in one of ``libraries`` (library root to its scope and
+    vertical) and records it. Returns the pages retired, as named.
+    """
+    retired: list[str] = []
+    for page, reason in filter(None, map(retirement, str(text or "").splitlines())):
+        for library, (scope, vertical) in libraries.items():
+            try:
+                retire_page(
+                    library, page, reason=reason, retired_by=retired_by, scope=scope,
+                    vertical=vertical, global_root=global_root, mission_id=mission_id,
+                )
+            except PageCorrectionError:
+                continue
+            except OSError:
+                log.warning("%s could not retire %s", retired_by, page, exc_info=True)
+            else:
+                retired.append(page)
+            break
+        else:
+            log.warning("%s named %r to retire without a reason or outside its libraries",
+                        retired_by, page)
+    return retired
+
+
 __all__ = [
     "HISTORY_DIRNAME",
     "HISTORY_HEADING",
+    "RETIRE_PREFIX",
     "PageCorrection",
     "PageCorrectionError",
     "correct_page",
+    "retire_named",
+    "retire_page",
+    "retirement",
 ]
