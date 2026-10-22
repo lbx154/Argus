@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>快速上手 · Argus 文档</title>
+<meta name="description" content="从零安装 Argus，并在一小时内跑完第一个任务。">
+<link rel="icon" href="assets/argus-logo-horizontal.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/app.js"></script>
+</head>
+<body data-page="quickstart">
+
+<header class="topnav">
+  <button class="icon-btn menu-btn" id="menu-btn" aria-label="目录">☰</button>
+  <a class="brand" href="index.html"><img class="logo-light" src="assets/argus-logo-horizontal.svg" alt="Argus"><img class="logo-dark" src="assets/argus-logo-horizontal-dark.svg" alt="Argus"></a>
+  <nav>
+    <a class="active" href="index.html">快速上手</a>
+    <a href="best-practices.html">用好 Argus</a>
+    <a href="build-a-vertical.html">建自己的纵向</a>
+  </nav>
+  <div class="spacer"></div>
+  <a class="icon-btn" href="https://argusbot.cn/zh/" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">官网</a>
+  <a class="icon-btn" href="https://github.com/microsoft/ArgusAgent" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">GitHub</a>
+  <button class="icon-btn" id="theme-btn" aria-label="切换深色模式">☾</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>开始使用</h4>
+    <a class="active" href="index.html">快速上手</a>
+    <a class="sub" href="#step-1">1. 准备 Agent CLI</a>
+    <a class="sub" href="#step-2">2. 安装 Argus</a>
+    <a class="sub" href="#step-3">3. 配置并自检</a>
+    <a class="sub" href="#step-4">4. 打开驾驶舱</a>
+    <a class="sub" href="#step-5">5. 交出第一个任务</a>
+    <a class="sub" href="#step-6">6. 看进度、插话、拿结果</a>
+    <a href="#troubleshooting">常见问题</a>
+    <h4>用好 Argus</h4>
+    <a href="best-practices.html#goals">怎么写目标</a>
+    <a href="best-practices.html#steer">中途插话、改方向</a>
+    <a href="best-practices.html#models">选后端和模型</a>
+    <a href="best-practices.html#cost">控制花费</a>
+    <a href="best-practices.html#fit">什么任务适合交给 Argus</a>
+    <h4>建自己的纵向</h4>
+    <a href="build-a-vertical.html">从零做一个纵向</a>
+    <a href="build-a-vertical.html#publish">发布到纵向商店</a>
+    <h4>参考</h4>
+    <a href="https://github.com/microsoft/ArgusAgent/blob/main/README.md">README</a>
+    <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md">安装执行约定</a>
+    <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/backend-providers.md">后端与模型供应商</a>
+  </aside>
+
+  <main class="content">
+    <div class="progress" aria-live="polite">
+      <span class="count">已完成 0 / 6 步</span>
+      <span class="bar"><i></i></span>
+      <button class="reset" type="button">重置进度</button>
+    </div>
+
+    <article class="article">
+      <div class="crumbs"><a href="index.html">首页</a> › 开始使用 › 快速上手</div>
+      <h1>Argus 快速上手</h1>
+      <p class="lead">照着下面 6 步做，一小时内你会装好 Argus，交给它第一个任务，并在网页上看着它把活干完。每做完一步，勾选该步末尾的“我做完了”，页面会记住你的进度。</p>
+
+      <h2 class="first" id="what">你会经历什么</h2>
+      <p>Argus 是一个会长时间自己干活的研究和工程团队。你只和 <b>Manager</b> 说话；它把任务交给 <b>Planner</b> 拆解、<b>Engineer</b> 执行、<b>Reviewer</b> 审查，并在需要你拍板时停下来问你。</p>
+      <div class="cards">
+        <div class="card"><div class="card-title">① 装好</div><div class="card-body">一个 Agent CLI 加上 Argus 本身，约 15 分钟。</div></div>
+        <div class="card"><div class="card-title">② 交任务</div><div class="card-body">用一句话写清楚要什么、怎样算完成。</div></div>
+        <div class="card"><div class="card-title">③ 看它干活</div><div class="card-body">在地图上看任务拆成了哪些步、谁在做、卡在哪。</div></div>
+        <div class="card"><div class="card-title">④ 拿结果</div><div class="card-body">Reviewer 审过的文件，以及它是怎么得出来的。</div></div>
+      </div>
+
+      <h2 id="who">这篇适合谁</h2>
+      <ul>
+        <li>第一次用 Argus，想用最短的路径跑通一个真实任务。</li>
+        <li>会打开终端、复制粘贴命令就够了，不需要懂 Argus 的内部结构。</li>
+        <li>用 Windows、macOS 或 Linux 都可以；远程 Linux 服务器也行。</li>
+      </ul>
+
+      <h2 id="fastest">最快路径</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>你的情况</th><th>先做这个</th><th>然后</th></tr></thead>
+        <tbody>
+          <tr><td>已经在用 Codex、Claude Code 或 Copilot CLI</td><td>第 2 步选“让 Agent 帮你装”</td><td>直接跳到第 4 步</td></tr>
+          <tr><td>什么 Agent CLI 都没装</td><td>第 1 步装一个并登录</td><td>按顺序做完 2 → 6</td></tr>
+          <tr><td>只想看看效果，不想装</td><td>看 <a href="best-practices.html#examples">真实项目例子</a></td><td>想动手了再回来</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note">
+        <span class="label">经验法则</span>
+        <p>先只用<b>一个后端</b>跑通<b>一个小任务</b>，再去加别的后端、纵向或长期任务。大多数“装不好”的问题，都是一次改了太多东西。</p>
+      </div>
+
+      <!-- ============ STEP 1 ============ -->
+      <section class="step" data-step="1">
+        <h2 id="step-1" data-toc="1. 准备 Agent CLI"><span class="step-h"><span class="step-num">1</span>准备 Node.js 和一个 Agent CLI</span></h2>
+        <p>Argus 自己不带模型，它驱动你已经在用的 Agent CLI 来干活，也不需要额外的账号。你需要：</p>
+        <ul>
+          <li><b>Node.js 22.12 或更高</b>，从 <a href="https://nodejs.org/en/download">nodejs.org</a> 下载。</li>
+          <li><b>一个已登录的 Agent CLI</b>。下面三个最常用，任选其一；完整列表见 <a href="https://github.com/microsoft/ArgusAgent#quick-install">README</a>。</li>
+        </ul>
+        <div class="tabs" data-group="cli">
+          <div class="tab-panel" data-key="codex" data-label="Codex CLI">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>npm install -g @openai/codex@latest
+<span class="p">$ </span>codex login</pre></div>
+          </div>
+          <div class="tab-panel" data-key="claude" data-label="Claude Code">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>npm install -g @anthropic-ai/claude-code
+<span class="p">$ </span>claude        <span class="c"># 进入后输入 /login 完成登录，再退出</span></pre></div>
+          </div>
+          <div class="tab-panel" data-key="copilot" data-label="GitHub Copilot CLI">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>npm install -g @github/copilot
+<span class="p">$ </span>copilot login</pre></div>
+          </div>
+        </div>
+        <div class="expect">
+          <div class="expect-title">你应该看到</div>
+          <ul>
+            <li><code>node --version</code> 输出 <code>v22.12</code> 或更高。</li>
+            <li>直接运行 <code>codex</code> / <code>claude</code> / <code>copilot</code>，能正常和它聊一句。</li>
+          </ul>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：Agent CLI 能正常回话</label>
+      </section>
+
+      <!-- ============ STEP 2 ============ -->
+      <section class="step" data-step="2">
+        <h2 id="step-2" data-toc="2. 安装 Argus"><span class="step-h"><span class="step-num">2</span>安装 Argus</span></h2>
+        <p>选你的操作系统，<b>不要混用不同系统的命令</b>。如果你已经装好了 Agent CLI，最省事的是第一个标签页：让它替你装。</p>
+        <div class="tabs" data-group="os">
+          <div class="tab-panel" data-key="agent" data-label="让 Agent 帮你装（推荐）">
+            <p>把下面这段话原样发给你的 Codex / Claude Code / Copilot。它会按 Argus 的<a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md">安装执行约定</a>识别系统、安装、配置，并跑完自检。需要你登录或授权时它会先停下来问你。</p>
+            <div class="code" data-lang="prompt"><pre>Read https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md and
+install the official source unless I explicitly request the development preview.
+Keep an existing installation's channel when updating. Use the section for this
+operating system. Prefer the Agent CLI running
+this conversation as the Argus backend. Do not create a venv on Windows or
+macOS; keep the documented venv on Linux. Run setup through its real Agent-turn
+smoke test, then run `argus doctor --deep --advisor auto`. Before account login,
+sudo, or global configuration changes, explain why and wait for approval. Never
+ask me to paste a password, token, or API key into the conversation.</pre></div>
+            <p>它做完后会给你一份报告，说明用的是哪个 <code>argus</code>、哪个后端和模型、自检是否通过。<b>自检都通过的话，直接跳到第 4 步。</b></p>
+          </div>
+          <div class="tab-panel" data-key="macos" data-label="macOS">
+            <p>先装 <a href="https://docs.astral.sh/uv/getting-started/installation/">uv</a>，然后：</p>
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>uv tool install --force --python 3.12 \
+    "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+<span class="p">$ </span>ARGUS_BIN="$(uv tool dir --bin)/argus"
+<span class="p">$ </span>"$ARGUS_BIN" --version
+<span class="p">$ </span>uv tool update-shell   <span class="c"># 新开终端后可以直接输入 argus</span></pre></div>
+          </div>
+          <div class="tab-panel" data-key="windows" data-label="Windows">
+            <p>先从 <a href="https://www.python.org/downloads/windows/">python.org</a> 安装 Python 3.11+，安装时勾选 <b>Add Python to PATH</b>。然后新开一个 PowerShell：</p>
+            <div class="code" data-lang="powershell"><pre><span class="p">PS&gt; </span>py -m pip install --upgrade pip
+<span class="p">PS&gt; </span>py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+<span class="p">PS&gt; </span>$Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+<span class="p">PS&gt; </span>$env:Path = "$Scripts;$env:Path"
+<span class="p">PS&gt; </span>argus --version</pre></div>
+            <p>想用带图形界面的安装包，看 <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/windows-desktop.md">Windows Desktop</a>。</p>
+          </div>
+          <div class="tab-panel" data-key="linux" data-label="Linux">
+            <p>需要 Python 3.11+、Git，以及发行版的 <code>python3-venv</code> 包。Linux 上 Argus 固定装在自己的虚拟环境里：</p>
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
+<span class="p">$ </span>cd "$HOME/Argus"
+<span class="p">$ </span>python3 -m venv .venv
+<span class="p">$ </span>.venv/bin/python -m pip install --upgrade pip
+<span class="p">$ </span>.venv/bin/python -m pip install -e .
+<span class="p">$ </span>alias argus="$HOME/Argus/.venv/bin/argus"   <span class="c"># 本页后面的 argus 都指它</span>
+<span class="p">$ </span>argus --version</pre></div>
+          </div>
+        </div>
+        <div class="expect">
+          <div class="expect-title">你应该看到</div>
+          <ul><li><code>argus --version</code> 打印出一个版本号，没有报错。</li></ul>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：argus --version 有输出</label>
+      </section>
+
+      <!-- ============ STEP 3 ============ -->
+      <section class="step" data-step="3">
+        <h2 id="step-3" data-toc="3. 配置并自检"><span class="step-h"><span class="step-num">3</span>配置并自检</span></h2>
+        <p><code>--setup</code> 会选好后端，并<b>真的让模型跑一轮</b>来确认能用；<code>doctor</code> 再把整套环境检查一遍。</p>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>argus --setup                         <span class="c"># 按提示选择第 1 步装好的 CLI</span>
+<span class="p">$ </span>argus doctor --deep --advisor auto    <span class="c"># 发现问题时允许 Agent 帮你修</span>
+<span class="p">$ </span>argus --config-help                   <span class="c"># 看每个角色实际用的后端和模型</span></pre></div>
+        <p>想直接指定后端，可以写成 <code>argus --setup --backend codex</code>（或 <code>claude</code>、<code>copilot</code> 等）。</p>
+        <div class="note warn">
+          <span class="label">注意</span>
+          <p><code>doctor --advisor auto</code> 会真的调用一次模型，可能要几分钟，也会消耗你的额度。只想快速确认、不调模型，用 <code>argus doctor --advisor none --verify</code>。</p>
+        </div>
+        <div class="expect">
+          <div class="expect-title">你应该看到</div>
+          <ul>
+            <li>setup 结束时报告真实的模型回合通过。</li>
+            <li>doctor 没有报未解决的错误。</li>
+          </ul>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：setup 和 doctor 都通过</label>
+      </section>
+
+      <!-- ============ STEP 4 ============ -->
+      <section class="step" data-step="4">
+        <h2 id="step-4" data-toc="4. 打开驾驶舱"><span class="step-h"><span class="step-num">4</span>建一个练习目录，打开驾驶舱</span></h2>
+        <p>第一次请用一个<b>新建的空目录</b>，不要直接在重要项目里试。Argus 会在当前目录里干活。</p>
+        <div class="tabs" data-group="os2">
+          <div class="tab-panel" data-key="unix" data-label="macOS / Linux">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>mkdir -p ~/argus-first &amp;&amp; cd ~/argus-first
+<span class="p">$ </span>git init -q
+<span class="p">$ </span>argus --web</pre></div>
+          </div>
+          <div class="tab-panel" data-key="win" data-label="Windows">
+            <div class="code" data-lang="powershell"><pre><span class="p">PS&gt; </span>New-Item -ItemType Directory -Force "$HOME\argus-first" | Out-Null
+<span class="p">PS&gt; </span>Set-Location "$HOME\argus-first"
+<span class="p">PS&gt; </span>git init -q
+<span class="p">PS&gt; </span>argus --web</pre></div>
+          </div>
+        </div>
+        <p>浏览器会打开网页驾驶舱，默认地址是 <a href="http://127.0.0.1:8799">http://127.0.0.1:8799</a>（端口被占时会自动顺延）。界面支持中文，可以在会话侧栏的语言按钮切换。</p>
+        <div class="tabs">
+          <div class="tab-panel" data-key="local" data-label="在本机">
+            <p>什么都不用做，网页已经打开了。喜欢命令行的话，直接运行 <code>argus</code> 就能进入终端驾驶舱，两者看到的是同一个项目。</p>
+          </div>
+          <div class="tab-panel" data-key="remote" data-label="在远程服务器">
+            <p>在服务器上运行 <code>argus --web</code>，然后在<b>你自己的电脑</b>上开一条 SSH 隧道，再打开 <a href="http://127.0.0.1:8799">http://127.0.0.1:8799</a>：</p>
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>ssh -L 8799:127.0.0.1:8799 user@server</pre></div>
+            <p>断开 SSH 后，后台任务会继续跑。</p>
+          </div>
+        </div>
+        <div class="expect">
+          <div class="expect-title">你应该看到</div>
+          <ul><li>一个对话框，可以和 Manager 说话。</li></ul>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：驾驶舱打开了</label>
+      </section>
+
+      <!-- ============ STEP 5 ============ -->
+      <section class="step" data-step="5">
+        <h2 id="step-5" data-toc="5. 交出第一个任务"><span class="step-h"><span class="step-num">5</span>交出第一个任务</span></h2>
+        <p>把下面这段话原样发给 Manager。它不需要 GPU，一般十几分钟就能完成，而且<b>怎样算完成写得很清楚</b>，这是写好目标最重要的一点。</p>
+        <div class="code" data-lang="第一个任务"><pre>在当前目录写一个 Python 命令行工具 wordfreq.py：
+读入一个文本文件，输出出现次数最多的 10 个英文单词和次数（忽略大小写和标点）。
+
+完成标准：
+1. 用 pytest 写测试，至少覆盖：空文件、大小写混合、带标点；全部测试通过。
+2. README.md 写清安装和用法，附一次真实运行的输出。
+3. 不要引入第三方依赖（pytest 除外）。</pre></div>
+        <p>发出去以后，Manager 会判断这是需要团队完成的工作，交给 Planner 拆成几步，再派给 Engineer。</p>
+        <div class="note">
+          <span class="label">为什么这样写</span>
+          <ul>
+            <li><b>要什么</b>写在第一段：一个工具、输入、输出。</li>
+            <li><b>怎样算完成</b>单独列出，而且能检查：测试全过、README 有真实输出。</li>
+            <li><b>不许做什么</b>也写上：不引入依赖。Argus 会把这些当作你的边界，要改得先问你。</li>
+          </ul>
+          <p>更多写法见 <a href="best-practices.html#goals">怎么写目标</a>。</p>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：任务已经交出去</label>
+      </section>
+
+      <!-- ============ STEP 6 ============ -->
+      <section class="step" data-step="6">
+        <h2 id="step-6" data-toc="6. 看进度、插话、拿结果"><span class="step-h"><span class="step-num">6</span>看进度、插一句话、拿结果</span></h2>
+        <h3 id="watch">看进度</h3>
+        <p>在网页上打开<b>地图</b>：每个任务和它的每一步都在一张图上。点任务看它的子图，点某一步看细节。实线是依赖，虚线是内容上的关联。任务卡片会经过：目标 → 已规划 → 已领取 → 执行轮次 → 审查 → 要求修改。</p>
+        <p>在终端驾驶舱里，常用这几个命令：</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>命令</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>/status</code></td><td>各角色在干什么、排队的工作、健康状况</td></tr>
+            <tr><td><code>/events</code></td><td>搜索事件流：全部 / 关注 / 里程碑 / 消息</td></tr>
+            <tr><td><code>/backlog</code></td><td>待办任务</td></tr>
+            <tr><td><code>/roles</code></td><td>每个角色的后端、模型和当前活动</td></tr>
+          </tbody>
+        </table></div>
+        <h3 id="nudge">中途插一句话</h3>
+        <p>任务跑着的时候，你随时可以补充要求。试一下，让它多做一件小事：</p>
+        <div class="code" data-lang="驾驶舱"><pre>/nudge 再加一个 --top N 参数，默认 10，并补上对应测试</pre></div>
+        <p>在网页上，直接在对话框里说同样的话就行。想先问问题、不想派活，用 <code>/ask</code>；要立刻停下当前任务，用 <code>/abort</code>。</p>
+        <h3 id="results">拿结果</h3>
+        <div class="code" data-lang="驾驶舱"><pre>/artifacts</pre></div>
+        <p>这里列出的是 <b>Reviewer 已经检查过</b>的结果文件，回车可以预览。文件本身就在你的练习目录里，可以自己再跑一遍：</p>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>cd ~/argus-first
+<span class="p">$ </span>python -m pytest -q
+<span class="p">$ </span>python wordfreq.py README.md</pre></div>
+        <div class="expect">
+          <div class="expect-title">你应该看到</div>
+          <ul>
+            <li>测试全部通过，<code>--top</code> 参数也在。</li>
+            <li>README 里有一段真实的运行输出。</li>
+          </ul>
+        </div>
+        <div class="note ok">
+          <span class="label">关掉也没关系</span>
+          <p>关闭网页或用 <code>/quit</code> 离开驾驶舱，后台工作会继续。想彻底停下，等当前任务到自然边界再停：<code>argus --daemon-stop --drain</code>，然后用 <code>argus --status</code> 确认。</p>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：拿到了审过的结果</label>
+      </section>
+
+      <hr>
+
+      <h2 id="troubleshooting">常见问题</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>现象</th><th>可能原因</th><th>解决办法</th></tr></thead>
+        <tbody>
+          <tr><td>升级后版本号没变，行为也没变</td><td>终端用的是另一个旧的 <code>argus</code></td><td>macOS/Linux 用 <code>type -a argus</code>，PowerShell 用 <code>Get-Command argus -All</code> 找出实际用的是哪个</td></tr>
+          <tr><td>Linux 上 <code>python3 -m venv</code> 报缺少 ensurepip</td><td>没装 <code>python3-venv</code></td><td>用包管理器装上后重跑</td></tr>
+          <tr><td>macOS 新终端里找不到 <code>argus</code></td><td>uv 的工具目录不在 PATH</td><td>运行一次 <code>uv tool update-shell</code>，然后新开终端</td></tr>
+          <tr><td>Windows 里找不到 <code>argus</code></td><td>Python 的 Scripts 目录不在 PATH</td><td>按第 2 步重新设置 <code>$env:Path</code>；长期修复用 Python 安装器的 Modify 勾选 Add Python to PATH</td></tr>
+          <tr><td>模型不对，或者认证报错</td><td>实际生效的后端/模型和你想的不一样</td><td>先跑 <code>argus --config-help</code> 看每项的值和来源</td></tr>
+          <tr><td>交了任务，但什么都没在跑</td><td>后台进程没起来、或者额度/预算用完了</td><td>在驾驶舱输入 <code>/doctor</code>，它会诊断“为什么没在跑”</td></tr>
+          <tr><td>8799 端口被占</td><td>别的程序在用</td><td>不用管，Argus 会顺延到下一个空闲端口；也可以 <code>argus --web --web-port 8800</code></td></tr>
+        </tbody>
+      </table></div>
+      <div class="note warn">
+        <span class="label">注意</span>
+        <p>诊断命令请在终端里运行，不要贴进网页的对话框。也不要把密码、令牌或 API key 发给 Manager。</p>
+      </div>
+
+      <h2 id="recovery">自救工具箱</h2>
+      <p>遇到问题按这个顺序试：</p>
+      <ol>
+        <li><code>argus --status</code>：后台进程和待办在不在。</li>
+        <li><code>argus --config-help</code>：后端、模型实际是什么、来自哪里。</li>
+        <li><code>argus doctor --advisor none --verify</code>：不调模型的确定性检查。</li>
+        <li><code>argus doctor --advisor auto</code>：允许 Agent 检查并修复 Argus 自己的文件和配置。</li>
+        <li><code>argus update</code>：更新到当前渠道的最新版，然后重跑第 3 条。</li>
+      </ol>
+
+      <h2 id="reference">命令速查</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>命令</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>argus</code></td><td>打开终端驾驶舱</td></tr>
+          <tr><td><code>argus --web</code></td><td>打开网页驾驶舱</td></tr>
+          <tr><td><code>argus --setup</code></td><td>选择后端，并真实跑一轮确认能用</td></tr>
+          <tr><td><code>argus doctor</code></td><td>只读诊断</td></tr>
+          <tr><td><code>argus --config-help</code></td><td>查看所有配置项的实际值和来源</td></tr>
+          <tr><td><code>argus --status</code></td><td>查看后台进程和待办</td></tr>
+          <tr><td><code>argus --daemon-stop --drain</code></td><td>等当前任务到自然边界后停止</td></tr>
+          <tr><td><code>argus update</code></td><td>在原渠道上更新</td></tr>
+          <tr><td><code>/nudge 文字</code></td><td>给正在跑的任务补充要求</td></tr>
+          <tr><td><code>/ask 问题</code></td><td>只问不派活</td></tr>
+          <tr><td><code>/abort</code></td><td>立刻停下当前任务</td></tr>
+          <tr><td><code>/artifacts</code></td><td>看 Reviewer 审过的结果</td></tr>
+          <tr><td><code>/help</code></td><td>全部快捷键和命令</td></tr>
+        </tbody>
+      </table></div>
+
+      <h2 id="next">下一步</h2>
+      <div class="cards">
+        <a class="card" href="best-practices.html#goals"><div class="card-title">怎么写目标 →</div><div class="card-body">让 Argus 做出真正有用的结果，而不是“看起来完成了”。</div></a>
+        <a class="card" href="best-practices.html#cost"><div class="card-title">控制花费 →</div><div class="card-body">每日上限、并行宽度、什么时候该停。</div></a>
+        <a class="card" href="build-a-vertical.html"><div class="card-title">建自己的纵向 →</div><div class="card-body">把你所在领域的经验教给 Argus。</div></a>
+      </div>
+
+      <div class="pager">
+        <a class="next" href="best-practices.html"><div class="dir">下一篇</div><div class="ttl">用好 Argus →</div></a>
+      </div>
+    </article>
+  </main>
+
+  <aside class="toc"></aside>
+</div>
+
+<footer class="site-foot">Argus · MIT License · <a href="https://github.com/microsoft/ArgusAgent">GitHub</a></footer>
+</body>
+</html>
