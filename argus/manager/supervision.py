@@ -188,7 +188,7 @@ class SupervisionDecisionError(ValueError):
 
 _DECISION_KEYS = (
     "ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION",
-    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK",
+    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK", "ASSUMPTION",
 )
 _BARE_KEY_LINE = re.compile(
     r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
@@ -350,11 +350,11 @@ def _decision(text: str) -> dict[str, Any]:
         raise  # the first reading's failure names what was missing
 
 
-# What a residual-risk field says when it accepts nothing. The Manager answers
-# in prose, so "none", "(none)", "not applicable", "nothing accepted", "not
-# accepted yet" and "none yet ..." must all read as no acceptance; only an
-# explicit ACCEPT_RISK: yes with a named check and risk accepts anything.
-_NO_ACCEPTANCE = re.compile(
+# What a field says when it states nothing. The Manager answers in prose, so
+# "none", "(none)", "not applicable", "nothing accepted", "not accepted yet"
+# and "none yet ..." must all read as nothing; only an explicit ACCEPT_RISK:
+# yes with a named check and risk accepts anything.
+_STATES_NOTHING = re.compile(
     r"^(?:none|nil|null|n/?a|na|no|nothing|not|never|tbd|pending|unknown|undecided)\b",
     re.IGNORECASE,
 )
@@ -362,11 +362,11 @@ _RISK_ID = re.compile(r"\brisk-[0-9a-f]{10}\b")
 _RISK_VERB = re.compile(r"^[`*_\s]*(yes|no|revoke)\b", re.IGNORECASE)
 
 
-def _risk_text(value: Any, limit: int = 1000) -> str:
-    """The stated check or risk, or "" when the text accepts nothing."""
+def _stated(value: Any, limit: int = 1000) -> str:
+    """What the field states, or "" when it states nothing."""
     text = " ".join(str(value or "").split())
     bare = text.strip(" .,;:`*_-()[]{}\"'").strip()
-    if not bare or _NO_ACCEPTANCE.match(bare):
+    if not bare or _STATES_NOTHING.match(bare):
         return ""
     return text[:limit]
 
@@ -387,7 +387,7 @@ def _risk_decision(value: dict[str, Any]) -> dict[str, str]:
         return {"action": "revoke", "risk_id": found.group(0)} if found else {}
     if verb.group(1).lower() != "yes":
         return {}
-    check, risk = _risk_text(value.get("risk_check"), 240), _risk_text(value.get("residual_risk"))
+    check, risk = _stated(value.get("risk_check"), 240), _stated(value.get("residual_risk"))
     return {"action": "accept", "check": check, "risk": risk} if check and risk else {}
 
 
@@ -421,7 +421,10 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
             "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
             # Accepting (or revoking) the residual risk of one check impossible
             # here; see _risk_decision for what counts.
-            "risk_decision": _risk_decision(value)}
+            "risk_decision": _risk_decision(value),
+            # The reading of the operator's requirement the directive chose in
+            # their place, recorded for the run report.
+            "assumption": _stated(value.get("assumption"))}
 
 
 def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
@@ -469,6 +472,9 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
             "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
             "RISK_CHECK: the one check left unverified (only with yes)\n"
             "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
+            "ASSUMPTION: the reading of the operator's requirement your DIRECTIVE chose in "
+            "their place and the conflict behind it, in their language, for the run report "
+            "(only when it chose one)\n"
             if holds else ""
         )
         + "Add a last line `→ planner` only when a STEER needs new planning (tasks to add, "
@@ -682,6 +688,14 @@ def _apply(
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)
+                if decision.get("assumption"):
+                    from ..core.autonomy import record_autonomous_assumption
+
+                    record_autonomous_assumption(
+                        root, item_id=str(record["trigger"].get("item_id") or ""),
+                        reading=decision["assumption"], source="manager_decision",
+                        key=source, evidence_refs=decision["cited_refs"],
+                    )
             effects["automatic_planning_paused"] = decision["action"] == "wait"
             if decision["action"] == "wait":
                 effects["waiting_task_ids"] = record["waiting_task_ids"]
