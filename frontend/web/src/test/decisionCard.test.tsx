@@ -161,6 +161,13 @@ describe('operator decision cards', () => {
     expect(unknownHtml).not.toContain('<time');
   });
 
+  it('asks the question in the banner and leaves the reason to the card it opens', () => {
+    // 2026-10-21: the banner showed why the team asked, and the question itself only in the card.
+    const html = renderToStaticMarkup(<PendingBanner questions={[{ id: 'item-1', operator_decision: card }]} backlog={[]} onAnswer={vi.fn()} />);
+    expect(html).toContain(card.question);
+    expect(html).not.toContain(card.reason);
+  });
+
   it('answers with one click on an option, or with the words typed instead', () => {
     const [row] = operatorDecisionCards([{ id: 'item-1', operator_decision: {
       ...card,
