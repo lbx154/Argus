@@ -761,7 +761,7 @@ def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():
     segments: dict = {}
     events = normalize_events(rows, {"a"}, set(), segments, "/proj")
     steps = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
-    assert [s["label"] for s in steps] == ["查阅 main.py", "查阅 Argus 内部文件", "查找 .py 文件"]
+    assert [s["label"] for s in steps] == ["查阅 main.py", "查阅技能 playbook", "查找 .py 文件"]
 
 
 def test_command_steps_read_like_turn_steps_without_backend_session_paths():
