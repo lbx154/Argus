@@ -139,24 +139,6 @@ export const api = {
   counterexamples: (sid: string, signal?: AbortSignal) =>
     request<CounterexampleDashboard>(projectPath(sid, '/counterexamples'), { signal }),
 
-  artifact: (sid: string, path: string, signal?: AbortSignal) =>
-    request<ArtifactInfo>(projectPath(sid, `/artifact?${new URLSearchParams({ path })}`), { signal }),
-
-  artifactBlob: async (sid: string, path: string, download = false, signal?: AbortSignal) => {
-    await compatibleApiMeta();
-    const params = new URLSearchParams({ path });
-    if (download) params.set('download', 'true');
-    const requestPath = projectPath(sid, `/artifact/raw?${params}`);
-    return requestWithTimeout(requestPath, {
-      headers: apiAuthHeaders(),
-      signal,
-      cache: 'no-store',
-    }, LOCAL_READ_TIMEOUT_MS, async (response) => {
-      if (!response.ok) throw new Error(`Artifact unavailable (${response.status})`);
-      return response.blob();
-    });
-  },
-
   gitDiff: (sid: string, signal?: AbortSignal) =>
     request<GitDiffView>(projectPath(sid, '/git-diff'), { signal }),
 
