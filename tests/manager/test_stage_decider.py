@@ -138,6 +138,8 @@ def test_completion_report_prompt_contains_all_stage_information() -> None:
     assert '"stage_reviews"' in prompt
     # 2026-10-21: a report said the review passed and that it "adopted that conclusion".
     assert "never that you adopt or carry over its verdict" in prompt
+    # 2026-10-22: a report ended "the delivery was redone after the request changed".
+    assert "Report the result, not the process" in prompt
 
 
 def test_parse_advance_immediate_ok() -> None:
