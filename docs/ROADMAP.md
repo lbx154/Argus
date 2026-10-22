@@ -138,6 +138,11 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: in tests, after the Reviewer reports it cannot read files, the task goes to escalation with no further
   Engineer round.
 - Split into: HO-3a the report action; HO-3b cleaning up the prompts.
+- Status: done (`c41424c5`). HO-3a was already in place on dev: a Reviewer's `→ manager` ends the round loop, parks the task
+  with the Manager and consults it, with no further Engineer turn; tests now cover a file the Reviewer cannot read and
+  contradictory criteria. HO-3b: the Reviewer's role text and handoff line name those cases (unreadable file, missing
+  tool or access, contradictory criteria) as `→ manager`; two docstrings that still described a Reviewer unable to
+  run commands were corrected.
 
 #### HO-4 The Reviewer wrote a paragraph but didn't press "submit"
 `0.2` · `S` · Depends on: none · good first issue
