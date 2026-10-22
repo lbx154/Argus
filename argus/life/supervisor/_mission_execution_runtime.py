@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
+from ...core.mission_view import operator_objective
 from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
 from ...core.usage import UsageLedger, UsageRecord
 from ..memory import BacklogItem, park_reason
@@ -459,8 +460,8 @@ class MissionExecutionRuntimeMixin:
             "title": item.title,
             # Carry the objective on the event itself (not just the journal
             # entry) so the live mission-context line renders the
-            # real goal instead of "objective=-".
-            "objective": item.objective,
+            # real goal instead of "objective=-": the operator's own words.
+            "objective": operator_objective(vars(item)),
             "scope": state.item_scope,
             "independent_review_required": (
                 self._item_requires_independent_review(item)
