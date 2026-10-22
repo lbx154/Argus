@@ -83,6 +83,15 @@ def stop_park_reason(value: Any) -> StopKind | None:
     return kind if kind in NON_FAILURE_STOP_KINDS and kind != "operator_abort" else None
 
 
+def interrupt_outcome(reason: Any) -> tuple[Literal["aborted", "parked"], StopKind]:
+    """How an interrupt ends a run, with its stop kind: an operator abort aborts
+    it; any other parks it under its own park, or the operator's pause."""
+    kind = stop_kind_from_external_interrupt(reason)
+    if kind == "operator_abort":
+        return "aborted", kind
+    return "parked", stop_park_reason(kind) or "operator_pause"
+
+
 def run_park_reason(value: Any) -> str:
     """Where a stopped run waits: a non-failure stop under its own kind, a host
     that could not start (``backend_unavailable``) on ``infra``; else ""."""
@@ -260,6 +269,7 @@ __all__ = [
     "STOP_KINDS",
     "ParkRule",
     "StopKind",
+    "interrupt_outcome",
     "is_pause_status",
     "normalize_stop_kind",
     "park_clause",

@@ -22,10 +22,11 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.command_record import backend_records_command_results
 from ..core.event_catalog import EventType
-from ..core.models import LoopStatus, ReviewDecision, RoundRecord
+from ..core.models import ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
+    interrupt_outcome,
     normalize_stop_kind,
     stop_kind_from_external_interrupt,
     stop_park_reason,
@@ -962,10 +963,7 @@ class RoundReviewerMixin:
                     backoff_seconds, retry_runner=getattr(getattr(self, "reviewer", None), "runner", None),
                 )
                 if interrupt_reason:
-                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason)
-                    status: LoopStatus = "aborted" if interrupt_kind == "operator_abort" else "parked"
-                    if status == "parked":
-                        interrupt_kind = stop_park_reason(interrupt_kind) or "operator_pause"
+                    status, interrupt_kind = interrupt_outcome(interrupt_reason)
                     reason_text = (
                         "The wait after a Reviewer backend failure ended "
                         f"early: {interrupt_reason}."

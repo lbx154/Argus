@@ -358,3 +358,16 @@ def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
     assert park_clause("paused_something_new") == "the work was paused"
     assert park_clause("parked") == "the work was paused"
     assert park_clause("failed") == ""
+
+
+@pytest.mark.parametrize(("reason", "outcome"), [
+    ("operator abort requested: replace the target", ("aborted", "operator_abort")),
+    ("daemon stop requested", ("parked", "daemon_shutdown")),
+    ("global daily budget exhausted", ("parked", "budget_exhausted")),
+    # An interrupt that names no park leaves the run on the operator's pause.
+    ("Manager turn wall-clock limit reached", ("parked", "operator_pause")),
+])
+def test_an_interrupt_aborts_on_an_abort_and_otherwise_parks(reason: str, outcome: tuple) -> None:
+    from argus.core.stop_kinds import interrupt_outcome
+
+    assert interrupt_outcome(f"External interrupt: {reason}") == outcome

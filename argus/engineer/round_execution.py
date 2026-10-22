@@ -24,11 +24,12 @@ from typing import TYPE_CHECKING, Callable
 from ..core import command_record
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
 from ..core.event_catalog import EventType
-from ..core.models import LoopStatus, ReviewDecision, RoundRecord
+from ..core.models import ReviewDecision, RoundRecord
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.stop_kinds import (
+    interrupt_outcome,
     normalize_stop_kind,
     stop_kind_from_external_interrupt,
     stop_park_reason,
@@ -875,19 +876,11 @@ class RoundExecutionMixin:
                     backoff_seconds
                 )
                 if interrupt_reason:
-                    interrupt_kind = stop_kind_from_external_interrupt(
-                        interrupt_reason
-                    )
-                    status: LoopStatus = (
-                        "aborted" if interrupt_kind == "operator_abort" else "parked"
-                    )
+                    status, interrupt_kind = interrupt_outcome(interrupt_reason)
                     if status == "parked":
                         # The interrupt, not the failure it cut short, is
                         # why the run parks.
-                        state.rounds[-1] = replace(
-                            state.rounds[-1],
-                            stop_kind=stop_park_reason(interrupt_kind) or "operator_pause",
-                        )
+                        state.rounds[-1] = replace(state.rounds[-1], stop_kind=interrupt_kind)
                     reason_text = (
                         "The wait after a repeated backend failure ended "
                         f"early: {interrupt_reason}."
@@ -897,7 +890,7 @@ class RoundExecutionMixin:
                             "type": "round.backend_failure.hold_interrupted",
                             "round_index": round_index,
                             "round_max": supervised_config.max_rounds,
-                            "stop_kind": interrupt_kind or "",
+                            "stop_kind": interrupt_kind,
                             "text": reason_text,
                         })
                     return control_return((
