@@ -242,7 +242,10 @@ function progress(event: TypedArgusEvent, context: RenderContext): RenderModel {
  * reasoning is worth showing beside it. */
 function stageDecision(event: TypedArgusEvent, context: RenderContext): RenderModel {
   const action = stringField(event, 'action');
-  const target = stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage');
+  const target = stageName(
+    stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage'),
+    context.locale,
+  );
   const own = stringField(event, 'source') === 'manager_llm';
   if (!own && (action === 'complete' || action === 'hold')) return hidden();
   const phrases: Record<string, [string, string]> = {
@@ -635,6 +638,33 @@ export const ROLE_NAMES: Record<string, [english: string, chinese: string]> = {
   'role.argus': ['Argus', 'Argus'],
   'role.operator': ['You', '你'],
 };
+
+/** Research stages by id or label. */
+const STAGE_NAMES: Record<string, [english: string, chinese: string]> = {
+  idea: ['Idea', '选题'],
+  scope: ['Scope', '研究定义'],
+  research: ['Literature and hypotheses', '文献与假设'],
+  literature: ['Literature and hypotheses', '文献与假设'],
+  implementation: ['Implementation', '方法实现'],
+  implement: ['Implementation', '方法实现'],
+  experiment: ['Experiments', '实验验证'],
+  experiments: ['Experiments', '实验验证'],
+  analysis: ['Analysis', '结果分析'],
+  writing: ['Writing', '论文写作'],
+  review: ['Final review', '最终审核'],
+  delivery: ['Delivery', '成果交付'],
+  optimize: ['Optimization', '优化'],
+  solve: ['Derivation and verification', '推导与验证'],
+  hold: ['Paused', '已暂停'],
+  paused: ['Paused', '已暂停'],
+};
+
+/** A research stage as a word people use; unknown stages pass through. */
+export function stageName(stage: string | null | undefined, locale: RenderLocale): string {
+  const raw = String(stage ?? '').trim();
+  const pair = STAGE_NAMES[raw.toLowerCase()];
+  return pair ? (locale === 'zh-CN' ? pair[1] : pair[0]) : raw;
+}
 
 const LABELS: Record<string, [english: string, chinese: string]> = {
   ...ROLE_NAMES,

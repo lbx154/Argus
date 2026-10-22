@@ -87,3 +87,13 @@ def read_turns(life_dir: Any, *, limit: int | None = None) -> list[dict[str, Any
         return out[-limit:] if (limit and limit > 0) else out
     except Exception:  # noqa: BLE001
         return []
+
+
+def operator_request(life_dir: Any) -> str:
+    """The operator's first words here: their request, in the language Argus answers in.
+
+    A later turn can be an option they clicked, in the card's words, not theirs.
+    """
+    return next(
+        (str(turn["text"]) for turn in read_turns(life_dir) if turn.get("role") == "operator"), "",
+    )

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from argus.core.operator_presence import operator_presence
+from argus.core.transcript import append_turn
 from argus.roles.prompts.letter import build_letter_prompt
 from argus.verticals.research.notes import RESEARCH_NOTES_FILENAME
 
@@ -297,3 +298,13 @@ def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_pa
     assert updated["latest_review"] == ""
     assert "Which licensed dataset" in updated["questions"]
     assert "old receipt" not in updated["questions"]
+
+
+def test_a_letter_is_written_in_the_language_of_the_operator_s_request(tmp_path: Path) -> None:
+    """Trial s-7d356ee9: the operator's latest turn was an option they clicked,
+    'B：format_date → "22.10.2026"', with no Chinese in it."""
+    stub, life_dir, _workdir = _supervisor_stub(tmp_path, _Manager("unused"))
+    append_turn(life_dir, "operator", "datefmt 的 format_date 收到两条互相冲突的需求，必须由我来拍板。")
+    append_turn(life_dir, "operator", 'B：format_date → "22.10.2026"')
+
+    assert stub._letter_facts(since=time.time() - 60, now=time.time())["chinese"] is True

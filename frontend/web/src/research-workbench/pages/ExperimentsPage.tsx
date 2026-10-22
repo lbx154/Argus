@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, EmptyState, EventTimeline } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
 import { AGENT_ROLES, agentRoleColor, agentRoleDescription } from '../../lib/agentRoles';
-import { isBookkeepingEvent, plainDetail, plainStage } from '../../lib/plainStatus';
+import { isBookkeepingEvent, plainDetail } from '../../lib/plainStatus';
+import { stageName } from '../../../../core/src/eventRender';
 import { workStatusLabel } from '../../lib/workStatus';
 import { readableToolProgress } from '../../lib/feedSteps';
 import { RawDisclosure } from '../../components/primitives';
@@ -30,8 +31,8 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps & { onCompose: (
   const view = props.snapshot.mission_view;
   const dag: MissionDagNode[] = view?.dag?.length ? view.dag : props.snapshot.backlog.map((item) => ({ id: item.id, title: item.title, objective: item.objective, status: item.status, deps: item.deps ?? [], branch_id: item.id, parent_branch_id: '' }));
   const selected = dag.find((task) => task.id === selectedTask) ?? dag.find((task) => task.id === progress.currentTaskId);
-  const currentStage = plainStage(view?.stage.id, locale);
-  const stageName = view?.stage.label && view.stage.label !== view.stage.id ? view.stage.label
+  const currentStage = stageName(view?.stage.id, locale);
+  const recordedStage = view?.stage.label && view.stage.label !== view.stage.id ? view.stage.label
     : currentStage || view?.stage.id || text('尚未记录', 'Not yet recorded');
   const running = progress.runtime.state === 'running';
   const runtimeLabel = workStatusLabel(progress.runtime, locale);
@@ -84,7 +85,7 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps & { onCompose: (
         </div>
         <div className="progress-metrics">
           <div><span><Clock3 size={15} />{text('当前工作项已用时间', 'Current work item elapsed')}</span><strong>{progress.elapsedSeconds === null ? '—' : formatDuration(progress.elapsedSeconds)}</strong><small>{text('按任务启动与结束记录计算', 'Based on recorded task start and end times')}</small></div>
-          <div><span>{text('实际记录的阶段', 'Recorded stage')}</span><strong>{stageName}</strong><small>{text('阶段名称不表示前面的工作已通过核验', 'The stage name does not certify earlier work')}</small></div>
+          <div><span>{text('实际记录的阶段', 'Recorded stage')}</span><strong>{recordedStage}</strong><small>{text('阶段名称不表示前面的工作已通过核验', 'The stage name does not certify earlier work')}</small></div>
           <div><span>{text('工作范围', 'Work scope')}</span><strong>{progress.openEnded ? text('开放研究', 'Open research') : text('当前工作项', 'Current work item')}</strong><small>{progress.openEnded ? text('可能产生新的问题和任务', 'New questions and tasks may emerge') : text('以该工作项的验收条件为准', 'Defined by this item’s acceptance criteria')}</small></div>
           <div><span><Workflow size={15} />{text('等待执行的工作', 'Work waiting to start')}</span><strong>{progress.pendingTasks}</strong><small>{text('已记录清单中的等待项', 'Waiting items in the recorded list')}</small></div>
         </div>

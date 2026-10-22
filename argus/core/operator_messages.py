@@ -122,14 +122,19 @@ def render_operator_update(
 ) -> str:
     """Render structured runtime state as a short, plain operator update.
 
-    ``holder`` is who the work waits on now: ``operator``, ``manager``, or
-    no one named, when Argus itself looks for the way forward.
+    ``holder`` is who the work waits on now: ``operator``, ``manager``,
+    ``planner``, or no one named, when Argus itself looks for the way forward.
     """
     chinese = uses_cjk(language_hint or title)
     subject = brief_title(title) or say("this_task", chinese)
     state = str(status or "").strip().lower()
     park = park_reason_of(state, park_reason)
-    why = humanize_runtime_reason(reason, language_hint=language_hint or subject)
+    raw = str(reason or "").strip()
+    why = humanize_runtime_reason(raw, language_hint=language_hint or subject)
+    if why == raw:
+        # A role's own account runs on, in full on its row; the operator
+        # reads its first sentence, the one written for them.
+        why = first_sentence(raw)
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
@@ -154,11 +159,15 @@ def render_operator_update(
     if why and not canceled:
         # A finished task's note is what it found, not why it stopped.
         lines.append(why if finished else say("update_reason", chinese, why=why))
-    if action:
+    # Work handed to a role is that role's to take on, whatever instruction
+    # came with it; an action that only repeats the reason adds nothing.
+    handed = holder in {"manager", "planner"}
+    if action and not handed and " ".join(action.split()) != " ".join(raw.split()):
         lines.append(say("update_your_call" if holder == "operator" else "update_next", chinese, action=action))
     elif not (finished or canceled):
         lines.append(say({
             "operator": "update_needs_decision", "manager": "update_manager_decides",
+            "planner": "update_planner_replans",
         }.get(holder, "update_will_investigate"), chinese))
     return "\n".join(lines)
 
