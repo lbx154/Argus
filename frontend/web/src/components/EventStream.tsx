@@ -49,14 +49,21 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
 
+type RowText = PlainDetail & { prose: boolean };
+
 /** A row as the feed says it: a call reads as "verb + object" or as the command
- * it ran, with its raw text kept for the tooltip; a report in plain words. */
-function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: string): PlainDetail {
+ * it ran, with its raw text kept for the tooltip; a report in plain words, and
+ * in its Markdown when a role wrote it, as the conversation shows it. */
+function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: string): RowText {
   const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
-  if (call === 'tool_use') return { text: plainToolLabel(ev, locale), technical: r.text };
-  if (call === 'command_execution') return { text: plainCommand(r.text, workspace), technical: r.text };
+  if (call === 'tool_use') return { text: plainToolLabel(ev, locale), technical: r.text, prose: false };
+  if (call === 'command_execution') return { text: plainCommand(r.text, workspace), technical: r.text, prose: false };
   const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
-  return plainDetail(report, locale);
+  return { ...plainDetail(report, locale), prose: !['tool_result', 'file_change'].includes(call) };
+}
+
+function RowWords({ text, prose }: Pick<RowText, 'text' | 'prose'>) {
+  return prose ? <MarkdownExcerpt>{text}</MarkdownExcerpt> : <>{text}</>;
 }
 
 function EventRow({
@@ -125,7 +132,7 @@ function EventRow({
           </time>
         </div>
         <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={tooltip || undefined}>
-          {plain.text}
+          <RowWords {...plain} />
         </div>
       </div>
     </div>
@@ -394,7 +401,7 @@ function RoleLogGroup({
   // The collapsed header says the newest row as the log below says it.
   const latest = folded[folded.length - 1];
   const workspace = useContext(WorkspaceContext);
-  const preview = !latest ? '' : latest.kind === 'group' ? groupSummary(latest, t, locale) : rowText(latest.ev, latest.r, locale, workspace).text;
+  const preview = !latest ? null : latest.kind === 'group' ? { text: groupSummary(latest, t, locale), prose: false } : rowText(latest.ev, latest.r, locale, workspace);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -432,7 +439,7 @@ function RoleLogGroup({
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
         <span className="font-mono text-xs text-ink-faint">{folded.length}</span>
-        {preview ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint"><MarkdownExcerpt>{preview}</MarkdownExcerpt></span> : <span className="flex-1" />}
+        {preview?.text ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint"><RowWords {...preview} /></span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>

@@ -359,4 +359,19 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain("The Planner hasn&#x27;t had an answer");
     expect(html).not.toContain('Used ');
   });
+
+  it("shows a role's own words in their Markdown and a command as it ran", () => {
+    // Trial s-f0e1b2f0: the Engineer's lane read "**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…".
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')],
+      connected: true,
+      showReasoning: false,
+      onToggleReasoning: () => undefined,
+    }));
+
+    expect(html).toContain('<strong>尚未实现：取整规则存在歧义。</strong>');
+    expect(html).toContain('<code>sizefmt/core.py</code>');
+    expect(html).not.toContain('**');
+    expect(html).toContain('ls sizefmt/__init__.py');
+  });
 });
