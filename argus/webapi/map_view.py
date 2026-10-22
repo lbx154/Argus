@@ -351,6 +351,13 @@ def normalize_events(
             )
             if certification:
                 e["stage_certification"] = text(certification, 80)
+            if kind == "life.operator_question.pending" and row.get("options"):
+                # The question with the answers it offered, numbered as the operator saw them.
+                e["text"] = "\n".join([said, *(
+                    f"{number}. {text(option, 160)}" for number, option in enumerate(row["options"], 1)
+                )])
+            if kind == "life.operator_question.answered" and row.get("option"):
+                e["option"] = text(row["option"], 160)
             if kind == "life.plan.node.superseded":
                 # Keep the shape lean: structured keys only when present.
                 if row.get("reason"):

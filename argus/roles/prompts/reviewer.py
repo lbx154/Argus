@@ -10,6 +10,7 @@ from ...core.model_visible_text import (
     REVIEW_EVIDENCE_RULE,
     sanitize_model_visible_text,
 )
+from ...core.role_handoff import OPERATOR_CHOICES_RULE
 from ...core.workspace_snapshot import WorkspaceSnapshots
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
@@ -654,7 +655,8 @@ def render_reviewer_prompt(
         "operator reads: what was delivered and what you verified, in plain words. "
         "End it with one line naming "
         "who holds the work next: `→ done`, `→ engineer`, `→ planner`, `→ manager` or "
-        "`→ operator: <one question>`. No JSON or other closing line is read. "
+        "`→ operator: <one question>`. " + OPERATOR_CHOICES_RULE + " No JSON or other "
+        "closing line is read. "
         "Before accepting, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "

@@ -1960,6 +1960,9 @@
       "event": {
         "agent_layer": "engineer",
         "item_id": "task-1",
+        "options": [
+          "option"
+        ],
         "payload_schema_version": 1,
         "question": "question",
         "title": "Shared event renderer",
@@ -1977,6 +1980,7 @@
         "dropped": true,
         "item_id": "task-1",
         "manager_decision": "manager decision",
+        "option": "option",
         "payload_schema_version": 1,
         "question": "question",
         "stopped": true,

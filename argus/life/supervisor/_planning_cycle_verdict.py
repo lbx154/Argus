@@ -120,6 +120,7 @@ class PlanningCycleVerdictMixin:
 
     def _park_planner_question(
         self, state: _PlanCycleState | None, question: str, reason: str,
+        *, options: tuple[str, ...] = (),
     ) -> bool:
         """Put the planning slot's question to the operator on its one card.
 
@@ -162,6 +163,7 @@ class PlanningCycleVerdictMixin:
         ask_operator(
             self.memory.root, item, question, reason=reason or question, layer="planner",
             save=partial(self.memory.backlog.update, item.id, last_error=reason), emit=self._emit,
+            options=options,
         )
         return True
 

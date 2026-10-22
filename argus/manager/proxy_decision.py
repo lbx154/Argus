@@ -2,8 +2,9 @@
 
 Only while the operator cannot be asked (principle 8): they said not to be, or
 the run has none. The Manager names the card and one of its options in typed
-fields; the host applies that choice on the path an operator's choice takes
-and records it in the Manager's name.
+fields (its own answer only on a card that offers none); the host applies that
+choice on the path an operator's choice takes and records it in the Manager's
+name.
 """
 from __future__ import annotations
 
@@ -23,13 +24,13 @@ class ProxyChoice:
 
 
 def _option_ids(card: Mapping[str, Any]) -> list[str]:
-    """The choices ``card`` accepts: a host card only its own, an agent card also a written answer."""
+    """What the Manager may choose on ``card``: one of its options, its own answer where it has none."""
     ids = [
         str(row.get("id") or "")
         for row in card.get("options", ())
         if isinstance(row, Mapping)
     ]
-    return ids if card.get("decision_kind") else [*ids, "custom"]
+    return ids or ["custom"]
 
 
 def decide_for_operator(

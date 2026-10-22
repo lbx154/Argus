@@ -416,6 +416,19 @@ def test_a_planner_asks_the_operator_on_the_baton_line() -> None:
     assert verdict.error == ""
     assert verdict.handoff == "operator"
     assert verdict.operator_question == "May I publish the dataset?"
+    assert verdict.operator_options == ()
+
+
+def test_a_planner_question_carries_the_answers_listed_under_it() -> None:
+    verdict = parse_planner_text(
+        "Decision:\nPROJECT_DONE=false\nREASON=Two directions fit the goal.\n"
+        "→ operator: Which direction next?\n- Scale the baseline\n- Try the new loss"
+    )
+
+    assert verdict.error == ""
+    assert (verdict.handoff, verdict.operator_question, verdict.operator_options) == (
+        "operator", "Which direction next?", ("Scale the baseline", "Try the new loss"),
+    )
 
 
 def test_older_wait_fields_are_ignored_and_tasks_still_run() -> None:

@@ -356,6 +356,7 @@ def enqueue_mission(
                 life_dir, item, question, layer="manager",
                 reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
                 save=partial(mem.backlog.update, item.id), emit=sink.append,
+                options=getattr(prepared_handoff.decision, "operator_options", ()),
             )
         return item
 

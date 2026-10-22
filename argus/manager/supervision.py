@@ -327,7 +327,9 @@ def _decision(text: str) -> dict[str, Any]:
         value = {key.lower(): val for key, val in fields.items()}
         handoff = read_baton_line(text)
         if handoff is not None:
-            value["handoff"], value["question"] = handoff.holder, handoff.question
+            value["handoff"], value["question"], value["options"] = (
+                handoff.holder, handoff.question, list(handoff.options),
+            )
     if not isinstance(value, dict):
         raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
     if isinstance(text, str) and "decision" not in value:
@@ -406,11 +408,14 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
         refs = [ref.strip() for ref in refs.split(";") if ref.strip()]
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
         raise SupervisionDecisionError("evidence_uncited", "Manager must cite the evidence used for its decision")
+    options = value.get("options")
     return {"action": action, "reason": reason, "directive": directive,
             # ``→ planner``: the directive is new planning, so the Planner is asked.
             "handoff": str(value.get("handoff") or ""),
-            # ``→ operator: <question>``: the task handed here waits on their answer.
+            # ``→ operator: <question>``: the task handed here waits on their answer,
+            # one of the ``options`` listed under it or their own.
             "question": str(value.get("question") or ""),
+            "options": list(options) if isinstance(options, (list, tuple)) else [],
             "cited_refs": list(dict.fromkeys(refs)),
             "consultation_id": str(value.get("consultation_id") or "")[:128],
             "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
@@ -433,6 +438,7 @@ def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
 
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
+    from ..core.role_handoff import OPERATOR_CHOICES_RULE
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     # Who decides in the operator's place depends on this project's question policy.
@@ -469,7 +475,8 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "retire or replace); otherwise whoever holds the work reads it at their next boundary.\n"
         + ("" if holds else (
             "When work handed to you waits on a choice only the operator can make, make that "
-            "last line `→ operator: <one question>` instead: the task then waits on their answer.\n"
+            "last line `→ operator: <one question>` instead: the task then waits on their answer. "
+            + OPERATOR_CHOICES_RULE + "\n"
         ))
         + "\n"
         + observation.render()
@@ -574,6 +581,7 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
         ask_operator(
             root, task, question, reason=record["decision"]["reason"], layer="manager",
             save=partial(backlog.update, task.id), emit=JsonlEventSink(None, life_dir=root).append,
+            options=record["decision"].get("options", ()),
         )
     return task.id
 

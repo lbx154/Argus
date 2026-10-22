@@ -652,11 +652,18 @@ def _apply_operator_answer(
         "Do not enqueue duplicate work for that task."
     )
     queue_inbox_message(life_dir, directive, source="manager.answer")
+    # The option chosen, in the words the card offered it; none for a written answer.
+    chosen = next((
+        str(option.get("label") or "")
+        for option in item.operator_decision.get("options", ())
+        if isinstance(option, dict) and option.get("id") == decision_option
+    ), "")
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
         "question": question,
         "manager_decision": manager_decision,
+        **({"option": chosen} if chosen else {}),
         "decision_id": decision_id,
         "decision_revision": resumed.operator_decision.get(
             "resolved_from_revision"

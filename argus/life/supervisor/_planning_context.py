@@ -757,6 +757,7 @@ class PlanningContextMixin:
         if verdict.handoff == "operator":
             self._park_planner_question(
                 state, str(verdict.operator_question or reason), reason,
+                options=verdict.operator_options,
             )
         self._enter_pause_backoff()
         self._emit(

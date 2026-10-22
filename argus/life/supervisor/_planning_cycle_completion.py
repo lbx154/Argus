@@ -527,6 +527,7 @@ class PlanningCycleCompletionMixin:
             if verdict.handoff == "operator":
                 self._park_planner_question(
                     state, verdict.operator_question or verdict.reason, verdict.reason,
+                    options=verdict.operator_options,
                 )
             return None
         feedback = self._load_manager_planner_feedback()

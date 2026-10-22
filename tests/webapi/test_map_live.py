@@ -63,20 +63,21 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
             {"type": "life.mission.completed", "item_id": "task-a", "status": "parked",
              "park_reason": "operator_question", "success": False, "ts": 6},
             {"type": "life.operator_question.pending", "item_id": "ask", "agent_layer": "planner",
-             "title": "Planner needs operator direction", "question": "A or B?", "ts": 7},
+             "title": "Planner needs operator direction", "question": "A or B?", "options": ["A", "B"],
+             "ts": 7},
             # Nothing runs: a remark naming no task has no task to stand on.
             {"type": "life.observer.note", "agent_layer": "observer", "to": "manager", "ts": 8, "text": "Idle."},
             {"type": "life.operator_question.answered", "item_id": "ask",
-             "question": "A or B?", "manager_decision": "A", "decided_by": "operator", "ts": 9},
+             "question": "A or B?", "manager_decision": "A", "option": "A", "decided_by": "operator", "ts": 9},
             {"type": "life.mission.started", "item_id": "ask", "agent_layer": "engineer", "ts": 10},
         ):
             f.write(json.dumps(row) + "\n")
     data = read_map(sid, tmp_path, life)
     said = {(e["item_id"], e["type"]): e for e in data["events"]}
     assert (said[("ask", "life.operator_question.pending")]["role"],
-            said[("ask", "life.operator_question.pending")]["text"]) == ("planner", "A or B?")
-    assert (said[("ask", "life.operator_question.answered")]["role"],
-            said[("ask", "life.operator_question.answered")]["text"]) == ("operator", "A")
+            said[("ask", "life.operator_question.pending")]["text"]) == ("planner", "A or B?\n1. A\n2. B")
+    answered = said[("ask", "life.operator_question.answered")]
+    assert (answered["role"], answered["text"], answered["option"]) == ("operator", "A", "A")
     note = said[("task-a", "life.observer.note")]
     assert (note["role"], note["association"]) == ("observer", "single_active_window")
     assert said[("task-a", "life.manager.supervision.applied")]["text"] == "Wait for the operator's choice."

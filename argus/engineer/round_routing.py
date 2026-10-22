@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.models import ReviewDecision, RunnerResult
-from ..core.role_handoff import HANDOFF_STATUS, LADDER, read_baton_line, strip_handoff
+from ..core.operator_decision import normalize_agent_options
+from ..core.role_handoff import HANDOFF_STATUS, LADDER, Handoff, read_baton_line, strip_handoff
 from .round_reviewer import backlog_history
 from .round_state import (
     EngineerTurnOutcome,
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
 
-def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
+def _handoff_record(holder: str, handoff: Handoff | None, message: str) -> ReviewDecision:
     """The round's record of the Engineer handing the work past the Reviewer.
 
     The Engineer's own words, under its own source: the host writes no verdict
@@ -38,7 +39,8 @@ def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
         status=HANDOFF_STATUS[holder],
         reason=strip_handoff(message) or f"Engineer handed the work to the {holder}.",
         next_action="",
-        operator_question=question,
+        operator_question=handoff.question if handoff else "",
+        operator_options=normalize_agent_options(handoff.options if handoff else ()),
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
     )
 
@@ -241,7 +243,7 @@ class RoundRoutingMixin:
         elif passed:
             review = climb_record(passed, holder)
         else:
-            review = _handoff_record(holder, handoff.question if handoff else "", outcome.engineer_message)
+            review = _handoff_record(holder, handoff, outcome.engineer_message)
         return self._settle_round(
             review=review,
             round_index=round_index,
