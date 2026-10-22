@@ -912,10 +912,13 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     assert [option["label"] for option in asked.operator_decision["options"]] == ["Keep A", "Keep B"]
     assert len(backend.calls) == 1
     # 2026-10-22: rounding "consistent with the package's whole-unit functions"
-    # read two ways with two public behaviors; the Manager chose one itself and
-    # the operator never heard of the other.
+    # read two ways with two public behaviors. Told separately that such readings
+    # were the operator's and that reversible decisions were its own, the Manager
+    # chose one itself. The one rule every role shares now settles it, once.
+    from argus.core.operator_context import JUDGMENT_INSTRUCTION
+
     prompt = " ".join(backend.calls[0][0].split())
-    assert "open to readings that change the delivered public behavior is such a choice" in prompt
+    assert JUDGMENT_INSTRUCTION in prompt and prompt.count("readings") == 1
     pending = [
         json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
         if json.loads(line)["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
