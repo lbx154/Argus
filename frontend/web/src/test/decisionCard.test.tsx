@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
@@ -15,9 +16,9 @@ const card = {
   evidence: [{ label: 'Provider log', path: 'logs/run.txt', summary: 'refused' }],
   options_source: 'agent' as const,
   options: [
-    { id: 'recommended', label: 'Use local fallback', description: 'Continue locally.', requires_note: false },
-    { id: 'custom', label: 'Other guidance', description: 'Describe another route.', requires_note: true },
-    { id: 'stop', label: 'Stop this campaign', description: 'Stop.', requires_note: false },
+    { id: 'recommended', label: 'Use local fallback', description: 'Continue locally.' },
+    { id: 'custom', label: 'Other guidance', description: 'Describe another route.' },
+    { id: 'stop', label: 'Stop this campaign', description: 'Stop.' },
   ],
   selected_option: '',
   note: '',
@@ -30,7 +31,6 @@ describe('operator decision cards', () => {
       [{ id: 'legacy', title: 'Legacy', pending_question: 'What now?' }],
     );
     expect(rows.map((row) => row.id)).toEqual(['decision-item-1', 'legacy-legacy']);
-    expect(rows[0].options[1].requires_note).toBe(true);
     expect(rows[1].legacy).toBe(true);
   });
 
@@ -69,9 +69,9 @@ describe('operator decision cards', () => {
         options_source: undefined,
         evidence: [{ label: 'Acceptance check', path: '', summary: 'internal process detail' }],
         options: [
-          { id: 'recommended', label: '按建议继续', description: 'Resume after the operator answers the pending question.', requires_note: false },
-          { id: 'custom', label: '给出其他指示', description: card.question, requires_note: true },
-          { id: 'stop', label: '保留当前结果并停止', description: 'Stop.', requires_note: false },
+          { id: 'recommended', label: '按建议继续', description: 'Resume after the operator answers the pending question.' },
+          { id: 'custom', label: '给出其他指示', description: card.question },
+          { id: 'stop', label: '保留当前结果并停止', description: 'Stop.' },
         ],
       },
     }], []);
@@ -88,7 +88,7 @@ describe('operator decision cards', () => {
     expect(row.options.map((option) => option.id)).toEqual(['custom']);
     expect(row.evidence).toEqual([]);
     expect(html).toContain('Send answer');
-    expect(html).toContain('Write my own answer');
+    expect(html).toContain('Answer in your own words');
     expect(html).not.toContain('按建议继续');
     expect(html).not.toContain('保留当前结果并停止');
   });
@@ -107,6 +107,8 @@ describe('operator decision cards', () => {
     expect(html).toContain('Provider log');
     expect(html).toContain('Use local fallback');
     expect(html).toContain('Stop this campaign');
+    // The written answer is the text box, not one more button.
+    expect(html).not.toContain('Other guidance');
   });
 
   it('prioritizes the current task while retaining other unresolved questions unchanged', () => {
@@ -159,27 +161,33 @@ describe('operator decision cards', () => {
     expect(unknownHtml).not.toContain('<time');
   });
 
-  it('keeps note-required choices clickable so validation can explain the requirement', () => {
-    const html = renderToStaticMarkup(
-      <PendingReplyDialog
-        reply={{
-          ...card,
-          options: [{
-            id: 'needs-note',
-            label: 'Use another format',
-            description: 'Describe the format.',
-            requires_note: true,
-          }],
-        }}
-        open
-        busy={false}
-        onClose={vi.fn()}
-        onSubmit={vi.fn()}
-      />,
-    );
+  it('answers with one click on an option, or with the words typed instead', () => {
+    const [row] = operatorDecisionCards([{ id: 'item-1', operator_decision: {
+      ...card,
+      options: [
+        { id: 'option-1', label: 'Keep the v1 API', description: '' },
+        { id: 'option-2', label: 'Ship the v2 schema', description: '' },
+      ],
+    } }], []);
+    const onSubmit = vi.fn();
+    let view!: ReactTestRenderer;
+    act(() => { view = create(<PendingReplyDialog reply={row} open busy={false} onClose={vi.fn()} onSubmit={onSubmit} />); });
+    const said = (node: ReactTestInstance): string => node.children
+      .map((child) => typeof child === 'string' ? child : said(child)).join('');
+    const button = (label: string) => view.root.findAllByType('button').find((node) => said(node) === label)!;
 
-    expect(html).toContain('Use this option');
-    expect(html).not.toContain('disabled=""');
+    act(() => button('Ship the v2 schema').props.onClick());
+    expect(onSubmit).toHaveBeenLastCalledWith('option-2', '');
+
+    // A written answer needs words; nothing is sent without them.
+    act(() => button('Send answer').props.onClick());
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(view.root.findByProps({ role: 'alert' })).toBeTruthy();
+
+    act(() => view.root.findByType('textarea').props.onChange({ target: { value: 'Keep v1 until June' } }));
+    act(() => button('Send answer').props.onClick());
+    expect(onSubmit).toHaveBeenLastCalledWith('custom', 'Keep v1 until June');
+    act(() => view.unmount());
   });
 });
 
@@ -187,8 +195,8 @@ it('renders a workflow choice as options with optional details and no blocked-ta
   const [row] = operatorDecisionCards([{ operator_decision: {
     ...card, id: 'intake-1', kind: 'domain_intake', item_id: '', options_source: 'workflow',
     title: 'Choose how to proceed', task_title: 'Interpret a calendar date', reason: '', evidence: [],
-    options: [{ id: 'direct', label: 'Do it directly', description: 'One agent.', requires_note: false },
-      { id: 'build', label: 'Build a specialist workflow', description: 'Clarify and research.', requires_note: false }],
+    options: [{ id: 'direct', label: 'Do it directly', description: 'One agent.' },
+      { id: 'build', label: 'Build a specialist workflow', description: 'Clarify and research.' }],
   } }], [], 'old-task');
   const html = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} error="Please retry" onClose={vi.fn()} onSubmit={vi.fn()} />);
   expect(row.kind).toBe('domain_intake');
@@ -197,7 +205,6 @@ it('renders a workflow choice as options with optional details and no blocked-ta
   expect(html).toContain('Do it directly');
   expect(html).toContain('Build a specialist workflow');
   expect(html).toContain('Additional details (optional)');
-  expect(html).toContain('aria-pressed="true"');
   expect(html).toContain('Please retry');
   expect(html).not.toContain('Decision required');
   expect(html).not.toContain('Paused');

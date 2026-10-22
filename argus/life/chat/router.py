@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import os
 import shlex
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -336,10 +337,26 @@ class CommandRouter:
         from ...daemon.life_worker import read_daemon_status
         from ...manager.config_intent import _apply_config_intent
         from ...manager.front_door import manager_triage
-        from ..memory import LifeMemory, MemoryBundle
+        from ...webapi.manager_dispatch import _handle_pending_question_turn, _TurnEmitter
+        from ..memory import MemoryBundle
 
-        mem = LifeMemory.open(self.life_dir)
-        current_task = select_current_running_item(mem.backlog.active())
+        manager_mem = MemoryBundle.for_cwd(
+            fingerprint=self.life_dir.name,
+            global_root=self.life_dir.parent.parent,
+        )
+        # A reply to a waiting question is read as the web chat reads it.
+        answered = _handle_pending_question_turn(
+            manager_mem,
+            [item for item in manager_mem.backlog.active() if item.pending_question.strip()],
+            text,
+            self._state,
+            _TurnEmitter(self.life_dir, f"{self.channel}-{time.time_ns()}", lambda _kind, _payload: None),
+        )
+        if answered is not None:
+            self._reply(_esc(answered["reply"]))
+            return
+
+        current_task = select_current_running_item(manager_mem.backlog.active())
         daemon_status = read_daemon_status(self.life_dir)
         if daemon_status.alive and current_task is not None:
             from ...core.operator_context import import_deterministic_credential
@@ -362,10 +379,6 @@ class CommandRouter:
         text, intent, _control, route = self._intake_operator_text(text.strip())
         if intent is not None:
             confirmations: list[str] = []
-            manager_mem = MemoryBundle.for_cwd(
-                fingerprint=self.life_dir.name,
-                global_root=self.life_dir.parent.parent,
-            )
             if _apply_config_intent(
                 manager_mem,
                 intent,
@@ -376,10 +389,6 @@ class CommandRouter:
                 self._reply("\n".join(confirmations))
                 return
 
-        manager_mem = MemoryBundle.for_cwd(
-            fingerprint=self.life_dir.name,
-            global_root=self.life_dir.parent.parent,
-        )
         from ...manager.front_door import _accepts_parameter
 
         triage_kwargs: dict[str, Any] = {}

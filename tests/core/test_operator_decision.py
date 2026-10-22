@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from argus.core.operator_decision import (
-    build_operator_decision,
-    parse_agent_operator_options,
-    selected_decision_text,
-)
+from argus.core.operator_decision import build_operator_decision, selected_decision_text
 from argus.life.memory import Backlog, BacklogItem
 
 
@@ -70,7 +66,6 @@ def test_card_is_readable_and_uses_item_identity() -> None:
             "id": "local-fallback",
             "label": "Use the local fallback",
             "description": "Keep the same acceptance check.",
-            "requires_note": False,
         }],
         evidence=[{"ref": "logs/run.txt", "why": "provider refusal"}],
         project_id="s-project",
@@ -99,7 +94,6 @@ def test_chinese_decision_uses_operator_language_and_human_reason() -> None:
             "id": "small-shape",
             "label": "先运行单行诊断",
             "description": "使用更小的诊断 shape 后再决定。",
-            "requires_note": False,
         }],
     )
 
@@ -115,26 +109,16 @@ def test_option_selection_is_direct_and_custom_requires_text() -> None:
         reason="r",
         question="q",
         options=[
-            {
-                "id": "fallback",
-                "label": "Use fallback",
-                "description": "Use fallback.",
-                "requires_note": False,
-            },
-            {
-                "id": "custom",
-                "label": "Describe another route",
-                "description": "",
-                "requires_note": True,
-            },
+            {"id": "fallback", "label": "Use fallback", "description": "Use fallback."},
+            {"id": "custom", "label": "Describe another route"},
         ],
     )
 
     assert selected_decision_text(card, "fallback", "") == "Use fallback."
+    # "custom" is the written answer, so an option that claims it is renamed.
     assert card["options"][1]["id"] == "option-2"
-    with pytest.raises(ValueError, match="requires guidance"):
-        selected_decision_text(card, "option-2", "")
-    assert selected_decision_text(card, "option-2", "Try B") == "Try B"
+    assert selected_decision_text(card, "option-2", "") == "Describe another route"
+    assert selected_decision_text(card, "option-2", "Today") == "Describe another route\n\nNote: Today"
     with pytest.raises(ValueError, match="requires an answer"):
         selected_decision_text(card, "custom", "")
     assert selected_decision_text(card, "custom", "Try B") == "Try B"
@@ -153,36 +137,6 @@ def test_missing_agent_options_stays_freeform_without_host_choices() -> None:
     with pytest.raises(ValueError, match="requires an answer"):
         selected_decision_text(card, "custom", "")
     assert selected_decision_text(card, "custom", "Wait for access") == "Wait for access"
-
-
-def test_markdown_wrapped_operator_options_remain_structured() -> None:
-    options = parse_agent_operator_options(
-        "`OPERATOR_QUESTION=Choose A or B`\n"
-        "`OPERATOR_OPTIONS=route-a :: Use A :: Continue with A; "
-        "route-b :: Use B :: Continue with B`"
-    )
-
-    assert [option["id"] for option in options] == ["route-a", "route-b"]
-    assert [option["label"] for option in options] == ["Use A", "Use B"]
-
-
-def test_legacy_agent_option_can_require_guidance() -> None:
-    [option] = parse_agent_operator_options(
-        "OPERATOR_OPTIONS=provide-details :: true :: Provide constraints ::"
-    )
-    card = build_operator_decision(
-        item_id="i",
-        title="t",
-        reason="r",
-        question="Which constraints apply?",
-        options=[option],
-    )
-
-    with pytest.raises(ValueError, match="requires guidance"):
-        selected_decision_text(card, "provide-details", "")
-    assert selected_decision_text(card, "provide-details", "Keep the API stable") == (
-        "Keep the API stable"
-    )
 
 
 def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:

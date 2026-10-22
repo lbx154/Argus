@@ -419,13 +419,15 @@ export function buildSubmap(
     const said = SAID[e.type];
     if (said) {
       const record = readableRecord(e.text);
+      // The Manager may answer in the operator's place; that is not the operator's answer.
+      const byManager = e.type.endsWith(".answered") && e.role !== "operator";
       rows.push({
         id: e.id,
         kind: said.kind,
-        // The Manager may answer in the operator's place; that is not the operator's answer.
-        title: e.type.endsWith(".answered") && e.role !== "operator"
-          ? zh ? "经理替你定了" : "The Manager decided for you"
-          : said.title[zh ? 0 : 1],
+        // An answer that is one of the offered options says so.
+        title: e.option
+          ? byManager ? zh ? "经理替你选了" : "The Manager chose for you" : zh ? "你选了" : "You chose"
+          : byManager ? zh ? "经理替你定了" : "The Manager decided for you" : said.title[zh ? 0 : 1],
         summary: clipSentence(record) || undefined,
         detail: record || noDetails(zh),
         status: "recorded",

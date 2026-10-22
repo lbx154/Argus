@@ -8,6 +8,7 @@ from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_footer_instruction
+from ...core.role_handoff import OPERATOR_CHOICES_RULE
 from ..task_contract import (
     EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_summary,
@@ -80,6 +81,7 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   the operator can unblock it). You are called again when something new arrives:
   a mission ends, the operator writes, the Manager directs. Invent no work that
   needs results still in flight.
+- """ + OPERATOR_CHOICES_RULE + """
 - REASON and PLAN_REASON are operator-facing: one plain sentence in the operator's
   language with the decision and next step, as a colleague would say it; no field
   names, status tokens, routine steps or Argus's own bookkeeping (waiting notes,

@@ -1,4 +1,3 @@
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -27,10 +26,8 @@ def test_web_opt_in_clarification_and_dispatch_create_one_real_candidate(tmp_pat
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             calls.append((prompt, options, run_label, resume_thread_id))
             if len(calls) == 1:
-                reply = 'Decision:\nDOMAIN_ACTION=ASK\nDOMAIN_QUESTION=Explain cultural conventions or convert dates?\nOPERATOR_OPTIONS=' + json.dumps([
-                    {"label": "Cultural education", "description": "Cite conventions and state uncertainty"},
-                    {"label": "Date conversion", "description": "Produce a calendar comparison"},
-                ])
+                reply = ('Decision:\nDOMAIN_ACTION=ASK\nDOMAIN_QUESTION=Explain cultural conventions or convert dates?\n'
+                         '- Cultural education\n- Date conversion')
             else:
                 assert 'Cultural education' in prompt
                 reply = ('Decision:\nDOMAIN_ACTION=PREPARE\nDOMAIN_NAME=calendar_conventions\n'

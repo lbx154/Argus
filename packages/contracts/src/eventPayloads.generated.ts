@@ -443,7 +443,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "reason": string;
   "next_action"?: string;
   "operator_question"?: string;
-  "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
+  "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; }>;
   "review_source"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
@@ -722,6 +722,7 @@ export interface LifeOperatorQuestionPendingEvent extends EventMsg {
   "title"?: string;
   "question": string;
   "agent_layer"?: string;
+  "options"?: Array<string>;
 }
 
 export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
@@ -730,6 +731,7 @@ export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
   "item_id": string;
   "question": string;
   "manager_decision": string;
+  "option"?: string;
   "decision_id"?: string;
   "decision_revision"?: number | null;
   "campaign_generation"?: number | null;

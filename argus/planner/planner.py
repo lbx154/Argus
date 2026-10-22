@@ -144,10 +144,12 @@ class PlannerVerdict:
     # The holder the Planner's baton line names (docs/role-handoff-design.md):
     # ``engineer`` -- the work in flight goes on and nothing new starts now;
     # ``manager`` -- the stage blocks the plan; ``operator`` -- only the
-    # operator can unblock it, asked ``operator_question``. Empty without one.
+    # operator can unblock it, asked ``operator_question`` with the answers
+    # listed under it, ``operator_options``. Empty without one.
     # The Planner is called again when something new is handed to it.
     handoff: str = ""
     operator_question: str = ""
+    operator_options: tuple[str, ...] = ()
     advance_to_stage: str = ""
     # Host-visible, non-error parser degradations. The Supervisor emits these
     # separately so malformed formality fields never masquerade as a failed
@@ -1297,6 +1299,7 @@ def _planner_verdict_from_fields(
         advance_to_stage=advance_to_stage,
         handoff=handoff,
         operator_question=baton.question if baton is not None else "",
+        operator_options=baton.options if baton is not None else (),
         new_tasks=new_tasks,
         diagnostics=tuple(diagnostics),
         retire_tasks=retire_tasks,
@@ -1312,6 +1315,7 @@ def _finish_planner_verdict(
     new_tasks: list[TaskSpec],
     handoff: str = "",
     operator_question: str = "",
+    operator_options: tuple[str, ...] = (),
     diagnostics: tuple[str, ...] = (),
     retire_tasks: tuple[tuple[str, str], ...] = (),
 ) -> PlannerVerdict:
@@ -1340,6 +1344,7 @@ def _finish_planner_verdict(
             raw_text=text,
             handoff=handoff,
             operator_question=operator_question,
+            operator_options=operator_options,
             advance_to_stage=advance_to_stage,
             diagnostics=diagnostics,
             retire_tasks=retire_tasks,

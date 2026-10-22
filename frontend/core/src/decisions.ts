@@ -15,7 +15,6 @@ const customDecisionOption = (title: string, question: string): DecisionOption =
     id: 'custom',
     label: chinese ? '自己输入' : 'Write my own answer',
     description: chinese ? '直接告诉 Argus 你的决定。' : 'Tell Argus your decision directly.',
-    requires_note: true,
   };
 };
 
@@ -47,7 +46,6 @@ export function operatorDecisionCards(
             .filter((option) => (
               Boolean(text(option?.id)) && Boolean(text(option?.label))
             ))
-            .map((option) => ({ ...option, requires_note: option.requires_note === true }))
         : [];
       if (!options.some(option => option.id === 'custom')) {
         options.push(customDecisionOption(text(card.title), text(card.question)));

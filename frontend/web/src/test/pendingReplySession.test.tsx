@@ -243,8 +243,8 @@ it('opens an intake on the map, submits its typed choice once, and retains the d
     id: 'intake-new', kind: 'domain_intake', item_id: '', status: 'pending',
     title: 'Choose how to proceed', task_title: 'Interpret a calendar date', question: 'How should I proceed?',
     options_source: 'workflow', options: [
-      { id: 'direct', label: 'Do it directly', requires_note: false },
-      { id: 'build', label: 'Build a specialist workflow', requires_note: false },
+      { id: 'direct', label: 'Do it directly' },
+      { id: 'build', label: 'Build a specialist workflow' },
     ],
   } }];
   let finish!: (value: { kind: string; reply: string }) => void;
@@ -253,12 +253,9 @@ it('opens an intake on the map, submits its typed choice once, and retains the d
   act(() => { renderer = create(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />); });
   expect(taskSession.pendingReplyOpen).toBe(true);
   act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Include sources' } }));
-  act(() => renderer!.root.findAllByType('button').find(b => b.props.children?.[0]?.props?.children === 'Build a specialist workflow')!.props.onClick());
-  let answer!: Promise<void>;
-  act(() => {
-    answer = taskSession.answerPendingReply('build', 'Include sources');
-    void taskSession.answerPendingReply('build', 'Include sources');
-  });
+  // One click on the choice sends it with the details; a second click sends nothing more.
+  const build = renderer!.root.findAllByType('button').find(b => b.props.children?.[0]?.props?.children === 'Build a specialist workflow')!;
+  act(() => { build.props.onClick(); build.props.onClick(); });
   expect(api.answerDomain).toHaveBeenCalledExactlyOnceWith('s-1', 'intake-new', 'build', 'Include sources');
   expect(api.resolveDecision).not.toHaveBeenCalled();
   expect(taskSession.pendingReplyBusy).toBe(true);
@@ -266,7 +263,10 @@ it('opens an intake on the map, submits its typed choice once, and retains the d
   expect(taskSession.pendingReplyOpen).toBe(true);
   expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
   act(() => renderer!.update(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />));
-  await act(async () => { finish({ kind: 'error', reply: 'Temporary failure' }); await answer; });
+  await act(async () => {
+    finish({ kind: 'error', reply: 'Temporary failure' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
   expect(taskSession.pendingReplyOpen).toBe(true);
   expect(taskSession.pendingReplyError).toBe('Temporary failure');
   expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');

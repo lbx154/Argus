@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.role_handoff import Handoff, read_baton_line, strip_handoff
+from argus.core.role_handoff import Handoff, listed_choices, read_baton_line, strip_handoff
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.roles.prompts import engineer as engineer_prompts
@@ -110,6 +110,42 @@ def test_an_arrow_quoted_from_the_task_does_not_route() -> None:
     assert read_baton_line("I changed the parser.\n-> next I will profile it") is None
 
 
+@pytest.mark.parametrize("text, options", [
+    ("Two parsers fit.\n→ operator: Keep the old date format?\n- Keep it\n- Switch to ISO",
+     ("Keep it", "Switch to ISO")),
+    ("Two parsers fit.\nDecision:\n→ operator: Keep it?\n\n1. Keep it\n2) Switch", ("Keep it", "Switch")),
+    ("Two parsers fit.\n→ operator: Keep it?\n* **Keep it**\n• Switch", ("**Keep it**", "Switch")),
+    # Choices do not count toward the closing five lines.
+    ("Two parsers fit.\n→ operator: Which?\n" + "\n".join(f"- Parser {n}" for n in range(6)),
+     tuple(f"Parser {n}" for n in range(6))),
+])
+def test_an_operator_question_lists_its_options_under_the_line(text: str, options: tuple[str, ...]) -> None:
+    handoff = read_baton_line(text)
+    assert handoff is not None and handoff.holder == "operator"
+    assert handoff.options == options
+    assert strip_handoff(text) == "Two parsers fit."
+
+
+@pytest.mark.parametrize("text", [
+    "Two parsers fit.\n→ operator: Keep the old date format?",
+    "Two parsers fit.\n→ operator: Keep the old date format?\n- Keep it\nThanks for reading.",
+    "Two parsers fit.\n→ operator: Keep the old date format?\nKeep it / Switch to ISO",
+    "Two parsers fit.\n- Keep it\n- Switch to ISO\n→ operator: Keep the old date format?",
+])
+def test_a_list_that_cannot_be_read_as_options_leaves_the_question_standing(text: str) -> None:
+    assert read_baton_line(text) == Handoff("operator", "Keep the old date format?")
+
+
+def test_the_same_list_reads_under_any_question() -> None:
+    assert listed_choices("DOMAIN_QUESTION=Which?\n- Keep it\n\n2. Switch") == ("Keep it", "Switch")
+    assert listed_choices("DOMAIN_QUESTION=Keep it or switch?") == ()
+
+
+def test_a_list_under_another_holder_is_prose_not_options() -> None:
+    assert read_baton_line("Built it.\n→ reviewer\n- tests pass") == Handoff("reviewer")
+    assert strip_handoff("Built it.\n→ reviewer\n- tests pass") == "Built it.\n- tests pass"
+
+
 def test_a_person_reads_the_prose_without_the_protocol() -> None:
     assert strip_handoff("Built it.\n→ reviewer") == "Built it."
     assert strip_handoff(
@@ -161,6 +197,21 @@ def test_an_operator_question_parks_however_it_is_worded(tmp_path: Path) -> None
     review = rounds[0].review
     assert (review.status, review.review_source) == ("blocked", "engineer_handoff")
     assert review.operator_question == "Keep the old date format?"
+    assert review.operator_options == []
+
+
+def test_the_engineer_offers_the_operator_options(tmp_path: Path) -> None:
+    _result, rounds, _labels = _run(
+        tmp_path,
+        ("engineer-r1", CannedResponse(
+            message="Two parsers fit.\n→ operator: Keep the old date format?\n- Keep it\n- Switch to ISO",
+        )),
+    )
+    review = rounds[0].review
+    assert review.reason == "Two parsers fit."
+    assert [(option["id"], option["label"]) for option in review.operator_options] == [
+        ("option-1", "Keep it"), ("option-2", "Switch to ISO"),
+    ]
 
 
 @pytest.mark.parametrize("message", ["Built the parser.\n→ reviewer", "Built the parser."])
@@ -179,6 +230,8 @@ def test_the_reviewer_is_reached_even_where_review_is_optional(tmp_path: Path, m
     ("→ planner", "replan_requested", ""),
     ("→ manager", "blocked", ""),
     ("→ operator: Which licence may the dataset use?", "blocked", "Which licence may the dataset use?"),
+    ("→ operator: Which licence may the dataset use?\n- MIT\n- CC-BY", "blocked",
+     "Which licence may the dataset use?"),
 ])
 def test_the_reviewer_hands_the_work_on_with_the_same_line(
     tmp_path: Path, line: str, status: str, question: str,
@@ -195,6 +248,7 @@ def test_the_reviewer_hands_the_work_on_with_the_same_line(
     review = rounds[0].review
     assert (review.status, review.review_source, review.operator_question) == (status, "reviewer", question)
     assert review.reason == "The criteria contradict each other."
+    assert [option["label"] for option in review.operator_options] == ["MIT", "CC-BY"] * ("- MIT" in line)
 
 
 def test_done_without_required_review_settles_on_the_line(tmp_path: Path) -> None:
@@ -220,8 +274,9 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
         "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-        "`→ operator: <one question>`. The Reviewer you hand to with `→ reviewer` "
-        "does the independent review; do not start a review of your own."
+        "`→ operator: <one question>`. When the operator picks among a few answers, "
+        "list each under `→ operator:` as `- <answer>`. The Reviewer you hand to with "
+        "`→ reviewer` does the independent review; do not start a review of your own."
     )
 
 

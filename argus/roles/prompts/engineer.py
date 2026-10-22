@@ -10,6 +10,7 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.paths import NATIVE_SKILLS_DIR
+from ...core.role_handoff import OPERATOR_CHOICES_RULE
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     EXPERIMENT_EVIDENCE_CONTRACT,
@@ -55,8 +56,9 @@ _HANDOFF_RULE = (
     "→ reviewer\n"
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
     "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-    "`→ operator: <one question>`. The Reviewer you hand to with `→ reviewer` "
-    "does the independent review; do not start a review of your own."
+    "`→ operator: <one question>`. " + OPERATOR_CHOICES_RULE + " The Reviewer you "
+    "hand to with `→ reviewer` does the independent review; do not start a review "
+    "of your own."
 )
 
 

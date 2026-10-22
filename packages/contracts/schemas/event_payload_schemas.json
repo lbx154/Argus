@@ -1604,9 +1604,6 @@
               },
               "description": {
                 "type": "string"
-              },
-              "requires_note": {
-                "type": "boolean"
               }
             }
           }
@@ -2513,6 +2510,12 @@
         },
         "agent_layer": {
           "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -2535,6 +2538,9 @@
         "manager_decision": {
           "type": "string",
           "minLength": 1
+        },
+        "option": {
+          "type": "string"
         },
         "decision_id": {
           "type": "string"

@@ -179,9 +179,11 @@ def pending_question_message(
     ]
     choices = [choice for choice in choices if choice]
     if choices:
+        # Numbered, so a phone answers with one digit.
         lines += [
             "",
-            ("可选：" if chinese else "Options: ") + " / ".join(choices[:6]),
+            "可选（回复编号即可）：" if chinese else "Options (reply with a number):",
+            *(f"{number}. {choice}" for number, choice in enumerate(choices, 1)),
         ]
     lines += [
         "",
@@ -251,9 +253,11 @@ def ask_operator(
     save(park_reason="operator_question", pending_question=question, operator_decision=card)
     item.pending_question, item.operator_decision = question, card
     notify_pending_question(root, item)
+    choices = [option["label"] for option in card["options"]]
     emit({
         "type": EventType.LIFE_OPERATOR_QUESTION_PENDING, "item_id": item.id,
         "title": item.title, "question": question, "agent_layer": layer,
+        **({"options": choices} if choices else {}),
     })
 
 

@@ -351,7 +351,7 @@ class ReviewActions:
             raise ValueError("The research assessment is incomplete.")
         self._check_grounding(payload)
         status = HANDOFF_STATUS[holder]
-        options = []
+        options = handoff.options
         if isinstance(payload.get("accept_risk"), dict):
             from ..core.residual_risk import acceptance_options
 

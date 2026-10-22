@@ -12,6 +12,7 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.role_decision import decision_footer_instruction
+from ...core.role_handoff import OPERATOR_CHOICES_RULE
 from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
@@ -260,6 +261,12 @@ def build_self_learning_note(workspace: Path) -> str:
 
 def build_pending_question_prompt(item: Any, answer: str) -> str:
     question = str(getattr(item, "pending_question", "") or "").strip()
+    # The answers the card offers, numbered as the operator was shown them.
+    card = getattr(item, "operator_decision", None) or {}
+    offered = "".join(
+        f"\n{number}. {option.get('label')}"
+        for number, option in enumerate(card.get("options") or (), 1)
+    )
     return (
         "You are the Manager resolving a question that only the operator can answer "
         "for an existing mission. Interpret the response in the context of why work paused. "
@@ -287,7 +294,8 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
         f"Blocked mission title: {item.title}\n"
         f"Blocked mission objective:\n{item.objective}\n\n"
         f"Reviewer question:\n{question}\n\n"
-        f"Operator response:\n{answer.strip()}"
+        + (f"Answers offered, by number:{offered}\n\n" if offered else "")
+        + f"Operator response:\n{answer.strip()}"
     )
 
 
@@ -593,7 +601,7 @@ def build_vertical_decision_prompt(
         "If the operator must decide something before any work can start, such as "
         "a choice they reserved or requirements that contradict each other, end "
         "with `→ operator: <one question>`: the task then waits for their answer "
-        "instead of starting.\n\n"
+        "instead of starting. " + OPERATOR_CHOICES_RULE + "\n\n"
         "## Built-in verticals\n"
         f"{menu}\n\n"
         "## Optional research domains\n"
