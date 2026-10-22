@@ -84,6 +84,46 @@ loginctl enable-linger SERVICE_USER
 ```
 
 A system service configured with `User=SERVICE_USER` is another deployment option.
+
+### Weekly metrics report
+
+`python -m argus.tools.weekly_report` sums the last full ISO week (UTC) across
+every project under the Argus home: tasks started, passed, failed and parked,
+success rate, first-round pass rate, reviews per passed task, spend, cost per
+passed task, and the change from the week before. Pass project state directories
+or another home as arguments, `--week 2026-W42` for another week, and `--json`
+for JSON. The daemon does not schedule it (each daemon serves one project); a
+timer does. With `--out` it also writes `<week>.md` and `<week>.json`:
+
+```ini
+# ~/.config/systemd/user/argus-weekly-report.service
+[Unit]
+Description=Argus weekly metrics report
+
+[Service]
+Type=oneshot
+ExecStart=/srv/Argus/.venv/bin/python -m argus.tools.weekly_report /srv/argus-state --out /srv/argus-state/reports/weekly
+
+# ~/.config/systemd/user/argus-weekly-report.timer
+[Unit]
+Description=Write the Argus weekly metrics report every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 01:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now argus-weekly-report.timer
+```
+
+Without systemd, a crontab line does the same:
+`0 1 * * 1 /srv/Argus/.venv/bin/python -m argus.tools.weekly_report /srv/argus-state --out /srv/argus-state/reports/weekly`
+(cron uses the machine's time zone; the report's weeks are UTC either way).
 The web/API server can have its own service. Losing the web process or an SSH
 tunnel makes that client connection unavailable; the independent project daemon
 continues working. These are deployment examples, not services installed by the
