@@ -833,6 +833,7 @@ cleared, with success rate and cost improving as experience grows.
 `0.2` · `S` · Depends on: none · good first issue
 - Today: on the old instance, 16 of 36 learning runs changed nothing at all.
 - Do: analyze why and write it up as a report.
+- Status: report done (`e7d31388`, [docs/audits/le5-empty-learning-2026-10-22.md](audits/le5-empty-learning-2026-10-22.md)). The old instance's records of the 36 runs are not in the repository or on the machine, so the breakdown of the 16 cannot be checked; the report lists every path in code that ends with no change, including retiring a page or adding a reviewed fact, which are recorded as unchanged. An unchanged learning receipt now names its cause (`outcome.detail`), so the next instance can be counted directly.
 
 #### LE-6 Try a local semantic search model
 `0.8` · `M` · Depends on: LE-1
