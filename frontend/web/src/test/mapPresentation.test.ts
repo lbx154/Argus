@@ -176,6 +176,16 @@ it("leads the brief with a question waiting on the reader, then the work under w
   expect([finished.goal, finished.current]).toEqual(["Pick A or B for truncate", "已完成"]);
 });
 
+it("says the next step once, under the brief's own Next label", () => {
+  // 2026-10-21: the map read 接下来：下一步：回答这个问题.
+  const asked: MapTask = { id: "q", title: "Settle truncate", objective: "Pick A or B", status: "parked", deps: [], ts: 1, pending_question: "A or B?" };
+  const failed: MapTask = { id: "f", title: "Port the parser", objective: "Port it", status: "failed", deps: [], ts: 1, finished_ts: 2 };
+  const queued: MapTask = { id: "p", title: "Write the notes", objective: "Notes", status: "pending", deps: [], ts: 3 };
+  expect([[asked], [failed], [queued]].map((tasks) => projectBrief(tasks, [], true).next))
+    .toEqual(["回答这个问题，团队才会继续。", "查看原因后重试，或在对话里调整任务。", "待做任务：Write the notes"]);
+  for (const tasks of [[asked], [failed], [queued]]) expect(projectBrief(tasks, [], false).next).not.toMatch(/^Next/);
+});
+
 it("leaves malformed reference fields as editable text", () => {
   const malformed =
     '[[Argus引用 {"source":"live:s","task_id":"a","task_title":{},"event_ids":[]}]]';

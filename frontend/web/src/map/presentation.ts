@@ -30,7 +30,8 @@ function recordedDetail(task: MapTask): string {
 
 /** What waits on the reader, as a short reason and next step in the reader's
  * language, with the agent's own (possibly other-language) words kept apart
- * as detail rather than shown as the headline.
+ * as detail rather than shown as the headline. The next step is a plain
+ * instruction with no "Next:" of its own; the brief shows it under that label.
  *
  * ``written`` is the plain-language account of this task's outcome that the
  * writer already produced in the reader's language, when one is cached. A
@@ -41,7 +42,7 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   { reason: string; next: string; detail: string; showDetail: boolean } {
   if (task.pending_question) return {
     reason: task.pending_question,
-    next: zh ? "下一步：回答这个问题，团队才会继续。" : "Next: answer this question so the team can continue.",
+    next: zh ? "回答这个问题，团队才会继续。" : "Answer this question so the team can continue.",
     detail: "",
     showDetail: false,
   };
@@ -69,7 +70,7 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   const detail = recordedDetail(task);
   return {
     reason: zh ? `执行失败：${reason}` : `Execution failed: ${reason}`,
-    next: zh ? "下一步：查看原因后重试，或在对话里调整任务。" : "Next: check the reason, then retry or adjust the task in the conversation.",
+    next: zh ? "查看原因后重试，或在对话里调整任务。" : "Check the reason, then retry or adjust the task in the conversation.",
     detail: detail && !reason.includes(detail) ? detail : "",
     showDetail: false,
   };
@@ -119,12 +120,10 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
     : focus ? label(focus) : zh ? '可以开始新任务' : 'Ready for a new task';
   const next = focus && ["question", "held", "failed", "review_unavailable"].includes(statusKey(focus))
     ? attentionSummary(focus, events, zh, written(focus)).next
-    : running
-      ? queued
-        ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued next: ${clip(queued.title, 70)}`
-        : zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
-      : queued
-        ? zh ? `下一步：${clip(queued.title, 60)}` : `Next: ${clip(queued.title, 60)}`
+    : queued
+      ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued: ${clip(queued.title, 70)}`
+      : running
+        ? zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
         : accepted
           ? zh ? "可以查看结果，或继续提出要求。" : "Read the result, or tell me what to do next."
           : zh ? "还没有后续任务，可在对话里告诉我接下来做什么。" : "Nothing else is scheduled. Tell me what to do next in the conversation.";
