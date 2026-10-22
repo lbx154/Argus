@@ -105,6 +105,23 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
   );
 });
 
+test("a round the Engineer handed on is the Engineer's, as the web feed says it", () => {
+  // Trial s-6f0e6213: no Reviewer ran, and the row said the Reviewer found the work stuck.
+  assert.deepEqual(
+    renderEvent({
+      type: 'round.review.completed', status: 'blocked', reason: 'Rounding rules conflict.',
+      review_source: 'engineer_handoff',
+    } as EventMsg),
+    {
+      role: 'engineer',
+      label: 'Engineer',
+      glyph: '⛔',
+      text: 'the Engineer handed the work to the Manager to decide · Rounding rules conflict.',
+      tone: 'err',
+    },
+  );
+});
+
 test('agent speech and task handoffs remain fully readable', () => {
   const message = `Implemented the harness.\n${'verification detail '.repeat(40)}`;
   const speech = renderEvent({

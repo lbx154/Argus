@@ -117,10 +117,14 @@ def render_operator_update(
     park_reason: str = "",
     reason: str = "",
     next_action: str = "",
-    user_action_required: bool = False,
+    holder: str = "",
     language_hint: str = "",
 ) -> str:
-    """Render structured runtime state as a short, plain operator update."""
+    """Render structured runtime state as a short, plain operator update.
+
+    ``holder`` is who the work waits on now: ``operator``, ``manager``, or
+    no one named, when Argus itself looks for the way forward.
+    """
     chinese = uses_cjk(language_hint or title)
     subject = brief_title(title) or say("this_task", chinese)
     state = str(status or "").strip().lower()
@@ -151,9 +155,11 @@ def render_operator_update(
         # A finished task's note is what it found, not why it stopped.
         lines.append(why if finished else say("update_reason", chinese, why=why))
     if action:
-        lines.append(say("update_your_call" if user_action_required else "update_next", chinese, action=action))
+        lines.append(say("update_your_call" if holder == "operator" else "update_next", chinese, action=action))
     elif not (finished or canceled):
-        lines.append(say("update_needs_decision" if user_action_required else "update_will_investigate", chinese))
+        lines.append(say({
+            "operator": "update_needs_decision", "manager": "update_manager_decides",
+        }.get(holder, "update_will_investigate"), chinese))
     return "\n".join(lines)
 
 

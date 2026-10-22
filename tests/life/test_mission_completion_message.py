@@ -364,10 +364,64 @@ def test_a_task_finished_while_another_waits_on_the_operator_is_only_that_item(t
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
+    # Trial s-36ca9747: it said "计划里的其他工作还在进行" while the other item
+    # only waited on the operator's answer.
     assert text == (
-        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。\n"
+        "这一项做完了，独立审阅也没发现要改的地方；另一项在等你回答。\n"
         "`char_count` 已完整交付。"
     )
+
+
+def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path) -> None:
+    """Trial s-6f0e6213: the Engineer handed a rounding conflict to the Manager;
+    the message said its reason twice and "接下来：我先查清原因"."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "给 timefmt 加一个 format_hours(seconds)。")
+    reason = "暂未实现：现有舍入规则冲突。\n\n产品代码保持不变；现有测试通过。"
+    supervisor._emit({
+        "type": "life.mission.completed", "item_id": "task-hours", "title": "为 timefmt 添加整小时格式化函数",
+        "success": False, "status": "parked", "park_reason": "research_open",
+        "review_source": "engineer_handoff", "stop_reason": reason, "failure_reason": reason,
+        "summary": " ".join(reason.split()), "operator_question": "",
+        "outcome": {"review_status": "blocked", "execution_status": "paused"},
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )["text"]
+    assert text == (
+        "「为 timefmt 添加整小时格式化函数」暂时做不下去了。\n"
+        f"原因：{reason}\n"
+        "接下来：经理在定怎么继续。"
+    )
+
+
+def test_a_step_of_a_continuing_project_is_named_as_a_step(tmp_path) -> None:
+    """Trial s-6f0e6213 read "做完一步：实现并独立审阅整小时格式化功能"."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, continuous_objective="timefmt", open_ended=True),
+    )
+    append_turn(memory.root, "operator", "给 timefmt 加一个 format_hours(seconds)。")
+    supervisor._emit({
+        "type": "life.mission.completed", "item_id": "task-hours", "title": "实现并独立审阅整小时格式化功能",
+        "success": True, "status": "done", "summary": "format_hours 已通过独立审阅。",
+        "outcome": {"review_status": "done"},
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )["text"]
+    assert text.splitlines()[0] == "「实现并独立审阅整小时格式化功能」这一步做完了。"
 
 
 def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:

@@ -118,6 +118,18 @@ def _parts(path: str) -> list[str]:
 # The root of a knowledge wiki: a project's own under ``.autors``, the shared
 # ones under the Argus home (``wiki/_global``, ``wiki/_shared_verticals/<v>``).
 _WIKI_ROOTS = ((".autors", "*", "wiki"), ("wiki", "_global"), ("wiki", "_shared_verticals", "*"))
+# The root of a skill library: the shared and per-project ones under the Argus
+# home, and the ones Argus ships.
+_SKILL_ROOTS = (
+    ("state", "skills"), ("state", "projects", "*", "skills"), ("argus", "builtin_skills"),
+    ("argus", "verticals", "*", "skills"), ("argus", "domains", "*", "skills"),
+)
+# Libraries the roles read as material: what a file in one is called, and the library.
+_LIBRARIES = ((_WIKI_ROOTS, "知识页", "知识库"), (_SKILL_ROOTS, "技能", "技能库"))
+# Where a role leaves its notes for whoever holds the task next.
+_HANDOFF_ROOTS = (("state", "projects", "*", "handoffs"),)
+# Tools that start a helper agent on part of the work.
+_HELPER_TOOLS = frozenset({"task", "agent"})
 # Path segments that only Argus' own plumbing uses: session stores, shared
 # skill libraries and wikis, handoff checkpoints, the shipped verticals, and
 # the installed Argus package itself (its built-in skills).
@@ -146,12 +158,13 @@ def _phrase(verb: str, target: str) -> str:
 def _short_name(path: str, workspace: str = "") -> str:
     """Return a path the operator can read: a basename, never an absolute path.
 
-    Files of Argus' own plumbing (session stores, skill libraries) are named
-    as such rather than spelled out; a page of a knowledge wiki, the
-    project's own or a shared one, is named as the page it is, because roles
-    read it as material. Any other file -- including a repository outside
-    the session workspace that the operator asked about -- is named by its
-    file name, because reading it is the work.
+    Files of Argus' own plumbing (session stores) are named as such rather
+    than spelled out. A page of a knowledge wiki or a skill of a skill
+    library, the project's own or a shared one, is named as the page or
+    skill it is, because roles read it as material; a role's notes for the
+    next holder are named as those notes. Any other file -- including a
+    repository outside the session workspace that the operator asked about
+    -- is named by its file name, because reading it is the work.
     """
     text = str(path or "").strip().strip("'\"")
     parts = _parts(text)
@@ -159,9 +172,14 @@ def _short_name(path: str, workspace: str = "") -> str:
         return text
     if _TOOL_OUTPUT_FILE.search(parts[-1]):
         return "工具输出"
-    wiki = _marker_end(parts, _WIKI_ROOTS)
-    if wiki:
-        return f"知识页 {os.path.splitext(parts[-1])[0]}" if len(parts) > wiki else "知识库"
+    for roots, item, library in _LIBRARIES:
+        root = _marker_end(parts, roots)
+        if root:
+            # A file in the library is one of its pages; a folder in it is the library.
+            name, extension = os.path.splitext(parts[-1])
+            return f"{item} {name}" if len(parts) > root and extension else library
+    if _marker_end(parts, _HANDOFF_ROOTS):
+        return "交接记录"
     if _marker_end(parts, _PLUMBING_SEGMENTS):
         return _INTERNAL_FILE
     if workspace and os.path.normpath(text) == os.path.normpath(workspace):
@@ -224,7 +242,7 @@ def _readable_glob(pattern: str) -> str:
     A glob is read as "which files": the directory part becomes the folder
     the search ran in (last segment only) and the file part becomes the kind
     of file, so no slash reaches the status line. A pattern with ``{a,b}``
-    alternatives reads as plain "files".
+    alternatives, or any other wildcard, reads as plain "files".
     """
     text = pattern.strip().strip("'\"").replace("\\", "/")
     if "{" in text:
@@ -236,6 +254,8 @@ def _readable_glob(pattern: str) -> str:
         what = "所有文件"
     elif re.fullmatch(r"\*\.[\w.]+", leaf):
         what = f"{leaf[1:]} 文件"
+    elif re.search(r"[*?\[]", leaf):
+        what = "文件"
     else:
         what = _clip(leaf, 40)
     return _clip(_phrase(f"{folders[-1]} 里的", what) if folders else what, 60)
@@ -281,6 +301,10 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     if verb == "edit":
         target = _short_name(path, workspace)
         return _phrase("修改", target) if target else "修改文件"
+    if name.strip().lower() in _HELPER_TOOLS:
+        # A helper the role starts: say what it was given, not the tool's name.
+        what = _first_value(payload, ("description",))
+        return f"交给子助手：{_clip(what, 48)}" if what else "交给一个子助手"
     # The Reviewer's verdict goes through Argus' own action, not a tool of the work.
     return "提交审阅结论" if name.endswith("submit_review") else f"调用 {name}"
 
@@ -349,10 +373,11 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         if kind == "tool_result":
             status = str(event.get("status") or "").strip().lower()
             name = " ".join(str(event.get("tool_name") or "").split())
+            # A result names paths the way a command line does.
             if name and status:
-                excerpt = " ".join(str(event.get("output_excerpt") or "").split())
+                excerpt = plain_command(" ".join(str(event.get("output_excerpt") or "").split()))
                 return _clip(f"↳ {name} · {status}", _LABEL_LIMIT), _clip(excerpt, _DETAIL_LIMIT)
-            first = _first_line(raw_text)
+            first = plain_command(_first_line(raw_text))
             return (_clip(f"↳ {first}", _LABEL_LIMIT) if first else "reading a tool result"), ""
 
         if kind in REPLY_KINDS:

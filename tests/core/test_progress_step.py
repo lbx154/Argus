@@ -65,6 +65,9 @@ _WS = "/work/proj"
         ('view: {"path": "/work/proj"}', "查阅项目目录"),
         ('argus_review_actions-submit_review: {"review": "ok"}', "提交审阅结论"),
         ('mystery_tool: {"x": 1}', "调用 mystery_tool"),
+        # Trial s-6f0e6213 read "调用 task": a helper agent the role starts.
+        ('task: {"description": "独立审阅小时格式化接口", "prompt": "..."}', "交给子助手：独立审阅小时格式化接口"),
+        ('task: {"prompt": "..."}', "交给一个子助手"),
     ],
 )
 def test_tool_step_reads_as_verb_and_object(text: str, expected: str) -> None:
@@ -91,8 +94,8 @@ _MISSION = {"kind": "tool_use", "item_id": "7c17ec4c586c", "actor": "reviewer"}
 
 def test_mission_level_item_id_does_not_merge_distinct_calls() -> None:
     dedupe = ProgressDeduper()
-    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/skills/a/skill.md"}'}
-    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/skills/b/notes.md"}'}
+    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/projects/a/meta.json"}'}
+    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/projects/b/meta.json"}'}
     label = describe_progress_step(first, _WS)[0]
     assert label == describe_progress_step(second, _WS)[0] == "查阅 Argus 内部文件"
     assert dedupe.classify(first, label) == "new"
@@ -126,6 +129,9 @@ def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
         ('glob: {"pattern": "{pyproject.toml,setup.cfg,setup.py,pytest.ini}"}', "查找文件"),
         ('glob: {"pattern": "{*,root/**,reviewer/**}*{review,truncate,boundary}*"}', "查找文件"),
         ('glob: {"pattern": "**/*.{py,ts}"}', "查找文件"),
+        # Trial s-36ca9747 read "查找 .*"; any other wildcard is files too.
+        ('glob: {"pattern": ".*"}', "查找文件"),
+        ('glob: {"pattern": "tests/test_*.py"}', "查找 tests 里的文件"),
         ('rg: {"pattern": "route", "paths": "/work/proj/notes.md"}', "搜索：route"),
         ('grep: {"query": "see /work/proj/deep/notes.md"}', "搜索：see notes.md"),
     ],
@@ -137,7 +143,7 @@ def test_search_patterns_read_without_slashes(text: str, expected: str) -> None:
 
 
 def test_workspace_from_the_caller_marks_internal_files() -> None:
-    event = {"kind": "tool_use", "text": 'view: {"path": "/runtime/argus/verticals/research/skills/playbook.md"}'}
+    event = {"kind": "tool_use", "text": 'view: {"path": "/runtime/argus/verticals/research/README.md"}'}
     assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
     inside = {"kind": "tool_use", "text": 'view: {"path": "/work/proj/RESEARCH_NOTES.md"}'}
     assert describe_progress_step(inside, _WS)[0] == "查阅 RESEARCH_NOTES.md"
@@ -149,8 +155,7 @@ def test_workspace_from_the_caller_marks_internal_files() -> None:
         # A repository the operator asked about lives outside the session
         # workspace; reading it is project work, not Argus plumbing.
         ("/data/someone/subject-repo/README.md", "查阅 README.md"),
-        ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅 Argus 内部文件"),
-        ("/srv/state/skills/_shared_verticals/research/paper-playbook.md", "查阅 Argus 内部文件"),
+        ("/srv/state/projects/s-1/state.json", "查阅 Argus 内部文件"),
     ],
 )
 def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:
@@ -173,6 +178,16 @@ def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> Non
         ("/repo/.autors/learn/wiki", "查阅知识库"),
         # The project's own wiki folder is the work.
         ("/repo/docs/wiki/pages/setup.md", "查阅 setup.md"),
+        # A folder inside a wiki is the wiki, not one of its pages.
+        ("/repo/.autors/learn/wiki/pages", "查阅知识库"),
+        # Trial s-6f0e6213: skills read as "查阅文件", with no name.
+        ("/srv/state/skills/_shared_verticals/software/reviewer/software-change-review.md",
+         "查阅技能 software-change-review"),
+        ("/srv/state/projects/s-1/skills", "查阅技能库"),
+        ("/srv/argus/verticals/software/skills/engineer", "查阅技能库"),
+        ("/srv/argus/builtin_skills/reviewer/argus-reviewer-role.md", "查阅技能 argus-reviewer-role"),
+        # A role's notes for the next holder, whatever file holds them.
+        ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅交接记录"),
         # Argus' own directories are plumbing too, not only the files in them.
         ("/repo/.autors", "查阅 Argus 内部文件"),
         # The backend spills a long tool output to a temp file and reads it back.
@@ -221,8 +236,18 @@ def test_paths_into_the_installed_argus_package_are_cut_in_a_command() -> None:
         "text": f"rg -n '^name:' /srv/state/skills {builtin} -g SKILL.md",
     }, _WS)
     assert label == "$ rg -n '^name:' …/skills …/builtin_skills -g SKILL.md"
-    event = {"kind": "tool_use", "text": f'view: {{"path": "{builtin}/engineer/SKILL.md"}}'}
-    assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
+    event = {"kind": "tool_use", "text": f'view: {{"path": "{builtin}/engineer/minimal-coding-agent.md"}}'}
+    assert describe_progress_step(event, _WS)[0] == "查阅技能 minimal-coding-agent"
+
+
+def test_a_tool_result_cuts_plumbing_paths_as_a_command_does() -> None:
+    # Trial s-36ca9747: a result line spelled out the whole path into the built-in skills.
+    builtin = str(builtin_skill_source_path())
+    label, _ = describe_progress_step({
+        "kind": "tool_result",
+        "text": f"{builtin}/engineer/minimal-coding-agent.md:3:description: x | /work/proj/a.py",
+    }, _WS)
+    assert label == "↳ …/minimal-coding-agent.md:3:description: x | /work/proj/a.py"
 
 
 def test_tally_summarises_a_long_turn_in_plain_counts() -> None:

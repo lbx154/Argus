@@ -112,7 +112,8 @@ export function renderFeedRows(
   let hiddenReasoning = 0;
   const context = { locale, showReasoning, unknownEventPolicy: 'hide', density: 'compact' } as const;
   events.forEach((ev) => {
-    const r = renderLine(ev, context);
+    // A tool's output names paths the way a command line does, cut before the renderer clips it.
+    const r = renderLine(progressKind(ev) === 'tool_result' ? { ...ev, text: plainPaths(field(ev, 'text')) } : ev, context);
     if (!r) {
       if (!showReasoning && isReasoning(ev)) hiddenReasoning++;
       return; // noise, or reasoning the reader switched off
@@ -371,11 +372,19 @@ const clip = (text: string, n: number) => (text.length <= n ? text : `${text.sli
 const shortUrl = (url: string) => clip(url.replace(/^[a-z]+:\/\/(?:www\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, ''), 48);
 // Only the path: a patch saved on one line carries its hunks after it.
 const PATCH_FILE = /\*\*\* (?:Add|Update|Delete|Move to) File:\s*(\S+)/;
-// A knowledge wiki, the project's own under .autors or a shared one under the
-// Argus home; the roles read its pages as material. Group 1 is a page in it.
-const WIKI = /\/(?:\.autors\/[^/]+\/wiki|wiki\/(?:_global|_shared_verticals\/[^/]+))(\/[^/].*)?\/?$/;
+// Libraries the roles read as material, with what a file in one and the library
+// itself are called: a knowledge wiki, the project's own under .autors or a
+// shared one under the Argus home, and a skill library, under the Argus home or
+// shipped with Argus. Group 1 is what lies inside the library.
+const LIBRARIES: Array<[RegExp, [zh: string, en: string], [zh: string, en: string]]> = [
+  [/\/(?:\.autors\/[^/]+\/wiki|wiki\/(?:_global|_shared_verticals\/[^/]+))(\/[^/].*)?\/?$/, ['知识页', 'wiki page'], ['知识库', 'the wiki']],
+  [/\/(?:state\/(?:projects\/[^/]+\/)?skills|argus\/(?:builtin_skills|(?:verticals|domains)\/[^/]+\/skills))(\/[^/].*)?\/?$/, ['技能', 'skill'], ['技能库', 'the skill library']],
+];
+// Where a role leaves its notes for whoever holds the task next.
+const HANDOFF = /\/state\/projects\/[^/]+\/handoffs(?:\/|$)/;
 // Argus' own plumbing (session stores, handoffs, skill libraries, shared wikis,
-// the shipped package) is not the work, so a step names no file of it; mirrors
+// the shipped package) is not the work, so a step names no file of it beyond
+// the library or handoff notes it is in, and a command cuts its paths; mirrors
 // argus/core/progress_step.py, which knows where Argus is installed: the web
 // names the package directories the roles are pointed at instead.
 const PLUMBING = /\/(?:state\/(?:projects|skills)|\.autors|role-sessions|copilot-home|wiki\/(?:_global|_shared_verticals\/[^/]+)|argus\/(?:verticals|builtin_skills))(?:\/|$)/;
@@ -395,9 +404,20 @@ function fileName(file: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
   if (TOOL_OUTPUT.test(file)) return zh ? '工具输出' : 'a saved tool output';
   if (PROJECT_DIR.test(file)) return zh ? '项目目录' : 'the project folder';
-  const wiki = file.match(WIKI);
-  if (wiki) return wiki[1] ? `${zh ? '知识页' : 'wiki page'} ${basename(file).replace(/\.\w+$/, '')}` : (zh ? '知识库' : 'the wiki');
+  for (const [root, item, library] of LIBRARIES) {
+    const inside = file.match(root);
+    if (!inside) continue;
+    // A file in the library is one of its pages; a folder in it is the library.
+    const page = basename(file).match(/^(.+)\.\w+$/);
+    return inside[1] && page ? `${item[zh ? 0 : 1]} ${page[1]}` : library[zh ? 0 : 1];
+  }
+  if (HANDOFF.test(file)) return zh ? '交接记录' : 'the handoff notes';
   return PLUMBING.test(file) ? '' : basename(file);
+}
+
+/** Text with each path into Argus' plumbing cut to its last name; the work's own paths stay. */
+export function plainPaths(text: string): string {
+  return text.replace(ABSOLUTE_PATH, (path) => (PLUMBING.test(path) ? `…/${basename(path)}` : path));
 }
 
 /** A command's first line, unwrapped from its shell, with a path into Argus' plumbing cut to its last name. */
@@ -405,8 +425,7 @@ export function plainCommand(text: string): string {
   const line = text.trim();
   const wrapped = line.match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]+)\1\s*$/);
   const command = wrapped ? wrapped[2] : line.replace(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '');
-  const shown = command.replace(ABSOLUTE_PATH, (path) => (PLUMBING.test(path) ? `…/${basename(path)}` : path));
-  return shown.split('\n')[0].trim();
+  return plainPaths(command).split('\n')[0].trim();
 }
 
 /** A named argument, read from parsed JSON or, when the text was cut short, from the raw string. */
@@ -433,7 +452,7 @@ export function toolTarget(ev: EventMsg, locale: Locale): string {
   const text = field(ev, 'text');
   if (progressKind(ev) === 'file_change') {
     const patch = text.match(PATCH_FILE);
-    if (patch) return basename(patch[1].trim());
+    if (patch) return fileName(patch[1].trim(), locale);
     const path = text.match(/^(\S+\.[A-Za-z0-9]{1,8})\b/);
     return path ? basename(path[1]) : '';
   }
@@ -454,13 +473,13 @@ export function toolTarget(ev: EventMsg, locale: Locale): string {
   const pattern = argument(parsed, args, ['pattern', 'query', 'regex', 'glob', 'q']);
   if (pattern) return REGEX_SYNTAX.test(pattern) ? '' : clip(pattern, 32);
   const patch = args.match(PATCH_FILE);
-  if (patch) return basename(patch[1].trim());
+  if (patch) return fileName(patch[1].trim(), locale);
   return '';
 }
 
 // A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
 // "src/" + "**" + "/*" becomes "src 里的所有文件".
-// A pattern with {a,b} alternatives reads as plain "files".
+// A pattern with {a,b} alternatives, or any other wildcard, reads as plain "files".
 export function readableGlob(pattern: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
   if (pattern.includes('{')) return zh ? '文件' : 'files';
@@ -470,12 +489,15 @@ export function readableGlob(pattern: string, locale: Locale): string {
   let what: string;
   if (leaf === '*' || leaf === '*.*') what = zh ? '所有文件' : 'all files';
   else if (/^\*\.[\w.]+$/.test(leaf)) what = zh ? `${leaf.slice(1)} 文件` : `${leaf.slice(1)} files`;
+  else if (/[*?[]/.test(leaf)) what = zh ? '文件' : 'files';
   else what = clip(leaf, 40);
   const folder = folders[folders.length - 1];
   return folder ? (zh ? phrase(`${folder} 里的`, what) : `${what} in ${folder}`) : what;
 }
 
 const GLOB_TOOLS = /^(glob|find|find_?files|list_?files|file_?search)$/i;
+// Tools that start a helper agent on part of the work.
+const HELPER_TOOLS = /^(task|agent)$/i;
 
 /**
  * One tool call as a person would say it — "查阅 main.py", "查找 .py 文件" —
@@ -495,6 +517,11 @@ export function plainToolLabel(ev: EventMsg, locale: Locale): string {
   }
   if (action === 'search' && GLOB_TOOLS.test(name) && target) return phrase(zh ? '查找' : 'Find', readableGlob(target, locale));
   if (action === 'search' && REGEX_SYNTAX.test(target)) return zh ? '搜索文件内容' : 'Search file contents';
+  if (HELPER_TOOLS.test(name)) {
+    // A helper the role starts: say what it was given, not the tool's name.
+    const what = argument(null, field(ev, 'text'), ['description']);
+    return what ? `${zh ? '交给子助手：' : 'Hand to a helper: '}${clip(what, 48)}` : zh ? '交给一个子助手' : 'Hand to a helper';
+  }
   // The Reviewer's verdict goes through Argus' own action, not a tool of the work.
   if (name.endsWith('submit_review')) return zh ? '提交审阅结论' : 'Submit the review';
   const shown = target.startsWith('/') ? basename(target) : target;

@@ -187,6 +187,26 @@ it("keeps a waiting question at the head of the brief over what the runtime repo
     .toBe("运行终端命令：Add char_count");
 });
 
+it("says a result that passed review while a question waits, and what an accepted task found", () => {
+  // Trial s-36ca9747: format_percent passed review while format_bytes waited on
+  // the reader, and the brief said there was no checked result while its card
+  // said 审阅通过. Once all was done it read 已确认：确定 format_bytes 的换算标准并实现,
+  // the request's title rather than what was found.
+  const asked: MapTask = { id: "b", title: "确定 format_bytes 的换算标准并实现", objective: "A or B", status: "parked",
+    deps: [], ts: 1, pending_question: "选 A 还是 B？" };
+  const percent: MapTask = { id: "p", title: "新增百分比格式化函数及测试", objective: "format_percent", status: "done",
+    deps: [], ts: 2, finished_ts: 5, outcome: { review_status: "done", stage_certification: "certified" } };
+  const completion: MapEvent = { id: "e", item_id: "p", type: "life.mission.completed", ts: 6,
+    text: "format_percent 已按要求交付。", overall_complete: true };
+  const waiting = projectBrief([asked, percent], [completion], true);
+  expect(waiting.conclusion).toBe("审阅通过（还有一项在等你回答）：format_percent 已按要求交付。");
+  expect(waiting.next).toBe("回答这个问题，团队才会继续。");
+  expect(projectBrief([{ ...asked, status: "done", pending_question: "" }, percent], [completion], true).conclusion)
+    .toBe("已确认：format_percent 已按要求交付。");
+  expect(projectBrief([asked, percent], [completion], false).conclusion)
+    .toBe("Reviewed (another item is waiting for your answer): format_percent 已按要求交付。");
+});
+
 it("says the next step once, under the brief's own Next label", () => {
   // 2026-10-21: the map read 接下来：下一步：回答这个问题.
   const asked: MapTask = { id: "q", title: "Settle truncate", objective: "Pick A or B", status: "parked", deps: [], ts: 1, pending_question: "A or B?" };
