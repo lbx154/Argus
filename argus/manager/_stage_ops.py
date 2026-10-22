@@ -34,28 +34,20 @@ def fallback_project_report(
     completion_context: Mapping[str, Any], continuous_objective: str = "",
 ) -> str:
     """The completion report Argus can state without the Manager model."""
-    from ..core.mission_view import uses_cjk
+    from ..core.mission_view import say, sentences, uses_cjk
 
     paths = [
         str(row["path"])
         for row in completion_context.get("current_artifact_evidence") or ()
         if isinstance(row, dict) and row.get("path")
     ][:3]
+    chinese = uses_cjk(continuous_objective)
     increment = completion_context.get("completion_scope") == "certified_increment"
-    if uses_cjk(continuous_objective):
-        return (
-            ("这一部分做完了，长期目标还在继续。" if increment else "项目完成了。")
-            + (f"结果在 {'、'.join(paths)}。" if paths else "")
-            + "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）"
-        )
-    return (
-        (
-            "This piece is done; the longer-term goal continues. "
-            if increment else "The project is done. "
-        )
-        + (f"The results are in {', '.join(paths)}. " if paths else "")
-        + "(The model service was unavailable while this summary was written, "
-        "so the final files were not checked one by one.)"
+    return sentences(
+        chinese,
+        say("increment_done" if increment else "project_done", chinese),
+        say("results_in", chinese, paths=("、" if chinese else ", ").join(paths)) if paths else "",
+        say("summary_unchecked", chinese),
     )
 
 

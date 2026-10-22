@@ -482,6 +482,65 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "{conflict} (the reading chosen is in CHECKPOINT.md)",
         "{conflict}（选定的理解记在 CHECKPOINT.md）",
     ),
+    # A finished task, told in the operator's conversation.
+    "final_submission_ready": (
+        "The final submission passed independent review and is ready.",
+        "最终稿通过了独立审核，可以交付了。",
+    ),
+    "all_done": ("Done.", "做完了。"),
+    "all_done_reviewed": (
+        "Done, and an independent reviewer found nothing that needs fixing.",
+        "做完了，独立审阅也没发现要改的地方。",
+    ),
+    "item_done": (
+        "This item is done; the rest of the plan is still under way.",
+        "这一项做完了；计划里的其他工作还在进行。",
+    ),
+    "item_done_reviewed": (
+        "This item is done, and an independent reviewer found nothing that needs "
+        "fixing; the rest of the plan is still under way.",
+        "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。",
+    ),
+    "step_done": ("One step done: {title}.", "做完一步：{title}。"),
+    "task_ended": ("This task has ended: {title}.", "这项任务结束了：{title}。"),
+    "review_continue": ("The review asked for more work.", "审阅认为还要再完善。"),
+    "review_blocked": ("The review found a blocking problem.", "审阅发现了卡住的问题。"),
+    "review_stale": (
+        "The manuscript changed after the review, so the review is out of date.",
+        "审阅之后稿件又改过，审阅结论已经过时。",
+    ),
+    "review_other": ("Review: {review}.", "审阅结果：{review}。"),
+    "result_in": ("The result is in {path}.", "结果在 {path}。"),
+    "interim_result_in": (
+        "Interim results are in {path} (the overall goal is not done yet).",
+        "阶段成果在 {path}（整体目标还没完成）。",
+    ),
+    "no_file_produced": ("This run produced no file you can open.", "这次没有产出可以打开的文件。"),
+    "needs_your_call": ("{title} needs your call: {question}", "「{title}」需要你定一下：{question}"),
+    "will_continue": ("I'll pick up the remaining work automatically.", "我会自动接着做剩下的部分。"),
+    "nothing_queued": (
+        "Nothing is queued yet; the next step is being considered.",
+        "计划里暂时没有下一项，正在考虑接下来做什么。",
+    ),
+    "next_item": ("the next item", "下一项"),
+    "next_up": ("Next up: {title}.", "接下来做：{title}。"),
+    "next_up_and_one": ("Next up: {title}, with one more queued after it.", "接下来做：{title}，之后还有 1 项。"),
+    "next_up_and_more": (
+        "Next up: {title}, with {more} more queued after it.",
+        "接下来做：{title}，之后还有 {more} 项。",
+    ),
+    "done_so_far": ("({done} done so far)", "（目前已完成 {done} 项）"),
+    "project_done": ("The project is done.", "项目完成了。"),
+    "increment_done": (
+        "This piece is done; the longer-term goal continues.",
+        "这一部分做完了，长期目标还在继续。",
+    ),
+    "results_in": ("The results are in {paths}.", "结果在 {paths}。"),
+    "summary_unchecked": (
+        "(The model service was unavailable while this summary was written, "
+        "so the final files were not checked one by one.)",
+        "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）",
+    ),
     # Notices Argus posts to the operator's conversation on its own.
     "planner_retries_stopped_internal": (
         "Planning kept hitting an internal error in Argus for three hours, so I "
@@ -766,6 +825,11 @@ def say(kind: str, chinese: bool, **params: Any) -> str:
     return filled
 
 
+def sentences(chinese: bool, *parts: str) -> str:
+    """Whole sentences run together as the language writes them: a space apart in English."""
+    return ("" if chinese else " ").join(part for part in parts if part)
+
+
 def uses_cjk(*texts: Any) -> bool:
     """Whether any of *texts* is written in a CJK script: the operator writes Chinese."""
     return any(_CJK_RE.search(str(text or "")) for text in texts)
@@ -817,6 +881,7 @@ def stage_label(stage_id: str, chinese: bool) -> str:
 __all__ = [
     "remember_language",
     "say",
+    "sentences",
     "session_is_chinese",
     "stage_label",
     "stage_name",

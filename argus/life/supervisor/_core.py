@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
-from ...core.mission_view import say, uses_cjk
+from ...core.mission_view import say, sentences, uses_cjk
 from ...core.planner_verdict import (
     PlannerVerdictStatus,
     build_planner_verdict_event,
@@ -68,24 +68,15 @@ log = logging.getLogger(__name__)
 _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
-_REVIEW_PHRASES = {
-    # A passed review needs no label: the completion already says so.
-    "done": ("", ""),
-    "passed": ("", ""),
-    "approved": ("", ""),
-    "continue": ("审阅认为还要再完善。", " The review asked for more work."),
-    "blocked": ("审阅发现了卡住的问题。", " The review found a blocking problem."),
-    "stale": (
-        "审阅之后稿件又改过，审阅结论已经过时。",
-        " The manuscript changed after the review, so the review is out of date.",
-    ),
-}
-
-
 def _review_phrase(review: str, chinese: bool) -> str:
-    """A review outcome as a sentence that follows a completion headline."""
-    zh, en = _REVIEW_PHRASES.get(str(review), (f"审阅结果：{review}。", f" Review: {review}."))
-    return zh if chinese else en
+    """A review outcome as a sentence that follows a completion headline.
+
+    A passed review needs none: the completion already says so.
+    """
+    if review in {"done", "passed", "approved"}:
+        return ""
+    known = review in {"continue", "blocked", "stale"}
+    return say(f"review_{review}" if known else "review_other", chinese, review=review)
 
 
 class LifeSupervisor(
@@ -1484,39 +1475,23 @@ class LifeSupervisor(
         long campaign showed it a dozen times in a row. Reading the backlog
         here keeps the line specific to this moment.
         """
-        pending: list[Any] = []
         try:
-            pending = [
-                row for row in self.memory.backlog.pending() if row.id != item_id
-            ]
+            pending = [row for row in self.memory.backlog.pending() if row.id != item_id]
         except Exception:  # noqa: BLE001 - a status line must not break settlement
             pending = []
         if not pending:
-            return (
-                "计划里暂时没有下一项，正在考虑接下来做什么。"
-                if chinese
-                else "Nothing is queued yet; the next step is being considered."
-            )
+            return say("nothing_queued", chinese)
         from ...core.operator_messages import brief_title
 
-        next_title = brief_title(str(pending[0].title or "")) or (
-            "下一项" if chinese else "the next item"
+        more, done = len(pending) - 1, self._done_task_count()
+        return sentences(
+            chinese,
+            say(
+                "next_up_and_more" if more > 1 else "next_up_and_one" if more else "next_up",
+                chinese, title=brief_title(pending[0].title) or say("next_item", chinese), more=more,
+            ),
+            say("done_so_far", chinese, done=done) if done else "",
         )
-        more = len(pending) - 1
-        done = self._done_task_count()
-        if chinese:
-            tail = f"，之后还有 {more} 项" if more > 0 else ""
-            progress = f"（目前已完成 {done} 项）" if done else ""
-            return f"接下来做：{next_title}{tail}。{progress}"
-        tail = (
-            f", with {more} more queued after it"
-            if more > 1
-            else ", with one more queued after it"
-            if more == 1
-            else ""
-        )
-        progress = f" ({done} done so far)" if done else ""
-        return f"Next up: {next_title}{tail}.{progress}"
 
     def _done_task_count(self) -> int:
         try:
@@ -1588,10 +1563,8 @@ class LifeSupervisor(
                 ),
                 "",
             )
-            chinese = any("\u3400" <= char <= "\u9fff" for char in language_hint)
-            title = str(
-                event.get("title") or ("当前任务" if chinese else "the current task")
-            ).strip()
+            chinese = uses_cjk(language_hint)
+            title = str(event.get("title") or say("this_task", chinese)).strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
             from ...core.role_handoff import strip_handoff
@@ -1606,10 +1579,7 @@ class LifeSupervisor(
                     text=render_operator_update(
                         title=title, status=status,
                         reason=str(event.get("stop_reason") or ""),
-                        next_action=(
-                            "我会自动接着做剩下的部分。"
-                            if chinese else "I'll pick up the remaining work automatically."
-                        ),
+                        next_action=say("will_continue", chinese),
                         language_hint=language_hint,
                     ),
                     message_id=_message_id(f"mission-continued-{item_id}"),
@@ -1695,19 +1665,9 @@ class LifeSupervisor(
             # A reviewed interim package is delivered while the campaign goes
             # on; it must never read as the finished goal.
             stage_package = bool(delivery_ready and delivery.get("kind") == "stage_package")
-            delivery_line = (
-                (
-                    f"阶段成果在 {delivery_path}（整体目标还没完成）。"
-                    if stage_package
-                    else f"结果在 {delivery_path}。"
-                )
-                if chinese
-                else (
-                    f"Interim results are in {delivery_path} (the overall goal is not done yet)."
-                    if stage_package
-                    else f"The result is in {delivery_path}."
-                )
-            ) if delivery_path else ""
+            delivery_line = delivery_path and say(
+                "interim_result_in" if stage_package else "result_in", chinese, path=delivery_path,
+            )
             overall_complete = bool(
                 success
                 and not campaign_continues
@@ -1732,16 +1692,10 @@ class LifeSupervisor(
                 if operator_question:
                     publish_operator_message(
                         life_dir,
-                        text="\n".join(
-                            part
-                            for part in (
-                                f"「{brief}」需要你定一下：{operator_question}"
-                                if chinese
-                                else f"{brief} needs your call: {operator_question}",
-                                summary if summary != operator_question else "",
-                            )
-                            if part
-                        ),
+                        text="\n".join(part for part in (
+                            say("needs_your_call", chinese, title=brief, question=operator_question),
+                            summary if summary != operator_question else "",
+                        ) if part),
                         message_id=_message_id(f"mission-result-{item_id}-{status}"),
                         event_fields={
                             "mission_result": True,
@@ -1787,45 +1741,25 @@ class LifeSupervisor(
                 and str(outcome.get("stage_certification") or "").strip() == "deferred"
             )
             if final_submission_certified:
-                headline = (
-                    "最终稿通过了独立审核，可以交付了。"
-                    if chinese
-                    else "The final submission passed independent review and is ready."
-                )
+                headline = say("final_submission_ready", chinese)
             elif overall_complete or deferred:
-                headline = (
-                    ("这一项做完了" if deferred else "做完了")
-                    + ("，独立审阅也没发现要改的地方" if reviewer_found_nothing else "")
-                    + ("；计划里的其他工作还在进行。" if deferred else "。")
-                    if chinese
-                    else ("This item is done" if deferred else "Done")
-                    + (
-                        ", and an independent reviewer found nothing that needs fixing"
-                        if reviewer_found_nothing else ""
-                    )
-                    + ("; the rest of the plan is still under way." if deferred else ".")
-                )
-            elif campaign_continues:
-                headline = f"做完一步：{brief}。" if chinese else f"One step done: {brief}."
+                done_kind = "item_done" if deferred else "all_done"
+                headline = say(done_kind + "_reviewed" if reviewer_found_nothing else done_kind, chinese)
             else:
-                headline = f"这项任务结束了：{brief}。" if chinese else f"This task has ended: {brief}."
+                headline = say("step_done" if campaign_continues else "task_ended", chinese, title=brief)
             if (
                 review
                 and review not in {"none", "not_assessed"}
                 and not final_submission_certified
                 and not (overall_complete and independent_review_required)
             ):
-                headline += _review_phrase(review, chinese)
+                headline = sentences(chinese, headline, _review_phrase(review, chinese))
             if campaign_continues:
                 continuation = self._continuation_line(item_id, chinese)
             elif overall_complete or deferred:
                 continuation = ""
             else:
-                continuation = (
-                    "这次没有产出可以打开的文件。"
-                    if chinese
-                    else "This run produced no file you can open."
-                )
+                continuation = say("no_file_produced", chinese)
             assumptions_line = ""
             if overall_complete:
                 from ...core.autonomy import render_autonomous_assumptions

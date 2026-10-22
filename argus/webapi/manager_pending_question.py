@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.mission_view import say, uses_cjk
+from ..core.mission_view import say, sentences, uses_cjk
 from .manager_dispatch_receipt import record_task_dispatch_ack as record_task_dispatch_ack
 
 
@@ -239,7 +239,7 @@ def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
     chinese = uses_cjk(reply)
     stays = say("campaign_stays_stopped", chinese)
     if stays not in reply:
-        result["reply"] = f"{reply}{'' if chinese else ' '}{stays}".strip()
+        result["reply"] = sentences(chinese, reply, stays)
     return True
 
 
