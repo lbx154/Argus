@@ -618,6 +618,12 @@ rejects is measured, and public.
 - Today: every checkbox in `RESEARCH_AGENCY_AND_VERIFICATION_TODO.md` is empty, but P0-01, P0-03, P0-04, and K-01 are
   actually implemented.
 - Do: check against the code, update the checkboxes, and note the commit for each completed item.
+- Status: done (`32783c9f`). Checked against `dev`: 29 boxes ticked, each with its commit and code path. The four items above
+  are not all implemented: P0-04 removed the citation-count and page hard gates, but venue profiles still mix format
+  facts with scientific calibration (4 of 7 ticked); P0-01's exploration posture and operator override were removed
+  in `3692e18b`; P0-03's four states live on only in `core/evidence_status.py`, which nothing in the product calls
+  since `99d46e7c`; K-01 left this repository with the kernel vertical in `d23658c7`, so it can't be verified here and
+  stays unticked.
 
 ---
 
