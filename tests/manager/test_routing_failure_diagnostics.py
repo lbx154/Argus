@@ -58,7 +58,6 @@ def test_backend_failure_preserves_provider_cause_and_event_fields(
         project_root=tmp_path,
         execution_workdir=tmp_path,
         runner=runner,
-        memory_maintenance_enabled=False,
     )
 
     with pytest.raises(VerticalDecisionError) as caught:
@@ -103,7 +102,6 @@ def test_contract_failure_names_field_and_bounds_reply_snippet(
         project_root=tmp_path,
         execution_workdir=tmp_path,
         runner=_Runner(_Result(reply)),
-        memory_maintenance_enabled=False,
     )
 
     with pytest.raises(ManagerClassificationContractError) as caught:

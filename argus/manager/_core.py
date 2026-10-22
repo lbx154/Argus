@@ -108,7 +108,6 @@ class Manager(
         manager_session_root: Path | str | None = None,
         learned_vertical_root: Path | str | None = None,
         usage_context: Any = None,
-        memory_maintenance_enabled: bool | None = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.execution_workdir = Path(execution_workdir or project_root)
@@ -130,14 +129,8 @@ class Manager(
             if runner is not None
             else None
         )
-        # Optional agent-native library for stage decisions and direct
-        # project-layer maintenance. No store means no Skill context.
+        # Optional agent-native Skill library. No store means no Skill context.
         self.skill_store = skill_store
-        if memory_maintenance_enabled is None:
-            from ..core.knobs import learning_enabled
-
-            memory_maintenance_enabled = learning_enabled()
-        self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import ManagerMission, SelfMission
 
         self.mission = ManagerMission(skill_store)
@@ -158,25 +151,6 @@ class Manager(
         if not root_task_id or self._usage_context_factory is None:
             return nullcontext()
         return self._usage_context_factory(root_task_id)
-
-    def _role_skill_block(
-        self, objective: str, *, include_libraries: bool = True
-    ) -> str:
-        """Return path-only Manager Skill context and edit rules."""
-        if self.skill_store is None:
-            return ""
-        block = ""
-        if include_libraries and (objective or "").strip():
-            libraries = self.mission.libraries()
-            if libraries.block:
-                block = libraries.block + "\n\n"
-        from ..skills.role_memory import role_skill_maintenance_block
-
-        return block + role_skill_maintenance_block(
-            self.skill_store,
-            "manager",
-            enabled=self.memory_maintenance_enabled,
-        )
 
     def pipeline_lock(
         self, *, timeout: float | None = None, cancelled: Callable[[], bool] | None = None,

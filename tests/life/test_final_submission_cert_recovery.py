@@ -24,6 +24,7 @@ from argus.life.supervisor._planning_cycle_helpers import (
 from argus.life.terminal_state import build_project_state_signature
 from argus.planner import PlannerVerdict
 from argus.skills.vertical_select import persist_vertical
+from argus.webapi.map_view import read_map
 
 
 class _CompletingManager:
@@ -324,6 +325,34 @@ def test_bounded_review_cannot_be_recovered_as_final_certification(
     assert _research_project_done_issue(
         project, supervisor.memory.journal.all()
     ) == "missing_exploratory_reviewer_certification"
+
+
+def test_completing_on_a_deferred_review_certifies_that_task_on_the_map(
+    tmp_path: Path,
+) -> None:
+    """s-757b9dac: the Planner's task passed review with its stage
+    certification deferred, and the Manager then completed the objective on
+    that review. Only the backlog row learned it: the task's completion still
+    read deferred and not complete, so the map's banner said nothing was
+    confirmed beside a card that said the review passed."""
+    supervisor, _project, item = _make_final_review(tmp_path, scope="bounded")
+    supervisor.config.open_ended = False
+    supervisor.memory.backlog.update(item.id, started_ts=0.0)
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
+
+    dataset = read_map("s-cert", tmp_path, tmp_path / "life")
+    (task,) = [task for task in dataset["tasks"] if task["id"] == item.id]
+    assert task["status"] == "done"
+    assert task["outcome"].get("review_status") == "done"
+    assert task["outcome"].get("stage_certification") == "certified"
+    completion = [
+        event for event in dataset["events"]
+        if event["item_id"] == item.id and event["type"] == "life.mission.completed"
+    ][-1]
+    assert completion["overall_complete"] is True
+    assert completion["text"] == "The exact final candidate satisfies the complete checklist."
+    assert not supervisor._journal_has_final_certification()
 
 
 @pytest.mark.parametrize("separate_roots", [False, True])

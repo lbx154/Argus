@@ -796,6 +796,26 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert options.add_dirs == ["/tmp/project-state"]
 
 
+def test_plan_next_reads_the_skill_libraries_its_prompt_names(tmp_path, monkeypatch) -> None:
+    """s-757b9dac: the read-only Planner was pointed at the shared vertical
+    library but not given it, so its lookup there failed."""
+    from argus.skills.layered import LayeredSkillStore
+
+    store = LayeredSkillStore(project_dir=tmp_path / "project-skills", global_dir=tmp_path / "shared-skills")
+    runner = _Runner()
+    monkeypatch.setattr(Planner, "_build_planner_prompt", staticmethod(lambda **kwargs: "prompt"))
+
+    Planner(runner, skill_store=store).plan_next(
+        continuous_objective="fix the issue",
+        config=PlannerConfig(working_dir=str(tmp_path / "work"), add_dirs=["/tmp/project-state"]),
+    )
+
+    add_dirs = runner.calls[0]["options"].add_dirs
+    assert add_dirs[0] == "/tmp/project-state"
+    assert {str(root) for root in Planner(None, skill_store=store).mission.libraries().library_roots} <= set(add_dirs)
+    assert str((tmp_path / "shared-skills").resolve()) in add_dirs
+
+
 @pytest.mark.parametrize("offered", [(), (7, 9)])
 def test_plan_next_names_settle_line_last_only_when_entries_are_offered(
     monkeypatch, offered,

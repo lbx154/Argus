@@ -44,7 +44,7 @@ def test_a_manager_stop_parks_the_run_it_was_decided_on(tmp_path):
     backlog.add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backlog.mark_running("grouped")
     answer = json.dumps({"action": "stop", "reason": REASON, "evidence_refs": ["backlog.jsonl"]})
-    manager = Manager(tmp_path, runner=_Backend(answer), memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=_Backend(answer))
     stall = {"type": EventType.ROUND_STALL, "item_id": "grouped", "round_index": 11,
              "consult_reason": "Reviewer reported no forward progress for 11 consecutive rounds."}
 

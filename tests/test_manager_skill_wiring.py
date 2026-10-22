@@ -178,3 +178,27 @@ def test_manager_stage_decision_is_read_only(tmp_path: Path) -> None:
     assert call["run_label"] == "manager-stage"
     assert call["options"].sandbox_mode == "read-only"
     assert call["options"].dangerous_yolo is False
+
+
+def test_manager_stage_decision_reads_the_libraries_it_names_and_only_judges(
+    tmp_path: Path,
+) -> None:
+    """s-757b9dac: the stage decision was pointed at the Skill libraries with no
+    access to them and asked to edit Skills in a read-only turn. Three lookups
+    failed, and its reply told the operator the session could not modify files."""
+    from argus.skills.store import SkillStore
+
+    store = SkillStore(tmp_path / "skills")
+    runner = _CapturingStageRunner()
+
+    Manager(project_root=tmp_path, runner=runner, skill_store=store).decide_stage_transition(
+        review=_StubReview(),
+        project_root=tmp_path,
+    )
+
+    (call,) = runner.calls
+    library = str(store.skills_dir.resolve())
+    assert library in call["prompt"]
+    assert library in call["options"].add_dirs
+    assert "Manager self-evolution" not in call["prompt"]
+    assert "you change no files" in call["prompt"]

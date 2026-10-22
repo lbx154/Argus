@@ -20,7 +20,6 @@ def make_manager(tmp_path: Path) -> Manager:
     return Manager(
         state, execution_workdir=tmp_path / "workspace", learned_vertical_root=tmp_path,
         skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"),
-        memory_maintenance_enabled=False,
     )
 
 

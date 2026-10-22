@@ -71,7 +71,6 @@ def _create_manager(
     backend: Any,
     skill_store: Any = None,
     usage_context: Any = None,
-    memory_maintenance_enabled: bool | None = None,
 ) -> Any:
     from ..manager import Manager
 
@@ -84,7 +83,6 @@ def _create_manager(
         manager_session_root=session_root,
         learned_vertical_root=getattr(args, "global_root", None),
         usage_context=usage_context,
-        memory_maintenance_enabled=memory_maintenance_enabled,
     )
 
 
@@ -270,7 +268,6 @@ class _RunnerConstructionMixin:
             backend=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
             usage_context=self.task_usage_context,
-            memory_maintenance_enabled=self._role_memory_maintenance_enabled,
         )
         self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from

@@ -61,7 +61,7 @@ class _PendingManagerRunner:
     """The front-door runner as the pending-answer check sees it: its Manager."""
 
     def __init__(self, backend: AgentCliBackend, project_root) -> None:
-        self.manager = Manager(project_root, runner=backend, memory_maintenance_enabled=False)
+        self.manager = Manager(project_root, runner=backend)
 
 
 def _pending_memory(tmp_path):
@@ -246,7 +246,7 @@ def test_the_answer_check_is_one_short_stateless_turn_with_its_own_label(tmp_pat
 
     mem, item = _pending_memory(tmp_path)
     state = {
-        "manager_runner": SimpleNamespace(manager=Manager(tmp_path, runner=Backend(), memory_maintenance_enabled=False)),
+        "manager_runner": SimpleNamespace(manager=Manager(tmp_path, runner=Backend())),
         "manager_runner_workdir": str(tmp_path),
         "last_thread_id": "manager-conversation",
     }

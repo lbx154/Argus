@@ -232,13 +232,22 @@ def render_mission_brief(
         result = f"{status}: {reason}" if status else reason
         review_label = "Previous review" if pending_engineer else "Last review"
         lines.append(f"- {review_label}: {result}")
+    # Unreviewed work awaits review only where the Engineer's line sent it there.
+    holder = str(pending_engineer.get("holder") or "reviewer")
     if pending_path is not None:
-        lines.append(f"- Latest work awaiting review: `{pending_path}`")
+        lines.append(
+            f"- Latest work awaiting review: `{pending_path}`" if holder == "reviewer"
+            else f"- Latest Engineer work (→ {holder}): `{pending_path}`"
+        )
     engineer_summary = _brief_text(
         (pending_engineer or reviewed).get("engineer_summary"), limit=1200,
     )
     if engineer_summary and include_engineer_account:
-        label = "Unreviewed Engineer work" if pending_engineer else "Reviewed Engineer work"
+        label = (
+            "Reviewed Engineer work" if not pending_engineer
+            else "Unreviewed Engineer work" if holder == "reviewer"
+            else f"Engineer work (→ {holder})"
+        )
         lines.append(f"- {label}: {engineer_summary}")
     next_action = (
         _brief_text(review.get("next_action")) if include_previous_review else ""
@@ -405,7 +414,9 @@ def record_engineer_handoff(
     engineer_summary: str,
     checkpoint_path: Path | None,
     thread_id: str = "",
+    holder: str = "reviewer",
 ) -> Path | None:
+    """Seal the Engineer's turn with ``holder``, where its line sent the work."""
     if not mission_context_path:
         return None
     mission_path = Path(mission_context_path)
@@ -420,6 +431,7 @@ def record_engineer_handoff(
         "round": max(1, int(round_index)),
         "producer_role": "engineer",
         "engineer_summary": str(engineer_summary or "").strip()[:4000],
+        "holder": holder,
         "session_id": str(thread_id or ""),
         "checkpoint": _file_reference(checkpoint_path),
         "created_at": time.time(),

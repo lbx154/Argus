@@ -45,6 +45,16 @@ def _handoff_record(holder: str, handoff: Handoff | None, message: str) -> Revie
     )
 
 
+def sent_to(handoff: Handoff | None, supervised_config: "SupervisedConfig") -> str:
+    """Where a turn's line sends the work.
+
+    A missing or unreadable line names the Reviewer, never done, and accepting a
+    candidate is the Reviewer's where review is required.
+    """
+    holder = handoff.holder if handoff else "reviewer"
+    return "reviewer" if holder == "done" and supervised_config.require_independent_review else holder
+
+
 def outside_inputs(state: RoundLoopState) -> list[object] | None:
     """What reached the work from outside the team.
 
@@ -215,20 +225,19 @@ class RoundRoutingMixin:
         state.backend_failure_same_cause_streak = 0
         if not climbed:
             state.review_unseen = False
-        if state.snapshots is not None:
-            # The Engineer held the work as its turn began.
-            state.snapshots.hold("engineer", "turn", state.handed_inputs)
-        # A missing or unreadable line names the Reviewer: never done.
+        # Work that climbed past the Engineer goes where its last line sent it,
+        # so only a handoff to the Reviewer resumes at review.
         handoff = None if climbed else read_baton_line(outcome.engineer_message)
-        wanted = handoff.holder if handoff else "reviewer"
-        if wanted == "done" and supervised_config.require_independent_review:
-            # Accepting a candidate is the Reviewer's where review is required.
-            wanted = "reviewer"
+        last = state.snapshots.held_verdict("engineer") if climbed and state.snapshots else None
+        wanted = (last or {}).get("holder", "reviewer") if climbed else sent_to(handoff, supervised_config)
+        if state.snapshots is not None:
+            # The Engineer held the work as its turn began, and its line sent it on.
+            state.snapshots.hold("engineer", "turn", state.handed_inputs, {"holder": wanted})
         holder, passed = (
             self._deliver(wanted, state=state, label="now")
             if state.snapshots is not None and state.snapshots.take("now") else (wanted, [])
         )
-        passed = ["engineer", *passed] if climbed else passed
+        passed = list(dict.fromkeys(["engineer", *passed])) if climbed else passed
         if holder == "engineer":
             return control_continue_loop()
         if holder == "reviewer":

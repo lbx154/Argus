@@ -131,7 +131,7 @@ def assert_source_unobserved(observation, source):
 def assert_unobserved_source_blocks_supervision(root, event, source):
     before = controls(root)
     backend = Backend()
-    record = supervise(Manager(root, runner=backend, memory_maintenance_enabled=False), root, event)
+    record = supervise(Manager(root, runner=backend), root, event)
     assert record["status"] == "failed" and record["failure_stage"] == "decision"
     assert record["error_code"] == "observation_incomplete"
     assert str(source) in record["incomplete_requirements"]
@@ -146,7 +146,7 @@ def test_acceptance_tail_change_has_a_new_revision_and_cannot_reuse_an_applied_r
     assert first_requirement[:1600] == second_requirement[:1600]
     backlog, item, event = project(tmp_path, first_requirement)
     backend = Backend()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     before = observe_project(tmp_path, event=event)
     first = supervise(manager, tmp_path, event)
     assert first["status"] == "applied" and len(backend.prompts) == 1
@@ -167,7 +167,7 @@ def test_acceptance_that_fits_the_observation_budget_reaches_the_actual_model_pr
     observation = observe_project(tmp_path, event=event)
     assert task_row(observation, item.id)["acceptance_check"] == requirement
     backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied"
     assert len(backend.prompts) == 1 and requirement in backend.prompts[0]
 
@@ -193,7 +193,7 @@ def test_required_acceptance_survives_secondary_evidence_removal_within_utf8_bud
     assert observation.facts["limitations"]
     assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
     backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied" and requirement in backend.prompts[0]
 
 
@@ -214,7 +214,7 @@ def test_overbudget_critical_field_is_named_as_unobserved_and_stops_before_model
     assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
     assert "REQUIRED_TAIL_MUST_NOT_BE_SILENTLY_LOST" not in observation.render()
     backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed" and record["failure_stage"] == "decision"
     assert path in record["incomplete_requirements"]
     assert record["observation_limitations"] == notes
@@ -276,7 +276,7 @@ def test_unseen_excerpt_tail_edit_while_the_manager_decides_is_recorded_not_void
     before = observe_project(tmp_path, event=event)
 
     backend = Backend(before_return=lambda: write_excerpt(tmp_path, backlog, item, field, changed))
-    record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     after = observe_project(tmp_path, event=event)
     assert displayed_excerpt(before, item.id, field) == displayed_excerpt(after, item.id, field)
     assert before.evidence_revision != after.evidence_revision

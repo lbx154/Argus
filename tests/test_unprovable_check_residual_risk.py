@@ -585,7 +585,7 @@ def _supervise(root: Path, event: dict, reply: str) -> dict:
     from argus.manager import Manager
     from argus.manager.supervision import supervise
 
-    return supervise(Manager(root, runner=_ManagerBackend(reply), memory_maintenance_enabled=False), root, event)
+    return supervise(Manager(root, runner=_ManagerBackend(reply)), root, event)
 
 
 _ACCEPT = _REPLY + (

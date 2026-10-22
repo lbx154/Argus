@@ -123,7 +123,7 @@ def test_budget_failures_keep_provider_provenance_without_exposing_raw_details(t
     else:
         outcome = RunnerResult(exit_code=1, fatal_error=fatal, stop_kind=kind, call_id=CALL_ID)
     backend = Backend(outcome)
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed" and not record.get("decision") and not record.get("effects")
     assert_failure(tmp_path, record, stage="provider", code=code, stop_kind=kind, exit_code=1, call_id=CALL_ID)
     assert controls(tmp_path) == before
@@ -140,7 +140,7 @@ def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_pat
                                        fatal_error="HTTP 504 Gateway Timeout: " + SECRET + " " + PROMPT_MARKER))
     else:
         backend = Backend(TimeoutError("Provider timed out: " + SECRET + " " + PROMPT_MARKER))
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed"
     assert not record.get("decision")
     assert_failure(tmp_path, record, stage="provider", code="timeout", stop_kind="transient_error",
@@ -162,7 +162,7 @@ def test_a_slow_decision_is_waited_for_and_applied(tmp_path, monkeypatch):
 
     monkeypatch.setattr(supervision, "_apply", slow_apply)
     backend = Backend(reply(action="steer"), before_return=lambda: now.__setitem__(0, now[0] + 3600.0))
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied" and record["effects"]["directive_delivered"]
     assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
     assert len(backend.calls) == 1
@@ -179,7 +179,7 @@ def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_
     outcome = RunnerResult(exit_code=130, fatal_error=fatal + PROMPT_MARKER,
                            stop_kind=None if origin == "external-prefix" else kind, call_id=CALL_ID) if canonical else reply()
     backend = Backend(outcome, before_return=None if canonical else lambda: cancelled.__setitem__(0, True))
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event,
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event,
                                    cancelled=lambda: origin == "callback" and cancelled[0])
     assert record["status"] == ("failed" if canonical else "superseded")
     assert not record.get("decision")
@@ -198,7 +198,7 @@ def test_goal_supersession_is_distinct_from_provider_failure_and_keeps_the_new_g
         updated.append(controls(tmp_path))
 
     backend = Backend(reply(action="steer"), before_return=replace_goal)
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "superseded" and not record.get("decision")
     assert_failure(tmp_path, record, stage="provider", code="superseded", exit_code=0, call_id=CALL_ID)
     assert controls(tmp_path) == updated[0]
@@ -212,7 +212,7 @@ def test_unclassified_provider_failure_does_not_invent_a_stop_kind_or_code(tmp_p
     before = controls(tmp_path)
     backend = Backend(RunnerResult(exit_code=1, call_id=CALL_ID, stop_kind=kind,
                                    fatal_error="Unstructured runner failure: " + SECRET + " " + PROMPT_MARKER))
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed" and not record.get("decision")
     emitted = assert_failure(tmp_path, record, stage="provider", exit_code=1, call_id=CALL_ID)
     assert not record.get("stop_kind") and not emitted.get("stop_kind")
@@ -225,7 +225,7 @@ def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, 
     before = controls(tmp_path)
     outcome = reply(action="erase-project") if invalid == "action" else reply(action="steer", refs=["unobserved/private.json"])
     backend = Backend(outcome)
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed" and not record.get("decision") and not record.get("effects") and not record["cited_refs"]
     code = "decision_incomplete" if invalid == "action" else "evidence_outside_snapshot"
     emitted = assert_failure(tmp_path, record, stage="decision", code=code, exit_code=0, call_id=CALL_ID)
@@ -241,7 +241,7 @@ def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, 
 def test_unreadable_decision_event_names_the_code_and_the_refusing_check(tmp_path):
     event = project(tmp_path)
     outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=["I think things look fine overall."])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
     emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
     assert "action=missing" in emitted["error_message"]
 
@@ -249,7 +249,7 @@ def test_unreadable_decision_event_names_the_code_and_the_refusing_check(tmp_pat
 def test_provider_failure_event_carries_a_message_without_raw_provider_text(tmp_path):
     event = project(tmp_path)
     backend = Backend(RunnerResult(exit_code=1, call_id=CALL_ID, fatal_error="boom " + SECRET + " " + PROMPT_MARKER))
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     emitted = assert_failure(tmp_path, record, stage="provider", exit_code=1, call_id=CALL_ID)
     assert emitted["error_message"] == "RuntimeError"
 
@@ -264,7 +264,7 @@ def test_named_lines_without_a_colon_are_read_as_the_decision(tmp_path, decorate
         f"{decorate}EVIDENCE_REFS{decorate} backlog.jsonl"
     )
     outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
     assert record["status"] == "applied", record.get("failure_reason")
     assert record["decision"]["action"] == "continue"
     assert [ref["path"] for ref in record["cited_refs"]] == ["backlog.jsonl"]
@@ -274,7 +274,7 @@ def test_model_written_action_value_is_not_persisted_in_the_failure(tmp_path):
     event = project(tmp_path)
     text = "ACTION: escalate-to-secret-channel\nREASON: odd\nEVIDENCE_REFS: backlog.jsonl"
     outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome), memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
     emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
     assert "escalate" not in emitted["error_message"] and "action=unrecognized" in emitted["error_message"]
 
@@ -313,7 +313,7 @@ def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_mo
 
     event = project(tmp_path)
     backend = Backend(reply(action="steer"))
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(tmp_path, runner=backend)
     original = directive.set_active_manager_directive
 
     def unavailable(*args, **kwargs):
@@ -330,7 +330,7 @@ def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_mo
         assert "cancelled" in reason and "recover" in reason and "superseded" not in reason
     assert load_active_manager_directive(tmp_path) is None
     assert directive.set_active_manager_directive is original
-    recovered = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    recovered = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert recovered["status"] == "applied" and recovered["decision"] == issued["decision"]
     assert recovered["effects"]["directive_delivered"] and len(backend.calls) == 1
     assert load_active_manager_directive(tmp_path).text == issued["decision"]["directive"]
@@ -345,7 +345,7 @@ def test_successful_model_prose_with_error_literals_is_not_provider_failure_meta
     outcome = reply(reason=reason)
     outcome.stderr_lines = ["Recovered warning: HTTP 402 trial_quota_exceeded timeout cancelled", SECRET, PROMPT_MARKER]
     backend = Backend(outcome)
-    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied" and record["decision"]["reason"] == reason
     assert all(not record.get(field) for field in ("failure_stage", "stop_kind", "error_code", "error", "error_type"))
     events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]

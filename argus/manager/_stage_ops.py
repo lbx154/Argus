@@ -257,6 +257,9 @@ class _StageDecisionMixin:
         from ..core.models import RunnerOptions
 
         _backend = self.runner or self._session
+        # A sandboxed backend reads only what it is given: the Skill libraries
+        # a Manager prompt names are read where they lie.
+        skill_dirs = [str(root) for root in self.mission.libraries().library_roots]
 
         def _run_exec(prompt: str) -> Any:  # noqa: ANN401
             return gateway_run_exec(
@@ -269,6 +272,7 @@ class _StageDecisionMixin:
                     dangerous_yolo=False,
                     sandbox_mode="read-only",
                     skip_git_repo_check=True,
+                    add_dirs=skill_dirs or None,
                 ),
                 run_label=run_label,
             )
@@ -1050,9 +1054,6 @@ class _StageDecisionMixin:
             prompt_context = resolve_role_prompt(
                 stage_decision_request(root, stage=cur)
             )
-            _match_objective = " ".join(
-                p for p in (cur, str(getattr(review, "reason", "") or "")) if p
-            )
             prompt = assemble_manager_prompt(
                 build_stage_decision_prompt(
                     current_stage=cur,
@@ -1068,10 +1069,7 @@ class _StageDecisionMixin:
                     allow_early_completion=allow_direct_completion,
                 ),
                 role_banner=prompt_context.role_banner,
-                role_skill_block=self._role_skill_block(
-                    _match_objective,
-                    include_libraries=True,
-                ),
+                role_skill_block=self.mission.libraries().block,
                 role_context=prompt_context.role_context,
             )
             from ..core.operator_context import append_operator_context
