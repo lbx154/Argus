@@ -46,8 +46,8 @@ _LEARNING_FIELD: dict[str, Any] = {
     "type": "object",
     "description": (
         "Is anything from this task worth keeping for later work: a failure, a "
-        "correction, a surprise, a new technique, a reusable pattern? When "
-        "unsure, worth_reflecting."
+        "correction, a surprise, a new technique, a reusable pattern, a recalled "
+        "lesson this task's evidence disproved? When unsure, worth_reflecting."
     ),
     "properties": {"verdict": {"enum": ["worth_reflecting", "nothing_new"]}, "reason": {"type": "string"}},
     "required": ["verdict", "reason"], "additionalProperties": False,
