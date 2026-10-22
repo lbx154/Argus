@@ -25,6 +25,7 @@ const STATUS_KEYS: Record<string, string> = {
   rejected: 'label.status.needsChanges',
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
+  superseded: 'label.status.superseded',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',
   aborted: 'label.status.cancelled',
@@ -149,10 +150,6 @@ export function stageLabel(value: string | null | undefined, t: Translate): stri
 
 export function frontierLabel(value: string | null | undefined, t: Translate): string {
   return t(FRONTIER_KEYS[String(value ?? '').toLowerCase()] ?? 'label.frontier.updated');
-}
-
-export function priorityLabel(value: number, t: Translate): string {
-  return t('label.priority', { priority: value });
 }
 
 export function outcomeLabels(

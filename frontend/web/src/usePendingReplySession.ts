@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
+import { isCurrentTaskQuestion, operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
 import { api, type BacklogItem } from './api';
 import { type NoticeTone } from './components/ActionNotice';
 
@@ -66,7 +66,7 @@ export function usePendingReplySession({
   // another task. Its current-task label can still follow the live mission.
   const pendingReply = pendingReplyOpen ? {
     ...openedReply.card,
-    is_current_task: currentTaskId && openedReply.card.kind !== 'domain_intake' ? openedReply.card.item_id === currentTaskId : undefined,
+    is_current_task: isCurrentTaskQuestion(openedReply.card, currentTaskId, [...(pendingQuestions ?? []), ...(backlog ?? [])]),
   } : preferredReply;
   const setPendingReplyOpen = (open: boolean) => {
     setPendingReplyError('');

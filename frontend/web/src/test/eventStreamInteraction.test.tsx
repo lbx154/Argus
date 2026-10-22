@@ -533,4 +533,20 @@ describe('project work status and conversation separation', () => {
     act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
     expect(roleGroup().props['data-active']).toBe('false');
   });
+
+  it('heads each role with its newest step as the log says it, never the host footer or a raw call', () => {
+    // Trial s-6f0e6213: the Manager's header read "**暂不能交付。** … ACTION=hold TARGET_STAGE=delivery REASON=…"
+    // and the Engineer's `glob: {"pattern": "**/AGENTS.md"}`.
+    mount([
+      { type: 'engineer.progress', kind: 'agent_message', actor: 'manager-stage', agent_layer: 'manager', event_id: 'm', ts: 1,
+        text: '**Not ready to deliver.** `core.py` lacks `format_hours`.\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=work remains' },
+      { type: 'engineer.progress', kind: 'tool_use', tool_name: 'glob', agent_layer: 'engineer', event_id: 'g', ts: 2,
+        text: 'glob: {"pattern": "**/AGENTS.md"}' },
+    ]);
+    const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]);
+    expect(header('manager')).toContain('Not ready to deliver. core.py lacks format_hours.');
+    expect(header('manager')).not.toMatch(/\*\*|`|ACTION|TARGET_STAGE|REASON/);
+    expect(header('engineer')).toContain('Find AGENTS.md');
+    expect(header('engineer')).not.toContain('glob');
+  });
 });

@@ -639,9 +639,3 @@ export function groupSummary(group: FeedGroup, t: Translate, locale: Locale): st
   const failed = group.failed ? ` · ${t('stream.fold.failed', { count: group.failed })}` : '';
   return `${head}${list}${failed}`;
 }
-
-/** The phrase a collapsed role header shows for its newest row. */
-export function rowPreview(row: FeedRow, t: Translate, locale: Locale): string {
-  if (row.kind === 'group') return groupSummary(row, t, locale);
-  return plainDetail(row.r.text, locale).text;
-}

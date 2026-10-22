@@ -863,9 +863,10 @@ describe('shared frontend core', () => {
     const items = [
       { id: 'run', title: 'running', objective: '', status: 'running', priority: 1 },
       { id: 'done', title: 'done', objective: '', status: 'done', priority: 2 },
+      { id: 'replaced', title: 'replaced', objective: '', status: 'superseded', priority: 3 },
     ];
     expect(visibleBacklogItems(items, false).map((item) => item.id)).toEqual(['run']);
-    expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done']);
+    expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done', 'replaced']);
   });
 
   it('builds one palette row for every shared slash command', () => {

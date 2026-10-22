@@ -142,10 +142,11 @@ describe('operator decision cards', () => {
       id: 'item-1', title: card.title, status: 'paused_operator', ts: 100,
       started_ts: 200, finished_ts: 300, operator_decision: { ...card, asked_at: askedAt },
     }];
-    const [row] = operatorDecisionCards(pending, [], 'another-task');
+    const running = [{ id: 'another-task', title: 'Another task', objective: '', status: 'running', priority: 0 }];
+    const [row] = operatorDecisionCards(pending, running, 'another-task');
     expect(row.asked_at).toBe(askedAt);
     const dialog = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} onClose={vi.fn()} onSubmit={vi.fn()} />);
-    const banner = renderToStaticMarkup(<PendingBanner questions={pending} backlog={[]} currentTaskId="another-task" onAnswer={vi.fn()} />);
+    const banner = renderToStaticMarkup(<PendingBanner questions={pending} backlog={running} currentTaskId="another-task" onAnswer={vi.fn()} />);
     for (const html of [dialog, banner]) {
       expect(html).toContain(card.title);
       expect(html).toContain('Another task awaiting input');
@@ -159,6 +160,19 @@ describe('operator decision cards', () => {
     expect(unknown.asked_at).toBeUndefined();
     const unknownHtml = renderToStaticMarkup(<PendingReplyDialog reply={unknown} open busy={false} onClose={vi.fn()} onSubmit={vi.fn()} />);
     expect(unknownHtml).not.toContain('<time');
+  });
+
+  it('calls a question another task’s only while the current task is still under way', () => {
+    // Trial s-36ca9747: the one open question read "其他待处理任务" because the
+    // last task to run, long finished, was still "the current task".
+    const pending = [{ id: 'asked', title: 'Settle the byte unit', status: 'parked', operator_decision: { ...card, item_id: 'asked' } }];
+    const finished = [{ id: 'percent', title: 'Add format_percent', objective: '', status: 'done', priority: 0 }];
+    expect(operatorDecisionCards(pending, finished, 'percent')[0].is_current_task).toBeUndefined();
+    const html = renderToStaticMarkup(<PendingBanner questions={pending} backlog={finished} currentTaskId="percent" onAnswer={vi.fn()} />);
+    expect(html).not.toContain('Another task awaiting input');
+    expect(html).not.toContain('Current task');
+    const running = [{ ...finished[0], status: 'running' }];
+    expect(operatorDecisionCards(pending, running, 'percent')[0].is_current_task).toBe(false);
   });
 
   it('asks the question in the banner and leaves the reason to the card it opens', () => {

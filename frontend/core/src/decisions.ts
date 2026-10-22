@@ -1,5 +1,6 @@
 export type { DecisionEvidence, DecisionOption, OperatorDecisionCard } from '../../../packages/contracts/src/decisions.js';
 import type { DecisionEvidence, DecisionOption, OperatorDecisionCard } from '../../../packages/contracts/src/decisions.js';
+import { isTerminalBacklogItem } from './backlog.js';
 
 const text = (value: unknown): string => String(value ?? '').trim();
 const genericOperatorDecisionReason = /^[a-z][a-z -]+ requires an operator-owned decision before continuing\.?$/i;
@@ -17,6 +18,20 @@ const customDecisionOption = (title: string, question: string): DecisionOption =
     description: chinese ? '直接告诉 Argus 你的决定。' : 'Tell Argus your decision directly.',
   };
 };
+
+/** Whether a question is the current task's own. Another task's question is
+ * told apart from it only while the current task has not ended; once it has,
+ * there is no other task going on to tell it from. */
+export function isCurrentTaskQuestion(
+  card: OperatorDecisionCard,
+  currentTaskId: string | null | undefined,
+  rows: ReadonlyArray<{ id?: unknown; status?: unknown }>,
+): boolean | undefined {
+  if (!currentTaskId || card.kind === 'domain_intake') return undefined;
+  if (card.item_id === currentTaskId) return true;
+  const current = rows.find(row => text(row.id) === currentTaskId);
+  return current && !isTerminalBacklogItem({ status: text(current.status) }) ? false : undefined;
+}
 
 export function operatorDecisionCards(
   pending: Array<Record<string, unknown>>,
@@ -99,6 +114,6 @@ export function operatorDecisionCards(
     });
   }
   if (!currentTaskId) return cards;
-  const scoped = cards.map(card => ({ ...card, is_current_task: card.kind === 'domain_intake' ? undefined : card.item_id === currentTaskId }));
+  const scoped = cards.map(card => ({ ...card, is_current_task: isCurrentTaskQuestion(card, currentTaskId, rows) }));
   return [...scoped.filter(card => card.kind === 'domain_intake'), ...scoped.filter(card => card.is_current_task), ...scoped.filter(card => card.kind !== 'domain_intake' && !card.is_current_task)];
 }
