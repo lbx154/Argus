@@ -453,6 +453,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Next: the Manager is deciding how this goes on.",
         "接下来：经理在定怎么继续。",
     ),
+    "update_planner_replans": (
+        "Next: the Planner is reworking the plan.",
+        "接下来：规划者在重新安排。",
+    ),
     "update_will_investigate": (
         "Next: I'll find out what went wrong and pick a way forward.",
         "接下来：我先查清原因，再找个能走通的办法。",

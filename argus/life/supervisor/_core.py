@@ -1685,10 +1685,9 @@ class LifeSupervisor(
             )
             brief = brief_title(title)
             if not success:
+                # A role that hands the work on gives its reason in its own summary.
                 reason = str(
-                    event.get("stop_reason")
-                    or event.get("failure_reason")
-                    or "The mission ended without a verified result."
+                    event.get("stop_reason") or event.get("failure_reason") or summary
                 ).strip()
                 next_action = str(event.get("next_action") or "").strip()
                 operator_question = str(
@@ -1726,12 +1725,14 @@ class LifeSupervisor(
                     next_action=next_action,
                     holder=(
                         "operator" if park in {"operator_question", "operator_pause"}
-                        else "manager" if to_manager else ""
+                        else "manager" if to_manager
+                        else "planner" if status == "replan_requested" else ""
                     ),
                     language_hint=language_hint,
                 )
-                # The summary often is the stop reason, its lines run together.
-                told = " ".join(summary.split()) in " ".join(text.split())
+                # The summary often is the stop reason, its lines run together;
+                # the update gives its first sentence, its row the rest.
+                told = " ".join(summary.split()) in " ".join(f"{reason} {text}".split())
                 publish_operator_message(
                     life_dir,
                     text="\n".join(part for part in (text, "" if told else summary) if part),

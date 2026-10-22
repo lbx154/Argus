@@ -395,9 +395,10 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
+    # Its first sentence is the reason; the rest is on the handoff's own row.
     assert text == (
         "「为 timefmt 添加整小时格式化函数」暂时做不下去了。\n"
-        f"原因：{reason}\n"
+        "原因：暂未实现：现有舍入规则冲突。\n"
         "接下来：经理在定怎么继续。"
     )
 
@@ -405,6 +406,76 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
 def _last_said(supervisor: LifeSupervisor, event: dict, root) -> str:
     supervisor._emit({"type": "life.mission.completed", **event})
     return json.loads((root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1])["text"]
+
+
+def test_a_review_handed_to_the_manager_says_the_manager_decides(tmp_path) -> None:
+    """Trial s-757b9dac: the Reviewer's `→ manager` read "原因：<600 字> 接下来：<the same 600 字>"."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "给 timefmt 加一个 format_hours(seconds)。")
+    review = (
+        "format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。\n\n"
+        "从包的公开接口执行 `from timefmt import format_hours` 直接触发 ImportError。\n\n"
+        "请明确小时函数采用舍弃小数部分还是半数进一，再交由实现方补齐。"
+    )
+
+    assert _last_said(supervisor, {
+        "item_id": "task-hours", "title": "为 timefmt 添加整小时格式化函数",
+        "success": False, "status": "parked", "park_reason": "research_open", "review_source": "reviewer",
+        "stop_reason": review, "failure_reason": review, "next_action": review,
+        "summary": " ".join(review.split()), "operator_question": "",
+        "outcome": {"review_status": "blocked", "execution_status": "paused"},
+    }, memory.root) == (
+        "「为 timefmt 添加整小时格式化函数」暂时做不下去了。\n"
+        "原因：format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。\n"
+        "接下来：经理在定怎么继续。"
+    )
+
+
+def test_work_handed_back_to_the_planner_gives_the_engineer_s_reason(tmp_path) -> None:
+    """Trial s-757b9dac: "原因：The mission ended without a verified result.
+    接下来：我先查清原因", then the Engineer's whole summary."""
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "给 timefmt 加一个 format_hours(seconds)。")
+
+    assert _last_said(supervisor, {
+        "item_id": "task-hours", "title": "为 timefmt 添加整小时格式化函数",
+        "success": False, "status": "replan_requested", "review_source": "engineer_handoff",
+        "stop_reason": "", "failure_reason": "", "next_action": "",
+        "summary": "尚未实现：现有整单位函数的舍入规则不一致。未修改仓库文件，交给 Planner 明确舍入规则。",
+        "outcome": {"review_status": "not_assessed", "execution_status": "ended"},
+    }, memory.root) == (
+        "「为 timefmt 添加整小时格式化函数」需要换个做法。\n"
+        "原因：尚未实现：现有整单位函数的舍入规则不一致。\n"
+        "接下来：规划者在重新安排。"
+    )
+
+
+def test_a_task_ended_without_any_account_says_no_reason(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=True, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "给 timefmt 加一个 format_hours(seconds)。")
+
+    assert _last_said(supervisor, {
+        "item_id": "task-hours", "title": "为 timefmt 添加整小时格式化函数",
+        "success": False, "status": "failed", "outcome": {},
+    }, memory.root) == (
+        "没能完成：为 timefmt 添加整小时格式化函数。\n"
+        "接下来：我先查清原因，再找个能走通的办法。"
+    )
 
 
 def test_a_completion_after_an_option_click_keeps_the_operator_s_language(tmp_path) -> None:
