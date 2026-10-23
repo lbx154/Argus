@@ -4,7 +4,8 @@ The Manager is the SOLE authority over pipeline stage transitions. After the
 Reviewer (and Planner) advise, it fills the ``stage`` form of ``hand_off``:
 ``to=team`` with a ``move`` (advance to a later stage, hold, or roll back to
 an earlier one), ``to=done`` when the objective is complete, or
-``to=operator`` (refused until a stage question has a task to wait on).
+``to=manager`` to put a question the evidence cannot settle to the Manager's
+own session, holding until it rules (:meth:`Manager.commit_stage_ruling`).
 :func:`stage_check` refuses a move the stage machine cannot
 make from here, so the model corrects it in the same turn; a turn that hands
 nothing off holds.
@@ -30,6 +31,9 @@ def stage_check(
 ) -> StageDecision:
     """The stage form's own rule: advance only forward, roll back only backward, done only at the end."""
     cur, order, summary = current_stage, list(stage_order), payload["summary"]
+    if payload["to"] == "manager":
+        question = "\n\n".join(part for part in (summary, payload.get("note", "")) if part)
+        return StageDecision("hold", cur, question, "manager_question")
     if payload["to"] == "done":
         if cur != order[-1] and not allow_done:
             raise ValueError(

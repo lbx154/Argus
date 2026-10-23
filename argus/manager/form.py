@@ -18,6 +18,7 @@ _ROLE_KNOBS = frozenset({"model", "effort"})
 _ROUTE_FIELDS = (
     "summary", "assumptions", "vertical", "domain", "workflow_mode", "start_stage",
     "research_target_level", "research_direction_mode", "target_venue", "require_independent_review",
+    "operator_decides_stages",
 )
 
 
@@ -82,7 +83,8 @@ def _check_setup(payload: dict[str, Any], setting_up: bool) -> None:
 
 
 def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_allowed: bool,
-           route: Callable[[dict[str, Any]], Any] | None, waiting: Mapping[str, Sequence[str]],
+           route: Callable[[dict[str, Any]], Any] | None,
+           stage: Callable[[dict[str, Any]], Any] | None, waiting: Mapping[str, Sequence[str]],
            setting_up: bool) -> Any:
     """The rules Argus enforces on the Manager's call; each refusal is one sentence the model can act on."""
     to = payload["to"]
@@ -103,33 +105,38 @@ def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_
         raise ValueError("A setting change is intake.type=preference; config stores the setting itself.")
     if to == "team":
         return route(_route(payload)) if route else None
+    if "stage" in payload and to != "manager":
+        raise ValueError("A stage ruling is carried out by Argus: file it with to=manager.")
+    ruling = stage(payload) if "stage" in payload and stage else None
     if not control:
-        return None
+        return ruling
     if _folded(control["quote"]) not in _folded(message):
         raise ValueError("control.quote must be the operator's own words giving the command, copied from the message.")
     if control["kind"] == "steer" and not active_mission:
         raise ValueError("No mission is running, so there is nothing to steer: leave control out.")
     if control["kind"] == "steer" and not control.get("directive"):
         raise ValueError("A steer needs its new direction in control.directive.")
-    return None
+    return ruling
 
 
 def manager_actions(
     message: str, *, active_mission: bool, team_allowed: bool = True, operator_available: bool | None = None,
-    route: Callable[[dict[str, Any]], Any] | None = None, waiting: Mapping[str, Sequence[str]] | None = None,
-    setting_up: bool = False,
+    route: Callable[[dict[str, Any]], Any] | None = None,
+    stage: Callable[[dict[str, Any]], Any] | None = None,
+    waiting: Mapping[str, Sequence[str]] | None = None, setting_up: bool = False,
 ) -> HandOffActions:
     """The ``hand_off`` tool bound to one Manager turn on ``message``.
 
     ``route`` checks a ticket's routing decision (``Manager.adopt_route``); what
     it returns is the handoff's value, the decision the team is dispatched with.
+    ``stage`` checks a stage ruling (``Manager.stage_ruling``).
     ``waiting`` maps each task paused on a question to the ids of the answers it
     offers; ``setting_up`` is a workflow setup under way with the operator.
     """
     return HandOffActions(
         "manager", operator_available=True if setting_up else operator_available,
         check=partial(_check, message=message, active_mission=active_mission, team_allowed=team_allowed,
-                      route=route, waiting=waiting or {}, setting_up=setting_up),
+                      route=route, stage=stage, waiting=waiting or {}, setting_up=setting_up),
     )
 
 

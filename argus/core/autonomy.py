@@ -30,7 +30,7 @@ AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
 _ASSUMPTION_SHOWN_CHARS = 300
 #: Who chose what an assumption records: the Manager's forms and its answers
 #: to parked questions (``manager_decision``) are the Manager's; the rest the team's.
-_MANAGER_SOURCES = frozenset({"route", "supervise", "manager_decision"})
+_MANAGER_SOURCES = frozenset({"route", "supervise", "stage", "manager_decision"})
 # How long Argus keeps retrying an outside failure on its own (a provider
 # outage, a rate limit, an unreachable backend) before it stops retrying and
 # tells the operator. Operator decision, 2026-10-19: three hours.

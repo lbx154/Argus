@@ -1253,6 +1253,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         waiting=waiting, setting_up=bool(setup),
         route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
                       allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
+        stage=lambda payload: runner.manager.stage_ruling(payload),
     )
     try:
         outcome = runner.manager_turn(
@@ -1271,6 +1272,12 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     if isinstance(outcome.delivery, dict):
         chat_state["_self_delivery"] = outcome.delivery
     handoff = actions.handoff
+    if handoff is not None and "stage" in handoff.payload:
+        try:
+            # The caller tells the team (``tell_team_stage_ruling``).
+            chat_state["_stage_ruling"] = runner.manager.commit_stage_ruling(handoff.payload)
+        except ValueError:  # the stage moved since the turn's check; the next stage call asks again
+            log.warning("manager stage ruling no longer applies", exc_info=True)
     return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
 
 

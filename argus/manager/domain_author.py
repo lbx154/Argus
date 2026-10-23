@@ -181,6 +181,8 @@ class VerticalDecision:
     # bounded research operation rather than a keyword guess in the harness.
     target_venue: str = ""
     require_independent_review: bool = True
+    # The operator asked to take part in stage decisions; otherwise the Manager makes them.
+    operator_decides_stages: bool = False
     # Requirements the operator actually stated, split by how they can be
     # checked. `precise_constraints` are mechanically checkable things the
     # operator chose (a number, a baseline, a budget) and are recorded verbatim;
@@ -241,6 +243,7 @@ class RouteContext:
             adaptation_reason=payload["summary"],
             execution_task=execution_task,
             require_independent_review=payload.get("require_independent_review", True),
+            operator_decides_stages=payload.get("operator_decides_stages", False),
             precise_constraints=_listed(payload, "precise_constraints"),
             assumptions=tuple(payload["assumptions"]),
             session_title=topic_name(payload.get("session_title")),

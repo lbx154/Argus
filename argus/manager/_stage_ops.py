@@ -858,9 +858,7 @@ class _StageDecisionMixin:
 
             prompt = append_operator_context(prompt, self._stage_operator_context())
 
-            # A stage question has no task to wait on yet, so the Manager decides
-            # and records the reading it chose.
-            actions = HandOffActions("stage", operator_available=False, check=partial(
+            actions = HandOffActions("stage", check=partial(
                 stage_check, current_stage=cur, stage_order=order, allow_done=allow_direct_completion,
             ))
             with self._task_usage_scope(root_task_id):
@@ -884,9 +882,84 @@ class _StageDecisionMixin:
             )
 
         # --- Phase 8: Apply decision to disk ---
-        return self._commit_stage_decision_if_current(
+        transition = self._commit_stage_decision_if_current(
             decision, cur, root, expected_context=expected_context
         )
+        if transition.diagnostic == "manager_question":
+            self._put_stage_question(root, cur, order, transition.reason, on_event, root_task_id)
+        return transition
+
+    def _put_stage_question(
+        self, root: Path, cur: str, order: list[str], question: str, on_event: Any, root_task_id: str | None,
+    ) -> None:
+        """Leave the stage call's question in the Manager session's inbox; the stage holds meanwhile.
+
+        The task the question came from is kept in PIPELINE_STATE, so the
+        ruling's choices are that task's even when it ends before the ruling.
+        """
+        from hashlib import sha256
+
+        from ..core.event_catalog import EventType
+        from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
+        from ..core.team_reports import post_team_report
+        from ..life.memory import LifeMemory
+
+        running = [item.id for item in LifeMemory.open(root).backlog.active() if item.status == "running"]
+        with self.pipeline_lock():
+            state = read_pipeline_state(root)
+            write_pipeline_state(root, {**state, "stage_question_task": running[0] if running else root_task_id or ""})
+        at = order.index(cur) if cur in order else len(order)
+        text = "\n\n".join((
+            f"Stage question at `{cur}` (later stages: {', '.join(order[at + 1:]) or 'none'}; "
+            f"earlier: {', '.join(order[:at]) or 'none'}):",
+            question,
+            "The operator asked to take part in stage decisions."
+            if state.get("operator_decides_stages")
+            else "The operator did not ask to take part in stage decisions: you are the authorized role "
+            "for this one, including the readings of their request it turns on.",
+        ))
+        message_id = f"stage-question-{sha256(text.encode()).hexdigest()[:12]}"
+        post_team_report(root, message_id=message_id, text=text, event_fields={})
+        if callable(on_event):
+            on_event({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
+
+    def stage_ruling(self, payload: dict[str, Any]) -> Any:
+        """The Manager session's ruling on a stage question, checked against the stage as it is now."""
+        root = self.project_root
+        context = self._gather_stage_context(root)
+        if not isinstance(context, tuple):
+            raise ValueError(f"The stage cannot move now: {context.reason}.")
+        cur, order, _contract = context
+        return stage_check(
+            {"to": "team", **payload["stage"], "summary": payload["summary"]},
+            current_stage=cur, stage_order=order, allow_done=False,
+        )
+
+    def commit_stage_ruling(self, payload: dict[str, Any]) -> str:
+        """Carry out the Manager session's stage ruling; what the team is told of it, choices included.
+
+        The choices are recorded for the task whose stage question this rules
+        on; the caller puts the returned text in the team's inbox.
+        """
+        from ..core.autonomy import record_assumptions
+        from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
+        from ..skills.stage_machine import current_stage
+
+        root = self.project_root
+        with self.pipeline_lock():
+            decision = self.stage_ruling(payload)
+            task_id = str(read_pipeline_state(root).get("stage_question_task") or "")
+            transition = self._apply_stage_decision_to_disk(
+                decision, current_stage(root), root, source="manager_ruling",
+            )
+            state = read_pipeline_state(root)
+            state.pop("stage_question_task", None)
+            write_pipeline_state(root, state)
+        record_assumptions(root, payload["assumptions"], item_id=task_id, source="stage")
+        return "\n".join((
+            f"Manager's stage ruling: {transition.action} at `{transition.target_stage}`. {decision.reason}",
+            *(f"- chose {row['chose']} (not: {row['instead_of']})" for row in payload["assumptions"]),
+        ))
 
     # ---- progress view ----
     def current_stage(self) -> str:

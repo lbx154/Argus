@@ -7,12 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus.core.team_reports import post_team_report
 from argus.core.transcript import read_turns
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus.manager import front_door
 from argus.manager._session_ops import _ManagerSession
 from argus.webapi import manager_bridge, manager_state
-from argus.webapi.deferred_messages import DeferredMessages, post_team_report
+from argus.webapi.deferred_messages import DeferredMessages
 from tests.hand_off import manager_runner
 
 pytest.importorskip("fastapi")

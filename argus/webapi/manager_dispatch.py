@@ -856,6 +856,21 @@ def _apply_config(
                            message_id="config")
 
 
+def ask_text(handoff: Any, chinese: bool) -> str:
+    """The Manager's ask as the operator reads it: the one place they see the question."""
+    from ..life.supervisor.pending_notify import numbered_options
+
+    return "\n\n".join(part for part in (handoff.question, numbered_options(handoff.options, chinese)) if part)
+
+
+def tell_team_stage_ruling(life_dir: Any, chat_state: dict[str, Any]) -> None:
+    """Put the stage ruling the Manager's turn carried out, if any, in the team's inbox."""
+    from ..apps._inbox import queue_inbox_message
+
+    if text := chat_state.pop("_stage_ruling", None):
+        queue_inbox_message(life_dir, text, source="manager.stage")
+
+
 def _settle_manager_turn(
     mem: Any,
     reply: str,
@@ -879,12 +894,7 @@ def _settle_manager_turn(
     life_dir = emitter.life_dir
     if handoff is None or handoff.to == "operator":
         if handoff is not None:
-            from ..life.supervisor.pending_notify import numbered_options
-
-            # The ask is the one place the operator sees the question.
-            reply = "\n\n".join(part for part in (
-                handoff.question, numbered_options(handoff.options, uses_cjk(operator_text)),
-            ) if part)
+            reply = ask_text(handoff, uses_cjk(operator_text))
         result: dict[str, Any] = {"kind": "chat"}
         delivery = chat_state.pop("_self_delivery", None)
         if isinstance(delivery, dict):

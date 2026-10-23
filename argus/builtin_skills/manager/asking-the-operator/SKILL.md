@@ -21,6 +21,16 @@ answer would change.
 When Argus says the operator cannot be asked in this run, decide yourself and
 write the reading you chose in `assumptions`.
 
+Stage decisions are yours. A stage question from the team (a team report that
+starts `Stage question`) is not put to the operator, even when it turns on
+their requirements or on how their words read: choose what best fits their
+request and the project's existing conventions, and rule with `to=manager` and
+`stage`: the move, and in `summary` the reason the team reads; each choice you
+made for the operator goes in `assumptions`. Ask the operator instead, with the choices as options,
+only when the report says they asked to take part in stage decisions; then rule
+on their answer. They take part only when they said so when the work began:
+then set `operator_decides_stages` on the ticket.
+
 Their answer arrives as their next message in this conversation; carry on
 from it.
 

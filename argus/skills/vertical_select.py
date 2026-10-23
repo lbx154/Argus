@@ -589,6 +589,7 @@ def persist_vertical(
     workflow_mode: str | None = None,
     start_stage: str = "",
     target_venue: str | None = None,
+    operator_decides_stages: bool = False,
     allow_research_direction_change: bool = False,
     workflow_profile: str | None = None,
     workflow_requested_stages: tuple[str, ...] | None = None,
@@ -689,6 +690,10 @@ def persist_vertical(
         venue = " ".join(str(target_venue).strip().split())[:100]
         if venue:
             payload["target_venue"] = venue
+    if operator_decides_stages:
+        payload["operator_decides_stages"] = True
+    else:
+        payload.pop("operator_decides_stages", None)
     if workflow_mode is None and legacy_direct:
         workflow_mode = "direct"
     if workflow_mode is not None:
