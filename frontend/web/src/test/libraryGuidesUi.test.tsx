@@ -2,10 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api, type SkillLibraryItem, type WikiLibraryItem } from '../api';
-import { SkillLibrary } from '../components/SkillLibrary';
-import { WikiLibrary } from '../components/WikiLibrary';
 import { LearningLibrary, learningEntries } from '../components/LearningLibrary';
-import { knowledgePurpose } from '../lib/libraryPresentation';
 const state = vi.hoisted(() => ({ locale: 'zh-CN' }));
 vi.mock('../i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../i18n')>();
@@ -122,48 +119,3 @@ it('assigns lessons, principles, profiles and indexes to their original scopes i
   expect(learningEntries(catalog, skillCatalog, 'project', 'en').some(entry => entry.scope === 'private')).toBe(false);
 });
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });
-async function skills() {
-  await act(async () => { view = create(<QueryClientProvider client={client}><SkillLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
-}
-it('shows and searches the Chinese built-in alias, while the document request retains its original identity', async () => {
-  await skills();
-  expect(content(view!.root)).toContain('怎么做');
-  act(() => view!.root.findByType('input').props.onChange({ target: { value: '演示文稿' } }));
-  act(() => button('可编辑演示文稿').props.onClick()); await settle();
-  expect(api.skillDocument).toHaveBeenCalledExactlyOnceWith('s-A', 'global:bundled', 'engineer/presentation-master.md', expect.any(AbortSignal));
-  const guide = view!.root.findByProps({ 'data-skill-reading-guide': true });
-  expect(content(guide)).toContain('什么时候参考');
-  expect(content(guide)).toContain('不会运行工具或发起模型任务');
-  expect(content(view!.root.findByProps({ 'data-original': true }))).toBe('# ORIGINAL\n\nExact original text.\n');
-  expect(view!.root.findByProps({ 'data-skill-original': true }).props.open).toBeUndefined();
-});
-it('keeps English mode, and never aliases a learned document with a matching built-in filename', async () => {
-  state.locale = 'en'; await skills();
-  expect(content(view!.root)).toContain('Editable Presentations with PPT Master');
-  expect(content(view!.root)).not.toContain('可编辑演示文稿');
-  act(() => button('Project').props.onClick());
-  act(() => button('Operator original title').props.onClick()); await settle();
-  expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
-  expect(content(view!.root)).toContain('Do not rewrite this description');
-  expect(api.skillDocument).toHaveBeenCalledWith('s-A', 'project:learned', 'engineer/presentation-master.md', expect.any(AbortSignal));
-});
-it('clears the guide and document selection when sid changes', async () => {
-  await skills(); act(() => button('可编辑演示文稿').props.onClick()); await settle();
-  expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(1);
-  await act(async () => view!.update(<QueryClientProvider client={client}><SkillLibrary sid="s-B" /></QueryClientProvider>)); await settle();
-  expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
-  expect(api.skillDocument).toHaveBeenCalledTimes(1);
-});
-it('explains knowledge kinds and private scope in Chinese without altering personal originals or profile', async () => {
-  await act(async () => { view = create(<QueryClientProvider client={client}><WikiLibrary sid="s-A" initialScope="private" /></QueryClientProvider>); }); await settle();
-  expect(content(view!.root)).toContain('知道什么、学到什么');
-  expect(content(view!.root.findByProps({ 'data-wiki-profile': true }))).toContain('Original profile stays intact');
-  act(() => view!.root.findAllByType('button').find(node => content(node).includes('Original personal note'))!.props.onClick()); await settle();
-  const guide = view!.root.findByProps({ 'data-knowledge-reading-guide': true });
-  expect(content(guide)).toContain(knowledgePurpose('note', 'zh-CN'));
-  expect(content(guide)).toContain('不是这篇正文的翻译');
-  expect(content(view!.root)).toContain('Original personal note');
-  expect(content(view!.root)).toContain('Original evidence summary');
-  expect(api.wikiDocument).toHaveBeenCalledExactlyOnceWith('s-A', 'private', '', 'notes/example.md', expect.any(AbortSignal));
-  expect(view!.root.findAllByProps({ 'data-original': true }).map(content)).toContain('# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n');
-});

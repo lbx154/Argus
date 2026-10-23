@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   activityHistory,
-  latestRunningActivity,
   normalizeOperatorEvent,
   overlayActiveRole,
   overlayRoleActivities,
   reduceOperatorEvent,
+  runningActivities,
 } from '../../core/src/activity.js';
 
 test('raw agent IO becomes a safe semantic activity without prompt or output', () => {
@@ -146,8 +146,8 @@ test('stream protocol is coalesced by call id and rate-limited to one heartbeat 
   assert.equal(events.length, 1);
   assert.equal(events[0].ts, start + 1.2);
   assert.doesNotMatch(JSON.stringify(events), /SECRET/);
-  assert.ok(Math.abs((latestRunningActivity(events)?.startedTs ?? 0) - start) < 0.002);
-  assert.equal(latestRunningActivity(events)?.model, 'gpt-5.5');
+  assert.ok(Math.abs((runningActivities(events)[0]?.startedTs ?? 0) - start) < 0.002);
+  assert.equal(runningActivities(events)[0]?.model, 'gpt-5.5');
 });
 
 test('a missed completion cannot leave a permanent running activity', () => {
@@ -156,7 +156,7 @@ test('a missed completion cannot leave a permanent running activity', () => {
     type: 'agent.io.stream', call_id: `${Math.floor(old * 1000)}-9`,
     run_label: 'skill.compaction_batch', ts: old, line: '{}',
   });
-  assert.equal(latestRunningActivity(events), null);
+  assert.deepEqual(runningActivities(events), []);
   assert.equal(activityHistory(events)[0].role, 'maintenance');
 });
 
@@ -176,5 +176,5 @@ test('matcher and idea-search phases settle in place as concise milestones', () 
     'generated 6 candidate ideas',
   ]);
   assert.equal(history[1].elapsedS, 60);
-  assert.equal(latestRunningActivity(events), null);
+  assert.deepEqual(runningActivities(events), []);
 });

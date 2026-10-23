@@ -3,17 +3,6 @@ import { useI18n } from '../i18n';
 import { knowledgePurpose, knowledgeScopePurpose, type SkillGuide } from '../lib/libraryPresentation';
 import { roleLabel } from '../lib/enumLabels';
 
-export function LibraryIntroduction({ kind }: { kind: 'skills' | 'knowledge' }) {
-  const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
-  return <div className="shrink-0 border-b border-line/60 bg-bg/50 px-4 py-3 text-xs leading-relaxed text-ink-dim" data-library-introduction={kind}>
-    <p>{kind === 'skills'
-      ? zh ? '技能库告诉 Argus「怎么做」：可复用的方法、步骤和使用条件。查看不等于执行，技能也不是需要逐个安装的插件。' : 'Skills describe how to work: reusable methods, steps and conditions. Reading a skill does not execute it or install a plugin.'
-      : zh ? '知识库记录「知道什么、学到什么」：事实、经验和资料。Argus 可在工作中按需参考；已保存或被读取不代表结论已经验证。' : 'Knowledge records what was learned: facts, lessons and reference material. Saved or recalled information is not automatically verified.'}</p>
-    <p className="mt-1 text-ink-faint">{zh ? '内置说明提供中文导读；你、Agent 或第三方写下的原文保留，不会在这里自动翻译或改写。' : 'Bundled material has a Chinese reading guide in Chinese mode. User, Agent and third-party originals are not automatically translated or rewritten here.'}</p>
-  </div>;
-}
-
 export function SkillReadingGuide({ guide, item }: { guide: SkillGuide; item: SkillLibraryItem }) {
   const { t } = useI18n();
   return <section data-skill-reading-guide className="mt-4 rounded-lg border border-line/60 bg-bg/60 p-4 text-sm leading-relaxed text-ink">

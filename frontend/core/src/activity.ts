@@ -348,13 +348,6 @@ export function runningActivities(
     .sort((a, b) => b.updatedTs - a.updatedTs);
 }
 
-export function latestRunningActivity(
-  events: EventMsg[],
-  excludeRoles: string[] = [],
-): ActivityView | null {
-  return runningActivities(events, excludeRoles)[0] ?? null;
-}
-
 /** Overlay live wire activity immediately instead of waiting for snapshot polling. */
 export function overlayRoleActivities(roles: Role[], events: EventMsg[]): Role[] {
   const byRole = new Map(runningActivities(events).map((activity) => [activity.role, activity]));

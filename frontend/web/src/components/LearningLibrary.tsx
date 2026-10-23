@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
-import { api, type SkillCatalog, type SkillLibraryItem, type WikiCatalog, type WikiLibraryItem, type WikiScope } from '../api';
+import { api, type SkillCatalog, type SkillLibraryItem, type WikiCatalog, type WikiLibraryItem, type WikiPageKind, type WikiScope } from '../api';
 import { useI18n, type Locale } from '../i18n';
 import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
@@ -9,8 +9,18 @@ import { KnowledgeReadingGuide, SkillReadingGuide } from './LibraryGuide';
 import { LearningStatus } from './LearningStatus';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
-import { recentSkills, useSkillLibrary } from './SkillLibrary';
-import { pageKind, useWikiLibrary, wikiKindLabels } from './WikiLibrary';
+
+const wikiKindLabels: Record<'en' | 'zh', Record<WikiPageKind, string>> = {
+  en: { fact: 'Fact', lesson: 'Lesson', survey: 'Survey', principles: 'Principles', note: 'Note', profile: 'Profile', page: 'Page' },
+  zh: { fact: '事实', lesson: '经验教训', survey: '调研摘要', principles: '原则', note: '个人记录', profile: '个人概况', page: '参考页面' },
+};
+/** The page kind the host reported, folded onto the ones the browser knows how to label. */
+const pageKind = (item: Pick<WikiLibraryItem, 'kind'>): WikiPageKind =>
+  (item.kind in wikiKindLabels.en ? item.kind : 'page') as WikiPageKind;
+const skillIdentity = (item: SkillLibraryItem) => `${item.library}/${item.path}`;
+const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => !item.is_default && item.updated_at != null)
+  .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0) || skillIdentity(a).localeCompare(skillIdentity(b)));
+const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
 export type LearningScope = 'feed' | 'global' | 'vertical' | 'project';
 export type LearningSelection = { kind: 'knowledge'; item: WikiLibraryItem } | { kind: 'skill'; item: SkillLibraryItem };
@@ -93,8 +103,8 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
       ? `skill/${initialSelection.item.library}/${initialSelection.item.path}`
       : `knowledge/${initialSelection.item.scope}/${initialSelection.item.vertical}/${initialSelection.item.path}`
     : null);
-  const wiki = useWikiLibrary(sid);
-  const skills = useSkillLibrary(sid);
+  const wiki = useQuery({ ...libraryQuery, queryKey: ['wiki-library', sid], queryFn: ({ signal }) => api.wikiLibrary(sid, signal) });
+  const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
   const feed = useKnowledgeFeed(scope === 'feed');
   const all = learningEntries(wiki.data, skills.data, scope, locale);
   const selected = all.find(entry => entry.id === selection);

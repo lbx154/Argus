@@ -8,8 +8,6 @@ import { PanelView, type PanelState } from '../src/components/panels.js';
 import { Header } from '../src/components/Header.js';
 import { Footer } from '../src/components/Footer.js';
 import { ThinkingLine } from '../src/components/ThinkingLine.js';
-import { LiveActivity } from '../src/components/LiveActivity.js';
-import { ActivityPane } from '../src/components/ActivityPane.js';
 import { EventLog } from '../src/components/EventLog.js';
 import { PromptBox } from '../src/components/PromptBox.js';
 import {
@@ -881,22 +879,6 @@ test('Manager waiting line distinguishes the foreground message and hides handof
   assert.match(output, /Your message/);
   assert.match(output, /context refreshed/);
   assert.doesNotMatch(output, /SESSION HANDOFF|internal context/);
-});
-
-test('live activity stays concise and the detail pane never prints raw prompts', async () => {
-  const events: EventMsg[] = [{
-    type: 'role.activity', activity_id: 'phase:idea-search', role: 'engineer',
-    label: 'searching recent papers + generating candidate ideas', status: 'running',
-    started_ts: Date.now() / 1000 - 5, ts: Date.now() / 1000, model: 'gpt-5.5',
-    prompt: 'DO NOT SHOW THIS PROMPT',
-  }];
-  const live = await renderNode(React.createElement(LiveActivity, { events, width: 120, background: true }), 120);
-  assert.match(live, /searching recent papers/);
-  assert.match(live, /Background/);
-  assert.doesNotMatch(live, /Ctrl\+O/);
-  const pane = await renderNode(React.createElement(ActivityPane, { events }), 120);
-  assert.match(pane, /observable actions only/);
-  assert.doesNotMatch(pane, /DO NOT SHOW/);
 });
 
 test('footer exposes only stable cockpit controls', async () => {
