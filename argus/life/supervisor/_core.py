@@ -22,7 +22,7 @@ from ...core.planner_verdict import (
 from ...core.ports import EventSink
 from ...core.stop_kinds import RUNTIME_RESUMED_PARKS
 from ...core.usage import project_usage_summary
-from ..memory import BacklogItem
+from ..memory import BacklogItem, shares_slot
 from ..mission_outcome import mission_outcome_class
 from ..planner_verdict_outbox import (
     OUTBOX_FILE,
@@ -1867,7 +1867,10 @@ class LifeSupervisor(
         a pending item the parallel worker cannot claim -- not parallel_safe, or
         owning a path the running mission owns -- leaves the slot idle forever
         while looking like queued work. Only claimable work should suppress
-        planning.
+        planning. And where a claim waits on running work (several slots),
+        nothing starts beside work that does not share its slot: asked as such
+        a task it had just queued started (2026-10-22), the Planner could only
+        say "nothing new".
 
         The Planner is asked again only when a fact it reads has changed: the
         running or pending set, or anything in its input digest (settled
@@ -1879,6 +1882,9 @@ class LifeSupervisor(
         try:
             from ...daemon.state import read_continuous_state
 
+            gated = self.config.parallel_worker or self.config.coordinate_parallel_claims
+            if gated and not all(map(shares_slot, running_items)):
+                return
             durable = read_continuous_state(
                 Path(getattr(self.memory, "project_root", self.memory.root))
             )
