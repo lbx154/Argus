@@ -55,7 +55,7 @@ def _evaluate(backend, workdir, **config):
 @pytest.mark.parametrize("access", [
     {"dangerous_yolo": True, "full_auto": False},
     {"dangerous_yolo": False, "full_auto": True},
-    {"dangerous_yolo": False, "full_auto": True, "sandbox_mode": "workspace-write"},
+    {"dangerous_yolo": False, "full_auto": True, "sandbox_mode": "workspace-write", "isolate_workdir": True},
 ])
 def test_the_reviewer_runs_with_the_engineer_s_access(tmp_path, access):
     backend = MemoryBackend()
@@ -68,7 +68,7 @@ def test_the_reviewer_runs_with_the_engineer_s_access(tmp_path, access):
     assert options.full_auto == access["full_auto"]
     assert options.sandbox_mode == access.get("sandbox_mode")
     assert not options.force_safe_mode
-    assert not options.isolate_workdir
+    assert options.isolate_workdir == access.get("isolate_workdir", False)
 
 
 def _without_verdict_tools(argv: list[str]) -> list[str]:
@@ -222,10 +222,11 @@ def test_research_reviewer_is_granted_the_playbook_its_prompt_names(tmp_path):
 
 
 @pytest.mark.parametrize("backend_name", ["copilot", "memory"])
-def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_name):
+def test_the_reviewer_is_given_the_files_its_prompt_names(tmp_path, backend_name):
     # Trial s-a43d1018: Copilot Reviewers were denied the Engineer log, the
     # round handoffs and checks, the goal contract, and the research playbook
-    # their own prompt told them to open, then kept handing the gap back.
+    # their own prompt told them to open, then kept handing the gap back. The
+    # agent sandbox shows every backend only what it is given.
     from argus.skills.builtins import vertical_skill_source_path
 
     workdir = tmp_path / "workspaces" / "s-1"
@@ -253,11 +254,7 @@ def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_
         engineer_log_path=str(engineer_log), checkpoint_path=str(checkpoint),
     )
 
-    options = backend.history[0][2]
-    if backend_name != "copilot":
-        assert not options.add_dirs
-        return
-    readable = [Path(path) for path in options.add_dirs]
+    readable = [Path(path) for path in backend.history[0][2].add_dirs]
     for named in (
         engineer_log,
         checkpoint,

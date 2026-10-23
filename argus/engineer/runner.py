@@ -202,12 +202,7 @@ class SupervisedEngineer(
         )
         engineer_policy = role_session_policy(
             engineer_backend,
-            # Pi deliberately uses --no-session in isolated maintenance
-            # worktrees, so no persisted thread may be passed there.
-            allow_resume=(
-                not self.engineer_config.isolate_workdir
-                and supervised_config.engineer_operation != "narrative_edit"
-            ),
+            allow_resume=supervised_config.engineer_operation != "narrative_edit",
         )
         state.engineer_session = RoleSessionCapsule.open(
             role="engineer",

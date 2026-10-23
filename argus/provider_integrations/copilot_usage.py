@@ -113,54 +113,47 @@ class CopilotCallUsage:
 
 
 def copilot_usage_db_candidates() -> list[Path]:
+    """Every store a Copilot call may have written, with each workdir's
+    sandboxed copy of it."""
+    from ..core.sandbox import private_copies
     from ..trial.client import profile_path, trial_enabled
 
-    if trial_enabled():
-        return [profile_path().parent / "copilot-trial-home" / "session-store.db"]
     account_home = copilot_account_home()
-    if account_home is not None:
-        return [account_home / "session-store.db"]
-    candidates: list[Path] = []
-    configured = os.environ.get("COPILOT_HOME", "").strip()
-    if configured:
-        candidates.append(Path(configured).expanduser() / "session-store.db")
-    candidates.extend(
-        [
+    if trial_enabled():
+        candidates = [profile_path().parent / "copilot-trial-home" / "session-store.db"]
+    elif account_home is not None:
+        candidates = [account_home / "session-store.db"]
+    else:
+        configured = os.environ.get("COPILOT_HOME", "").strip()
+        candidates = [
+            *([Path(configured).expanduser() / "session-store.db"] if configured else []),
             argus_copilot_home() / "session-store.db",
             Path.home() / ".copilot" / "session-store.db",
         ]
-    )
-    out: list[Path] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = str(candidate)
-        if key not in seen:
-            seen.add(key)
-            out.append(candidate)
-    return out
+    return list(dict.fromkeys([*candidates, *(copy for path in candidates for copy in private_copies(path))]))
 
 
 def capture_copilot_usage_cursor(
-    *, isolated_workdir: str | Path | None = None,
+    *, working_dir: str | Path | None = None,
 ) -> CopilotUsageCursor | None:
     # Child execution relocates Copilot using a copy of os.environ. Looking at
     # the parent environment and picking the first existing DB can instead
     # capture the operator's unrelated personal store. Use the intended child
     # home even before its DB is created; accounting itself remains read-only.
+    # A sandboxed call keeps that home in its workdir's private copy.
+    from ..core.sandbox import private_path
     from ..trial.client import profile_path, trial_enabled
 
     if trial_enabled():
-        return _capture_cursor(profile_path().parent / "copilot-trial-home" / "session-store.db")
+        return _capture_cursor(private_path(
+            profile_path().parent / "copilot-trial-home" / "session-store.db", working_dir,
+        ))
     account_home = copilot_account_home()
     if account_home is not None:
-        if isolated_workdir is not None:
-            from ..core.sandbox import isolated_copilot_home
-
-            account_home = isolated_copilot_home(isolated_workdir)
-        return _capture_cursor(account_home / "session-store.db")
+        return _capture_cursor(private_path(account_home / "session-store.db", working_dir))
     configured = os.environ.get("COPILOT_HOME", "").strip()
     home = Path(configured).expanduser() if configured else argus_copilot_home()
-    path = home / "session-store.db"
+    path = private_path(home / "session-store.db", working_dir)
     # If child-home preparation fails, the CLI falls back to its personal home.
     # Capture that baseline separately and only read new rows for this session.
     personal = Path.home() / ".copilot" / "session-store.db"

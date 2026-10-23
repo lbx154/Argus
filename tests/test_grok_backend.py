@@ -191,11 +191,3 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
     assert result.thread_id == "sid"
     assert result.last_agent_message == "hello"
     assert not prompt_path.exists()
-
-
-def test_isolated_grok_call_fails_closed() -> None:
-    with pytest.raises(ValueError, match="isolated Grok calls are not supported"):
-        _runner()._build_grok_command(
-            resume_thread_id=None,
-            options=RunnerOptions(isolate_workdir=True),
-        )

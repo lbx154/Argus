@@ -187,6 +187,25 @@ def _no_real_copilot_help_probe(monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
 
 
 @pytest.fixture(autouse=True)
+def _no_host_sandbox(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent CLIs in tests are fakes that write where the test reads, so they
+    run without the host's sandbox; a test of the sandbox asks for
+    ``host_sandbox``."""
+    if "host_sandbox" not in request.fixturenames:
+        monkeypatch.setattr("argus.core.sandbox.sandbox_tool", lambda: None)
+
+
+@pytest.fixture
+def host_sandbox() -> str:
+    from argus.core.sandbox import sandbox_tool
+
+    tool = sandbox_tool()
+    if tool is None or Path(tool).name != "bwrap":
+        pytest.skip("needs bubblewrap")
+    return tool
+
+
+@pytest.fixture(autouse=True)
 def _no_stop_leaks_between_tests():
     """The process-wide stop flag outlives a test by design — it exists so a
     wait deep inside a mission can see a signal. One test setting it once made

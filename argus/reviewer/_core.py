@@ -406,6 +406,8 @@ def _parallel_final_review_passes(
                 skip_git_repo_check=config.skip_git_repo_check,
                 extra_args=list(config.extra_args) if config.extra_args else None,
                 working_dir=str(working_dirs[label]),
+                add_dirs=[str(tree) for tree in (comparison.before_paper, comparison.after_paper)]
+                if comparison and label == "ScientificLoss" else None,
             ),
             run_label=f"reviewer-{label.lower()}",
         )
@@ -627,15 +629,12 @@ class ReviewerConfig:
 
 
 def _engineer_access(config: ReviewerConfig) -> dict[str, Any]:
-    """The Engineer's access, so the Reviewer can run and fetch what it judges.
-
-    Worktree isolation stays the Engineer's: it hides the paths the Reviewer's
-    verdict tools and prompt-named records live on.
-    """
+    """The Engineer's access, so the Reviewer can run and fetch what it judges."""
     return {
         "full_auto": config.full_auto,
         "dangerous_yolo": config.dangerous_yolo,
         "sandbox_mode": config.sandbox_mode,
+        "isolate_workdir": config.isolate_workdir,
     }
 
 
@@ -886,24 +885,23 @@ class Reviewer:
             decision.changed_during_review = changed
             return decision
 
-        add_dirs = list(config.add_dirs)
-        if str(getattr(self.runner, "backend", "")).lower() == "copilot":
-            # Copilot denies a read outside its add-dirs, and this prompt names
-            # files outside the workdir by absolute path: the project state
-            # beside the Engineer log (handoffs, round checks, goal contract),
-            # the checkpoint, and the active vertical's packaged playbooks.
-            prompt_dirs = [
-                Path(value).expanduser().resolve().parent
-                for value in (engineer_log_path, checkpoint_path)
-                if value
-            ]
-            if config.vertical_state_root:
-                prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
-            add_dirs += [
-                *(str(path) for path in review_libraries.library_roots),
-                *(str(path) for path in prompt_dirs if path.is_dir()),
-                *vertical_skill_read_dirs(vertical),
-            ]
+        # The sandbox shows only what a call is given, and this prompt names
+        # files outside the workdir by absolute path: the project state beside
+        # the Engineer log (handoffs, round checks, goal contract), the
+        # checkpoint, and the active vertical's packaged playbooks.
+        prompt_dirs = [
+            Path(value).expanduser().resolve().parent
+            for value in (engineer_log_path, checkpoint_path)
+            if value
+        ]
+        if config.vertical_state_root:
+            prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
+        add_dirs = [
+            *config.add_dirs,
+            *(str(path) for path in review_libraries.library_roots),
+            *(str(path) for path in prompt_dirs if path.is_dir()),
+            *vertical_skill_read_dirs(vertical),
+        ]
 
         try:
             with review_action_tools(

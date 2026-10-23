@@ -1820,7 +1820,7 @@ def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant
 # Retired spellings of "the project state directory" (canonical: ``life_dir``
 # and ``core.paths.project_state_root``). Whole-word occurrence counts, today.
 RETIRED_NAME_OCCURRENCES: dict[str, int] = {
-    "life_root": 10,
+    "life_root": 4,
     "memory_root": 42,
     # 41 on both origin/main and dev on 2026-09-16 with the same four files
     # (apps/_runtime_construction 7, apps/_self_reply 15, manager/front_door 10,

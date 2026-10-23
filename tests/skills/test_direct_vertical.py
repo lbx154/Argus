@@ -110,7 +110,7 @@ def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:
     calls: list[bool] = []
     reviewer.mission.libraries = lambda: (
         calls.append(True)
-        or SimpleNamespace(block="## Skill libraries\n- `/semantic/library`")
+        or SimpleNamespace(block="## Skill libraries\n- `/semantic/library`", library_roots=[])
     )
 
     reviewer.evaluate(

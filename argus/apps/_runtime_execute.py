@@ -642,11 +642,9 @@ class SkillLoopExecuteMixin:
                 active_vertical or "<persisted>",
                 framework_source_root(),
             )
-        # 7×24 product: default to dangerous_yolo (no bwrap sandbox).
-        # The operator runs the daemon on their own box and explicitly
-        # consents to autonomous execution; the sandbox only fights us
-        # (`bwrap: Can't create file at /.codex: Permission denied`).
-        # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
+        # 7×24 product: the agent CLIs ask no permission (dangerous_yolo);
+        # the agent sandbox (core.sandbox) bounds what they can see.
+        # ARGUS_SKILL_SAFE_MODE=1 turns their own permission modes back on.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
             "engineer_model": args.engineer_model,
