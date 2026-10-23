@@ -1,16 +1,10 @@
-"""Bridge the Web/Ink front-end to the Manager routing pipeline.
+"""Bridge the Web/Ink front-end to the Manager.
 
-An operator message is NOT blindly turned into a backlog task. It goes through
-``manager_triage`` — chat-vs-task classification + an inline reply for chat/SELF
-work. A conversational "你好" gets a Manager reply and never touches the daemon
-or a vertical; only TEAM/complex work is enqueued as a mission.
-
-The classify/control/config/SELF/TEAM phase helpers, the pending-question
-resolver, and the per-project chat-state/lock bookkeeping live in
-``manager_dispatch.py`` / ``manager_pending_question.py`` / ``manager_state.py``
-respectively; this module keeps only the top-level ``manager_message``,
-``manager_plan``, and prompt-rewrite request pipeline. Callers import state,
-dispatch, and pending-question operations from their owning modules.
+Every operator message is one turn of the Manager's own session. It answers
+itself, or hands a ticket to the team, asks the operator, or files a setting
+or control that Argus applies. The pending-question resolver and the
+per-project chat-state/lock bookkeeping live in ``manager_dispatch.py`` /
+``manager_pending_question.py`` / ``manager_state.py``.
 """
 
 from __future__ import annotations
@@ -24,135 +18,24 @@ from .manager_dispatch import (
     _announce_standing_directive,
     _build_handoff,
     _cancelled_result,
-    _classify_operator_turn,
     _dispatch_team_mission,
-    _handle_abort_control,
-    _handle_authorization_control,
-    _handle_pause_control,
     _handle_pending_question_turn,
-    _handle_steer_control,
     _item_to_dict,
     _manager_request_scope,
-    _maybe_apply_config_intent,
-    _maybe_greeting_reply,
-    _run_triage_and_fallbacks,
+    _settle_manager_turn,
     _TurnEmitter,
     record_turn_step,
 )
 from .manager_pending_question import _emit_ui_turn
-from .manager_session_intent import contextualize_operator_turn
 from .manager_state import (
     _chat_state_for,
     _lock_for,
-    interrupt_manager_turns,
     manager_control_generation,
 )
 
 log = logging.getLogger(__name__)
 
 _PLAN_PREVIEW_CACHE_TTL_S = 60.0
-_TEAM_REPLAY_WINDOW_S = 90.0
-
-
-def _recent_team_replay(
-    mem: Any,
-    body: str,
-    prior_turns: list[dict[str, Any]],
-) -> Any | None:
-    request = " ".join(str(body or "").split())
-    eligible_statuses = {"pending", "running", "done", "parked"}
-    recent_items = []
-    now = time.time()
-    for item in sorted(mem.backlog.history(), key=lambda row: float(row.ts), reverse=True):
-        if now - float(item.ts) > _TEAM_REPLAY_WINDOW_S:
-            break
-        if str(item.status) not in eligible_statuses:
-            continue
-        recent_items.append(item)
-        prior = " ".join(
-            str(item.original_objective or item.objective or "").split()
-        )
-        if prior == request:
-            return item
-
-    previous_operator = next(
-        (
-            turn
-            for turn in reversed(prior_turns)
-            if str(turn.get("role") or "") == "operator"
-        ),
-        None,
-    )
-    if previous_operator is None:
-        return None
-    previous_request = " ".join(str(previous_operator.get("text") or "").split())
-    previous_ts = float(previous_operator.get("ts") or 0.0)
-    if previous_request != request or previous_ts <= 0:
-        return None
-    for item in recent_items:
-        if float(item.ts) >= previous_ts:
-            return item
-    return None
-
-
-def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
-    """Answer *question* with the Manager alone — no classify, no backlog.
-
-    Uses the same front-door runner the classifier would have used, which
-    exists precisely to "reply in-band BEFORE anything reaches the backlog".
-    Any failure returns a plain message rather than falling through to task
-    dispatch: the operator said this was a question, and quietly turning it
-    into queued work is the behaviour `/ask` exists to prevent.
-    """
-    from ..core.models import RunnerOptions
-    from ..core.run_gateway import run_exec as gateway_run_exec
-    from ..life.memory import LifeMemory
-    from ..manager.front_door import _ensure_manager_runner
-    from ..manager.observation import observe_project
-    from ..manager.session_context import conversation_backend
-    from ..roles.prompts.manager import build_quick_reply_prompt
-
-    try:
-        mem = LifeMemory.open(Path(str(life_dir)))
-        chat_state = _chat_state_for(sid)
-        runner = _ensure_manager_runner(chat_state, mem)
-        if runner is None:
-            return (
-                "No conversational backend is available for this project, so "
-                "`/ask` cannot answer inline. Send the message without `/ask` "
-                "to queue it as work instead."
-            )
-        from ..core.operator_context import (
-            append_operator_context,
-            build_operator_context_block,
-        )
-
-        operator_context, _revision = build_operator_context_block(
-            "manager", life_dir, consume_once=False
-        )
-        prompt = build_quick_reply_prompt(objective=question)
-        prompt = append_operator_context(prompt, operator_context)
-        prompt += "\n\n" + observe_project(Path(life_dir)).render()
-        from ..core.knobs import resolve_role_model
-
-        result = gateway_run_exec(
-            conversation_backend(runner),
-            prompt=prompt,
-            options=RunnerOptions(model=resolve_role_model("manager", role_env="ARGUS_SKILL_MANAGER_MODEL"),
-                                 skip_git_repo_check=True,
-                                 sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
-                getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
-            )),
-            run_label="manager-ask",
-        )
-    except Exception:  # noqa: BLE001 - never turn a question into a task
-        log.exception("ask: inline reply failed")
-        return "Could not answer inline just now; nothing was queued."
-
-    if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
-        return "Could not answer inline just now; nothing was queued."
-    reply = (result.last_agent_message or "").strip()
-    return reply or "The Manager returned an empty reply; nothing was queued."
 
 
 def manager_message(
@@ -225,25 +108,16 @@ def _manager_message(
     per phase transition. ``None`` (the default, used by the blocking POST
     ``/message``) keeps the whole exchange synchronous.
 
-    ``route_override`` lets the operator explicitly mark Chat or Task. Task
-    still passes through classification so conversation stays inline, and
-    work goes to the team rather than one worker. Chat skips classification.
-    Explicit Chat also bypasses automatic pending-answer interpretation and
-    task replay; the dedicated answer/decision endpoints remain authoritative.
-
-    The pipeline below is a sequence of typed phase helpers (pending-question,
-    classify, greeting shortcut, authorization/steer/pause/abort control, config
-    intent, triage+fallbacks, TEAM dispatch) — each either returns a terminal
-    result or ``None``/a small typed result to let the next phase run. This
-    mirrors the original single-function control flow exactly; only the
-    boilerplate (streaming/journaling a reply) is now shared via
-    ``_TurnEmitter``.
+    ``route_override="chat"`` (or ``/ask``) keeps the answer with the Manager:
+    it may not hand the work to the team.
     """
     from ..core.launch_settings import launch_note, normalize_launch_settings
     from ..core.mission_view import say, uses_cjk
     from ..core.transcript import append_turn
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import mission_is_running
+    from ..life.memory import BacklogItem, MemoryBundle
+    from ..manager.config_intent import record_manager_handoff
+    from ..manager.form import ticket
+    from ..manager.front_door import manager_turn, mission_is_running
     from .attachments import attachment_context_refs, compose_message_body
 
     resolved_attachments = list(attachments or [])
@@ -373,41 +247,11 @@ def _manager_message(
             mem.global_root, sid, strip_ask_prefix(operator_text) or operator_text
         )
 
-    # `/ask` fixes the route, but still uses the shared intake classification
-    # before the separate Manager answer turn.
-    _question = strip_ask_prefix(operator_text)
-    if _question is not None:
-        with _lock_for(sid):
-            from ..manager.config_intent import _front_door_classify
-
-            chat_state = _chat_state_for(sid)
-            chat_state["session_id"] = sid
-            chat_state["global_root"] = str(mem.global_root)
-            chat_state["_frontdoor_credential_imported"] = (
-                credential_record is not None
-            )
-            _front_door_classify(
-                mem,
-                body,
-                chat_state,
-                active_mission=mission_is_running(mem),
-            )
-        try:
-            append_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
-        except Exception:  # noqa: BLE001
-            pass
-        _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
-        _ask_question = (
-            f"{_question}\n\n{reference_context}"
-            if reference_context
-            else _question
-        )
-        reply = _answer_inline(
-            sid,
-            life_dir,
-            compose_message_body(_ask_question, resolved_attachments),
-        )
-        return emitter.respond(reply, {"kind": "chat"})
+    # `/ask` keeps the answer with the Manager: no team.
+    question = strip_ask_prefix(operator_text)
+    if question is not None:
+        operator_text, explicit_chat = question, True
+        body = compose_message_body(operator_text, resolved_attachments).strip()
 
     lock = _lock_for(sid)
     with lock:
@@ -434,20 +278,10 @@ def _manager_message(
                 return {"kind": "error", "resolved": False, "reply": str(exc)}
             body = operator_text
             emitter.task_objective = operator_text
-        prior_turns: list[dict[str, Any]] = []
-        try:
-            from ..core.transcript import read_turns
-
-            prior_turns = read_turns(life_dir, limit=6)
-        except Exception:  # noqa: BLE001 - bounded context is an optimization
-            pass
-
         # Build the restart handoff before journaling this turn so the current
-        # message appears exactly once. Do not consume it until a model-backed
-        # path actually needs it.
+        # message appears exactly once.
         startup_handoff = ""
-        startup_handoff_pending = bool(chat_state.get("needs_startup_handoff", False))
-        if startup_handoff_pending:
+        if chat_state.pop("needs_startup_handoff", False):
             try:
                 transcript = Path(life_dir) / "transcript.jsonl"
                 if transcript.exists() and transcript.stat().st_size > 0:
@@ -462,33 +296,6 @@ def _manager_message(
         except Exception:  # noqa: BLE001
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
-
-        duplicate_item = None if explicit_chat or domain_answer is not None else _recent_team_replay(mem, body, prior_turns)
-        if duplicate_item is not None:
-            from ..manager.dispatch import _daemon_status
-
-            daemon_alive, daemon_pid = _daemon_status(life_dir)
-            item_payload = _item_to_dict(duplicate_item, operator_text or body)
-            title = str(
-                item_payload.get("title")
-                or item_payload.get("objective")
-                or operator_text
-                or body
-            )
-            if not defer_dispatch_ack:
-                emitter.emit_only(f"Already queued · {title}")
-            return {
-                "kind": "task",
-                "reply": None,
-                "item": item_payload,
-                "daemon_alive": daemon_alive,
-                "daemon_pid": daemon_pid,
-                "continuous": bool(
-                    chat_state.get("config", {}).get("continuous")
-                ),
-                "dispatch_state": "already_queued",
-                "duplicate": True,
-            }
 
         pending_result = None
         checked_question = ""
@@ -513,161 +320,30 @@ def _manager_message(
         if pending_result is not None:
             return pending_result
 
-        previous_items = mem.backlog.history()
-        last_team_task = ""
-        if previous_items:
-            previous = max(previous_items, key=lambda item: float(item.ts))
-            last_team_task = str(
-                previous.original_objective or previous.objective or ""
-            )
-        routing_body = compose_message_body(
-            contextualize_operator_turn(
-                operator_text,
-                prior_turns,
-                last_team_task=last_team_task,
-            ),
-            resolved_attachments,
-        ).strip()
         if reference_context:
-            routing_body = f"{routing_body}\n\n{reference_context}"
+            body = f"{body}\n\n{reference_context}"
         # Launch settings reach the Manager as operator text with the request;
         # the journaled operator turn above stays exactly what was typed.
-        launch_text = launch_note(normalize_launch_settings(launch), language_hint=operator_text)
-        if launch_text:
-            body = f"{body}{launch_text}"
-            routing_body = f"{routing_body}{launch_text}"
-        chat_state["_frontdoor_contextual_text"] = body
-        chat_state["_frontdoor_dispatch_body"] = routing_body
-
-        # A web-process restart loses the in-process conversation state. Resume
-        # seamlessly by opening one new conversation session with a structured
-        # handoff built from the transcript that existed BEFORE this operator
-        # turn. A deterministic status read must not consume this seam.
-        if startup_handoff_pending:
-            chat_state.pop("needs_startup_handoff", None)
-            if startup_handoff:
-                chat_state["startup_handoffs"] = int(
-                    chat_state.get("startup_handoffs", 0)
-                ) + 1
-
-        chat_state["_frontdoor_credential_imported"] = credential_record is not None
-        pending_domain = read_intake(life_dir).get("phase") in {"offered", "clarifying"}
-        if choice_action:
-            # Card answers already identify this conversation. Skip stateless
-            # routing; the persistent Manager authors the next question below.
-            current_intake = read_intake(life_dir)
-            classify = _classify_operator_turn(
-                mem, body, chat_state, active_mission, life_dir,
-                startup_handoff, emitter, _cancelled, route_override="chat",
-            )
-            chat_state["_frontdoor_domain"] = {"action": choice_action}
-            chat_state["_frontdoor_self_mode"] = current_intake.get("self_mode") or "inspect"
-        else:
-            classify = _classify_operator_turn(
-                mem,
-                body,
-                chat_state,
-                active_mission,
-                life_dir,
-                startup_handoff,
-                emitter,
-                _cancelled,
-                route_override="" if pending_domain and not explicit_chat else route_override,
-            )
-        if isinstance(classify, dict):
-            return classify
-        intent, control, route = classify.intent, classify.control, classify.route
-        send_body, root_task_id = classify.send_body, classify.root_task_id
-        frontdoor_failure = classify.frontdoor_failure
-        if frontdoor_failure.startswith("provider concurrency limit reached ("):
-            if _cancelled():
-                return _cancelled_result()
-            # No provider ran, so retrying this classification cannot repeat
-            # task execution. The HTTP owner saves the request before ACKing.
-            return {
-                "kind": "provider_busy", "reason": frontdoor_failure,
-                "retry_request": {
-                    "sid": sid, "text": operator_text, "turn_id": turn_id,
-                    "global_root": str(mem.global_root), "attachments": resolved_attachments,
-                    "route_override": route_override, "domain_answer": domain_answer,
-                    "source_channel": source_channel, "source_message_id": source_message_id,
-                    "launch": launch, "pending_question_checked": checked_question,
-                },
-            }
-        _announce_standing_directive(chat_state, life_dir, turn_id)
-        greeting_result = _maybe_greeting_reply(classify, body, emitter)
-        if greeting_result is not None:
-            return greeting_result
-
-        authorization_actions = chat_state.pop(
-            "_frontdoor_authorization",
-            None,
-        )
-        if isinstance(authorization_actions, list) and authorization_actions:
-            if _cancelled():
-                return _cancelled_result()
-            return _handle_authorization_control(
-                chat_state,
-                life_dir,
-                authorization_actions,
-                source_channel,
-                source_message_id,
-                turn_id,
-                emitter,
-            )
-
-        if control == "steer":
-            if _cancelled():
-                return _cancelled_result()
-            return _handle_steer_control(chat_state, life_dir, emitter, body=operator_text)
-
-        if control == "pause":
-            if _cancelled():
-                return _cancelled_result()
-            interrupt_manager_turns(sid)
-            return _handle_pause_control(operator_text, chat_state, life_dir, emitter)
-
-        if control == "no_dispatch":
-            route = "simple"
-
-        if control == "abort":
-            if _cancelled():
-                return _cancelled_result()
-            return _handle_abort_control(operator_text, life_dir, emitter)
-
-        chat_state["_operator_text_cjk"] = uses_cjk(operator_text)
-        config_result = _maybe_apply_config_intent(
-            mem,
-            intent,
-            chat_state,
-            life_dir,
-            turn_id,
-            on_fragment,
-            _fragment,
-            _cancelled,
-        )
-        if config_result is not None:
-            if _cancelled():
-                return _cancelled_result()
-            return config_result
+        body += launch_note(normalize_launch_settings(launch), language_hint=operator_text)
+        root_task_id = BacklogItem.new_id()
         public_task = operator_text
         intake_before = None
-        chat_state["_domain_setup_enabled"] = not active_mission and not explicit_chat
-        domain_decision = chat_state.pop("_frontdoor_domain", None)
-        if domain_decision and not frontdoor_failure and not active_mission and not explicit_chat and control is None:
+        handoff = None
+        if choice_action:
             from ..manager.domain_intake import handle_intake, manager_intake_decision
             from ..skills.vertical_select import available_verticals
             from ..verticals import list_all_data_domain_names
 
-            previous_intake = read_intake(life_dir)
+            intake_before = read_intake(life_dir)
+            domain_decision: dict[str, Any] = {"action": choice_action}
             try:
-                if previous_intake.get("phase") in {"offered", "clarifying"} and domain_decision.get("action") in {"ask", "prepare", "dialogue"}:
+                if choice_action in {"ask", "prepare", "dialogue"}:
                     emitter.phase(say("gathering_options", uses_cjk(operator_text)))
                     domain_decision = manager_intake_decision(mem, chat_state, operator_text, root_task_id=root_task_id)
                     if _cancelled():
                         return _cancelled_result()
-                intake = handle_intake(life_dir, operator_text, domain_decision, route=route,
-                                       self_mode=chat_state.get("_frontdoor_self_mode", "inspect"),
+                intake = handle_intake(life_dir, operator_text, domain_decision, route="simple",
+                                       self_mode=intake_before.get("self_mode") or "inspect",
                                        known_verticals=tuple(available_verticals()) + tuple(list_all_data_domain_names(life_dir)))
             except Exception as exc:  # noqa: BLE001 — retain the user's card and answer on provider/format failure
                 if _cancelled():
@@ -676,46 +352,49 @@ def _manager_message(
                 return emitter.respond(
                     say("options_failed", uses_cjk(operator_text)), {"kind": "error", "resolved": False},
                 )
+            if intake is not None and "reply" in intake:
+                return emitter.respond(intake["reply"], {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
             if intake is not None:
-                if "reply" in intake:
-                    return emitter.respond(intake["reply"], {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
-                intake_before = previous_intake
-                send_body = routing_body = intake["task"]
+                body = intake["task"]
                 public_task = emitter.task_objective = intake["objective"]
-                route = intake["route"]
-                chat_state["_frontdoor_is_task"] = True
-                if route == "complex":
-                    chat_state["_frontdoor_lifetime"] = "bounded"
+                if intake["route"] == "complex":
+                    chat_state["_team_lifetime"] = "bounded"
                     chat_state["_approved_domain_decision"] = intake["decision"]
                     chat_state["_domain_display_objective"] = {
-                        "execution_task": routing_body, "objective": intake["display_objective"],
+                        "execution_task": body, "objective": intake["display_objective"],
                         "title": intake["title"],
                     }
-                else:
-                    chat_state["_frontdoor_self_mode"] = intake["self_mode"]
-                    chat_state["_frontdoor_skill_vertical"] = ""
-
-        triage_result = _run_triage_and_fallbacks(
-            mem,
-            send_body,
-            chat_state,
-            route,
-            control,
-            root_task_id,
-            frontdoor_failure,
-            on_fragment,
-            emitter,
-            cancelled=_cancelled,
-        )
-        if triage_result is not None:
-            if intake_before and (triage_result.get("kind") in {"error", "cancelled"} or _cancelled()):
-                write_intake(life_dir, intake_before)
+                    handoff = intake
+        chat_state["_domain_setup_enabled"] = not active_mission and not explicit_chat
+        if handoff is None:
+            # One message, one turn of the Manager's own session.
+            emitter.solo = True
+            emitter.start_task()
+            emitter.phase(say("working_out_reply", uses_cjk(operator_text)))
+            reply, handoff = manager_turn(
+                mem, f"{startup_handoff}\n\n{body}" if startup_handoff else body, chat_state,
+                on_fragment=emitter.fragment, root_task_id=root_task_id, team_allowed=not explicit_chat,
+            )
             if _cancelled():
+                emitter.cancel_task()
                 return _cancelled_result()
-            return triage_result
+            if reply is None:
+                return emitter.respond(say("manager_unavailable", uses_cjk(operator_text)), {"kind": "error"})
+            if handoff is not None:
+                record_manager_handoff(mem, operator_text, chat_state, handoff, root_task_id=root_task_id,
+                                       credential_imported=credential_record is not None)
+                _announce_standing_directive(chat_state, life_dir, turn_id)
+            settled = _settle_manager_turn(
+                mem, reply, handoff, chat_state, emitter, source_channel=source_channel,
+                source_message_id=source_message_id, operator_text=operator_text,
+            )
+            if settled is not None:
+                return settled
+            body = ticket(handoff.payload)
+            public_task = handoff.get("goal")
+            chat_state["_team_lifetime"] = handoff.get("lifetime", "bounded")
 
-        # 2) TEAM/complex — apply the BOUNDED/STANDING lifetime selected by the
-        # same merged front-door call. Chat and SELF work already returned above.
+        # 2) The Manager handed a ticket to the team.
         #
         # If the project lifecycle is ``done``, auto-resume it so the new
         # work can actually be picked up by the daemon.  Quarantined/archived
@@ -728,7 +407,7 @@ def _manager_message(
         try:
             item, daemon_alive, daemon_pid = _dispatch_team_mission(
                 mem,
-                routing_body,
+                body,
                 chat_state,
                 root_task_id,
                 _cancelled,

@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from typing import Any, Callable
 
 from ..apps._life_actions import append_note
-from .front_door import (
-    AGENT_NAME_SOURCES,
-    _accepts_parameter,
-    _ensure_manager_runner,
-    _maybe_name_session,
-)
+from .front_door import _maybe_name_session
 
 _ROLE_EFFORT_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
@@ -63,216 +57,39 @@ def _save_operator_available(available: bool) -> None:
         os.environ.pop(OPERATOR_AVAILABLE_KNOB, None)
 
 
-def _front_door_classify(
-    mem: Any,
-    text: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-    accepts_parameter: Callable[[Any, str], bool] | None = None,
-    active_mission: bool = False,
-    allow_reply: bool = True,
-) -> "tuple[Any, str | None, str]":
-    """ONE merged LLM call for the Manager front-door: returns
-    ``(ConfigIntent | None, control | None, route)``.
+def record_manager_handoff(
+    mem: Any, text: str, chat_state: dict[str, Any], handoff: Any, *, root_task_id: str, credential_imported: bool,
+) -> None:
+    """Keep what the Manager's call says beyond its reply: the question policy, the topic, a lasting rule."""
+    if "operator_question_policy" in handoff.payload:
+        _save_operator_available(handoff.get("operator_question_policy") == "allow")
+    if handoff.get("name"):
+        _maybe_name_session(chat_state, text, suggested_name=handoff.get("name"), replacing=True)
+    intake = handoff.get("intake")
+    # A message carrying a credential was already stored by the vault import.
+    if not intake or credential_imported:
+        return
+    from ..core.operator_context import IntakeDecision, persist_intake_decision
 
-    TEAM lifetime is cached from the same call as ``bounded`` (the campaign
-    stops when done) or ``standing``. Classifier output is never treated as an
-    operator-facing reply: every SELF message reaches the real Manager model.
-    Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
-    so the message flows through the normal task path unchanged (never swallow
-    real work on a classify hiccup)."""
-    suggested_names: list[str] = []
-    lifetime_decisions: list[str] = []
-    self_mode_decisions: list[str] = []
-    fast_replies: list[str] = []
-    greeting_replies: list[str] = []
-    steering_directives: list[str] = []
-    operator_question_policies: list[str] = []
-    authorization_decisions: list[tuple[str, ...]] = []
-    classifier_failures: list[str] = []
-    intake_decisions: list[dict[str, Any]] = []
-    domain_decisions: list[dict[str, str]] = []
-    intake_commit_started = False
-    credential_imported = bool(chat_state.pop("_frontdoor_credential_imported", False))
-    chat_state.pop("_frontdoor_lifetime", None)
-    chat_state.pop("_frontdoor_self_mode", None)
-    chat_state.pop("_frontdoor_fast_reply", None)
-    chat_state.pop("_frontdoor_greeting_reply", None)
-    chat_state.pop("_frontdoor_failure", None)
-    chat_state.pop("_frontdoor_steering_directive", None)
-    chat_state.pop("_frontdoor_authorization", None)
-    chat_state.pop("_frontdoor_standing_notice", None)
-    chat_state.pop("_frontdoor_domain", None)
-    chat_state.pop("_frontdoor_skill_vertical", None)
-    chat_state.pop("_frontdoor_is_task", None)
-    try:
-        runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
-        mgr = getattr(runner, "manager", None) if runner is not None else None
-        if mgr is None or not hasattr(mgr, "classify_front_door"):
-            reason = str(chat_state.pop("manager_runner_error", "") or "").strip()
-            chat_state["_frontdoor_failure"] = (
-                f"classifier unavailable: {reason}" if reason
-                else "classifier unavailable"
-            )
-            return None, None, "complex"
-        accepts = accepts_parameter or _accepts_parameter
-        kwargs: dict[str, Any] = {}
-        if root_task_id is not None and accepts(
-            mgr.classify_front_door,
-            "root_task_id",
-        ):
-            kwargs["root_task_id"] = root_task_id
-        if accepts(mgr.classify_front_door, "name_sink"):
-            kwargs["name_sink"] = suggested_names.append
-        if accepts(mgr.classify_front_door, "lifetime_sink"):
-            kwargs["lifetime_sink"] = lifetime_decisions.append
-        if accepts(mgr.classify_front_door, "self_mode_sink"):
-            kwargs["self_mode_sink"] = self_mode_decisions.append
-        from .self_context import self_skill_context_available
-
-        reply_eligible = (
-            allow_reply and not chat_state.get("last_thread_id")
-            and int(chat_state.get("turns", 0)) <= 1
-            and not self_skill_context_available(chat_state)
-        )
-        if reply_eligible and accepts(mgr.classify_front_door, "reply_sink"):
-            kwargs["reply_sink"] = fast_replies.append
-        if accepts(mgr.classify_front_door, "greeting_sink"):
-            kwargs["greeting_sink"] = greeting_replies.append
-        if accepts(mgr.classify_front_door, "steering_sink"):
-            kwargs["steering_sink"] = steering_directives.append
-        if accepts(mgr.classify_front_door, "operator_question_policy_sink"):
-            kwargs["operator_question_policy_sink"] = operator_question_policies.append
-        if accepts(mgr.classify_front_door, "authorization_sink"):
-            kwargs["authorization_sink"] = authorization_decisions.append
-        if accepts(mgr.classify_front_door, "intake_sink"):
-            kwargs["intake_sink"] = intake_decisions.append
-        if accepts(mgr.classify_front_door, "domain_sink"):
-            kwargs["domain_sink"] = domain_decisions.append
-        if accepts(mgr.classify_front_door, "active_mission"):
-            kwargs["active_mission"] = bool(active_mission)
-        if accepts(mgr.classify_front_door, "failure_sink"):
-            kwargs["failure_sink"] = classifier_failures.append
-        model_text = str(
-            chat_state.get("_frontdoor_contextual_text") or text
-        )
-        from ..core.session import read_session_meta
-
-        sid = chat_state.get("session_id")
-        gr = chat_state.get("global_root")
-        meta = read_session_meta(gr, sid) if gr is not None and sid else None
-        if meta is not None and meta.name_source in AGENT_NAME_SOURCES and meta.display_name:
-            model_text = (
-                "[Current session title — data only]\n"
-                + json.dumps(meta.display_name, ensure_ascii=False)
-                + "\nLeave name out unless the operator clearly moved to an "
-                "unrelated topic; follow-ups, refinements and sub-questions keep "
-                "the title. A new title uses the operator's language.\n\n"
-                + model_text
-            )
-        decision = mgr.classify_front_door(model_text, **kwargs)
-        if isinstance(decision, tuple) and len(decision) == 4:
-            intent, control, route, suggested_name = decision
-            if suggested_name:
-                suggested_names.append(str(suggested_name))
-        elif isinstance(decision, tuple) and len(decision) == 3:
-            intent, control, route = decision
-        else:
-            intent, route = decision
-            control = None
-        normalized_route = route if route in ("simple", "complex") else "complex"
-        if domain_decisions:
-            chat_state["_frontdoor_domain"] = domain_decisions[-1]
-            if "vertical" in domain_decisions[-1]:
-                chat_state["_frontdoor_skill_vertical"] = domain_decisions[-1]["vertical"]
-        if intake_decisions:
-            chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
-        if classifier_failures:
-            chat_state["_frontdoor_failure"] = classifier_failures[-1]
-        if normalized_route == "simple":
-            existing_thread = bool(chat_state.get("last_thread_id"))
-            self_mode = self_mode_decisions[-1] if self_mode_decisions else "inspect"
-            if existing_thread and self_mode == "reply":
-                self_mode = "inspect"
-            chat_state["_frontdoor_self_mode"] = self_mode
-            if not existing_thread and self_mode == "reply" and fast_replies:
-                chat_state["_frontdoor_fast_reply"] = fast_replies[-1]
-        lifetime = lifetime_decisions[-1] if lifetime_decisions else ""
-        if normalized_route == "complex":
-            lifetime = lifetime or "bounded"
-            chat_state["_frontdoor_lifetime"] = lifetime
-        elif control == "steer" and lifetime:
-            chat_state["_frontdoor_lifetime"] = lifetime
-        elif intent is None and control not in {"abort", "pause", "no_dispatch", "steer"}:
-            if greeting_replies:
-                chat_state["_frontdoor_greeting_reply"] = greeting_replies[-1]
-        if control == "steer" and steering_directives:
-            chat_state["_frontdoor_steering_directive"] = steering_directives[-1]
-        if operator_question_policies:
-            _save_operator_available(operator_question_policies[-1] == "allow")
-        if authorization_decisions:
-            chat_state["_frontdoor_authorization"] = list(authorization_decisions[-1])
-        if intake_decisions:
-            intake_payload = dict(intake_decisions[-1])
-            context_root = getattr(mem, "project_root", getattr(mem, "root", None))
-            intake_mission_id = str(root_task_id or "")
-            if active_mission:
-                backlog = getattr(mem, "backlog", None)
-                active_items = backlog.active() if backlog is not None else []
-                running = [
-                    item for item in active_items
-                    if getattr(item, "status", "") == "running"
-                ]
-                if running:
-                    intake_mission_id = str(max(
-                        running,
-                        key=lambda item: float(getattr(item, "started_ts", 0) or 0),
-                    ).id)
-            if context_root is not None and not credential_imported:
-                from ..core.operator_context import (
-                    IntakeDecision,
-                    persist_intake_decision,
-                )
-
-                intake_commit_started = True
-                recorded = persist_intake_decision(
-                    context_root,
-                    text,
-                    IntakeDecision(**intake_payload),
-                    source="manager.front_door",
-                    mission_id=intake_mission_id,
-                    global_root=getattr(mem, "global_root", None),
-                )
-                intake_commit_started = False
-                if recorded is not None and intake_payload.get("kind") == "standing_directive":
-                    chat_state["_frontdoor_standing_notice"] = str(
-                        getattr(recorded, "text", "") or text
-                    ).strip()
-        return (
-            intent,
-            control if control in {"abort", "pause", "no_dispatch", "steer"} else None,
-            normalized_route,
-        )
-    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
-        if intake_commit_started:
-            raise
-        chat_state["_frontdoor_failure"] = "classifier failed"
-        return None, None, "complex"
-    finally:
-        chat_state.pop("_fresh_agent_name", None)
-        if not greeting_replies and not chat_state.get("_frontdoor_failure"):
-            if _maybe_name_session(
-                chat_state,
-                text,
-                suggested_name=next(
-                    (name for name in suggested_names if str(name).strip()),
-                    "",
-                ),
-                replacing=True,
-            ):
-                chat_state["_fresh_agent_name"] = True
+    running = [item for item in mem.backlog.active() if item.status == "running"]
+    mission_id = str(max(running, key=lambda item: float(item.started_ts or 0)).id) if running else root_task_id
+    recorded = persist_intake_decision(
+        mem.project_root,
+        text,
+        IntakeDecision(
+            kind=intake["type"],
+            scope=intake["scope"],
+            applies_to_roles=tuple(dict.fromkeys(intake.get("roles", ()))) or "all",
+            preference_kind=intake.get("preference_kind", "workflow"),
+            preference_value=intake.get("preference_value", ""),
+            target_revision=intake.get("revoke_revision", 0),
+        ),
+        source="manager",
+        mission_id=mission_id,
+        global_root=mem.global_root,
+    )
+    if recorded is not None and intake["type"] == "standing_directive":
+        chat_state["_standing_notice"] = str(recorded.text or text).strip()
 
 
 _MODEL_SENTINELS = frozenset({"auto", "inherit", "default"})
@@ -617,5 +434,5 @@ def _apply_config_intent(
 
 __all__ = [
     "_apply_config_intent",
-    "_front_door_classify",
+    "record_manager_handoff",
 ]

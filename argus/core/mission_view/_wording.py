@@ -563,12 +563,7 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
-    "understanding_request": ("Understanding your request…", "正在理解你的请求…"),
-    "steer_unclear": (
-        "It sounds like you want to change direction, but I couldn't tell how, "
-        "so nothing has changed yet. Could you say a bit more?",
-        "听起来你想调整当前任务的方向，但我没听出具体要怎么改，所以先没动。能再说具体一点吗？",
-    ),
+    "manager_unavailable": ("The Manager is not available right now; nothing was queued.", "经理现在不可用，没有安排任何任务。"),
     "steer_taken": ("Got it, carrying on in that direction.", "好，接下来按你说的方向做。"),
     "steer_taken_ongoing": (
         "Got it, carrying on in that direction. This is now ongoing work; "
@@ -595,32 +590,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "kept; please try again in a moment.",
         "这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。",
     ),
-    "retry_no_action": ("Nothing was actually done yet; trying once more…", "还没真正动手，再试一次…"),
-    "retry_resumed": (
-        "The model stopped responding; picking the conversation up again…",
-        "模型这次没有回应，接着刚才的对话再试一次…",
-    ),
-    "retry_stalled": ("The model stopped responding; trying once more…", "模型这次没有回应，再试一次…"),
-    "retry_dropped": (
-        "The connection to the model service dropped; trying once more…",
-        "连接模型服务时断了，再试一次…",
-    ),
     "reply_empty": (
         "No reply came back for this request. No new task was added, and the "
         "current task was not changed.",
         "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。",
-    ),
-    "reply_cut_off": ("The model didn't finish its answer.", "模型这次没把话说完。"),
-    "reply_stopped_midway": (
-        "This stopped before it finished: {said}\n\nThe progress messages above "
-        "don't mean it's done, and some files may be half-written. No new task was added.",
-        "这次没做完就停下了：{said}\n\n"
-        "上面的进度消息不代表已经做完，可能留下了做到一半的文件；没有新增任务。",
-    ),
-    "reply_stopped_before_reply": (
-        "This stopped before I could reply: {said}\n\n"
-        "No new task was added, and the current work is unchanged.",
-        "这次还没回复就停下了：{said}\n\n没有新增任务，正在做的事也没变。",
     ),
     "reply_incomplete": ("No completed reply was received.", "没有收到完整回复。"),
     "reply_failed": (

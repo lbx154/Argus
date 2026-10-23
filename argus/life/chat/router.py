@@ -155,29 +155,14 @@ class CommandRouter:
         """Inbox provenance tag, e.g. ``telegram.nudge`` / ``feishu.nudge``."""
         return f"{self.channel}.{kind}"
 
-    def _intake_operator_text(self, text: str) -> tuple[str, Any, str | None, str]:
-        """Redact credentials, then run the shared Manager intake classifier."""
+    def _redact_credentials(self, text: str) -> str:
+        """Store any credential in the vault and keep the message without it."""
         from ...core.operator_context import import_deterministic_credential
-        from ...manager.config_intent import _front_door_classify
-        from ..memory import MemoryBundle
 
-        safe_text, credential = import_deterministic_credential(
-            self.life_dir,
-            text,
-            global_root=self.life_dir.parent.parent,
+        safe_text, _credential = import_deterministic_credential(
+            self.life_dir, text, global_root=self.life_dir.parent.parent,
         )
-        mem = MemoryBundle.for_cwd(
-            fingerprint=self.life_dir.name,
-            global_root=self.life_dir.parent.parent,
-        )
-        self._state["_frontdoor_credential_imported"] = credential is not None
-        intent, control, route = _front_door_classify(
-            mem,
-            safe_text,
-            self._state,
-            active_mission=bool(select_current_running_item(mem.backlog.active())),
-        )
-        return safe_text, intent, control, route
+        return safe_text
 
     # -- routing -----------------------------------------------------------
 
@@ -257,7 +242,7 @@ class CommandRouter:
 
     def _queue_task(self, arg: str, *, intake_done: bool = False) -> QueuedTask | None:
         if not intake_done:
-            arg, _intent, _control, _route = self._intake_operator_text(arg)
+            arg = self._redact_credentials(arg)
         cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         iterate, cycles, body = parse_add_flags(
             arg,
@@ -336,7 +321,8 @@ class CommandRouter:
         from ...apps._inbox import queue_inbox_message
         from ...daemon.life_worker import read_daemon_status
         from ...manager.config_intent import _apply_config_intent
-        from ...manager.front_door import manager_triage
+        from ...manager.form import config_intents, ticket
+        from ...manager.front_door import manager_turn
         from ...webapi.manager_dispatch import _handle_pending_question_turn, _TurnEmitter
         from ..memory import MemoryBundle
 
@@ -376,34 +362,22 @@ class CommandRouter:
             )
             return
 
-        text, intent, _control, route = self._intake_operator_text(text.strip())
-        if intent is not None:
+        text = self._redact_credentials(text.strip())
+        reply, handoff = manager_turn(manager_mem, text, self._state)
+        intents = config_intents(handoff.get("config", ())) if handoff is not None else ()
+        if intents:
             confirmations: list[str] = []
             if _apply_config_intent(
-                manager_mem,
-                intent,
-                self._state,
-                on_confirm=confirmations.append,
-                model_catalog=self._backend_model_ids,
+                manager_mem, intents, self._state,
+                on_confirm=confirmations.append, model_catalog=self._backend_model_ids,
             ):
                 self._reply("\n".join(confirmations))
                 return
-
-        from ...manager.front_door import _accepts_parameter
-
-        triage_kwargs: dict[str, Any] = {}
-        if _accepts_parameter(manager_triage, "route"):
-            triage_kwargs["route"] = route
-        if _accepts_parameter(manager_triage, "self_mode"):
-            triage_kwargs["self_mode"] = str(
-                self._state.get("_frontdoor_self_mode", "inspect")
-            )
-        reply = manager_triage(manager_mem, text, self._state, **triage_kwargs)
-        if reply is not None:
-            self._reply(_esc(reply))
+        if handoff is None or handoff.to != "team" or reply is None:
+            self._reply(_esc(reply or "经理现在不可用，没有安排任何任务。"))
             return
 
-        queued = self._queue_task(text, intake_done=True)
+        queued = self._queue_task(ticket(handoff.payload), intake_done=True)
         if queued is None:
             self._reply("我没收到有效内容；可以直接发任务描述，或用 /help 查看命令。")
             return

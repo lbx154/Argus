@@ -88,7 +88,7 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
     from argus.adapters.agent_cli_backend import _exec
     from argus.core.handoff import HandOffActions
     from argus.life import router
-    from argus.manager import _front_door_ops
+    from argus.manager import _skill_placement_ops
 
     calls = []
     backend = SimpleNamespace(
@@ -100,14 +100,14 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
         calls.append(kwargs["options"].model)
         return RunnerResult(exit_code=0, agent_messages=["synthetic classification"])
     monkeypatch.setattr(_exec, "_execute_prepared", execute_prepared)
-    monkeypatch.setattr(_front_door_ops, "gateway_run_exec", _exec.execute)
+    monkeypatch.setattr(_skill_placement_ops, "gateway_run_exec", _exec.execute)
     monkeypatch.setattr(router, "classify_front_door",
                         lambda text, *, run_exec, **kw: run_exec(text, HandOffActions("front_door")))
     manager = SimpleNamespace(
         runner=backend, manager_session_root=isolated_trial / "manager",
         _task_usage_scope=lambda _: nullcontext(),
     )
-    result = _front_door_ops._FrontDoorMixin.classify_front_door(manager, "A normal test message")
+    result = _skill_placement_ops._SkillPlacementMixin.classify_front_door(manager, "A normal test message")
     assert result.exit_code == 0, result.fatal_error
     assert calls == [CLIENT_MODEL]
 

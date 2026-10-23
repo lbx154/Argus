@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
@@ -209,7 +207,6 @@ def record_operator_messages(
     messages: list[str],
     *,
     source: str = "operator.inbox",
-    manager: Any = None,
     mission_id: str = "",
 ) -> None:
     """Persist drained operator messages without promoting all of them to standing."""
@@ -227,41 +224,6 @@ def record_operator_messages(
         if not text or text.startswith(STEERING_HEADER) or text.startswith(
             ACTIVE_MANAGER_DIRECTIVE_PREFIX
         ):
-            continue
-        decisions: list[dict[str, Any]] = []
-        classifier = getattr(manager, "classify_front_door", None)
-        if callable(classifier):
-            try:
-                classifier(
-                    text,
-                    intake_sink=decisions.append,
-                    active_mission=True,
-                )
-            except Exception:  # noqa: BLE001 - retain input even when routing fails
-                decisions.clear()
-                logging.getLogger(__name__).warning(
-                    "operator classification failed; persisting plain guidance",
-                    exc_info=True,
-                )
-        if decisions:
-            from ..core.operator_context import IntakeDecision, persist_intake_decision
-
-            if (
-                decisions[-1].get("kind") == "credential_grant"
-                and "[stored in capability vault]" in text
-                and any(
-                    record.type == "capability" and record.available
-                    for record in OperatorContextStore(state_root).records()
-                )
-            ):
-                continue
-            persist_intake_decision(
-                state_root,
-                text,
-                IntakeDecision(**decisions[-1]),
-                source=source,
-                mission_id=mission_id,
-            )
             continue
         store = OperatorContextStore(state_root)
         is_standing = standing_sounding(text)

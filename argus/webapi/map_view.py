@@ -87,7 +87,7 @@ SEGMENT_LIMIT_PER_ITEM = 80
 SEGMENT_TEXT_LIMIT = 1200
 STEP_LABEL_LIMIT = 160
 TURN_LIMIT = 200
-_ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1", "manager-quick-reply"})
+_ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1"})
 
 
 def facts(value) -> str:

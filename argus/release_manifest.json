@@ -393,7 +393,7 @@
     "argus/maintenance/repair.py": 25052,
     "argus/manager/__init__.py": 686,
     "argus/manager/_core.py": 7072,
-    "argus/manager/_front_door_ops.py": 6516,
+    "argus/manager/_skill_placement_ops.py": 6516,
     "argus/manager/_helpers.py": 2490,
     "argus/manager/_session_ops.py": 28273,
     "argus/manager/_stage_ops.py": 40979,

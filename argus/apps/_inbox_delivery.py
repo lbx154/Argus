@@ -154,7 +154,7 @@ class DurableInboxReceiver:
         self.keeper = _ClaimKeeper(self.root)
 
     def receive(
-        self, *, manager: Any = None, mission_id: str = "", limit: int = 10,
+        self, *, mission_id: str = "", limit: int = 10,
         cancelled: Callable[[], bool] | None = None,
     ) -> list[str]:
         from ..skills.stage_machine import current_stage
@@ -197,7 +197,7 @@ class DurableInboxReceiver:
                     self.keeper.hold(claim)
                     if _identity(claim) in selected:
                         break
-                    text = self._accept(claim, manager=manager)
+                    text = self._accept(claim)
                     if text is not None:
                         out.append(text)
                         selected.add(text.delivery_id)
@@ -211,7 +211,7 @@ class DurableInboxReceiver:
             self.release_pending()
             raise
 
-    def _accept(self, claim: Any, *, manager: Any) -> OperatorInboxText | None:
+    def _accept(self, claim: Any) -> OperatorInboxText | None:
         from ..core.operator_context import (
             apply_operator_delivery,
             close_operator_delivery_prefix,
@@ -238,9 +238,7 @@ class DurableInboxReceiver:
 
                 decision = IntakeDecision(kind="ephemeral")
             else:
-                if callable(manager) and not hasattr(manager, "classify_front_door"):
-                    manager = manager()
-                decision = classify_operator_message(self.root, claim.text, manager=manager)
+                decision = classify_operator_message(self.root, claim.text)
             plan = freeze_operator_intake(
                 self.root, claim.text, decision, source="operator.inbox", mission_id=claim.mission_id,
             )

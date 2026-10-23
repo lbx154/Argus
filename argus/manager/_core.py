@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ._front_door_ops import _FrontDoorMixin
 from ._session_ops import _ManagerSession, manager_pipeline_lock
+from ._skill_placement_ops import _SkillPlacementMixin
 from ._stage_ops import _StageDecisionMixin
 from ._vertical_ops import _VerticalDecisionMixin
 
@@ -88,7 +88,7 @@ class StageTransition:
 class Manager(
     _VerticalDecisionMixin,
     _StageDecisionMixin,
-    _FrontDoorMixin,
+    _SkillPlacementMixin,
 ):
     """User-facing Manager control plane.
 

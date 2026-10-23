@@ -245,7 +245,7 @@ def enqueue_mission(
             mem, body, chat_state, root_task_id=root_task_id,
         )
     standing = str(
-        chat_state.pop("_frontdoor_lifetime", "") or ""
+        chat_state.pop("_team_lifetime", "") or ""
     ).strip().lower() == "standing"
     direct = not standing and str(
         getattr(prepared_handoff.decision, "workflow_mode", "") or ""

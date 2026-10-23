@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import sys
 from collections.abc import Sequence
 
 EFFECTIVE_TASK_CONTRACT = (
@@ -70,7 +71,14 @@ def format_native_shell_command(
     return shlex.join(values)
 
 
+def argus_command(module: str, *args: object) -> str:
+    """A model-visible command running ``module`` on Argus' own interpreter, which may not be ``python`` on PATH."""
+    python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
+    return format_native_shell_command([python, "-m", module, *map(str, args)])
+
+
 __all__ = [
+    "argus_command",
     "EFFECTIVE_TASK_CONTRACT",
     "NATIVE_WINDOWS_SHELL_CONTRACT",
     "NATIVE_WINDOWS_SHELL_SUMMARY",

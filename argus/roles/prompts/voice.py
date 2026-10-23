@@ -27,15 +27,9 @@ RESEARCHER_VOICE = (
 # where the full paragraph would double the prompt's cost. A prompt that uses
 # the brief must state its own ban on protocol labels next to the prose field
 # it defines, the way the front-door prompt does for REPLY.
-RESEARCHER_VOICE_BRIEF = (
-    "For an ordinary reader: answer/meaning in their language; explain "
-    "necessary terms; preserve uncertainty; next steps only when they need to act."
-)
-
-
 def operator_language(chinese: bool) -> str:
     """How to word a sentence the operator reads as written: their language, their names for the roles."""
     return "in Chinese, the operator's language, calling the roles 经理, 规划者, 工程师 and 审阅者" if chinese else "in English, the operator's language"
 
 
-__all__ = ["RESEARCHER_VOICE", "RESEARCHER_VOICE_BRIEF", "operator_language"]
+__all__ = ["RESEARCHER_VOICE", "operator_language"]

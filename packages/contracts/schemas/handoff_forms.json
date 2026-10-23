@@ -155,17 +155,22 @@
         "plan_update": {"type": "string", "description": "The full new RESEARCH_PLAN.md, when the direction changed; left out, it stays."}
       }
     },
-    "front_door": {
-      "description": "Classify the operator's message; the call ends your turn. to: manager (SELF) for conversation, status, a quick inspection or a finite local task one agent can verify, and simple work with a vertical, whose stage and reviewer defaults never force team; team (TEAM) for multi-stage live research, parallel work, required independent review or high-impact operations, also when that work first needs the operator's choice: the team asks them. A control or a grant is always to=manager.",
-      "core": ["to"],
-      "to": ["manager", "team"],
-      "required": ["to", "intake"],
+    "manager": {
+      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide; manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
+      "core": ["to", "summary", "ask", "assumptions"],
+      "to": ["manager", "team", "operator"],
+      "required": ["to", "summary", "assumptions"],
       "properties": {
+        "goal": {"type": "string", "minLength": 1, "description": "With to=team: the outcome the team delivers, standalone, in the operator's language."},
+        "acceptance": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "description": "With to=team: the checks that prove the goal is met."},
+        "constraints": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: limits the operator stated, verbatim; never invented."},
+        "context": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: paths of the files the team should read first."},
+        "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team, or a steer: standing for ongoing intent, else bounded."},
         "intake": {
           "type": "object", "additionalProperties": false, "required": ["type", "scope"],
-          "description": "type: an ask done once, however big (`帮我调研X`), is ephemeral, and objective_amendment when it edits the live mission; standing_directive only to govern later turns (`以后都用中文`), with preference_value the lasting rule only; otherwise preference, credential_grant or revocation. Unsure: ephemeral. roles: the roles it applies to, [] for all.",
+          "description": "A lasting rule the operator gave: standing_directive to govern later turns (`以后都用中文`), with preference_value the rule only; otherwise preference, credential_grant or revocation; objective_amendment when it edits the live mission. roles: the roles it applies to, [] for all.",
           "properties": {
-            "type": {"enum": ["ephemeral", "objective_amendment", "standing_directive", "preference", "credential_grant", "revocation"]},
+            "type": {"enum": ["objective_amendment", "standing_directive", "preference", "credential_grant", "revocation"]},
             "scope": {"enum": ["mission", "project", "global"]},
             "roles": {"type": "array", "items": {"enum": ["manager", "planner", "engineer", "reviewer"]}},
             "preference_kind": {"enum": ["autonomy", "interaction", "workflow"]},
@@ -187,9 +192,9 @@
         },
         "control": {
           "type": "object", "additionalProperties": false, "required": ["kind", "quote"],
-          "description": "Only for an explicit command: pause stops the campaign; abort ends the current mission; no_dispatch starts no new work; steer gives an active mission an explicit new direction, priority, method, evidence or constraint, with that direction in directive. Questions, explanations, criticism, suggestions, a feature idea, an implied preference and a separate new task are no control; an explicit continue or resume after a pause is to=team. quote: the operator's own words that give the command, verbatim.",
+          "description": "Only for an explicit command: pause stops the campaign; abort ends the current mission; steer gives the running mission a new direction, priority, method or constraint, in directive. quote: the operator's own words giving the command, verbatim.",
           "properties": {
-            "kind": {"enum": ["pause", "abort", "no_dispatch", "steer"]},
+            "kind": {"enum": ["pause", "abort", "steer"]},
             "directive": {"type": "string", "minLength": 1},
             "quote": {"type": "string", "minLength": 2}
           }
@@ -203,22 +208,7 @@
           "enum": ["allow", "forbid"],
           "description": "forbid only for an explicit command against questions; allow only when they are explicitly re-enabled."
         },
-        "self_mode": {
-          "enum": ["reply", "inspect", "project_status", "argus_status", "host_status", "micro", "implement", "debug", "review", "synthesize"],
-          "description": "With to=manager. project_status: this project; argus_status: this Argus's projects; host_status: server activity (the host reads the facts; no reply). inspect: diagnosis, history, specific files or processes; reply: context-only conversation, no live-state claims; micro: a checked mutation; implement: code and tests; debug: diagnosis or fix with tests; review: a local review; synthesize: supplied sources. Fixes prefer debug; calculations, mutations and tests need execution."
-        },
-        "reply": {"type": "string", "description": "The complete answer for the operator, only when you were told you may answer here."},
-        "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team: standing for ongoing intent, else bounded. With a steer: standing only when it makes the mission ongoing."},
-        "greeting": {"type": "boolean", "description": "A pure greeting; reply greets and offers two or three starter asks."},
-        "name": {"type": "string", "maxLength": 80, "description": "The topic, in the message's language; left out for a greeting, chat or settings."},
-        "domain": {
-          "type": "object", "additionalProperties": false,
-          "description": "Only when domain fit is described below: the domain step, and the matching capability.",
-          "properties": {
-            "action": {"enum": ["offer", "ask", "skip", "cancel"]},
-            "vertical": {"type": "string"}
-          }
-        }
+        "name": {"type": "string", "maxLength": 80, "description": "A new topic for this conversation, in the operator's language; left out while the topic holds."}
       }
     },
     "route": {

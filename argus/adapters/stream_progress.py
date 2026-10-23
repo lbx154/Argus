@@ -1049,9 +1049,6 @@ _ENGINEER_HELPER_ACTOR_PREFIXES = (
 _MANAGER_ACTOR_PREFIXES = (
     "manager",
     "simple",
-    # A SELF execution turn (self-implement, self-micro, ...) is the Manager's
-    # own work, streamed and recorded exactly like a ``simple-1`` turn.
-    "self-",
     "chat",
     "router",
     "vertical",

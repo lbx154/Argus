@@ -70,7 +70,7 @@ REGISTRY: tuple[Site, ...] = (
     Site(
         r"manager-frontdoor-classify", FOREGROUND,
         "Classifies one operator message.",
-        ("argus/manager/_front_door_ops.py:122",),
+        ("argus/manager/_skill_placement_ops.py:122",),
         ("manager-frontdoor-classify",),
     ),
     Site(
