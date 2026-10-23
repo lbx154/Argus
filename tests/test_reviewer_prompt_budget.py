@@ -374,7 +374,9 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
     assert 'Use primary sources for external claims' in prompt
     assert 'community code may ground implementation details' in prompt
     assert "`to=planner` for a wrong target" in prompt
-    assert 'Stay within this profile; require no future-proofing' in prompt
+    # dogfood8 sizefmt: a Reviewer gated a done task on a wheel build the task never asked for.
+    assert "a check they do not ask for (a packaged build, future-proofing) is a suggestion in note" in prompt
+    assert "never withholds `to=done`" in prompt
     assert 'require experimental or research feedback' in prompt
 
 
