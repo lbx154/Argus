@@ -1,7 +1,7 @@
 {
-  "git_commit": "c8bd94f12039c9c266ba0d70da2de9d68eb5f596",
+  "git_commit": "5ccd9ee3160aa61a7e5ddc8fc464f960743a081d",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+c8bd94f12039",
+  "release_id": "0.1.8+5ccd9ee3160a",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -424,7 +424,7 @@
     "argus/manager/skill_tidy.py": 25545,
     "argus/manager/source_writeback.py": 2627,
     "argus/manager/stage_decider.py": 26731,
-    "argus/manager/supervision.py": 41768,
+    "argus/manager/supervision.py": 41745,
     "argus/manager/supervision_errors.py": 4517,
     "argus/messaging/__init__.py": 386,
     "argus/messaging/handler.py": 8467,
