@@ -47,6 +47,8 @@ def role_actions(runner: Any, options: "RunnerOptions", actions: Any) -> Iterato
         elif backend == "codex":
             for key, value in {
                 **server, "env_vars": list(bridge.environment), "env.PYTHONPATH": environment["PYTHONPATH"],
+                # Codex asks before an MCP call, and a call with no one to ask is refused.
+                "default_tools_approval_mode": "approve",
             }.items():
                 extra.extend(["-c", f"mcp_servers.{SERVER}.{key}={json.dumps(value)}"])
         elif backend in {"copilot", "claude", "qoder"}:

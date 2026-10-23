@@ -125,6 +125,7 @@ def test_tool_transport_keeps_the_engineer_s_access_and_capability_out_of_argv(b
                 tomllib.loads(config)
             assert any("mcp_servers.argus_actions.env.PYTHONPATH=" in config for config in configs)
             assert 'mcp_servers.argus_actions.args=["-P", "-m", "argus.core.role_actions"]' in configs
+            assert 'mcp_servers.argus_actions.default_tools_approval_mode="approve"' in configs
             assert "--full-auto" in command
         elif backend in {"claude", "qoder"}:
             assert "--tools" not in command
