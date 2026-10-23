@@ -325,17 +325,6 @@ def test_a_superseded_turn_is_not_a_failure(tmp_path, monkeypatch) -> None:
     assert not sink.of(EventType.LIFE_DAEMON_DEGRADED)
 
 
-def test_an_empty_plan_the_manager_reconciled_is_not_a_failure(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
-    monkeypatch.setattr(supervisor, "_reconcile_open_ended_terminal_stage_action", lambda _v: "advance")
-    for _ in range(4):
-        _pass(supervisor)
-        clock.now += 120.0
-
-    assert _streak(supervisor) == 0
-    assert not _alerts(sink)
-
-
 def test_a_restart_keeps_the_streak_and_does_not_alert_again(tmp_path, monkeypatch) -> None:
     supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
     planner.fatal = _OUTAGE

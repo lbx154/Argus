@@ -220,6 +220,8 @@ def test_a_question_for_the_operator_carries_its_answers() -> None:
     (plan(advance_to_stage="ship"), {}, "this project has no stages"),
     (plan(tasks=[{"title": "Fix", "objective": "Fix it.", "deps": ["elsewhere"]}]), {}, "name only keys of tasks in this call"),
     (plan(tasks=[{"title": "Fix", "objective": "Fix it.", "parallel_safe": True}]), {}, "parallel_safe needs the owns_paths"),
+    (plan(tasks=[{"title": "Fix", "objective": "Fix it.", "owns_paths": ["src/**"]}]), {}, "'src/**' is not a literal path"),
+    (plan(tasks=[{"title": "Fix", "objective": "Fix it.", "owns_paths": ["/abs/cpc"]}]), {}, "'/abs/cpc' is not a literal path"),
     (plan(tasks=[{"title": "Fix", "objective": "Fix it.", "key": "a b"}]), {}, "does not match"),
 ])
 def test_the_form_refuses_a_plan_the_host_cannot_act_on(action, config, refusal) -> None:

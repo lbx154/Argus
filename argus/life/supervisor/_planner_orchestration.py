@@ -181,15 +181,14 @@ class PlannerOrchestrationMixin:
                     "- parallel_slot: a spare mission slot sits idle while "
                     f"task {unowned[0].id} runs without declared "
                     "path ownership. Tasks share slots only when every "
-                    "co-running task sets TASK_PARALLEL_SAFE=true with "
-                    "disjoint TASK_OWNS_PATHS — literal relative paths, no "
-                    "wildcards; stage-closing and framework-maintenance "
+                    "co-running task sets parallel_safe with disjoint "
+                    "owns_paths; stage-closing and framework-maintenance "
                     "work always runs alone."
                 )
             elif free_slots:
                 slot_lines.append(
                     f"- parallel_slot: {free_slots} free; independent tasks "
-                    "declared parallel-safe with disjoint TASK_OWNS_PATHS "
+                    "declared parallel_safe with disjoint owns_paths "
                     "can run now."
                 )
 

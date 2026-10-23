@@ -336,18 +336,8 @@ class PlanningCycleEnqueueMixin:
             )
             canonical_context_refs = list(getattr(task, "context_refs", []) or [])
             canonical_owns_paths = [
-                str(path).strip().replace("\\", "/").strip("/")
-                for path in (getattr(task, "owns_paths", []) or [])
-                if (
-                    str(path).strip()
-                    and not Path(str(path)).is_absolute()
-                    and Path(str(path)).parts
-                    and ".." not in Path(str(path)).parts
-                    # The claim gate refuses glob syntax outright; keeping such
-                    # a path here would advertise a task as slot-ready that can
-                    # never be admitted.
-                    and not any(char in str(path) for char in "*?[]{}!")
-                )
+                path.strip().replace("\\", "/").strip("/")
+                for path in getattr(task, "owns_paths", []) or []
             ]
             canonical_stage_closing = bool(
                 canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
@@ -360,30 +350,11 @@ class PlanningCycleEnqueueMixin:
                 or getattr(task, "require_independent_review", True)
             )
             requested_parallel = bool(getattr(task, "parallel_safe", False))
-            canonical_parallel = bool(
-                requested_parallel
-                and canonical_owns_paths
-                and not canonical_stage_closing
-            )
-            if requested_parallel and not canonical_parallel:
-                # The plan asked for a shared slot but did not unlock it.
-                # Silence here left width-2 daemons serial for months: the
-                # Planner kept omitting owned paths and never learned why
-                # nothing co-ran. Reported at commit time, once per enqueued
-                # task, so dedup-skipped replans do not repeat the event.
-                state.dropped_parallel.append((
-                    task.title,
-                    (
-                        "stage-closing work always runs alone"
-                        if canonical_stage_closing
-                        else (
-                            "TASK_PARALLEL_SAFE was set without usable "
-                            "TASK_OWNS_PATHS — literal relative paths, no "
-                            "wildcards — so the task will run serially "
-                            f"(received: {list(getattr(task, 'owns_paths', []) or [])!r})"
-                        )
-                    ),
-                ))
+            canonical_parallel = requested_parallel and not canonical_stage_closing
+            if requested_parallel and canonical_stage_closing:
+                # Reported at commit time, once per enqueued task, so
+                # dedup-skipped replans do not repeat the event.
+                state.dropped_parallel.append((task.title, "stage-closing work always runs alone"))
             task = replace(
                 task,
                 scope=canonical_scope,

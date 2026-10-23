@@ -3,10 +3,9 @@ slot exists and what unlocks it.
 
 Width-2 daemons ran serially in practice: the auxiliary supervisor admits
 only tasks whose whole co-running set declares ``parallel_safe`` with
-disjoint ``owns_paths``, but the Planner was never shown the slot count,
-the running tasks' ownership metadata, or the fact that its own
-``TASK_PARALLEL_SAFE`` flag was silently stripped when ``TASK_OWNS_PATHS``
-was missing. These tests pin the three feedback surfaces.
+disjoint ``owns_paths``, but the Planner was never shown the slot count
+or the running tasks' ownership metadata. These tests pin those feedback
+surfaces.
 """
 
 from __future__ import annotations
@@ -113,7 +112,7 @@ def test_digest_reports_slot_topology_and_ownership_metadata(
     assert "parallel_safe=false" in running_line
     # A spare slot exists but the running task declares no ownership: the
     # digest must say so, or the Planner cannot know why width stays 1.
-    assert "TASK_OWNS_PATHS" in note
+    assert "owns_paths" in note
 
 
 def test_digest_stays_quiet_for_serial_campaigns(tmp_path: Path) -> None:
@@ -158,28 +157,6 @@ def test_digest_shows_declared_ownership_without_the_advisory(
     assert "parallel_safe=true" in owned_line
     assert "analysis/lane-a" in owned_line
 
-
-
-def test_glob_owned_paths_never_advertise_a_slot(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([
-        plan(summary='parallelize the sweep', tasks=[{'key': 'sweep', 'title': 'Sweep the source tree', 'objective': 'Scan every module for the pattern.', 'acceptance_check': 'scan notes exist', 'parallel_safe': True, 'owns_paths': ['src/**']}])
-    ])
-    supervisor = _supervisor(
-        project, tmp_path / "life", planner, mission_slots=2
-    )
-
-    assert supervisor._plan_next_work() is True
-
-    (item,) = supervisor.memory.backlog.pending()
-    # The claim gate rejects glob syntax outright; a persisted glob would
-    # advertise a task as slot-ready that can never be admitted.
-    assert item.parallel_safe is False
-    assert item.owns_paths == []
-    note = supervisor._planner_dropped_parallel_runtime_note()
-    assert "Sweep the source tree" in note
-    assert "wildcards" in note
 
 
 def _two_arm_plan(path_a: list[str], path_b: list[str]) -> tuple[str, dict]:
@@ -227,19 +204,6 @@ def test_nested_owned_paths_stay_serial_after_claim(tmp_path: Path) -> None:
     backlog = supervisor.memory.backlog
     assert backlog.claim_next(respect_running=True) is not None
     assert backlog.claim_next(parallel_only=True, respect_running=True) is None
-
-
-def test_dropped_parallel_note_shows_what_was_received(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([_two_arm_plan(["/abs/cpc"], ["runs/general"])])
-    supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
-
-    assert supervisor._plan_next_work() is True
-
-    note = supervisor._planner_dropped_parallel_runtime_note()
-    assert "Run the CPC arm" in note
-    assert "'/abs/cpc'" in note
 
 
 def test_digest_renders_ownership_in_the_footer_syntax(tmp_path: Path) -> None:

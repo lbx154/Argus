@@ -303,7 +303,7 @@ def _method_card_planner_block(stage: str) -> str:
         "adjectives; one task is one brief. That first task finishes the shared runner: "
         "every planned arm, baseline and config as an argument, per-arm output directory. "
         "Arms differing only in config, seed or data are independent: emit them "
-        "together in one plan as TASK_PARALLEL_SAFE=true tasks, each with TASK_DEPS on the runner "
+        "together in one plan as parallel_safe tasks, each with deps on the runner "
         "and owning only its own output and config paths, up to the free mission_slots and parallel_slot; 'extend the "
         "runner, then run arm X' chains every arm behind one owner. Claim-bearing acceptance cites the "
         "METHOD.md Protocol (datasets, baselines, seeds, scale), never restates it. When a "

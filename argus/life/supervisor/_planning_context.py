@@ -1135,12 +1135,7 @@ class PlanningContextMixin:
         )
         return (
             "PARALLEL FLAGS DROPPED FROM YOUR LAST PLAN:\n"
-            f"{lines}\n"
-            "A task shares a mission slot only when it sets "
-            "TASK_PARALLEL_SAFE=true together with usable TASK_OWNS_PATHS — "
-            "literal, relative, project-internal paths (no wildcards), "
-            "disjoint from every co-running task's paths. Without them the "
-            "task runs serially."
+            f"{lines}"
         )
 
     def _manager_planner_feedback_runtime_note(self) -> str:

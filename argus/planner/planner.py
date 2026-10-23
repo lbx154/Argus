@@ -454,6 +454,10 @@ def _plan(payload: dict[str, Any], *, open_ended: bool, stages: tuple[str, ...])
             raise ValueError(f"tasks.deps of {task['title']!r}: name only keys of tasks in this call.")
         if task.get("parallel_safe") and not task.get("owns_paths"):
             raise ValueError(f"tasks of {task['title']!r}: parallel_safe needs the owns_paths it writes.")
+        for path in task.get("owns_paths", ()):
+            parts = Path(path.strip()).parts
+            if not parts or Path(path).is_absolute() or ".." in parts or any(char in path for char in "*?[]{}!"):
+                raise ValueError(f"owns_paths of {task['title']!r}: {path!r} is not a literal path inside the project.")
     ask = payload.get("ask", {})
     return PlannerVerdict(
         project_done=to == "done",
