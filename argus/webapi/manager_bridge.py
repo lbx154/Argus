@@ -24,7 +24,9 @@ from .manager_dispatch import (
     _manager_request_scope,
     _settle_manager_turn,
     _TurnEmitter,
+    ask_text,
     record_turn_step,
+    tell_team_stage_ruling,
 )
 from .manager_pending_question import _emit_ui_turn
 from .manager_state import (
@@ -376,6 +378,7 @@ def _manager_message(
                 mem, f"{startup_handoff}\n\n{body}" if startup_handoff else body, chat_state,
                 on_fragment=emitter.fragment, root_task_id=root_task_id, team_allowed=not explicit_chat,
             )
+            tell_team_stage_ruling(life_dir, chat_state)
             if _cancelled():
                 emitter.cancel_task()
                 return _cancelled_result()
@@ -503,6 +506,7 @@ def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: d
     The operator reads the Manager's words under the report's message id and
     card fields; if the Manager cannot answer, they read the team's report.
     """
+    from ..core.mission_view import uses_cjk
     from ..core.operator_messages import publish_operator_message
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_turn
@@ -511,9 +515,12 @@ def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: d
     with _lock_for(sid):
         chat_state = _chat_state_for(sid)
         chat_state.update(session_id=sid, global_root=str(mem.global_root))
-        reply, _handoff = manager_turn(mem, f"Team report:\n{text}", chat_state, team_allowed=False)
+        reply, handoff = manager_turn(mem, f"Team report:\n{text}", chat_state, team_allowed=False)
+        tell_team_stage_ruling(mem.project_root, chat_state)
         if reply is None or chat_state.pop("_self_failure", None):
             reply = text
+        elif handoff is not None and handoff.to == "operator":
+            reply = ask_text(handoff, uses_cjk(reply))
         publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
     return {"kind": "chat", "reply": reply}
 

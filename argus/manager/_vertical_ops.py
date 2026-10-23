@@ -585,6 +585,7 @@ class _VerticalDecisionMixin:
                 workflow_mode=decision.workflow_mode,
                 start_stage=decision.start_stage,
                 target_venue=decision.target_venue or None,
+                operator_decides_stages=decision.operator_decides_stages,
                 allow_research_direction_change=force_stage_reset,
                 workflow_profile=decision.workflow_profile or None,
                 workflow_requested_stages=decision.workflow_requested_stages or None,

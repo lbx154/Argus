@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -20,21 +18,9 @@ import portalocker
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, AUTOMATIC_RETRY_WINDOW_SECONDS
 from ..core.mission_view import uses_cjk
 from ..core.operator_messages import publish_operator_message
+from ..core.team_reports import write_record as _write_record
 
 log = logging.getLogger(__name__)
-
-
-def _write_record(path: Path, record: dict[str, Any]) -> None:
-    """Keep the queue's disk format private and replace only complete records."""
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".message-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(record, handle, ensure_ascii=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
 
 
 def _read_record(path: Path) -> dict[str, Any]:
@@ -43,30 +29,6 @@ def _read_record(path: Path) -> dict[str, Any]:
         return record if isinstance(record, dict) else {}
     except (OSError, ValueError):
         return {}
-
-
-def _team_report_path(life_dir: Path, message_id: str) -> Path:
-    return life_dir / "manager-deferred" / f"{quote(message_id, safe='')}.json"
-
-
-def team_report_left(life_dir: Path, message_id: str) -> bool:
-    """Whether the team report ``message_id`` was left for the Manager (answered or not)."""
-    return _team_report_path(life_dir, message_id).exists()
-
-
-def post_team_report(life_dir: Path, *, message_id: str, text: str, event_fields: dict[str, Any]) -> None:
-    """Leave a team report for the Manager session's owner, once per ``message_id``.
-
-    The project process never runs the Manager's session; the web server that
-    owns it answers the report as its next turn (see ``DeferredMessages``).
-    """
-    path = _team_report_path(life_dir, message_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        _write_record(path, {"status": "waiting", "created_at": time.time(), "request": {
-            "sid": life_dir.name, "global_root": str(life_dir.parent.parent),
-            "text": text, "turn_id": message_id, "team": event_fields,
-        }})
 
 
 class DeferredMessages:
