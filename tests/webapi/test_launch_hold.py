@@ -37,7 +37,7 @@ def test_launch_note_states_each_choice_in_the_request_language():
     en = launch_note({**settings, "first_result_hours": 24.0}, language_hint="study this")
     assert "within 1 day" in en and "Research ambition: exploratory" in en
     assert launch_note(None) == ""
-    assert "等我确认后才开始执行" in launch_note({"hold": True}, language_hint="研究")
+    assert "等我点“开始执行”" in launch_note({"hold": True}, language_hint="研究")
     assert not launch_target_level_stated(launch_note({"first_result_hours": 2.0}, language_hint="研究"))
     # Titles and summaries read the request without the note appended to it.
     assert strip_launch_note("帮我研究一下这个问题" + zh) == "帮我研究一下这个问题"

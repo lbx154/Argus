@@ -1,6 +1,6 @@
 ---
 name: "Handing work to the team"
-description: "When the Manager does the work itself and when it hands a ticket to the team; how to write the ticket and report the team's result."
+description: "When the Manager does the work itself and when it hands a ticket to the team, a plan that needs much research included; how to write the ticket and report the team's result."
 ---
 
 # Handing work to the team
