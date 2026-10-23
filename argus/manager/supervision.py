@@ -141,7 +141,7 @@ def mission_stop_reason(root: Path | str | None, mission_id: str | None) -> str:
         or record.get("effects", {}).get("stopped_attempt") != _attempt_key(Path(root), mission_id)
     ):
         return ""
-    return f"Manager decision: {record['decision']['reason']}"
+    return record["decision"]["reason"]
 
 
 class SupervisionDecisionError(ValueError):
