@@ -3,6 +3,7 @@ from __future__ import annotations
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from tests.hand_off import hand_off
+from tests.role_rules import rule
 
 
 def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
@@ -61,6 +62,6 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     assert second_prompt.count(reviewer_action) == 1
     assert second_prompt.count(latest_scope) == 1
     assert "Initial operator scope: implement alpha and beta." not in second_prompt
-    assert second_prompt.count("## Task authority") == 1
-    assert "Follow operator>objective>mission>preregistration" in second_prompt
+    assert second_prompt.count("doing-the-task/SKILL.md") == 1
+    assert "operator > objective > mission > preregistration" in rule("engineer", "doing-the-task/SKILL.md")
     assert second_prompt.index(reviewer_action) < second_prompt.index(latest_scope)

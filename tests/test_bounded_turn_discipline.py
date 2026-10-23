@@ -12,6 +12,7 @@ import pytest
 
 from argus.core.handoff import form_tool
 from argus.loop import SkillLoop
+from tests.role_rules import lists, rule
 
 
 @pytest.fixture(autouse=True)
@@ -38,8 +39,7 @@ def test_checkpoint_handoff_discipline_present_for_paper_mission():
         "evidence package and resolve all readiness blockers.",
         paper_mission=True,
     )
-    assert "## This turn" in out
-    assert "CHECKPOINT.md carries your state from one round to the next" in out
+    assert "CHECKPOINT.md there: your state from one round to the next" in out
     assert "one coherent, verifiable increment" not in out
 
 
@@ -52,10 +52,12 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
         include_static=False,
     )
 
-    for out in (full, compact):
-        assert "setsid nohup" in out
-        assert "blocking calls" in out
-        assert "Never poll in short loops" in out
+    assert lists(full, "long-runs-and-evidence/SKILL.md")
+    assert "## Continuation turn" in compact  # the session already holds the page
+    text = rule("engineer", "long-runs-and-evidence/SKILL.md")
+    assert "setsid nohup" in text
+    assert "blocking call" in text
+    assert "Never poll in short loops" in text
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
@@ -67,7 +69,7 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
 
     assert "End your turn with hand_off" in out
     assert "do not start one yourself or through a subagent" in form_tool("engineer")["description"]
-    assert "yield" in out.lower()
+    assert "yield_time_ms" in rule("engineer", "long-runs-and-evidence/SKILL.md")
 
 
 def test_performance_claims_require_causal_attribution() -> None:
@@ -79,15 +81,16 @@ def test_performance_claims_require_causal_attribution() -> None:
         include_static=False,
     )
 
-    for out in (full, compact):
-        assert "Performance root-cause/bottleneck/replacement claims need" in out
-        assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in out
+    assert lists(full, "long-runs-and-evidence/SKILL.md")
+    assert "## Continuation turn" in compact
+    assert "hot-path or live-resource evidence plus timing, profiling or a controlled A/B" in rule(
+        "engineer", "long-runs-and-evidence/SKILL.md")
 
 
 def test_engineer_checkpoint_states_its_purpose_without_a_ban():
     out = _prompt("Continue the implementation across rounds.")
 
-    assert "CHECKPOINT.md carries your state from one round to the next" in out
+    assert "CHECKPOINT.md there: your state from one round to the next" in out
     assert "do not create separate summaries" not in out
     assert "compile/type-check" not in out
     assert "git ls-files --error-unmatch" not in out

@@ -29,6 +29,7 @@ from argus.engineer.runner import (
 )
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.role_rules import lists, rule
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 _CALL_ID = "0123456789abcdef"
@@ -101,11 +102,13 @@ def test_reviewer_rejects_retroactive_audit_reconstruction() -> None:
         objective="Review an append-only audit ledger and exact COMMAND_LOG.",
     )
 
-    assert "operator mutation freeze or append-only requirement" in p
-    assert "compare directive order with file-write, install, and command events" in p
-    assert 'cannot make an overwritten or reconstructed record contemporaneous' in p
-    assert "unless the cited objective text states it" in p
-    assert "missing byte-faithful command" in p
+    assert lists(p, "record-integrity/SKILL.md")
+    text = rule("reviewer", "record-integrity/SKILL.md")
+    assert "operator mutation freeze or append-only requirement" in text
+    assert "compare the order of the directive with file-write, install and command events" in text
+    assert "cannot make an overwritten or reconstructed record contemporaneous" in text
+    assert "unless the cited objective text states it" in text
+    assert "missing byte-faithful command" in text
 
 
 def test_log_pointer_scopes_to_current_engineer_call_without_recipe() -> None:

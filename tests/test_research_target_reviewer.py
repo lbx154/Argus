@@ -6,6 +6,7 @@ from argus.core.models import RunnerResult
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
 from tests.hand_off import hand_off
+from tests.role_rules import rule
 
 
 class _Backend:
@@ -44,15 +45,17 @@ def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> 
     )
 
     assert decision.status == "replan_requested"
-    assert "Project target `publishable`" in backend.prompt
-    # The project bar and this round's bar are now separate statements:
-    # a publishable target must not be read as this round's requirement.
-    assert "not this round's bar" in backend.prompt
+    assert "Project research target: `publishable`" in backend.prompt
+    assert "## This round's bar" in backend.prompt
+    # The project bar and this round's bar are separate statements: a
+    # publishable target must not be read as this round's requirement.
+    assert "not this round's bar" in rule("reviewer", "deciding/SKILL.md")
+    assert "and its 'Research target' section" in backend.prompt
     assert (
-        "What observed result or pattern most changed your belief — including a "
-        "positive surprise — and what is the cheapest observation that would "
-        "distinguish a new scientific explanation from an artifact?"
-        in backend.prompt
+        "what observed result or pattern most changed your belief, including a "
+        "positive surprise, and what is the cheapest observation that would tell a "
+        "new scientific explanation from an artifact?"
+        in rule("reviewer", "deciding/SKILL.md")
     )
     # The point of this test is *where* the target lives: in the prompt the
     # Reviewer reads, never encoded into a machine-enforced output shape. Since

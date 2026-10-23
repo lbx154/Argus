@@ -160,7 +160,7 @@ def build_mission_prompt(
         compact = (
             "## Continuation turn\n"
             "Read CHECKPOINT.md, then do the Reviewer's next action; the original task "
-            "still applies. End with hand_off."
+            "still applies. End your turn with hand_off."
         )
         shell_contract = native_shell_contract()
         if shell_contract:

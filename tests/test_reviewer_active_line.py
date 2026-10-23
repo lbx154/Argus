@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from argus.reviewer import Reviewer
+from tests.role_rules import lists, rule
 
 
 def _prompt(checkpoint_path: str = "/tmp/project/CHECKPOINT.md") -> str:
@@ -23,17 +24,15 @@ def test_reviewer_is_not_given_checkpoint_bookkeeping():
     p = _prompt()
     assert "/tmp/project/CHECKPOINT.md" not in p
     assert "CHECKPOINT_RECOMMENDED" not in p
-    assert 'neither read nor edit checkpoint or context records' in p
+    assert "neither read nor edit CHECKPOINT.md or other context records" in rule("reviewer", "argus-reviewer-role.md")
 
 
 def test_reviewer_never_acts_as_checkpoint_editor():
     p = _prompt()
     assert 'change no source, output or build file' in p
-    assert 'Give Engineer instructions in the review' in p
-    assert 'check relevant uncertainty' in p
-    assert (
-        'Ground negatives, hedging, limitations and reruns in consequences; all claims share one evidence standard.'
-    ) in p
+    role = rule("reviewer", "argus-reviewer-role.md")
+    assert "What the Engineer receives is your `note`" in role
+    assert "Ground negatives, hedging, limitations and reruns in their consequences; all claims share one evidence standard." in role
     assert "six total read/search tool calls" not in p
 
 
@@ -50,8 +49,8 @@ def test_the_no_mutation_rule_says_what_it_covers_and_what_it_does_not():
     """
     p = _prompt()
 
-    assert "Leave source/output/build files unchanged" in p
-    assert "use the vertical command for judgments" in p
+    assert "change no source, output or build file" in p
+    assert "use the vertical's own command for judgments" in rule("reviewer", "argus-reviewer-role.md")
     assert "strictly read-only" not in p
 
 
@@ -64,11 +63,6 @@ def test_checkpoint_state_is_not_copied_into_the_prompt():
 def test_reviewer_handoff_uses_actions():
     p = _prompt()
 
-    for field in (
-        "hand_off",
-        "`to=planner`",
-        "alternative",
-        "`to=operator`",
-    ):
-        assert field in p
+    assert "End your turn with hand_off" in p
+    assert lists(p, "deciding/SKILL.md")
     assert "STATUS=" not in p

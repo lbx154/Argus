@@ -23,6 +23,7 @@ from argus.engineer.round_stop_signals import (
 from argus.life.context_packet import render_mission_brief
 from argus.reviewer import Reviewer
 from tests.hand_off import hand_off
+from tests.role_rules import rule
 
 _FINDINGS = "## Your previous findings"
 # Longer than the old 600-character cut, with a distinctive tail.
@@ -131,8 +132,8 @@ def test_fresh_reviewer_gets_its_full_previous_findings_once(tmp_path: Path) -> 
     assert "previous_review_summary" not in second
     assert "- Previous review:" not in second
     assert "- Previously requested action:" not in second
-    # The incremental boundary that refers to the judgment "below" still applies.
-    assert "## Incremental re-review boundary" in second
+    # The re-review rule that refers to the judgment "below" still applies.
+    assert "read re-review before reusing it" in second
 
 
 def test_resumed_reviewer_gets_one_copy_and_no_unverifiable_thread_claim(
@@ -314,8 +315,9 @@ def test_findings_are_framed_as_correctable_earlier_words() -> None:
         round_index=2, session_id=None, main_summary="S", main_error=None,
         prev_review_summary="Round 1 — continue: x",
     )
-    assert "not fact" in boundary
-    assert "If current evidence shows your earlier judgment was wrong" in boundary
+    assert "read re-review before reusing it" in boundary
+    assert "your previous judgment is not fact. If current evidence shows it was wrong" in rule(
+        "reviewer", "re-review/SKILL.md")
 
 
 # --- own thread only ----------------------------------------------------------

@@ -114,12 +114,13 @@ def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Pa
         prompt for label, prompt, _ in backend.history if label.startswith("engineer-")
     ]
     assert len(prompts) == 2
-    assert "## This turn" in prompts[0]
+    assert "You are the Argus Engineer" in prompts[0]
     assert "## Current mission task" in prompts[0]
     assert "## Continuation turn" in prompts[1]
     assert "## Current mission task" not in prompts[1]
     assert len(prompts[1]) < len(prompts[0])
-    assert all('## Handing off' in prompt for prompt in prompts)
+    assert "## Handing off" in prompts[0]
+    assert "End your turn with hand_off" in prompts[1]
 
 
 def test_shared_checkpoint_file_survives_across_missions(tmp_path: Path) -> None:
