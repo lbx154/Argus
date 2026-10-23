@@ -2,8 +2,9 @@
 
 Layer: domain
 
-Seven verticals are built in (one directory each, ``<name>/stages.py``
-implementing ``VerticalContract``); everything else is discovered at runtime
+Nine verticals are built in (one directory each, ``<name>/stages.py``
+implementing ``VerticalContract`` — including the cyber pair ``red_team`` /
+``blue_team``); everything else is discovered at runtime
 by ``_registry``: workbench plugins, the **Vertical Store** (``store`` --
 community verticals installed one directory at a time from the
 ``argus-verticals`` releases, no pip; ``argus verticals ...`` and

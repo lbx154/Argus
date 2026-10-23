@@ -1,10 +1,11 @@
 """Vertical selection for the auto-research loop.
 
 The loop runs ONE of several *verticals*, selected by a single ``vertical``
-field in ``.argus/PIPELINE_STATE.json``. Seven are built in (``VERTICALS``
+field in ``.argus/PIPELINE_STATE.json``. Nine are built in (``VERTICALS``
 below: ``research`` -- the default and the safe fallback whenever intent is
 unclear -- plus ``software``, ``argus_maintenance``, ``kernel_engineering``,
-``math``, ``math_synth`` and ``learning``); every other vertical is discovered
+``math``, ``math_synth``, ``learning``, ``red_team`` and ``blue_team``); every
+other vertical is discovered
 at runtime through the ``argus.verticals`` entry-point group, which is
 how the ``argus-verticals`` community package contributes ``quant``,
 ``speedrun``, ``medical``, the literary verticals and the rest. Runtime code
@@ -71,7 +72,7 @@ _FALLBACK_WARNED_ROOTS: set[str] = set()
 #: ``ast.literal_eval``, so keep it a plain literal.
 VERTICALS: tuple[str, ...] = (
     "research", "software", "argus_maintenance", "kernel_engineering",
-    "math", "math_synth", "learning",
+    "math", "math_synth", "learning", "red_team", "blue_team",
 )
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
@@ -94,6 +95,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "math_synth": "math-reasoning data synthesis: maximize pass@4-minus-pass@1 while "
     "the solver, verifier, metric, seeds, and evaluator stay frozen",
     "learning": "ingest operator material and create, update, or archive skill/wiki knowledge",
+    "red_team": "authorized offensive security: engagement-gated vulnerability "
+    "exploitation with evidence-bound findings",
+    "blue_team": "defensive security: triage findings, remediate with regression "
+    "evidence, verify the fix closes the loop",
 }
 
 #: The safe default vertical when intent is unclear or state is missing.
