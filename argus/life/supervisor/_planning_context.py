@@ -454,7 +454,7 @@ class PlanningContextMixin:
         ``math`` (and the community ``materials``) demand a scope the enqueue boundary refuses
         to persist, so no project in either could reach ``project_done``.
         Testbed runs 8, 9 and 10 all died here — once fixes #45 and #46 landed
-        the Planner did emit ``TASK_SCOPE=final_submission``, and the item was
+        the Planner did set ``scope: "final_submission"``, and the item was
         still enqueued as ``scope:bounded``.
 
         The bounded verticals this downgrade was written to protect
@@ -551,7 +551,7 @@ class PlanningContextMixin:
         reason = f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
         return PlannerVerdict(
             project_done=False,
-            reason=reason,
+            summary=reason,
             handoff="operator",
             operator_question=reason,
         )
@@ -571,7 +571,7 @@ class PlanningContextMixin:
         return replace(
             verdict,
             project_done=False,
-            reason=wait_reason,
+            summary=wait_reason,
             handoff="operator",
             operator_question=wait_reason,
             new_tasks=[],
@@ -753,7 +753,7 @@ class PlanningContextMixin:
         A question for the operator goes on the planning slot's card, which the
         operator answers, or the Manager while the operator cannot be asked.
         """
-        reason = str(verdict.reason or verdict.operator_question or "").strip()
+        reason = str(verdict.summary or verdict.operator_question or "").strip()
         if verdict.handoff == "operator":
             self._park_planner_question(
                 state, str(verdict.operator_question or reason), reason,
@@ -1135,12 +1135,7 @@ class PlanningContextMixin:
         )
         return (
             "PARALLEL FLAGS DROPPED FROM YOUR LAST PLAN:\n"
-            f"{lines}\n"
-            "A task shares a mission slot only when it sets "
-            "TASK_PARALLEL_SAFE=true together with usable TASK_OWNS_PATHS — "
-            "literal, relative, project-internal paths (no wildcards), "
-            "disjoint from every co-running task's paths. Without them the "
-            "task runs serially."
+            f"{lines}"
         )
 
     def _manager_planner_feedback_runtime_note(self) -> str:

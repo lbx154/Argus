@@ -57,18 +57,18 @@ def emit_codex_util_cost(
 
 
 def metered_run_exec(
-    run_exec: Callable[[str], Any],
+    run_exec: Callable[..., Any],
     on_event: Callable[[dict], None] | None,
     *,
     layer: str,
     model: str,
     run_label: str,
-) -> Callable[[str], Any]:
+) -> Callable[..., Any]:
     """Wrap a ``run_exec(prompt) -> result`` callable so each call emits a
     ``codex.util.completed`` event afterwards. The wrapped result is returned
     unchanged; the metering is fail-soft."""
-    def wrapped(prompt: str) -> Any:
-        result = run_exec(prompt)
+    def wrapped(prompt: str, *actions: Any) -> Any:
+        result = run_exec(prompt, *actions)
         emit_codex_util_cost(on_event, layer=layer, model=model, result=result,
                              run_label=run_label)
         return result

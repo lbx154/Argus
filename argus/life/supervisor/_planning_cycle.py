@@ -50,68 +50,6 @@ class PlanningCycleMixin(
     def _retry_pending_planner_verdict(self) -> tuple[bool, bool | str | None]:
         raise NotImplementedError
 
-    def _reconcile_open_ended_terminal_stage_action(self, verdict: Any) -> str:
-        """Ask the Manager to reopen a completed final stage when work remains.
-
-        A Planner at a certified final stage cannot legally enqueue earlier-stage
-        work and cannot write ``PIPELINE_STATE.json``. When it structurally
-        returns ``project_done=False`` with no tasks in an open-ended campaign,
-        give its advisory verdict to the Manager, which may roll back or hold.
-        Returns ``"rollback"``, ``"hold"``, or ``""`` for no authoritative
-        terminal reconciliation.
-        """
-        if not getattr(self.config, "open_ended", False):
-            return ""
-        if bool(getattr(verdict, "project_done", False)):
-            return ""
-        if list(getattr(verdict, "new_tasks", []) or []):
-            return ""
-
-        root = self._artifact_root()
-        from ...skills.vertical_select import (
-            resolve_vertical,
-            vertical_has_current_completion_certificate,
-        )
-
-        vertical = resolve_vertical(root)
-        if not vertical_has_current_completion_certificate(root, vertical):
-            return ""
-
-        manager = self._bound_manager()
-        on_event = getattr(self.sink, "handle_event", None)
-        decision = manager.decide_stage_transition(
-            review=None,
-            planner_verdict=verdict,
-            project_root=root,
-            on_event=on_event,
-            open_ended=True,
-            continuous_objective=self.config.continuous_objective,
-        )
-        self._emit({
-            "type": EventType.LIFE_MANAGER_STAGE_DECISION,
-            "action": decision.action,
-            "target_stage": decision.target_stage,
-            "reason": decision.reason,
-            "current_stage": decision.current_stage,
-            "source": decision.source,
-            "diagnostic": decision.diagnostic,
-            "trigger": "open_ended_terminal_stage_reconciliation",
-        })
-        if decision.action != "rollback":
-            # `complete` and `hold` both mean there is no earlier-stage work to
-            # enqueue. Idle instead of turning either decision into a Planner error.
-            if decision.action in {"hold", "complete"} and decision.source == "manager_llm":
-                return "hold"
-            return ""
-
-        self._emit_status(
-            "manager reopened open-ended campaign at "
-            f"{decision.target_stage}"
-        )
-        self._last_open_ended_project_done_signature = ""
-        self._reset_idle_backoff()
-        return "rollback"
-
     def _latest_unassessed_review_for_current_stage(
         self,
     ) -> tuple[Any, Any, str] | None:
@@ -387,7 +325,7 @@ class PlanningCycleMixin(
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        key = (stage, " ".join(str(verdict.reason or "").split()))
+        key = (stage, " ".join(str(verdict.summary or "").split()))
         if key == getattr(self, "_last_planner_handoff_key", None):
             return ""
         self._last_planner_handoff_key = key
@@ -570,7 +508,7 @@ class PlanningCycleMixin(
         This orchestrates the planning-cycle lifecycle phases in order: intake
         gating, preflight short-circuits, reviewed-stage reconciliation,
         planner invocation, verdict normalization, handoff handling,
-        project_done normalization, the no-new-tasks rejection, and finally
+        project_done normalization, and finally
         backlog dedupe/enqueue/commit. Each phase mutates a shared
         ``_PlanCycleState`` scratch object and returns ``None`` to continue the
         cycle, or a non-``None`` result to return after applying task retirement.
@@ -584,7 +522,6 @@ class PlanningCycleMixin(
             self._pc_normalize_verdict,
             self._pc_handle_handoff,
             self._pc_normalize_project_done,
-            self._pc_reject_if_no_tasks,
             self._pc_build_dedupe_index,
             self._pc_build_pending_items,
             self._pc_commit_pending_items,
@@ -658,8 +595,7 @@ class PlanningCycleMixin(
 
             state.verdict = PlannerVerdict(
                 project_done=True,
-                new_tasks=[],
-                reason="independent final certification is current",
+                summary="independent final certification is current",
             )
             return self._pc_normalize_project_done(state)
         return None

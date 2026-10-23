@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
 from argus.core.models import ReviewDecision
-from argus.manager.stage_decider import (
-    build_stage_decision_prompt,
-    fallback_empty_stage_decision,
-    final_stage_completion_decision,
-    parse_stage_decision,
-)
+from argus.manager.stage_decider import final_stage_completion_decision, stage_check
+from argus.roles.prompts.manager import build_stage_decision_prompt
+from tests import hand_off
 
 ORDER = ("research", "plan", "benchmark", "run", "analysis", "draft", "review", "submission")
 
@@ -54,45 +50,41 @@ def test_direct_stage_prompt_completes_instead_of_advancing() -> None:
         allow_early_completion=True,
     )
 
-    assert "COMPLETE at the current stage" in prompt
-    assert "Do not ADVANCE merely because later stages exist" in prompt
-    assert "COMPLETE only at the final stage" not in prompt
+    assert "to=done when the independently reviewed direct objective" in prompt
+    assert "Do not advance merely because later stages exist" in prompt
+    assert "to=done only at the final stage" not in prompt
 
 
-@pytest.mark.parametrize("stage", ["simulation", "delivery", "custom_stage"])
-@pytest.mark.parametrize("action", ["hold", "complete"])
-def test_prompt_target_example_round_trips_as_a_concrete_stage(stage: str, action: str) -> None:
-    prompt = build_stage_decision_prompt(
-        current_stage=stage,
-        next_stage="",
-        earlier_stages=(),
-        checklist_md="Inspect the independently reviewed result.",
-        review=_review(),
-    )
-    target = next(
-        line.strip() for line in prompt.splitlines()
-        if line.strip().startswith("TARGET_STAGE=")
-    )
-    assert target == f"TARGET_STAGE={stage}"
-    assert "TARGET_STAGE=current stage" not in prompt
-    decision = parse_stage_decision(
-        f"ACTION={action}\n{target}\nREASON=The current evidence was independently checked.",
-        current_stage=stage,
-        stage_order=(stage,),
-    )
-    assert decision.action == action
-    assert decision.target_stage == stage
+def _check(to: str = "team", current: str = "research", allow_done: bool = False, **fields):
+    payload = {"to": to, "summary": "The reviewed evidence decides it.", **fields}
+    return stage_check(payload, current_stage=current, stage_order=ORDER, allow_done=allow_done)
 
 
-def test_literal_target_placeholder_still_fails_closed() -> None:
-    decision = parse_stage_decision(
-        "Decision:\nACTION=complete\nTARGET_STAGE=current stage\n"
-        "REASON=The finite simulation objective is finished.",
-        current_stage="simulation",
-        stage_order=("simulation",),
-    )
-    assert decision.action == "hold"
-    assert decision.diagnostic == "illegal_complete_target"
+def test_advance_goes_to_the_next_stage_or_any_later_one() -> None:
+    assert _check(move="advance").target_stage == "plan"
+    assert _check(move="advance", target_stage="run").target_stage == "run"
+    for target in ("research", "unknown"):
+        with pytest.raises(ValueError, match="target_stage must be one of: plan"):
+            _check(move="advance", target_stage=target)
+
+
+def test_rollback_goes_only_to_an_earlier_stage() -> None:
+    assert _check(current="run", move="rollback", target_stage="plan").action == "rollback"
+    with pytest.raises(ValueError, match="no stage to move to"):
+        _check(move="rollback", target_stage="plan")
+
+
+def test_done_only_at_the_final_stage_or_in_direct_mode() -> None:
+    with pytest.raises(ValueError, match="only at the final stage `submission`"):
+        _check("done")
+    assert _check("done", allow_done=True).action == "complete"
+    assert _check("done", current="submission").action == "complete"
+
+
+def test_the_team_route_names_its_move() -> None:
+    with pytest.raises(ValueError, match="to=team needs move"):
+        _check()
+    assert _check(move="hold").target_stage == "research"
 
 
 def test_completion_report_prompt_contains_all_stage_information() -> None:
@@ -142,48 +134,6 @@ def test_completion_report_prompt_contains_all_stage_information() -> None:
     assert "Report the result, not the process" in prompt
 
 
-def test_parse_advance_immediate_ok() -> None:
-    decision = parse_stage_decision(
-        '{"action":"advance","target_stage":"plan","reason":"ok"}',
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "advance"
-    assert decision.target_stage == "plan"
-
-
-def test_parse_advance_can_skip_irrelevant_stages() -> None:
-    decision = parse_stage_decision(
-        '{"action":"advance","target_stage":"benchmark","reason":"skip"}',
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "advance"
-    assert decision.target_stage == "benchmark"
-    assert decision.diagnostic == "valid_skip_target"
-
-
-def test_parse_complete_can_end_finite_objective_at_current_stage() -> None:
-    decision = parse_stage_decision(
-        '{"action":"complete","target_stage":"research","reason":"done"}',
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "complete"
-    assert decision.target_stage == "research"
-
-
-def test_parse_advance_still_rejects_current_or_earlier_stage() -> None:
-    for target in ("research",):
-        decision = parse_stage_decision(
-            json.dumps({"action": "advance", "target_stage": target}),
-            current_stage="research",
-            stage_order=ORDER,
-        )
-        assert decision.action == "hold"
-        assert decision.diagnostic == "illegal_advance_target"
-
-
 def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
     from argus.manager import Manager
     from argus.skills.vertical_select import persist_vertical
@@ -206,12 +156,7 @@ def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
         project_root=state_root,
         mission_scope="bounded",
         open_ended=False,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"advance","target_stage":"experiment",'
-                '"reason":"the selected idea and handoff are complete"}'
-            )
-        ),
+        run_exec=hand_off.stage(move="advance", target_stage="experiment"),
     )
 
     state = json.loads(
@@ -258,12 +203,7 @@ def test_direct_idea_only_research_can_complete_at_idea(tmp_path) -> None:
         project_root=state_root,
         mission_scope="bounded",
         open_ended=False,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"complete","target_stage":"idea",'
-                '"reason":"the finite reviewed objective is complete"}'
-            )
-        ),
+        run_exec=hand_off.stage("done"),
     )
 
     state = json.loads(
@@ -310,12 +250,7 @@ def test_publishable_idea_only_can_complete_without_paper_artifacts(
         project_root=state_root,
         mission_scope="bounded",
         open_ended=False,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"complete","target_stage":"idea",'
-                '"reason":"the requested publication-quality idea is complete"}'
-            )
-        ),
+        run_exec=hand_off.stage("done"),
     )
 
     assert decision.action == "complete"
@@ -342,12 +277,7 @@ def test_bounded_stage_mission_cannot_complete_staged_research_project(
         project_root=state_root,
         mission_scope="bounded",
         open_ended=False,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"complete","target_stage":"research",'
-                '"reason":"this bounded stage task is done"}'
-            )
-        ),
+        run_exec=hand_off.stage("done"),
     )
 
     assert decision.action == "hold"
@@ -356,51 +286,6 @@ def test_bounded_stage_mission_cannot_complete_staged_research_project(
     )
     assert state["current_stage"] == "idea"
     assert state.get("stages", {}).get("idea", {}).get("status") != "done"
-
-
-def test_parse_rollback_requires_earlier_stage() -> None:
-    valid = parse_stage_decision(
-        '{"action":"rollback","target_stage":"plan","reason":"repair"}',
-        current_stage="run",
-        stage_order=ORDER,
-    )
-    invalid = parse_stage_decision(
-        '{"action":"rollback","target_stage":"draft","reason":"bad"}',
-        current_stage="run",
-        stage_order=ORDER,
-    )
-    assert valid.action == "rollback"
-    assert invalid.action == "hold"
-
-
-@pytest.mark.parametrize("target", ["`plan`", "plan stage"])
-def test_target_formatting_is_normalized(target: str) -> None:
-    decision = parse_stage_decision(
-        json.dumps({"action": "advance", "target_stage": target, "reason": "ok"}),
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "advance"
-    assert decision.target_stage == "plan"
-
-
-def test_invalid_manager_output_holds() -> None:
-    decision = parse_stage_decision(
-        '{"action":"unknown"}',
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "hold"
-
-
-def test_empty_manager_output_always_holds() -> None:
-    decision = fallback_empty_stage_decision(
-        _review(),
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert decision.action == "hold"
-    assert decision.diagnostic == "empty_output_no_manager_judgment"
 
 
 def test_final_submission_done_can_complete_final_stage() -> None:
@@ -445,13 +330,6 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
     params = set(inspect.signature(_StageDecisionMixin._apply_stage_decision_to_disk).parameters)
     assert params == {"self", "decision", "cur", "root", "source"}
 
-    manager = parse_stage_decision(
-        '{"action":"advance","target_stage":"plan","reason":"review accepted"}',
-        current_stage="research",
-        stage_order=ORDER,
-    )
-    assert manager.action == "advance"
-    assert manager.target_stage == "plan"
 
 
 def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
@@ -466,16 +344,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
     workdir.mkdir()
     persist_vertical(state_root, optimize_vertical, workflow_mode="staged")
 
-    prompts: list[str] = []
-
-    def decide(prompt: str):
-        prompts.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"advance","target_stage":"measure",'
-                '"reason":"scope is certified; implementation stages do not apply"}'
-            )
-        )
+    decide = hand_off.stage(move="advance", target_stage="measure")
 
     decision = Manager(
         project_root=state_root,
@@ -502,7 +371,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
         for stage in ("optimize",)
         if state["stages"][stage]["status"] == "skipped"
     ] == ["optimize"]
-    assert prompts and "Legal ADVANCE targets" in prompts[0]
+    assert decide.prompts and "Advance targets (later stages)" in decide.prompts[0]
 
 
 @pytest.mark.parametrize(
@@ -540,13 +409,7 @@ def test_final_stage_completion_requires_manager_decision(
         review=_review(),
         project_root=tmp_path,
         mission_scope="bounded",
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=json.dumps({
-                "action": manager_action,
-                "target_stage": "delivery",
-                "reason": "Manager assessed the operator objective",
-            })
-        ),
+        run_exec=hand_off.stage("done") if manager_action == "complete" else hand_off.stage(move="hold"),
     )
 
     assert decision.action == manager_action

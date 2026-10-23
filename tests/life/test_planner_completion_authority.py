@@ -58,7 +58,7 @@ def test_harness_returns_rejected_completion_to_planner_without_authoring_task(
     state.verdict = PlannerVerdict(
         project_done=True,
         new_tasks=[],
-        reason="The paper is complete.",
+        summary="The paper is complete.",
     )
 
     result = harness._pc_normalize_project_done(state)
@@ -172,7 +172,7 @@ def test_planner_cannot_complete_before_manager_finishes_final_stage(
     state.verdict = PlannerVerdict(
         project_done=True,
         new_tasks=[],
-        reason="Planner says done",
+        summary="Planner says done",
     )
 
     result = harness._pc_normalize_project_done(state)
@@ -198,7 +198,7 @@ def test_manager_reports_all_stages_after_project_completion(
     state.verdict = PlannerVerdict(
         project_done=True,
         new_tasks=[],
-        reason="Planner says done",
+        summary="Planner says done",
     )
 
     result = harness._pc_normalize_project_done(state)

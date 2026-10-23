@@ -89,8 +89,6 @@ def test_scope_prompt_is_compact_and_deduplicated(
     assert "## Original operator request (immutable anchor)" not in prompt
     assert "Argus planner role skill:" not in prompt
     assert "waiting_contract" not in prompt
-    assert prompt.count("PROJECT_DONE=false") == 1
-    assert "TASK_KEY=k1" in prompt
     assert 'prerequisites, not directions' in prompt
     flat = " ".join(prompt.split())
     assert flat.count('Integrity/reproducibility are prerequisites, not directions') == 1

@@ -110,10 +110,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Waiting for your answer: {question} (work that doesn't need it carries on)",
         "在等你回答：{question}（不需要这个答复的工作照常进行）",
     ),
-    "planner_needs_direction": (
-        "The Planner can't see a next step and is asking you for a direction.",
-        "规划者拿不准接下来做什么，在等你定个方向。",
-    ),
     "planner_failing": (
         "The Planner hasn't had an answer from the model service for {minutes} "
         "minutes. Argus keeps trying at a slower pace; if this goes on, switch "
@@ -401,16 +397,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "审阅者没能读完这一轮，因为{why}；这里没有任何对工作本身的评价。",
     ),
     # Questions Argus itself puts to the operator.
-    "ask_direction": (
-        "I'm not sure which direction to take next.\nYou can name a direction, "
-        "supply the missing decision or resource, or tell me to stop.",
-        "接下来往哪个方向做，我拿不准。\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
-    ),
-    "ask_direction_because": (
-        "I'm not sure which direction to take next: {why}\nYou can name a direction, "
-        "supply the missing decision or resource, or tell me to stop.",
-        "接下来往哪个方向做，我拿不准：{why}\n你可以指定方向、补上缺的决定或资源，或者让我先停下。",
-    ),
     "ask_adopt_reviewed_change": (
         "The Reviewer read the change for “{title}” and it holds. "
         "Publish this reviewed version and use it at the next task boundary?",

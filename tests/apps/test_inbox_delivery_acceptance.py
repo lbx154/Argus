@@ -22,6 +22,7 @@ from argus.core.operator_context import (
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from tests.hand_off import plan
 
 
 def _load_repo_fixture(relative, module_name):
@@ -379,20 +380,7 @@ def test_real_planner_zero_revision_transient_waits_for_successful_backlog_commi
     text = "PLANNER-ZERO-REVISION-TRANSIENT-PRIVATE-MARKER"
     calls = []
     classify = ephemeral_classifier(calls)
-    reply = "\n".join(
-        [
-            "PROJECT_DONE=false",
-            "REASON=delegate the isolated local task",
-            "TASK_KEY=private-proof",
-            "TASK_TITLE=Inspect local queue evidence",
-            "TASK_OBJECTIVE=Inspect the isolated queue and write the requested local report.",
-            "TASK_HYPOTHESIS=The delivery identity remains stable after restart.",
-            "TASK_GOAL_CONTRIBUTION=Verify durable operator input.",
-            "TASK_EXPECTED_REGRESSIONS=Message ordering may change.",
-            "TASK_DECISION_RULE=Revise if message identity changes.",
-            "TASK_ACCEPTANCE_CHECK=Read the local evidence.",
-        ]
-    )
+    reply = plan(summary='delegate the isolated local task', tasks=[{'key': 'private-proof', 'title': 'Inspect local queue evidence', 'objective': 'Inspect the isolated queue and write the requested local report.', 'hypothesis': 'The delivery identity remains stable after restart.', 'goal_contribution': 'Verify durable operator input.', 'expected_regressions': 'Message ordering may change.', 'decision_rule': 'Revise if message identity changes.', 'acceptance_check': 'Read the local evidence.'}])
 
     def make():
         backend = planner_helper._PlannerBackend([reply])
@@ -462,20 +450,7 @@ def test_real_planner_deduplicates_carryover_by_identity_and_settles_equal_text_
     calls = []
     backend = planner_helper._PlannerBackend(
         [
-            "\n".join(
-                [
-                    "PROJECT_DONE=false",
-                    "REASON=use the current operator detail",
-                    "TASK_KEY=identity-proof",
-                    "TASK_TITLE=Verify distinct operator messages",
-                    "TASK_OBJECTIVE=Inspect the local delivery identities and report the result.",
-                    "TASK_HYPOTHESIS=Same text can represent distinct physical messages.",
-                    "TASK_GOAL_CONTRIBUTION=Preserve operator delivery identity.",
-                    "TASK_EXPECTED_REGRESSIONS=Repeated guidance may appear twice.",
-                    "TASK_DECISION_RULE=Revise if a physical message is silently dropped.",
-                    "TASK_ACCEPTANCE_CHECK=Inspect the private delivery evidence.",
-                ]
-            )
+            plan(summary='use the current operator detail', tasks=[{'key': 'identity-proof', 'title': 'Verify distinct operator messages', 'objective': 'Inspect the local delivery identities and report the result.', 'hypothesis': 'Same text can represent distinct physical messages.', 'goal_contribution': 'Preserve operator delivery identity.', 'expected_regressions': 'Repeated guidance may appear twice.', 'decision_rule': 'Revise if a physical message is silently dropped.', 'acceptance_check': 'Inspect the private delivery evidence.'}])
         ]
     )
     supervisor = planner_helper._supervisor(workspace, root, backend)

@@ -16,13 +16,10 @@ from pathlib import Path
 from argus.core.models import RunnerResult
 from argus.planner.planner import Planner, PlannerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import plan, submit
 
 _TASK_REPLY = (
-    "PROJECT_DONE=false\n"
-    "REASON=queue the next decisive check\n"
-    "TASK_KEY=k1\n"
-    "TASK_TITLE=Run the next check\n"
-    "TASK_OBJECTIVE=Execute the check the evidence calls for."
+    plan(summary='queue the next decisive check', tasks=[{'key': 'k1', 'title': 'Run the next check', 'objective': 'Execute the check the evidence calls for.'}])
 )
 
 
@@ -34,9 +31,9 @@ class _RecordingRunner:
 
     def run_exec(self, **kwargs):  # noqa: ANN003
         self.calls.append(kwargs)
+        submit(kwargs["options"], _TASK_REPLY)
         return RunnerResult(
             exit_code=0,
-            agent_messages=[_TASK_REPLY],
             thread_id="planner-thread",
         )
 
@@ -126,32 +123,6 @@ def test_resumed_session_is_not_resent_unchanged_sections(tmp_path: Path) -> Non
     assert "## Unchanged since your previous turn" in third
     assert len(third) < len(second)
     assert "mission_complete: cycle 2" in third, "what changed is always sent"
-
-
-def test_resumed_session_repeats_settle_reminder_on_every_offering_turn(
-    tmp_path: Path,
-) -> None:
-    # Section elision must not drop the closing SETTLE_INSTRUCTION reminder on
-    # a resumed thread: it was the only footer line naming it.
-    persist_vertical(tmp_path, "software")
-    runner = _RecordingRunner()
-    planner = Planner(runner)
-    for offered in ((7,), (7,), (7, 9), ()):
-        config = _config(tmp_path)
-        config.settleable_instructions = offered
-        verdict = planner.plan_next(
-            continuous_objective="improve the solver",
-            journal_tail="FULL JOURNAL BODY ALPHA",
-            research_plan="PLAN BODY ALPHA",
-            config=config,
-        )
-        assert verdict.error == ""
-
-    assert [call["resume_thread_id"] for call in runner.calls[1:]] == ["planner-thread"] * 3
-    prompts = [call["prompt"] for call in runner.calls]
-    for prompt in prompts[:3]:
-        assert prompt.endswith("omit the line when none does.")
-    assert "SETTLE_INSTRUCTION" not in prompts[3]
 
 
 class _PrunedThreadRunner(_RecordingRunner):

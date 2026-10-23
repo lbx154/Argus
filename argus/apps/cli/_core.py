@@ -1280,7 +1280,6 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     from ...core.run_gateway import run_exec as gateway_run_exec
     from ...manager.config_intent import _front_door_classify
     from ...manager.front_door import _ensure_manager_runner
-    from ...manager.stage_decider import extract_answer
     from ...roles.prompts.manager import build_quick_reply_prompt
     from ...webapi.manager_state import _chat_state_for
 
@@ -1336,7 +1335,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             + "; nothing was queued\n"
         )
         return 1
-    reply = extract_answer(result).strip()
+    reply = (result.last_agent_message or "").strip()
     if not reply:
         sys.stderr.write(
             "argus: --ask received an empty reply; nothing was queued\n"

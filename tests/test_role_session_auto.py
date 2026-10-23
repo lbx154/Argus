@@ -7,7 +7,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core import role_session as role_session_module
 from argus.core.role_session import _checkpoint_open_items
 from argus.planner import Planner, PlannerConfig
-from tests.hand_off import hand_off
+from tests.hand_off import hand_off, plan
 
 
 def _review(status: str) -> tuple[str, dict]:
@@ -173,7 +173,7 @@ def test_planner_result_survives_capsule_write_failure(
     backend.queue(
         "planner.cycle0",
         CannedResponse(
-            message="PROJECT_DONE=true\nREASON=verified complete",
+            action=plan('done', summary='verified complete'),
             thread_id="pi-planner",
         ),
     )

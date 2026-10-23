@@ -437,7 +437,7 @@ def test_rejected_stage_request_is_returned_to_planner(
     state.verdict = SimpleNamespace(
         new_tasks=[],
         advance_to_stage="draft",
-        reason="advance to manuscript drafting",
+        summary="advance to manuscript drafting",
     )
 
     assert Harness()._pc_build_pending_items(state) == PLAN_RETRY
@@ -480,7 +480,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
     state.verdict = SimpleNamespace(
         new_tasks=[SimpleNamespace(title="Refresh paper review")],
         project_done=False,
-        reason="the existing review is stale",
+        summary="the existing review is stale",
         retire_tasks=[],
     )
     state.skipped_task_feedback = [{

@@ -77,7 +77,7 @@ def test_restart_continues_standing_objective_after_agent_bookkeeping(
     def _plan_next(_planner, **_kwargs):
         nonlocal calls
         calls += 1
-        return PlannerVerdict(project_done=True, reason="verified terminal")
+        return PlannerVerdict(project_done=True, summary="verified terminal")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
     first = _supervisor(project, life)

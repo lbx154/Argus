@@ -792,7 +792,7 @@ def planner_may_retire_park(item: Any) -> bool:
     """Whether a parked row is the Planner's to retire rather than the operator's.
 
     Parks no automatic path resumes and no operator owns leave their pending
-    dependents waiting forever, so the Planner may retire one (RETIRE_TASK);
+    dependents waiting forever, so the Planner may retire one (`retire`);
     the dead-dependency cascade then releases the dependents. A row that holds
     a ``pending_question`` stays the operator's whatever its reason.
     """

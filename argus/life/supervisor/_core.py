@@ -398,6 +398,7 @@ class LifeSupervisor(
             else ""
         )
         from ...skills.builtins import vertical_skill_read_dirs
+        from ...skills.stage_machine import active_vertical_checklist_defs
         from ..knowledge_recall import knowledge_read_dirs
 
         # The stage prompt tells the read-only Planner to open the vertical's
@@ -425,8 +426,7 @@ class LifeSupervisor(
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
             on_event=getattr(self.sink, "handle_event", None),
-            require_stage_decision=bool(current_pipeline_stage),
-            current_stage=current_pipeline_stage,
+            stages=tuple(active_vertical_checklist_defs(state_root)[0]) if current_pipeline_stage else (),
         )
 
     # ------------------------------------------------------------------

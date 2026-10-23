@@ -167,11 +167,11 @@ class PlannerOrchestrationMixin:
                     f"- gpus: {gpu_summary['total']} on this machine; "
                     f"{gpu_summary['busy']} busy now; "
                     f"{gpu_summary['reserved']} reserved by active tasks; "
-                    f"{gpu_summary['free']} claimable. TASK_GPUS=<n> is how many "
+                    f"{gpu_summary['free']} claimable. A task's gpu_count is how many "
                     "GPUs a task holds while it runs; it is claimed only when that "
                     "many are free. Arms that can run side by side (model sizes, "
                     "training methods, seeds) belong in separate parallel-safe tasks "
-                    "with their own TASK_GPUS, not in one task that runs them in turn."
+                    "with their own gpu_count, not in one task that runs them in turn."
                 )
             from ..memory import shares_slot
 
@@ -181,15 +181,14 @@ class PlannerOrchestrationMixin:
                     "- parallel_slot: a spare mission slot sits idle while "
                     f"task {unowned[0].id} runs without declared "
                     "path ownership. Tasks share slots only when every "
-                    "co-running task sets TASK_PARALLEL_SAFE=true with "
-                    "disjoint TASK_OWNS_PATHS — literal relative paths, no "
-                    "wildcards; stage-closing and framework-maintenance "
+                    "co-running task sets parallel_safe with disjoint "
+                    "owns_paths; stage-closing and framework-maintenance "
                     "work always runs alone."
                 )
             elif free_slots:
                 slot_lines.append(
                     f"- parallel_slot: {free_slots} free; independent tasks "
-                    "declared parallel-safe with disjoint TASK_OWNS_PATHS "
+                    "declared parallel_safe with disjoint owns_paths "
                     "can run now."
                 )
 
@@ -247,7 +246,7 @@ class PlannerOrchestrationMixin:
             parked_lines.append(
                 f"- parked task {park.id} ({park_reason(park) or 'reason unknown'}): {park.title}; "
                 f"blocks pending: [{', '.join(sorted(blocked))}]; nothing resumes "
-                f"it automatically. `RETIRE_TASK={park.id} | <reason>` retires it, "
+                f"it automatically. Retiring it (`retire` with id {park.id} and a reason) "
                 "releases those dependents and frees the work to be re-planned."
             )
 

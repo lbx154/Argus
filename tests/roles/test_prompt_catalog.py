@@ -147,13 +147,6 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         checklist_md="checks passed",
         review=SimpleNamespace(status="done", reason="Evidence is current."),
     )
-    continuous = build_continuous_prompt(
-        continuous_objective="Choose the next milestone",
-        journal_tail="",
-        planning_cycle=0,
-        project_root=tmp_path,
-        state_root=tmp_path,
-    )
     engineer = build_mission_prompt(
         task="Repair the parser",
         skill_text="",
@@ -185,10 +178,7 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
     assert "reply is the complete answer for the operator" in front
     assert "without route, control, lifetime or role-protocol labels" in front
     assert "operator's language and plain language" in pending
-    assert "one operator-language sentence stating the decisive evidence" in stage
-    assert "REASON and PLAN_REASON are operator-facing" in continuous
-    assert "no field\n  names, status tokens, routine steps or Argus's own bookkeeping" in continuous
-    assert "nothing the last REASON said" in continuous
+    assert "## Writing for people" in stage
     for engineer_prompt in (engineer, continuation):
         assert "summary is the one sentence the operator reads" in engineer_prompt
         assert "output paths" in engineer_prompt

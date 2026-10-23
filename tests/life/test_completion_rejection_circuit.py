@@ -125,7 +125,7 @@ def _done_state() -> _PlanCycleState:
     state.verdict = PlannerVerdict(
         project_done=True,
         new_tasks=[],
-        reason="The paper is complete.",
+        summary="The paper is complete.",
     )
     return state
 

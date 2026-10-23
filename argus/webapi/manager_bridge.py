@@ -110,7 +110,6 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.observation import observe_project
     from ..manager.session_context import conversation_backend
-    from ..manager.stage_decider import extract_answer
     from ..roles.prompts.manager import build_quick_reply_prompt
 
     try:
@@ -152,7 +151,7 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
 
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
         return "Could not answer inline just now; nothing was queued."
-    reply = extract_answer(result).strip()
+    reply = (result.last_agent_message or "").strip()
     return reply or "The Manager returned an empty reply; nothing was queued."
 
 

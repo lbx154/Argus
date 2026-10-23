@@ -124,7 +124,7 @@ def test_rejected_wait_consumes_feedback_budget_across_restarts(
         calls.append(True)
         return PlannerVerdict(
             project_done=False, handoff="engineer",
-            reason=f"Waiting instead of fixing the rejection, wording {len(calls)}",
+            summary=f"Waiting instead of fixing the rejection, wording {len(calls)}",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
@@ -161,7 +161,7 @@ def test_rejected_wait_consumes_feedback_budget_across_restarts(
     monkeypatch.setattr(
         "argus.planner.Planner.plan_next",
         lambda *_args, **_kwargs: (
-            calls.append(True) or PlannerVerdict(project_done=True, reason="New decision")
+            calls.append(True) or PlannerVerdict(project_done=True, summary="New decision")
         ),
     )
     campaign.make()._plan_next_work()
@@ -181,7 +181,7 @@ def test_rejected_wait_reports_feedback_write_failure(campaign, monkeypatch):
     monkeypatch.setattr(supervisor, "_emit_status", lambda text: events.append({"status": text}))
     monkeypatch.setattr(supervisor, "_write_manager_planner_feedback", lambda _value: False)
     state = _PlanCycleState(None)
-    state.verdict = PlannerVerdict(project_done=False, handoff="engineer", reason="Wait")
+    state.verdict = PlannerVerdict(project_done=False, handoff="engineer", summary="Wait")
     assert supervisor._pc_handle_handoff(state) == PLAN_ERROR
     assert supervisor._manager_planner_feedback_path().read_bytes() == before
     assert any("failed to persist" in event.get("status", "") for event in events)
@@ -220,7 +220,7 @@ def test_legacy_certified_wait_reports_once_without_recertification(
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
-            project_done=False, reason=reason, handoff="operator",
+            project_done=False, summary=reason, handoff="operator",
             operator_question="What should the campaign take on next?",
         )
 
@@ -265,7 +265,7 @@ def test_certified_handoff_delivery_failure_does_not_repeat_planning(
         calls.append(True)
         return PlannerVerdict(
             project_done=False, handoff="operator",
-            reason="Certified artifact preserved; waiting for new operator instruction.",
+            summary="Certified artifact preserved; waiting for new operator instruction.",
         )
 
     def fail(*_args, **_kwargs):
@@ -318,7 +318,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
             append_newer()
         return PlannerVerdict(
             project_done=False, handoff="operator",
-            reason="Certified increment accepted; waiting for new operator direction.",
+            summary="Certified increment accepted; waiting for new operator direction.",
         )
 
     original_report = campaign.manager.report_project_completion
@@ -340,7 +340,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
 
     def failed_new_work(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=False, reason="Backend failed", error="injected failure")
+        return PlannerVerdict(project_done=False, summary="Backend failed", error="injected failure")
 
     campaign.manager.report_project_completion = original_report
     monkeypatch.setattr("argus.planner.Planner.plan_next", failed_new_work)
@@ -371,7 +371,7 @@ def test_a_turn_without_new_work_is_not_blindly_acknowledged(campaign, monkeypat
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=False, handoff="engineer", reason=reason)
+        return PlannerVerdict(project_done=False, handoff="engineer", summary=reason)
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(2):
@@ -395,7 +395,7 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
     state = _PlanCycleState(None)
     state.planner_invoked = True
     state.verdict = PlannerVerdict(
-        project_done=False, handoff="operator", reason="Waiting for new operator direction.",
+        project_done=False, handoff="operator", summary="Waiting for new operator direction.",
     )
     if blocker == "not_invoked":
         state.planner_invoked = False
@@ -432,7 +432,7 @@ def test_certified_wait_cannot_ack_past_completion_gate(campaign, monkeypatch, g
     monkeypatch.setattr(
         "argus.planner.Planner.plan_next",
         lambda *_args, **_kw: PlannerVerdict(
-            project_done=False, handoff="operator", reason="Waiting for new operator direction.",
+            project_done=False, handoff="operator", summary="Waiting for new operator direction.",
         ),
     )
     if gate == "external":
@@ -537,7 +537,7 @@ def test_new_operator_input_wakes_even_after_restart(campaign, monkeypatch, pend
 
     def plan(_planner, **kwargs):
         calls.append(kwargs)
-        return PlannerVerdict(project_done=True, reason="injected planner completion")
+        return PlannerVerdict(project_done=True, summary="injected planner completion")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert restarted._plan_next_work() == PLAN_RETRY
@@ -574,7 +574,7 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
         return PlannerVerdict(
             project_done=failure == "done",
             error="injected Planner failure" if failure == "error" else "",
-            reason=(
+            summary=(
                 "planner backend failed before producing output; will retry later"
                 if failure == "error" else "injected rejected decision"
             ),
@@ -600,7 +600,7 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
             project_done=False,
-            reason="Handle the new operator instruction",
+            summary="Handle the new operator instruction",
             new_tasks=[TaskSpec(
                 title="Investigate next increment", objective=instruction,
                 acceptance_check="New direction is evaluated.",
@@ -655,7 +655,7 @@ def test_second_inbox_drain_reenters_intake_before_certification(
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
             project_done=False,
-            reason="planner backend failed before producing output; will retry later",
+            summary="planner backend failed before producing output; will retry later",
             error="injected Planner failure",
         )
 
@@ -680,7 +680,7 @@ def test_a_handled_turn_without_new_work_keeps_report_dedup(campaign, monkeypatc
     def plan(_planner, **kwargs):
         calls.append(kwargs)
         return PlannerVerdict(
-            project_done=False, reason="Wait for the result", handoff="engineer",
+            project_done=False, summary="Wait for the result", handoff="engineer",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
@@ -714,7 +714,7 @@ def test_failed_routing_still_persists_unhandled_input(campaign, monkeypatch):
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
-            project_done=False, reason="test failure", error="injected Planner failure",
+            project_done=False, summary="test failure", error="injected Planner failure",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
@@ -741,7 +741,7 @@ def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatc
             expected_revision=first.revision,
         )
         return PlannerVerdict(
-            project_done=False, reason="Handle the first instruction",
+            project_done=False, summary="Handle the first instruction",
             new_tasks=[TaskSpec(title="First instruction", objective="Investigate the first instruction")],
         )
 
@@ -756,7 +756,7 @@ def test_input_arriving_during_planning_is_not_acknowledged(campaign, monkeypatc
 
     def fail(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=False, reason="test failure", error="injected failure")
+        return PlannerVerdict(project_done=False, summary="test failure", error="injected failure")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", fail)
     assert campaign.make()._plan_next_work() == PLAN_ERROR
@@ -781,7 +781,7 @@ def test_rejected_completion_terminal_idle_does_not_consume_once_input(campaign,
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=True, reason="Rejected completion", error="")
+        return PlannerVerdict(project_done=True, summary="Rejected completion", error="")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     supervisor = campaign.supervisor
@@ -843,7 +843,7 @@ def test_durable_input_wakes_holds_once_per_revision_after_restart(
             newer = append_directive(
                 campaign.life, instruction, lifetime="once", expected_revision=first.revision,
             )
-        return PlannerVerdict(project_done=True, reason="Rejected completion", error="")
+        return PlannerVerdict(project_done=True, summary="Rejected completion", error="")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     supervisor = campaign.supervisor
@@ -918,7 +918,7 @@ def test_accepted_bounded_completion_acknowledges_once_input(campaign, monkeypat
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=True, reason="Accepted bounded completion")
+        return PlannerVerdict(project_done=True, summary="Accepted bounded completion")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.make(open_ended=False)._plan_next_work() is False
@@ -946,7 +946,7 @@ def test_once_instruction_survives_failed_fresh_and_resumed_prompts(campaign, mo
             **kwargs, state_root=campaign.life, project_root=config.working_dir,
             open_ended=config.open_ended,
         ))
-        return PlannerVerdict(project_done=False, reason="test failure", error="injected failure")
+        return PlannerVerdict(project_done=False, summary="test failure", error="injected failure")
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     assert campaign.supervisor._plan_next_work() == PLAN_ERROR
@@ -1334,24 +1334,22 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
         "error-declared": (idle.revision,),
     }[decision]
     calls = []
-    offered = []
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        offered.append(kwargs["config"].settleable_instructions)
         if decision.startswith("handoff"):
             return PlannerVerdict(
-                project_done=False, reason="The parser run goes on", handoff="engineer",
+                project_done=False, summary="The parser run goes on", handoff="engineer",
                 settled_instructions=declared,
             )
         if decision.startswith("error"):
             return PlannerVerdict(
-                project_done=False, reason="test failure", error="injected Planner failure",
+                project_done=False, summary="test failure", error="injected Planner failure",
                 settled_instructions=declared,
             )
         return PlannerVerdict(
             project_done=False,
-            reason="Handle the new operator instruction",
+            summary="Handle the new operator instruction",
             new_tasks=[TaskSpec(
                 title="Evaluate faster parser", objective=instruction,
                 acceptance_check="Parser comparison is recorded.",
@@ -1363,8 +1361,6 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
     supervisor._plan_next_work()
 
     assert f"revision {idle.revision}]: {instruction}" in calls[0]
-    assert "SETTLE_INSTRUCTION=N" in calls[0]
-    assert offered == [(idle.revision,)]
     for item in supervisor.memory.backlog.active():
         supervisor.memory.backlog.update(item.id, status="done")
     visible = [
@@ -1408,7 +1404,7 @@ def test_idle_instruction_settles_only_when_every_task_is_carried(
     def plan(_planner, **_kwargs):
         return PlannerVerdict(
             project_done=False,
-            reason="Handle the new operator instruction",
+            summary="Handle the new operator instruction",
             new_tasks=[
                 TaskSpec(
                     title="Evaluate faster parser", objective="Compare both parsers.",
@@ -1449,7 +1445,7 @@ def test_certified_handoff_carries_planner_settlements(campaign, monkeypatch):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
             project_done=False,
-            reason="The current final certification is accepted. Waiting for new explicit operator direction.",
+            summary="The current final certification is accepted. Waiting for new explicit operator direction.",
             handoff="operator",
             operator_question="What should the campaign take on next?",
             settled_instructions=(idle.revision,),

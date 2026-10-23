@@ -1150,7 +1150,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.manager.config_intent._apply_config_intent",
     "life -> argus.manager.config_intent._front_door_classify",
     "life -> argus.manager.front_door._accepts_parameter",
-    "life -> argus.planner.planner._GLOBAL_KEY_VALUE_KEYS",
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
@@ -1164,7 +1163,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "manager -> argus.daemon.state._fsync_directory",
     "manager -> argus.life.memory._TERMINAL_STATUSES",
     "manager -> argus.life.memory._read_jsonl_tail_history",
-    "manager -> argus.skills.stage_machine._active_vertical_checklist_defs",
     "manager -> argus.skills.stage_machine._ensure_stage_completion",
     "manager -> argus.verticals._base",
     "manager -> argus.verticals._data_domain",
@@ -1828,7 +1826,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "project_dir": 34,
     # Stage steering reads the existing Manager authority root, not the
     # execution worktree; this is one new consumer, not a new root alias.
-    "manager_session_root": 24,
+    "manager_session_root": 23,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,

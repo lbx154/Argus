@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +15,7 @@ from argus.skills.stage_machine import (
     reset_stage_for_replacement_intent,
 )
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import stage
 
 pytestmark = pytest.mark.usefixtures("optimize_vertical")
 
@@ -46,13 +46,13 @@ def test_replacement_can_commit_during_model_call_and_rejects_old_advance(tmp_pa
             replacement.append(pipeline_state_path(state).read_bytes())
         replaced.set()
 
-    def model(_prompt):
+    def model(prompt, actions):
         # A replacement must not wait for the slow model call to return.
         worker = threading.Thread(target=replace_intent, daemon=True)
         worker.start()
         assert replaced.wait(timeout=2), "stage decision held the pipeline lock during inference"
         worker.join(timeout=1)
-        return SimpleNamespace(last_agent_message="ACTION=advance\nTARGET_STAGE=measure\nREASON=old optimization done")
+        return stage(move="advance", target_stage="measure")(prompt, actions)
 
     decision = manager.decide_stage_transition(
         review=_review(), project_root=state, run_exec=model
@@ -75,7 +75,7 @@ def test_same_stage_replacement_cannot_be_completed_by_old_review(tmp_path, repl
     control.commit_revision(identity=control.campaign_identity(), updates={}, reason="initial")
     replacement: list[bytes] = []
 
-    def model(_prompt):
+    def model(prompt, actions):
         with manager.pipeline_lock():
             if replacement_kind == "same_stage_reset":
                 reset_stage_for_replacement_intent(
@@ -92,7 +92,7 @@ def test_same_stage_replacement_cannot_be_completed_by_old_review(tmp_path, repl
                     reason="new operator authority",
                 )
             replacement.append(pipeline_state_path(state).read_bytes())
-        return SimpleNamespace(last_agent_message="ACTION=complete\nTARGET_STAGE=setup\nREASON=old objective done")
+        return stage("done")(prompt, actions)
 
     decision = manager.decide_stage_transition(
         review=_review(), project_root=state, mission_scope="bounded", run_exec=model
@@ -108,10 +108,10 @@ def test_same_stage_replacement_cannot_be_completed_by_old_review(tmp_path, repl
 def test_idempotent_vertical_refresh_does_not_invalidate_stage_decision(tmp_path) -> None:
     manager, state, _work = _manager(tmp_path, workflow_mode="direct")
 
-    def model(_prompt):
+    def model(prompt, actions):
         with manager.pipeline_lock():
             persist_vertical(state, "optimize_lab", workflow_mode="direct")
-        return SimpleNamespace(last_agent_message="ACTION=complete\nTARGET_STAGE=setup\nREASON=objective done")
+        return stage("done")(prompt, actions)
 
     decision = manager.decide_stage_transition(
         review=_review(), project_root=state, mission_scope="bounded", run_exec=model

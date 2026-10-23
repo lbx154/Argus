@@ -3,10 +3,9 @@ slot exists and what unlocks it.
 
 Width-2 daemons ran serially in practice: the auxiliary supervisor admits
 only tasks whose whole co-running set declares ``parallel_safe`` with
-disjoint ``owns_paths``, but the Planner was never shown the slot count,
-the running tasks' ownership metadata, or the fact that its own
-``TASK_PARALLEL_SAFE`` flag was silently stripped when ``TASK_OWNS_PATHS``
-was missing. These tests pin the three feedback surfaces.
+disjoint ``owns_paths``, but the Planner was never shown the slot count
+or the running tasks' ownership metadata. These tests pin those feedback
+surfaces.
 """
 
 from __future__ import annotations
@@ -25,8 +24,8 @@ from argus.life.supervisor import (
     LifeSupervisorConfig,
 )
 from argus.planner import PlannerConfig
-from argus.roles.prompts.planner import build_continuous_prompt
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import plan, submit
 
 
 class _MissionRunner:
@@ -40,7 +39,8 @@ class _PlannerBackend:
 
     def run_exec(self, **kwargs):  # noqa: ANN003
         self.calls.append(kwargs)
-        return RunnerResult(exit_code=0, agent_messages=[self.replies.pop(0)])
+        submit(kwargs["options"], self.replies.pop(0))
+        return RunnerResult(exit_code=0)
 
 
 def _supervisor(
@@ -112,7 +112,7 @@ def test_digest_reports_slot_topology_and_ownership_metadata(
     assert "parallel_safe=false" in running_line
     # A spare slot exists but the running task declares no ownership: the
     # digest must say so, or the Planner cannot know why width stays 1.
-    assert "TASK_OWNS_PATHS" in note
+    assert "owns_paths" in note
 
 
 def test_digest_stays_quiet_for_serial_campaigns(tmp_path: Path) -> None:
@@ -158,117 +158,26 @@ def test_digest_shows_declared_ownership_without_the_advisory(
     assert "analysis/lane-a" in owned_line
 
 
-def test_enqueue_reports_dropped_parallel_flags_once(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=split the survey into two independent lanes",
-            "TASK_KEY=lane-a",
-            "TASK_TITLE=Survey lane A",
-            "TASK_OBJECTIVE=Read the first half of the corpus.",
-            "TASK_ACCEPTANCE_CHECK=notes for lane A exist",
-            "TASK_PARALLEL_SAFE=true",
-            "TASK_KEY=lane-b",
-            "TASK_TITLE=Survey lane B",
-            "TASK_OBJECTIVE=Read the second half of the corpus.",
-            "TASK_ACCEPTANCE_CHECK=notes for lane B exist",
-            "TASK_PARALLEL_SAFE=true",
-            "TASK_OWNS_PATHS=survey/lane-b",
-        ])
-    ])
-    supervisor = _supervisor(
-        project, tmp_path / "life", planner, mission_slots=2
-    )
 
-    assert supervisor._plan_next_work() is True
-
-    pending = {item.title: item for item in supervisor.memory.backlog.pending()}
-    assert pending["Survey lane B"].parallel_safe is True
-    assert pending["Survey lane A"].parallel_safe is False
-
-    note = supervisor._planner_dropped_parallel_runtime_note()
-    assert "Survey lane A" in note
-    assert "TASK_OWNS_PATHS" in note
-    assert "Survey lane B" not in note
-    # One-shot: consumed by the render above.
-    assert supervisor._planner_dropped_parallel_runtime_note() == ""
-
-    events = [
-        json.loads(line)
-        for line in (supervisor.memory.root / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip()
-    ]
-    dropped = [
-        event
-        for event in events
-        if event.get("type") == "life.planner.parallel_dropped"
-    ]
-    assert len(dropped) == 1
-    assert dropped[0].get("title") == "Survey lane A"
-
-
-def test_glob_owned_paths_never_advertise_a_slot(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=parallelize the sweep",
-            "TASK_KEY=sweep",
-            "TASK_TITLE=Sweep the source tree",
-            "TASK_OBJECTIVE=Scan every module for the pattern.",
-            "TASK_ACCEPTANCE_CHECK=scan notes exist",
-            "TASK_PARALLEL_SAFE=true",
-            "TASK_OWNS_PATHS=src/**",
-        ])
-    ])
-    supervisor = _supervisor(
-        project, tmp_path / "life", planner, mission_slots=2
-    )
-
-    assert supervisor._plan_next_work() is True
-
-    (item,) = supervisor.memory.backlog.pending()
-    # The claim gate rejects glob syntax outright; a persisted glob would
-    # advertise a task as slot-ready that can never be admitted.
-    assert item.parallel_safe is False
-    assert item.owns_paths == []
-    note = supervisor._planner_dropped_parallel_runtime_note()
-    assert "Sweep the source tree" in note
-    assert "wildcards" in note
-
-
-def _two_arm_plan(path_a: str, path_b: str) -> str:
-    return "\n".join([
-        "PROJECT_DONE=false",
-        "REASON=run both arms on the shared implementation",
-        "TASK_KEY=arm-cpc",
-        "TASK_TITLE=Run the CPC arm",
-        "TASK_OBJECTIVE=Train and evaluate the CPC arm.",
-        "TASK_ACCEPTANCE_CHECK=analysis.json for the CPC arm exists",
-        "TASK_PARALLEL_SAFE=true",
-        f"TASK_OWNS_PATHS={path_a}",
-        "TASK_KEY=arm-general",
-        "TASK_TITLE=Run the general arm",
-        "TASK_OBJECTIVE=Train and evaluate the general arm.",
-        "TASK_ACCEPTANCE_CHECK=analysis.json for the general arm exists",
-        "TASK_PARALLEL_SAFE=true",
-        f"TASK_OWNS_PATHS={path_b}",
+def _two_arm_plan(path_a: list[str], path_b: list[str]) -> tuple[str, dict]:
+    return plan(summary="run both arms on the shared implementation", tasks=[
+        {
+            "key": "arm-cpc", "title": "Run the CPC arm", "objective": "Train and evaluate the CPC arm.",
+            "acceptance_check": "analysis.json for the CPC arm exists", "parallel_safe": True, "owns_paths": path_a,
+        },
+        {
+            "key": "arm-general", "title": "Run the general arm", "objective": "Train and evaluate the general arm.",
+            "acceptance_check": "analysis.json for the general arm exists", "parallel_safe": True, "owns_paths": path_b,
+        },
     ])
 
 
-def test_json_array_owned_paths_co_run_through_parse_enqueue_and_claim(
+def test_owned_paths_co_run_through_enqueue_and_claim(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    planner = _PlannerBackend([_two_arm_plan(
-        '[".argus/runs/transfer/cpc"]', '[".argus/runs/transfer/general"]',
-    )])
+    planner = _PlannerBackend([_two_arm_plan([".argus/runs/transfer/cpc"], [".argus/runs/transfer/general"])])
     supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
 
     assert supervisor._plan_next_work() is True
@@ -287,9 +196,7 @@ def test_json_array_owned_paths_co_run_through_parse_enqueue_and_claim(
 def test_nested_owned_paths_stay_serial_after_claim(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    planner = _PlannerBackend([_two_arm_plan(
-        '[".argus/runs/transfer"]', '[".argus/runs/transfer/general"]',
-    )])
+    planner = _PlannerBackend([_two_arm_plan([".argus/runs/transfer"], [".argus/runs/transfer/general"])])
     supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
 
     assert supervisor._plan_next_work() is True
@@ -297,19 +204,6 @@ def test_nested_owned_paths_stay_serial_after_claim(tmp_path: Path) -> None:
     backlog = supervisor.memory.backlog
     assert backlog.claim_next(respect_running=True) is not None
     assert backlog.claim_next(parallel_only=True, respect_running=True) is None
-
-
-def test_dropped_parallel_note_shows_what_was_received(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([_two_arm_plan("/abs/cpc", "runs/general")])
-    supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
-
-    assert supervisor._plan_next_work() is True
-
-    note = supervisor._planner_dropped_parallel_runtime_note()
-    assert "Run the CPC arm" in note
-    assert "'/abs/cpc'" in note
 
 
 def test_digest_renders_ownership_in_the_footer_syntax(tmp_path: Path) -> None:
@@ -336,14 +230,7 @@ def test_digest_renders_ownership_in_the_footer_syntax(tmp_path: Path) -> None:
 def test_stage_package_flag_reaches_the_backlog_tags(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    planner = _PlannerBackend(["\n".join([
-        "PROJECT_DONE=false",
-        "REASON=package the first real comparison for the operator",
-        "TASK_TITLE=Package round one",
-        "TASK_OBJECTIVE=Assemble the reviewed results, failures and unmet requirements.",
-        "TASK_ACCEPTANCE_CHECK=every number cites its source file",
-        "TASK_STAGE_PACKAGE=true",
-    ])])
+    planner = _PlannerBackend([plan(summary='package the first real comparison for the operator', tasks=[{'title': 'Package round one', 'objective': 'Assemble the reviewed results, failures and unmet requirements.', 'acceptance_check': 'every number cites its source file', 'stage_package': True}])])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
     assert supervisor._plan_next_work() is True
@@ -370,16 +257,6 @@ def test_digest_states_who_owns_the_research_idea(tmp_path: Path, mode, phrase) 
 
     line = next(line for line in note.splitlines() if "research_direction_mode" in line)
     assert mode in line and phrase in line
-
-
-def test_continuous_prompt_states_what_unlocks_a_slot() -> None:
-    text = build_continuous_prompt(
-        continuous_objective="keep optimizing Argus",
-        journal_tail="",
-        planning_cycle=1,
-    )
-    assert "co-run" in text
-    assert "no wildcards" in text
 
 
 def test_digest_names_a_task_that_asked_for_more_gpus_than_the_machine_has(

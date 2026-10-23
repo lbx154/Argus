@@ -179,7 +179,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="experiment.stage_package",
             statement=(
                 "Once a real comparison on the operator's data has been reviewed, deliver "
-                "one stage package (TASK_STAGE_PACKAGE=true) before further diagnosis: "
+                "one stage package (stage_package) before further diagnosis: "
                 "results with their source files, the current method, the command behind "
                 "each number, failures and their explanation, the operator requirements "
                 "still unmet, and the next round's purpose. It is labelled 'stage package, "

@@ -103,6 +103,58 @@
         }
       }
     },
+    "plan": {
+      "description": "Hand on your plan; the call ends your turn. to: engineer, the tasks below start, or with none the work in flight decides what comes next (invent no work that needs results still in flight); manager, the stage itself blocks the plan; operator, only the operator can unblock it; done, the operator's complete goal is met, with no tasks. You are called again when something new arrives: a mission ends, the operator writes, the Manager directs. summary: the decision and the next step as a colleague would say it, without field names, status words, routine steps or Argus's own bookkeeping, and nothing the last summary said.",
+      "core": ["to", "summary", "ask", "assumptions"],
+      "to": ["engineer", "manager", "operator", "done"],
+      "required": ["to", "summary", "assumptions"],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "description": "The work to start: each task's decision, inputs and check, not who does or reviews it.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["title", "objective"],
+            "properties": {
+              "title": {"type": "string", "minLength": 1},
+              "objective": {"type": "string", "minLength": 1, "description": "The full, actionable description the Engineer works from."},
+              "key": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$", "description": "This task's name for deps in this call."},
+              "deps": {"type": "array", "items": {"type": "string"}, "description": "Keys of tasks in this call that must finish first."},
+              "hypothesis": {"type": "string"},
+              "goal_contribution": {"type": "string"},
+              "expected_regressions": {"type": "string"},
+              "decision_rule": {"type": "string"},
+              "acceptance_check": {"type": "string", "description": "The one decisive completion check."},
+              "non_goals": {"type": "array", "items": {"type": "string"}},
+              "scope": {"enum": ["bounded", "final_submission"], "description": "final_submission only for the final independent certification task."},
+              "parallel_safe": {"type": "boolean", "description": "Co-runs with other parallel_safe tasks; needs owns_paths. Stage-closing and framework-maintenance work runs alone."},
+              "owns_paths": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "The literal, relative paths only this task writes, no wildcards, disjoint from the others'."},
+              "stage_package": {"type": "boolean", "description": "A reviewed interim package for the operator while the work goes on."},
+              "gpu_count": {"type": "integer", "minimum": 0, "description": "GPUs the task holds while it runs."},
+              "cpu_count": {"type": "integer", "minimum": 0, "description": "CPU cores the task keeps busy."},
+              "vertical": {"type": "string", "description": "The mission's role, when it differs from the campaign's."},
+              "require_independent_review": {"type": "boolean"},
+              "impact_score": {"type": "integer", "minimum": 0, "maximum": 5},
+              "impact_area": {"type": "string"},
+              "evidence": {"type": "string"}
+            }
+          }
+        },
+        "retire": {
+          "type": "array",
+          "description": "Pending work that is refuted, closed or a renamed repeat; never running or done work.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+            "properties": {"id": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1, "description": "One sentence."}}
+          }
+        },
+        "settle_instructions": {
+          "type": "array", "items": {"type": "integer", "minimum": 1},
+          "description": "Each OperatorContext entry tagged `revision N` that this decision carries out, rules out, or (for a subagent report) has already taken into account."
+        },
+        "advance_to_stage": {"type": "string", "description": "The stage this plan moves to; left out, the stage holds."},
+        "plan_update": {"type": "string", "description": "The full new RESEARCH_PLAN.md, when the direction changed; left out, it stays."}
+      }
+    },
     "front_door": {
       "description": "Classify the operator's message; the call ends your turn. to: manager (SELF) for conversation, status, a quick inspection or a finite local task one agent can verify, and simple work with a vertical, whose stage and reviewer defaults never force team; team (TEAM) for multi-stage live research, parallel work, required independent review or high-impact operations, also when that work first needs the operator's choice: the team asks them. A control or a grant is always to=manager.",
       "core": ["to"],
@@ -190,6 +242,16 @@
         "session_title": {"type": "string", "description": "A concise topic summary in the operator's language, without input ids or filler."},
         "precise_constraints": {"type": "array", "items": {"type": "string"}, "description": "Mechanically checkable requirements the operator stated, verbatim; never invented."},
         "exclusions": {"type": "array", "items": {"type": "string"}, "description": "What the operator ruled out, verbatim."}
+      }
+    },
+    "stage": {
+      "description": "Record your stage decision; the call ends your turn. to: team, the team works on, with move; done, the objective is complete; operator, the stage cannot be decided without a choice only the operator can make. summary: the decisive evidence, whether the stage moves, and what happens next.",
+      "core": ["to", "summary", "ask", "assumptions"],
+      "to": ["team", "done", "operator"],
+      "required": ["to", "summary", "assumptions"],
+      "properties": {
+        "move": {"enum": ["advance", "hold", "rollback"], "description": "With to=team: advance to a later stage when concrete evidence meets this stage's requirements; hold to keep working on this one; rollback to an earlier stage whose evidence is broken."},
+        "target_stage": {"type": "string", "minLength": 1, "description": "The stage to move to: a later one to advance (the next one when left out), an earlier one to roll back."}
       }
     },
     "supervise": {

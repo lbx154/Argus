@@ -1310,10 +1310,10 @@ def build_settleable_planner_context_block(
     live_turn: str = "",
     global_root: Path | str | None = None,
 ) -> tuple[str, int, frozenset[int]]:
-    """The continuous Planner's OperatorContext, for a turn whose footer is read back.
+    """The continuous Planner's OperatorContext.
 
     Idle bounded instructions are tagged with their revision, so the Planner can
-    declare them handled with ``SETTLE_INSTRUCTION``; the third value names the
+    declare them handled in ``settle_instructions``; the third value names the
     revisions offered, the only ones the Host may then settle.
     """
     return _render_operator_context_block(
@@ -1358,9 +1358,8 @@ def _render_operator_context_block(
         lines.append(
             "Entries tagged `revision N` arrived while no work ran and belong to the "
             "next increment. When your decision carries one out, deliberately rules it "
-            "out, or (for a subagent report) has taken it into account, name it in the "
-            "footer line `SETTLE_INSTRUCTION=N` (several: `N M`, space-separated), before "
-            "any PLAN_UPDATE. It settles only once the Host applies that decision; "
+            "out, or (for a subagent report) has taken it into account, list it in "
+            "`settle_instructions`. It settles only once the Host applies that decision; "
             "otherwise it stays here."
         )
     for directive in projection.directives:

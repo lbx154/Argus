@@ -243,8 +243,10 @@ class PlanningCycleCompletionMixin:
                         continue
                 elif root != report_root:
                     continue
+                # The ledger gives what each stage settled, never a role's own words.
                 reviews[stage] = {
-                    **review,
+                    "summary": str(review.get("manager_reason") or ""),
+                    "certified": bool(review.get("certified")),
                     "reporting_use": "historical_stage_progression_only",
                     "manuscript_freshness": manuscript_review_status(review, workdir),
                 }
@@ -485,31 +487,6 @@ class PlanningCycleCompletionMixin:
             resolve_vertical(root),
         )
 
-    def _pc_complete_terminal_empty_plan(self, state: _PlanCycleState) -> Any:
-        verdict = state.verdict
-        terminal_signature = self._open_ended_terminal_idle_signature()
-        delivered = self._emit_planner_verdict(
-            status=PlannerVerdictStatus.COMPLETED,
-            completion_kind="terminal_stage_hold",
-            resume_outcome=PLAN_TERMINAL_IDLE,
-            terminal_signature=terminal_signature,
-            cycle=self._planning_cycles,
-            project_done=False,
-            reason=verdict.reason,
-            task_count=0,
-            enqueued_tasks=0,
-            skipped_duplicate_tasks=0,
-            enqueued_titles=[],
-            skipped_duplicate_titles=[],
-            open_ended_objective=True,
-        )
-        if not delivered:
-            return PLAN_RETRY
-        state.completion_accepted = True
-        self._enter_idle_backoff()
-        self._emit_status("planner: terminal stage certified and Manager held; idling")
-        return PLAN_TERMINAL_IDLE
-
     def _pc_handle_handoff(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
         revision_request = state.revision_request
@@ -526,7 +503,7 @@ class PlanningCycleCompletionMixin:
                 return PLAN_RETRY
             if verdict.handoff == "operator":
                 self._park_planner_question(
-                    state, verdict.operator_question or verdict.reason, verdict.reason,
+                    state, verdict.operator_question or verdict.summary, verdict.summary,
                     options=verdict.operator_options,
                 )
             return None
@@ -560,7 +537,7 @@ class PlanningCycleCompletionMixin:
                         expected_version=expected_plan_version,
                         supersede_item_ids=[item.id for item in state.revision_active_items],
                         superseded_by_plan_id=superseding_plan_id,
-                        reason=verdict.reason,
+                        reason=verdict.summary,
                     )
                 except Exception as exc:  # noqa: BLE001
                     self._emit(
@@ -583,7 +560,7 @@ class PlanningCycleCompletionMixin:
                             "plan_id": expected_plan_id,
                             "plan_version": expected_plan_version,
                             "superseded_by_plan_id": superseding_plan_id,
-                            "reason": verdict.reason,
+                            "reason": verdict.summary,
                         }
                     )
                 self._emit(
@@ -592,7 +569,7 @@ class PlanningCycleCompletionMixin:
                         "old_plan_id": expected_plan_id,
                         "old_plan_version": expected_plan_version,
                         "superseded_item_ids": list(result.superseded_ids),
-                        "reason": verdict.reason,
+                        "reason": verdict.summary,
                     }
                 )
                 return PLAN_RETRY
@@ -623,7 +600,7 @@ class PlanningCycleCompletionMixin:
         streak paces the retry, alerts, and stops it with the operator told.
         """
         state.verdict = replace(
-            state.verdict, reason=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
+            state.verdict, summary=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
         )
         self._emit({
             "type": EventType.LIFE_PLANNER_ERROR,
@@ -638,7 +615,6 @@ class PlanningCycleCompletionMixin:
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
         expected_plan_version = state.expected_plan_version
-        planner_declared_done = bool(verdict.project_done)
 
         def reject_completion(reason: str, diagnostic: str) -> str:
             stage = str(self._current_pipeline_stage() or "")
@@ -671,7 +647,7 @@ class PlanningCycleCompletionMixin:
             state.verdict = replace(
                 verdict,
                 project_done=False,
-                reason=reason,
+                summary=reason,
                 new_tasks=[],
             )
             return PLAN_RETRY
@@ -712,11 +688,7 @@ class PlanningCycleCompletionMixin:
                     "external_completion_gate_held",
                 )
 
-        staged_goal_candidate = bool(
-            verdict.project_done
-            or (not planner_declared_done and not verdict.handoff and not verdict.new_tasks)
-        )
-        if staged_goal_candidate and revision_request is None:
+        if verdict.project_done and revision_request is None:
             goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
             if goal_gate_issue:
                 return reject_completion(
@@ -766,7 +738,7 @@ class PlanningCycleCompletionMixin:
             self._emit({
                 "type": "life.planner.continuation_required",
                 "cycle": self._planning_cycles,
-                "reason": verdict.reason,
+                "reason": verdict.summary,
             })
             self._emit_status(
                 "planner completed one increment, but the standing objective "
@@ -853,7 +825,7 @@ class PlanningCycleCompletionMixin:
                 terminal_signature=self._open_ended_terminal_idle_signature(),
                 cycle=self._planning_cycles,
                 project_done=verdict.project_done,
-                reason=verdict.reason,
+                reason=verdict.summary,
                 task_count=len(verdict.new_tasks),
                 enqueued_tasks=0,
                 skipped_duplicate_tasks=0,
@@ -868,45 +840,11 @@ class PlanningCycleCompletionMixin:
             clear_completion_rejection_circuit(
                 self._completion_rejection_circuit_file()
             )
-            self._emit_status(f"planner: project done — {verdict.reason}")
+            self._emit_status(f"planner: project done — {verdict.summary}")
             return False
 
         state.verdict = verdict
         return None
-
-    def _pc_reject_if_no_tasks(self, state: _PlanCycleState) -> Any | None:
-        verdict = state.verdict
-        revision_request = state.revision_request
-        if verdict.new_tasks or verdict.retire_tasks:
-            return None
-        if revision_request is not None:
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": "planner produced no replacement tasks",
-                    "expected_plan_id": state.expected_plan_id,
-                    "expected_plan_version": state.expected_plan_version,
-                }
-            )
-        else:
-            reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
-            if reconciliation == "rollback":
-                return PLAN_RETRY
-            if reconciliation == "hold":
-                return self._pc_complete_terminal_empty_plan(state)
-        self._emit(
-            {
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "cycle": self._planning_cycles,
-                "error": "planner produced no tasks",
-                "raw_text": verdict.raw_text,
-            }
-        )
-        self._emit_status("planner error: produced no tasks; retry later")
-        # No tasks, no handoff, not done: a degenerate no-work cycle.
-        # Back off so repeated empty plans cannot spin the daemon.
-        self._enter_idle_backoff()
-        return PLAN_ERROR
 
 
 __all__ = ["PlanningCycleCompletionMixin"]

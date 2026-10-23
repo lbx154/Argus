@@ -63,7 +63,7 @@ def test_deferred_completion_drops_planner_settlements(tmp_path: Path) -> None:
 
     sup, _consulted = _supervisor(effective_gate=True, tmp_path=tmp_path)
     sup._operator_only_external_blocker_wait_reason = lambda: "operator must upload data"  # type: ignore[attr-defined]
-    verdict = PlannerVerdict(project_done=True, reason="done", settled_instructions=(4,))
+    verdict = PlannerVerdict(project_done=True, summary="done", settled_instructions=(4,))
 
     out = sup._defer_project_done_for_operator_external_blocker(verdict)
 
