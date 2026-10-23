@@ -2424,17 +2424,17 @@ def test_daemon_boot_uses_state_snapshot_that_produced_objective(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
 
-    def reset_manager_session(_root):
+    def persisted_vertical(_root):
         write_continuous_config(
             tmp_path,
             enabled=False,
             objective="newer objective",
         )
-        return False
+        return None
 
     monkeypatch.setattr(
-        "argus.manager.reset_manager_session",
-        reset_manager_session,
+        "argus.skills.vertical_select._persisted_vertical",
+        persisted_vertical,
     )
     monkeypatch.setattr(
         "argus.manager.Manager.decide_vertical",

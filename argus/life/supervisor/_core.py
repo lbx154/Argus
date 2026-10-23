@@ -1319,7 +1319,7 @@ class LifeSupervisor(
             })
             return False
         if details.get("project_done") is True or completion_kind == "certified_increment":
-            report_result = self._manager_publish_project_report(
+            self._manager_publish_project_report(
                 reason,
                 delivery=event.get("delivery"),
                 **(
@@ -1328,18 +1328,6 @@ class LifeSupervisor(
                     else {}
                 ),
             )
-            if report_result != "reported":
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "cycle": details.get("cycle", self._planning_cycles),
-                    "error": (
-                        "completion was recorded, but the post-completion "
-                        "Manager report is still pending"
-                    ),
-                    "reason": reason,
-                    "delivery_id": event["delivery_id"],
-                })
-                return False
         try:
             from ...core.metrics import metrics_root_for_project, record_metric
 
@@ -1426,7 +1414,7 @@ class LifeSupervisor(
             })
             return True, _PLAN_RETRY
         if event.get("project_done") is True or event.get("completion_kind") == "certified_increment":
-            report_result = self._manager_publish_project_report(
+            self._manager_publish_project_report(
                 str(event.get("reason") or ""),
                 delivery=event.get("delivery"),
                 **(
@@ -1435,8 +1423,6 @@ class LifeSupervisor(
                     else {}
                 ),
             )
-            if report_result != "reported":
-                return True, _PLAN_RETRY
         try:
             mark_planner_verdict_delivered(self.memory.root, record)
         except OSError as exc:
@@ -1549,7 +1535,6 @@ class LifeSupervisor(
         try:
             from ...core.operator_messages import (
                 brief_title,
-                publish_operator_message,
                 render_operator_update,
             )
 
@@ -1576,7 +1561,7 @@ class LifeSupervisor(
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")
             if status == "stage_continues":
-                publish_operator_message(
+                self._report_to_manager(
                     life_dir,
                     text=render_operator_update(
                         title=title, status=status,
@@ -1691,7 +1676,7 @@ class LifeSupervisor(
                 ).strip()
                 park = str(event.get("park_reason") or "") if status == "parked" else ""
                 if operator_question:
-                    publish_operator_message(
+                    self._report_to_manager(
                         life_dir,
                         text="\n".join(part for part in (
                             say("needs_your_call", chinese, title=brief, question=operator_question),
@@ -1729,7 +1714,7 @@ class LifeSupervisor(
                 # The summary often is the stop reason, its lines run together;
                 # the update gives its first sentence, its row the rest.
                 told = " ".join(summary.split()) in " ".join(f"{reason} {text}".split())
-                publish_operator_message(
+                self._report_to_manager(
                     life_dir,
                     text="\n".join(part for part in (text, "" if told else summary) if part),
                     message_id=_message_id(f"mission-result-{item_id}-{status}"),
@@ -1781,7 +1766,7 @@ class LifeSupervisor(
             assumptions_line = render_autonomous_assumptions(
                 self._project_state_root(), item_id=item_id, chinese=chinese,
             )
-            publish_operator_message(
+            self._report_to_manager(
                 life_dir,
                 text="\n".join(
                     part
@@ -1821,13 +1806,12 @@ class LifeSupervisor(
             log.exception("life supervisor: failed to publish mission completion")
 
     def _confirm_mission_completion_receipt(self, event: dict[str, Any]) -> bool:
-        """Repair the minimal Web/chat receipt before acknowledging completion.
+        """Leave the team report for the Manager before acknowledging completion.
 
-        Transcript message ids make retry safe even when the process died after
-        publishing the message. External letters/notifications remain separate.
+        The report's message id makes retry safe even when the process died
+        after leaving it. External letters/notifications remain separate.
         """
-        from ...core.transcript import read_turns
-        from ..memory import _fsync_parent
+        from ...webapi.deferred_messages import team_report_left
 
         delivery_id = str(event.get("mission_delivery_id") or "")
         if not delivery_id or self._project_report_tells(event):
@@ -1835,14 +1819,9 @@ class LifeSupervisor(
         project = getattr(self.memory, "project", None)
         root = Path(getattr(project, "root", None) or self.memory.root)
         message_id = f"mission-result-{delivery_id}"
-        if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
+        if not team_report_left(root, message_id):
             self._publish_mission_completion_message(event)
-            if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
-                return False
-        with (root / "transcript.jsonl").open("r+b") as handle:
-            os.fsync(handle.fileno())
-        _fsync_parent(root / "transcript.jsonl")
-        return True
+        return team_report_left(root, message_id)
 
     def _plan_alongside_running_work(self, running_items: list[Any]) -> None:
         """Let the Planner fill an idle mission slot while other work runs.
@@ -1944,6 +1923,15 @@ class LifeSupervisor(
     def _operator_chinese(self) -> bool:
         """Whether the operator writes Chinese, as their objective reads."""
         return uses_cjk(getattr(self.config, "continuous_objective", ""))
+
+    def _report_to_manager(
+        self, life_dir: Path | str, *, text: str, message_id: str, event_fields: dict[str, Any],
+    ) -> None:
+        """Hand a team result to the Manager; it tells the operator in its own session."""
+        from ...webapi.deferred_messages import post_team_report
+
+        post_team_report(Path(life_dir), message_id=message_id, text=text, event_fields=event_fields)
+        self._emit({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
 
     def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None:
         """Post the sentence for ``kind`` to the operator's conversation, once per ``notice_id``."""

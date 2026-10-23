@@ -400,14 +400,7 @@ class PlanningCycleMixin(
 
         from ...skills import vertical_select as _vsel
 
-        artifact_root = self._artifact_root()
-        try:
-            prior_vertical = _vsel._persisted_vertical(artifact_root)
-        except _vsel.VerticalResolutionError:
-            # Decide again on a later cycle, once the operator has repaired the
-            # environment; the intake gate turns this raise into a held state.
-            self._vertical_resolved = False
-            raise
+        prior_vertical = _vsel._persisted_vertical(self._artifact_root())
         if not self.config.continuous_objective:
             persisted = prior_vertical
             if persisted is None:

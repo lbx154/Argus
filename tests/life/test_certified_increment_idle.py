@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.core.transcript import read_turns
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.planner_verdict_outbox import load_planner_verdict_outbox
@@ -46,13 +45,7 @@ def campaign(tmp_path, monkeypatch):
         },
     }
     path.write_text(json.dumps(state))
-    reports = []
-
-    def report(**kwargs):
-        reports.append(kwargs)
-        return "Manager: certified increment complete; standing campaign remains active."
-
-    manager = SimpleNamespace(report_project_completion=report)
+    manager = SimpleNamespace()
 
     def unexpected_plan(*_args, **_kwargs):
         pytest.fail("Certified unchanged state must not call Planner")
@@ -101,14 +94,18 @@ def campaign(tmp_path, monkeypatch):
     certify(supervisor)
     return SimpleNamespace(
         supervisor=supervisor, make=make, certify=certify, project=project,
-        life=life, reports=reports, manager=manager,
+        life=life, manager=manager,
     )
 
 
 def _reports(life: Path):
+    """The project reports the team left for the Manager, oldest first."""
+    records = [json.loads(path.read_text()) for path in (Path(life) / "manager-deferred").glob("*.json")]
     return [
-        turn for turn in read_turns(life)
-        if str(turn.get("message_id") or "").startswith("manager-project-report-")
+        {"message_id": record["request"]["turn_id"], "facts": json.loads(record["request"]["text"]),
+         **record["request"]["team"]}
+        for record in sorted(records, key=lambda record: record["created_at"])
+        if record["request"]["turn_id"].startswith("manager-project-report-")
     ]
 
 
@@ -239,120 +236,11 @@ def test_legacy_certified_wait_reports_once_without_recertification(
         assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
         assert not restarted.memory.backlog.active()
         assert restarted.config.continuous and restarted.config.open_ended
-    assert len(calls) == len(campaign.reports) == len(_reports(campaign.life)) == 1
+    assert len(calls) == len(_reports(campaign.life)) == 1
 
 
-@pytest.mark.parametrize("once", [False, True])
-@pytest.mark.parametrize("failure", ["report", "publish", "verdict", "outbox", "input_ack"])
-def test_certified_handoff_delivery_failure_does_not_repeat_planning(
-    campaign, monkeypatch, failure, once,
-):
-    from argus.core import operator_messages
-    from argus.core.operator_context import OperatorContextStore, append_directive
-    from argus.life.supervisor import _core
-
-    if once:
-        append_directive(
-            campaign.life, "Preserve the certified result and wait for new direction.",
-            lifetime="once", expected_revision=0,
-        )
-        store = OperatorContextStore(campaign.life)
-    else:
-        _, store = _legacy_handoff(campaign)
-    calls = []
-
-    def plan(_planner, **_kwargs):
-        calls.append(True)
-        return PlannerVerdict(
-            project_done=False, handoff="operator",
-            summary="Certified artifact preserved; waiting for new operator instruction.",
-        )
-
-    def fail(*_args, **_kwargs):
-        raise OSError("injected handoff delivery failure")
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
-    with monkeypatch.context() as delivery:
-        if failure == "report":
-            delivery.setattr(campaign.manager, "report_project_completion", lambda **_kw: "")
-        elif failure == "publish":
-            delivery.setattr(operator_messages, "publish_operator_message", fail)
-        elif failure == "outbox":
-            delivery.setattr(_core, "write_planner_verdict_outbox", fail)
-        elif failure == "input_ack":
-            delivery.setattr(OperatorContextStore, "acknowledge", fail)
-        else:
-            original_emit = campaign.supervisor._emit
-            delivery.setattr(
-                campaign.supervisor, "_emit",
-                lambda event: False if event["type"] == "life.planner.verdict" else original_emit(event),
-            )
-        assert campaign.supervisor._plan_next_work() == PLAN_RETRY
-    # Only a durably recorded and checkpointed handoff can skip Planner.
-    needs_replan = failure in {"outbox", "input_ack"}
-    assert store.acknowledged_revision("planner") == (0 if needs_replan else 1)
-    assert campaign.make()._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert campaign.make()._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert len(calls) == (2 if needs_replan else 1)
-    assert len(_reports(campaign.life)) == 1
-    if once:
-        assert not store.project("planner", consume_once=False).directives
 
 
-@pytest.mark.parametrize("arrival", ["planning", "report", "after_report_failure"])
-def test_certified_handoff_never_consumes_newer_work_after_failure(
-    campaign, monkeypatch, arrival,
-):
-    from argus.core.operator_context import append_directive
-
-    _, store = _legacy_handoff(campaign)
-    newer_instruction = "Evaluate the newly requested experiment, not the old increment."
-
-    def append_newer():
-        append_directive(
-            campaign.life, newer_instruction, lifetime="once", expected_revision=1,
-        )
-
-    def plan(_planner, **_kwargs):
-        if arrival == "planning":
-            append_newer()
-        return PlannerVerdict(
-            project_done=False, handoff="operator",
-            summary="Certified increment accepted; waiting for new operator direction.",
-        )
-
-    original_report = campaign.manager.report_project_completion
-
-    def report(**kwargs):
-        if arrival == "report":
-            append_newer()
-        if arrival == "after_report_failure":
-            return ""
-        return original_report(**kwargs)
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
-    campaign.manager.report_project_completion = report
-    campaign.supervisor._plan_next_work()
-    if arrival == "after_report_failure":
-        append_newer()
-    assert store.acknowledged_revision("planner") == 1 < store.revision
-    calls = []
-
-    def failed_new_work(_planner, **kwargs):
-        calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=False, summary="Backend failed", error="injected failure")
-
-    campaign.manager.report_project_completion = original_report
-    monkeypatch.setattr("argus.planner.Planner.plan_next", failed_new_work)
-    for _ in range(2):
-        assert campaign.make()._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 2 and all(newer_instruction in call for call in calls)
-    assert store.acknowledged_revision("planner") == 1
-    assert newer_instruction in [
-        row.text for row in store.project("planner", consume_once=False).directives
-    ]
-    assert load_planner_verdict_outbox(campaign.life) is None
-    assert len(_reports(campaign.life)) == (0 if arrival == "after_report_failure" else 1)
 
 
 @pytest.mark.parametrize("reason", [
@@ -455,13 +343,13 @@ def test_certified_increment_reports_once_and_survives_restart(campaign):
     supervisor = campaign.supervisor
     for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert len(campaign.reports) == len(_reports(campaign.life)) == 1
+    assert len(_reports(campaign.life)) == 1
     record = load_planner_verdict_outbox(campaign.life)
     assert record["delivered"] is True
     assert record["outcome"] == PLAN_TERMINAL_IDLE
     assert record["event"]["project_done"] is False
     assert record["event"]["completion_kind"] == "certified_increment"
-    context = campaign.reports[0]["completion_context"]
+    context = _reports(campaign.life)[0]["facts"]["context"]
     assert context["standing_objective_active"] is True
     assert context["completion_scope"] == "certified_increment"
     assert context["stages"]["delivery"]["status"] == "done"
@@ -474,76 +362,11 @@ def test_certified_increment_reports_once_and_survives_restart(campaign):
     restarted = campaign.make()
     for _ in range(3):
         assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert len(campaign.reports) == len(_reports(campaign.life)) == 1
-
-
-@pytest.mark.parametrize("failure", ["empty", "raise", "publish", "verdict", "ack"])
-def test_report_and_verdict_failures_retry_durably(campaign, monkeypatch, failure):
-    from argus.core import operator_messages
-    from argus.life.supervisor import _core
-
-    original_report = campaign.manager.report_project_completion
-    original_publish = operator_messages.publish_operator_message
-    original_ack = _core.mark_planner_verdict_delivered
-    original_emit = campaign.supervisor._emit
-
-    def fail(*_args, **_kwargs):
-        raise OSError("injected delivery failure")
-
-    if failure == "empty":
-        campaign.manager.report_project_completion = lambda **_kwargs: ""
-    elif failure == "raise":
-        campaign.manager.report_project_completion = fail
-    elif failure == "publish":
-        monkeypatch.setattr(operator_messages, "publish_operator_message", fail)
-    elif failure == "ack":
-        monkeypatch.setattr(_core, "mark_planner_verdict_delivered", fail)
-    else:
-        monkeypatch.setattr(
-            campaign.supervisor, "_emit",
-            lambda event: False if event["type"] == "life.planner.verdict" else original_emit(event),
-        )
-    assert campaign.supervisor._plan_next_work() == PLAN_RETRY
-    assert not load_planner_verdict_outbox(campaign.life)["delivered"]
-    assert not campaign.supervisor._last_open_ended_project_done_signature
-
-    campaign.manager.report_project_completion = original_report
-    monkeypatch.setattr(operator_messages, "publish_operator_message", original_publish)
-    monkeypatch.setattr(_core, "mark_planner_verdict_delivered", original_ack)
-    restarted = campaign.make()
-    assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
     assert len(_reports(campaign.life)) == 1
-    # A failed publish keeps the Manager's text; the retry does not ask again.
-    assert len(campaign.reports) == 1
-    verdicts = [
-        json.loads(line) for line in (campaign.life / "events.jsonl").read_text().splitlines()
-        if json.loads(line).get("type") == "life.planner.verdict"
-    ]
-    assert len(verdicts) == 1
 
 
-@pytest.mark.parametrize("pending_report", [False, True])
-def test_new_operator_input_wakes_even_after_restart(campaign, monkeypatch, pending_report):
-    if pending_report:
-        campaign.manager.report_project_completion = lambda **_kwargs: ""
-        assert campaign.supervisor._plan_next_work() == PLAN_RETRY
-    else:
-        assert campaign.supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
-    restarted = campaign.make()
-    messages = ["Investigate a genuinely different next increment."]
-    restarted.config.user_inbox = lambda: messages.pop(0) if messages else None
-    calls = []
 
-    def plan(_planner, **kwargs):
-        calls.append(kwargs)
-        return PlannerVerdict(project_done=True, summary="injected planner completion")
 
-    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
-    assert restarted._plan_next_work() == PLAN_RETRY
-    assert len(calls) == 1
-    assert load_planner_verdict_outbox(campaign.life) is None
-    assert len(_reports(campaign.life)) == (0 if pending_report else 1)
 
 
 @pytest.mark.parametrize("restart", [False, True])
@@ -986,7 +809,7 @@ def test_meaningful_state_change_invalidates_idle(campaign, monkeypatch, change)
     result = restarted._plan_next_work()
     if change == "certificate":
         assert result == PLAN_TERMINAL_IDLE
-        assert len(campaign.reports) == len(_reports(campaign.life)) == 2
+        assert len(_reports(campaign.life)) == 2
         assert not calls
     else:
         assert result != PLAN_TERMINAL_IDLE
@@ -1031,59 +854,16 @@ def test_certified_increment_does_not_bypass_completion_gates(campaign, monkeypa
     assert load_planner_verdict_outbox(campaign.life) is None
 
 
-def test_changed_state_discards_pending_report_before_replanning(campaign, monkeypatch):
-    campaign.manager.report_project_completion = lambda **_kwargs: ""
-    assert campaign.supervisor._plan_next_work() == PLAN_RETRY
-    (campaign.project / "result.txt").write_text("unreviewed change\n")
-    calls = []
-
-    def plan(_planner, **kwargs):
-        calls.append(kwargs)
-        return PlannerVerdict(project_done=False, error="test stops at replanning")
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
-    assert campaign.make()._plan_next_work() != PLAN_TERMINAL_IDLE
-    assert len(calls) == 1
-    assert not _reports(campaign.life)
-    assert load_planner_verdict_outbox(campaign.life) is None
 
 
-@pytest.mark.parametrize("objective", ["keep improving", "继续改进"])
-def test_increment_report_fallback_preserves_standing_campaign(objective):
-    from argus.manager._stage_ops import _StageDecisionMixin
-
-    manager = SimpleNamespace(_build_stage_run_exec=lambda *_args, **_kw: (None, None))
-    text = _StageDecisionMixin.report_project_completion(
-        manager,
-        completion_context={"completion_scope": "certified_increment", "stages": {}},
-        continuous_objective=objective,
-        completion_reason="Historical manuscript had 12 pages and 99% accuracy.",
-    )
-    assert "Project completed." not in text
-    assert "项目已完成。" not in text
-    assert "longer-term goal continues" in text or "长期目标还在继续" in text
-    assert "12 pages" not in text and "99%" not in text
-    assert "not checked one by one" in text or "没有逐项核对" in text
 
 
-def test_increment_prompt_does_not_close_campaign():
-    from argus.roles.prompts.manager import build_project_completion_report_prompt
-
-    prompt = build_project_completion_report_prompt(
-        objective="keep improving",
-        completion_reason="current certification",
-        completion_context={"completion_scope": "certified_increment"},
-    )
-    assert "not campaign completion" in prompt
-    assert "Do not invent further work" in prompt
-    assert "already-completed project" not in prompt
 
 
 @pytest.mark.parametrize("route", ["project_memory", "configured_project"])
 def test_project_report_routes_and_deduplicates_in_project_conversation(
     campaign, monkeypatch, route,
 ):
-    from argus.core.transcript import append_turn
     from argus.life.memory import GlobalMemory, MemoryBundle, ProjectMemory
 
     supervisor = campaign.supervisor
@@ -1100,25 +880,10 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
     monkeypatch.setattr(supervisor, "_manager_project_completion_context", lambda: {
         "stages": {}, "stage_history": [], "rollback_history": [],
     })
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    message = _reports(project_memory.root)[0]
+    supervisor._manager_publish_project_report("accepted")
+    supervisor._manager_publish_project_report("accepted")
+    [message] = _reports(project_memory.root)
     assert not _reports(global_root)
-    events = [
-        json.loads(line)
-        for line in (project_memory.root / "events.jsonl").read_text().splitlines()
-    ]
-    assert any(
-        event["type"] == "ui.argus" and event["message_id"] == message["message_id"]
-        for event in events
-    )
-    # An old globally misrouted message cannot suppress project publication.
-    append_turn(global_root, "argus", "old global report", message_id=message["message_id"])
-    (project_memory.root / "transcript.jsonl").unlink()
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(_reports(project_memory.root)) == 1
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    # Republishing reuses the recorded report text: no second Manager call.
-    assert len(campaign.reports) == 1
 
     other = ProjectMemory.open("project-b", global_root=global_root)
     other.init()
@@ -1126,83 +891,8 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
         supervisor.memory.project = other
     else:
         supervisor.config.project_state_dir = other.root
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
+    supervisor._manager_publish_project_report("accepted")
     assert len(_reports(other.root)) == 1
-    assert _reports(other.root)[0]["message_id"] != message["message_id"]
-    assert len(campaign.reports) == 2
-
-
-def test_completion_context_separates_current_artifacts_from_historical_reviews(
-    campaign, monkeypatch,
-):
-    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
-    from argus.roles.prompts.manager import build_project_completion_report_prompt
-
-    supervisor = campaign.supervisor
-    state_root = campaign.life / "projects" / "project-a"
-    supervisor.config.project_state_dir = state_root
-    write_pipeline_state(state_root, read_pipeline_state(campaign.project))
-    supervisor.config.artifact_root = state_root
-    paper = campaign.project / "paper"
-    paper.mkdir()
-    manuscript = (
-        r"\title{May Means More Than Possibility}"
-        "\nCurrent balanced confirmation: structured SFT 32/32, orbit-minimax 30/32.\n"
-    )
-    (paper / "main.tex").write_bytes(manuscript.encode("utf-8"))
-    (paper / "main.pdf").write_bytes(b"current PDF bytes")
-    (paper / "REVIEW.md").write_text(
-        "# Authoritative review\nJudgment: done\nCurrent PDF: 10 pages.\n",
-    )
-    legacy = {
-        "review": {
-            "project_root": str(state_root),
-            "review_status": "done",
-            "certified": True,
-            "manager_reason": "Old manuscript: 12 pages, 99% accuracy.",
-            "manuscript_snapshot": {"sha256": "old-manuscript"},
-        },
-        "paper": {
-            "project_root": str(campaign.life / "projects" / "unrelated"),
-            "manager_reason": "OTHER PROJECT SECRET",
-        },
-        "idea": {"manager_reason": "UNOWNED GLOBAL RECEIPT"},
-    }
-    (campaign.life / "stage-certificates.json").write_text(json.dumps({"stages": legacy}))
-    (state_root / "stage-certificates.json").write_text(json.dumps({"stages": {
-        "delivery": {"review_status": "done", "manager_reason": "project-local history"},
-    }}))
-
-    context = supervisor._manager_project_completion_context()
-    assert context["project_workdir"] == str(campaign.project)
-    assert context["project_state_dir"] == str(state_root)
-    assert set(context["stage_reviews"]) == {"review", "delivery"}
-    old_review = context["stage_reviews"]["review"]
-    assert old_review["reporting_use"] == "historical_stage_progression_only"
-    assert old_review["manuscript_freshness"]["status"] == "stale"
-    artifacts = {row["path"]: row for row in context["current_artifact_evidence"]}
-    assert artifacts["paper/main.tex"]["excerpt"] == manuscript
-    assert artifacts["paper/main.tex"]["size_bytes"] == len(manuscript.encode())
-    assert "10 pages" in artifacts["paper/REVIEW.md"]["excerpt"]
-    assert "alone do not prove" in artifacts["paper/REVIEW.md"]["reporting_use"]
-    # The fixture's old certificate cannot certify this changed manuscript.
-    assert context["current_final_certification"]["certified"] is False
-    prompt = build_project_completion_report_prompt(
-        objective="keep improving", completion_reason="done", completion_context=context,
-    )
-    assert "12 pages" in prompt and "10 pages" in prompt
-    assert "OTHER PROJECT SECRET" not in prompt and "UNOWNED GLOBAL RECEIPT" not in prompt
-    assert "Never present their old manuscript titles, page counts, or numerical results" in prompt
-    assert "pdfinfo" in prompt and "Do not scan raw transcripts" in prompt
-
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 1
-    (paper / "main.tex").write_bytes(
-        (manuscript + "A corrected current result.\n").encode("utf-8")
-    )
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 2
 
 
 def test_completion_evidence_is_bounded_and_confined(
@@ -1224,83 +914,6 @@ def test_completion_evidence_is_bounded_and_confined(
     assert set(evidence) == {"paper/main.tex", "result.txt"}
     assert len(evidence["paper/main.tex"]["excerpt"]) == 12000
     assert evidence["paper/main.tex"]["excerpt_truncated"] is True
-
-
-def test_failed_project_report_publish_cannot_use_global_dedup(campaign, monkeypatch):
-    from argus.core import operator_messages
-    from argus.core.transcript import append_turn
-
-    supervisor = campaign.supervisor
-    project_root = campaign.life / "projects" / "project-a"
-    supervisor.config.project_state_dir = project_root
-
-    def global_only(root, *, text, message_id, **_kwargs):
-        assert root == project_root
-        append_turn(campaign.life, "argus", text, message_id=message_id)
-        return False
-
-    with monkeypatch.context() as failure:
-        failure.setattr(operator_messages, "publish_operator_message", global_only)
-        assert supervisor._manager_publish_project_report("accepted") == PLAN_ERROR
-    assert not _reports(project_root)
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(_reports(project_root)) == 1
-    assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 1
-
-
-@pytest.mark.parametrize("failure", ["raises", "empty"])
-def test_failing_project_report_backs_off_then_sends_the_stage_summary(
-    campaign, monkeypatch, failure,
-):
-    from argus.life.supervisor._constants import PROJECT_REPORT_MODEL_ATTEMPTS
-
-    supervisor = campaign.supervisor
-    calls = []
-
-    def broken(**kwargs):
-        calls.append(kwargs)
-        if failure == "raises":
-            raise RuntimeError("backend down")
-        return ""
-
-    monkeypatch.setattr(campaign.manager, "report_project_completion", broken)
-    sleeps = []
-    for _ in range(PROJECT_REPORT_MODEL_ATTEMPTS):
-        assert supervisor._manager_publish_project_report("accepted") == PLAN_ERROR
-        sleeps.append(supervisor._suggested_sleep_s)
-    # Each failure waits longer than the last instead of the 5 s poll interval.
-    assert sleeps == sorted(sleeps) and sleeps[0] >= 15.0 and len(set(sleeps)) == len(sleeps)
-    assert not _reports(campaign.life)
-
-    for _ in range(20):
-        assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS
-    reports = _reports(campaign.life)
-    assert len(reports) == 1
-    assert "not checked one by one" in reports[0]["text"]
-
-
-def test_project_report_attempts_are_counted_per_completion(campaign, monkeypatch):
-    from argus.life.supervisor._constants import PROJECT_REPORT_MODEL_ATTEMPTS
-
-    supervisor = campaign.supervisor
-    context = {"stages": {"delivery": {}}, "stage_history": [], "rollback_history": []}
-    monkeypatch.setattr(supervisor, "_manager_project_completion_context", lambda: dict(context))
-    calls = []
-
-    def broken(**kwargs):
-        calls.append(kwargs)
-        raise RuntimeError("backend down")
-
-    monkeypatch.setattr(campaign.manager, "report_project_completion", broken)
-    for _ in range(PROJECT_REPORT_MODEL_ATTEMPTS + 5):
-        supervisor._manager_publish_project_report("accepted")
-    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS
-    # A different completion is new evidence: it earns its own attempts.
-    context["stages"] = {"delivery": {}, "follow-up": {}}
-    supervisor._manager_publish_project_report("accepted")
-    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS + 1
 
 
 @pytest.mark.parametrize(

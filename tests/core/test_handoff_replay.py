@@ -70,7 +70,7 @@ def test_the_host_reads_a_recorded_plan_as_the_text_readers_did(form: str, row: 
 
 def test_the_replay_covers_every_form_so_far() -> None:
     forms = {form for form, _ in (param.values for param in ROWS)}
-    assert forms == {"engineer", "review", "route", "supervise", "plan", "stage"}
+    assert forms == {"engineer", "review", "supervise", "plan", "stage"}
     assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 3
 
 

@@ -458,26 +458,11 @@ class LifeWorkerBootMixin:
         )
 
     def _rf_manager_divide_on_boot(self, rf_state: _RunForeverState) -> None:
-        """Reset the Manager's codex session, then classify + persist the
-        vertical via ``Manager.divide`` before the supervisor starts.
-        """
-        # New daemon = fresh isolation generation: drop the Manager's persistent
-        # codex session so it does NOT resume the PRIOR daemon's accumulated
-        # conversation. Runs BEFORE the boot divide() so even boot classification
-        # starts clean. Fail-open. / 新 daemon = 全新隔离代际：清掉 Manager 的常驻
-        # codex 会话，不 resume 上一个 daemon 的累积对话；放在 boot divide() 之前，
-        # 连启动分类也从干净会话开始；失败也不阻塞启动。
-        try:
-            from ..manager import reset_manager_session as _reset_mgr_session
+        """Persist the vertical via ``Manager.divide`` before the supervisor starts.
 
-            _mgr_session_root = rf_state.runtime_root
-            if _mgr_session_root and _reset_mgr_session(_mgr_session_root):
-                log.info(
-                    "daemon boot: cleared prior Manager codex session at %s",
-                    _mgr_session_root,
-                )
-        except Exception:  # noqa: BLE001 — never block daemon start on session reset
-            pass
+        The Manager's session belongs to the web server that runs its turns; a
+        daemon starting does not touch it.
+        """
         # Manager divides the task before the supervisor starts — same as the
         # foreground path (apps/_runtime.run_life_supervisor): classify the vertical,
         # split into Stages, and commit it so the supervisor trusts the persisted

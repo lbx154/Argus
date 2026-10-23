@@ -128,7 +128,8 @@ def test_execution_branches_preserve_metering_and_publication_order(
 
 
 def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, monkeypatch):
-    from argus.core.transcript import append_turn, read_turns
+    from argus.core.transcript import append_turn
+    from tests.manager_inbox import team_reports
 
     outcome = _Outcome(True, "done", stage_transition={
         "action": "hold", "diagnostic": "intentional_hold", "target_stage": "ingest",
@@ -144,8 +145,8 @@ def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, 
     assert event["campaign_continues"] is True
     assert event["outcome"]["execution_status"] == "incomplete"
     supervisor._publish_mission_completion_message(event)
-    assert "自动接着做剩下的部分" in read_turns(memory.root)[-1]["text"]
-    assert "长程信用分配" in read_turns(memory.root)[-1]["text"]
+    assert "自动接着做剩下的部分" in team_reports(memory.root)[-1]["text"]
+    assert "长程信用分配" in team_reports(memory.root)[-1]["text"]
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
     assert "长程信用分配" in supervisor._build_mission_prelude(stored)
     from argus.core.mission_view import update_mission_view_event

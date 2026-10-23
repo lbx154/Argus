@@ -1,20 +1,12 @@
 """Canned ``hand_off`` calls for tests (``argus.core.handoff``)."""
 
-
 def hand_off(to: str, summary: str = "Work handed on.", note: str | None = None, **fields) -> tuple[str, dict]:
     """A ``CannedResponse.action`` handing the work ``to`` the next holder; the note repeats the summary unless given."""
     return "hand_off", {"to": to, "summary": summary, "note": summary if note is None else note, "assumptions": [], **fields}
 
-
-def route(to: str = "team", summary: str = "Why this route.", **fields) -> tuple[str, dict]:
-    """A Manager routing call (the route form) with ``fields``."""
-    return "hand_off", {"to": to, "summary": summary, "assumptions": [], **fields}
-
-
 def plan(to: str = "engineer", summary: str = "Why this plan.", **fields) -> tuple[str, dict]:
     """A Planner call (the plan form) with ``fields``; ``tasks`` default to none."""
     return "hand_off", {"to": to, "summary": summary, "assumptions": [], **fields}
-
 
 def submit(options, action: tuple[str, dict]) -> str:
     """Submit ``action`` over a fake runner's call-bound bridge, as an agent CLI's tool call would.
@@ -29,7 +21,6 @@ def submit(options, action: tuple[str, dict]) -> str:
     except ValueError as refusal:
         return str(refusal)
     return ""
-
 
 def stage(to: str = "team", summary: str = "Why the stage moves.", **fields):
     """A Manager stage model, ``run_exec(prompt, actions)``, that files the stage form with ``fields``.
@@ -49,17 +40,14 @@ def stage(to: str = "team", summary: str = "Why the stage moves.", **fields):
     run.prompts = []
     return run
 
-
 def ticket(goal: str, summary: str = "For the team.", **fields) -> tuple[str, dict]:
     """A Manager ``to=team`` ticket for ``goal``."""
     return "hand_off", {"to": "team", "summary": summary, "assumptions": [], "goal": goal,
                         "acceptance": ["Done as asked."], "vertical": "software", **fields}
 
-
 def manager_settles(summary: str = "Argus applies this.", **fields) -> tuple[str, dict]:
     """A Manager ``to=manager`` call: settings, control or grants Argus applies after the reply."""
     return "hand_off", {"to": "manager", "summary": summary, "assumptions": [], **fields}
-
 
 def manager_runner(manager=None, *, hand=ticket, reply: str = "", thread_id: str = "thread-1",
                    during=None, failure: str = ""):
@@ -102,7 +90,6 @@ def manager_runner(manager=None, *, hand=ticket, reply: str = "", thread_id: str
     runner = SimpleNamespace(manager=_Routed(manager), manager_turn=manager_turn,
                              last_thread_id=thread_id, turns=[])
     return runner
-
 
 def replying(answer):
     """A ``front_door.manager_turn`` stand-in whose Manager only replies: ``answer(mem, body, chat_state, **kw)``.

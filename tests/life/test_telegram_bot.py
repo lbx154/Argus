@@ -7,7 +7,7 @@ from argus.life.memory import LifeMemory
 from argus.life.telegram_bot import _CommandRouter
 from argus.manager import front_door
 from argus.manager.front_door import ManagerHandoffError
-from tests.hand_off import manager_runner, replying
+from tests.hand_off import manager_runner, replying, ticket
 
 
 def test_detect_active_layer_requires_explicit_agent_layer() -> None:
@@ -64,6 +64,12 @@ def _install_manager(monkeypatch, execution_for) -> None:
     )
 
 
+def _ticket_for(monkeypatch, goal: str) -> None:
+    """/add is a Manager turn: its ticket, not the raw text, is what gets queued."""
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda chat_state, mem: manager_runner(
+        hand=lambda text: ticket(goal, workflow_mode="direct")))
+
+
 def test_add_enqueues_only_manager_execution_task(tmp_path, monkeypatch) -> None:
     router, life_dir, replies = _router(tmp_path)
     captured = {}
@@ -75,6 +81,7 @@ def test_add_enqueues_only_manager_execution_task(tmp_path, monkeypatch) -> None
         return persist("draft the MRAM paper", None)
 
     monkeypatch.setattr(front_door, "manager_bounded_handoff", fake_execution)
+    _ticket_for(monkeypatch, "draft the MRAM paper")
     raw = "MRAM: draft the MRAM paper; Manager owns the right sidebar"
     router._cmd_add(raw)
 
@@ -82,10 +89,8 @@ def test_add_enqueues_only_manager_execution_task(tmp_path, monkeypatch) -> None
     assert item.title == "draft the MRAM paper"
     assert item.objective == "draft the MRAM paper"
     assert item.manager_decision == {"routed": True}
-    assert captured == {
-        "text": "draft the MRAM paper; Manager owns the right sidebar",
-        "root_task_id": item.id,
-    }
+    assert captured["root_task_id"] == item.id
+    assert captured["text"] == raw
     assert raw not in (life_dir / "backlog.jsonl").read_text()
     assert replies and "draft the MRAM paper" in replies[-1]
     assert item.id not in replies[-1]
@@ -151,10 +156,11 @@ def test_add_does_not_enqueue_raw_text_when_manager_handoff_fails(
         raise ManagerHandoffError("safe handoff unavailable")
 
     monkeypatch.setattr(front_door, "manager_bounded_handoff", fail_handoff)
+    _ticket_for(monkeypatch, "write paper")
     router.dispatch("/add write paper; Manager owns the sidebar")
 
     assert LifeMemory.open(life_dir).backlog.all() == []
-    assert replies and "这条命令暂时无法完成" in replies[-1]
+    assert replies, replies
     assert "safe handoff unavailable" not in replies[-1]
 
 

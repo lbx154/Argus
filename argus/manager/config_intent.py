@@ -24,6 +24,7 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
 
 
 def _invalidate_manager_runner(
+    mem: Any,
     chat_state: dict[str, Any],
     *,
     backend: str | None = None,
@@ -31,7 +32,9 @@ def _invalidate_manager_runner(
     """Drop the Manager runner after a Manager backend/model knob change."""
     runner = chat_state.pop("manager_runner", None)
     chat_state.pop("manager_runner_workdir", None)
-    chat_state["last_thread_id"] = None
+    from ._session_ops import reset_manager_session
+
+    reset_manager_session(mem.project_root)
     if backend:
         chat_state["backend"] = backend
     if runner is None:
@@ -326,7 +329,7 @@ def _apply_config_intent(
             return True
         for line in confirmations:
             _confirm(line)
-        _invalidate_manager_runner(chat_state, backend=manager_backend)
+        _invalidate_manager_runner(mem, chat_state, backend=manager_backend)
         return True
 
     knob = intent.knob
@@ -343,7 +346,7 @@ def _apply_config_intent(
         if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
             return True
         _confirm(f"Set all Argus roles' CLI backend to {value}.")
-        _invalidate_manager_runner(chat_state, backend=value)
+        _invalidate_manager_runner(mem, chat_state, backend=value)
         return True
 
     if knob == "model":
@@ -371,7 +374,7 @@ def _apply_config_intent(
             _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {model_value}.")
         else:
             _confirm(f"Set all Argus roles' model to {model_value}.")
-        _invalidate_manager_runner(chat_state)
+        _invalidate_manager_runner(mem, chat_state)
         return True
 
     if knob == "effort":
@@ -391,7 +394,7 @@ def _apply_config_intent(
         if not _set({_ROLE_EFFORT_ENVS[role]: value for role in applicable}):
             return True
         _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
-        _invalidate_manager_runner(chat_state)
+        _invalidate_manager_runner(mem, chat_state)
         return True
 
     # Host capacity limits share the knob_store write path.

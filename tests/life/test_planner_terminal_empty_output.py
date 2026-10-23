@@ -27,7 +27,7 @@ from argus.life.supervisor._constants import (
 from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
 from argus.planner import PlannerVerdict
-from tests.hand_off import plan, route, submit
+from tests.hand_off import plan, submit
 
 pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
@@ -59,9 +59,10 @@ class _EmptyPlannerThenManagerRunner:
     def file_stage_form(self, options) -> str:
         """File the Manager's stage form over the call's bridge; returns the closing reply."""
         if self.manager_action == "complete":
-            form = route("done")
+            form = ("hand_off", {"to": "done", "summary": "Why this stage moves.", "assumptions": []})
         else:
-            form = route(move=self.manager_action, target_stage=self.manager_target_stage)
+            form = ("hand_off", {"to": "team", "summary": "Why this stage moves.", "assumptions": [],
+                                 "move": self.manager_action, "target_stage": self.manager_target_stage})
         assert submit(options, form) == ""
         return "final delivery remains certified; hold terminal stage"
 

@@ -170,6 +170,8 @@
         "domain": {"type": "string", "description": "With vertical=research: an optional research domain from the menu."},
         "workflow_mode": {"enum": ["direct", "staged"], "description": "With to=team: direct for one coherent Engineer task, staged for dependent phases."},
         "start_stage": {"type": "string", "description": "With workflow_mode=direct: the stage it starts at, if not the first."},
+        "workflow_profile": {"type": "string", "description": "With to=team, for a vertical that offers workflow profiles: the profile from its menu."},
+        "workflow_stages": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With workflow_profile=custom: the stages to compose, in order."},
         "research_target_level": {"enum": ["exploratory", "publishable", "doctoral"], "description": "With vertical=research: the success bar."},
         "research_direction_mode": {"enum": ["broad", "locked"], "description": "With vertical=research: broad while the direction is open, locked for the operator's concrete idea."},
         "target_venue": {"type": "string", "maxLength": 100, "description": "With vertical=research: only a venue the operator named."},
@@ -217,26 +219,6 @@
           "description": "forbid only for an explicit command against questions; allow only when they are explicitly re-enabled."
         },
         "name": {"type": "string", "maxLength": 80, "description": "A new topic for this conversation, in the operator's language; left out while the topic holds."}
-      }
-    },
-    "route": {
-      "description": "Record your routing decision; the call ends your turn. to: team dispatches the work as decided. summary: why this route, in plain words, without verticals, workflow modes or other internal names.",
-      "core": ["to", "summary", "note", "assumptions"],
-      "to": ["team"],
-      "required": ["to", "summary", "assumptions", "choice"],
-      "properties": {
-        "choice": {"enum": ["existing", "new", "grounded"], "description": "existing: a listed capability; new: a reusable new domain, only if none fits; grounded: only in the fast pass, when repository inspection is needed (leave vertical empty)."},
-        "vertical": {"type": "string", "description": "The exact listed vertical name, or the slug of a new domain."},
-        "domain": {"type": "string", "description": "Only a listed optional research domain; empty otherwise."},
-        "workflow_mode": {"enum": ["direct", "staged"]},
-        "workflow_profile": {"type": "string"},
-        "workflow_stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "start_stage": {"type": "string"},
-        "research_target_level": {"enum": ["exploratory", "publishable", "doctoral"]},
-        "research_direction_mode": {"enum": ["broad", "locked"]},
-        "target_venue": {"type": "string", "maxLength": 100},
-        "require_independent_review": {"type": "boolean"},
-        "execution_task": {"type": "string"}
       }
     },
     "stage": {

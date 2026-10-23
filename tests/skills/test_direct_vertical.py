@@ -6,7 +6,6 @@ from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.apps._runtime_supervisor import _workflow_mode_for_project_root
 from argus.manager import Manager
-from argus.manager.domain_author import build_vertical_decision_prompt
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
@@ -14,7 +13,7 @@ from argus.skills.vertical_select import (
     persist_vertical,
 )
 from argus.verticals._base import load_vertical, load_vertical_contract
-from tests.hand_off import hand_off, route, submit
+from tests.hand_off import hand_off
 
 
 def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
@@ -33,54 +32,10 @@ def test_runtime_resolves_direct_workflow(tmp_path) -> None:
     assert Manager(project_root=tmp_path).plan_stages("software") == ["delivery"]
 
 
-def test_manager_can_commit_software_with_direct_workflow(tmp_path) -> None:
-    class _Result:
-        agent_messages: list[str] = []
-        thread_id = "manager-direct"
-        tool_activity_observed = True
-
-    class _Runner:
-        def run_exec(self, *, options, **kwargs):
-            submit(options, route(
-                choice="existing", vertical="software", workflow_mode="direct",
-                execution_task="创作一篇《秋江赋》，语言典雅但可读。",
-            ))
-            return _Result()
-
-    division = Manager(project_root=tmp_path, runner=_Runner()).divide(
-        "创作一篇《秋江赋》，语言典雅但可读。"
-    )
-
-    assert division.vertical == "software"
-    assert division.workflow_mode == "direct"
-    assert division.stages == ["delivery"]
-    assert division.execution_task.startswith(
-        "创作一篇《秋江赋》，语言典雅但可读。"
-    )
 
 
-def test_manager_prompt_separates_capability_from_execution_mode() -> None:
-    prompt = build_vertical_decision_prompt(
-        "创作一篇《秋江赋》，语言典雅但可读，给我最终成品。",
-        verticals_with_purpose=VERTICAL_PURPOSES,
-    )
-
-    assert 'VERTICAL and, independently, WORKFLOW' in prompt
-    assert '`direct` for one coherent Engineer task' in prompt
-    assert 'related output files' in prompt
-    assert 'Host invokes Reviewer after Engineer' in prompt
-    assert "no task work or Live View" in prompt
-    assert 'omit it for a standalone existing route' in prompt
 
 
-def test_manager_prompt_routes_short_repair_to_software_direct() -> None:
-    prompt = build_vertical_decision_prompt(
-        "Fix the gRPC middleware bug in this repository; the existing tests define success.",
-        verticals_with_purpose=VERTICAL_PURPOSES,
-    )
-
-    assert "software" in prompt
-    assert '`direct` for one coherent Engineer task' in prompt
 
 
 def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:

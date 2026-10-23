@@ -116,7 +116,7 @@ def _manager_message(
     from ..core.transcript import append_turn
     from ..life.memory import BacklogItem, MemoryBundle
     from ..manager.config_intent import record_manager_handoff
-    from ..manager.front_door import manager_turn, mission_is_running
+    from ..manager.front_door import manager_session, manager_turn, mission_is_running
     from .attachments import attachment_context_refs, compose_message_body
 
     resolved_attachments = list(attachments or [])
@@ -280,7 +280,9 @@ def _manager_message(
         # Build the restart handoff before journaling this turn so the current
         # message appears exactly once.
         startup_handoff = ""
-        if chat_state.pop("needs_startup_handoff", False):
+        # A project without a Manager session yet (a new one, or one whose last
+        # turn failed) starts it from the conversation so far.
+        if manager_session(mem) is None:
             try:
                 transcript = Path(life_dir) / "transcript.jsonl"
                 if transcript.exists() and transcript.stat().st_size > 0:
@@ -429,8 +431,6 @@ def _manager_message(
             if isinstance(exc, DomainOfferRequired):
                 return emitter.respond(str(exc), {"kind": "chat", "decision_card": intake_card(read_intake(life_dir))})
             log.warning("Manager could not safely prepare operator work: %s", exc)
-            from ..manager.front_door import ManagerModelCapabilityMismatchError
-
             if isinstance(exc, MissionPersistenceError):
                 pending_item = chat_state["_pending_missions"][-1][0]
                 return emitter.respond(
@@ -440,8 +440,6 @@ def _manager_message(
                         "item": _item_to_dict(pending_item, operator_text or body),
                     },
                 )
-            if isinstance(exc, ManagerModelCapabilityMismatchError):
-                return emitter.respond(str(exc), {"kind": "error"})
             error_reply = (
                 "I couldn't safely prepare that request, so nothing was queued "
                 "or executed. Clarify the target and allowed scope, or retry later."
@@ -496,6 +494,28 @@ def _manager_message(
     else:
         emitter.emit_only(f"Queued · {title}")
     return result
+
+
+def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: dict[str, Any],
+                        global_root: Path | str) -> dict[str, Any]:
+    """Answer a team report as a turn of the Manager's own session.
+
+    The operator reads the Manager's words under the report's message id and
+    card fields; if the Manager cannot answer, they read the team's report.
+    """
+    from ..core.operator_messages import publish_operator_message
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import manager_turn
+
+    mem = MemoryBundle.for_cwd(fingerprint=sid, global_root=Path(global_root))
+    with _lock_for(sid):
+        chat_state = _chat_state_for(sid)
+        chat_state.update(session_id=sid, global_root=str(mem.global_root))
+        reply, _handoff = manager_turn(mem, f"Team report:\n{text}", chat_state, team_allowed=False)
+        if reply is None or chat_state.pop("_self_failure", None):
+            reply = text
+        publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
+    return {"kind": "chat", "reply": reply}
 
 
 def manager_plan(

@@ -335,13 +335,15 @@ def test_pause_is_serialized_after_inflight_manager_turn(
     call_order: list[str] = []
 
     def turn(text):
-        if "start another long-running task" in text:
+        # A fresh Manager thread carries the recent conversation before the
+        # new line, so the line being answered is the prompt's tail.
+        if text.endswith("start another long-running task"):
             call_order.append("first-turn")
             entered.set()
             assert release.wait(timeout=3)
             return None
         call_order.append("pause-turn")
-        assert text == "停一下"
+        assert text.endswith("停一下")
         return manager_settles(control={"kind": "pause", "quote": "停一下"})
 
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=turn, reply="First Manager turn completed inline."))
@@ -756,12 +758,6 @@ def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     objective = "prove the bounded integer lemma"
     manager = Manager(project_root=life, runner=SimpleNamespace(run_exec=lambda **_k: (_ for _ in ()).throw(
         AssertionError("a ticket's route needs no routing call"))))
-    monkeypatch.setattr(
-        manager,
-        "_decide_research_target",
-        lambda *args, **kwargs: "exploratory",
-    )
-
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda chat_state, mem: manager_runner(
         manager, hand=lambda text: ticket(text, vertical=targeted_vertical, workflow_mode="direct",

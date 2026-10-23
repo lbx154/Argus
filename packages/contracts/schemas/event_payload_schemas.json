@@ -4736,45 +4736,13 @@
         }
       }
     },
-    "life.manager.project_report": {
+    "life.manager.inbox": {
       "version": 1,
       "required": [
-        "report",
         "message_id"
       ],
       "properties": {
-        "stage": {
-          "type": "string"
-        },
-        "report": {
-          "type": "string",
-          "minLength": 1
-        },
-        "stage_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "transition_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "rollback_count": {
-          "type": "integer",
-          "minimum": 0
-        },
         "message_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "life.manager.project_report.failed": {
-      "version": 1,
-      "required": [
-        "error"
-      ],
-      "properties": {
-        "error": {
           "type": "string",
           "minLength": 1
         }

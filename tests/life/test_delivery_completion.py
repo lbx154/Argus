@@ -7,14 +7,12 @@ from argus.core.planner_verdict import PlannerVerdictStatus
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from tests.manager_inbox import team_reports
 
 
 class _Manager:
     def bind_execution_workdir(self, _workdir):
         return self
-
-    def report_project_completion(self, **_kwargs):
-        return "Manager reviewed the full stage ledger and confirmed completion."
 
 
 class _Runner:
@@ -65,20 +63,18 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
         "delivery_id": delivery["delivery_id"],
     })
 
-    transcript = [
-        json.loads(line)
-        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    transcript = team_reports(tmp_path)
     assert transcript[-1]["delivery"] == delivery
     assert transcript[-1]["delivery_id"] == delivery["delivery_id"]
     assert "The result is in results/final.md." in transcript[-1]["text"]
-    ui_events = [
+    # The daemon leaves the report for the Manager; the web owner shows the
+    # Manager's reply, so the daemon emits only the inbox notice.
+    inbox = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if '"type":"ui.argus"' in line
+        if '"type":"life.manager.inbox"' in line
     ]
-    assert len(ui_events) == 1
-    assert ui_events[0]["delivery"] == delivery
+    assert [event["message_id"] for event in inbox] == [transcript[-1]["message_id"]]
 
 
 def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
@@ -119,10 +115,7 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         "delivery": None,
         "delivery_id": "",
     })
-    turns = [
-        json.loads(line)
-        for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    turns = team_reports(memory.root)
     assert "One step done" in turns[-1]["text"]
     assert turns[-1].get("delivery") is None
 
@@ -138,14 +131,11 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         delivery=delivery,
     )
 
-    turns = [
-        json.loads(line)
-        for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    # One message tells the operator the project is done: the Manager's report,
-    # carrying the project's delivery card.
+    turns = team_reports(memory.root)
+    # One report tells the Manager the project is done, carrying the project's
+    # delivery card; the Manager writes the operator's message in its session.
     completion_turn = next(turn for turn in reversed(turns) if turn.get("delivery"))
-    assert completion_turn["text"] == "Manager reviewed the full stage ledger and confirmed completion."
+    assert completion_turn["text"]
     assert completion_turn["delivery"]["primary_target"]["path"] == "final.md"
     assert not any(str(turn.get("message_id", "")).endswith("-project-completed") for turn in turns)
 
@@ -466,11 +456,7 @@ def test_a_reviewed_task_is_announced_once_in_the_reviewer_s_words(tmp_path) -> 
     completed = next(event for event in events if event.get("type") == "life.mission.completed")
     assert completed["summary"] == "Review passed: reran the full suite, 138 passed."
     assert completed["delivery"]["summary"] == completed["summary"]
-    messages = [
-        json.loads(line)["text"]
-        for line in (life / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-        if json.loads(line).get("mission_result")
-    ]
+    messages = [report["text"] for report in team_reports(life) if report.get("mission_result")]
     assert len(messages) == 1
     assert "138 passed" in messages[0] and "awaiting" not in messages[0]
     project = supervisor._build_terminal_project_delivery("done")

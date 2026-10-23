@@ -120,8 +120,8 @@ class EventType(StrEnum):
     LIFE_MANAGER_FEEDBACK_PERSISTED = "life.manager.feedback.persisted"
     LIFE_MANAGER_FEEDBACK_UNRESOLVED = "life.manager.feedback.unresolved"
     LIFE_MANAGER_FEEDBACK_EXHAUSTED = "life.manager.feedback.exhausted"
-    LIFE_MANAGER_PROJECT_REPORT = "life.manager.project_report"
-    LIFE_MANAGER_PROJECT_REPORT_FAILED = "life.manager.project_report.failed"
+    # A team report waits for the Manager session's owner.
+    LIFE_MANAGER_INBOX = "life.manager.inbox"
     LIFE_VERTICAL_RESOLVED = "life.vertical.resolved"
     # Provenance for a role's agent-CLI backend, recorded once per daemon
     # boot: {role, backend, source}, where source uses the shared
@@ -349,7 +349,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_MANAGER_GOAL_CONTRACT_FAILED,
     EventType.LIFE_MANAGER_FEEDBACK_PERSISTED,
     EventType.LIFE_MANAGER_FEEDBACK_EXHAUSTED,
-    EventType.LIFE_MANAGER_PROJECT_REPORT_FAILED,
     EventType.LIFE_PLANNER_DEFERRED,
     EventType.LIFE_PLANNER_SUPERSEDED,
     EventType.LIFE_PLANNER_FINAL_SUBMISSION_SKIPPED,

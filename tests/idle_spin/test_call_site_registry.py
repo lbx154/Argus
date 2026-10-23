@@ -68,14 +68,6 @@ REGISTRY: tuple[Site, ...] = (
         ("peer-message-response",),
     ),
     Site(
-        r"manager-classify-(fast|grounded|grounded-retry)",
-        FOREGROUND,
-        "Decides the vertical for one operator objective, with one grounding retry; a "
-        "daemon asks once per start (_vertical_resolved, the boot handoff).",
-        ("argus/manager/_vertical_ops.py:746", "argus/manager/_vertical_ops.py:943"),
-        ("manager-classify-fast", "manager-classify-grounded-retry"),
-    ),
-    Site(
         r"manager-(project-grounding|research-target)", FOREGROUND,
         "Part of the vertical decision for one objective (research-target has no caller).",
         ("argus/manager/_vertical_ops.py:289", "argus/manager/_vertical_ops.py:368"),
@@ -157,13 +149,6 @@ REGISTRY: tuple[Site, ...] = (
         "assessment; two tries at most.",
         ("argus/life/supervisor/_acceptance_guard.py:147",),
         ("planner.acceptance_dependencies",),
-    ),
-    Site(
-        r"manager-project-report", EVENT,
-        "Once per accepted project completion; after PROJECT_REPORT_MODEL_ATTEMPTS failures "
-        "a deterministic report is published instead.",
-        ("argus/manager/_stage_ops.py:506",),
-        ("manager-project-report",),
     ),
     Site(
         r"manager\.reviewed_facts", EVENT,
@@ -289,8 +274,6 @@ PASS_THROUGH = {
     ("argus/manager/_stage_ops.py", "run_turn", "run_label"),
     ("argus/manager/front_door.py", "manager_judgment", "run_label"),
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
-    ("argus/manager/_vertical_ops.py", "_decide_vertical_once.route", "run_label"),
-    ("argus/manager/_vertical_ops.py", "_decide_vertical_once.grounded", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
     ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),
@@ -483,7 +466,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 40, "the sweep no longer sees the call sites"
+    assert len(chosen) > 35, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"

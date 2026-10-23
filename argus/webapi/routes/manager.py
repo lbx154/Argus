@@ -18,6 +18,7 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile, WebSocket, 
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
+from ...core.event_catalog import EventType
 from ...daemon import life_worker as daemon_worker
 from .. import project_state, server
 from .context import STREAM_PROTOCOL, ServerContext
@@ -174,6 +175,11 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         root = ctx.project_root_or_404(sid)
         if str(root.resolve()) != str(Path(saved["global_root"]).resolve()):
             raise ValueError("queued message project root changed")
+        if "team" in saved:
+            from ..manager_bridge import manager_team_report
+
+            return manager_team_report(sid, saved["text"], message_id=saved["turn_id"],
+                                       event_fields=saved["team"], global_root=root)
         kwargs = {k: v for k, v in saved.items()
                   if k not in {"sid", "text", "_queue_owner", "_queue_generation"}}
         generation = manager_control_generation(sid)
@@ -634,6 +640,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         if life_dir is None:
             await ws.close(code=4404, reason="unknown project")
             return
+        # A team report the project process left while nobody was watching.
+        deferred.resume(life_dir)
         iterator = server.tail_events(
             life_dir,
             replay_limit=max(0, min(replay, 200)),
@@ -657,6 +665,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                     except StopAsyncIteration:
                         return
                     event_task = asyncio.create_task(anext(iterator))
+                    if ev.get("type") == EventType.LIFE_MANAGER_INBOX:
+                        deferred.resume(life_dir)
                     if view == "ui" and not server._event_visible_in_web_ui(ev):
                         continue
                     await ws.send_json(ev)

@@ -26,7 +26,7 @@ def home(tmp_path, monkeypatch):
     for name in _ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    return SimpleNamespace(project=SimpleNamespace(root=tmp_path))
+    return SimpleNamespace(project=SimpleNamespace(root=tmp_path), project_root=tmp_path)
 
 
 _LISTS = {"codex": ["house-a", "house-b"], "copilot": ["hosted-x", "hosted-y"], "pi": ["local-m"]}

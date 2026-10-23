@@ -21,7 +21,6 @@ from ..core.research_contract import normalize_research_direction_mode
 from ..core.session import topic_name
 from ..roles.prompts.manager import (
     build_research_target_prompt,
-    build_vertical_decision_prompt,
 )
 from ..skills.stage_machine import normalize_stage_for_project
 from ..verticals._data_domain import CANDIDATE_DOMAIN_STAGES
@@ -63,26 +62,6 @@ class VerticalDecisionError(RuntimeError):
         if self.task_excerpt:
             message += f"; task={self.task_excerpt!r}"
         super().__init__(message)
-
-
-class ManagerClassificationContractError(VerticalDecisionError):
-    """A model reply violated a Manager classification capability clause.
-
-    This is intentionally narrower than :class:`VerticalDecisionError`:
-    provider timeouts, 429/5xx responses, auth failures, and configuration
-    errors must never be counted as evidence that a model lacks the role's
-    structured-decision or repository-grounding capability.
-    """
-
-    def __init__(self, cause: str, *, clause: str, **details: Any) -> None:
-        super().__init__(cause, **details)
-        self.clause = clause
-        self.model_id = ""
-        self.consecutive_count = 0
-
-    def attach_streak(self, *, model_id: str, consecutive_count: int) -> None:
-        self.model_id = model_id
-        self.consecutive_count = consecutive_count
 
 
 def _bounded_task_excerpt(task: object, *, limit: int = 80) -> str:
@@ -227,10 +206,8 @@ def _listed(payload: Mapping[str, Any], key: str) -> tuple[str, ...]:
 class RouteContext:
     """What a routing call is checked against: the menus and the persisted route contract.
 
-    ``decide`` is the route form's check. It refuses a decision the host
-    cannot commit with one sentence the Manager can act on. ``fast`` is the
-    tool-free first pass, which commits only an existing route: any other
-    choice leaves the decision to the grounded call (``decide`` returns ``None``).
+    ``decide`` is the ticket route's check. It refuses a decision the host
+    cannot commit with one sentence the Manager can act on.
     """
 
     known_verticals: tuple[str, ...] = ()
@@ -245,19 +222,14 @@ class RouteContext:
     persisted_research_direction_mode: str = ""
     allow_persisted_change: bool = False
     project_root: object = None
-    fast: bool = False
 
     def _kept(self, field: str, value: str, prior: str, same: bool) -> None:
         """Refuse changing what the active route contract fixes."""
         if same and prior and value != prior and not self.allow_persisted_change:
             raise ValueError(f"{field} must stay {prior}: the active route contract fixes it for this vertical.")
 
-    def decide(self, payload: dict[str, Any]) -> VerticalDecision | None:
+    def decide(self, payload: dict[str, Any]) -> VerticalDecision:
         choice = payload["choice"]
-        if self.fast and choice != "existing":
-            return None
-        if choice == "grounded":
-            raise ValueError("choice=grounded belongs to the fast pass; choose existing or new.")
         execution_task = str(payload.get("execution_task") or self.default_execution_task).strip()
         if not execution_task:
             raise ValueError(
@@ -317,9 +289,10 @@ class RouteContext:
         if name == "research":
             decision.target_venue = " ".join(str(payload.get("target_venue") or "").split())
         decision.workflow_profile = str(payload.get("workflow_profile") or "").strip()
-        decision.workflow_requested_stages = tuple(
-            stage.strip().lower() for stage in payload.get("workflow_stages", ())
-        )
+        stages = payload.get("workflow_stages", ())
+        if not isinstance(stages, (list, tuple)) or not all(isinstance(stage, str) for stage in stages):
+            raise ValueError("workflow_stages must be a list of stage names.")
+        decision.workflow_requested_stages = tuple(stage.strip().lower() for stage in stages)
         if mode == "direct" and payload.get("start_stage"):
             decision.start_stage = normalize_stage_for_project(
                 self.project_root, payload["start_stage"], vertical=name, require_known=True,
@@ -371,7 +344,6 @@ __all__ = [
     "VerticalDecision",
     "VerticalDecisionError",
     "build_research_target_prompt",
-    "build_vertical_decision_prompt",
     "parse_domain_proposal",
     "sanitize_model_reply_snippet",
 ]

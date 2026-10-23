@@ -1155,7 +1155,9 @@ def test_real_fpga_archive_routes_and_seeds_its_independent_specialty(community_
         pytest.skip("community checkout predates the FPGA domain")
     store.install("fpga_design", wait=True)
     assert set(store.installed()) == {"digital_circuit", "digital_circuit_verification", "fpga_design"}
-    paths = vertical_select.available_vertical_routing_paths()
+    from argus.verticals._registry import vertical_plugins
+
+    paths = {name: plugin.routing_path for name, plugin in vertical_plugins().items()}
     assert paths["fpga_design"] == ("hardware", "fpga_design")
     assert paths["digital_circuit_verification"] == ("hardware", "digital_circuit", "verification")
     module = load_vertical("fpga_design")

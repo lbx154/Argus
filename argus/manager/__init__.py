@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from ._core import Division, Manager, StageTransition
 from ._session_ops import reset_manager_session
-from ._stage_ops import fallback_project_report
 from .plan_challenge import PlanChallengeDecision, adjudicate_plan_challenge
 
 __all__ = [
@@ -19,6 +18,5 @@ __all__ = [
     "StageTransition",
     "PlanChallengeDecision",
     "adjudicate_plan_challenge",
-    "fallback_project_report",
     "reset_manager_session",
 ]

@@ -367,22 +367,9 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     assert read_autonomous_assumptions(tmp_path) == []
 
 
-def test_completion_report_prompt_names_each_assumption() -> None:
-    from argus.roles.prompts.manager import build_project_completion_report_prompt
-
-    prompt = build_project_completion_report_prompt(
-        objective="o",
-        completion_reason="done",
-        completion_context={"autonomous_assumptions": [{"conflict": "c", "reading": "r"}]},
-    )
-    assert "Name each recorded assumption" in prompt
-    assert "Name each recorded assumption" not in build_project_completion_report_prompt(
-        objective="o", completion_reason="done", completion_context={}
-    )
 
 
 def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> None:
-    import json as _json
 
     from argus.core.autonomy import record_autonomous_assumption, start_autonomy_run
     from argus.life.event_log import JsonlEventSink
@@ -409,10 +396,9 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         "overall_complete": True,
         "outcome": {"review_status": "done"},
     })
-    texts = [
-        _json.loads(line)["text"]
-        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    from tests.manager_inbox import team_reports
+
+    texts = [report["text"] for report in team_reports(tmp_path)]
     assert any("I went with: Hello goes to stdout" in text for text in texts)
 
 

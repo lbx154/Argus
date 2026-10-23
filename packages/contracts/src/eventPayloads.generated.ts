@@ -1572,21 +1572,10 @@ export interface LifeManagerFeedbackExhaustedEvent extends EventMsg {
   "attempts": number;
 }
 
-export interface LifeManagerProjectReportEvent extends EventMsg {
-  type: "life.manager.project_report";
+export interface LifeManagerInboxEvent extends EventMsg {
+  type: "life.manager.inbox";
   payload_schema_version?: 1;
-  "stage"?: string;
-  "report": string;
-  "stage_count"?: number;
-  "transition_count"?: number;
-  "rollback_count"?: number;
   "message_id": string;
-}
-
-export interface LifeManagerProjectReportFailedEvent extends EventMsg {
-  type: "life.manager.project_report.failed";
-  payload_schema_version?: 1;
-  "error": string;
 }
 
 export interface LifePlannerDeferredEvent extends EventMsg {
@@ -2066,8 +2055,7 @@ export interface EventPayloadByType {
   "life.manager.feedback.persisted": LifeManagerFeedbackPersistedEvent;
   "life.manager.feedback.unresolved": LifeManagerFeedbackUnresolvedEvent;
   "life.manager.feedback.exhausted": LifeManagerFeedbackExhaustedEvent;
-  "life.manager.project_report": LifeManagerProjectReportEvent;
-  "life.manager.project_report.failed": LifeManagerProjectReportFailedEvent;
+  "life.manager.inbox": LifeManagerInboxEvent;
   "life.planner.deferred": LifePlannerDeferredEvent;
   "life.planner.superseded": LifePlannerSupersededEvent;
   "life.planner.verdict.discarded": LifePlannerVerdictDiscardedEvent;

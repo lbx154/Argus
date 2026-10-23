@@ -24,13 +24,12 @@ def test_missing_or_placeholder_titles_do_not_freeze_raw_input(tmp_path, title):
     assert read_session_meta(tmp_path, state["session_id"]).display_name == "订单去重"
 
 
-@pytest.mark.parametrize("fast", [False, True])
 @pytest.mark.parametrize(("title", "named"), [("Refund calculation", "Refund calculation"),
                                               ("none", ""), ("KEEP", ""), ("42", "")])
-def test_a_route_carries_an_agent_title_without_an_extra_call(fast, title, named):
+def test_a_route_carries_an_agent_title_without_an_extra_call(title, named):
     """The Manager's session_title names the session and the task; a
     placeholder in its place is no title for either."""
-    context = RouteContext(known_verticals=("software",), fast=fast)
+    context = RouteContext(known_verticals=("software",))
     decision = context.decide({"to": "team", "summary": "A small repository change", "assumptions": [],
                                "choice": "existing", "vertical": "software", "workflow_mode": "direct",
                                "session_title": title, "execution_task": "Fix the refund formula"})

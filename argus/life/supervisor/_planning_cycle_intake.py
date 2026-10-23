@@ -653,10 +653,11 @@ class PlanningCycleIntakeMixin:
             try:
                 manager_intent = self._resolve_vertical_once()
             except VerticalResolutionError as exc:
-                # The persisted vertical cannot be loaded in this runtime
-                # (typically a community vertical without argus-verticals):
-                # hold with the operator-facing reason and back off instead
-                # of failing the tick and stopping the supervisor.
+                # No route yet (no Manager ticket), or the persisted vertical
+                # cannot be loaded in this runtime (typically a community
+                # vertical without argus-verticals): hold with the reason and
+                # decide again on a later cycle instead of failing the tick.
+                self._vertical_resolved = False
                 self._hold_on_unresolved_vertical(exc)
                 self._enter_pause_backoff()
                 return PLAN_ERROR
