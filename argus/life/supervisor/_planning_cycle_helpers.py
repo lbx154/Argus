@@ -420,7 +420,7 @@ class _PlanCycleState:
         self.inbox_delivery_messages: list[str] = []
         self.had_operator_messages = False
         self.operator_context_revision: int = 0
-        # Idle instructions this turn's prompt offered for SETTLE_INSTRUCTION.
+        # Idle instructions this turn's prompt offered for settle_instructions.
         self.settleable_operator_revisions: frozenset[int] = frozenset()
         self.has_unhandled_operator_input: bool = False
         self.revision_active_items: list[BacklogItem] = []

@@ -380,7 +380,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "stage package task (experiment.stage_package). "
                 "In `paper`, schedule "
                 "writing; a run belongs there only for a specific evidence gap the "
-                "manuscript exposed. Retire superseded pending tasks with RETIRE_TASK."
+                "manuscript exposed. Retire superseded pending tasks with `retire`."
             ),
         )
         if block

@@ -418,18 +418,18 @@ def test_planner_block_offers_only_idle_instructions_for_settlement(tmp_path: Pa
     assert f"[mission; revision {idle.revision}]: evaluate the parser" in block
     assert "[project]: keep this" in block
     assert f"revision {standing.revision}]" not in block
-    assert "SETTLE_INSTRUCTION=N" in block
+    assert "`settle_instructions`" in block
 
     for role in ("planner", "engineer"):
         plain, _ = build_operator_context_block(role, tmp_path, consume_once=False)
-        assert "SETTLE_INSTRUCTION" not in plain
+        assert "settle_instructions" not in plain
         assert f"revision {idle.revision}]" not in plain
 
     store.acknowledge("planner", idle.revision, settle=[idle.revision])
     block, _, offered = build_settleable_planner_context_block(tmp_path)
     assert offered == frozenset()
     assert "evaluate the parser" not in block
-    assert "SETTLE_INSTRUCTION" not in block
+    assert "settle_instructions" not in block
 
 
 def test_repeated_settlement_reports_only_new_revisions(tmp_path: Path) -> None:

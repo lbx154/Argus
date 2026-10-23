@@ -454,7 +454,7 @@ class PlanningContextMixin:
         ``math`` (and the community ``materials``) demand a scope the enqueue boundary refuses
         to persist, so no project in either could reach ``project_done``.
         Testbed runs 8, 9 and 10 all died here — once fixes #45 and #46 landed
-        the Planner did emit ``TASK_SCOPE=final_submission``, and the item was
+        the Planner did set ``scope: "final_submission"``, and the item was
         still enqueued as ``scope:bounded``.
 
         The bounded verticals this downgrade was written to protect
