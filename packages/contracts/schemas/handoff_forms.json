@@ -156,7 +156,7 @@
       }
     },
     "manager": {
-      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide; manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
+      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide (Argus shows your question and its options under your reply, so do not repeat them there); manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
       "core": ["to", "summary", "ask", "assumptions"],
       "to": ["manager", "team", "operator"],
       "required": ["to", "summary", "assumptions"],
