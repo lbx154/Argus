@@ -17,7 +17,7 @@ from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping
+from typing import Any
 
 from ..core.handoff import HandOff, HandOffActions
 from ..core.role_actions import role_actions
@@ -30,27 +30,6 @@ from ._helpers import (
 from .stage_decider import stage_check
 
 _log = logging.getLogger(__name__)
-
-
-def fallback_project_report(
-    completion_context: Mapping[str, Any], continuous_objective: str = "",
-) -> str:
-    """The completion report Argus can state without the Manager model."""
-    from ..core.mission_view import say, sentences, uses_cjk
-
-    paths = [
-        str(row["path"])
-        for row in completion_context.get("current_artifact_evidence") or ()
-        if isinstance(row, dict) and row.get("path")
-    ][:3]
-    chinese = uses_cjk(continuous_objective)
-    increment = completion_context.get("completion_scope") == "certified_increment"
-    return sentences(
-        chinese,
-        say("increment_done" if increment else "project_done", chinese),
-        say("results_in", chinese, paths=("、" if chinese else ", ").join(paths)) if paths else "",
-        say("summary_unchecked", chinese),
-    )
 
 
 _MISSING_REVIEW_FIELD = object()
@@ -311,31 +290,6 @@ class _StageDecisionMixin:
         """Run one Manager turn in the task's usage scope; its reply, or '' when it wrote none."""
         with self._task_usage_scope(root_task_id):
             return run_exec(prompt).last_agent_message or ""
-
-    def report_project_completion(
-        self,
-        *,
-        completion_context: Mapping[str, Any],
-        continuous_objective: str = "",
-        completion_reason: str = "",
-        on_event: Any = None,
-        root_task_id: str | None = None,
-    ) -> str:
-        """Return a Manager-authored operator report for a completed stage ledger."""
-        from ..roles.prompts.manager import build_project_completion_report_prompt
-
-        prompt = build_project_completion_report_prompt(
-            objective=continuous_objective,
-            completion_reason=completion_reason,
-            completion_context=completion_context,
-        )
-        # Named for what it is: the operator report, not a stage decision.
-        run_exec, hold = self._build_stage_run_exec(
-            None, on_event, run_label="manager-project-report",
-        )
-        if hold is not None or run_exec is None:
-            return fallback_project_report(completion_context, continuous_objective)
-        return self._run_stage_model(run_exec, prompt, root_task_id).strip()
 
     def _finalize_stage_decision(
         self,

@@ -11,9 +11,8 @@ returned a non-error verdict but before any backlog dedupe/enqueue.
 
 from __future__ import annotations
 
-import json
+import hashlib
 import logging
-import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -29,7 +28,6 @@ from ._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
-    PROJECT_REPORT_MODEL_ATTEMPTS,
 )
 from ._planner_failure_backoff import MANAGER_HANDOFF_UNANSWERED
 from ._planning_cycle_helpers import (
@@ -337,17 +335,12 @@ class PlanningCycleCompletionMixin:
     def _manager_publish_project_report(
         self, completion_reason: str, *, certified_increment: bool = False,
         delivery: dict[str, Any] | None = None,
-    ) -> str:
-        """Have Manager summarize the completed full stage ledger to the operator.
+    ) -> None:
+        """Hand the completed stage ledger to the Manager, which tells the operator.
 
-        The same completion, with the same evidence, is reported once: its
-        facts and message id are recorded before publishing, so a retry
-        reuses the id and finds an already published report. The Manager's
-        text is recorded too, so a failed publish never buys a second report.
-        A failure alerts the operator once and backs off like an idle cycle.
+        The same completion, with the same evidence, is one report: its id is
+        the digest of its facts.
         """
-        stage = str(self._current_pipeline_stage() or "")
-        report_root = self._manager_project_report_root()
         context = self._manager_project_completion_context()
         if certified_increment:
             context.update(
@@ -356,123 +349,23 @@ class PlanningCycleCompletionMixin:
                 final_submission_signature=self._final_submission_signature(),
             )
         facts = fact_text({
-            "project_conversation": str(report_root.resolve()),
             "objective": self.config.continuous_objective,
             "reason": completion_reason,
             "context": context,
         })
-        record_path = report_root / "manager-project-report.json"
-        try:
-            record = json.loads(record_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            record = {}
-        if not (isinstance(record, dict) and record.get("facts") == facts and record.get("message_id")):
-            record = {"facts": facts, "message_id": f"manager-project-report-{uuid.uuid4().hex}"}
-            report_root.mkdir(parents=True, exist_ok=True)
-            record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
-        message_id = str(record["message_id"])
-        from ...core.transcript import read_turns
-
-        if any(
-            turn.get("message_id") == message_id
-            for turn in read_turns(report_root)
-        ):
-            return "reported"
-
-        report = str(record.get("report") or "")
-        # A backend that keeps failing gets PROJECT_REPORT_MODEL_ATTEMPTS tries
-        # at one completion; then the operator gets the stage summary Argus can
-        # state without the model.
-        fallback = not report and int(record.get("failures") or 0) >= PROJECT_REPORT_MODEL_ATTEMPTS
-        if fallback:
-            from ...manager import fallback_project_report
-
-            report = fallback_project_report(context, self.config.continuous_objective)
-            self._emit_status(
-                "Manager could not write the project completion report after "
-                f"{PROJECT_REPORT_MODEL_ATTEMPTS} attempts; sending the stage summary instead"
-            )
-        elif not report:
-            try:
-                report = str(self._bound_manager().report_project_completion(
-                    completion_context=context,
-                    continuous_objective=self.config.continuous_objective,
-                    completion_reason=completion_reason,
-                    on_event=getattr(self.sink, "handle_event", None),
-                ) or "").strip()
-            except Exception as exc:  # noqa: BLE001 - retain the outbox for retry
-                return self._project_report_failed(record_path, record, f"{type(exc).__name__}: {exc}")
-            if not report:
-                return self._project_report_failed(
-                    record_path, record, "Manager could not produce the project completion report",
-                )
-            record["report"] = report
-            try:
-                record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
-            except OSError:
-                log.warning("project report text not recorded; a retry asks the Manager again")
-        try:
-            from ...core.operator_messages import publish_operator_message
-
-            published = publish_operator_message(
-                report_root,
-                text=str(report).strip(),
-                message_id=message_id,
-                event_fields={
-                    "manager_project_report": True,
-                    "current_stage": stage,
-                    # The project's delivery card rides on its one completion message.
-                    **({"delivery": delivery, "delivery_id": str(delivery.get("delivery_id") or "")}
-                       if isinstance(delivery, dict) else {}),
-                },
-            )
-            if not published and not any(
-                turn.get("message_id") == message_id
-                for turn in read_turns(report_root)
-            ):
-                return self._project_report_failed(
-                    record_path, record, "Manager project report could not be published",
-                )
-        except Exception as exc:  # noqa: BLE001 - notification cannot own the verdict
-            return self._project_report_failed(record_path, record, f"{type(exc).__name__}: {exc}")
-        self._emit({
-            "type": "life.manager.project_report",
-            "stage": stage,
-            "report": str(report).strip(),
-            "stage_count": len(context["stages"]),
-            "transition_count": len(context["stage_history"]),
-            "rollback_count": len(context["rollback_history"]),
-            "message_id": message_id,
-            **({"fallback": True} if fallback else {}),
-        })
+        self._report_to_manager(
+            self._manager_project_report_root(),
+            text=facts,
+            message_id=f"manager-project-report-{hashlib.sha256(facts.encode()).hexdigest()[:16]}",
+            event_fields={
+                "manager_project_report": True,
+                "current_stage": str(self._current_pipeline_stage() or ""),
+                # The project's delivery card rides on its one completion message.
+                **({"delivery": delivery, "delivery_id": str(delivery.get("delivery_id") or "")}
+                   if isinstance(delivery, dict) else {}),
+            },
+        )
         self._clear_manager_planner_feedback()
-        return "reported"
-
-    def _project_report_failed(self, record_path: Path, record: dict[str, Any], error: str) -> str:
-        """Record a failed completion report, alert once, and back off.
-
-        The outbox keeps the completion, so the report is retried; but only
-        after an idle backoff (doubling, capped), never at the daemon's poll
-        rate, and the operator hears about it once per report, not per retry.
-        """
-        self._emit({"type": "life.manager.project_report.failed", "error": error})
-        first = not record.get("failures") and getattr(self, "_project_report_alerted", "") != record["message_id"]
-        record["failures"] = int(record.get("failures") or 0) + 1
-        record["error"] = error
-        try:
-            record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
-        except OSError:
-            log.warning("project report failure not recorded", exc_info=True)
-        if first:
-            self._project_report_alerted = record["message_id"]
-            self._emit({
-                "type": EventType.OPERATOR_ALERT,
-                "operator_alert": True,
-                "reason": "project_report_failed",
-                **self._operator_words("project_report_pending"),
-            })
-        self._enter_idle_backoff()
-        return PLAN_ERROR
 
     def _manager_final_stage_is_completed(self) -> bool:
         """Whether Manager has already persisted the terminal stage completion."""

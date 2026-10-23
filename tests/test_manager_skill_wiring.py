@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import argus.builtin_skills as _builtin
 from argus.core.models import RunnerResult
 from argus.manager import Manager
-from argus.skills.role_context import load_builtin_skill_text
 from argus.skills.store import (
     _ROLE_SUBDIRS,
     ROLE_CROSS_READ_POOLS,
@@ -30,15 +27,8 @@ def test_planner_role_skill_moved_to_planner_dir() -> None:
     assert not (_BUILTIN_ROOT / "planner" / "argus-planner-role.md").exists()
 
 
-def test_planner_role_skill_still_loads_from_new_location() -> None:
-    # Bare role filenames resolve across bundled role directories.
-    text = load_builtin_skill_text("dependency-aware-task-decomposition.md")
-    assert "The Planner's role" in text
 
 
-def test_missing_required_role_skill_fails_loudly() -> None:
-    with pytest.raises(FileNotFoundError, match="required bundled role skill"):
-        load_builtin_skill_text("missing-role-skill.md")
 
 
 def test_planner_role_skill_no_longer_classified_as_engineer() -> None:
@@ -61,17 +51,6 @@ def test_manager_in_role_subdirs_and_pools() -> None:
     })
 
 
-def test_manager_role_skill_file_exists_and_loads() -> None:
-    assert (_BUILTIN_ROOT / "manager" / "evidence-based-stage-decision.md").is_file()
-    assert not (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").exists()
-    text = load_builtin_skill_text("evidence-based-stage-decision.md")
-    compact = " ".join(text.split())
-    assert "The Manager's role" in text
-    assert "ordinary work supported by evidence and carried out in an isolated worktree" in text
-    assert "Only work the Reviewer finds complete may be considered for deployment" in compact
-    assert "The corresponding Reviewer result is: `done`" in compact
-    assert "deployment requires the operator's approval" in compact
-    assert "never automatic" in compact
 
 
 # --------------------------------------------------------------------------

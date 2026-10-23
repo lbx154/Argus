@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from argus.core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
-from argus.core.transcript import read_turns
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.mission_outcome import mission_outcome_dimensions
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from tests.manager_inbox import team_reports
 
 _ROUTED = {"routed": True, "vertical": "software"}
 
@@ -79,7 +79,7 @@ def test_tasks_failing_on_the_model_service_stop_after_three_hours(tmp_path) -> 
     fenced = next(item for item in memory.backlog.all() if item.id == task.id)
     assert fenced.status == "parked"
     assert fenced.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
-    told = [turn for turn in read_turns(tmp_path / "life") if turn.get("role") == "argus"]
+    told = team_reports(tmp_path / "life")
     assert any("click Run" in turn["text"] for turn in told)
     # The model service would turn a later task away too: it waits, uncalled.
     later = memory.backlog.add(BacklogItem.new(title="later", objective="later work", manager_decision=_ROUTED))

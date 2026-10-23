@@ -150,11 +150,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "The model service is answering again; paused work picks up where it stopped.",
         "模型服务恢复了，之前停下的工作会接着做。",
     ),
-    "project_report_pending": (
-        "The project is done, but its summary isn't written yet; Argus will try "
-        "again shortly.",
-        "项目已经完成，只是总结还没写好，Argus 过一会儿再试。",
-    ),
     # Task lifecycle.
     "mission_started": (
         "Starting work on this task",
@@ -549,13 +544,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "后台连着调用了 {calls} 次模型，一直没有进展：没有新任务、没有做完的工作，"
         "你也没发新消息。为了不再白花钱，我先停了这些后台调用，正在做的任务不受影响。"
         "一有新进展，或者你在这里回一句，就会恢复。",
-    ),
-    "manager_model_mismatch": (
-        "The model the Manager uses ({model}) failed several times in a row to work "
-        "out how to handle requests, so nothing was started. Pick another model for "
-        "the Manager in Settings → Advanced settings, restart, and try again.",
-        "现在给经理用的模型（{model}）连续几次都没弄懂该怎么处理请求，所以这次没有开始任何工作。"
-        "请在“设置 → 高级设置”里给经理换一个模型，重启后再试。",
     ),
     "proxy_undecided": (
         "I couldn't decide “{title}” for you, so it waits for your answer.",

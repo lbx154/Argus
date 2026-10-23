@@ -195,12 +195,6 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         backend = "codex"
     st = {
         "backend": backend,
-        "last_thread_id": None,
-        # The first message handled by this web process may belong to an older
-        # persisted conversation. Seed the new chat session from its transcript
-        # once; a brand-new project has no prior transcript and skips the
-        # handoff.
-        "needs_startup_handoff": True,
         "session_started_s": time.monotonic(),
         "last_access_monotonic": time.monotonic(),
         "mission_count": 0,

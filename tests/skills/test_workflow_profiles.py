@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -23,7 +22,6 @@ from argus.skills.vertical_select import (
 )
 from argus.verticals import _registry
 from argus.verticals._base import load_vertical, load_vertical_contract
-from tests.hand_off import route, submit
 
 
 @pytest.fixture
@@ -166,71 +164,14 @@ def test_all_role_prompts_and_cockpit_read_the_selected_state_root(provider, tmp
     assert load_vertical_contract("profile_lab", state).stage_order == ("verify",)
 
 
-class ProfileRunner:
-    def __init__(self, profile):
-        self.profile = profile
-        self.prompts = []
-
-    def run_exec(self, *, prompt, options, **kwargs):
-        self.prompts.append(prompt)
-        decision = {
-            "choice": "existing", "vertical": "profile_lab", "workflow_mode": "staged",
-            "execution_task": "Design and verify a small block.",
-        }
-        if self.profile is not None:
-            decision["workflow_profile"] = self.profile
-        submit(options, route(**decision))
-        return SimpleNamespace(agent_messages=[], thread_id="profile-test", tool_activity_observed=True)
 
 
-@pytest.mark.parametrize("fast", ["0", "1"])
-@pytest.mark.parametrize("profile", ["build", "full", "verification"])
-def test_manager_selects_commits_and_advertises_profile(provider, tmp_path, monkeypatch, fast, profile):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", fast)
-    runner = ProfileRunner(profile)
-    manager = Manager(project_root=tmp_path, runner=runner)
-    decision = manager.decide_vertical("Design and verify a small block.")
-    assert decision.workflow_profile == profile
-    division = manager.commit_vertical_decision("Design and verify a small block.", decision)
-    assert division.stages == list(provider.WORKFLOW_PROFILES[profile]["stages"])
-    assert read_pipeline_state(tmp_path)["workflow_profile"] == profile
-    assert any("workflow_profile" in prompt for prompt in runner.prompts)
-    assert "design and verify only" in available_vertical_purposes()["profile_lab"]
 
 
-def test_manager_requires_new_scope_but_preserves_legacy_continuation(provider, tmp_path):
-    manager = Manager(project_root=tmp_path, runner=ProfileRunner(None))
-    with pytest.raises(VerticalDecisionError, match="workflow_profile"):
-        manager.decide_vertical("Design and verify a small block.")
-    assert not read_pipeline_state(tmp_path)
-    persist_vertical(tmp_path, "profile_lab")
-    decision = manager.decide_vertical("Continue the current work.")
-    assert decision.workflow_profile == ""
-    manager.commit_vertical_decision("Continue the current work.", decision)
-    assert "workflow_profile" not in read_pipeline_state(tmp_path)
 
 
-def test_manager_rejects_invented_profile_before_commit(provider, tmp_path):
-    with pytest.raises(VerticalDecisionError, match="invalid workflow_profile"):
-        Manager(project_root=tmp_path, runner=ProfileRunner("invented")).decide_vertical(
-            "Design and verify a small block.",
-        )
-    assert not read_pipeline_state(tmp_path)
 
 
-def test_manager_only_changes_scope_at_replacement_boundary(provider, tmp_path):
-    persist_vertical(tmp_path, "profile_lab", workflow_profile="verification")
-    manager = Manager(project_root=tmp_path, runner=ProfileRunner("full"))
-    with pytest.raises(VerticalDecisionError, match="cannot change"):
-        manager.decide_vertical("Continue.")
-    decision = manager.decide_vertical("Now deliver the full project.", allow_route_contract_change=True)
-    division = manager.commit_vertical_decision(
-        "Now deliver the full project.", decision, force_stage_reset=True,
-    )
-    assert division.stages == ["design", "verify", "deliver"]
-    state = read_pipeline_state(tmp_path)
-    assert state["current_stage"] == "design"
-    assert state["workflow_profile"] == "full"
 
 
 def test_commit_rejects_unknown_profile_even_without_model(provider, tmp_path):
@@ -346,44 +287,6 @@ def test_custom_continuation_freezes_requested_and_effective_scope(composable_pr
         load_vertical_contract("profile_lab", tmp_path)
 
 
-@pytest.mark.parametrize("fast", ["0", "1"])
-def test_manager_composes_and_explains_requested_scope(composable_provider, tmp_path, monkeypatch, fast):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", fast)
-
-    class CustomRunner:
-        def run_exec(self, *, prompt, options, **kwargs):
-            assert "workflow_stages=" in prompt
-            submit(options, route(
-                choice="existing", vertical="profile_lab", workflow_mode="staged",
-                workflow_profile="custom", workflow_stages=["design"],
-                execution_task="Build a block without delivery packaging.",
-            ))
-            return SimpleNamespace(agent_messages=[], thread_id="custom", tool_activity_observed=True)
-
-    manager = Manager(project_root=tmp_path, runner=CustomRunner())
-    decision = manager.decide_vertical("Build a block without packaging.")
-    assert decision.workflow_requested_stages == ("design",)
-    division = manager.commit_vertical_decision("Build a block.", decision)
-    assert division.stages == ["design", "verify"]
-    assert "verify (required by design)" in division.workflow_summary
-    assert "Outside scope: deliver" in division.headline()
-    assert division.workflow_profile == "custom"
-    from argus.manager.front_door import PreparedManagerHandoff
-
-    PreparedManagerHandoff(
-        mem=SimpleNamespace(project_root=tmp_path), body="Build a block.",
-        manager=manager, decision=decision, intent_id="custom-scope", root_task_id=None,
-    ).completed(division)
-    event = json.loads((tmp_path / "events.jsonl").read_text().splitlines()[-1])
-    assert event["workflow_profile"] == "custom"
-    assert event["workflow_summary"] == division.workflow_summary
-    assert event["stages"] == ["design", "verify"]
-    assert division.workflow_summary in event["text"]
-    manager.runner = ProfileRunner(None)
-    continued = manager.decide_vertical("Continue.")
-    assert continued.workflow_profile == "custom"
-    assert continued.workflow_requested_stages == ("design",)
-    manager.commit_vertical_decision("Continue.", continued)
 
 
 def test_custom_replacement_resets_only_at_operator_boundary(composable_provider, tmp_path):
@@ -420,19 +323,16 @@ def test_invalid_requirement_graphs_fail_visibly(provider, requirements):
         vertical_contract("profile_lab", provider)
 
 
-@pytest.mark.parametrize("fast", [True, False])
-def test_composition_takes_a_list_of_stages_not_an_ambiguous_string(fast):
-    from argus.core.handoff import HandOffActions
+def test_composition_takes_a_list_of_stages_not_an_ambiguous_string():
     from argus.manager.domain_author import RouteContext
 
-    actions = HandOffActions("route", check=RouteContext(known_verticals=("software",), fast=fast).decide)
+    decide = RouteContext(known_verticals=("software",)).decide
     payload = {
         "to": "team", "summary": "a custom flow", "assumptions": [], "choice": "existing",
         "vertical": "software", "workflow_mode": "staged", "workflow_profile": "custom",
         "workflow_stages": ["rtl", "ppa"], "execution_task": "work",
     }
-    actions.dispatch("hand_off", payload)
-    assert actions.handoff.value.workflow_requested_stages == ("rtl", "ppa")
+    assert decide(payload).workflow_requested_stages == ("rtl", "ppa")
     for invalid in ("rtl;ppa", None, 3, ["rtl", {}]):
         with pytest.raises(ValueError, match="workflow_stages"):
-            actions.dispatch("hand_off", {**payload, "workflow_stages": invalid})
+            decide({**payload, "workflow_stages": invalid})

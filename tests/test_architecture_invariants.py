@@ -1085,6 +1085,7 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "life/recall_embedding.py -> daemon",
     "life/runtime_failure_circuit.py -> <root>",
     "life/supervisor/_core.py -> daemon",
+    "life/supervisor/_core.py -> webapi",
     "life/supervisor/_idle_cycle.py -> apps",
     "life/supervisor/_idle_cycle.py -> daemon",
     "life/supervisor/_planning_cycle_intake.py -> apps",

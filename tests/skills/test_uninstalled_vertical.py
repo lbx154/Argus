@@ -172,13 +172,15 @@ def test_the_planning_cycle_holds_and_will_decide_again_later(tmp_path) -> None:
     cycle = _Cycle(root)
     with pytest.raises(vs.UninstalledVerticalError):
         cycle._resolve_vertical_once()
-    assert cycle._vertical_resolved is False  # not latched: retried after the operator installs
 
     # The intake gate turns that raise into a held, backed-off planner cycle
-    # instead of a tick error that stops the supervisor. Pinned structurally:
-    # the gate's earlier short-circuits need a whole supervisor to drive.
+    # instead of a tick error that stops the supervisor, and decides again
+    # later. Pinned structurally: the gate's earlier short-circuits need a
+    # whole supervisor to drive.
     gate = inspect.getsource(PlanningCycleIntakeMixin._pc_preflight_shortcircuits)
     branch = gate[gate.index("except VerticalResolutionError as exc:"):]
+    assert "self._vertical_resolved = False" in branch
     assert "self._hold_on_unresolved_vertical(exc)" in branch
     assert "self._enter_pause_backoff()" in branch
     assert "return PLAN_ERROR" in branch
+

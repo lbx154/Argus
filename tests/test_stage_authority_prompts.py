@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import argus
-from argus.skills.role_context import load_builtin_skill_text
 
 ROOT = Path(argus.__file__).resolve().parent
 
@@ -25,14 +24,6 @@ def _src(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_planner_role_gives_stage_authority_to_manager() -> None:
-    text = load_builtin_skill_text("dependency-aware-task-decomposition.md")
-    assert "Manager alone changes" in text
-    assert ".argus/PIPELINE_STATE.json" in text
-    assert "report an upstream stage defect" in text
-    assert "does not by itself prove completion" in text
-    # the old "the reviewer advances the stage" wording is gone
-    assert "until the reviewer has" not in text
 
 
 def test_planner_source_has_no_rollback_recipe() -> None:

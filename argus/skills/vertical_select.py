@@ -144,16 +144,6 @@ def available_verticals() -> tuple[str, ...]:
     return (*VERTICALS, *(name for name in vertical_plugins() if name not in VERTICALS))
 
 
-def available_vertical_routing_paths() -> dict[str, tuple[str, ...]]:
-    from ..verticals._registry import vertical_plugins
-
-    return {
-        name: plugin.routing_path
-        for name, plugin in vertical_plugins().items()
-        if plugin.routing_path and name not in VERTICALS
-    }
-
-
 def available_vertical_purposes(*, compact: bool = False) -> dict[str, str]:
     from ..verticals._registry import vertical_plugins
 

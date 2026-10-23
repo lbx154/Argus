@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 from argus.core.manuscript_snapshot import manuscript_snapshot
 from argus.core.transcript import append_turn
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from tests.manager_inbox import team_reports as _reports
 
 
 class _Runner:
@@ -40,22 +39,14 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
     assert supervisor._emit(event) is True
     assert supervisor._emit(event) is True
 
-    transcript = [
-        json.loads(line)
-        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    transcript = _reports(tmp_path)
     assert len(transcript) == 1
-    assert transcript[0]["role"] == "argus"
     # A passed review is no label; the step is named once, by its title.
     assert transcript[0]["text"].startswith("One step done: Fix the first issue.\n")
     assert "Updated the parser and passed focused regression tests." in transcript[0]["text"]
     assert "review" not in transcript[0]["text"].lower()
     assert "the next step is being considered" in transcript[0]["text"]
-    ui_events = [
-        event
-        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if (event := json.loads(line)).get("type") == "ui.argus"
-    ]
+    ui_events = _reports(tmp_path)
     assert len(ui_events) == 1
     assert ui_events[0]["summary"] == (
         "Updated the parser and passed focused regression tests."
@@ -85,9 +76,7 @@ def test_bounded_completion_says_the_task_is_finished(tmp_path) -> None:
         },
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == "Done."
 
 
@@ -111,9 +100,7 @@ def test_completion_summary_uses_the_operator_language(tmp_path) -> None:
         "outcome": {"review_status": "done"},
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == "做完了。\n修复了解析器并通过回归测试。"
     assert "本次完成" not in text and "Mission summary" not in text
 
@@ -139,9 +126,7 @@ def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) 
         },
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == "Done."
 
 
@@ -166,9 +151,7 @@ def test_technical_blocker_does_not_pretend_a_human_decision_is_needed(tmp_path)
         "operator_question": "",
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert "does not prove the idea is wrong" in text
     assert "Next: Run the isolated one-row diagnostic." in text
     assert "The large row timed out; smaller rows remain valid." in text
@@ -200,9 +183,7 @@ def test_operator_blocker_surfaces_the_exact_question_without_templates(tmp_path
         "operator_question": question,
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == (
         f"Verify macOS computer use needs your call: {question}\n"
         "The harness builds, but UI automation is not yet verified."
@@ -239,9 +220,7 @@ def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
         },
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == "The final submission passed independent review and is ready."
 
 
@@ -273,9 +252,7 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         },
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     # One headline says it was done, checked, and that other planned work goes on.
     assert text.startswith(
         "这一项做完了，独立审阅也没发现要改的地方；计划里的其他工作还在进行。\n"
@@ -313,9 +290,7 @@ def test_a_reviewed_completion_gives_the_review_s_summary_and_the_result(tmp_pat
         "delivery": {"delivery_id": "d-1", "primary_target": {"label": "core.py", "path": "strtools/core.py"}},
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text == (
         "做完了，独立审阅也没发现要改的地方。\n"
         "char_count 已完整交付；默认计数和包级导出都已确认。\n"
@@ -350,9 +325,7 @@ def test_a_task_finished_while_another_waits_on_the_operator_is_only_that_item(t
 
     supervisor._emit(event)
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     # Trial s-36ca9747: it said "计划里的其他工作还在进行" while the other item
     # only waited on the operator's answer.
     assert text == (
@@ -381,9 +354,7 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
         "outcome": {"review_status": "blocked", "execution_status": "paused"},
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     # Its first sentence is the reason; the rest is on the handoff's own row.
     assert text == (
         "「为 timefmt 添加整小时格式化函数」暂时做不下去了。\n"
@@ -394,7 +365,7 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
 
 def _last_said(supervisor: LifeSupervisor, event: dict, root) -> str:
     supervisor._emit({"type": "life.mission.completed", **event})
-    return json.loads((root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1])["text"]
+    return _reports(root)[-1]["text"]
 
 
 def test_a_review_handed_to_the_manager_says_the_manager_decides(tmp_path) -> None:
@@ -508,9 +479,7 @@ def test_a_step_of_a_continuing_project_is_named_as_a_step(tmp_path) -> None:
         "outcome": {"review_status": "done"},
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert text.splitlines()[0] == "「实现并独立审阅整小时格式化功能」这一步做完了。"
 
 
@@ -542,10 +511,7 @@ def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
 
     assert supervisor._emit(event) is True
 
-    transcript = [
-        json.loads(line)
-        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    transcript = _reports(tmp_path)
     assert len(transcript) == 1
     assert (
         "Next up: Write the release notes, with one more queued after it."
@@ -571,7 +537,5 @@ def test_a_self_review_is_never_announced_as_an_independent_one(tmp_path) -> Non
         "overall_complete": True, "outcome": {"review_status": "done"},
     })
 
-    text = json.loads(
-        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
-    )["text"]
+    text = _reports(tmp_path)[-1]["text"]
     assert "独立审阅者" not in text

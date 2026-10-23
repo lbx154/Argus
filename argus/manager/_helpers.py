@@ -16,11 +16,6 @@ from ..core.run_gateway import run_exec as gateway_run_exec  # noqa: F401 — re
 log = logging.getLogger(__name__)
 
 _DEFAULT_MANAGER_REASONING_EFFORT = "high"
-_DEFAULT_FAST_ROUTE_MAX_TASK_CHARS = 12_000
-_DEFAULT_FAST_ROUTE_MAX_PROMPT_CHARS = 24_000
-_DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS = 32_000
-
-
 def _manager_backend_failure(result: Any) -> tuple[bool, str]:
     """Return Manager failure status and its best diagnostic.
 
@@ -52,13 +47,6 @@ def _manager_reasoning_effort() -> str:
     return _DEFAULT_MANAGER_REASONING_EFFORT
 
 
-def _manager_vertical_reasoning_effort() -> str:
-    return (
-        os.environ.get("ARGUS_SKILL_MANAGER_VERTICAL_REASONING_EFFORT", "low").strip()
-        or "low"
-    )
-
-
 def _manager_model() -> str:
     from ..core.knobs import resolve_role_model
 
@@ -68,16 +56,3 @@ def _manager_model() -> str:
     )
 
 
-def _manager_fast_route_enabled() -> bool:
-    raw = os.environ.get("ARGUS_SKILL_MANAGER_FAST_ROUTE")
-    if raw is None:
-        return True
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _manager_route_positive_int(name: str, default: int) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    try:
-        return max(1, int(raw)) if raw else default
-    except ValueError:
-        return default

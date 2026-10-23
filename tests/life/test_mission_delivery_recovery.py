@@ -214,7 +214,7 @@ def test_delivery_ack_failure_cannot_duplicate_history_or_notifications(tmp_path
 
 
 def test_recovery_fills_ui_receipt_if_process_failed_after_completion_append(tmp_path, monkeypatch):
-    from argus.core.transcript import read_turns
+    from tests.manager_inbox import team_reports
 
     supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
     with monkeypatch.context() as fault:
@@ -224,10 +224,10 @@ def test_recovery_fills_ui_receipt_if_process_failed_after_completion_append(tmp
         )
         assert supervisor.tick()["success"]
     assert len(_rows(supervisor.memory.root)) == 1
-    assert not read_turns(supervisor.memory.root)
+    assert not team_reports(supervisor.memory.root)
     assert len(supervisor.memory.backlog.pending_mission_deliveries()) == 1
     assert supervisor.run()["missions_run"] == 0
-    receipts = [turn for turn in read_turns(supervisor.memory.root) if turn.get("mission_result")]
+    receipts = [report for report in team_reports(supervisor.memory.root) if report.get("mission_result")]
     assert len(receipts) == 1
     assert receipts[0]["message_id"] == f"mission-result-{_rows(supervisor.memory.root)[0]['mission_delivery_id']}"
     assert len(_rows(supervisor.memory.root)) == 1

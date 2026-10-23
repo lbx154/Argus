@@ -1,6 +1,6 @@
-"""Tests for the Manager division layer — decide_vertical / stage split / commit.
+"""Tests for the Manager division layer — the ticket's route / stage split / commit.
 
-Every formal vertical decision requires one repository-grounded call. These
+The Manager chooses the route in its ticket; Argus checks and commits it. These
 tests use fake runners (no real LLM).
 """
 from __future__ import annotations
@@ -10,17 +10,13 @@ from contextlib import contextmanager
 
 import pytest
 
-from argus.core.handoff import HandOffActions
-from argus.manager import Division, Manager
-from argus.manager.domain_author import RouteContext, VerticalDecision, VerticalDecisionError
-from argus.roles.prompts.manager import (
-    build_fast_vertical_decision_prompt,
-    build_vertical_decision_prompt,
-)
+from argus.manager import Manager
+from argus.manager.domain_author import RouteContext, VerticalDecision
+from argus.manager.form import manager_actions
 from argus.skills.stage_machine import ChecklistItem
-from argus.skills.vertical_select import persist_vertical
+from argus.skills.vertical_select import VerticalResolutionError, persist_vertical
 from argus.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
-from tests.hand_off import route, submit
+from tests.hand_off import ticket
 
 
 class _DecisionResult:
@@ -31,103 +27,12 @@ class _DecisionResult:
         self.tool_activity_observed = tool_activity_observed
 
 
-class _DecisionRunner:
-    """Fake runner: in each call, hands over each decision in turn until one is recorded.
-
-    A refused call is the model reading the tool's error and correcting it in
-    the same turn; ``refusals`` keeps what it read.
-    """
-
-    def __init__(self, *decisions: dict) -> None:
-        self._decisions = decisions
-        self.last_options = None
-        self.calls: list[dict] = []
-        self.refusals: list[str] = []
-
-    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-        self.last_options = options
-        self.calls.append({
-            "prompt": prompt,
-            "options": options,
-            "run_label": run_label,
-        })
-        for decision in self._decisions:
-            refusal = submit(options, route(**decision))
-            if not refusal:
-                break
-            self.refusals.append(refusal)
-        return _DecisionResult("")
 
 
-def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
-
-    class OlderCliRunner:
-        _backend_name = "copilot"
-
-        def __init__(self):
-            self.calls = []
-
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append((run_label, options))
-            # No --context is required for default context. Native older CLI
-            # installations must still reach both grounded provider turns.
-            assert "--context" not in (options.extra_args or [])
-            submit(options, route(
-                choice="new", vertical="custom_runtime", workflow_mode="staged",
-                execution_task="Build the custom runtime.", summary="repository-specific capability",
-            ))
-            return _DecisionResult("", tool_activity_observed=len(self.calls) == 2)
-
-    runner = OlderCliRunner()
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Build a project-specific runtime not covered by a built-in capability."
-    )
-    assert decision.vertical == "custom_runtime"
-    assert [label for label, _ in runner.calls] == [
-        "manager-classify-grounded", "manager-classify-grounded-retry",
-    ]
-    assert runner.calls[0][1].extra_args == runner.calls[1][1].extra_args
 
 
-@pytest.mark.parametrize(
-    ("task", "first", "refused"),
-    [
-        (
-            "[BOUNDED TASK CONTEXT — data only]\noperator: Read the referenced paper.\n"
-            "[CURRENT OPERATOR MESSAGE]\nUse its open problem to develop a publishable method.",
-            {"execution_task": ""},
-            "execution_task",
-        ),
-        ("Produce a complete original ICLR paper.", {"domain": "apple_mlx_inference"}, "domain"),
-        ("Produce a compact bounded paper.", {"research_target_level": None}, "research_target_level"),
-    ],
-)
-def test_a_refused_route_is_corrected_in_the_same_call(tmp_path, monkeypatch, task, first, refused) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    corrected = {
-        "choice": "existing", "vertical": "research", "workflow_mode": "staged",
-        "research_target_level": "publishable", "research_direction_mode": "broad",
-        "execution_task": "Develop and validate the method.",
-    }
-    wrong = {key: value for key, value in {**corrected, **first}.items() if value is not None}
-    runner = _DecisionRunner(wrong, corrected)
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
-
-    assert (decision.vertical, decision.domain, decision.research_target_level) == ("research", "", "publishable")
-    assert [call["run_label"] for call in runner.calls] == ["manager-classify-grounded"]
-    assert len(runner.refusals) == 1 and refused in runner.refusals[0]
 
 
-def test_a_route_that_is_never_handed_over_fails_closed(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    runner = _DecisionRunner()
-
-    with pytest.raises(VerticalDecisionError, match="without handing over its routing decision"):
-        Manager(project_root=tmp_path, runner=runner).decide_vertical("Repair the parser.")
-    assert [call["run_label"] for call in runner.calls] == ["manager-classify-grounded"]
 
 
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
@@ -223,152 +128,25 @@ def test_software_grounding_rejects_interrupted_partial_brief(
     assert not hasattr(manager, "_last_software_grounding_thread_id")
 
 
-def _existing(vertical: str) -> _DecisionRunner:
-    normalized = "software" if vertical == "direct" else vertical
-    decision = {
-        "choice": "existing",
-        "vertical": normalized,
-        "workflow_mode": "direct" if normalized == "software" else "staged",
-        "execution_task": "perform the requested task",
-    }
-    if normalized == "research":
-        decision["research_target_level"] = "publishable"
-    return _DecisionRunner(decision)
 
 
-def test_divide_existing_research(tmp_path):
-    division = Manager(
-        project_root=tmp_path,
-        runner=_existing("research"),
-    ).divide("write a paper on retrieval for EMNLP and prepare the submission")
-    assert division.vertical == "research"
 
 
-def test_divide_existing_optimize_vertical(tmp_path, optimize_vertical):
-    division = Manager(
-        project_root=tmp_path,
-        runner=_existing(optimize_vertical),
-    ).divide("maximize the pass@4-minus-pass@1 gap of the synthesized set")
-    assert division.vertical == optimize_vertical
 
 
-def test_environment_cannot_force_vertical(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
-    runner = _existing("research")
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "write the paper"
-    )
-
-    assert decision.vertical == "research"
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-fast"
-    ]
 
 
-def test_manager_rejects_direct_alias_conflicting_with_persisted_staged_mode(
-    tmp_path,
-) -> None:
-    persist_vertical(tmp_path, "software", workflow_mode="staged")
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "direct",
-        "execution_task": "repair the repository",
-        "summary": "bounded repair",
-    })
-
-    with pytest.raises(VerticalDecisionError, match="without handing over"):
-        Manager(project_root=tmp_path, runner=runner).decide_vertical(
-            "repair the repository"
-        )
-    assert "workflow_mode must stay staged" in runner.refusals[0]
 
 
-def test_manager_allows_new_handoff_to_raise_persisted_route_contract(
-    tmp_path,
-) -> None:
-    persist_vertical(
-        tmp_path,
-        "research",
-        workflow_mode="direct",
-        research_target_level="exploratory",
-        research_direction_mode="locked",
-    )
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "staged",
-        "research_target_level": "publishable",
-        "research_direction_mode": "broad",
-        "execution_task": "run real experiments for the stronger objective",
-        "summary": "the new request needs dependent evidence tracks",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "run real experiments for a submission-grade result",
-        allow_route_contract_change=True,
-    )
-
-    assert decision.vertical == "research"
-    assert decision.workflow_mode == "staged"
-    assert decision.research_target_level == "publishable"
-    assert decision.research_direction_mode == "broad"
-    assert "new operator handoff" in runner.calls[0]["prompt"]
 
 
-def test_manager_recovers_direct_mode_from_legacy_persisted_alias(
-    tmp_path,
-) -> None:
-    state = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    state.parent.mkdir(parents=True)
-    state.write_text('{"vertical": "direct"}', encoding="utf-8")
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "software",
-        "execution_task": "repair the repository",
-        "summary": "bounded repair",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "repair the repository"
-    )
-
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
 
 
-def test_manager_recovers_persisted_required_research_target(
-    tmp_path,
-) -> None:
-    persist_vertical(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        workflow_mode="staged",
-        research_target_level="publishable",
-    )
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "staged",
-        "execution_task": "continue the paper",
-        "summary": "resume the existing research",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "continue the paper"
-    )
-
-    assert decision.domain == "chemistry"
-    assert decision.research_target_level == "publishable"
 
 
-def test_manager_without_backend_cannot_be_bypassed_by_vertical_env(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def test_the_vertical_env_cannot_stand_in_for_a_ticket(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
-    with pytest.raises(VerticalDecisionError, match="no backend"):
+    with pytest.raises(VerticalResolutionError, match="Waiting for the Manager's ticket"):
         Manager(project_root=tmp_path).decide_vertical("prove the lemma")
 
 
@@ -408,55 +186,10 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
         Manager().plan_stages("some-vertical")
 
 
-def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path, optimize_vertical):
-    mgr = Manager(project_root=tmp_path, runner=_existing(optimize_vertical))
-    d = mgr.divide("maximize the pass-gap of the synthesized problem set")
-    assert isinstance(d, Division)
-    assert d.vertical == optimize_vertical
-    # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
-    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == optimize_vertical
 
 
-def test_divide_persists_manager_owned_research_target(
-    tmp_path,
-    monkeypatch,
-):
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    manager = Manager(project_root=tmp_path, runner=_existing("research"))
-
-    division = manager.divide("verify this bounded lemma")
-
-    state = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
-    )
-    assert division.vertical == "research"
-    assert state["vertical"] == "research"
-    assert state["research_target_level"] == "publishable"
-    assert state["research_target_set_at"] > 0
 
 
-def test_research_divide_persists_explicit_target_venue(tmp_path) -> None:
-    runner = _DecisionRunner(
-        {
-            "choice": "existing",
-            "vertical": "research",
-            "workflow_mode": "staged",
-            "execution_task": "write the requested paper",
-            "research_target_level": "publishable",
-            "target_venue": "AAAI",
-        }
-    )
-
-    division = Manager(project_root=tmp_path, runner=runner).divide(
-        "produce the requested AAAI paper"
-    )
-
-    state = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
-    )
-    assert division.vertical == "research"
-    assert state["target_venue"] == "AAAI"
 
 
 def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
@@ -518,24 +251,6 @@ def test_vertical_commit_persists_generic_research_target_contract(
     assert state["research_target_set_at"] > 0
 
 
-def test_vertical_decision_can_be_committed_after_external_revision_check(
-    tmp_path,
-    monkeypatch,
-):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    mgr = Manager(project_root=tmp_path, runner=_existing("research"))
-    agents_path = tmp_path / "AGENTS.md"
-    original_agents = "# AGENTS.md\n\noperator-owned text\n"
-    agents_path.write_text(original_agents, encoding="utf-8")
-
-    decision = mgr.decide_vertical("draft the paper")
-
-    assert not (tmp_path / ".argus" / "PIPELINE_STATE.json").exists()
-    division = mgr.commit_vertical_decision("draft the paper", decision)
-    assert division.execution_task == "perform the requested task"
-    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "research"
-    assert agents_path.read_text(encoding="utf-8") == original_agents
 
 
 def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
@@ -715,61 +430,10 @@ def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     assert state["stages"]["review"]["status"] != "done"
 
 
-def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch, optimize_vertical):
-    manager = Manager(project_root=tmp_path, runner=_existing("research"))
-    manager.divide("seed the research pipeline")
-    pipeline_state = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    before = pipeline_state.read_bytes()
-    decision = VerticalDecision(
-        choice="existing",
-        vertical=optimize_vertical,
-        execution_task="run the synthesis pipeline",
-    )
-    monkeypatch.setattr(
-        "argus.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
-    )
-
-    with pytest.raises(RuntimeError, match="reset failed"):
-        manager.commit_vertical_decision("run the synthesis pipeline", decision)
-
-    assert pipeline_state.read_bytes() == before
 
 
-def test_divide_research_persists_and_lists_8_stages(tmp_path):
-    d = Manager(project_root=tmp_path, runner=_existing("research")).divide(
-        "draft a paper for EMNLP submission"
-    )
-    assert d.vertical == "research"
-    assert d.stages == list(RESEARCH_STAGES)
-    assert "vertical=research" in d.headline()
-    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "research"
 
 
-def test_root_task_id_scopes_manager_vertical_call(tmp_path):
-    transitions: list[tuple[str, str]] = []
-
-    @contextmanager
-    def usage_context(root_task_id: str):
-        transitions.append(("enter", root_task_id))
-        try:
-            yield
-        finally:
-            transitions.append(("exit", root_task_id))
-
-    manager = Manager(
-        project_root=tmp_path,
-        runner=_existing("research"),
-        usage_context=usage_context,
-    )
-
-    manager.divide("write a paper", root_task_id="root-task-1")
-
-    assert transitions == [
-        ("enter", "root-task-1"),
-        ("exit", "root-task-1"),
-    ]
 
 
 def test_root_task_id_scopes_manager_stage_call(tmp_path):
@@ -817,225 +481,20 @@ def test_root_task_id_scopes_manager_stage_call(tmp_path):
     ]
 
 
-def test_grounded_vertical_decision_rewrites_task_without_unrequested_rendering(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "research",
-        "execution_task": "Write the substantive manuscript.",
-        "research_target_level": "publishable",
-    })
-
-    division = Manager(project_root=tmp_path, runner=runner).divide("write the paper")
-
-    assert not (tmp_path / ".argus" / "live-view.json").exists()
-    assert not (tmp_path / ".argus" / "live" / "current.md").exists()
-    assert division.execution_task == "Write the substantive manuscript."
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded"
-    ]
-    assert runner.last_options.sandbox_mode == "read-only"
-    assert runner.last_options.force_safe_mode is True
-    assert runner.last_options.dangerous_yolo is False
 
 
-def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.5")
-    monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.6-sol")
-    runner = _existing("direct")
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Fix one failing repository test and return the patch."
-    )
-
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
-    assert runner.last_options.model == "gpt-5.5"
-    assert runner.calls[0]["options"].external_interrupt_reason_provider is None
-    assert runner.calls[0]["options"].sandbox_mode == "read-only"
-    assert "fast, tool-free front-door judgment" in runner.calls[0]["prompt"]
 
 
-def test_custom_codex_provider_does_not_send_diagnostic_model_placeholder(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """`<backend default>` is a streak label, never a provider model id."""
-    codex_home = tmp_path / "codex-home"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
-        """
-model_provider = "deepseek"
-model = "deepseek-v4-flash"
-
-[model_providers.deepseek]
-base_url = "https://api.deepseek.invalid/"
-wire_api = "responses"
-""".strip(),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_MODEL", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
-    runner = _existing("research")
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Write a short Chinese survey with a compiled PDF deliverable."
-    )
-
-    assert decision.vertical == "research"
-    assert runner.last_options.model == ""
-    assert runner.last_options.model != "<backend default>"
 
 
-def test_argus_maintenance_skips_duplicate_manager_grounding_by_default(
-    tmp_path,
-) -> None:
-    runner = _existing("argus_maintenance")
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Simplify Argus core while preserving recovery behavior."
-    )
-
-    assert decision.vertical == "argus_maintenance"
-    assert "## Manager project grounding" not in decision.execution_task
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-fast"
-    ]
 
 
-def test_vertical_decision_always_uses_repository_grounded_route(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    class _GroundedRunner:
-        _backend_name = "copilot"
-
-        def __init__(self) -> None:
-            self.calls: list[dict] = []
-
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append({
-                "prompt": prompt,
-                "options": options,
-                "run_label": run_label,
-            })
-            submit(options, route(**{
-                "choice": "existing",
-                "vertical": "software",
-                "workflow_mode": "direct",
-                "execution_task": (
-                    "Repair the repository behavior while preserving its public API."
-                ),
-                "summary": "bounded repair after focused repository inspection",
-            }))
-            return _DecisionResult("")
-
-    runner = _GroundedRunner()
-    task = "Repair the repository behavior while preserving its public API."
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
-
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
-    assert decision.execution_task == task
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-    ]
-    assert runner.calls[0]["options"].sandbox_mode == "read-only"
-    assert runner.calls[0]["options"].force_safe_mode is True
-    assert runner.calls[0]["options"].dangerous_yolo is False
-    assert "--available-tools=" not in runner.calls[0]["options"].extra_args
-    assert 'inspect if the fit is unclear' in runner.calls[0]["prompt"]
-    assert 'Preserve paths, commands, order' in runner.calls[0]["prompt"]
-    assert 'omit it for a standalone existing route' in (
-        runner.calls[0]["prompt"]
-    )
-    assert "at most one targeted" not in runner.calls[0]["prompt"]
 
 
-def test_fast_route_carries_contract_fields_without_bypassing_planner(
-    tmp_path,
-) -> None:
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "summary": "one bounded parser repair",
-        "require_independent_review": True,
-        "assumptions": [],
-    })
-    runner._backend_name = "codex"
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Repair the parser and run its focused test."
-    )
-
-    assert decision.workflow_mode == "direct"
-    assert decision.require_independent_review is True
-    assert decision.assumptions == ()
-    assert runner.calls[0]["run_label"] == "manager-classify-fast"
-    assert runner.calls[0]["options"].disable_tools is True
-    assert runner.calls[0]["options"].extra_args == ["--ephemeral"]
 
 
-def test_research_route_prompts_require_the_fields_the_parser_requires() -> None:
-    shared = {
-        "task": "Write a finite technical survey.",
-        "verticals_with_purpose": {"research": "research and surveys"},
-        "research_target_verticals": ("research",),
-    }
-    fast = build_fast_vertical_decision_prompt(**shared)
-    grounded = build_vertical_decision_prompt(**shared)
-
-    assert "always choose and output `research_target_level`" in fast
-    assert "Always output `research_direction_mode`" in fast
-    assert 'For research-target verticals, add `research_target_level`' in (
-        grounded
-    )
-    assert "Add research target fields only when the operator stated them" not in fast
-    assert '`target_venue` only if operator-stated' in grounded
-    for prompt in (fast, grounded):
-        assert 'Research figures, plots, diagrams, Figure 1' in prompt
-        assert 'manuscript revisions are `research`' in prompt
-        assert 'If only that part is requested and a full campaign excluded, choose `direct`' in prompt
-        assert "Optional start_stage applies only to workflow_mode=direct" in prompt
-        assert 'choose a stage of that vertical' in prompt
-        assert 'leave empty for its first stage' in prompt
-        assert 'Staged work always begins at its first stage' in prompt
 
 
-@pytest.mark.parametrize("fast", [True, False], ids=["fast", "grounded"])
-def test_direct_research_figure_route_seeds_paper(tmp_path, monkeypatch, fast) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "1" if fast else "0")
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "direct",
-        "start_stage": "paper",
-        "research_target_level": "exploratory",
-        "research_direction_mode": "locked",
-    })
-    manager = Manager(project_root=tmp_path, runner=runner)
-    task = "Produce only publication figures for this paper; no full research campaign."
-
-    decision = manager.decide_vertical(task)
-    assert decision.start_stage == "paper"
-    division = manager.commit_vertical_decision(task, decision)
-
-    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert division.vertical == "research"
-    assert division.workflow_mode == "direct"
-    assert state["current_stage"] == "paper"
-    assert runner.calls[0]["run_label"] == (
-        "manager-classify-fast" if fast else "manager-classify-grounded"
-    )
 
 
 @pytest.mark.parametrize("ask_on_new_domain", [False, True])
@@ -1067,383 +526,149 @@ def test_new_domain_start_stage_survives_commit_and_confirmation(
     assert state["current_stage"] == "validate"
 
 
-def test_fast_route_environment_cannot_restore_tool_free_shortcut(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "1")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_PROMPT_CHARS", "1")
-    runner = _existing("direct")
 
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Repair one bounded failing test."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def test_a_ticket_s_work_order_reaches_the_route_whole() -> None:
+    routed: list = []
+    actions = manager_actions("write it up", active_mission=False, route=routed.append)
+
+    actions.dispatch(*ticket("x" * 9000))
+
+    assert routed[0]["execution_task"].startswith("x" * 9000 + "\n\nAcceptance:")
+
+
+def _ticket(vertical: str, task: str = "perform the requested task", **fields) -> dict:
+    """The route a Manager ``manager`` ticket carries."""
+    payload = {
+        "vertical": vertical, "workflow_mode": "direct" if vertical == "software" else "staged",
+        "execution_task": task, "summary": "the Manager's ticket", "assumptions": [],
+    }
+    if vertical == "research":
+        payload["research_target_level"] = "publishable"
+    return {**payload, **fields}
+
+
+def _divide(manager: Manager, task: str, vertical: str):
+    """What a ticket does: its route checked, then committed."""
+    return manager.commit_vertical_decision(task, manager.adopt_route(_ticket(vertical, task)))
+
+
+def test_a_ticket_conflicting_with_the_persisted_staged_mode_is_refused(tmp_path) -> None:
+    persist_vertical(tmp_path, "software", workflow_mode="staged")
+
+    with pytest.raises(ValueError, match="workflow_mode must stay staged"):
+        Manager(project_root=tmp_path).adopt_route(_ticket("software", "repair the repository"))
+
+
+def test_a_new_handoff_may_raise_the_persisted_route_contract(tmp_path) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct", research_target_level="exploratory",
+                     research_direction_mode="locked")
+    stronger = _ticket("research", "run real experiments for the stronger objective",
+                       research_direction_mode="broad")
+
+    decision = Manager(project_root=tmp_path).adopt_route(stronger, allow_route_contract_change=True)
+
+    assert (decision.vertical, decision.workflow_mode) == ("research", "staged")
+    assert (decision.research_target_level, decision.research_direction_mode) == ("publishable", "broad")
+
+
+def test_work_already_routed_keeps_a_legacy_direct_alias(tmp_path) -> None:
+    state = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    state.parent.mkdir(parents=True)
+    state.write_text('{"vertical": "direct"}', encoding="utf-8")
+
+    decision = Manager(project_root=tmp_path).decide_vertical("repair the repository")
+
+    assert (decision.vertical, decision.workflow_mode) == ("software", "direct")
+
+
+def test_work_already_routed_keeps_its_domain_and_research_target(tmp_path) -> None:
+    persist_vertical(tmp_path, "research", domain="chemistry", workflow_mode="staged",
+                     research_target_level="publishable")
+
+    decision = Manager(project_root=tmp_path).decide_vertical("continue the paper")
+
+    assert (decision.domain, decision.research_target_level) == ("chemistry", "publishable")
+
+
+def test_a_research_ticket_commits_its_target_and_stages(tmp_path) -> None:
+    division = _divide(Manager(project_root=tmp_path), "draft a paper for EMNLP submission", "research")
+
+    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
+    assert division.vertical == state["vertical"] == "research"
+    assert division.stages == list(RESEARCH_STAGES)
+    assert "vertical=research" in division.headline()
+    assert state["research_target_level"] == "publishable"
+    assert state["research_target_set_at"] > 0
+
+
+def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch, optimize_vertical) -> None:
+    manager = Manager(project_root=tmp_path)
+    _divide(manager, "seed the research pipeline", "research")
+    pipeline_state = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    before = pipeline_state.read_bytes()
+    monkeypatch.setattr(
+        "argus.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
     )
 
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-    ]
+    with pytest.raises(RuntimeError, match="reset failed"):
+        manager.commit_vertical_decision("run the synthesis pipeline", VerticalDecision(
+            choice="existing", vertical=optimize_vertical, execution_task="run the synthesis pipeline",
+        ))
+    assert pipeline_state.read_bytes() == before
 
 
-def test_empty_workspace_builtin_research_does_not_require_ceremonial_tool_use(
-    tmp_path,
-) -> None:
-    class _NoToolResearchRunner:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append(run_label)
-            submit(options, route(**{
-                    "choice": "existing",
-                    "vertical": "research",
-                    "workflow_mode": "staged",
-                    "execution_task": "Write the requested survey and compile its PDF.",
-                    "summary": "explicit built-in research task in an empty workspace",
-                    "research_target_level": "exploratory",
-                }))
-            return _DecisionResult("", tool_activity_observed=False)
-
-    runner = _NoToolResearchRunner()
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Write a Chinese survey and compile its PDF."
-    )
-
-    assert decision.vertical == "research"
-    assert decision.workflow_mode == "staged"
-    assert runner.calls == ["manager-classify-fast"]
-
-
-def test_exploratory_research_keeps_manager_selected_staged_workflow(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "staged",
-        "execution_task": "Investigate the company from public sources.",
-        "summary": "multiple public evidence tracks",
-        "research_target_level": "exploratory",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Investigate Shanghai Qiadao Technology and verify any quantum claims."
-    )
-
-    assert decision.vertical == "research"
-    assert decision.research_target_level == "exploratory"
-    assert decision.target_venue == ""
-    # Staged is an execution topology, not a publication claim. The exploratory
-    # target keeps venue/idea bootstraps disabled while allowing dependent
-    # evidence tracks to continue without another operator prompt.
-    assert decision.workflow_mode == "staged"
-    assert "Choose workflow separately" in runner.calls[0]["prompt"]
-    assert "papers and surveys are `research`" in runner.calls[0]["prompt"]
-
-
-def test_builtin_repository_route_accepts_host_snapshot_without_tool_retry(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
-
-    class _RetryRunner:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append(run_label)
-            submit(options, route(**{
-                    "choice": "existing",
-                    "vertical": "software",
-                    "workflow_mode": "direct",
-                    "execution_task": "Repair the repository.",
-                    "summary": "Python repository repair",
-                }))
-            return _DecisionResult("", tool_activity_observed=False)
-
-    runner = _RetryRunner()
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Repair the repository."
-    )
-
-    assert decision.vertical == "software"
-    assert runner.calls == ["manager-classify-grounded"]
-
-
-def test_standalone_task_is_preserved_when_manager_omits_execution_task(
-    tmp_path,
-) -> None:
-    task = "Repair the parser without changing tests."
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "summary": "The standalone task is already a bounded software mission.",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
-
-    assert decision.execution_task == task
-    assert decision.adaptation_reason.startswith("The standalone task")
-
-
-def test_a_repeated_tool_loop_is_a_backend_failure_not_a_retry(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-
-    class ToolLoopRunner:
-        calls = 0
-
-        def run_exec(self, **_kwargs):
-            ToolLoopRunner.calls += 1
-            result = _DecisionResult("")
-            result.exit_code = 143
-            result.fatal_error = "External interrupt: repeated tool call detected"
-            return result
-
-    with pytest.raises(VerticalDecisionError, match="repeated tool call detected"):
-        Manager(project_root=tmp_path, runner=ToolLoopRunner()).decide_vertical("Repair the repository.")
-    assert ToolLoopRunner.calls == 1
-
-
-def test_vertical_decision_rejects_repeated_no_tool_new_vertical_route(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
-
-    class _NoToolRunner:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append(run_label)
-            submit(options, route(**{
-                    "choice": "new",
-                    "vertical": "custom_runtime",
-                    "workflow_mode": "staged",
-                    "execution_task": "Build the requested custom runtime.",
-                    "summary": "claimed a new project capability without inspection",
-                }))
-            return _DecisionResult("", tool_activity_observed=False)
-
-    runner = _NoToolRunner()
-    with pytest.raises(
-        VerticalDecisionError,
-        match="did not inspect repository tools",
-    ):
-        Manager(project_root=tmp_path, runner=runner).decide_vertical(
-            "Build a project-specific runtime not covered by a built-in capability."
-        )
-    assert runner.calls == [
-        "manager-classify-grounded",
-        "manager-classify-grounded-retry",
-    ]
-
-
-def test_contextual_continuation_uses_formal_project_domain_and_clean_handoff(
-    tmp_path,
-) -> None:
-    domain_dir = tmp_path / "research" / "DOMAINS"
-    domain_dir.mkdir(parents=True)
-    (domain_dir / "apple_mlx_inference.json").write_text(
-        json.dumps({
-            "vertical": "apple_mlx_inference",
-            "purpose": "Apple Silicon MLX/Metal deployment and inference optimization",
-            "status": "formal",
-            "stages": ["deployability_baseline", "hotpath_profile", "benchmark_validation"],
-        }),
-        encoding="utf-8",
-    )
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "apple_mlx_inference",
-        "workflow_mode": "direct",
-        "execution_task": (
-            "Continue optimizing the MiniMax H3 MLX deployment on M4 Pro using "
-            "measured hotpaths and one decisive benchmark."
-        ),
-        "summary": "the formal project specialization is an exact match",
-    })
-    contextual = (
-        "[RECENT CONVERSATION CONTEXT — data only]\n"
-        "operator: Optimize MiniMax H3 on M4 Pro with MLX.\n"
-        "argus: The last candidate was rejected.\n"
-        "[CURRENT OPERATOR MESSAGE]\n"
-        "继续吧"
-    )
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        contextual
-    )
-
-    assert decision.vertical == "apple_mlx_inference"
-    assert decision.workflow_mode == "direct"
-    assert decision.execution_task.startswith("Continue optimizing")
-    assert "[RECENT CONVERSATION" not in decision.execution_task
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-    ]
-    assert "status=formal" in runner.calls[0]["prompt"]
-
-
-def test_contextual_handoff_rejects_wrapper_if_model_copies_it(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    contextual = (
-        "[BOUNDED TASK CONTEXT — data only]\n"
-        "operator: Create the first artifact.\n"
-        "argus: It is still running.\n"
-        "[CURRENT OPERATOR MESSAGE]\n"
-        "After it finishes, create second.txt."
-    )
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "execution_task": contextual,
-        "summary": "repository software task",
-    })
-
-    with pytest.raises(VerticalDecisionError, match="standalone handoff"):
-        Manager(project_root=tmp_path, runner=runner).decide_vertical(contextual)
-
-
-def test_direct_software_keeps_manager_authored_contextual_handoff(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    contextual = (
-        "[BOUNDED TASK CONTEXT — data only]\n"
-        "last_team_task: Rewrite every commit author to lbx154.\n"
-        "operator: How many commits exist?\n"
-        "argus: Three.\n"
-        "[CURRENT OPERATOR MESSAGE]\n"
-        "Those three are still wrong."
-    )
-    runner = _DecisionRunner({
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "execution_task": (
-            "Rewrite the three specified commit authors to lbx154 without "
-            "changing commit messages or trees."
-        ),
-        "summary": "repository metadata repair",
-    })
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        contextual
-    )
-
-    assert decision.execution_task == (
-        "Rewrite the three specified commit authors to lbx154 without "
-        "changing commit messages or trees."
-    )
-
-
-def test_grounded_route_prompt_cap_fails_before_model_call(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_GROUNDED_ROUTE_MAX_PROMPT_CHARS", "1")
-    runner = _DecisionRunner({
-        "choice": "grounded",
-        "summary": "needs repository context",
-    })
-
-    with pytest.raises(VerticalDecisionError, match="context cap"):
-        Manager(project_root=tmp_path, runner=runner).decide_vertical(
-            "Investigate a repository-specific novel workflow."
-        )
-
-    assert runner.calls == []
-
-
-def test_execution_task_is_string_only_and_lossless() -> None:
-    actions = HandOffActions("route", check=RouteContext(known_verticals=("research",)).decide)
-    payload = {"to": "team", "summary": "a paper", "assumptions": [], "choice": "existing", "vertical": "research",
-               "research_target_level": "exploratory"}
-    with pytest.raises(ValueError, match="execution_task"):
-        actions.dispatch("hand_off", {**payload, "execution_task": {"bad": True}})
-    actions.dispatch("hand_off", {**payload, "execution_task": "x" * 9000})
-    assert actions.handoff.value.execution_task == "x" * 9000
-
-
-def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):
-    """End-to-end regression for the vertical-resolution false-stage-advance
-    bug: an OLD custom vertical (``ops_continuity_runbook``) already reached
-    ITS OWN terminal stage ("review") with status="done". A brand-new,
-    operator-issued Task now gets divided into the "research" vertical, whose
-    8-stage order ALSO contains a stage literally named "review". Before the
-    fix, ``Manager.divide`` would persist "research" but leave
-    ``current_stage="review"`` untouched (``persist_vertical`` is seed-only),
-    and since "review" is a valid member of research's own order,
-    ``current_stage()`` would silently accept it as real progress on the
-    brand-new project. After the fix, ``divide`` must reset ``current_stage``
-    to research's FIRST stage.
-    """
+def test_a_new_intent_restarts_the_stages_a_finished_prior_vertical_left(tmp_path) -> None:
+    """A finished custom vertical's terminal "review" is not progress on a new research task."""
     from argus.skills.stage_machine import current_stage
     from argus.verticals._data_domain import write_data_domain
 
     old_stage_order = ("investigate", "configure", "dry_run", "document", "review")
-    write_data_domain(
-        tmp_path, "ops_continuity_runbook",
-        stages=list(old_stage_order), checklist_stage_order=list(old_stage_order),
-        created_by="manager",
-    )
+    write_data_domain(tmp_path, "ops_continuity_runbook", stages=list(old_stage_order),
+                      checklist_stage_order=list(old_stage_order), created_by="manager")
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({
-            "vertical": "ops_continuity_runbook",
-            "current_stage": "review",
-            "stages": {s: {"status": "done"} for s in old_stage_order},
-        }),
-        encoding="utf-8",
-    )
-    assert current_stage(tmp_path) == "review"  # old, unrelated project: done
+    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(json.dumps({
+        "vertical": "ops_continuity_runbook", "current_stage": "review",
+        "stages": {stage: {"status": "done"} for stage in old_stage_order},
+    }), encoding="utf-8")
 
-    mgr = Manager(project_root=tmp_path, runner=_existing("research"))
-    d = mgr.divide("write a brand new paper — totally unrelated to the old runbook")
+    _divide(Manager(project_root=tmp_path), "write a brand new paper", "research")
 
-    assert d.vertical == "research"
-    state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "research"
-    assert state["current_stage"] == "idea"
     assert current_stage(tmp_path) == "idea"
 
 
-def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
-    """Regression: a second research task must not immediately become planner done."""
+def test_a_second_task_on_the_same_vertical_reopens_its_finished_pipeline(tmp_path) -> None:
     from argus.skills.vertical_select import vertical_reached_own_terminal_stage
 
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({
-            "vertical": "research",
-            "current_stage": "review",
-            "stages": {stage: {"status": "done"} for stage in RESEARCH_STAGES},
-        }),
-        encoding="utf-8",
-    )
-    assert vertical_reached_own_terminal_stage(tmp_path, "research") is True
+    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(json.dumps({
+        "vertical": "research", "current_stage": "review",
+        "stages": {stage: {"status": "done"} for stage in RESEARCH_STAGES},
+    }), encoding="utf-8")
 
-    division = Manager(
-        project_root=tmp_path,
-        runner=_existing("research"),
-    ).divide("start a separate second research task")
+    _divide(Manager(project_root=tmp_path), "start a separate second research task", "research")
 
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert division.vertical == "research"
-    assert state["current_stage"] == "idea"
-    assert state["research_intent_generation"] == 2
+    assert (state["current_stage"], state["research_intent_generation"]) == ("idea", 2)
     assert vertical_reached_own_terminal_stage(tmp_path, "research") is False

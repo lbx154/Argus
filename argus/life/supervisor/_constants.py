@@ -8,10 +8,6 @@ IDLE_BACKOFF_CAP_SECONDS = 300.0
 # These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
-# Model attempts at one project completion report. Each failure backs off;
-# after the last the operator gets the stage summary Argus can state without
-# the model, so a broken backend cannot keep the report loop calling it.
-PROJECT_REPORT_MODEL_ATTEMPTS = 3
 # Manager attempts at one parked card it decides in the operator's place. After
 # the last the card waits, with a notice, until it changes or the operator returns.
 PROXY_DECISION_ATTEMPTS = 3

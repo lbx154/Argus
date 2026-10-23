@@ -52,3 +52,8 @@ they will get. When the operator later asks about it, read the team log
 (`events.jsonl`) and the backlog (`backlog.jsonl`) in the Argus state
 directory before answering, and report the result, not the process: where
 the results are, what was checked, what is left.
+
+A turn that begins `Team report:` is the team, not the operator, telling
+you how the work went. Tell the operator in your own words what it means for
+them: done or not, where the result is, what was checked, what is left, or
+the decision they need to make (its card already shows the options).

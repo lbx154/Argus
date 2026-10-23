@@ -87,51 +87,6 @@ def test_the_team_route_names_its_move() -> None:
     assert _check(move="hold").target_stage == "research"
 
 
-def test_completion_report_prompt_contains_all_stage_information() -> None:
-    from argus.roles.prompts.manager import (
-        build_project_completion_report_prompt,
-    )
-
-    prompt = build_project_completion_report_prompt(
-        objective="Complete the project.",
-        completion_reason="The final stage is done.",
-        completion_context={
-            "current_stage": "submission",
-            "stages": {
-                "research": {"status": "done"},
-                "submission": {"status": "done"},
-            },
-            "stage_history": [
-                {
-                    "from_stage": "research",
-                    "to_stage": "plan",
-                    "reason": "research accepted",
-                }
-            ],
-            "rollback_history": [
-                {
-                    "from_stage": "submission",
-                    "to_stage": "draft",
-                    "reason": "draft needed repair",
-                }
-            ],
-            "stage_reviews": {
-                "research": {"review_status": "done"},
-                "submission": {"review_status": "done"},
-            },
-        },
-    )
-
-    assert "completion report, not another review" in prompt
-    assert '"research": {' in prompt
-    assert '"submission": {' in prompt
-    assert "research accepted" in prompt
-    assert "draft needed repair" in prompt
-    assert '"stage_reviews"' in prompt
-    # 2026-10-21: a report said the review passed and that it "adopted that conclusion".
-    assert "never that you adopt or carry over its verdict" in prompt
-    # 2026-10-22: a report ended "the delivery was redone after the request changed".
-    assert "Report the result, not the process" in prompt
 
 
 def test_research_advances_from_idea_to_experiment(tmp_path) -> None:

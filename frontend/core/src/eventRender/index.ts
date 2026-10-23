@@ -484,8 +484,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('manager', 'role.manager', '⚠', `${localized(context, 'could not save the agreed goal', '未能保存商定的目标')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'life.manager.intent.superseded':
       return model('manager', 'role.manager', '↷', localized(context, 'a newer instruction replaced this request', '更新的指令取代了这个请求'), 'info');
-    case 'life.manager.project_report.failed':
-      return model('manager', 'role.manager', '⚠', `${localized(context, 'could not deliver the project report', '未能送出项目报告')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     // The chat tells you when completion attempts pause; the rest is the
     // team's own back-and-forth.
     case 'life.planner.completion_circuit_opened':
@@ -603,7 +601,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     // Bookkeeping a reader of the feed does not need: retries, receipts, and
     // state the sidebar or a later message already shows.
     case 'life.planner.verdict.discarded': case 'life.manager.feedback.unresolved':
-    case 'life.manager.project_report': case 'life.plan.revision.rolled_back':
+    case 'life.manager.inbox': case 'life.plan.revision.rolled_back':
     case 'life.planner.completion_circuit.notify_failed': case 'life.planner.completion_circuit_holding':
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped':

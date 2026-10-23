@@ -41,7 +41,6 @@ from ...apps._life_actions import (
     format_backlog_list,
     format_journal_tail,
     format_status_change,
-    parse_add_flags,
     render_backend_cmd,
     render_config_cmd,
     render_identity_cmd,
@@ -143,7 +142,6 @@ class CommandRouter:
             "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
             "config": dict(DEFAULT_LIFE_CONFIG),
             "continuous_objective": "",
-            "last_thread_id": None,
             "session_id": self.life_dir.name,
             "global_root": str(self.life_dir.parent.parent),
         }
@@ -240,25 +238,8 @@ class CommandRouter:
             pass
         return ""
 
-    def _queue_task(self, arg: str, *, intake_done: bool = False) -> QueuedTask | None:
-        if not intake_done:
-            arg = self._redact_credentials(arg)
-        cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
-        iterate, cycles, body = parse_add_flags(
-            arg,
-            defaults=cfg,
-        )
-        body = body.strip()
-        if not body:
-            return None
-        if ":" in body and body.index(":") < 60:
-            title, objective = body.split(":", 1)
-            title = title.strip()
-            objective = objective.strip() or title
-        else:
-            title = body[:60].strip()
-            objective = body.strip()
-
+    def _queue_task(self, handoff: Any) -> QueuedTask:
+        """Queue the Manager's ticket on the route the ticket chose."""
         from ...manager.front_door import manager_bounded_handoff
         from ..memory import BacklogItem, MemoryBundle
         from ..supervisor.backlog_guard import decision_evidence
@@ -267,6 +248,7 @@ class CommandRouter:
             fingerprint=self.life_dir.name,
             global_root=self.life_dir.parent.parent,
         )
+        cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         item_id = BacklogItem.new_id()
 
         def _persist(execution_task: str, division: Any) -> Any:
@@ -274,41 +256,29 @@ class CommandRouter:
                 mem,
                 execution_task,
                 item_id=item_id,
-                iterate=iterate,
-                iteration_max_cycles=cycles,
+                iterate=bool(cfg["iterate"]),
+                iteration_max_cycles=int(cfg["cycles"]),
                 manager_decision=decision_evidence(division) or {"routed": True},
             )
 
+        self._state["_approved_domain_decision"] = handoff.value
         item = manager_bounded_handoff(
             mem,
-            objective,
+            handoff.value.execution_task,
             self._state,
             _persist,
             root_task_id=item_id,
         )
-        execution_task = item.objective
-        clean_title = execution_task.splitlines()[0][:60].strip()
-        if clean_title and clean_title != item.title:
-            mem.backlog.update(item.id, title=clean_title)
-        return QueuedTask(
-            id=item.id,
-            title=clean_title or item.title,
-            objective=execution_task,
-        )
+        title = str(handoff.get("goal") or item.objective).splitlines()[0][:60].strip()
+        if title and title != item.title:
+            mem.backlog.update(item.id, title=title)
+        return QueuedTask(id=item.id, title=title or item.title, objective=item.objective)
 
     def _cmd_add(self, arg: str) -> None:
         if not arg:
-            self._reply("用法: /add 任务标题: 详细目标\n或直接发送任务描述")
+            self._reply("用法: /add 任务描述（交给经理安排）")
             return
-        queued = self._queue_task(arg)
-        if queued is None:
-            self._reply("用法: /add 任务标题: 详细目标\n或直接发送任务描述")
-            return
-        self._reply(
-            f"✅ 任务已添加\n\n"
-            f"📌 <b>{_esc(queued.title)}</b>\n"
-            f"🎯 {_esc(queued.objective[:200])}"
-        )
+        self._cmd_free_text(arg)
 
     def _backend_model_ids(self, backend: str) -> list[str]:
         """The model ids ``backend`` accepts, the same list the web chat vets against."""
@@ -321,7 +291,7 @@ class CommandRouter:
         from ...apps._inbox import queue_inbox_message
         from ...daemon.life_worker import read_daemon_status
         from ...manager.config_intent import _apply_config_intent
-        from ...manager.form import config_intents, ticket
+        from ...manager.form import config_intents
         from ...manager.front_door import manager_turn
         from ...webapi.manager_dispatch import _handle_pending_question_turn, _TurnEmitter
         from ..memory import MemoryBundle
@@ -377,10 +347,7 @@ class CommandRouter:
             self._reply(_esc(reply or "经理现在不可用，没有安排任何任务。"))
             return
 
-        queued = self._queue_task(ticket(handoff.payload), intake_done=True)
-        if queued is None:
-            self._reply("我没收到有效内容；可以直接发任务描述，或用 /help 查看命令。")
-            return
+        queued = self._queue_task(handoff)
         if daemon_status.alive:
             status_line = "我会开始处理，并把关键进展继续发在这里。"
         else:

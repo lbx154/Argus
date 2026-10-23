@@ -47,58 +47,6 @@ class ManagerHandoffSupersededError(ManagerHandoffError):
     """A newer continuous command superseded an in-flight Manager handoff."""
 
 
-class ManagerModelCapabilityMismatchError(ManagerHandoffError):
-    """The resolved model repeatedly failed a Manager role contract."""
-
-
-def _manager_model_capability_mismatch_message(
-    *,
-    model_id: str,
-    clause: str,
-    consecutive_count: int,
-) -> str:
-    return (
-        "[not dispatched] Manager model role-capability mismatch: "
-        f"model `{model_id}` failed the Manager classification contract "
-        f"{consecutive_count} consecutive times; the latest failed clause was "
-        f"\"{clause}\". "
-        "This is a role-capability mismatch, not a provider outage. No task was "
-        "queued and no daemon was started. Change the Manager model by setting "
-        "`ARGUS_SKILL_MANAGER_MODEL=<capable-model-id>` before starting Argus, "
-        "or open Settings → Advanced settings, set `manager_model` to a capable "
-        "model, and restart the affected Argus process. There is no `/model` "
-        "command."
-    )
-
-
-def _publish_manager_model_capability_mismatch(
-    mem: Any,
-    *,
-    text: str,
-    model_id: str,
-    clause: str,
-    consecutive_count: int,
-) -> None:
-    """Publish through the established transcript + operator-alert event path."""
-    try:
-        from ..core.operator_messages import publish_operator_message
-
-        publish_operator_message(
-            _life_dir_for(mem),
-            text=text,
-            message_id=f"manager-model-capability-mismatch:{model_id}:{clause}:{consecutive_count}",
-            event_fields={
-                "operator_alert": True,
-                "manager_model_capability_mismatch": True,
-                "model_id": model_id,
-                "failed_clause": clause,
-                "consecutive_count": consecutive_count,
-            },
-        )
-    except Exception:  # noqa: BLE001 - alerting must not mask fail-closed routing
-        log.exception("could not publish Manager model capability mismatch alert")
-
-
 def objective_update_requires_stage_reset(
     previous_objective: str,
     *updated_objectives: str,
@@ -898,30 +846,6 @@ def prepare_manager_execution_task(
             public_objective=public_objective,
         )
         prepared.failed(exc)
-        from .classification_contract import MANAGER_CONTRACT_MISMATCH_THRESHOLD
-        from .domain_author import ManagerClassificationContractError
-
-        if (
-            isinstance(exc, ManagerClassificationContractError)
-            and exc.consecutive_count >= MANAGER_CONTRACT_MISMATCH_THRESHOLD
-        ):
-            message = _manager_model_capability_mismatch_message(
-                model_id=exc.model_id,
-                clause=exc.clause,
-                consecutive_count=exc.consecutive_count,
-            )
-            from ..core.mission_view import say, uses_cjk
-
-            # The exception keeps the developer's account; the operator reads
-            # what happened and what to change.
-            _publish_manager_model_capability_mismatch(
-                mem,
-                text=say("manager_model_mismatch", uses_cjk(public_objective or body), model=exc.model_id),
-                model_id=exc.model_id,
-                clause=exc.clause,
-                consecutive_count=exc.consecutive_count,
-            )
-            raise ManagerModelCapabilityMismatchError(message) from exc
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff failed: {exc}") from exc
@@ -1203,6 +1127,13 @@ def manager_continuous_handoff(
     return prepared.execution_task
 
 
+def manager_session(mem: Any) -> str | None:
+    """The Manager's resident session: one thread per project, kept with the project's state."""
+    from ._session_ops import _ManagerSession
+
+    return _ManagerSession(None, mem.project_root).thread_id
+
+
 def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
     compact = " ".join(str(body or "").split())
     return (
@@ -1239,6 +1170,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
     from ..provider_integrations.authorization_retry import BackendLoginRequired
+    from ._session_ops import reset_manager_session
     from .form import manager_actions
 
     chat_state.pop("_self_delivery", None)
@@ -1256,7 +1188,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     def _failure_reply(detail: Any) -> str:
         safe = _redact(detail).strip()[:1200] or say("reply_incomplete", chinese)
         chat_state["_self_failure"] = {"detail": safe}
-        chat_state.pop("last_thread_id", None)
+        reset_manager_session(mem.project_root)
         return say("reply_failed", chinese, said=humanize_runtime_reason(safe, language_hint=body, interactive=True))
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
@@ -1329,7 +1261,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     )
     try:
         outcome = runner.manager_turn(
-            message=body, sink=_Capture(), actions=actions, seed_thread_id=chat_state.get("last_thread_id"),
+            message=body, sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
             phase_cb=_phase, root_task_id=root_task_id,
         )
     except BackendLoginRequired:
@@ -1342,7 +1274,6 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         return _failure_reply(outcome.stop_reason or round_failure), None
     if isinstance(outcome.delivery, dict):
         chat_state["_self_delivery"] = outcome.delivery
-    chat_state["last_thread_id"] = runner.last_thread_id
     handoff = actions.handoff
     return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
 
@@ -1367,7 +1298,6 @@ __all__ = [
     "_accepts_parameter",
     "_MANAGER_RUNNER_UNAVAILABLE",
     "ManagerHandoffError",
-    "ManagerModelCapabilityMismatchError",
     "ManagerHandoffSupersededError",
     "PreparedManagerHandoff",
     "_derive_session_name",
