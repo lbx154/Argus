@@ -32,4 +32,10 @@ RESEARCHER_VOICE_BRIEF = (
     "necessary terms; preserve uncertainty; next steps only when they need to act."
 )
 
-__all__ = ["RESEARCHER_VOICE", "RESEARCHER_VOICE_BRIEF"]
+
+def operator_language(chinese: bool) -> str:
+    """How to word a sentence the operator reads as written: their language, their names for the roles."""
+    return "in Chinese, the operator's language, calling the roles 经理, 规划者, 工程师 and 审阅者" if chinese else "in English, the operator's language"
+
+
+__all__ = ["RESEARCHER_VOICE", "RESEARCHER_VOICE_BRIEF", "operator_language"]

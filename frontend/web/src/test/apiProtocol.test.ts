@@ -129,6 +129,41 @@ describe('web API protocol handshake', () => {
     close();
   });
 
+  it('keeps the paired token out of stream URLs and offers it as a subprotocol', async () => {
+    const sockets: Array<{ url: string; protocols: string[] }> = [];
+
+    class MockWebSocket {
+      onopen = null;
+      onmessage = null;
+      onclose = null;
+      onerror = null;
+
+      constructor(readonly url: string, readonly protocols: string[]) {
+        sockets.push(this);
+      }
+
+      close() {}
+    }
+
+    vi.stubGlobal('window', {
+      location: { protocol: 'http:', host: '127.0.0.1:8801', search: '' },
+    });
+    vi.stubGlobal('localStorage', { getItem: () => 'fake-token' });
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const { openStream } = await import('../api');
+    const { openEventStream } = await import('../research-workbench/api');
+    openStream('s-live', () => undefined)();
+    openEventStream('s-live', () => undefined, () => undefined).close();
+
+    expect(sockets.map(({ url }) => url)).toEqual([
+      'ws://127.0.0.1:8801/api/projects/s-live/stream?view=ui',
+      'ws://127.0.0.1:8801/api/projects/s-live/stream?replay=40&view=ui',
+    ]);
+    for (const { protocols } of sockets) {
+      expect(protocols).toEqual(['argus', 'argus.bearer.66616b652d746f6b656e']);
+    }
+  });
+
   it('rejects an old backend before requesting projects', async () => {
     const fetchMock = vi.fn(async () => new Response('not found', { status: 404 }));
     vi.stubGlobal('fetch', fetchMock);

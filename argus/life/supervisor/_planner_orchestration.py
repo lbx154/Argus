@@ -173,17 +173,9 @@ class PlannerOrchestrationMixin:
                     "training methods, seeds) belong in separate parallel-safe tasks "
                     "with their own TASK_GPUS, not in one task that runs them in turn."
                 )
-            # The claim gate also refuses everything while a paused external
-            # job declares no owned paths, so those rows block a "free" slot
-            # exactly like an unowned running mission does.
-            unowned = [
-                item
-                for item in running_rows
-                if not (
-                    getattr(item, "parallel_safe", False)
-                    and getattr(item, "owns_paths", None)
-                )
-            ]
+            from ..memory import shares_slot
+
+            unowned = [item for item in running_rows if not shares_slot(item)]
             if free_slots and unowned:
                 slot_lines.append(
                     "- parallel_slot: a spare mission slot sits idle while "

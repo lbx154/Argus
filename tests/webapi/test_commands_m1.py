@@ -44,6 +44,7 @@ from argus.webapi.daemon_services import DaemonServices
 pytest.importorskip("fastapi")
 import threading
 
+from fastapi import WebSocketDisconnect  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 
@@ -2099,17 +2100,51 @@ def test_sensitive_admin_reads_require_token(ctx) -> None:
 
 
 def test_ws_requires_token_when_configured(ctx) -> None:
-    root, sid, _ = ctx
+    root, sid, life = ctx
+    (life / "events.jsonl").write_text('{"type": "loop.start"}\n')
     app = server.create_app(global_root=root, auth_token="secret123")
+    url = f"/api/projects/{sid}/stream"
+    bearer = "argus.bearer." + "secret123".encode().hex()
     with TestClient(app) as tc:
-        # wrong token → closed
-        with pytest.raises(Exception):  # noqa: PT011
-            with tc.websocket_connect(f"/api/projects/{sid}/stream?token=nope") as ws:
-                ws.receive_json()
-        # right token → connects (no events yet, but the connection stays open)
-        with tc.websocket_connect(f"/api/projects/{sid}/stream?token=secret123&replay=0") as ws:
-            assert ws is not None
-            ws.close()
+        # No token, a wrong one, or the token in the logged URL → closed.
+        for attempt in (
+            {},
+            {"headers": {"Authorization": "Bearer nope"}},
+            {"subprotocols": ["argus", "argus.bearer." + b"nope".hex()]},
+            {"url": f"{url}?token=secret123"},
+        ):
+            with tc.websocket_connect(attempt.pop("url", url), **attempt) as ws:
+                with pytest.raises(WebSocketDisconnect) as closed:
+                    ws.receive_json()
+                assert closed.value.code == 4401
+        # The bearer header (CLI, TUI, portal) or a browser's subprotocol → open.
+        with tc.websocket_connect(url, headers={"Authorization": "Bearer secret123"}) as ws:
+            assert ws.accepted_subprotocol is None
+            assert ws.receive_json()["type"] == "loop.start"
+        with tc.websocket_connect(url, subprotocols=["argus", bearer]) as ws:
+            assert ws.accepted_subprotocol == "argus"
+            assert ws.receive_json()["type"] == "loop.start"
+
+
+def test_uvicorn_logs_redact_url_tokens() -> None:
+    import logging
+
+    import uvicorn
+
+    config = server._uvicorn_log_config(uvicorn)
+    log_filter = config["filters"]["argus"]["()"]()
+    assert all(handler["filters"] == ["argus"] for handler in config["handlers"].values())
+    handshake = logging.LogRecord(
+        "uvicorn.error", logging.INFO, __file__, 0, '%s - "WebSocket %s" [accepted]',
+        ("127.0.0.1:5000", "/api/projects/s-1/stream?replay=40&token=fake-secret&view=ui"), None,
+    )
+    pairing = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 0, '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", "GET", "/?token=fake-secret", "1.1", 200), None,
+    )
+    assert log_filter.filter(handshake) and log_filter.filter(pairing)
+    assert handshake.getMessage().endswith('stream?replay=40&token=<redacted>&view=ui" [accepted]')
+    assert pairing.getMessage().endswith('"GET /?token=<redacted> HTTP/1.1" 200')
 
 
 def test_a_configured_token_also_guards_the_reads(ctx) -> None:

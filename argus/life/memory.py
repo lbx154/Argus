@@ -783,6 +783,11 @@ def _holds_resources(item: Any) -> bool:
     return getattr(item, "status", "") == "running"
 
 
+def shares_slot(item: Any) -> bool:
+    """Whether other work may run beside ``item``: it is parallel-safe and names the paths it owns."""
+    return bool(getattr(item, "parallel_safe", False) and getattr(item, "owns_paths", None))
+
+
 def planner_may_retire_park(item: Any) -> bool:
     """Whether a parked row is the Planner's to retire rather than the operator's.
 
@@ -1780,7 +1785,7 @@ class Backlog:
         candidate: BacklogItem,
         items: Iterable[BacklogItem],
     ) -> bool:
-        if not candidate.parallel_safe or not candidate.owns_paths:
+        if not shares_slot(candidate):
             return False
         if any(
             Path(path).is_absolute()
@@ -1798,7 +1803,7 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
-        if any(not item.parallel_safe or not item.owns_paths for item in running):
+        if not all(map(shares_slot, running)):
             return False
         return not any(
             cls._paths_overlap(candidate_path, active_path)

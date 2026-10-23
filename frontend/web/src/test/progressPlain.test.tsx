@@ -48,7 +48,10 @@ describe('progress in plain words', () => {
       [tool('mystery: {"x": 1}', 'mystery'), '调用 mystery'],
       // Trial s-36ca9747 read "查找 .*": any other wildcard is files too.
       [tool('glob: {"pattern": ".*"}', 'glob'), '查找文件'],
-      [tool('glob: {"pattern": "tests/test_*.py"}', 'glob'), '查找 tests 里的文件'],
+      [tool('glob: {"pattern": "tests/test_*.py"}', 'glob'), '查找 tests 里的名字含 test_、.py 的文件'],
+      // Trial s-f0e1b2f0 read "查找文件" for these: the words a pattern keeps name it.
+      [tool('glob: {"pattern": "**/*SKILL*"}', 'glob'), '查找名字含 SKILL 的文件'],
+      [tool('glob: {"pattern": "**/*manager*"}', 'glob'), '查找名字含 manager 的文件'],
       // Trial s-6f0e6213 read "调用 task": a helper agent the role starts.
       [tool('task: {"description": "独立审阅小时格式化接口", "agent_type": "general-purpose", "prompt": "你是本任务的独立 Reviewer'), '交给子助手：独立审阅小时格式化接口'],
       [tool('task: {"prompt": "check it"}'), '交给一个子助手'],
@@ -60,6 +63,7 @@ describe('progress in plain words', () => {
     }
     expect(readableGlob('**/*.py', 'en')).toBe('.py files');
     expect(readableGlob('**/*.{ts,tsx}', 'en')).toBe('files');
+    expect(readableGlob('src/**/*SKILL*', 'en')).toBe('files with SKILL in the name in src');
     expect(readableGlob('{pyproject.toml,setup.cfg,*.ini}', 'en')).toBe('pyproject.toml, setup.cfg and other files');
   });
 

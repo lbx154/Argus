@@ -99,6 +99,13 @@ describe('what the project is doing right now', () => {
     expect(lines.map((line) => line.text)).toEqual(['Run ls']);
   });
 
+  it('cuts a role\'s words to a line after their markup goes, and leaves a command as it ran', () => {
+    const events = [progress(NOW - 60, 'agent_message', '**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中舍弃小数。'),
+      progress(NOW - 50, 'command_execution', "rg -g '**/*.py' x")];
+    expect(liveActivity(running(), null, events, NOW, 'zh-CN').lines.map((line) => line.text))
+      .toEqual(['尚未实现：取整规则存在歧义。 sizefmt/core.py 中舍弃小数。', "运行 rg -g '**/*.py' x"]);
+  });
+
   it('reads a command\'s paths in the project from its root', () => {
     const snapshot = running();
     const events = [progress(NOW - 60, 'command_execution', 'rm -r -- /w/build /w2/build')];

@@ -126,24 +126,6 @@ export const workspaceApi = {
   },
 };
 
-export function paperAssets(entries: WorkspaceEntry[]): WorkspaceEntry[] {
-  const direct = new Set(['.tex', '.bib', '.pdf']);
-  const media = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg', '.csv', '.tsv']);
-  return entries
-    .filter((entry) => entry.type === 'file')
-    .filter((entry) => {
-      const path = entry.path.toLowerCase();
-      const inPaperArea = /(?:^|\/)(paper|papers|manuscript|latex|technical_report|submission|camera_ready|figures|tables)(?:\/|$)/.test(path);
-      if (direct.has(entry.extension)) return inPaperArea || entry.extension === '.tex' || entry.extension === '.bib';
-      if (entry.extension === '.md') {
-        if (/(?:^|\/)(evidence|runs?|logs?|cache)(?:\/|$)/.test(path)) return false;
-        return inPaperArea && /draft|paper|report|manuscript|section|related|abstract|method|experiment|conclusion|template/.test(path);
-      }
-      return inPaperArea && media.has(entry.extension);
-    })
-    .sort((left, right) => right.mtime - left.mtime);
-}
-
 export interface FileTreeNode extends WorkspaceEntry { children: FileTreeNode[] }
 
 /** Internal state (dot-directories such as `.argus`) and skipped heavy folders stay out of the default view. */

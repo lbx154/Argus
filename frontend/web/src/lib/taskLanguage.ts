@@ -1,6 +1,11 @@
-/** User-facing actions; role identifiers belong in the work details. */
+// Markup that would read as stray marks once a text is cut to a line; the same
+// as sanitize_text in argus/core/residual_risk.py.
+const MARKUP = /(?:^|\s)(?:#{1,6}|>|-{3,}|={3,})(?=\s)|`+|\*\*/g;
+
+/** User-facing actions; role identifiers belong in the work details. The
+ * markup goes before the cut, so no cut keeps half of a pair of marks. */
 export function shortWorkText(text: string, max = 120): string {
-  const line = text.replace(/\s+/g, ' ').trim();
+  const line = text.replace(MARKUP, '').replace(/\s+/g, ' ').trim();
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 

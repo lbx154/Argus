@@ -928,6 +928,26 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     ]
 
 
+def test_the_reason_the_operator_reads_is_written_in_their_words(tmp_path):
+    """2026-10-22 (sizefmt): the Manager's column read "仅任务 206cf84789c6 正在由工程师执行
+    …正式交棒独立 Reviewer". Its REASON is asked for the way the Observer's remark is."""
+    from argus.manager.supervision import _prompt
+    from argus.roles.prompts.voice import operator_language
+
+    def reason_line():
+        prompt = _prompt(observe_project(tmp_path))
+        return next(line for line in prompt.splitlines() if line.startswith("REASON:"))
+
+    project(tmp_path)
+    assert operator_language(False) in reason_line()
+    JsonlEventSink(None, life_dir=tmp_path).append({
+        "type": EventType.LIFE_MANAGER_INTENT_STARTED, "intent_id": "i-1",
+        "objective": "给 sizefmt 加一个 format_mib",
+    })
+    reason = reason_line()
+    assert operator_language(True) in reason and "naming no task ids" in reason
+
+
 def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_report(tmp_path, monkeypatch):
     """With nobody to ask, the Manager's steer chose one reading of a requirement
     read two ways; the run report says it was chosen for the operator."""

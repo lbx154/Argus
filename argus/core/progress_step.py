@@ -245,7 +245,7 @@ def _is_glob_tool(name: str) -> bool:
     return key in {"glob", "find", "find_files", "list_files", "file_search"}
 
 
-_GLOB_WILDCARD = re.compile(r"[*?\[]")
+_GLOB_WILDCARD = re.compile(r"\[[^\]]*\]|[*?]")
 _BRACES = re.compile(r"([^{}]*)\{([^{}]*)\}([^{}]*)")
 
 
@@ -271,8 +271,8 @@ def _readable_glob(pattern: str) -> str:
     A glob is read as "which files": the directory part becomes the folder
     the search ran in (last segment only) and the file part becomes the kind
     of file, so no slash reaches the status line. A pattern with ``{a,b}``
-    alternatives names the files among them; any other wildcard reads as
-    plain "files".
+    alternatives names the files among them; any other wildcard name is said
+    by the words it keeps: ``**/*SKILL*`` -> ``名字含 SKILL 的文件``.
     """
     text = pattern.strip().strip("'\"").replace("\\", "/")
     if "{" in text:
@@ -285,7 +285,8 @@ def _readable_glob(pattern: str) -> str:
     elif re.fullmatch(r"\*\.[\w.]+", leaf):
         what = f"{leaf[1:]} 文件"
     elif _GLOB_WILDCARD.search(leaf):
-        what = "文件"
+        named = "、".join(piece for piece in _GLOB_WILDCARD.split(leaf) if re.search(r"\w", piece))
+        what = f"名字含 {named} 的文件" if named else "文件"
     else:
         what = _clip(leaf, 40)
     return _clip(_phrase(f"{folders[-1]} 里的", what) if folders else what, 60)

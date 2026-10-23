@@ -20,7 +20,7 @@ from starlette.responses import StreamingResponse
 
 from ...daemon import life_worker as daemon_worker
 from .. import project_state, server
-from .context import ServerContext
+from .context import STREAM_PROTOCOL, ServerContext
 from .models import CancelMessageIn, MessageIn
 
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
@@ -619,16 +619,16 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
 
     @app.websocket("/api/projects/{sid}/stream")
     async def _stream(ws: WebSocket, sid: str, replay: int = 40,
-                      view: str = Query(default="full", pattern="^(full|ui)$"),
-                      token_q: str | None = Query(default=None, alias="token")) -> None:
+                      view: str = Query(default="full", pattern="^(full|ui)$")) -> None:
         project_root = ctx.root_for_project(sid)
         life_dir = (
             project_state.project_life_dir(sid, global_root=project_root)
             if project_root is not None
             else None
         )
-        await ws.accept()
-        if ctx.token and token_q != ctx.token:
+        offered = ws.scope.get("subprotocols", ())
+        await ws.accept(subprotocol=STREAM_PROTOCOL if STREAM_PROTOCOL in offered else None)
+        if not ctx.authorized(ws):
             await ws.close(code=4401, reason="unauthorized")
             return
         if life_dir is None:

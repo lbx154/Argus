@@ -40,12 +40,22 @@ _QUIET_ACCESS_PATHS = re.compile(
 )
 
 
-class _PollingAccessFilter(logging.Filter):
-    """Hide successful dashboard refreshes while retaining actionable traffic."""
+_URL_TOKEN = re.compile(r"([?&]token=)[^&\s]+")
+
+
+class _UvicornLogFilter(logging.Filter):
+    """Redact a token that a pairing link or an older client put in a logged
+    request or WebSocket handshake URL, and hide successful dashboard refreshes
+    while retaining actionable traffic."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args
-        if not isinstance(args, tuple) or len(args) < 5:
+        if not isinstance(record.args, tuple):
+            return True
+        record.args = args = tuple(
+            _URL_TOKEN.sub(r"\1<redacted>", arg) if isinstance(arg, str) else arg
+            for arg in record.args
+        )
+        if record.name != "uvicorn.access" or len(args) < 5:
             return True
         method = str(args[1]).upper()
         path = str(args[2]).partition("?")[0]
@@ -61,14 +71,13 @@ class _PollingAccessFilter(logging.Filter):
 
 
 def _uvicorn_log_config(uvicorn_module: Any) -> dict[str, Any]:
-    """Return Uvicorn defaults with successful dashboard polling filtered."""
+    """Return Uvicorn defaults with URL tokens and dashboard polling filtered."""
     import copy
 
     config = copy.deepcopy(uvicorn_module.config.LOGGING_CONFIG)
-    config.setdefault("filters", {})["argus_polling"] = {
-        "()": _PollingAccessFilter,
-    }
-    config["handlers"]["access"]["filters"] = ["argus_polling"]
+    config.setdefault("filters", {})["argus"] = {"()": _UvicornLogFilter}
+    for handler in config["handlers"].values():
+        handler["filters"] = ["argus"]
     return config
 
 
@@ -237,8 +246,8 @@ def create_app(
     """Build the FastAPI app. Requires the ``[web]`` extra (fastapi).
 
     ``auth_token`` (or env ``ARGUS_SKILL_WEB_TOKEN``) turns on bearer auth: when
-    set, every command POST needs ``Authorization: Bearer <token>`` and the WS
-    upgrade needs ``?token=<token>`` (browsers cannot set WS headers). With no
+    set, API requests need ``Authorization: Bearer <token>``; a browser, which
+    cannot set WS headers, offers it as a stream subprotocol instead. With no
     token configured the API is unauthenticated — safe only behind the default
     ``127.0.0.1`` bind.
 

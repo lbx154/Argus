@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 
 from ...core import metrics
 from .. import mission_items, project_state, source_update
@@ -42,19 +42,14 @@ def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 def register_meta_routes(app, ctx: ServerContext) -> None:
-    token = ctx.token
     api_meta = ctx.api_meta
 
     @app.get("/api/meta")
-    def _meta(
-        response: Response,
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
+    def _meta(request: Request, response: Response) -> dict[str, Any]:
         response.headers["Cache-Control"] = "no-store"
-        expected = "Bearer " + str(token)
-        authenticated = not token or authorization == expected
+        authenticated = ctx.authorized(request)
         authentication = {
-            "required": bool(token),
+            "required": bool(ctx.token),
             "authenticated": authenticated,
         }
         if authenticated:

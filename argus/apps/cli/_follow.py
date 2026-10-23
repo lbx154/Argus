@@ -12,7 +12,6 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Sequence
-from urllib.parse import urlencode
 
 from ...core import paths as core_paths
 from ...core.json_codec import loads_finite_json
@@ -55,14 +54,7 @@ def _follow_websocket_url(args: argparse.Namespace) -> str:
     elif ":" in host and not host.startswith("["):
         host = f"[{host}]"
     port = int(getattr(args, "web_port", 8799) or 8799)
-    query = {"replay": "40", "view": "full"}
-    token = str(os.environ.get("ARGUS_SKILL_WEB_TOKEN", "") or "").strip()
-    if token:
-        query["token"] = token
-    return (
-        f"ws://{host}:{port}/api/projects/{bundle.project.root.name}/stream?"
-        f"{urlencode(query)}"
-    )
+    return f"ws://{host}:{port}/api/projects/{bundle.project.root.name}/stream?replay=40&view=full"
 
 
 def _stream_follow_websocket(
@@ -85,9 +77,11 @@ def _stream_follow_websocket(
     url = _follow_websocket_url(args)
     if not url:
         return False
+    token = os.environ.get("ARGUS_SKILL_WEB_TOKEN", "").strip()
     try:
         with connect_factory(
             url,
+            additional_headers={"Authorization": f"Bearer {token}"} if token else None,
             open_timeout=1,
             close_timeout=1,
         ) as websocket:

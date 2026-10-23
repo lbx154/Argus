@@ -1,30 +1,11 @@
-import type {
-  ArtifactInfo,
-  CounterexampleDashboard,
-  EventMsg,
-  GitDiffView,
-  JournalEntry,
-  ProjectRow,
-  Snapshot,
-  StatusView,
-  Turn,
-} from '../types';
+import type { EventMsg, PageId, ProjectRow, Snapshot, StatusView } from '../types';
 
-export type ActiveWorkbenchPageProps = Omit<WorkspacePageProps,
-  'transcript' | 'artifacts' | 'counterexamples' | 'gitDiff' | 'journal'
-> & { active: boolean };
-
-export interface WorkspacePageProps {
+export interface ActiveWorkbenchPageProps {
   sid: string;
   project: ProjectRow;
   snapshot: Snapshot;
   status?: StatusView;
   events: EventMsg[];
-  transcript: Turn[];
-  artifacts: ArtifactInfo[];
-  counterexamples?: CounterexampleDashboard;
-  gitDiff?: GitDiffView;
-  journal: JournalEntry[];
   connected: boolean;
   snapshotUpdatedAt: number;
   refresh: () => void | Promise<void>;
@@ -34,5 +15,6 @@ export interface WorkspacePageProps {
     busy: boolean;
     error: string;
   };
-  navigate: (page: import('../types').PageId) => void;
+  navigate: (page: PageId) => void;
+  active: boolean;
 }

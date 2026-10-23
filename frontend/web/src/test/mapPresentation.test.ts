@@ -207,6 +207,16 @@ it("says a result that passed review while a question waits, and what an accepte
     .toBe("Reviewed (another item is waiting for your answer): format_percent 已按要求交付。");
 });
 
+it("says what was found as plain words, cut after its markup goes", () => {
+  // Trial s-f0e1b2f0: the banner read "已确认：…实现复用 `_check`…`from sizefmt import format_mib` 可用".
+  const done: MapTask = { id: "m", title: "实现 format_mib", objective: "format_mib", status: "done", deps: [], ts: 1, finished_ts: 2,
+    outcome: { review_status: "done", stage_certification: "certified" } };
+  const completion: MapEvent = { id: "e", item_id: "m", type: "life.mission.completed", ts: 3, overall_complete: true,
+    text: "**已通过独立审阅。**\n\n实现复用 `_check`；`from sizefmt import format_mib` 可用，`__all__` 包含该名称。" };
+  expect(projectBrief([done], [completion], true).conclusion)
+    .toBe("已确认：已通过独立审阅。 实现复用 _check；from sizefmt import format_mib 可用，__all__ 包含该名称。");
+});
+
 it("says the next step once, under the brief's own Next label", () => {
   // 2026-10-21: the map read 接下来：下一步：回答这个问题.
   const asked: MapTask = { id: "q", title: "Settle truncate", objective: "Pick A or B", status: "parked", deps: [], ts: 1, pending_question: "A or B?" };

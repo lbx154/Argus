@@ -283,6 +283,17 @@ it.each(["paused_provider_fence", "paused_external_work", "parked", "blocked"])(
   },
 );
 
+it("counts the tasks the overview counts: a replaced task is not one left to finish", () => {
+  // Trial s-f0e1b2f0: the overview said "任务 1/1 已完成", the map "2 个任务 · 已完成 1 个".
+  act(() => renderer.update(
+    <QueryClientProvider client={client}>
+      <MapCanvas {...props} data={{ ...data, tasks: [{ ...data.tasks[1], status: "superseded" }, data.tasks[0]] }} />
+    </QueryClientProvider>,
+  ));
+  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join(""))
+    .toBe("1 task · all completed");
+});
+
 it("cycles all attention tasks and displays their actual question or failure reason", () => {
   const jump = () => act(() => button("Cycle through 2 tasks needing attention").props.onClick());
   jump();

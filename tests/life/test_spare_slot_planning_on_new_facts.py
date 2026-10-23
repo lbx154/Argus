@@ -79,3 +79,36 @@ def test_spare_slot_planner_is_asked_again_only_when_a_fact_moved(
     clock[0] = 27 * 3600.0
     supervisor._plan_alongside_running_work(running_items)
     assert asked == [0.0, 25 * 3600.0, 27 * 3600.0]
+
+
+def test_no_slot_is_filled_beside_work_that_does_not_share_its_slot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """2026-10-22 (sizefmt): the Planner queued a task that was not
+    parallel-safe; the second mission worker asked it again the moment that
+    task started, and it answered "nothing new" for a slot nothing could run in."""
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    monkeypatch.setattr(
+        "argus.daemon.state.read_continuous_state",
+        lambda _root: SimpleNamespace(enabled=True, objective="add format_mib"),
+    )
+    monkeypatch.setattr(supervisor, "_current_planner_input_signature", lambda: "inputs")
+    asked: list[bool] = []
+    supervisor._plan_next_work = lambda **_kwargs: asked.append(True)  # type: ignore[method-assign]
+    queued = BacklogItem.new(
+        title="implement format_mib", objective="truncate like format_kib",
+        owns_paths=["sizefmt/core.py", "tests/test_core.py"],
+    )
+    supervisor.memory.backlog.add(queued)
+    supervisor.memory.backlog.mark_running(queued.id)
+
+    supervisor.config.parallel_worker = True
+    supervisor._plan_alongside_running_work([queued])
+    assert asked == []
+    # With one slot no claim waits on running work (a paused external job,
+    # say), so the Planner can still fill the slot.
+    supervisor.config.parallel_worker = False
+    supervisor._plan_alongside_running_work([queued])
+    assert asked == [True]

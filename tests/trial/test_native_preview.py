@@ -304,6 +304,38 @@ def test_unavailable_workspace_shows_retry_page_and_preserves_allowance(config, 
         assert result.value.code == 1013
 
 
+def test_workspace_stream_carries_the_token_in_a_header_not_the_url(config, ledger, monkeypatch):
+    calls = []
+
+    class Backend:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    def connect(path, *, uri, **kwargs):
+        calls.append((uri, kwargs))
+        return Backend()
+
+    monkeypatch.setattr('deploy.trial.native_preview.unix_connect', connect)
+    client = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    client.post('/login', data={'invite': 'invite-a'}, follow_redirects=False)
+    cookie = COOKIE + '=' + client.cookies.get(COOKIE)
+    with client.websocket_connect('wss://preview.example/api/projects/s-test/stream?replay=40&token=browser',
+                                  headers={'Origin': 'https://preview.example', 'Cookie': cookie}):
+        pass
+    uri, kwargs = calls[0]
+    assert uri == 'ws://localhost/api/projects/s-test/stream?replay=40'
+    assert kwargs['extra_headers'] == {'Authorization': 'Bearer web-a'}
+
+
 def test_watchdog_accepts_normal_multirole_copilot_memory():
     import os
     from types import SimpleNamespace

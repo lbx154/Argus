@@ -97,8 +97,12 @@ _PERFORMANCE_DIAGNOSTIC_RULE = (
 _EXPERIMENT_PREREQUISITE_RULE = (
     "Block dependents on failed readiness; keep each attempt's outputs separate."
 )
-_DESIGN_SYMPTOM_RULE = (
-    "Fix reported symptoms within design rules; intended behavior needs task-text support."
+_SCOPE_RULE = (
+    "Fix reported symptoms within design rules; intended behavior needs task-text support. "
+    "Add no work the task does not ask for (checks of your own change are part of the task), "
+    "and never get around a limit the environment sets "
+    "(an offline switch, a disabled package index): when it blocks what you need, say so "
+    "and hand off instead of forcing another way in."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
@@ -295,7 +299,7 @@ def build_mission_prompt(
             "## Engineer service\n"
             "Implement this task end to end; run its profile's named feedback check. "
             "In explore/develop, follow feedback into alternatives authorized by the "
-            "decision rule. " + _DESIGN_SYMPTOM_RULE
+            "decision rule. " + _SCOPE_RULE
         )
         if learning_block:
             sections.append(learning_block)
@@ -327,7 +331,7 @@ def build_mission_prompt(
         "obstacle remains.\n"
         "Web UI: test real Chromium and mobile.\n"
         "Use primary sources when external behavior matters. "
-        + _DESIGN_SYMPTOM_RULE + "\n"
+        + _SCOPE_RULE + "\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"
         + _long_experiment_rule()

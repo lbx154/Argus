@@ -1,6 +1,7 @@
 import type { JournalEntry } from '../api';
 import { useI18n } from '../i18n';
 import { PanelHeader, EmptyHint } from './primitives';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { ago, money } from '../lib/format';
 
 const KIND_COLOR: Record<string, string> = {
@@ -42,7 +43,7 @@ export function JournalPanel({ entries }: { entries: JournalEntry[] }) {
                 <span className="ml-auto text-[10px] text-ink-faint">{ago(e.ts)}</span>
               </div>
               <div className="mt-1 text-xs font-medium text-ink">{e.title}</div>
-              {e.summary && <div className="mt-0.5 text-[11px] leading-snug text-ink-dim">{e.summary}</div>}
+              {e.summary && <div className="mt-0.5 text-[11px] leading-snug text-ink-dim"><MarkdownExcerpt>{e.summary}</MarkdownExcerpt></div>}
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 {(e.tags ?? []).slice(0, 4).map((t) => (
                   <span key={t} className="rounded bg-line/60 px-1 text-[9px] text-ink-faint">

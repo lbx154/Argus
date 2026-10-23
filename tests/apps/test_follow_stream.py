@@ -35,7 +35,7 @@ def _args() -> Namespace:
     )
 
 
-def test_follow_websocket_url_uses_project_and_token(
+def test_follow_websocket_url_uses_project_without_token(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -55,7 +55,7 @@ def test_follow_websocket_url_uses_project_and_token(
     )
     assert "replay=40" in url
     assert "view=full" in url
-    assert "token=secret+token" in url
+    assert "secret" not in url
 
     args = _args()
     args.web_host = "::1"
@@ -75,7 +75,9 @@ def test_follow_websocket_streams_existing_event_frames(
         "_resolve_project_bundle",
         lambda _args: SimpleNamespace(project=SimpleNamespace(root=project)),
     )
+    monkeypatch.setenv("ARGUS_SKILL_WEB_TOKEN", "fake-token")
     events: list[dict] = []
+    connects: list[dict] = []
     socket = _Socket([
         json.dumps({
             "type": "engineer.progress",
@@ -88,10 +90,11 @@ def test_follow_websocket_streams_existing_event_frames(
     connected = _follow._stream_follow_websocket(
         _args(),
         events.append,
-        connect_factory=lambda *_args, **_kwargs: socket,
+        connect_factory=lambda *_args, **kwargs: connects.append(kwargs) or socket,
     )
 
     assert connected is False
+    assert connects[0]["additional_headers"] == {"Authorization": "Bearer fake-token"}
     assert events == [{
         "type": "engineer.progress",
         "agent_layer": "planner",

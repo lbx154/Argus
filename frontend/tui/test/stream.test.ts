@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import type { IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
+import { WebSocketServer } from 'ws';
 import {
   ApiClient,
   defaultExecutionWorkdir,
@@ -303,6 +307,24 @@ test('protected artifact reads carry the configured bearer token', async () => {
     assert.equal(authorization, 'Bearer secret');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('the live stream sends the bearer token as a header, never in its URL', async () => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await once(server, 'listening');
+  const connected = once(server, 'connection');
+  const { port } = server.address() as AddressInfo;
+  const api = new ApiClient({ host: '127.0.0.1', port, project: 's-test', token: 'fake-token' });
+  const ws = api.connectStream({ onEvent: () => undefined, replay: 40 });
+  try {
+    const [, request] = await connected as [unknown, IncomingMessage];
+    assert.equal(request.url, '/api/projects/s-test/stream?replay=40');
+    assert.equal(request.headers.authorization, 'Bearer fake-token');
+  } finally {
+    ws.terminate();
+    for (const client of server.clients) client.terminate();
+    server.close();
   }
 });
 

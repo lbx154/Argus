@@ -137,7 +137,10 @@ def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
         ('glob: {"pattern": "**/*.{py,ts}"}', "查找文件"),
         # Trial s-36ca9747 read "查找 .*"; any other wildcard is files too.
         ('glob: {"pattern": ".*"}', "查找文件"),
-        ('glob: {"pattern": "tests/test_*.py"}', "查找 tests 里的文件"),
+        ('glob: {"pattern": "tests/test_*.py"}', "查找 tests 里的名字含 test_、.py 的文件"),
+        # Trial s-f0e1b2f0 read "查找文件" for these: the words a pattern keeps name it.
+        ('glob: {"pattern": "**/*SKILL*"}', "查找名字含 SKILL 的文件"),
+        ('glob: {"pattern": "**/*manager*"}', "查找名字含 manager 的文件"),
         ('rg: {"pattern": "route", "paths": "/work/proj/notes.md"}', "搜索：route"),
         ('grep: {"query": "see /work/proj/deep/notes.md"}', "搜索：see notes.md"),
     ],

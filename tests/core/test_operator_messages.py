@@ -5,6 +5,7 @@ import json
 import pytest
 
 from argus.core.operator_messages import (
+    first_sentence,
     humanize_runtime_reason,
     publish_operator_message,
     render_operator_update,
@@ -115,6 +116,21 @@ def test_a_handed_on_review_says_its_first_sentence_once(holder: str, next_line:
         "原因：format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。",
         next_line,
     ]
+
+
+def test_a_reason_in_markdown_gives_its_first_sentence_as_plain_text() -> None:
+    # Trial s-f0e1b2f0: the sentence was cut at its "。", inside the bold, and
+    # the notice read "原因：**尚未实现：取整规则存在歧义。".
+    text = render_operator_update(
+        title="为 sizefmt 添加整数 MiB 格式化函数",
+        status="blocked",
+        reason="**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。",
+        holder="manager",
+    )
+
+    assert text.splitlines()[1] == "原因：尚未实现：取整规则存在歧义。"
+    # A name is not markup: the marks go, the dunder stays.
+    assert first_sentence("从 `sizefmt/__init__.py` 导出`format_mib`。其余未改。") == "从 sizefmt/__init__.py 导出format_mib。"
 
 
 def test_work_handed_to_the_manager_names_it_whatever_instruction_came_along() -> None:

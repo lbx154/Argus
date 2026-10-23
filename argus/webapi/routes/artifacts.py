@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, Query, Response
+from fastapi import Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
@@ -15,6 +15,7 @@ from .context import ServerContext
 
 # One "download everything" archive; larger selections download file by file.
 BUNDLE_MAX_BYTES = 2 * 1024 ** 3
+PREVIEW_COOKIE = "argus_preview_access"
 
 
 class ArtifactBundleIn(BaseModel):
@@ -129,25 +130,23 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
         return package, preview
 
     @app.get("/api/projects/{sid}/artifact/preview", dependencies=[Depends(ctx.require_auth)])
-    def _artifact_preview(sid: str, response: Response, path: str = Query(..., min_length=1)):
+    def _artifact_preview(sid: str, request: Request, response: Response, path: str = Query(..., min_length=1)):
         response.headers["Cache-Control"] = "private, no-store"
         _, preview = html_package(sid, path)
+        # A fixed path: a session id may need encoding the cookie path cannot match.
+        ctx.grant_cookie(request, response, PREVIEW_COOKIE, "/api/projects")
         return {**preview, "served_page": True}
 
     # A page loaded into a sandboxed iframe carries its own policy, so its own
     # inline styles and scripts run and the delivered website behaves the way it
     # was built to. The policy sandboxes the document and cuts off every network
     # destination, so nothing here can reach the project directory, the app, or
-    # the outside; a token may ride in the query because an iframe cannot send a
-    # header (a hosted portal supplies the header on the caller's behalf).
+    # the outside. An iframe cannot send a header, so the page also accepts the
+    # cookie the preview above sets (a hosted portal supplies the header itself).
     @app.get("/api/projects/{sid}/artifact/preview/page")
-    def _artifact_preview_page(
-        sid: str,
-        path: str = Query(..., min_length=1),
-        token: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ):
-        ctx.authorize_read(authorization, token)
+    def _artifact_preview_page(sid: str, request: Request, path: str = Query(..., min_length=1)):
+        if not ctx.authorized(request, PREVIEW_COOKIE):
+            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
         _, preview = html_package(sid, path)
         return Response(preview["html"], media_type="text/html; charset=utf-8", headers={
             "Content-Security-Policy": PREVIEW_PAGE_CSP,
