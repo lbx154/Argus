@@ -14,9 +14,8 @@ from threading import Event, Lock, Thread
 from typing import Any, Callable, Iterable
 
 from ..core.file_lock import bounded_file_lock_wait, cleanup_file_lock_wait
-from ..core.operator_context import OperatorContextStore
 from ..core.run_gateway import run_interrupt_scope
-from ..manager.operator_inbox import check_intake_cancelled, classify_operator_message
+from ..manager.operator_inbox import check_intake_cancelled
 
 log = logging.getLogger(__name__)
 LEASE_SECONDS = 30.0
@@ -42,13 +41,11 @@ class OperatorInboxText(str):
     """String compatibility for display, with a physical delivery identity."""
 
     delivery_id: str
-    ephemeral: bool
     host_report: bool
 
-    def __new__(cls, text: str, *, delivery_id: str, ephemeral: bool, host_report: bool = False):
+    def __new__(cls, text: str, *, delivery_id: str, host_report: bool = False):
         value = super().__new__(cls, text)
         value.delivery_id = delivery_id
-        value.ephemeral = ephemeral
         value.host_report = host_report
         return value
 
@@ -59,12 +56,7 @@ def is_host_report(message: str) -> bool:
 
 
 def operator_live_turn(messages: Iterable[str]) -> str:
-    # Replaying a canonical receipt must not reinstate consumed/revoked
-    # authority through the higher-precedence live-turn channel.
-    return "\n".join(
-        text for text in messages
-        if not isinstance(text, OperatorInboxText) or text.ephemeral
-    )
+    return "\n".join(messages)
 
 
 def unique_operator_messages(messages: Iterable[str]) -> list[str]:
@@ -154,7 +146,7 @@ class DurableInboxReceiver:
         self.keeper = _ClaimKeeper(self.root)
 
     def receive(
-        self, *, manager: Any = None, mission_id: str = "", limit: int = 10,
+        self, *, mission_id: str = "", limit: int = 10,
         cancelled: Callable[[], bool] | None = None,
     ) -> list[str]:
         from ..skills.stage_machine import current_stage
@@ -182,7 +174,7 @@ class DurableInboxReceiver:
                         self.release_pending()
                         break
                     self.keeper.check(pending)
-                    out.append(self._text(pending, ephemeral=True))
+                    out.append(self._text(pending))
                     selected.add(_identity(pending))
                     if len(out) >= max(1, limit):
                         return out
@@ -197,7 +189,7 @@ class DurableInboxReceiver:
                     self.keeper.hold(claim)
                     if _identity(claim) in selected:
                         break
-                    text = self._accept(claim, manager=manager)
+                    text = self._accept(claim)
                     if text is not None:
                         out.append(text)
                         selected.add(text.delivery_id)
@@ -211,12 +203,14 @@ class DurableInboxReceiver:
             self.release_pending()
             raise
 
-    def _accept(self, claim: Any, *, manager: Any) -> OperatorInboxText | None:
-        from ..core.operator_context import (
-            apply_operator_delivery,
-            close_operator_delivery_prefix,
-            freeze_operator_intake,
-        )
+    def _accept(self, claim: Any) -> OperatorInboxText | None:
+        """Hand one inbox message to the running round once.
+
+        The inbox carries guidance, never authority: a lasting rule, steer or
+        amendment comes only from the Manager's own turn on the operator's
+        message, which writes its projection here.
+        """
+        from ..core.operator_context import IntakeDecision, freeze_operator_intake
         from ..manager.directive import ACTIVE_MANAGER_DIRECTIVE_PREFIX, STEERING_HEADER
         from ._inbox import (
             accept_inbox_claim,
@@ -227,45 +221,17 @@ class DurableInboxReceiver:
 
         self.keeper.check(claim)
         if claim.decision is None:
-            # Fail before any classification call when required policy is unreadable.
-            _ = OperatorContextStore(self.root).revision
-            if _host_report(claim):
-                # A subagent's completion report is Argus telling itself that
-                # its own job finished. Sending it through the Manager's front
-                # door cost a model call per report and, on 2026-09-30, froze
-                # one such report as an operator objective amendment.
-                from ..core.operator_context import IntakeDecision
-
-                decision = IntakeDecision(kind="ephemeral")
-            else:
-                if callable(manager) and not hasattr(manager, "classify_front_door"):
-                    manager = manager()
-                decision = classify_operator_message(self.root, claim.text, manager=manager)
             plan = freeze_operator_intake(
-                self.root, claim.text, decision, source="operator.inbox", mission_id=claim.mission_id,
+                self.root, claim.text, IntakeDecision(kind="ephemeral"),
+                source="operator.inbox", mission_id=claim.mission_id,
             )
             self.keeper.check(claim)
-            authoritative = plan["effect"] is not None
-            existing_projection = claim.text.startswith((STEERING_HEADER, ACTIVE_MANAGER_DIRECTIVE_PREFIX))
+            projection = claim.text.startswith((STEERING_HEADER, ACTIVE_MANAGER_DIRECTIVE_PREFIX))
             claim = freeze_inbox_decision(
-                self.root, claim, decision=plan,
-                target_root=plan["target_root"] if authoritative else None,
-                transient_text=claim.text if not authoritative and not existing_projection else "",
+                self.root, claim, decision=plan, target_root=None,
+                transient_text="" if projection else claim.text,
             )
             self.keeper.hold(claim)
-        if claim.target_root is not None:
-            if not claim.acknowledged:
-                self.keeper.check(claim)
-                receipt = claim.receipt or apply_operator_delivery(claim.decision, claim.identity)
-                claim = accept_inbox_claim(self.root, claim, receipt=receipt)
-                claim = acknowledge_inbox_claim(self.root, claim)
-            # Source ACK retains the original receipt until the target prefix
-            # is closed. A crash here resumes closure without reapplying.
-            self.keeper.check(claim)
-            close_operator_delivery_prefix(claim.target_root, claim.closed_prefix)
-            settle_inbox_claim(self.root, claim, canonical_closed=True)
-            self.keeper.drop(claim)
-            return self._text(claim, ephemeral=False)
         if not claim.acknowledged:
             self.keeper.check(claim)
             claim = accept_inbox_claim(self.root, claim)
@@ -276,13 +242,13 @@ class DurableInboxReceiver:
             return None
         self.pending[_identity(claim)] = claim
         self.keeper.hold(claim)
-        return self._text(claim, ephemeral=True)
+        return self._text(claim)
 
     @staticmethod
-    def _text(claim: Any, *, ephemeral: bool) -> OperatorInboxText:
+    def _text(claim: Any) -> OperatorInboxText:
         return OperatorInboxText(
-            claim.transient_text if ephemeral else claim.text,
-            delivery_id=_identity(claim), ephemeral=ephemeral,
+            claim.transient_text,
+            delivery_id=_identity(claim),
             host_report=_host_report(claim),
         )
 
@@ -290,7 +256,7 @@ class DurableInboxReceiver:
         from ._inbox import settle_inbox_claim
 
         for text in messages:
-            if not isinstance(text, OperatorInboxText) or not text.ephemeral:
+            if not isinstance(text, OperatorInboxText):
                 continue
             claim = self.pending.get(text.delivery_id)
             if claim is None:

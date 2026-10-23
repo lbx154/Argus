@@ -772,31 +772,6 @@ def test_root_task_id_scopes_manager_vertical_call(tmp_path):
     ]
 
 
-def test_root_task_id_scopes_manager_front_door_call(tmp_path):
-    transitions: list[tuple[str, str]] = []
-
-    @contextmanager
-    def usage_context(root_task_id: str):
-        transitions.append(("enter", root_task_id))
-        try:
-            yield
-        finally:
-            transitions.append(("exit", root_task_id))
-
-    manager = Manager(
-        project_root=tmp_path,
-        runner=_DecisionRunner({}),
-        usage_context=usage_context,
-    )
-
-    manager.classify_front_door("build it", root_task_id="root-task-2")
-
-    assert transitions == [
-        ("enter", "root-task-2"),
-        ("exit", "root-task-2"),
-    ]
-
-
 def test_root_task_id_scopes_manager_stage_call(tmp_path):
     from argus.core.models import ReviewDecision
 
@@ -994,8 +969,6 @@ def test_fast_route_carries_contract_fields_without_bypassing_planner(
         "workflow_mode": "direct",
         "summary": "one bounded parser repair",
         "require_independent_review": True,
-        "precise_constraints": ["pytest -q tests/test_parser.py exits zero"],
-        "exclusions": ["do not change the public API"],
         "assumptions": [],
     })
     runner._backend_name = "codex"
@@ -1006,10 +979,6 @@ def test_fast_route_carries_contract_fields_without_bypassing_planner(
 
     assert decision.workflow_mode == "direct"
     assert decision.require_independent_review is True
-    assert decision.precise_constraints == (
-        "pytest -q tests/test_parser.py exits zero",
-    )
-    assert decision.exclusions == ("do not change the public API",)
     assert decision.assumptions == ()
     assert runner.calls[0]["run_label"] == "manager-classify-fast"
     assert runner.calls[0]["options"].disable_tools is True

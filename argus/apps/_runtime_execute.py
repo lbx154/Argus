@@ -82,7 +82,7 @@ def _engineer_guidance(
 
     try:
         with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
-            transient = receiver.receive(manager=manager, mission_id=mission_id, cancelled=cancelled)
+            transient = receiver.receive(mission_id=mission_id, cancelled=cancelled)
             if delivery_messages is not None:
                 delivery_messages.extend(transient)
             block, _revision = build_operator_context_block(

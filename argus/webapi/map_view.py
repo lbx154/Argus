@@ -87,7 +87,7 @@ SEGMENT_LIMIT_PER_ITEM = 80
 SEGMENT_TEXT_LIMIT = 1200
 STEP_LABEL_LIMIT = 160
 TURN_LIMIT = 200
-_ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1", "manager-quick-reply"})
+_ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1"})
 
 
 def facts(value) -> str:
@@ -180,7 +180,7 @@ def fold_progress(
     revision) instead of being cut at the read boundary.
     """
     kind = str(row.get("kind") or "")
-    if row.get("transient") or row.get("final_delivery"):
+    if row.get("transient"):
         return
     if kind not in NARRATION_KINDS and kind not in STEP_KINDS:
         return

@@ -78,8 +78,6 @@ def test_a_new_domain_on_an_exact_empty_snapshot_needs_no_tool_evidence(
         "require_independent_review": True,
         "summary": "现有能力不覆盖餐厅筹备与持续运营。",
         "execution_task": execution_task,
-        "precise_constraints": ["总预算不超过50万元；30天内完成开业"],
-        "exclusions": ["不得降低食品安全标准"],
         "assumptions": [{"chose": "中等规模的城市餐厅", "instead_of": "目标城市和规模由你定"}],
     }
 
@@ -105,8 +103,6 @@ def test_a_new_domain_on_an_exact_empty_snapshot_needs_no_tool_evidence(
     assert "project_markers=none" in runner.calls[0]["prompt"]
     assert "top_level_entries=none" in runner.calls[0]["prompt"]
     assert routed.execution_task == execution_task
-    assert routed.precise_constraints == ("总预算不超过50万元；30天内完成开业",)
-    assert routed.exclusions == ("不得降低食品安全标准",)
     assert routed.assumptions == ({"chose": "中等规模的城市餐厅", "instead_of": "目标城市和规模由你定"},)
     assert routed.require_independent_review is True
 

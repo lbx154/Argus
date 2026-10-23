@@ -12,12 +12,11 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.role_reply import decision_footer_instruction
-from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, format_native_shell_command
+from ...skills.role_context import load_builtin_skill_text
+from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, argus_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
-from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
+from .voice import RESEARCHER_VOICE
 
-FRONT_DOOR = "front_door"
-SELF_REPLY = "self_reply"
 STAGE_DECISION = "stage_decision"
 GROUNDED_VERTICAL_DECISION = "grounded_vertical_decision"
 RESEARCH_TARGET = "research_target"
@@ -57,41 +56,8 @@ _RESEARCH_DELIVERABLE_ROUTING = (
 _MIN_PLAN_STEPS = 3
 _MAX_PLAN_STEPS = 8
 
-_USER_FACING_STYLE = (
-    RESEARCHER_VOICE + "\n\n"
-    "Lead with the answer in plain language, and match the depth, tone, and detail the "
-    "operator's request calls for. Do not assume research expertise; explain a "
-    "necessary unfamiliar term when first used and say what the result means "
-    "for the person. Give professional detail when requested, without changing "
-    "numbers, sources or uncertainty. Mention evidence when it matters; leave out internal "
-    "exchanges between roles and the sequence of tool calls. If work cannot proceed, "
-    "say why and what happens next. "
-    "Ask one clear question only when the operator must decide. Satisfy the stated "
-    "outcome fully; do not invent future requirements.\n\n"
-    "When delivering a web page, default to self-contained HTML or an existing "
-    "authenticated preview that the person can open in their browser, unless "
-    "they explicitly request a source project, framework or deployment. A list "
-    "of npm or server commands alone is not a usable page. Check the actual "
-    "delivered page and its requested interactions when tools permit; name "
-    "anything not checked. Do not open public ports or publish private files "
-    "without permission. Link the real result by its workspace-relative path, "
-    "and keep further changes tied to that file and the requested scope. "
-    "For delegated page work, include these requirements in task acceptance.\n\n"
-)
-
-_IDENTITY_GUARD = (
-    "You are Argus Manager; identify only as Argus Manager, not the backend model "
-    "or CLI. Never direct the operator to the backend's CLI. Introduce yourself "
-    "only when the operator asks who or what you are; otherwise answer directly "
-    "without a self-introduction. The operator changes model, backend, and effort "
-    "by saying so in this chat; earlier advice in this conversation to use slash "
-    "commands or settings files for that is outdated.\n\n"
-)
-
 OPERATIONS = frozenset(
     {
-        FRONT_DOOR,
-        SELF_REPLY,
         STAGE_DECISION,
         GROUNDED_VERTICAL_DECISION,
         RESEARCH_TARGET,
@@ -116,128 +82,40 @@ def current_date_line(now: datetime | None = None) -> str:
         "latest or current unless a source checked now says so.\n\n"
     )
 
-def build_quick_reply_prompt(
-    *,
-    objective: str,
-    identity_card: str = "",
-    runtime_context: str = "",
-) -> str:
-    """Compact, tool-free Manager reply for message-only conversation."""
+MANAGER_RULES = Path(__file__).resolve().parents[2] / "builtin_skills" / "manager"
+#: Each rule file, and when the Manager reads it.
+_RULES = (
+    ("team-handoff", "before deciding to hand work to the team, and when reporting the team's result"),
+    ("asking-the-operator", "before asking the operator anything"),
+    ("settings-and-control", "when the operator changes a setting, pauses, aborts or steers work, grants something or sets a lasting rule"),
+    ("replying", "before your first substantive reply, and before delivering a web page"),
+    ("research-and-sources", "when learning, surveying, analysing data, writing, or saving a report"),
+    ("workspace-and-view", "when choosing what the right-side view shows"),
+)
+
+
+def build_manager_prompt(message: str, *, workspace: Path | str, state_root: Path | str) -> str:
+    """The Manager's one page, sent once per conversation: who it is, where things are, which rule to read when."""
     from ...core.role_config import runner_backend_label
 
-    identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
-    runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
+    view = argus_command("argus.tools.manager_live_view", "--workspace", workspace, "--state-dir", state_root)
+    rules = "\n".join(f"- {name}: {when}" for name, when in _RULES)
     return (
-        f"You are Argus Manager, using one {runner_backend_label()} worker. "
-        "Reply directly. No tools were used, so do not claim inspection "
-        "or create persistent work.\n\n"
+        f"You are Argus Manager, the operator's one point of contact, in one {runner_backend_label()} "
+        "session that keeps this conversation. Answer the operator yourself, with tools when the "
+        "answer depends on files, state or the web, and finish and check small work yourself. "
+        "When the work is big, hand it to the team: hand_off(to=team) with a ticket. When only the "
+        "operator can decide, hand_off(to=operator) with a question and options. For settings, "
+        "control, grants and lasting rules, hand_off(to=manager). Otherwise call nothing and reply.\n"
+        "Write in the operator's language for a non-technical reader: conclusion first, plain words, short.\n\n"
         f"{current_date_line()}"
-        f"{_IDENTITY_GUARD}"
-        f"{_USER_FACING_STYLE}"
-        f"{identity}"
-        f"{runtime}"
-        f"Message:\n{objective.strip()}"
-    )
-
-
-def build_simple_prompt(
-    *,
-    objective: str,
-    identity_card: str = "",
-    skill_library: str = "",
-    mission_status: str = "",
-    runtime_context: str = "",
-    operator_workspace: str = "",
-) -> str:
-    from ...core.role_config import runner_backend_label
-
-    identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
-    skills = f"{skill_library.strip()}\n\n" if skill_library.strip() else ""
-    status = f"\n\n{mission_status.strip()}" if mission_status.strip() else ""
-    runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
-    workspace = ""
-    knowledge = ""
-    if operator_workspace.strip():
-        workspace_root = Path(operator_workspace).expanduser()
-        workspace = (
-            "## Grounding workspace\n"
-            f"Operator launch workspace: {operator_workspace.strip()}\n"
-            "For any claim about the current project, source tree, configuration, "
-            "or outputs, inspect this workspace with tools before "
-            "answering. Do not substitute generic prior knowledge for current "
-            "workspace evidence. Project evidence is not a server-wide inventory: "
-            "an absent project daemon does not mean the WebAPI, foreground requests, "
-            "other projects, or other host programs are stopped. Inspect the requested "
-            "scope before making claims beyond the supplied observations. If it cannot "
-            "be read, say what remains unknown. You are the Manager and may modify state or use "
-            "tools when that is required to carry out the operator's instruction.\n\n"
-        )
-        from ...wiki.context import render_knowledge_wiki_block, shared_knowledge_roots
-
-        knowledge = render_knowledge_wiki_block(
-            workspace_root,
-            role="Manager",
-            shared_roots=shared_knowledge_roots(workspace_root),
-        )
-    from ...wiki.context import render_operator_memory_block
-
-    # The Manager speaks for this operator; what Argus knows about them comes
-    # first, whether or not the project has a Wiki yet.
-    operator_block = render_operator_memory_block()
-    if operator_block:
-        knowledge = (operator_block + "\n\n" + knowledge) if knowledge else operator_block + "\n\n"
-    return (
-        f"You are Argus Manager, using one {runner_backend_label()} worker. "
-        "Answer the request yourself and use tools only when needed. You may inspect "
-        "or change state, but do not invent extra tasks or outputs. For tutoring, "
-        "teach one useful chunk, ask at most one question, then wait. Check primary "
-        "sources only when an external technical claim matters. When the operator asks "
-        "you to learn, survey or explain a subject, read primary sources on the web "
-        "first and cite their URLs in the answer. First verify the identity of a named external "
-        "subject; unfamiliarity is not a spelling error or proof it does not exist. "
-        "Use public search before guessing a familiar expansion or asking the user "
-        "to define a publicly discoverable subject. Existing Skills and user interests "
-        "are hints, not evidence of identity. When source evidence contradicts a "
-        "suggested vertical, drop that assumption and use the methods that fit the "
-        "actual subject. A research overview does not require a specialist builder. "
-        "If a skill command is unavailable, use ordinary source tools when sufficient; "
-        "do not search the entire filesystem for old installations. For data analysis, "
-        "always follow marginal summaries with time-by-category cross-slices; separate "
-        "data facts, inferences, and recommendations, and state derived measures or "
-        "proxy assumptions such as treating each row as one order. For fiction or "
-        "literary writing, reread the complete draft once before delivery, checking "
-        "specifically for continuity breaks and setting exposition that replaces "
-        "dramatized action. When the operator asks for a written result they will "
-        "keep or reuse, such as a research report, survey, comparison, plan or "
-        "analysis, save it as a Markdown file in the workspace and name that file "
-        "by its relative path in your reply, with a short summary of it; a quick "
-        "answer or a conversational question needs no file.\n\n"
-        f"{current_date_line()}"
-        f"{_IDENTITY_GUARD}"
-        f"{_USER_FACING_STYLE}"
-        f"{skills}"
-        f"{identity}"
-        f"{runtime}"
-        f"{workspace}"
-        f"{knowledge}"
-        f"Task:\n{objective.strip()}"
-        f"{status}"
-    )
-
-
-def build_self_learning_note(workspace: Path) -> str:
-    """What a SELF turn taught is kept by the Manager in that turn, as the Engineer does."""
-    from ...core.knobs import learning_enabled
-    from ...wiki.auto_hooks import discover_wikis
-
-    if not learning_enabled():
-        return ""
-    wikis = discover_wikis(workspace)
-    fact = f", a lasting project fact as a page in the project Wiki `{wikis[0]}`" if wikis else ""
-    return (
-        "If this turn taught something later work should reuse, keep it before you finish: "
-        f"a reusable procedure as a Skill in `{workspace / '.agents' / 'skills'}/<name>/SKILL.md`"
-        f"{fact}. Otherwise write nothing."
+        "## Where things are\n"
+        f"- Workspace, where project outputs live: {workspace}\n"
+        f"- Argus state: {state_root} (CHECKPOINT.md; backlog.jsonl; events.jsonl, the team log)\n"
+        f"- Right-side view tool: `{view}`\n\n"
+        f"## Rules: read {MANAGER_RULES}/<topic>/SKILL.md before doing what it covers\n"
+        f"{rules}\n\n"
+        f"Message:\n{message.strip()}"
     )
 
 
@@ -278,25 +156,6 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
         f"Reviewer question:\n{question}\n\n"
         + (f"Answers offered, by number:{offered}\n\n" if offered else "")
         + f"Operator response:\n{answer.strip()}"
-    )
-
-
-def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_reply: bool = True) -> str:
-    """Merged cockpit front door: classify the message once, with hand_off."""
-    reply_rule = (
-        "You may answer here: reply is the complete answer for the operator, without "
-        "route, control, lifetime or role-protocol labels."
-        if allow_reply else
-        "Do not answer here except a greeting: the persistent Manager answers with "
-        "conversation and Skill context, so leave reply out and do not draft, outline "
-        "or answer the question. self_mode may still be reply."
-    )
-    return (
-        "Classify the operator's message with hand_off only.\n\n"
-        f"{reply_rule}\n\n"
-        f"{RESEARCHER_VOICE_BRIEF}\n\n"
-        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
-        f"Message:\n{(text or '').strip()}\n\n"
     )
 
 
@@ -691,46 +550,6 @@ def build_skill_placements_prompt(
     )
 
 
-def manager_workspace_capability_prompt(
-    project_root: Path | str,
-    *,
-    manifest_root: Path | str | None = None,
-) -> str:
-    from ...manager.live_view import manager_workspace_context
-
-    context = manager_workspace_context(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    tool = format_native_shell_command(
-        [
-            "python",
-            "-m",
-            "argus.tools.manager_live_view",
-            "--workspace",
-            str(context["workspace"]),
-            "--state-dir",
-            str(context["state_root"]),
-        ]
-    )
-    return (
-        "## Manager workspace and rendering authority\n"
-        f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
-        "The canonical workspace is where project outputs live and where every render path "
-        "is resolved. The state_root is private session memory/control state; never "
-        "select a state-root file as a project output. You own the right-side "
-        "content choice. Inspect current files, choose the most useful existing "
-        "file, or author a presentation under the presentation_root. For an "
-        "operator-facing chat turn, inspect or change the view with:\n"
-        f"- `{tool} status`\n"
-        f"- `{tool} set --title <title> --reason <reason> --path <workspace-relative-path> [--path ...]`\n"
-        f"- `{tool} clear`\n"
-        "Path order is presentation order and the first file selected by Manager "
-        "is the default right-side content. Never claim rendering succeeded until "
-        "the tool returns `ok: true` with `exists: true`.\n"
-    )
-
-
 def assemble_manager_prompt(
     prompt: str,
     *,
@@ -983,8 +802,7 @@ def build_project_completion_report_prompt(
         f"You are Argus Manager reporting {scope} to the "
         "operator. This is a completion report, not another review or approval "
         "decision. Do not reopen, hold, advance, or roll back any stage.\n\n"
-        f"{_IDENTITY_GUARD}"
-        f"{_USER_FACING_STYLE}"
+        f"{load_builtin_skill_text('manager/replying/SKILL.md')}\n\n"
         f"Use the operator's language. {lead}"
         "Then say where the results are, what was checked, and what is left or "
         "limited. When the work went through several stages or a rollback, also give "
@@ -1031,30 +849,24 @@ def build_project_completion_report_prompt(
 
 
 __all__ = [
-    "FRONT_DOOR",
     "GROUNDED_VERTICAL_DECISION",
     "LIVE_VIEW",
     "OPERATIONS",
     "PENDING_QUESTION",
     "PLAN_PREVIEW",
     "RESEARCH_TARGET",
-    "SELF_REPLY",
     "SKILL_PLACEMENT_BATCH",
     "STAGE_DECISION",
     "assemble_manager_prompt",
     "build_fast_vertical_decision_prompt",
-    "build_quick_reply_prompt",
-    "build_front_door_prompt",
+    "build_manager_prompt",
     "build_pending_question_prompt",
     "build_plan_prompt",
     "build_project_completion_report_prompt",
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
-    "build_self_learning_note",
-    "build_simple_prompt",
     "build_skill_placements_prompt",
     "build_stage_decision_prompt",
     "build_vertical_decision_prompt",
-    "manager_workspace_capability_prompt",
     "stage_decision_request",
 ]

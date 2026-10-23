@@ -9,9 +9,10 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from ..core.knobs import resolve_role_model
 from ..core.progress_step import REPLY_KINDS
@@ -31,6 +32,9 @@ _PHASE_META_FIELDS = (
 from ..core.runner_errors import is_pre_provider_refusal_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.session import topic_name
+
+if TYPE_CHECKING:
+    from ..core.handoff import HandOff
 
 log = logging.getLogger(__name__)
 
@@ -484,7 +488,7 @@ def _allow_manager_route_contract_change(
     if not active.enabled or not active.objective.strip():
         return True
     lifetime = str(
-        chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
+        chat_state.get("_team_lifetime", "bounded") or "bounded"
     ).strip().lower()
     return lifetime == "standing"
 
@@ -537,7 +541,6 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             ))
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
-        exclusions = tuple(getattr(decision, "exclusions", ()) or ())
         assumptions = tuple(
             f"{row['chose']} (rather than {row['instead_of']})"
             for row in getattr(decision, "assumptions", ())
@@ -549,7 +552,6 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
                 contract=new_contract(
                     objective=body,
                     clauses=clauses,
-                    exclusions=exclusions,
                     assumptions=assumptions,
                 ),
             )
@@ -566,11 +568,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             if objective_changed or clauses
             else current.clauses
         )
-        proposed_exclusions = (
-            exclusions
-            if objective_changed or exclusions
-            else current.exclusions
-        )
+        proposed_exclusions = () if objective_changed else current.exclusions
         proposed_assumptions = (
             assumptions
             if objective_changed or assumptions
@@ -832,7 +830,7 @@ def prepare_manager_execution_task(
     public_objective = body if public_objective is None else public_objective.strip()
     intent_id = f"intent-{time.time_ns()}"
     lifetime = str(
-        chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
+        chat_state.get("_team_lifetime", "bounded") or "bounded"
     ).strip().lower()
     configured_continuous = bool(
         chat_state.get("config", {}).get("continuous", False)
@@ -1205,16 +1203,11 @@ def manager_continuous_handoff(
     return prepared.execution_task
 
 
-def _fallback_request_excerpt(body: str) -> str:
-    compact = " ".join(str(body or "").split())
-    return compact if len(compact) <= 160 else compact[:157] + "..."
-
-
 def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
+    compact = " ".join(str(body or "").split())
     return (
-        "[not dispatched] The Manager could not classify this message because "
-        f"the provider call was refused before start: {exc}. "
-        f"Request: {_fallback_request_excerpt(body)}"
+        "[not dispatched] The provider call was refused before start: "
+        f"{exc}. Request: {compact if len(compact) <= 160 else compact[:157] + '...'}"
     )
 
 
@@ -1222,9 +1215,8 @@ def manager_judgment(mem: Any, prompt: str, chat_state: dict[str, Any], *,
                      run_label: str, root_task_id: str | None = None) -> str:
     """One stateless, read-only Manager turn on a self-contained prompt.
 
-    Unlike :func:`manager_triage` it neither resumes nor advances the
-    Manager's conversation and carries no SELF context. ``""`` when no
-    Manager is available or it said nothing.
+    Unlike :func:`manager_turn` it neither resumes nor advances the
+    Manager's conversation. ``""`` when no Manager is available or it said nothing.
     """
     manager = getattr(_ensure_manager_runner(chat_state, mem), "manager", None)
     if manager is None:
@@ -1232,307 +1224,128 @@ def manager_judgment(mem: Any, prompt: str, chat_state: dict[str, Any], *,
     return manager.run_turn(prompt, run_label=run_label, root_task_id=root_task_id)
 
 
-def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
-                   *, on_phase: Any = None, on_fragment: Any = None,
-                   route: str | None = None,
-                   self_mode: str = "inspect",
-                   root_task_id: str | None = None,
-                   ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-                   ) -> str | None:
-    """Front-door route: one-Codex SELF work returns a reply; TEAM work returns
-    ``None`` so the caller queues the Argus Planner/Engineer/Reviewer pipeline.
+def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
+                 on_fragment: Any = None, root_task_id: str | None = None,
+                 team_allowed: bool = True) -> "tuple[str | None, HandOff | None]":
+    """Hand one operator message to the Manager's session: its reply, and what it handed off.
 
-    ``on_phase(label, *, role=...)`` — optional callback invoked at the REAL
-    phase transitions (classify → reply), so a live status line reflects what
-    the Manager is actually doing rather than a timed cosmetic rotation.
-    ``role`` is a best-effort extra (falls back to the plain one-arg call for
-    any callback that does not accept it) naming which of the four roles
-    drove this update, so the caller can retint a live spinner to match.
+    The reply is ``None`` only when no Manager is available. A failed turn
+    replies with the failure and sets ``chat_state["_self_failure"]``.
 
-    ``on_fragment(kind, payload)`` — optional streaming callback for a live
-    front-end (the web/TUI SSE bridge). Fires ``("delta", {"text", "message_id"})``
-    for each assistant reply block the instant it arrives, and ``("phase",
-    {"role", "label"})`` at each phase transition.
+    ``on_fragment(kind, payload)`` streams the turn to a live front end:
+    ``("delta", {"text", "message_id"})`` per assistant message as it arrives,
+    and ``("phase", {"role", "label", ...})`` per visible step.
     """
-    if route is None and mission_is_running(mem):
-        route = "simple"
-    from ..provider_integrations.authorization_retry import BackendLoginRequired
-
-    chat_state.pop("_self_delivery", None)
-    chat_state.pop("_self_failure", None)
-    skill_vertical = chat_state.pop("_frontdoor_skill_vertical", None)
-    runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
-    if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
-        return None
-    chat_state.pop("_self_delivery", None)
-    chat_state.pop("_self_failure", None)
-    captured: list[str] = []
-    round_failure: str | None = None
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
+    from ..provider_integrations.authorization_retry import BackendLoginRequired
+    from .form import manager_actions
 
+    chat_state.pop("_self_delivery", None)
+    chat_state.pop("_self_failure", None)
+    runner = _ensure_manager_runner(chat_state, mem)
+    if runner is None:
+        return None, None
     chinese = uses_cjk(body)
+    captured: list[str] = []
+    round_failure: str | None = None
 
-    def _reply_for_outcome() -> str:
-        outcome = getattr(runner, "last_chat_outcome", None)
-        stop_reason = _redact_live_text(
-            getattr(outcome, "stop_reason", "")
-        ).strip()
-        if getattr(outcome, "success", None) is False:
-            reason = stop_reason or "The backend did not complete the turn."
-            if mode in execution_modes:
-                chat_state["_self_failure"] = reason
-            said = humanize_runtime_reason(
-                stop_reason or say("reply_cut_off", chinese), language_hint=body, interactive=True,
-            )
-            return say("reply_stopped_midway", chinese, said=said)
-        if captured:
-            # Only the latest successful completed round is the final delivery.
-            return captured[-1]
-        if not stop_reason:
-            return say("reply_empty", chinese)
-        said = humanize_runtime_reason(stop_reason, language_hint=body, interactive=True)
-        return say("reply_stopped_before_reply", chinese, said=said)
-
-    def _redact_live_text(text: Any) -> str:
+    def _redact(text: Any) -> str:
         return redact_secrets_text(str(text or ""), known_values=known_secret_values())
 
-    def _failure_reply(detail: Any, *, formatted: bool = False) -> str:
-        safe = _redact_live_text(detail).strip()[:1200] or say("reply_incomplete", chinese)
+    def _failure_reply(detail: Any) -> str:
+        safe = _redact(detail).strip()[:1200] or say("reply_incomplete", chinese)
         chat_state["_self_failure"] = {"detail": safe}
-        chat_state.pop("_self_delivery", None)
         chat_state.pop("last_thread_id", None)
-        display = humanize_runtime_reason(safe, language_hint=body, interactive=True)
-        if formatted:
-            return display
-        return say("reply_failed", chinese, said=display)
+        return say("reply_failed", chinese, said=humanize_runtime_reason(safe, language_hint=body, interactive=True))
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
             return
-        if kind in {"delta", "phase"}:
-            payload = dict(payload)
-            for key in ("text", "label", "detail"):
-                if key in payload:
-                    payload[key] = _redact_live_text(payload[key])
+        payload = {key: _redact(value) if key in {"text", "label", "detail"} else value
+                   for key, value in payload.items()}
         try:
             on_fragment(kind, payload)
-        except Exception:  # noqa: BLE001 — a UI callback must never break triage
+        except Exception:  # noqa: BLE001 — a UI callback must never break the turn
             pass
 
-    def _progress_label(event: dict[str, Any]) -> tuple[str, str] | None:
-        try:
-            from ..apps.cli._follow import _clean_follow_text
-            txt = _redact_live_text(
-                event.get("text")
-                or event.get("title")
-                or event.get("reason")
-                or event.get("kind")
-                or ""
-            ).strip()
-            if not txt:
-                return None
-            role = str(event.get("agent_layer") or "manager").strip() or "manager"
-            # The role travels as metadata; the visible label names the work.
-            return role, _clean_follow_text(txt, limit=100)
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _emit_phase(
-        role: str,
-        label: str,
-        *,
-        kind: str = "",
-        detail: str = "",
-        meta: dict[str, Any] | None = None,
-    ) -> None:
-        # Relay every real runner phase to both callback styles so SSE sees
-        # classify/direct-reply transitions instead of a generic spinner.
-        safe_label = _redact_live_text(label)
-        safe_detail = _redact_live_text(detail)
-        if callable(on_phase):
-            for kwargs in (
-                {"role": role, "kind": kind, "detail": safe_detail},
-                {"role": role},
-                {},
-            ):
-                try:
-                    on_phase(safe_label, **kwargs)
-                    break
-                except TypeError:
-                    continue
-                except Exception:  # noqa: BLE001 — a UI callback must never break triage
-                    break
-        payload: dict[str, Any] = {"role": role, "label": safe_label}
+    def _phase(label: str, *, role: str = "manager", kind: str = "", detail: str = "",
+               meta: dict[str, Any] | None = None) -> None:
+        payload: dict[str, Any] = {"role": role, "label": label}
         if kind:
             payload["kind"] = kind
-        if safe_detail:
-            payload["detail"] = safe_detail
+        if detail:
+            payload["detail"] = detail
         # Structured tool facts ride along so the cockpit can pair a call with
         # its result and show how it ended, instead of parsing the label.
         for key, field in _PHASE_META_FIELDS:
             value = (meta or {}).get(key)
-            if value in (None, ""):
-                continue
-            payload[field] = _redact_live_text(str(value)) if isinstance(value, str) else value
+            if value not in (None, ""):
+                payload[field] = _redact(value) if isinstance(value, str) else value
         _fragment("phase", payload)
 
-    def _runner_phase(
-        label: str,
-        *,
-        role: str = "manager",
-        kind: str = "",
-        detail: str = "",
-        meta: dict[str, Any] | None = None,
-    ) -> None:
-        _emit_phase(
-            str(role or "manager"),
-            str(label or ""),
-            kind=str(kind or ""),
-            detail=str(detail or ""),
-            meta=meta if isinstance(meta, dict) else None,
-        )
-
     class _Capture:
-        def __init__(self, *, progress_phases: bool) -> None:
-            self._progress_phases = progress_phases
-            self._last_reply_message_id = ""
-            self._last_live_at = 0.0
-            self._last_live_message_id = ""
+        def __init__(self) -> None:
+            self._message_id = ""
+            self._live_at = 0.0
+            self._live_message_id = ""
 
         def handle_event(self, event: dict[str, Any]) -> None:
             nonlocal round_failure
-            try:
-                etype = str(event.get("type") or "")
-                if etype == "skill.library.available":
-                    _emit_manager_event(mem, event)
-                # Tool-capable SELF turns narrate before/between tool calls and
-                # then give one authoritative final answer. Each assistant
-                # message is streamed live as a snapshot of *that* message, so
-                # the operator watches the text arrive; a later message
-                # replaces the earlier one instead of being glued onto it, and
-                # round.main.completed below still carries the final text.
-                if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
-                    self._last_reply_message_id = str(event.get("message_id") or "")
-                    if event.get("transient"):
-                        return
-                    live = _redact_live_text(
-                        _extract_chat_reply_text(str(event.get("text") or ""))
-                    )
-                    # A structured (JSON-wrapped) reply is only readable once it
-                    # is complete; showing its raw prefix would be noise.
-                    if not live or live.startswith("{"):
-                        return
-                    # Each snapshot carries the whole message so far; pacing
-                    # successive snapshots of the same message keeps a long
-                    # reply from re-sending itself per token. A new message is
-                    # always shown, and the final text always follows, so a
-                    # skipped frame loses nothing.
-                    now = time.monotonic()
-                    same_message = self._last_reply_message_id == self._last_live_message_id
-                    if same_message and now - self._last_live_at < _LIVE_DELTA_INTERVAL_S:
-                        return
-                    self._last_live_at = now
-                    self._last_live_message_id = self._last_reply_message_id
-                    _fragment("delta", {
-                        "text": live,
-                        "message_id": self._last_reply_message_id,
-                        "fragment_mode": "snapshot",
-                        "live": True,
-                    })
+            etype = str(event.get("type") or "")
+            if etype == "skill.library.available":
+                _emit_manager_event(mem, event)
+            # Each assistant message streams live as a snapshot of that
+            # message; a later one replaces it, and round.main.completed
+            # carries the final text.
+            if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
+                self._message_id = str(event.get("message_id") or "")
+                live = _redact(_extract_chat_reply_text(str(event.get("text") or "")))
+                if event.get("transient") or not live or live.startswith("{"):
                     return
-                if etype in {"loop.start", "engineer.progress"}:
-                    # The current runner reports these same events through its
-                    # phase_cb wrapper, already normalized as Manager activity.
-                    # Only legacy runners (which reject phase_cb and hit the
-                    # fallback below) need the capture sink to synthesize them.
-                    if self._progress_phases:
-                        parsed = _progress_label(event)
-                        if parsed:
-                            _emit_phase(*parsed)
+                # Pacing snapshots of one message keeps a long reply from
+                # re-sending itself per token; the final text always follows.
+                now = time.monotonic()
+                if self._message_id == self._live_message_id and now - self._live_at < _LIVE_DELTA_INTERVAL_S:
                     return
-                if etype != "round.main.completed":
-                    return
-                failed = (
-                    event.get("exit_code") not in (None, 0)
-                    or bool(event.get("fatal_error"))
-                    or event.get("turn_completed") is False
-                )
-                round_failure = _redact_live_text(
-                    event.get("fatal_error") or "The Manager SELF round did not complete."
-                ).strip() if failed else None
-                if failed:
-                    # Partial narration from a failed round is not its final reply.
-                    # A later successful round can still replace this receipt.
-                    return
-                text = _redact_live_text(
-                    _extract_chat_reply_text(str(event.get("last_message") or ""))
-                )
-                if text:
-                    captured.append(text)
-                    _fragment("delta", {
-                        "text": text,
-                        "message_id": self._last_reply_message_id,
-                        "fragment_mode": "snapshot",
-                    })
-            except Exception:  # noqa: BLE001
-                pass
+                self._live_at, self._live_message_id = now, self._message_id
+                _fragment("delta", {"text": live, "message_id": self._message_id,
+                                    "fragment_mode": "snapshot", "live": True})
+                return
+            if etype != "round.main.completed":
+                return
+            if event.get("exit_code") not in (None, 0) or event.get("fatal_error") or event.get("turn_completed") is False:
+                round_failure = _redact(event.get("fatal_error") or "The Manager turn did not complete.").strip()
+                return
+            text = _redact(_extract_chat_reply_text(str(event.get("last_message") or "")))
+            if text:
+                captured.append(text)
+                _fragment("delta", {"text": text, "message_id": self._message_id, "fragment_mode": "snapshot"})
 
+    actions = manager_actions(
+        body, active_mission=mission_is_running(mem), team_allowed=team_allowed,
+        route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
+                      allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
+    )
     try:
-        mode = str(self_mode or "inspect").strip().lower()
-        status_modes = {"project_status", "argus_status", "host_status"}
-        execution_modes = {
-            "micro", "implement", "debug", "review", "synthesize",
-        }
-        if mode not in {"reply", "inspect", *execution_modes, *status_modes}:
-            mode = "inspect"
-        triage_kwargs: dict[str, Any] = {
-            "objective": body,
-            "sink": _Capture(progress_phases=False),
-            "seed_thread_id": (
-                None
-                if mode == "reply" or mode in execution_modes
-                else chat_state.get("last_thread_id")
-            ),
-            "phase_cb": _runner_phase,
-            "route": route,
-        }
-        if _accepts_parameter(runner.chat_reply_if_conversational, "self_mode"):
-            triage_kwargs["self_mode"] = mode
-        if _accepts_parameter(runner.chat_reply_if_conversational, "skill_vertical"):
-            triage_kwargs["skill_vertical"] = skill_vertical
-        if root_task_id is not None and _accepts_parameter(
-            runner.chat_reply_if_conversational,
-            "root_task_id",
-        ):
-            triage_kwargs["root_task_id"] = root_task_id
-        # Decide compatibility before execution. A TypeError raised inside a
-        # started turn must not cause another possibly paid invocation.
-        if not _accepts_parameter(runner.chat_reply_if_conversational, "phase_cb"):
-            triage_kwargs["sink"] = _Capture(progress_phases=True)
-        for name in ("seed_thread_id", "phase_cb", "route"):
-            if not _accepts_parameter(runner.chat_reply_if_conversational, name):
-                triage_kwargs.pop(name, None)
-        if runner.chat_reply_if_conversational(**triage_kwargs):
-            outcome = getattr(runner, "last_chat_outcome", None)
-            if getattr(outcome, "success", None) is False or round_failure:
-                return _failure_reply(getattr(outcome, "stop_reason", "") or round_failure)
-            if not captured:
-                return _failure_reply(getattr(outcome, "stop_reason", "") or "没有收到完整回复")
-            delivery = getattr(outcome, "delivery", None)
-            if isinstance(delivery, dict):
-                chat_state["_self_delivery"] = delivery
-            if mode == "inspect":
-                chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-            return _reply_for_outcome()
+        outcome = runner.manager_turn(
+            message=body, sink=_Capture(), actions=actions, seed_thread_id=chat_state.get("last_thread_id"),
+            phase_cb=_phase, root_task_id=root_task_id,
+        )
     except BackendLoginRequired:
         raise
     except Exception as exc:  # noqa: BLE001 — preserve failure, never dispatch or replay
-        reply = _failure_reply(f"{type(exc).__name__}: {exc}")
         if is_pre_provider_refusal_error(exc):
-            return _redact_live_text(_pre_provider_refusal_reply(exc, body))
-        return reply
-    return None
+            return _redact(_pre_provider_refusal_reply(exc, body)), None
+        return _failure_reply(f"{type(exc).__name__}: {exc}"), None
+    if not outcome.success or round_failure:
+        return _failure_reply(outcome.stop_reason or round_failure), None
+    if isinstance(outcome.delivery, dict):
+        chat_state["_self_delivery"] = outcome.delivery
+    chat_state["last_thread_id"] = runner.last_thread_id
+    handoff = actions.handoff
+    return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
+
 
 def _extract_chat_reply_text(msg: str) -> str:
     """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
@@ -1568,7 +1381,7 @@ __all__ = [
     "manager_bounded_handoff",
     "manager_continuous_handoff",
     "manager_judgment",
-    "manager_triage",
+    "manager_turn",
     "mission_is_running",
     "prepare_manager_execution_task",
     "require_manager_execution_task",

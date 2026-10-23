@@ -1258,13 +1258,10 @@ def _ask_project_observation(life_dir: Path) -> str:
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
-    """Answer ``--ask <question>`` inline via the Manager quick-reply path.
+    """Answer ``--ask <question>`` with one Manager turn on its one-page prompt.
 
-    Reuses the same fast path the chat/web ``/ask`` is built on —
-    ``build_quick_reply_prompt`` fed through ``run_exec`` via the front-door
-    Manager runner — so a CLI question is answered headlessly (no TTY, no
-    ``--continuous``, no daemon) and, by that path's contract, is never queued
-    as a backlog item. The reply goes to stdout and the process exits 0.
+    Headless (no TTY, no ``--continuous``, no daemon) and never queued as a
+    backlog item. The reply goes to stdout and the process exits 0.
     """
     question = (getattr(args, "ask", "") or "").strip()
     if not question:
@@ -1278,21 +1275,19 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         import_deterministic_credential,
     )
     from ...core.run_gateway import run_exec as gateway_run_exec
-    from ...manager.config_intent import _front_door_classify
     from ...manager.front_door import _ensure_manager_runner
-    from ...roles.prompts.manager import build_quick_reply_prompt
+    from ...roles.prompts.manager import build_manager_prompt
     from ...webapi.manager_state import _chat_state_for
 
     sid = bundle.project.root.name
     chat_state = _chat_state_for(sid)
     chat_state["session_id"] = sid
     chat_state["global_root"] = str(bundle.global_root)
-    question, credential = import_deterministic_credential(
+    question, _credential = import_deterministic_credential(
         bundle.project.root,
         question,
         global_root=bundle.global_root,
     )
-    chat_state["_frontdoor_credential_imported"] = credential is not None
     runner = _ensure_manager_runner(chat_state, bundle)
     if runner is None:
         reason = str(chat_state.get("manager_runner_error") or "").strip()
@@ -1302,16 +1297,10 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             + " — nothing was queued\n"
         )
         return 1
-    _front_door_classify(
-        bundle,
-        question,
-        chat_state,
-        ensure_runner=lambda _state, _bundle: runner,
-    )
     operator_context, _revision = build_operator_context_block(
         "manager", bundle.project.root, consume_once=False
     )
-    prompt = build_quick_reply_prompt(objective=question)
+    prompt = build_manager_prompt(question, workspace=Path.cwd(), state_root=bundle.project.root)
     prompt = append_operator_context(prompt, operator_context)
     observation = _ask_project_observation(bundle.project.root)
     if observation:

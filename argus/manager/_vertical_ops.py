@@ -435,6 +435,7 @@ class _VerticalDecisionMixin:
         root_task_id: str | None = None,
         allow_route_contract_change: bool = False,
         resolved_model_id: str | None = None,
+        handed: dict[str, Any] | None = None,
     ) -> VerticalDecision:
         """Choose the vertical for ``task``.
 
@@ -640,7 +641,8 @@ class _VerticalDecisionMixin:
                     decision.workflow_profile = ""
                     decision.workflow_requested_stages = ()
                 if (
-                    contract.ground_before_handoff
+                    handed is None
+                    and contract.ground_before_handoff
                     and _software_grounding_required(decision.workflow_mode)
                 ):
                     decision.execution_task = self._ground_execution_task(
@@ -677,6 +679,11 @@ class _VerticalDecisionMixin:
             allow_persisted_change=allow_route_contract_change,
             project_root=self.project_root,
         )
+        if handed is not None:
+            # The Manager chose the route in its own ticket: checked here, no routing call.
+            known = {name.strip().lower() for name in (*known_verticals, *all_domain_names)}
+            choice = "existing" if str(handed["vertical"]).strip().lower() in known | {"direct"} else "new"
+            return finalize(context.decide({**handed, "choice": choice}))
 
         def route(prompt: str, *, run_label: str, options: Any, fast: bool = False) -> tuple[Any, Any]:
             """One routing call: the provider result and the route the Manager handed over."""
@@ -822,6 +829,27 @@ class _VerticalDecisionMixin:
                     task=task,
                 )
         return finalize(decision)
+
+    def adopt_route(
+        self,
+        payload: dict[str, Any],
+        *,
+        root_task_id: str | None = None,
+        allow_route_contract_change: bool = False,
+    ) -> VerticalDecision:
+        """The route the Manager chose in its ``manager`` ticket, checked like a routing decision.
+
+        A refusal is a ``ValueError`` the Manager reads and corrects in the same turn.
+        """
+        try:
+            return self._decide_vertical_once(
+                payload["execution_task"],
+                root_task_id=root_task_id,
+                allow_route_contract_change=allow_route_contract_change,
+                handed=payload,
+            )
+        except VerticalDecisionError as exc:
+            raise ValueError(exc.cause) from exc
 
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:

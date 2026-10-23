@@ -239,81 +239,6 @@ def test_v3_snapshot_rebuilds_to_include_completion_summary(tmp_path: Path) -> N
     )
 
 
-def test_mission_view_preserves_final_engineer_output_beyond_summary(
-    tmp_path: Path,
-) -> None:
-    superseded_draft = "# Superseded draft\n\n" + ("obsolete detail\n" * 400)
-    body = "# Complete report\n\n" + ("final detail\n" * 100)
-    emit(
-        tmp_path,
-        "life.mission.started",
-        1,
-        item_id="task-long",
-        title="Write report",
-        objective="Deliver the complete report",
-    )
-    emit(
-        tmp_path,
-        "engineer.progress",
-        2,
-        agent_layer="engineer",
-        kind="agent_message",
-        text=superseded_draft,
-    )
-    emit(
-        tmp_path,
-        "engineer.progress",
-        3,
-        agent_layer="engineer",
-        kind="agent_message",
-        final_delivery=True,
-        text=f"{body}\n→ done",
-    )
-    view = emit(
-        tmp_path,
-        "life.mission.completed",
-        4,
-        item_id="task-long",
-        title="Write report",
-        status="done",
-        success=True,
-        summary=body[:1200],
-    )
-
-    assert view["mission"]["summary"] == body[:1200].strip()
-    assert view["mission"]["final_output"] == body.strip()
-
-
-@pytest.mark.parametrize("authoritative", [None, "", "# Accepted\n\n" + "detail\n" * 300])
-def test_final_output_uses_last_delivery_not_later_progress(
-    tmp_path: Path, authoritative: str | None,
-) -> None:
-    emit(tmp_path, "life.mission.started", 1, item_id="task")
-    for ts, final_delivery, text, role in [
-        (2, True, "Superseded handoff\n" * 500, "engineer"),
-        (3, True, "# Last handoff\n\nkept\nDecision:\n→ reviewer", "main"),
-        (4, False, "Later progress, not a delivery", "engineer"),
-        (5, True, "Reviewer response, not Engineer output", "reviewer"),
-    ]:
-        emit(
-            tmp_path, "engineer.progress", ts,
-            agent_layer=role, kind="agent_message",
-            final_delivery=final_delivery, text=text,
-        )
-    payload = {} if authoritative is None else {"final_output": authoritative}
-    view = emit(
-        tmp_path, "life.mission.completed", 6, item_id="task",
-        status="done", success=True, summary="Compact summary", **payload,
-    )
-    expected = "# Last handoff\n\nkept" if authoritative is None else authoritative.strip()
-    assert view["mission"]["final_output"] == expected
-    emit(
-        tmp_path, "engineer.progress", 7, final_delivery=True,
-        agent_layer="engineer", kind="agent_message", text="Late unrelated message",
-    )
-    assert load_mission_view(tmp_path)["mission"]["final_output"] == expected
-
-
 @pytest.mark.parametrize("boundary", ["missing", "different", "resumed", "manager", "footer"])
 def test_final_output_never_crosses_mission_boundaries(
     tmp_path: Path, boundary: str,
@@ -339,36 +264,6 @@ def test_final_output_never_crosses_mission_boundaries(
         item_id=item_id, success=True, status="done",
     )
     assert view["mission"]["final_output"] == ""
-
-
-@pytest.mark.parametrize("has_start", [True, False])
-def test_legacy_snapshot_recovers_only_matching_final_delivery(
-    tmp_path: Path, has_start: bool,
-) -> None:
-    events = [
-        {"type": "engineer.progress", "ts": 2, "kind": "agent_message",
-         "final_delivery": True, "text": "# Persisted handoff"},
-        {"type": "life.mission.completed", "ts": 3, "item_id": "task",
-         "status": "done", "success": True},
-    ]
-    if has_start:
-        events.insert(0, {"type": "life.mission.started", "ts": 1, "item_id": "task"})
-    (tmp_path / "events.jsonl").write_text(
-        "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8",
-    )
-    (tmp_path / "mission-view.json").write_text(json.dumps({
-        "schema_version": 7, "bootstrapped": True, "last_event_ts": 10,
-        "mission": {
-            "id": "task", "status": "complete", "started_at": 1,
-            "completed_at": 3, "summary": "Keep compact summary",
-        },
-        "stage": {"id": "delivery", "label": "Delivery"},
-    }), encoding="utf-8")
-
-    view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[])
-    assert view["mission"]["final_output"] == ("# Persisted handoff" if has_start else "")
-    assert view["mission"]["summary"] == "Keep compact summary"
-    assert view["stage"] == {"id": "delivery", "label": "Delivery"}
 
 
 @pytest.mark.parametrize("item_id", ["task", "next-task"])

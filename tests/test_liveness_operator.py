@@ -25,8 +25,9 @@ from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import PROXY_DECISION_ATTEMPTS
-from argus.manager import config_intent, front_door
+from argus.manager import front_door
 from argus.webapi import manager_bridge, manager_pending_question, manager_state
+from tests.hand_off import manager_runner, manager_settles, ticket
 
 pytest.importorskip("fastapi")
 
@@ -52,20 +53,14 @@ def _offline_manager(monkeypatch) -> None:
     manager_state._STATES.clear()
 
     class _Manager:
-        def classify_front_door(self, _text, *, lifetime_sink=None, **_kwargs):
-            if lifetime_sink is not None:
-                lifetime_sink("bounded")
-            return None, None, "complex"
-
         def decide_vertical(self, text, **_kwargs):
             return SimpleNamespace(execution_task=text, session_title="")
 
         def commit_vertical_decision(self, text, decision, **_kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
 
-    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner",
+                        lambda chat_state, mem: manager_runner(_Manager(), hand=lambda text: ticket(text, lifetime="bounded")))
 
 
 def _park(life: Path, title: str, question: str, options: tuple[str, ...] = ()) -> BacklogItem:
@@ -108,10 +103,8 @@ def test_several_open_questions_do_not_swallow_control(
         raise AssertionError("no single question for the Manager to interpret")
 
     monkeypatch.setattr(front_door, "manager_judgment", interpret)
-    monkeypatch.setattr(
-        config_intent, "_front_door_classify",
-        lambda *_args, **_kwargs: (None, control, "simple"),
-    )
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        hand=manager_settles(control={"kind": control, "quote": "stop that now"})))
 
     result = manager_bridge.manager_message(sid, "stop that now", global_root=tmp_path)
 
@@ -162,10 +155,8 @@ def test_failed_interpretation_of_one_question_still_reaches_pause(
         return "IS_ANSWER=maybe\nRESOLVED=true\nDECISION=continue"
 
     monkeypatch.setattr(front_door, "manager_judgment", interpret)
-    monkeypatch.setattr(
-        config_intent, "_front_door_classify",
-        lambda *_args, **_kwargs: (None, "pause", "simple"),
-    )
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        hand=manager_settles(control={"kind": "pause", "quote": "pause everything"})))
 
     result = manager_bridge.manager_message(sid, "pause everything", global_root=tmp_path)
 

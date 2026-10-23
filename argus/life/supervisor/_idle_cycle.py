@@ -338,19 +338,13 @@ class IdleCycleMixin:
             def cancelled() -> bool:
                 return bool((stop is not None and stop.is_set()) or current_run_interrupt_reason())
 
-            def manager_factory():
-                try:
-                    return self._bound_manager()
-                except Exception:
-                    return None
-
             try:
                 with bounded_file_lock_wait(
                     timeout_seconds=DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, cancelled=cancelled,
                 ):
                     mission_id = _current_mission_id(receiver.root)
                     received = receiver.receive(
-                        manager=manager_factory, mission_id=mission_id,
+                        mission_id=mission_id,
                         limit=max_messages, cancelled=cancelled,
                     )
             except Exception as exc:  # noqa: BLE001 - read again at the next boundary
@@ -382,16 +376,8 @@ class IdleCycleMixin:
                 from ...core.operator_context import operator_context_state_root
                 from ...manager.directive import record_operator_messages
 
-                # Persistence must not depend on routing: a message that cannot
-                # be classified right now is still recorded as plain steering.
-                try:
-                    manager = self._bound_manager()
-                except Exception:  # noqa: BLE001
-                    manager = None
                 record_operator_messages(
-                    operator_context_state_root(self.memory) or self.memory.root,
-                    out,
-                    manager=manager,
+                    operator_context_state_root(self.memory) or self.memory.root, out,
                 )
             except Exception:  # noqa: BLE001 - inbox delivery remains fail-soft
                 log.exception("could not persist operator steering ledger")
@@ -444,7 +430,7 @@ class IdleCycleMixin:
                 if carryover is None:
                     carryover = []
                     self._operator_guidance_carryover = carryover
-                if not getattr(message, "ephemeral", False):
+                if not getattr(message, "delivery_id", ""):
                     carryover.append(message)
                 self._emit_status(
                     "operator inbox resolved pending question "

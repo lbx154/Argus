@@ -26,6 +26,7 @@ from argus.life.supervisor.backlog_guard import (
     needs_manager_decision,
     undecided_items,
 )
+from tests.hand_off import manager_runner
 
 
 def _written_directly(**kw) -> BacklogItem:
@@ -330,7 +331,7 @@ def test_dispatch_records_manager_decision_on_the_operator_item(
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda _state, _mem: SimpleNamespace(manager=Manager()),
+        lambda _state, _mem: manager_runner(Manager()),
     )
 
     dispatch.enqueue_mission(

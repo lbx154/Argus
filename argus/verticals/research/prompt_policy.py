@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.shell_command import argus_command
 from .library_preparation import STAGE_PLAYBOOK_PATHS
 from .notes import RESEARCH_NOTES_FILENAME, read_research_notes
 
@@ -419,7 +420,7 @@ def _engineer_notes_stage(stage: str, operation: str) -> str:
     return "paper" if operation == "narrative_edit" else stage
 
 
-_FIGURE_LINT_CLI = "python -m argus.verticals.research.figure_lint"
+_FIGURE_LINT_CLI = argus_command("argus.verticals.research.figure_lint")
 # The export step of Method D/B: PPT Master reads the PPTX, the browser renders
 # the slide. No PowerPoint or LibreOffice on the machine is needed, so no
 # Engineer has a reason to compile a TikZ look-alike beside a companion PPTX.
@@ -585,7 +586,7 @@ def _engineer_fragment(
                 "ECharts can supply a data-grounded chart component when useful. "
                 "There is no separate SVG workflow. Keep the framework itself as native "
                 "PPT shapes, connectors, and text. Locate PPT Master with "
-                "python -m argus.tools.ppt_master status. "
+                f"{argus_command('argus.tools.ppt_master', 'status')}. "
                 "Reuse an existing suitable figure; do not invoke the component every "
                 "round or for prose-only edits. Delegate bounded candidate design in parallel "
                 "when a worker is available, using separate candidate directories, while "

@@ -4,9 +4,8 @@ import json
 
 from argus.manager.live_view import (
     load_live_view_decision,
-    manager_workspace_capability_prompt,
 )
-from argus.tools.manager_live_view import clear_view, set_view
+from argus.tools.manager_live_view import set_view
 
 
 def test_manager_tool_sets_workspace_artifact_and_emits_event(tmp_path) -> None:
@@ -53,15 +52,3 @@ def test_manager_tool_rejects_state_only_or_missing_artifact(tmp_path) -> None:
     assert result["missing"] == ["manager_live/proof.pdf"]
 
 
-def test_manager_tool_clear_and_prompt_expose_distinct_roots(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-    prompt = manager_workspace_capability_prompt(workspace, manifest_root=state)
-
-    assert str(workspace.resolve()) in prompt
-    assert str(state.resolve()) in prompt
-    assert "canonical workspace" in prompt
-    assert "manager_live_view" in prompt
-    assert clear_view(workspace=workspace, state_dir=state)["view"] is None

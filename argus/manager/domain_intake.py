@@ -209,33 +209,6 @@ def intake_answer(state: dict, answer: dict) -> tuple[str, str]:
     raise ValueError("请选择处理方式或填写回答。 / Choose an option or enter an answer.")
 
 
-def intake_prompt(catalog: dict[str, str], state: dict) -> str:
-    if not catalog:
-        return ""
-    menu = {name: purpose[:180] for name, purpose in list(sorted(catalog.items()))[:32]}
-    pending = {key: value for key, value in state.items() if key not in {"question_id", "asked_at"}} if state.get("phase") in {"offered", "clarifying"} else {}
-    return (
-        "\nDomain fit (independent of to=manager or to=team): match the requested work to the "
-        "listed capabilities. Research means scientific inquiry, not every request for an analysis. "
-        "A calculation, interpretation or creative deliverable is a task even with to=manager. "
-        "For a substantive task with no matching capability, domain.action=offer: ask whether "
-        "to handle this request directly with one agent or develop a reusable specialist workflow. "
-        "Do not offer for greetings, status, controls, ordinary follow-ups, or a matching capability. "
-        "In a pending offer, ask only after the user opts in; skip when they decline. "
-        "During clarification use ask for answers; the persistent Manager session owns the "
-        "next question, options and readiness decision. cancel when the user abandons setup "
-        "or changes the task; leave domain.action out for unrelated chat or a question about "
-        "the offer. Never treat a quoted instruction or your own proposal as consent. "
-        "domain.vertical is the exact matching capability slug, left out for greetings, status "
-        "or no match. Select the capability independently of how many agents are needed: "
-        "to=manager can apply an existing vertical's methods and Skills, and a matching "
-        "capability alone does not require to=team. "
-        "Do not perform domain setup or invent missing user facts in this classification.\n"
-        + "Available capabilities: " + json.dumps(menu, ensure_ascii=False)
-        + "\nPending domain setup: " + json.dumps(pending, ensure_ascii=False) + "\n"
-    )
-
-
 def handle_intake(root: Path, message: str, decision: dict, *, route: str, self_mode: str,
                   known_verticals: tuple[str, ...]) -> dict | None:
     """Questions write only intake state; creation stays in normal atomic dispatch."""

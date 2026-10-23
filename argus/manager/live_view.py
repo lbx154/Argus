@@ -15,7 +15,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 
-from ..roles.prompts.manager import manager_workspace_capability_prompt
+from ..roles.task_contract import argus_command
 
 LIVE_VIEW_MANIFEST = Path(".argus") / "live-view.json"
 MANAGER_LIVE_DIR = Path(".argus") / "live"
@@ -90,9 +90,8 @@ def manager_workspace_context(
         "live_view_manifest": str(state_root / LIVE_VIEW_MANIFEST),
         "presentation_root": str(workspace / MANAGER_LIVE_DIR),
         "artifact_path_rule": "all selected paths are workspace-relative",
-        "manager_live_view_tool": (
-            "python -m argus.tools.manager_live_view "
-            f"--workspace {workspace} --state-dir {state_root}"
+        "manager_live_view_tool": argus_command(
+            "argus.tools.manager_live_view", "--workspace", workspace, "--state-dir", state_root,
         ),
     }
 
@@ -236,7 +235,6 @@ __all__ = [
     "LiveViewDecision",
     "apply_live_view_decision",
     "load_live_view_decision",
-    "manager_workspace_capability_prompt",
     "manager_workspace_context",
     "normalize_live_view_path",
     "parse_live_view",

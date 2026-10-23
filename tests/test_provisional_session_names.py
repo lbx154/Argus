@@ -76,19 +76,11 @@ def test_agent_title_replaces_provisional_but_not_user_names(tmp_path):
 
 
 def test_web_message_names_the_project_even_when_no_model_title_arrives(tmp_path, monkeypatch):
-    from argus.manager import config_intent
     from argus.webapi import manager_bridge, manager_state
 
     sid = _session(tmp_path, "s-unnamed-web", origin="web")
     manager_state._STATES.clear()
 
-    def classify(mem, text, chat_state, **kwargs):
-        # The title-producing call is unavailable (refused before start).
-        assert read_session_meta(tmp_path, sid).display_name == "你好"
-        chat_state["_frontdoor_greeting_reply"] = "hi"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
 
     session = json.loads((tmp_path / "projects" / sid / "session.json").read_text())
@@ -97,18 +89,12 @@ def test_web_message_names_the_project_even_when_no_model_title_arrives(tmp_path
 
 
 def test_web_message_never_names_the_project_with_a_pasted_credential(tmp_path, monkeypatch):
-    from argus.manager import config_intent
     from argus.webapi import manager_bridge, manager_state
 
     sid = _session(tmp_path, "s-credential-web", origin="web")
     manager_state._STATES.clear()
     secret = "sk-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0"
 
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_greeting_reply"] = "ok"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     manager_bridge.manager_message(sid, secret, global_root=tmp_path)
 
     session = json.loads((tmp_path / "projects" / sid / "session.json").read_text())

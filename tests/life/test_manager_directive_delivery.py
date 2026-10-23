@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.apps._inbox import queue_inbox_message
 from argus.apps._runtime_execute import _engineer_guidance
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.engineer.round_config import SupervisedConfig
@@ -83,23 +82,6 @@ def test_active_directive_reaches_each_engineer_round(tmp_path: Path) -> None:
     assert first == second
     assert STEERING_HEADER in first[0]
     assert "batch the unresolved frontier" in first[0]
-
-
-def test_new_inbox_messages_accumulate_in_standing_engineer_guidance(
-    tmp_path: Path,
-) -> None:
-    _set_objective(tmp_path)
-    queue_inbox_message(tmp_path, "keep the invariant", source="test")
-    first = _engineer_guidance(tmp_path, tmp_path)
-    queue_inbox_message(tmp_path, "also run the public check", source="test")
-    second = _engineer_guidance(tmp_path, tmp_path)
-
-    assert "keep the invariant" in first[0]
-    assert "also run the public check" in second[0]
-    assert "keep the invariant" in second[0]
-    assert second[0].index("also run the public check") < second[0].index(
-        "keep the invariant"
-    )
 
 
 def test_standing_steering_reaches_every_mission_prelude(tmp_path: Path) -> None:

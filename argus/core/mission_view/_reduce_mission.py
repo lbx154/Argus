@@ -18,7 +18,6 @@ from typing import Any, Mapping
 
 from ...life.mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..event_catalog import EventType
-from ..role_handoff import strip_handoff
 from ..stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     is_pause_status,
@@ -624,17 +623,6 @@ def reduce_round_event(
         step_status = _text(event, "status", 40) if turn_step else ""
         if not (turn_step and step_status and step_status != "running"):
             _set_role(view, role, "active", label, ts, kind=progress_kind)
-        if (
-            role == "engineer"
-            and kind in {"assistant_message", "agent_message", "message"}
-            and event.get("final_delivery") is True
-            and mission.get("started_at") is not None
-            and mission.get("completed_at") is None
-            and ts >= mission["started_at"]
-            and (not event.get("item_id") or event["item_id"] == mission.get("id"))
-        ):
-            candidate = strip_handoff(str(event.get("text") or "")).strip()
-            mission["final_output"] = candidate
         detail = (
             _text(event, "action_summary", 4000)
             or _text(event, "text", 4000)

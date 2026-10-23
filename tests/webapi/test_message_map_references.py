@@ -21,8 +21,9 @@ from types import SimpleNamespace
 import pytest
 
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.manager import config_intent, dispatch, front_door
+from argus.manager import dispatch, front_door
 from argus.webapi import manager_bridge, manager_state
+from tests.hand_off import manager_runner, replying
 
 pytest.importorskip("fastapi")
 
@@ -96,17 +97,12 @@ def test_chat_turn_expands_references_for_the_manager(redact_secrets_on,
     manager_state._STATES.clear()
     seen: dict[str, str] = {}
 
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "simple"),
-    )
 
     def triage(mem, body, chat_state, **kwargs):
         seen["body"] = body
         return "我看过这条记录了。"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_turn", replying(triage))
 
     result = manager_bridge.manager_message(
         sid,
@@ -145,17 +141,12 @@ def test_message_without_marker_is_untouched(tmp_path: Path, monkeypatch) -> Non
     manager_state._STATES.clear()
     seen: dict[str, str] = {}
 
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "simple"),
-    )
 
     def triage(mem, body, chat_state, **kwargs):
         seen["body"] = body
         return "好的。"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_turn", replying(triage))
 
     result = manager_bridge.manager_message(sid, "普通问题", global_root=tmp_path)
 
@@ -200,17 +191,11 @@ def test_task_from_reference_bearing_message_carries_deps(
     _seed_tasks(life)
     manager_state._STATES.clear()
 
-    def classify(_mem, _text, chat_state, **_kwargs):
-        chat_state["_frontdoor_lifetime"] = "bounded"
-        return None, None, "complex"
-
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
+        lambda *_args, **_kwargs: manager_runner(_StagedResearchManager()),
     )
 
     text = (
@@ -243,17 +228,11 @@ def test_task_referencing_only_failed_tasks_attaches_nothing(
     _seed_tasks(life)
     manager_state._STATES.clear()
 
-    def classify(_mem, _text, chat_state, **_kwargs):
-        chat_state["_frontdoor_lifetime"] = "bounded"
-        return None, None, "complex"
-
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
+        lambda *_args, **_kwargs: manager_runner(_StagedResearchManager()),
     )
 
     text = "重试这一步\n" + _marker("task-bad", title="Broken step")

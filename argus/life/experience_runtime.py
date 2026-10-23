@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..advisor.runtime import caller_role
+from ..roles.task_contract import argus_command
 from .experience_tools import ExperienceBridge, ExperienceToolService
 
 EXTENSION = str(Path(__file__).with_name("experience_extension.mjs"))
@@ -43,7 +44,7 @@ def experience_run(ctx: Any) -> Iterator[None]:
             extension_env={**(options.extension_env or {}), **bridge.environment},
             force_safe_mode=options.force_safe_mode or options.sandbox_mode == "read-only",
         )
-        tool = ", ".join(names) if native else "python -m argus.tools.experience"
+        tool = ", ".join(names) if native else argus_command("argus.tools.experience")
         ctx.prompt += (
             "\n\nPrior mission experiences: " + tool + " provides project-scoped advisory memory. "
             "Search and inspect the current id, revision, scope and evidence before reuse. "

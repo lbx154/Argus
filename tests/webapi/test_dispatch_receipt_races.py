@@ -14,8 +14,10 @@ from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon.commands import daemon_command_execution_lock
+from argus.manager import front_door
 from argus.webapi import manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
+from tests.hand_off import manager_runner, manager_settles
 
 
 def _response_result(response, streaming):
@@ -173,7 +175,6 @@ def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
 def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch, streaming):
     from argus.adapters.agent_cli_backend import AgentCliBackend
     from argus.daemon.state import read_continuous_state, write_continuous_config
-    from argus.manager import config_intent
     from argus.webapi import manager_state
 
     sid = f"s-review-own-pause-{streaming}"
@@ -188,8 +189,8 @@ def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch,
         raise AssertionError("A classified pause must neither call a model nor start an executor")
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
-    monkeypatch.setattr(config_intent, "_front_door_classify",
-                        lambda *_args, **_kwargs: (None, "pause", "simple"))
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        hand=manager_settles(control={"kind": "pause", "quote": "先暂停一下"})))
     services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=forbidden)
     with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
         response = client.post(f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
@@ -200,4 +201,5 @@ def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch,
     assert result["kind"] == "control" and result["control"] == "pause"
     assert result["pause_persisted"] and "已暂停" in result["reply"]
     assert not read_continuous_state(life).enabled
-    assert [turn["text"] for turn in read_turns(life) if turn["role"] == "argus"] == [result["reply"]]
+    # The Manager's own reply, then Argus' confirmation once.
+    assert [turn["text"] for turn in read_turns(life) if turn["role"] == "argus"] == ["Argus applies this.", result["reply"]]

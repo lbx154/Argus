@@ -26,10 +26,6 @@ from argus.roles.prompts.engineer import (
     mission_request,
 )
 from argus.roles.prompts.manager import (
-    FRONT_DOOR,
-    build_front_door_prompt,
-    build_pending_question_prompt,
-    build_stage_decision_prompt,
     build_vertical_decision_prompt,
     stage_decision_request,
 )
@@ -127,63 +123,6 @@ def _cache_probe_prompts(root, cycle: int, *, reverse_catalog: bool = False):
         "engineer": engineer,
         "reviewer": assemble_reviewer_prompt(static, delta),
     }
-
-
-def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None:
-    front = build_front_door_prompt("Explain the current status")
-    pending = build_pending_question_prompt(
-        SimpleNamespace(
-            pending_question="Which dataset should we use?",
-            id="task-1",
-            title="Choose a dataset",
-            objective="Select the benchmark data",
-        ),
-        "Use ImageNet",
-    )
-    stage = build_stage_decision_prompt(
-        current_stage="run",
-        next_stage="review",
-        earlier_stages=("plan",),
-        checklist_md="checks passed",
-        review=SimpleNamespace(status="done", reason="Evidence is current."),
-    )
-    engineer = build_mission_prompt(
-        task="Repair the parser",
-        skill_text="",
-        next_action=None,
-        project_root=tmp_path,
-    )
-    continuation = build_mission_prompt(
-        task="Repair the parser",
-        skill_text="",
-        next_action="Handle empty input",
-        include_static=False,
-        project_root=tmp_path,
-    )
-    owner = SimpleNamespace(skill_store=None, mission=None, _last_prompt_block_stats={})
-    reviewer, _delta = render_reviewer_prompt(
-        owner,
-        objective="Repair the parser",
-        operator_messages=[],
-        planner_review_instruction="",
-        round_index=1,
-        session_id=None,
-        main_summary="Empty input is covered.",
-        main_error=None,
-        working_dir=tmp_path,
-        vertical_state_root=tmp_path,
-        preselected_skill_block="",
-    )
-
-    assert "reply is the complete answer for the operator" in front
-    assert "without route, control, lifetime or role-protocol labels" in front
-    assert "operator's language and plain language" in pending
-    assert "## Writing for people" in stage
-    for engineer_prompt in (engineer, continuation):
-        assert "summary is the one sentence the operator reads" in engineer_prompt
-        assert "output paths" in engineer_prompt
-        assert "the decisive check" in engineer_prompt
-    assert "its summary is what the operator reads, only this work's result" in reviewer
 
 
 def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:
@@ -443,22 +382,6 @@ def test_manager_stage_decision_preserves_planner_checklist_framing(
     assert "vertical:optimize_lab:checklist:planner:stage:setup" in (
         context.fragment_ids
     )
-
-
-def test_non_vertical_manager_operation_resolves_empty_context() -> None:
-    context = resolve_role_prompt(
-        RolePromptRequest(
-            role=RoleName.MANAGER,
-            operation=FRONT_DOOR,
-        )
-    )
-
-    assert context.vertical == ""
-    assert context.role_banner == ""
-    assert context.paper_mission is False
-    assert context.fragment_ids == ()
-
-
 
 
 def test_unknown_role_operation_fails_loudly(tmp_path) -> None:

@@ -255,7 +255,7 @@ def test_self_question_completes_during_a_peer_mission(
             "kind": "chat",
             "reply": "The CTB experiment is still running; this node records its current attempt.",
         }
-        assert [call["run_label"] for call in calls] == ["manager-frontdoor-classify", "simple-1"]
+        assert [call["run_label"] for call in calls] == ["simple-1"]
         assert question in calls[-1]["prompt"]
         turns = read_turns(state, limit=4)
         assert [turn["role"] for turn in turns] == ["operator", "argus"]

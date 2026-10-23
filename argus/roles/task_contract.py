@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-import shlex
-from collections.abc import Sequence
+
+from ..core.shell_command import argus_command, format_native_shell_command
 
 EFFECTIVE_TASK_CONTRACT = (
     "## Task authority\n"
@@ -54,23 +54,8 @@ def native_shell_summary(*, platform_name: str | None = None) -> str:
     return NATIVE_WINDOWS_SHELL_SUMMARY if resolved == "nt" else ""
 
 
-def format_native_shell_command(
-    argv: Sequence[str],
-    *,
-    platform_name: str | None = None,
-) -> str:
-    """Format an argv sequence as a model-visible command for the host shell."""
-    values = [str(value) for value in argv]
-    if not values:
-        raise ValueError("argv must not be empty")
-    resolved = os.name if platform_name is None else platform_name
-    if resolved == "nt":
-        quoted = ["'" + value.replace("'", "''") + "'" for value in values]
-        return "& " + " ".join(quoted)
-    return shlex.join(values)
-
-
 __all__ = [
+    "argus_command",
     "EFFECTIVE_TASK_CONTRACT",
     "NATIVE_WINDOWS_SHELL_CONTRACT",
     "NATIVE_WINDOWS_SHELL_SUMMARY",

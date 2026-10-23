@@ -12,10 +12,11 @@ from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import append_turn, read_turns
 from argus.daemon import life_worker as daemon_worker
-from argus.manager import config_intent, front_door
+from argus.manager import front_door
 from argus.webapi import server
 from argus.webapi.daemon_services import DaemonServices
 from argus.webapi.manager_state import interrupt_manager_turns
+from tests.hand_off import replying
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -54,8 +55,7 @@ def test_cancelled_triage_cannot_publish_a_late_reply(
         return current
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbid_provider)
-    monkeypatch.setattr(config_intent, "_front_door_classify", lambda *_args, **_kwargs: (None, None, "simple"))
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_turn", replying(triage))
     services = DaemonServices(
         read_status=daemon_worker.read_daemon_status,
         start=lambda *_args, **_kwargs: starts.append(True) or {"rc": 0},

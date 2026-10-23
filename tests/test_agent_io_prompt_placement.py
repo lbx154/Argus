@@ -42,7 +42,7 @@ def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
 
 
 @pytest.mark.parametrize("label", [
-    "manager-frontdoor-classify", "planner.acceptance_dependencies", "reviewer_control",
+    "planner.acceptance_dependencies", "reviewer_control",
     "engineer-r1", "reviewer", "manager-frontdoor-direct",
 ])
 def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_secrets_on, tmp_path, monkeypatch, label):

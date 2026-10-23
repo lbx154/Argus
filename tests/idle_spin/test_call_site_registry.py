@@ -68,12 +68,6 @@ REGISTRY: tuple[Site, ...] = (
         ("peer-message-response",),
     ),
     Site(
-        r"manager-frontdoor-classify", FOREGROUND,
-        "Classifies one operator message.",
-        ("argus/manager/_front_door_ops.py:122",),
-        ("manager-frontdoor-classify",),
-    ),
-    Site(
         r"manager-classify-(fast|grounded|grounded-retry)",
         FOREGROUND,
         "Decides the vertical for one operator objective, with one grounding retry; a "
@@ -489,7 +483,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 50, "the sweep no longer sees the call sites"
+    assert len(chosen) > 40, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"

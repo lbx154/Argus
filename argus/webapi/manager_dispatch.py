@@ -17,19 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from ..core.mission_view import say, uses_cjk
-from ..daemon.runtime_status import STATUS_MODES
-from ..manager.self_context import self_skill_context_available as _self_skill_context_available
 from .manager_pending_question import (
     _emit_ui_turn,
     _resolve_pending_question_with_manager,
 )
 from .manager_state import _chat_state_for, _lock_for, manager_control_generation
-
-_NO_DISPATCH_FALLBACK = (
-    "[not dispatched] The Manager kept this request inline as instructed, but "
-    "could not complete the read-only reply. No task was queued and no daemon "
-    "was started."
-)
 
 
 def _authorization_workdir(
@@ -95,6 +87,7 @@ def manager_continuous_handoff(
     control_generation: int | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous handoff."""
+    from ..daemon.state import read_continuous_state
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_continuous_handoff as commit_handoff
 
@@ -111,27 +104,10 @@ def manager_continuous_handoff(
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
-        from ..manager.config_intent import _front_door_classify
-
-        if requested_objective.strip():
-            _front_door_classify(mem, requested_objective, chat_state)
-            failure = str(chat_state.pop("_frontdoor_failure", "") or "").strip()
-            if failure:
-                from ..manager.front_door import ManagerHandoffError
-
-                raise ManagerHandoffError(
-                    f"Manager could not classify the continuous task: {failure}"
-                )
-            lifetime = str(
-                chat_state.pop("_frontdoor_lifetime", "bounded") or "bounded"
-            ).strip().lower()
-            chat_state["_continuous_open_ended"] = lifetime == "standing"
-        else:
-            from ..daemon.state import read_continuous_state
-
-            chat_state["_continuous_open_ended"] = read_continuous_state(
-                mem.project_root
-            ).open_ended
+        # An objective given here is the operator's explicit ongoing intent.
+        chat_state["_continuous_open_ended"] = bool(requested_objective.strip()) or read_continuous_state(
+            mem.project_root
+        ).open_ended
         from ..manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
 
         try:
@@ -194,14 +170,9 @@ def manager_bounded_handoff(
 
             meta = read_session_meta(mem.global_root, sid)
             if session_name_is_open(meta):
-                from ..manager.config_intent import _front_door_classify
+                from ..manager.front_door import _maybe_name_session
 
-                _front_door_classify(
-                    mem,
-                    text,
-                    chat_state,
-                    root_task_id=root_task_id,
-                )
+                _maybe_name_session(chat_state, text, replacing=True)
         return commit_handoff(
             mem,
             text,
@@ -615,194 +586,6 @@ def _handle_pending_question_turn(
     return None
 
 
-@dataclass
-class _ClassifyResult:
-    """Outcome of the merged front-door classify call, plus the values later
-    manager_message phases need (the handoff-prefixed ``send_body``/root task
-    id, and any inline greeting/failure the classifier already resolved)."""
-
-    intent: Any
-    control: Any
-    route: Any
-    send_body: str
-    root_task_id: str
-    self_mode: str
-    fast_reply: str
-    greeting_reply: str
-    frontdoor_failure: str
-
-
-# Chat fixes the topology before classification. Task is applied after it:
-# the classifier still tells conversation from work.
-_FORCED_ROUTES = {"chat": "simple"}
-
-
-
-def _classify_operator_turn(
-    mem: Any,
-    body: str,
-    chat_state: dict[str, Any],
-    active_mission: bool,
-    life_dir: Path,
-    startup_handoff: str,
-    emitter: _TurnEmitter,
-    cancelled: Callable[[], bool],
-    route_override: str = "",
-) -> "_ClassifyResult | dict[str, Any]":
-    """Run turn bookkeeping + the merged front-door classify call.
-
-    Returns a ``_ClassifyResult`` normally, or a terminal ``{"kind":
-    "cancelled", ...}`` dict if the request was cancelled mid-classify — the
-    caller must check ``isinstance(result, dict)`` before reading fields.
-
-    Explicit ``chat`` stays inline. ``task`` still runs classification, and
-    work the classifier would have handled alone goes to the team instead, so
-    it is planned and independently reviewed; a greeting, conversation, a
-    status question, a control or a setting stays where it was.
-    """
-    from ..life.memory import BacklogItem
-    from ..manager.config_intent import _front_door_classify
-    from ..manager.front_door import _accepts_parameter
-
-    forced_route = _FORCED_ROUTES.get(str(route_override or "").strip().lower())
-
-    # Emit the stage BEFORE the classifier call. A tool-free classifier may
-    # produce no events while the model is reasoning, so without this real
-    # transition the TUI can only show its generic rotating slogan.
-
-    emitter.phase(say(
-        "working_out_reply" if forced_route == "simple" else "understanding_request",
-        uses_cjk(body),
-    ))
-
-    # Persistent Manager session: the codex/copilot thread is resumed via
-    # last_thread_id each turn, and the backend compacts its own context.
-    chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
-    dispatch_body = str(
-        chat_state.pop("_frontdoor_dispatch_body", "") or body
-    )
-    handoff = startup_handoff
-    root_task_id = BacklogItem.new_id()
-
-    # ONE merged front-door call decides config, control, route, TEAM
-    # lifetime, title, and a strict pure-greeting token. A natural-language
-    # config change ("set the engineer to xhigh", "use copilot for reviewer",
-    # "cap the budget at $10") is applied + confirmed inline and NEVER
-    # enqueued; otherwise the reusable decisions avoid a second route/lifetime
-    # call. Classifier output is never an operator-facing reply; every SELF
-    # message reaches the actual Manager model.
-    # Classification is stateless. The caller normally passes only the current
-    # message, but may attach a small, explicitly bounded transcript block when
-    # the turn is clearly referential. Never feed the full startup
-    # handoff here: that can make a greeting look like a systems task.
-    classify_kwargs: dict[str, Any] = (
-        {"root_task_id": root_task_id}
-        if _accepts_parameter(_front_door_classify, "root_task_id")
-        else {}
-    )
-    if _accepts_parameter(_front_door_classify, "active_mission"):
-        classify_kwargs["active_mission"] = active_mission
-    if _accepts_parameter(_front_door_classify, "allow_reply"):
-        classify_kwargs["allow_reply"] = chat_state["turns"] == 1 and not handoff
-    if forced_route:
-        # No classifier ran, so clear every classifier-owned transient before
-        # constructing the authoritative route. A prior turn must never leak a
-        # greeting, control, lifetime or failure into this one.
-        for stale in (
-            "_frontdoor_lifetime",
-            "_frontdoor_self_mode",
-            "_frontdoor_fast_reply",
-            "_frontdoor_greeting_reply",
-            "_frontdoor_failure",
-            "_frontdoor_steering_directive",
-            "_frontdoor_authorization",
-            "_frontdoor_standing_notice",
-            "_frontdoor_domain",
-            "_frontdoor_skill_vertical",
-            "_frontdoor_is_task",
-        ):
-            chat_state.pop(stale, None)
-        chat_state["_frontdoor_self_mode"] = "inspect"
-        return _ClassifyResult(
-            intent=None,
-            control=None,
-            route=forced_route,
-            send_body=(
-                f"{handoff}\n\n{body}" if handoff else body
-            ),
-            root_task_id=root_task_id,
-            self_mode="inspect",
-            fast_reply="",
-            greeting_reply="",
-            frontdoor_failure="",
-        )
-    decision = _front_door_classify(
-        mem,
-        body,
-        chat_state,
-        **classify_kwargs,
-    )
-    chat_state.pop("_frontdoor_contextual_text", None)
-    if cancelled():
-        return _cancelled_result()
-    if isinstance(decision, tuple) and len(decision) == 3:
-        intent, control, route = decision
-    else:
-        intent, route = decision
-        control = None
-    selected_body = dispatch_body
-    send_body = f"{handoff}\n\n{selected_body}" if handoff else selected_body
-
-    self_mode = str(
-        chat_state.get("_frontdoor_self_mode", "inspect") or "inspect"
-    ).strip().lower()
-    if (
-        str(route_override or "").strip().lower() == "task"
-        and route == "simple" and intent is None and control is None
-        and self_mode not in {"reply", *STATUS_MODES}
-        and not chat_state.get("_frontdoor_greeting_reply")
-    ):
-        route = "complex"
-    fast_reply = str(
-        chat_state.pop("_frontdoor_fast_reply", "") or ""
-    ).strip()
-    if (
-        self_mode == "reply"
-        and (
-            chat_state["turns"] > 1
-            or handoff
-            or _self_skill_context_available(chat_state)
-        )
-    ):
-        # A stateless classifier cannot apply profile terminology/preferences or
-        # prior conversation. Route follow-ups through the persistent SELF runner
-        # even when a startup resets the in-memory turn count.
-        fast_reply = ""
-        self_mode = "inspect"
-        chat_state["_frontdoor_self_mode"] = "inspect"
-    greeting_reply = str(
-        chat_state.pop("_frontdoor_greeting_reply", "") or ""
-    ).strip()
-    if greeting_reply and handoff:
-        # A pure greeting does not need the persistent worker. Defer its
-        # restart handoff until a substantive turn actually uses it.
-        chat_state["needs_startup_handoff"] = True
-    frontdoor_failure = str(
-        chat_state.pop("_frontdoor_failure", "") or ""
-    ).strip()
-    return _ClassifyResult(
-        intent=intent,
-        control=control,
-        route=route,
-        send_body=send_body,
-        root_task_id=root_task_id,
-        self_mode=self_mode,
-        fast_reply=fast_reply,
-        greeting_reply=greeting_reply,
-        frontdoor_failure=frontdoor_failure,
-    )
-
-
 def _standing_notice_text(instruction: str) -> str:
     text = " ".join(str(instruction or "").split())
     if len(text) > 60:
@@ -823,44 +606,11 @@ def _announce_standing_directive(
     Long-term instructions steer every later prompt; recording one silently
     leaves the operator unable to see or undo it.
     """
-    instruction = str(chat_state.pop("_frontdoor_standing_notice", "") or "").strip()
+    instruction = str(chat_state.pop("_standing_notice", "") or "").strip()
     if instruction:
         _journal_argus_reply(
             life_dir, f"{turn_id}-standing", _standing_notice_text(instruction),
         )
-
-
-def _maybe_greeting_reply(
-    classify: _ClassifyResult,
-    body: str,
-    emitter: _TurnEmitter,
-) -> dict[str, Any] | None:
-    """Short-circuit a safe message-only reply from the merged classifier.
-
-    Pure greetings are message-only even in an existing conversation. Their
-    handoff is deferred by the classifier wrapper. Other fast replies must
-    still be independent of prior context.
-    """
-    if (
-        classify.greeting_reply
-        and classify.intent is None
-        and classify.control is None
-        and classify.route == "simple"
-    ):
-        return emitter.respond(classify.greeting_reply, {"kind": "chat"})
-    if (
-        classify.fast_reply
-        and classify.intent is None
-        and classify.control in {None, "no_dispatch"}
-        and classify.route == "simple"
-        and classify.self_mode == "reply"
-        and classify.send_body == body
-    ):
-        emitter.solo = True
-        emitter.turn_kind = "qa"
-        emitter.start_task()
-        return emitter.respond(classify.fast_reply, {"kind": "chat"})
-    return None
 
 
 def _handle_authorization_control(
@@ -948,11 +698,13 @@ def _handle_authorization_control(
 
 
 def _handle_steer_control(
-    chat_state: dict[str, Any],
     life_dir: Path,
     emitter: _TurnEmitter,
     *,
-    body: str = "",
+    chat_state: dict[str, Any],
+    body: str,
+    directive: str,
+    lifetime: str,
 ) -> dict[str, Any]:
     """Persist steering and also wake the currently running mission."""
     from ..apps._inbox import queue_inbox_message
@@ -961,21 +713,10 @@ def _handle_steer_control(
         set_active_manager_directive,
     )
 
-    manager_directive = str(
-        chat_state.pop("_frontdoor_steering_directive", "") or ""
-    ).strip()
-    if not manager_directive:
-        return emitter.respond(
-            say("steer_unclear", uses_cjk(body)),
-            {"kind": "chat", "control": "steer_unresolved"},
-            message_id="steer",
-        )
+    manager_directive = directive.strip()
     from ..daemon.state import read_continuous_state
 
     current = read_continuous_state(life_dir)
-    lifetime = str(
-        chat_state.pop("_frontdoor_lifetime", "") or ""
-    ).strip().lower()
     promoted_to_standing = False
     standing_objective = ""
     if lifetime == "standing":
@@ -1163,177 +904,93 @@ def _model_catalog_ids(chat_state: dict[str, Any], backend: str) -> list[str]:
     return backend_model_ids(backend, chat_state.get("global_root"))
 
 
-def _maybe_apply_config_intent(
-    mem: Any,
-    intent: Any,
-    chat_state: dict[str, Any],
-    life_dir: Path,
-    turn_id: str,
-    on_fragment: Any,
-    fragment: Callable[[str, dict[str, Any]], None],
-    cancelled: Callable[[], bool],
+def _apply_config(
+    mem: Any, intents: Any, chat_state: dict[str, Any], emitter: _TurnEmitter, operator_text: str,
 ) -> dict[str, Any] | None:
-    """Apply a natural-language config-change intent inline, confirming it in
-    the same turn instead of enqueuing a mission. Returns ``None`` when
-    ``intent`` is falsy or the apply failed, so manager_message keeps going
-    (triage/dispatch)."""
+    """Apply the settings the Manager filed and confirm each; ``None`` when none applied."""
     from ..manager.config_intent import _apply_config_intent, localize_config_confirmation
 
-    if intent is None:
-        return None
-    if cancelled():
-        return _cancelled_result()
-    cfg_lines: list[str] = []
+    lines: list[str] = []
     try:
         applied = _apply_config_intent(
-            mem,
-            intent,
-            chat_state,
-            on_confirm=cfg_lines.append,
+            mem, intents, chat_state, on_confirm=lines.append,
             model_catalog=lambda backend: _model_catalog_ids(chat_state, backend),
         )
     except Exception:  # noqa: BLE001 — a config-apply hiccup must never block the message
         applied = False
     if not applied:
         return None
-    chinese = bool(chat_state.get("_operator_text_cjk"))
-    cfg_lines = [localize_config_confirmation(line, chinese=chinese) for line in cfg_lines]
-    if on_fragment is not None:
-        for _ln in cfg_lines:
-            fragment("delta", {
-                "text": _ln,
-                "message_id": "config",
-                "fragment_mode": "append",
-            })
-    reply = "\n".join(cfg_lines).strip() or ("已应用设置。" if chinese else "Done — setting applied.")
-    _journal_argus_reply(life_dir, turn_id, reply)
-    return {"kind": "chat", "reply": reply}
+    chinese = uses_cjk(operator_text)
+    reply = "\n".join(localize_config_confirmation(line, chinese=chinese) for line in lines).strip()
+    return emitter.respond(reply or ("已应用设置。" if chinese else "Done — setting applied."), {"kind": "chat"},
+                           message_id="config")
 
 
-def _run_triage_and_fallbacks(
+def _settle_manager_turn(
     mem: Any,
-    send_body: str,
+    reply: str,
+    handoff: Any,
     chat_state: dict[str, Any],
-    route: Any,
-    control: Any,
-    root_task_id: str,
-    frontdoor_failure: str,
-    on_fragment: Any,
     emitter: _TurnEmitter,
     *,
-    cancelled: Callable[[], bool] | None = None,
+    source_channel: str,
+    source_message_id: str,
+    operator_text: str,
 ) -> dict[str, Any] | None:
-    """Run Manager triage (chat/SELF path) and its three fail-closed
-    fallbacks. Returns a terminal chat reply dict, or ``None`` when none of
-    the chat/fallback conditions apply and the turn should proceed to TEAM
-    dispatch below.
+    """What Argus does with the Manager's turn: its reply, or what it filed.
+
+    Returns the turn's terminal result, or ``None`` when the Manager handed
+    the work to the team and the caller dispatches the ticket.
     """
-    from ..manager.front_door import manager_triage
-
-    self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
-    chat_state.pop("_self_failure", None)
-    chat_state.pop("_self_delivery", None)
-    if frontdoor_failure:
-        # A failed classifier did not produce a trustworthy route. Reporting
-        # that failure must precede triage: otherwise a timed-out front-door
-        # call can start a second long Manager turn before the operator learns
-        # that no safe dispatch decision exists.
-        reply = (
-            "[not dispatched] Manager could not classify this message "
-            f"({frontdoor_failure}). The configured Manager backend is "
-            "unavailable or failed during classification. No task was queued. "
-            "Run `argus doctor --deep` to check backend readiness, then retry."
-        )
-        return emitter.respond(reply, {
-            "kind": "error", "success": False, "error_code": "classification_failed",
-        })
-
-    # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
-    # route was already decided in the merged call above, so triage skips its
-    # own route classify (``route=route``).
-    emitter.solo = route == "simple"
-    task_intent = chat_state.pop("_frontdoor_is_task", False)
-    if emitter.solo and not task_intent and self_mode in {"reply", "inspect", "project_status", "argus_status", "host_status"}:
-        emitter.turn_kind = "qa"
-        emitter.start_task()
-    if task_intent or chat_state.get("_frontdoor_skill_vertical") or self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
-        emitter.start_task()
-    try:
-        reply = manager_triage(
-            mem,
-            send_body,
-            chat_state,
-            on_fragment=emitter.fragment,
-            route=route,
-            self_mode=self_mode,
-            root_task_id=root_task_id,
-        )
-    except Exception as exc:  # noqa: BLE001 — never turn a failed call into TEAM work
-        if cancelled is not None and cancelled():
-            emitter.cancel_task()
-            return _cancelled_result()
-        reply = (
-            "[not dispatched] Manager could not complete the inline request "
-            f"({type(exc).__name__}). No new task was queued."
-        )
-        return emitter.respond(reply, {
-            "kind": "error", "success": False, "error_code": "inline_reply_failed",
-        })
-
-    # A provider may return a buffered reply or failure after interruption.
-    # Reject it before durable UI/transcript writes.
-    if cancelled is not None and cancelled():
-        emitter.cancel_task()
-        return _cancelled_result()
-
     failure = chat_state.pop("_self_failure", None)
     if failure:
         chat_state.pop("_self_delivery", None)
-        return emitter.respond(reply or "[not dispatched] Manager did not complete this request.", {
-            "kind": "error", "success": False, "error_code": "inline_reply_failed",
-            **({"mission_result": True, "summary": reply or "Execution did not finish."}
-               if self_mode in {"micro", "implement", "debug", "review", "synthesize"} else {}),
-        })
-    if reply is not None:
+        return emitter.respond(reply, {"kind": "error", "success": False, "error_code": "inline_reply_failed"})
+    life_dir = emitter.life_dir
+    if handoff is None or handoff.to == "operator":
+        if handoff is not None:
+            from ..life.supervisor.pending_notify import numbered_options
+
+            # The ask is the one place the operator sees the question.
+            reply = "\n\n".join(part for part in (
+                handoff.question, numbered_options(handoff.options, uses_cjk(operator_text)),
+            ) if part)
         result: dict[str, Any] = {"kind": "chat"}
-        if self_mode in {"micro", "implement", "debug", "review", "synthesize"}:
-            # A completed direct action need not produce a new downloadable file.
-            result.update(mission_result=True, success=True, summary=reply)
-        failure = chat_state.pop("_self_failure", None)
-        if failure is not None:
-            result.update({
-                "mission_result": True,
-                "success": False,
-                "summary": failure,
-            })
         delivery = chat_state.pop("_self_delivery", None)
         if isinstance(delivery, dict):
-            result.update({
-                "mission_result": True,
-                "success": True,
-                "summary": str(delivery.get("summary") or ""),
-                "delivery_id": str(delivery.get("delivery_id") or ""),
-                "delivery": delivery,
-            })
-        return emitter.journal_and_respond(reply, result)
-    if route == "simple" and control != "no_dispatch":
-        # The classifier already said SELF/chat. A failed inline Manager turn
-        # must never fall through into TEAM dispatch — that queues greetings,
-        # status questions, or capability chat as real missions precisely when
-        # the Manager backend is unhealthy.
-        reply = (
-            "[not dispatched] Manager could not complete this inline reply. "
-            "No task was queued; please retry the message."
+            result.update(
+                mission_result=True, success=True, summary=str(delivery.get("summary") or ""),
+                delivery_id=str(delivery.get("delivery_id") or ""), delivery=delivery,
+            )
+        return emitter.journal_and_respond(reply, result) if handoff is None else emitter.respond(reply, result)
+    if handoff.to == "team":
+        return None
+    # Argus applies what the Manager filed and confirms it after its reply.
+    emitter.journal(reply, {"kind": "chat"})
+    emitter.turn_id = f"{emitter.turn_id}-applied"
+    control = handoff.get("control", {})
+    if handoff.get("authorization"):
+        return _handle_authorization_control(
+            chat_state, life_dir, list(dict.fromkeys(handoff.get("authorization"))),
+            source_channel, source_message_id, emitter.turn_id, emitter,
         )
-        return emitter.respond(reply, {
-            "kind": "error", "success": False, "error_code": "inline_reply_failed",
-        })
-    if control == "no_dispatch":
-        reply = _NO_DISPATCH_FALLBACK
-        return emitter.respond(reply, {
-            "kind": "error", "success": False, "error_code": "inline_reply_failed",
-        })
-    return None
+    if control.get("kind") == "steer":
+        return _handle_steer_control(
+            life_dir, emitter, chat_state=chat_state, body=operator_text,
+            directive=control["directive"], lifetime=handoff.get("lifetime", "bounded"),
+        )
+    if control.get("kind") == "pause":
+        from .manager_state import interrupt_manager_turns
+
+        interrupt_manager_turns(str(chat_state.get("session_id") or ""))
+        return _handle_pause_control(operator_text, chat_state, life_dir, emitter)
+    if control.get("kind") == "abort":
+        return _handle_abort_control(operator_text, life_dir, emitter)
+    from ..manager.form import config_intents
+
+    intents = config_intents(handoff.get("config", ()))
+    applied = intents and _apply_config(mem, intents, chat_state, emitter, operator_text)
+    return applied or {"kind": "chat", "reply": reply}
 
 
 def _dispatch_team_mission(

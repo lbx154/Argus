@@ -7,12 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from argus.core.knob_store import read_persisted_knobs
-from argus.life.router import ConfigIntent
 from argus.manager.config_intent import (
     _ROLE_EFFORT_ENVS,
     _ROLE_MODEL_ENVS,
     _apply_config_intent,
 )
+from argus.manager.form import ConfigIntent
 
 _ENV = (
     "ARGUS_SKILL_MODEL", "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND",
@@ -103,25 +103,6 @@ def test_refusal_names_the_backend_whose_list_lacks_the_model(home) -> None:
 
     assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
     assert len(lines) == 1 and "codex" in lines[0]
-
-
-def test_telegram_chat_vets_models_like_the_web_chat(tmp_path, monkeypatch, home) -> None:
-    from argus.life.chat import router as chat_router
-    from argus.webapi import mission_items
-
-    life_dir = tmp_path / "projects" / "p1"
-    life_dir.mkdir(parents=True)
-    sent: list[str] = []
-    transport = SimpleNamespace(channel="telegram", send=sent.append)
-    router = chat_router.CommandRouter(life_dir=life_dir, transport=transport)
-    intent = ConfigIntent(knob="model", roles=(), value="nope-1")
-    monkeypatch.setattr(router, "_intake_operator_text", lambda text: (text, intent, None, "simple"))
-    monkeypatch.setattr(mission_items, "backend_model_ids", lambda backend, _root=None: _catalog(backend))
-
-    router._cmd_free_text("switch every role to nope-1")
-
-    assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
-    assert sent and "nope-1" in sent[-1] and "house-a" in sent[-1]
 
 
 def test_config_change_grounding_note_is_tagged_as_config(home, tmp_path) -> None:

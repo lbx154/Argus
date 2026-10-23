@@ -407,26 +407,6 @@ def test_copilot_assistant_message_final_clears_buffer() -> None:
     assert progress[2]["transient"] is True
 
 
-def test_planner_final_delivery_is_preserved_beyond_progress_limit() -> None:
-    sink = _RecordingSink()
-    cb = make_stream_progress_callback(sink)
-    content = (
-        "Final audit\n\n"
-        + "x" * 900
-        + "\n\nPROJECT_DONE=true\nREASON=complete result remains visible"
-    )
-
-    cb("planner.cycle1.stdout", json.dumps({
-        "type": "assistant.message",
-        "data": {"messageId": "planner-final", "content": content},
-    }))
-
-    event = sink.events[-1]
-    assert event["final_delivery"] is True
-    assert event["text"] == content
-    assert event["text"].endswith("REASON=complete result remains visible")
-
-
 def test_ordinary_long_agent_speech_is_preserved() -> None:
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)
@@ -438,7 +418,6 @@ def test_ordinary_long_agent_speech_is_preserved() -> None:
 
     event = sink.events[-1]
     assert event["text"] == "x" * 900
-    assert "final_delivery" not in event
 
 
 def test_copilot_result_clears_actor_buffers() -> None:
@@ -969,19 +948,3 @@ def test_non_shell_tool_call_stays_a_tool_use() -> None:
     assert "action_summary" not in call
 
 
-@pytest.mark.parametrize("mode", ["inspect", "micro", "implement", "debug", "review", "synthesize"])
-def test_every_self_turn_streams_as_manager_work(mode: str) -> None:
-    """Trial s-cc7ba48e: two self-implement turns made 34 tool calls and left no
-    step on record, because only ``simple-1`` was a visible Manager label."""
-    from argus.apps._self_reply import _SELF_EXECUTION_CONTRACTS
-
-    label = "simple-1" if mode == "inspect" else f"self-{mode}"
-    assert mode == "inspect" or mode in _SELF_EXECUTION_CONTRACTS
-    sink = _RecordingSink()
-    cb = make_stream_progress_callback(sink)
-    cb(f"{label}.stdout", json.dumps({
-        "type": "tool.execution_start",
-        "data": {"toolCallId": "call-1", "toolName": "bash", "arguments": {"command": "pytest -q"}},
-    }))
-
-    assert [(e["agent_layer"], e["kind"]) for e in sink.events] == [("manager", "command_execution")]

@@ -115,14 +115,6 @@ def _safe_progress_text(
     return redacted.strip() if limit is None else _truncate(redacted, limit)
 
 
-def _is_final_delivery_message(text: str) -> bool:
-    """True for the Planner's human-readable terminal delivery."""
-    return any(
-        line.strip().startswith("PROJECT_DONE=")
-        for line in (text or "").splitlines()
-    )
-
-
 def _is_structured_role_result(actor: str, text: str) -> bool:
     """Return whether a role message is its machine-consumed verdict footer."""
     if not (actor or "").lower().startswith("reviewer"):
@@ -287,10 +279,6 @@ def make_stream_progress_callback(
                        extra: dict[str, Any] | None = None) -> None:
         if not text:
             return
-        final_delivery = (
-            kind in {"assistant_message", "agent_message", "message"}
-            and _is_final_delivery_message(text)
-        )
         agent_speech = kind in {"assistant_message", "agent_message", "message"}
         payload: dict[str, Any] = {
             "type": "engineer.progress",
@@ -299,13 +287,11 @@ def make_stream_progress_callback(
                 # Cut paths into Argus' plumbing before the clip, so a long
                 # command keeps its words rather than half of a session path.
                 plain_command(text) if kind == "command_execution" else text,
-                limit=None if final_delivery or agent_speech else _PROGRESS_TEXT_LIMIT,
+                limit=None if agent_speech else _PROGRESS_TEXT_LIMIT,
             ),
             "actor": actor,
             "agent_layer": _agent_layer_for_actor(actor),
         }
-        if final_delivery:
-            payload["final_delivery"] = True
         if extra:
             for key, value in extra.items():
                 if value is None or value == "":
@@ -1049,9 +1035,6 @@ _ENGINEER_HELPER_ACTOR_PREFIXES = (
 _MANAGER_ACTOR_PREFIXES = (
     "manager",
     "simple",
-    # A SELF execution turn (self-implement, self-micro, ...) is the Manager's
-    # own work, streamed and recorded exactly like a ``simple-1`` turn.
-    "self-",
     "chat",
     "router",
     "vertical",

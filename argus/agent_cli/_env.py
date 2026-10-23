@@ -35,11 +35,6 @@ _WIND_DOWN_PROVIDER_TURN_ALLOWANCE = 8
 _SYNCHRONOUS_MANAGER_TURN_LABELS = frozenset(
     {
         "chat-1",
-        "self-debug",
-        "self-implement",
-        "self-micro",
-        "self-review",
-        "self-synthesize",
         "simple-1",
     }
 )
