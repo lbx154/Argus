@@ -329,7 +329,7 @@ def test_a_reviewed_completion_gives_the_review_s_first_sentence_and_the_result(
     )["text"]
     assert text == (
         "做完了，独立审阅也没发现要改的地方。\n"
-        "`char_count` 已完整交付；我独立确认了默认计数和包级导出。\n"
+        "char_count 已完整交付；我独立确认了默认计数和包级导出。\n"
         "结果在 strtools/core.py。"
     )
 
@@ -368,7 +368,7 @@ def test_a_task_finished_while_another_waits_on_the_operator_is_only_that_item(t
     # only waited on the operator's answer.
     assert text == (
         "这一项做完了，独立审阅也没发现要改的地方；另一项在等你回答。\n"
-        "`char_count` 已完整交付。"
+        "char_count 已完整交付。"
     )
 
 

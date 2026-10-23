@@ -42,14 +42,16 @@ MAX_TEXT_CHARS = 600
 ACCEPTERS = ("operator", "manager")
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
-# Markup that could make quoted text read as structure in a prompt.
-_STRUCTURE = re.compile(r"(?:^|\s)(?:#{1,6}|>|-{3,}|={3,})(?=\s)|`+|\*\*|__")
+# Markup that could make quoted text read as structure in a prompt, or leave
+# stray marks once a sentence is cut from it. Not ``__``: it is in names
+# (``__init__.py``) far more often than it is emphasis.
+_STRUCTURE = re.compile(r"(?:^|\s)(?:#{1,6}|>|-{3,}|={3,})(?=\s)|`+|\*\*")
 
 
-def sanitize_text(value: Any, limit: int = MAX_TEXT_CHARS) -> str:
+def sanitize_text(value: Any, limit: int | None = MAX_TEXT_CHARS) -> str:
     """One line of plain text: no control characters, headings, fences or emphasis."""
     text = _CONTROL.sub(" ", str(value or ""))
-    text = _STRUCTURE.sub(" ", text)
+    text = _STRUCTURE.sub("", text)
     text = " ".join(text.split())
     return text[:limit].rstrip()
 

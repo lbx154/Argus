@@ -2,6 +2,7 @@ import type { Dataset, MapEvent, MapTask } from "./model";
 import { ACTIVE, attentionTasks, isStageHold, latestCertifiedTask, latestMissionCompletion, statusKey } from "./model";
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
+import { shortWorkText } from "../lib/taskLanguage";
 
 /** Why a task waits on the reader: its open question, or the reason its last
  * attempt failed, said the way the cards say it. A record that is only a
@@ -98,7 +99,7 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
   // What the accepted task found, in the words that closed it; its title names
   // what was asked, which reads wrong after "confirmed".
   const result = accepted
-    ? clip(readableRecord(written(accepted) || latestMissionCompletion(accepted, events)?.text || accepted.title), 160)
+    ? shortWorkText(readableRecord(written(accepted) || latestMissionCompletion(accepted, events)?.text || accepted.title), 160)
     : "";
   const label = (task: MapTask) => {
     const key = statusKey(task);

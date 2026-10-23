@@ -484,7 +484,7 @@ export function toolTarget(ev: EventMsg, locale: Locale): string {
   return '';
 }
 
-const GLOB_WILDCARD = /[*?[]/;
+const GLOB_WILDCARD = /\[[^\]]*\]|[*?]/;
 const BRACES = /^([^{}]*)\{([^{}]*)\}([^{}]*)$/;
 
 /** "{pyproject.toml,setup.py,*.cfg}" names the first few files among its alternatives:
@@ -501,7 +501,8 @@ function braceNames(pattern: string, zh: boolean): string {
 
 // A glob read as "which files", no slashes: "**" + "/*.py" becomes ".py 文件",
 // "src/" + "**" + "/*" becomes "src 里的所有文件".
-// A pattern with {a,b} alternatives names the files among them; any other wildcard reads as plain "files".
+// A pattern with {a,b} alternatives names the files among them; any other wildcard
+// name is said by the words it keeps: "**" + "/*SKILL*" becomes "名字含 SKILL 的文件".
 export function readableGlob(pattern: string, locale: Locale): string {
   const zh = locale === 'zh-CN';
   const text = pattern.trim().replace(/\\/g, '/');
@@ -512,7 +513,11 @@ export function readableGlob(pattern: string, locale: Locale): string {
   let what: string;
   if (leaf === '*' || leaf === '*.*') what = zh ? '所有文件' : 'all files';
   else if (/^\*\.[\w.]+$/.test(leaf)) what = zh ? `${leaf.slice(1)} 文件` : `${leaf.slice(1)} files`;
-  else if (GLOB_WILDCARD.test(leaf)) what = zh ? '文件' : 'files';
+  else if (GLOB_WILDCARD.test(leaf)) {
+    const named = leaf.split(GLOB_WILDCARD).filter((piece) => /[\p{L}\p{N}_]/u.test(piece));
+    what = !named.length ? (zh ? '文件' : 'files')
+      : zh ? `名字含 ${named.join('、')} 的文件` : `files with ${named.join(', ')} in the name`;
+  }
   else what = clip(leaf, 40);
   const folder = folders[folders.length - 1];
   return folder ? (zh ? phrase(`${folder} 里的`, what) : `${what} in ${folder}`) : what;

@@ -2,7 +2,8 @@ import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/t
 import { stripLaunchNote } from './launch';
 
 const ACTIVE = new Set(['pending', 'running', 'in_progress', 'claimed']);
-const COUNTED_OUT = new Set(['skipped', 'cancelled', 'superseded']);
+/** Work replaced, skipped or cancelled: it is no task left to finish, so no count includes it. */
+export const COUNTED_OUT = new Set(['skipped', 'cancelled', 'superseded']);
 
 export interface ProjectOverview {
   goal: string;

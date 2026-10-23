@@ -73,6 +73,7 @@ import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
 import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { workSummary } from '../lib/workSummary';
+import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
 
 interface MapWorkspaceActions {
@@ -782,12 +783,13 @@ export function MapCanvas({
   const replacementCount = graph.links.filter(
     (e) => e.kind === "replacement",
   ).length;
+  const counted = useMemo(() => data.tasks.filter((task) => !COUNTED_OUT.has(task.status)), [data.tasks]);
   // One pass, one bucket per task: the strip must partition, not double-count
   // a failed task that also carries a question.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
     const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, held: 0, failed: 0, other: 0 };
-    for (const task of data.tasks) {
+    for (const task of counted) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
@@ -798,7 +800,7 @@ export function MapCanvas({
       else buckets.other++;
     }
     return buckets;
-  }, [data.tasks, scene.cards]);
+  }, [counted, scene.cards]);
   const complete = tally.done;
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
@@ -809,8 +811,8 @@ export function MapCanvas({
   const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
     ? projectBrief(data.tasks, data.events, zh, writtenOutcome, live) : null, [data.tasks, data.events, zh, writtenOutcome, live]);
   const statusSentence = mapStatusSentence({
-    total: data.tasks.length,
-    qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
+    total: counted.length,
+    qa: counted.filter(task => task.turn_kind === 'qa').length,
     complete,
     ended: tally.ended,
     reviewUnavailable: tally.review_unavailable,

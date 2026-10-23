@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..roles.prompts.manager import build_prompt_rewrite_prompt
+from .plan_mode import _clean
 
 
 @dataclass
@@ -54,18 +55,6 @@ class PromptRewrite:
     @property
     def ok(self) -> bool:
         return bool(self.rewritten.strip()) and not self.error
-
-
-def _clean(text: str) -> str:
-    """Trim a fragment and strip one layer of wrapping quotes / emphasis."""
-    s = (text or "").strip()
-    for quote in ('"', "'", "`"):
-        if len(s) >= 2 and s.startswith(quote) and s.endswith(quote):
-            s = s[1:-1].strip()
-            break
-    s = re.sub(r"^[*_]{1,3}\s*", "", s)
-    s = re.sub(r"\s*[*_]{1,3}$", "", s)
-    return s.strip()
 
 
 def _loads_json(text: str) -> Any:

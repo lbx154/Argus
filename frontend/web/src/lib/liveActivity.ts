@@ -58,10 +58,10 @@ function stepLine(step: FeedStep, locale: Locale, workspace: string): LiveLine |
     }
     if (kind === 'tool_result') return null;
     const text = step.r.text.split('\n').map((part) => part.trim()).find(Boolean) ?? '';
-    return text ? { ...base, kind: 'message', text: clip(text, 160) } : null;
+    return text ? { ...base, kind: 'message', text: shortWorkText(text, 160) } : null;
   }
   const text = step.r.text.split('\n').map((part) => part.trim()).find(Boolean) ?? '';
-  return text ? { ...base, kind: 'milestone', text: clip(text, 140) } : null;
+  return text ? { ...base, kind: 'milestone', text: shortWorkText(text, 140) } : null;
 }
 
 /**
