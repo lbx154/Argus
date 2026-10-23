@@ -9,8 +9,8 @@ from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.life.memory import EventJournal
 from argus.life.supervisor import LifeSupervisor
 from argus.planner import Planner
-from argus.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
 from argus.skills.vertical_select import persist_vertical
+from tests.role_rules import lists, rule
 
 # A little above what the staged argus_maintenance prompt costs today
 # (2026-10-20, when math moved to argus-verticals and these guards moved off its
@@ -23,13 +23,12 @@ RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 def _without_host_shell_guidance(prompt: str) -> str:
     """Drop native-Windows shell guidance, which is host-specific by design."""
-    from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE
     from argus.roles.task_contract import (
         NATIVE_WINDOWS_SHELL_CONTRACT,
         NATIVE_WINDOWS_SHELL_SUMMARY,
     )
 
-    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, _WINDOWS_LONG_EXPERIMENT_RULE, NATIVE_WINDOWS_SHELL_SUMMARY):
+    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, NATIVE_WINDOWS_SHELL_SUMMARY):
         prompt = prompt.replace(text, "")
     return prompt
 
@@ -89,10 +88,10 @@ def test_scope_prompt_is_compact_and_deduplicated(
     assert "## Original operator request (immutable anchor)" not in prompt
     assert "Argus planner role skill:" not in prompt
     assert "waiting_contract" not in prompt
-    assert 'prerequisites, not directions' in prompt
-    flat = " ".join(prompt.split())
-    assert flat.count('Integrity/reproducibility are prerequisites, not directions') == 1
-    assert 'Engineer implements and tests' in prompt
+    assert lists(prompt, "dependency-aware-task-decomposition.md")
+    assert "Integrity and reproducibility are prerequisites, not directions" in rule(
+        "planner", "dependency-aware-task-decomposition.md")
+    assert "the Engineer, who implements and tests" in prompt
     assert "JSON matching the provided schema" not in prompt
 
 
@@ -102,7 +101,7 @@ def test_scope_prompt_excludes_unrelated_modules(
 ) -> None:
     prompt, _objective = _build_scope_prompt(tmp_path, monkeypatch)
 
-    assert '## Assigning work' in prompt
+    assert lists(prompt, "dependency-aware-task-decomposition.md")
     assert "## Current workflow stage" in prompt
     assert "current: `inspect`" in prompt
     assert "## Stage checklist (inspect)" in prompt
@@ -130,8 +129,10 @@ def test_direct_workflow_suppresses_stage_artifact_ceremony(
         open_ended=True,
     )
 
-    assert "## Direct workflow — objective first" in prompt
-    assert 'describes the kind of work, without requiring a separate set of files' in prompt
+    assert "`workflow_mode=direct`: the stage names the kind of work" in prompt
+    assert lists(prompt, "stages-and-targets/SKILL.md")
+    assert "names the kind of work, without requiring a separate set of files" in rule(
+        "planner", "stages-and-targets/SKILL.md")
     assert "## Stage checklist (inspect)" not in prompt
     assert "## Stage gate" not in prompt
 
@@ -150,11 +151,10 @@ def test_planner_keeps_operator_actions_ahead_of_optional_hardening(
         open_ended=False,
     )
 
-    assert 'Follow requested actions in order' in prompt
-    assert 'outputs or alternatives' in prompt
-    flat = " ".join(prompt.split())
-    assert 'outputs or alternatives do not replace unmet actions' in flat
-    assert 'Add no cleanup, docs, rechecks or optional hardening to completed finite work' in flat
+    assert lists(prompt, "dependency-aware-task-decomposition.md")
+    flat = rule("planner", "dependency-aware-task-decomposition.md")
+    assert "Follow requested actions in order; outputs or alternatives do not replace unmet actions" in flat
+    assert "Add no cleanup, docs, rechecks or optional hardening to completed finite work" in flat
 
 
 def test_research_prompt_carries_no_final_submission_scope_machinery(
@@ -365,8 +365,8 @@ def test_planner_prompt_marks_absent_or_corrupt_plan_for_creation(tmp_path) -> N
 
 
 def test_research_plan_contract_avoids_hard_result_gates() -> None:
-    assert 'no fixed numeric pass/fail thresholds' in _RESEARCH_PLAN_CONTRACT
-    assert 'scientific gain toward a scoped paper' in _RESEARCH_PLAN_CONTRACT
+    assert "no fixed numeric pass/fail thresholds" in rule("planner", "research-plan/SKILL.md")
+    assert "scientific gain toward a scoped paper" in rule("planner", "research-plan/SKILL.md")
 
 
 def test_oversize_research_plan_keeps_head_and_next_milestone_with_hard_cap(
@@ -396,7 +396,8 @@ def test_planner_prompt_asks_for_fanout_of_independent_work(
     disjoint outputs is emitted together up to the free slots, after any
     shared code change it depends on."""
     prompt, _ = _build_scope_prompt(tmp_path, monkeypatch)
-    flat = " ".join(prompt.split())
+    assert lists(prompt, "dependency-aware-task-decomposition.md")
+    flat = rule("planner", "dependency-aware-task-decomposition.md")
 
     assert "differ only in inputs or config" in flat
     assert "free slots" in flat
@@ -411,7 +412,8 @@ def test_planner_prompt_asks_time_fit_and_concurrency_questions(
     Planner that is never asked what else can start emits one task a cycle.
     Both are judgement questions, not gates."""
     prompt, _ = _build_scope_prompt(tmp_path, monkeypatch)
-    flat = " ".join(prompt.split())
+    assert lists(prompt, "dependency-aware-task-decomposition.md")
+    flat = rule("planner", "dependency-aware-task-decomposition.md")
 
     assert "measured throughput" in flat
     assert "first held-out number" in flat

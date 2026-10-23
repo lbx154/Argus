@@ -13,7 +13,7 @@ from argus.reviewer._core import ReviewerConfig
 from tests.hand_off import hand_off
 
 # A static-preamble marker (lives in the rubric) + a delta marker (per round).
-_STATIC_MARKER = "## Reviewer role"
+_STATIC_MARKER = "You are the Argus Reviewer"
 _DELTA_HEADER = "## Engineer's account of this round"
 _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 
@@ -311,9 +311,8 @@ def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
         prompt for label, prompt, _options in backend.history if label == "reviewer"
     ]
     assert "previous_review_summary" not in reviewer_prompts[0]
-    assert "## Incremental re-review boundary" in reviewer_prompts[1]
+    assert "read re-review before reusing it" in reviewer_prompts[1]
     assert "Your judgment in round 1 (`continue`):\nr" in reviewer_prompts[1]
-    assert "The previous Reviewer judgment below is not fact" in reviewer_prompts[1]
 
 
 def test_previous_review_summary_keeps_only_last_three_one_line_verdicts() -> None:

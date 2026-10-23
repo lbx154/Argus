@@ -119,7 +119,7 @@ def test_every_engineer_prompt_asks_for_the_handoff_once_and_no_footer(
         include_static=include_static,
         compact_team=compact_team,
     )
-    assert prompt.count(engineer_prompts.engineer_handoff_rule()) == 1
+    assert prompt.count(engineer_prompts.engineer_handoff_rule()) == int(include_static)
     for legacy in (
         "→", "MILESTONE_STATUS", "NEXT_OWNER", "OPERATOR_NEED", "OPERATOR_OPTIONS",
         "ASSUMPTION", "id::label", "wait_for", "Decision:",

@@ -72,5 +72,5 @@ def test_resume_delta_says_files_opened_earlier_are_still_in_context(
     """
     rendered = _resume(tmp_path, "", monkeypatch)
     header = rendered.split("\n## ", 1)[0]
-    assert "already opened in this session" in header
-    assert "open it again only if its text is no longer in your context" in header
+    assert "already read in this session" in header
+    assert "open it again only if its text is gone" in header

@@ -5,6 +5,7 @@ import pytest
 from argus.core.models import RunnerResult
 from argus.planner.planner import PLANNER_SUPERSEDED_ERROR, Planner, PlannerConfig, TaskSpec
 from tests.hand_off import plan, submit
+from tests.role_rules import lists, rule
 
 
 def test_planner_forbids_binary_outcome_labels_and_standing_keeps_exploring(
@@ -30,9 +31,10 @@ def test_planner_forbids_binary_outcome_labels_and_standing_keeps_exploring(
     )
 
     assert "accepted " + "no" + "-go" not in finite.lower()
-    assert 'timing, profiling' in finite
-    assert 'Continue until stopped by the operator' not in finite
-    assert 'Continue until stopped by the operator' in standing
+    assert lists(finite, "reality-and-sources/SKILL.md")
+    assert "timing, profiling" in rule("planner", "reality-and-sources/SKILL.md")
+    assert "open-ended" not in finite
+    assert "open-ended: continue until the operator stops the work" in standing
 
 
 class _Runner:

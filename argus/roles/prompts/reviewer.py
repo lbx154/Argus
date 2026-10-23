@@ -5,19 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from ...core.model_visible_text import (
-    MODEL_INTEGRITY_BOUNDARY,
-    REVIEW_EVIDENCE_RULE,
-    sanitize_model_visible_text,
-)
+from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.workspace_snapshot import WorkspaceSnapshots
-from ..task_contract import (
-    EFFECTIVE_TASK_CONTRACT,
-    EXPERIMENT_EVIDENCE_CONTRACT,
-    native_shell_summary,
-)
+from ..task_contract import native_shell_summary
+from .rules import rules_list
 from .types import ChecklistMode, RoleName, RolePromptRequest
-from .voice import RESEARCHER_VOICE
 
 EVALUATE = "evaluate"
 SCIENCE_LOSS_CHECK = "science_loss_check"
@@ -27,28 +19,8 @@ OPERATIONS = frozenset({EVALUATE, SCIENCE_LOSS_CHECK, COLD_READ})
 
 _REEVALUATE_HEADER = (
     "## NEW ROUND — RE-EVALUATE INDEPENDENTLY (resumed reviewer)\n"
-    "You are resuming your own thread to retain the review standards. Reach a fresh "
-    "judgment on this round's changes; do not merely repeat your previous conclusion. "
-    "The role, standards, and decision rules still apply.\n\n"
-)
-
-# Acceptance settles effort, never truth. Once one round accepted a 6% score on
-# a benchmark where the model publishes ~80%, this boundary forbade every later
-# round from looking again, and the campaign reproduced its own broken baseline
-# for ninety reviews without once returning `incorrect`.
-_INCREMENTAL_REREVIEW_BOUNDARY = (
-    "## Incremental re-review boundary\n"
-    "The previous Reviewer judgment below is not fact. If current evidence shows "
-    "your earlier judgment was wrong, say so and correct it. For final paper "
-    "review, the separate selected-venue acceptance threshold still governs "
-    "`done`: fixing the last edit alone is insufficient.\n"
-    "A prior finding that the Engineer's account disputes with its own labeled, "
-    "reproducible measurement is not settled: conflicting values for the same "
-    "checkable fact are a dispute to resolve. Before repeating the request, "
-    "explain what is wrong with the Engineer's output or withdraw the finding, "
-    "and cite a number only when the label comes from the same output. Before "
-    "`done`, independently check every value changed in response to a contested "
-    "finding; the Engineer's report that it recalculated them is not that check.\n\n"
+    "Reach a fresh judgment on this round's changes; read re-review before reusing "
+    "your previous conclusion.\n\n"
 )
 
 def evaluate_request(
@@ -75,79 +47,6 @@ def evaluate_request(
         checklist_mode=checklist_mode,
         include_search_altitude=True,
         include_role_context=include_role_context,
-    )
-
-
-def _project_has_wiki(
-    working_dir: str | Path | None = None,
-) -> bool:
-    project_root = Path(working_dir).expanduser() if working_dir else Path.cwd()
-    autors = project_root / ".autors"
-    if not autors.exists():
-        return False
-    from ...wiki.bootstrap import is_initialized_wiki
-
-    return any(is_initialized_wiki(p / "wiki") for p in autors.iterdir() if p.is_dir())
-
-
-def _load_wiki_curator_skill_if_present(
-    working_dir: str | Path | None = None,
-) -> str | None:
-    """Compatibility helper returning the compact wiki-curator contract."""
-    if not _project_has_wiki(working_dir):
-        return None
-    return (
-        "knowledge curator: directly edit durable concepts, principles, facts, "
-        "hypotheses, relationships, and conflicts grounded in real evidence; "
-        "do not return page operations in the decision."
-    )
-
-
-def _verification_directive() -> str:
-    """Compact trust-first verification stance."""
-    return (
-        "Trust consistent evidence; recheck gaps, stale evidence, contradictions, or "
-        "implausibility only. Read beyond git diff. Identity drift proves neither "
-        "failure nor causation without this mission's mutation command. "
-        "Check which data split each reported metric was computed on.\n\n"
-    )
-
-
-_PRODUCT_ACCEPTANCE_DIRECTIVE = (
-    "Test claimed UI/API/CLI/service flows at a safe public entry point, beyond units. "
-    "Internal exploration needs its feedback experiment; check libraries decisively. "
-    "Web UI: inspect desktop/mobile rendering and interactions in Chromium; use $ARGUS_SKILL_PYTHON for Playwright. "
-    "Report untested claims/trials. Never cause external or irreversible effects.\n"
-)
-
-
-def _audit_integrity_directive(context: str) -> str:
-    lowered = str(context or "").lower()
-    if not any(
-        marker in lowered
-        for marker in (
-            "audit",
-            "ledger",
-            "append-only",
-            "command_log",
-            "process_trace",
-            "审计",
-            "账本",
-            "只追加",
-            "命令日志",
-        )
-    ):
-        return ""
-    return (
-        "## Integrity of the historical record\n"
-        "Treat an operator mutation freeze or append-only requirement as a hard temporal "
-        "boundary. When continuity of the record matters, compare directive order with file-write, "
-        "install, and command events. A later archive, correction, or successful rerun "
-        "cannot make an overwritten or reconstructed record contemporaneous. Do not credit any "
-        "fact attributed to the objective unless the cited objective text states it, and "
-        "do not treat a summarized command log as the missing byte-faithful command. "
-        "Preserve useful corrections, but do not hand off `to=done` when the required "
-        "historical integrity is irrecoverable.\n\n"
     )
 
 
@@ -304,10 +203,7 @@ def render_reviewer_prompt(
     replacing the shorter ``prev_review_summary`` line beside it.
     """
     from ...core.project import resolve_project_root
-    from ...core.research_contract import (
-        RESULT_FIELD_CHOICES,
-        resolve_research_target_level,
-    )
+    from ...core.research_contract import resolve_research_target_level
     from ...skills.vertical_select import (
         _persisted_vertical,
         resolve_workflow_mode,
@@ -427,6 +323,7 @@ def render_reviewer_prompt(
         scope=scope_normalized, operation=operation,
     )
     research_context_block = prompt_context.role_context
+    search_altitude_block = sanitize_model_visible_text(prompt_context.search_altitude)
     direct_workflow = (
         workflow_mode if workflow_mode is not None else resolve_workflow_mode(_proot)
     ) == "direct"
@@ -435,16 +332,21 @@ def render_reviewer_prompt(
     optimize_banner = prompt_context.role_banner
     if prompt_context.requires_independent_review and not _requires_engineering_audit:
         optimize_banner = ""
-    verification_instruction = ""
+    if prose_final_review:
+        mode = "Final paper review"
+    elif direct_workflow:
+        mode = "Direct work"
+    else:
+        mode = "Staged work"
+    deciding = f"before you hand off; this review follows its '{mode}' section"
+    target_block = ""
     _research_target_level = resolve_research_target_level(_proot)
     if (
         _research_target_level is not None
         or prompt_context.verification_stage_profiles
     ):
-        # Two separate things, previously one sentence: `research_target_level`
-        # says what finishing the PROJECT means, and the verification profile
-        # says what THIS round has to show. Conflating them made every early
-        # probe get judged against publication readiness.
+        # `research_target_level` says what finishing the PROJECT means; the
+        # verification profile says what THIS round has to show.
         from ...core.verification_policy import policy_line, resolve_policy
         from ...skills.stage_machine import current_stage
 
@@ -457,94 +359,23 @@ def render_reviewer_prompt(
             stage=_stage,
             stage_profiles=prompt_context.verification_stage_profiles,
         )
-        verification_instruction = (
-            (
-                f"Project target `{_research_target_level}` defines project "
-                "completion, not this round's bar. "
+        target_block = f"## This round's bar\n{policy_line(_policy)}."
+        if _research_target_level is None:
+            target_block += (
+                " The active vertical owns when verification becomes final; judge "
+                "this task at its current stage."
             )
-            if _research_target_level is not None
-            else (
-                "The active vertical owns when verification becomes final; "
-                "judge this mission at its current stage, not at the last "
-                "stage's completion standard. "
-            )
-        ) + (
-            f"This round: {policy_line(_policy)}. The integrity floor is "
-            "identical at every profile. Judge directly and explain in the review. "
-        )
-        if _research_target_level is not None and not prose_final_review:
-            verification_instruction += (
-                "If the direction cannot reach the target, hand the work to the "
-                "Planner: `to=planner`.\n"
-                "Supply the research assessment in hand_off's research_result "
-                "using evidence you inspected; never append a data block to your reply. A survey is "
-                "`literature_review` with `novelty_status` `known` or "
-                "`not_applicable`. Use one listed value per field so the record "
-                "stays comparable across campaigns; hand_off summarizes your "
-                "judgment and never replaces it:\n"
-                + "".join(
-                    f"{_field}: {' '.join(_choices)}\n"
-                    for _field, _choices in RESULT_FIELD_CHOICES
-                )
-                + "\n"
-            )
-    surprise_judgment_block = (
-        "What observed result or pattern most changed your belief — including a "
-        "positive surprise — and what is the cheapest observation that would "
-        "distinguish a new scientific explanation from an artifact? `none` is valid "
-        "and produces no work; if the answer could change the claim or route, hand "
-        "it to the Planner: `to=planner`.\n"
-        if _research_target_level is not None
-        else ""
-    )
-    # Live search-altitude facts (NO verdict) so the reviewer can SEE the
-    # floor history when judging the round — i.e. distinguish "this
-    # round advanced a declared structural line" from "Nth single-knob
-    # nibble at a floor that has not moved in N attempts". Empty for
-    # verticals that do not surface it.
-    search_altitude_block = sanitize_model_visible_text(
-        prompt_context.search_altitude
-    )
-    stage_checklist = prompt_context.stage_checklist
-    if direct_workflow:
-        stage_checklist = ""
-
-    wiki_curator_skill_block = ""
-    direct_memory_edit_block = ""
-
-    venv_skill_block = (
-        "## Dependencies\n"
-        "Have Engineer install missing packages with `./.venv/bin/pip`; "
-        "leave Argus's venv unchanged."
-    )
-
-    # Upstream-evidence defect REPORT. When the reviewer notices that an
-    # upstream stage's evidence is missing or unreliable while working a
-    # later stage, the correct move is to REPORT it so the Manager can roll
-    # the stage back — the reviewer does NOT edit the pipeline state machine
-    # itself (stage authority is the Manager's). The instruction lives here
-    # (not in the individual checklist items) so it applies uniformly.
+        else:
+            target_block += f" Project research target: `{_research_target_level}`."
+            if not prose_final_review:
+                deciding += " and its 'Research target' section"
+    stage_checklist = "" if direct_workflow else prompt_context.stage_checklist
     stage_order = prompt_context.stage_order
-    stage_idx = stage_order.index(stage) if stage in stage_order else 0
-    earlier_stages = ", ".join(stage_order[:stage_idx]) or "(none)"
-    if prompt_context.vertical == "research":
-        rollback_block = (
-            "## Upstream defects\n"
-            f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "Research moves forward only. Name repairs here in `next_action` for earlier "
-            "method, experiment, or paper defects affecting this work. Never "
-            "request rollback, reopen idea selection, or edit `.argus/PIPELINE_STATE.json`."
-        )
-    else:
-        rollback_block = (
-            "## Upstream defects\n"
-            f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "Rollback only when a concrete earlier defect makes the current result "
-            "unusable. Optional outputs or those not needed for the claim are advisory. If "
-            "rollback is necessary, hand the work to the Manager, who owns rollback: "
-            "`to=manager`, with the earliest stage and evidence. Never edit "
-            "`.argus/PIPELINE_STATE.json`."
-        )
+    stage_line = ""
+    if not direct_workflow:
+        stage_idx = stage_order.index(stage) if stage in stage_order else 0
+        earlier = ", ".join(stage_order[:stage_idx]) or "(none)"
+        stage_line = f"Current stage: `{stage}`. Earlier stages: {earlier}."
     operator_text = (
         "\n".join(f"- {line}" for line in operator_messages) if operator_messages else "- none"
     )
@@ -557,10 +388,8 @@ def render_reviewer_prompt(
             f"Original operator request:\n{original_text}\n\n"
             f"Current mission objective:\n{current_text}\n\n"
         )
-    # The Reviewer is the one role whose verdict closes work, so it is the role
-    # that most needs the operator's stated bar in front of it. Without this it
-    # judges the mission text, which describes the increment rather than what
-    # the operator agreed counts as done.
+    # The Reviewer's verdict closes work, so it needs the operator's stated bar,
+    # not only the mission text, which describes the increment.
     from ...core.project_contract import contract_briefing, load_contract_for_cwd
 
     _contract_block = contract_briefing(
@@ -570,20 +399,16 @@ def render_reviewer_prompt(
     if _contract_block:
         objective_block += _contract_block + "\n\n"
     previous_findings = str(previous_findings or "").strip()
-    shared_context_block = _format_engineer_shared_context(
+    shared_context_block = sanitize_model_visible_text(_format_engineer_shared_context(
         skill_used=active_skill_id,
         prev_review_summary="" if previous_findings else prev_review_summary,
-    )
-    shared_context_block = sanitize_model_visible_text(shared_context_block)
-    incremental_review_block = ""
+    ))
     if round_index > 1 and prev_review_summary.strip():
-        incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
+        shared_context_block += "Your earlier judgment follows; read re-review before reusing it.\n\n"
     previous_findings_block = (
         sanitize_model_visible_text(previous_findings) + "\n\n"
         if previous_findings else ""
     )
-    # Prefer direct runtime and verifier evidence over the Engineer's summary
-    # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
         "\nRaw verification evidence:\n"
         + sanitize_model_visible_text(raw_evidence.rstrip())
@@ -600,164 +425,67 @@ def render_reviewer_prompt(
         if background_context.strip()
         else ""
     )
-    # The shared Markdown checkpoint is the live handoff. ``prior_checkpoint``
-    # remains accepted for callers that have not migrated to the file path.
-    _ = prior_checkpoint
-    _ = checkpoint_path
-    checkpoint_block = ""
-    # The Engineer's own account is primary. Keep the execution log as a
-    # one-line fallback pointer for a concrete contradiction instead of asking
-    # every Reviewer to reconstruct the round from grep recipes. Empty path
-    # (memory backend / tests / unresolvable life_dir) omits the pointer.
-    engineer_log_audit_block = _engineer_log_audit_block(
+    engineer_log_audit_block = sanitize_model_visible_text(_engineer_log_audit_block(
         engineer_log_path,
         engineer_call_id=engineer_call_id,
         round_index=round_index,
-    )
-    engineer_log_audit_block = sanitize_model_visible_text(
-        engineer_log_audit_block
-    )
-    if direct_workflow:
-        rollback_block = ""
-    # Byte-stable static policy; every fresh Reviewer receives it in full.
-    shell_contract = native_shell_summary()
-    audit_integrity_block = _audit_integrity_directive(
-        "\n".join(
-            (
-                objective,
-                original_objective,
-                planner_review_instruction,
-                *operator_messages,
-            )
-        )
-    )
-    handoff_policy = (
-        "Hand off `to=done` when a direct task meets its requirements and decisive "
-        "check, `to=planner` only to change the plan, and `to=engineer` naming the next "
-        "repair for a material gap. Leave optional hardening advisory."
-        if direct_workflow
-        else (
-            "`to=done` needs sufficient evidence, not exhaustive proof or every file. "
-            "Only claim-essential evidence gaps warrant `to=engineer`; optional "
-            "evidence and minor weaknesses are advice. A timeout or failed attempt "
-            "proves no impossibility; a missed threshold describes only that run. "
-            "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
-            "evidence plus profiling, timing, or a controlled comparison. Integrity is "
-            "required, not scientific value. Ask only for operator-owned authority/facts. "
-            "`to=done` closes a task; final-submission may close the project."
-        )
-    )
-    decision_policy = (
-        "## Submit your review\n"
-        "End your turn with hand_off: its summary is what the operator reads, only this "
-        "work's result (e.g. \"char_count is delivered; its default count, ignored "
-        "whitespace and package export were checked\"); its note carries the complete "
-        "review, evidence and next steps for the next holder. "
-        "Before accepting, check each "
-        "requirement and symptom the task (this increment) states against the "
-        "deliverable; tests the Engineer wrote show only its reading of them. "
-        "Chat cannot replace the tool. A plan challenge names the failed assumption "
-        "and an alternative; a commitment of the Manager or the operator goes to them. "
-        "Give Engineer instructions in the review; neither "
-        "read nor edit checkpoint or context records.\n\n"
-    )
-    if prose_final_review:
-        decision_policy += (
-            "Explain your actual current venue recommendation, not a hoped-for future "
-            "rating. Hand off `to=done` only when no required repairs remain; "
-            "otherwise `to=engineer`, even if the current rating is weak accept "
-            "or better. Scientific repairs stay in this final review task.\n\n"
-        )
-        handoff_policy = (
-            "The selected venue's acceptance standard governs completion. Continue "
-            "the final review and revision loop while acceptance is unclear or "
-            "feasible high-impact improvements remain. Speculative future work stays "
-            "advisory; meaningful improvement after final review belongs in this task."
-        )
-    # Nothing here may vary with the mission. The static preamble is
-    # fingerprinted, and a same-role session resumes only when the fingerprint
-    # matches; when the objective and the Planner's guidance lived here, every
-    # new mission rotated the fingerprint, forced a cold start, and re-sent the
-    # full rubric — so those blocks ride in the delta below instead.
-    #
-    # What repeated lessons of this vertical have settled into. Bounded and
-    # present only once the vertical has compiled principles; it changes only
-    # when they are recompiled, so it belongs to the static text.
+    ))
+    from ...core.role_config import runner_backend_label
     from ...wiki.context import render_project_principles
 
-    principles_block = render_project_principles(_proot)
-    # Within the static text, what holds for every mission of the role comes
-    # first, then what holds for the stage, and last the recalled Skill block,
-    # which follows the mission's task: a fresh Reviewer on a new mission then
-    # shares the longest possible prefix with the previous one.
-    static = (
-        EFFECTIVE_TASK_CONTRACT
-        + "\n\n"
-        + (shell_contract + "\n\n" if shell_contract else "")
-        + MODEL_INTEGRITY_BOUNDARY
-        + "\n\n"
-        + _PRODUCT_ACCEPTANCE_DIRECTIVE
-        + "\n\n## Reviewer role\n"
-        "`to=done` meets this profile; check relevant uncertainty. "
-        "Leave source/output/build files unchanged; use the vertical command for judgments. "
-        "Use `to=engineer` for one material gap in scope, `to=planner` for a wrong target or "
-        "scope change, and `to=manager` or `to=operator` only for obstacles the team cannot "
-        "remove. Use primary sources "
-        "for external claims; community code may ground implementation details. "
-        "Judge against the task's acceptance criteria and this profile only: a check "
-        "they do not ask for (a packaged build, future-proofing) is a suggestion in note "
-        "and never withholds `to=done`. "
-        "In `explore`/`develop`, require experimental or research feedback. "
-        "Ground negatives, hedging, limitations and reruns in consequences; "
-        "all claims share one evidence standard. "
-        + REVIEW_EVIDENCE_RULE
-        + "\n\n"
-        + EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
-        + "Check actual input changes, not rerun reasons; producer logs cannot replace external observation.\n\n"
-        + RESEARCHER_VOICE + "\n\n"
-        + decision_policy
-        + ("" if _requires_engineering_audit else _verification_directive())
-        + verification_instruction
-        + wiki_curator_skill_block
-        + direct_memory_edit_block
-        + stage_checklist
-        + "\n\n"
-        + rollback_block
-        + "\n\n"
-        + surprise_judgment_block
-        + venv_skill_block
-        + "\n\n## Completion\n"
-        + handoff_policy
-        + "\n\n"
-        + (optimize_banner + "\n\n" if optimize_banner else "")
-        + matched_review_skill_block
-        + ("\n\n" + sanitize_model_visible_text(principles_block) if principles_block else "")
+    rules = rules_list("reviewer", (
+        ("argus-reviewer-role.md", "before you judge: what the review weighs and how to write the Engineer's next step"),
+        ("checking-the-work/SKILL.md", "before you accept or reject evidence, rerun a check, or test a product"),
+        ("deciding/SKILL.md", deciding),
+        ("re-review/SKILL.md", "when an earlier judgment of yours is shown, or the Engineer disputes a finding"),
+        ("record-integrity/SKILL.md", "when the task involves an audit log, a ledger, or an append-only or frozen record"),
+    ))
+    page = (
+        f"You are the Argus Reviewer, in one {runner_backend_label()} session. Judge "
+        "independently whether the Engineer's work below holds. Read and run checks in the "
+        "working directory, which holds the work; change no source, output or build file.\n\n"
+        "## Handing off\n"
+        "End your turn with hand_off. Its summary is what the operator reads: only this "
+        "work's result, in their language and plain words (e.g. \"char_count is delivered; "
+        "its default count, ignored whitespace and package export were checked\"). Its note "
+        "carries the complete review, evidence and next steps for the next holder.\n\n"
+        + rules
     )
-    # Per-round DELTA — everything that varies with the mission or the round.
-    # Fresh Reviewers receive this after the full static rubric every time.
-    # The objective, the Planner's guidance, and the record-integrity note its
-    # text can call for are necessary context every round; they open the delta
-    # so a resumed session still reads the mission before the round's facts.
+    # Nothing here may vary with the mission: the static preamble is
+    # fingerprinted, and a same-role session resumes only when it matches. What
+    # holds for every mission of the role comes first, then the stage, and last
+    # the recalled Skill block, so fresh Reviewers share the longest prefix.
+    principles_block = render_project_principles(_proot)
+    static = "\n\n".join(
+        block for block in (
+            page,
+            native_shell_summary(),
+            target_block,
+            stage_checklist.strip(),
+            stage_line,
+            optimize_banner.strip(),
+            matched_review_skill_block.strip(),
+            sanitize_model_visible_text(principles_block) if principles_block else "",
+        ) if block
+    ) + "\n\n"
+    # Per-round DELTA: everything that varies with the mission or the round.
     delta = (
         (_REEVALUATE_HEADER if resumed else "")
         + objective_block
         + "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
-        + audit_integrity_block
         + research_context_block
         + ("\n\n" if research_context_block else "")
         + review_validity_block
         + search_altitude_block
-        + f"{checkpoint_block}"
-        + f"{engineer_log_audit_block}"
+        + engineer_log_audit_block
         + (f"Round: {round_index}/{round_max}\n" if round_max > 0 else f"Round: {round_index}\n")
         + f"Session ID: {session_id or 'none'}\n"
-        + f"{shared_context_block}"
-        + f"{incremental_review_block}"
+        + shared_context_block
         + previous_findings_block
-        + f"{background_block}"
+        + background_block
         + change_block
-        + f"{evidence_block}"
+        + evidence_block
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
         + engineer_account
@@ -774,19 +502,13 @@ def render_reviewer_prompt(
             "delta_total": delta,
             "stage_checklist": stage_checklist,
             "matched_skill": matched_review_skill_block,
-            "direct_memory": direct_memory_edit_block,
-            "wiki_curator": wiki_curator_skill_block,
-            "research_target": verification_instruction,
-            "surprise_judgment": surprise_judgment_block,
+            "research_target": target_block,
             "manuscript_review_validity": review_validity_block,
             "research_context": research_context_block,
             "objective_context": objective_context,
-            "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,
             "background": background_block,
-            "shared_context": (
-                shared_context_block + incremental_review_block + previous_findings_block
-            ),
+            "shared_context": shared_context_block + previous_findings_block,
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
             "workspace_changes": change_block,

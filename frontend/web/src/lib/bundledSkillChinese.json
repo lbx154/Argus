@@ -1,4 +1,32 @@
 {
+  "global/engineer/doing-the-task/SKILL.md": {
+    "title": "工程师怎样做好这项任务",
+    "summary": "谁的指示优先、任务边界在哪、何时查一手资料、网页要在真实浏览器里测。",
+    "originalName": "Doing the task",
+    "source": "argus/builtin_skills/engineer/doing-the-task/SKILL.md",
+    "sourceBytes": 1394
+  },
+  "global/engineer/durable-learning/SKILL.md": {
+    "title": "把这次学到的做法存成技能",
+    "summary": "验证后，只把可复用、已证实的做法写进项目技能目录；不确定的结论不写。",
+    "originalName": "Keeping what the task taught",
+    "source": "argus/builtin_skills/engineer/durable-learning/SKILL.md",
+    "sourceBytes": 1364
+  },
+  "global/engineer/handing-off/SKILL.md": {
+    "title": "工程师怎样交接",
+    "summary": "摘要给操作者看、说明给下一位看，证据放进 .argus/evidence/；没有操作者时由经理代为决定。",
+    "originalName": "Handing off",
+    "source": "argus/builtin_skills/engineer/handing-off/SKILL.md",
+    "sourceBytes": 1248
+  },
+  "global/engineer/long-runs-and-evidence/SKILL.md": {
+    "title": "长时间运行、实验与证据",
+    "summary": "超过两分钟的命令放后台并一次等完；实验输出分开保存；性能结论要有剖析或对照证据。",
+    "originalName": "Long runs, experiments and evidence",
+    "source": "argus/builtin_skills/engineer/long-runs-and-evidence/SKILL.md",
+    "sourceBytes": 1866
+  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
@@ -12,6 +40,13 @@
     "originalName": "Editable Presentations with PPT Master",
     "source": "argus/builtin_skills/engineer/presentation-master.md",
     "sourceBytes": 4217
+  },
+  "global/engineer/review-rounds/SKILL.md": {
+    "title": "按审阅意见继续工作",
+    "summary": "逐条落实审阅意见并记录证据；自己的实测与审阅要求矛盾时不改数，交回审阅者裁定。",
+    "originalName": "Working from a review",
+    "source": "argus/builtin_skills/engineer/review-rounds/SKILL.md",
+    "sourceBytes": 1209
   },
   "global/engineer/skill-authoring-guide.md": {
     "title": "编写与审阅技能和 Wiki 页面",
@@ -88,7 +123,35 @@
     "summary": "规划者只读只派、不执行，阶段只由经理改变；把目标与已有证据整理成最小、可执行、有真实依赖且能明确验收的任务集合。",
     "originalName": "The Planner's role and dependency-aware task decomposition",
     "source": "argus/builtin_skills/planner/dependency-aware-task-decomposition.md",
-    "sourceBytes": 2732
+    "sourceBytes": 4582
+  },
+  "global/planner/external-target/SKILL.md": {
+    "title": "面向外部评分的优化",
+    "summary": "以外部评分为准，先做直接提分的工作，排除重复尝试，验证不能用被评分数据的标签。",
+    "originalName": "Optimizing for an external target",
+    "source": "argus/builtin_skills/planner/external-target/SKILL.md",
+    "sourceBytes": 1357
+  },
+  "global/planner/reality-and-sources/SKILL.md": {
+    "title": "从实际情况出发做计划",
+    "summary": "先查清真实约束，外部算法看一手资料，性能结论要有剖析证据；已审事实和项目 Wiki 怎么用。",
+    "originalName": "Planning from reality",
+    "source": "argus/builtin_skills/planner/reality-and-sources/SKILL.md",
+    "sourceBytes": 1590
+  },
+  "global/planner/research-plan/SKILL.md": {
+    "title": "研究计划文件",
+    "summary": "RESEARCH_PLAN.md 什么时候建、写哪几节、怎样整体替换。",
+    "originalName": "The research plan",
+    "source": "argus/builtin_skills/planner/research-plan/SKILL.md",
+    "sourceBytes": 1023
+  },
+  "global/planner/stages-and-targets/SKILL.md": {
+    "title": "阶段、直接任务与目标",
+    "summary": "阶段只是背景；直接任务只做推进目标的事；终审任务的范围、研究目标和持续运行怎么处理。",
+    "originalName": "Stages, direct work and targets",
+    "source": "argus/builtin_skills/planner/stages-and-targets/SKILL.md",
+    "sourceBytes": 2250
   },
   "global/project-venv-package-management.md": {
     "title": "项目环境、依赖与运行前核查",
@@ -102,7 +165,21 @@
     "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 5276
+    "sourceBytes": 4635
+  },
+  "global/reviewer/checking-the-work/SKILL.md": {
+    "title": "审阅者怎样核查",
+    "summary": "信任一致的证据，只复查缺口和矛盾；关键检查自己重跑；产品要从真实入口测。",
+    "originalName": "Checking the work",
+    "source": "argus/builtin_skills/reviewer/checking-the-work/SKILL.md",
+    "sourceBytes": 2302
+  },
+  "global/reviewer/deciding/SKILL.md": {
+    "title": "审阅者怎样下结论",
+    "summary": "直接任务、分阶段任务、论文终审和研究目标各自什么时候通过、退回或交给规划者和经理。",
+    "originalName": "Deciding the review",
+    "source": "argus/builtin_skills/reviewer/deciding/SKILL.md",
+    "sourceBytes": 2791
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
@@ -110,6 +187,20 @@
     "originalName": "Engineer Process Audit",
     "source": "argus/builtin_skills/reviewer/engineer-process-audit.md",
     "sourceBytes": 2947
+  },
+  "global/reviewer/re-review/SKILL.md": {
+    "title": "再次审阅",
+    "summary": "上一轮结论不算事实；工程师用自己的实测反驳时，先说明错在哪或撤回意见。",
+    "originalName": "Reviewing again",
+    "source": "argus/builtin_skills/reviewer/re-review/SKILL.md",
+    "sourceBytes": 1105
+  },
+  "global/reviewer/record-integrity/SKILL.md": {
+    "title": "历史记录的完整性",
+    "summary": "有审计日志、只追加或冻结要求时，事后补写或重跑都不能替代当时的记录。",
+    "originalName": "Integrity of a historical record",
+    "source": "argus/builtin_skills/reviewer/record-integrity/SKILL.md",
+    "sourceBytes": 808
   },
   "global/reviewer/web-source-evidence-audit.md": {
     "title": "审查网络证据是否支撑结论",

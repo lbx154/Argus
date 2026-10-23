@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import pytest
 
-from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.reviewer import Reviewer
+from tests.role_rules import lists, rule
+
+_RULE = rule("reviewer", "checking-the-work/SKILL.md")
 
 
 class _Runner:
@@ -26,19 +28,19 @@ def test_every_reviewer_reruns_the_check_itself(backend: str) -> None:
         session_id=None, main_summary="All tests pass.", main_error=None,
         prior_checkpoint={},
     )
-    assert REVIEW_EVIDENCE_RULE in prompt
+    assert lists(prompt, "checking-the-work/SKILL.md")
     assert "never ask for an execution tool" not in prompt
 
 
 def test_the_rule_refuses_the_engineers_word_alone_and_falls_back_when_blocked() -> None:
-    assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
-    assert "rerun the decisive check yourself" in REVIEW_EVIDENCE_RULE
-    assert "If the sandbox blocks the rerun (write or network denied)" in REVIEW_EVIDENCE_RULE
-    assert "judge from recorded runs and your own reading" in REVIEW_EVIDENCE_RULE
+    assert "the Engineer's cited claim alone is not evidence" in _RULE
+    assert "rerun the decisive check yourself" in _RULE
+    assert "If the sandbox blocks the rerun (write or network denied)" in _RULE
+    assert "judge from the recorded runs and your own reading" in _RULE
 
 
 def test_the_masked_display_sentence_follows_the_rule() -> None:
-    _evidence, _, display = REVIEW_EVIDENCE_RULE.partition("`******` or `<REDACTED:…>` is display masking")
+    _evidence, _, display = _RULE.partition("`******` or `<REDACTED:…>` is display masking")
     assert "proves neither a defect nor a fix" in display
-    assert "settle it the same way" in display
-    assert "rerunnable assertion on a placeholder value" in display
+    assert "settle it with a rerunnable assertion" in display
+    assert "a placeholder value" in display

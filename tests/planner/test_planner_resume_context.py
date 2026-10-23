@@ -118,10 +118,10 @@ def test_resumed_session_is_not_resent_unchanged_sections(tmp_path: Path) -> Non
             config=_config(tmp_path),
         )
 
-    second, third = runner.calls[1]["prompt"], runner.calls[2]["prompt"]
+    third = runner.calls[2]["prompt"]
     assert runner.calls[2]["resume_thread_id"] == "planner-thread"
     assert "## Unchanged since your previous turn" in third
-    assert len(third) < len(second)
+    assert "PLAN BODY ALPHA" not in third
     assert "mission_complete: cycle 2" in third, "what changed is always sent"
 
 
@@ -178,7 +178,7 @@ def test_lost_provider_thread_restarts_with_the_full_prompt(tmp_path: Path) -> N
     assert verdict.error == ""
     assert [call["resume_thread_id"] for call in runner.calls] == ["planner-thread", None]
     fresh = runner.calls[1]["prompt"]
-    assert "## Reality check" in fresh and "## Assigning work" in fresh
+    assert "You are the Argus Planner" in fresh and "## Rules:" in fresh
     assert "FULL JOURNAL BODY ALPHA BETA" in fresh
     assert "PLAN BODY ALPHA" in fresh
     assert "Continued Planner cycle" not in fresh

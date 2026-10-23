@@ -18,6 +18,7 @@ from argus.reviewer import Reviewer
 from argus.reviewer.tools import review_actions
 from argus.skills.store import SkillStore
 from tests.hand_off import hand_off
+from tests.role_rules import lists, rule
 
 
 def _reviewer_prompt(tmp_path) -> str:
@@ -38,7 +39,7 @@ def _reviewer_prompt(tmp_path) -> str:
 
 
 def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None:
-    assert "`to=planner`" in _reviewer_prompt(tmp_path)
+    assert lists(_reviewer_prompt(tmp_path), "deciding/SKILL.md")
     actions = review_actions()
     assert "authority_impact" not in actions.tools[0]["inputSchema"]["properties"]
     actions.dispatch(*hand_off("planner", "Each round repairs a symptom of one cohort rule; certify per cell."))
@@ -53,14 +54,12 @@ def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None
 
 def test_the_reviewer_is_told_the_word_that_challenges_the_plan(tmp_path) -> None:
     prompt = _reviewer_prompt(tmp_path)
-    assert "`to=planner`" in prompt
-    assert "failed assumption" in prompt
-    assert "alternative" in prompt
+    assert lists(prompt, "deciding/SKILL.md")
+    assert "A plan challenge names the failed assumption and an alternative" in rule("reviewer", "deciding/SKILL.md")
     assert "STATUS=" not in prompt
 
 
 def test_the_reviewer_is_told_an_owners_commitment_goes_to_its_owner(tmp_path) -> None:
     """Authority, not effort, decides who may replace a commitment."""
-    prompt = _reviewer_prompt(tmp_path)
-    assert "a commitment of the Manager or the operator goes to them" in prompt
-    assert "`to=manager`" in prompt and "`to=operator`" in prompt
+    assert lists(_reviewer_prompt(tmp_path), "deciding/SKILL.md")
+    assert "a commitment of the Manager or the operator goes to them" in rule("reviewer", "deciding/SKILL.md")

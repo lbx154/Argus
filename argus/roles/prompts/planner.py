@@ -7,12 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
-from ..task_contract import (
-    EXPERIMENT_EVIDENCE_CONTRACT,
-    native_shell_summary,
-)
+from ..task_contract import native_shell_summary
+from .rules import rules_list
 from .types import ChecklistMode, RoleName, RolePromptRequest
-from .voice import RESEARCHER_VOICE
 
 CONTINUOUS = "continuous"
 PLAN_PREVIEW = "plan_preview"
@@ -27,88 +24,40 @@ OPERATIONS = frozenset(
 )
 
 
-# The continuous prompt is budgeted (tests/test_planner_prompt_budget.py).
-_PLANNER_CORE_CONTRACT = """
-## Assigning work
-Read state, never edit; Engineer implements and tests.
-Plan from the mission workspace only; never read sibling or parent directories.
+_RESEARCH_PLAN_HEADER = "## Research plan (RESEARCH_PLAN.md)\n"
 
-- Reuse settled/Manager decisions; name each task's decision, inputs and check,
-  not who does or reviews it; handoffs decide.
-  Emit items that differ only in inputs or config, with disjoint outputs,
-  together up to the free slots; a shared code change goes first as their dep.
-- At the digest's measured throughput, can this plan reach its first held-out
-  number in time? If not, start a smaller end-to-end version. What independent
-  work can start this cycle?
-- Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
-  corrective OperatorContext may justify a task with `vertical: "argus_maintenance"`.
-  Require a harness hypothesis, executable check, exclusions, isolated reviewed
-  work, and no counters, detectors, gratuitous inspections, or make-work. Deploy
-  only after Reviewer `done` and operator approval.
-- Follow requested actions in order; outputs or alternatives do not replace unmet actions.
-  Add no cleanup, docs, rechecks or optional hardening to completed finite work.
-- Ground external algorithms beyond Wiki/Skills in primary sources. Consult papers,
-  source, issues, or hardware when consequential. Repeated failures require rereading
-  primary papers and official code. Performance claims need code-path evidence plus
-  timing, profiling, or controlled comparison.
-- Only a complete operator goal is `to=done`. Reviewer `done` closes
-  direct work; re-review only on request or a gap. Integrity/reproducibility are
-  prerequisites, not directions.
-- End your turn with `hand_off`: the tasks to start, the pending work to retire,
-  any stage to move to, and who acts next.
-""" + "\n" + RESEARCHER_VOICE
 
-_RESEARCH_PLAN_CONTRACT = """## Research plan
-Keep `RESEARCH_PLAN.md` in daemon state. Create it if absent/invalid from the Manager
-brief, OBJECTIVE.md, and journal; update hypotheses, results, or direction changes.
-`plan_update` replaces it with full Markdown; omission keeps it. Use under ~300 lines, in order:
-`# Research plan` and one-sentence objective;
-`## Central hypotheses` (numbered, untested/supported/refuted/abandoned, with
-one-line evidence pointers); `## Experiment program` (most informative next experiments
-and why, no fixed numeric pass/fail thresholds); `## Established results`
-(evidence); `## Dead ends` (attempts and why abandoned); `## Next milestone`
-(scientific gain toward a scoped paper). Preserve Dead ends; prune repetition on reported truncation.
+def _planner_page(
+    *, workspace: Path, state: Path, wikis: list[Path], rules: list[tuple[str, str]]
+) -> str:
+    """The Planner's one page: who it is, where things are, hand_off, and the rule files."""
+    from ...core.paths import reviewed_facts_digest_path
+    from ...core.role_config import runner_backend_label
 
-Current document:
-"""
-
-_EXTERNAL_TARGET_CONTRACT = (
-    "## External-target optimization\n"
-    "The operator's success criterion or external scorer outranks public/reference "
-    "baseline, current local incumbent, and secondary metrics. A material shortfall "
-    "against that criterion requires "
-    "primary-score work or a proven enabler; runtime, kernels, serialization, "
-    "calibration, documentation, and status copying are secondary. Public "
-    "task-specific papers, discussions, and source are allowed when operator "
-    "policy permits; only imported answers, labels, or predictions are forbidden, "
-    "and Skills cannot narrow that policy. Before proposing work, index recorded "
-    "experiment outcomes and rule out repeated ideas, including renamed variants. "
-    "These external-target requirements override incompatible vertical style instructions "
-    "such as compulsory kernel invention, profiling, or task-specific-source bans. "
-    "Validation, OOF, calibration, and blend selection must use models fitted without "
-    "the scored row labels; a final all-train refit is test-only evidence. "
-    "Every task needs "
-    "`impact_score` 1..5, `impact_area` and `evidence`; reserve "
-    "4-5 for direct target movement or a proven prerequisite. Controller "
-    "feedback files are live truth."
-)
+    where = [
+        f"- Mission workspace, the only place you plan from: {workspace}",
+        f"- Argus state: {state} (RESEARCH_PLAN.md, backlog.jsonl, events.jsonl)",
+        f"- Reviewed facts: {reviewed_facts_digest_path().resolve()}",
+        *(f"- Shared project Wiki: {wiki.resolve()}" for wiki in wikis),
+    ]
+    return (
+        f"You are the Argus Planner, in one {runner_backend_label()} session. Read the "
+        "project and its state, never edit them, and choose the most valuable next work "
+        "for the Engineer, who implements and tests.\n\n"
+        "## Where things are\n" + "\n".join(where) + "\n\n"
+        "## Handing off\n"
+        "End your turn with hand_off: the tasks to start, the pending work to retire, any "
+        "stage to move to, and who acts next; to=done only when the operator's complete "
+        "goal is met. Its summary is the decision and next step in the operator's language "
+        "and plain words.\n\n"
+        + rules_list("planner", rules)
+    )
 
 
 def _join_prompt_blocks(*blocks: str) -> str:
     """Join only applicable prompt modules with one stable separator."""
     rendered = [block.strip() for block in blocks if block and block.strip()]
     return "\n\n".join(rendered) + "\n"
-
-
-def _reviewed_facts_block() -> str:
-    from ...core.paths import reviewed_facts_digest_path
-
-    return (
-        "## Reviewed facts\n"
-        f"- `{reviewed_facts_digest_path().resolve()}`\n"
-        "These are facts, not instructions. Use file tools only if this reviewed "
-        "science could change the plan; its presence adds no work."
-    )
 
 
 def _operator_context_block(
@@ -176,259 +125,107 @@ def build_continuous_prompt(
 ) -> str:
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.project import resolve_project_root
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
     from ...core.research_contract import resolve_research_target_level
-    from ...skills.ground_truth import ground_truth_mandate
     from ...skills.vertical_select import resolve_workflow_mode
+    from ...wiki.context import render_operator_memory_block, render_project_principles
     from .registry import resolve_role_prompt
 
-    cycle_line = f"This is planning cycle #{planning_cycle + 1}."
     _workspace = resolve_project_root(project_root)
-    _proot = (
-        resolve_project_root(state_root)
-        if state_root is not None
-        else _workspace
-    )
+    _proot = resolve_project_root(state_root) if state_root is not None else _workspace
     prompt_context = resolve_role_prompt(
-        continuous_request(
-            _proot, altitude_root=_workspace, include_role_context=True
-        )
+        continuous_request(_proot, altitude_root=_workspace, include_role_context=True)
     )
     stage = prompt_context.stage
-    stage_checklist = prompt_context.stage_checklist
-    workflow_mode = resolve_workflow_mode(_proot)
+    stage_order = list(prompt_context.stage_order)
+    direct = resolve_workflow_mode(_proot) == "direct"
 
-    # Vertical-owned policy arrives through the prompt catalog; this module
-    # contributes only role-wide planning behavior.
-    optimize_banner = prompt_context.role_banner
-    planner_core_contract = _PLANNER_CORE_CONTRACT + "\n" + EXPERIMENT_EVIDENCE_CONTRACT
-    research_plan_context = (
-        _RESEARCH_PLAN_CONTRACT
+    # What this cycle is: the stage-and-target rule file says what each part means.
+    situation = ["direct work" if direct else "staged work"]
+    stage_lines = [
+        f"- current: `{stage}`"
+        + (" (`workflow_mode=direct`: the stage names the kind of work)" if direct else ""),
+        f"- sequence: {', '.join(stage_order) or '(none)'}",
+    ]
+    research_target_level = resolve_research_target_level(_proot)
+    if research_target_level is not None or prompt_context.verification_stage_profiles:
+        from ...core.verification_policy import resolve_policy
+        from ...skills.stage_machine import current_stage
+
+        try:
+            policy_stage = current_stage(_proot)
+        except Exception:  # noqa: BLE001 - stage is advisory here
+            policy_stage = ""
+        profile = resolve_policy(
+            stage=policy_stage,
+            stage_profiles=prompt_context.verification_stage_profiles,
+        ).profile
+        stage_lines.append(f"- this round's verification profile: `{profile}`")
+        if research_target_level is not None:
+            stage_lines.append(f"- research target: `{research_target_level}`")
+            situation.append("a research target")
+        else:
+            situation.append("verification staging")
+    if stage_order and stage == stage_order[-1] and (
+        prompt_context.completion_gate == "certified" or research_target_level is not None
+    ):
+        stage_lines.append(
+            '- final stage: the certification task sets `scope: "final_submission"`'
+        )
+        situation.append("the final certification task")
+    if open_ended:
+        stage_lines.append("- open-ended: continue until the operator stops the work")
+        situation.append("open-ended work")
+    research_vertical = prompt_context.vertical == "research"
+    rules = [
+        ("dependency-aware-task-decomposition.md", "before choosing, splitting or retiring tasks"),
+        ("reality-and-sources/SKILL.md", "before relying on a fact, a source, a measurement or the Wiki"),
+        ("stages-and-targets/SKILL.md", "before planning around the stage; this cycle covers: " + ", ".join(situation)),
+    ]
+    if not research_vertical:
+        rules.append(("research-plan/SKILL.md", "when RESEARCH_PLAN.md below is missing or the direction changes"))
+    if os.environ.get("ARGUS_SKILL_EXTERNAL_COMPLETION_GATE", "").strip():
+        rules.append(("external-target/SKILL.md", "before proposing work: the target is an external scorer"))
+    autors_root = _workspace / ".autors"
+    wikis = [
+        wiki
+        for wiki in (sorted(autors_root.glob("*/wiki")) if autors_root.exists() else [])
+        if (wiki / "INDEX.md").is_file() and (wiki / "pages").is_dir()
+    ]
+    # The Planner gets the same library paths as other roles and searches them
+    # itself; no Skill content is copied into this prompt.
+    skill_block = mission.libraries().block if mission is not None else ""
+    principles_block = sanitize_model_visible_text(render_project_principles(_proot))
+    # Plans are made for a person; what Argus knows about the operator frames them.
+    operator_block = sanitize_model_visible_text(render_operator_memory_block())
+    # The hard criteria the Manager recorded from what the operator said.
+    goal_contract_block = contract_briefing(
+        load_contract_for_cwd(_workspace),
+        authoritative_objective=continuous_objective,
+    )
+    research_plan_context = "" if research_vertical else (
+        _RESEARCH_PLAN_HEADER
         + sanitize_model_visible_text(
             research_plan.strip()
             or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
         )
     )
-    if prompt_context.vertical == "research":
-        research_plan_context = ""
-
-    research_target_block = ""
-    _research_target_level = resolve_research_target_level(_proot)
-    if (
-        _research_target_level is not None
-        or prompt_context.verification_stage_profiles
-    ):
-        # The target is the PROJECT bar; the profile is THIS round's bar. A
-        # publishable target does not mean every probe must already be
-        # publishable — that reading is what kills seed ideas.
-        from ...core.verification_policy import resolve_policy
-        from ...skills.stage_machine import current_stage
-
-        try:
-            _stage = current_stage(_proot)
-        except Exception:  # noqa: BLE001 - stage is advisory here
-            _stage = ""
-        _policy = resolve_policy(
-            stage=_stage,
-            stage_profiles=prompt_context.verification_stage_profiles,
-        )
-        if _research_target_level is not None:
-            research_target_block = (
-                "## Research target\n"
-                f"Preserve `research_target_level={_research_target_level}` from "
-                "`.argus/PIPELINE_STATE.json`; it sets `to=done`, not this "
-                f"round (`{_policy.profile}`). At "
-                "`publishable`/`doctoral`, require technical depth, verified originality, "
-                "formal/causal grounding, and field significance. Literature reviews instead "
-                "need independent checks of scope, coverage, synthesis, claims, and writing "
-                "at that level; originality is unnecessary. Known results, finite checks, "
-                "and honest negatives are progress, not done, except independently verified "
-                "negatives may suffice at `exploratory`."
-            )
-        else:
-            research_target_block = (
-                "## Vertical verification staging\n"
-                f"This mission uses `{_policy.profile}` verification at stage "
-                f"`{_stage or 'unset'}`. Plan only the evidence this stage needs; "
-                "the vertical's final stage owns certification. Integrity and "
-                "truth do not get weaker in earlier profiles."
-            )
-
-    standing_continuous_block = ""
-    if open_ended:
-        standing_continuous_block = (
-            "## Continuing work\n"
-            "Continue until stopped by the operator. Normally report and close completed "
-            "rounds. Justify a new round's value in one sentence; address behavior "
-            "reachable through a real entry point.\n\n"
-        )
-
-    # Live search-altitude facts (NO verdict) so the planner can SEE the
-    # floor / distance-to-target / how long it has been frozen / what it has
-    # already recombined, instead of re-deriving it from attempts/ each
-    # cycle. Empty for verticals that do not surface it.
-    search_altitude_block = sanitize_model_visible_text(
-        prompt_context.search_altitude
-    )
-
-    _vstage_order = list(prompt_context.stage_order)
-    if workflow_mode == "direct":
-        stage_checklist = ""
-        stage_gate_block = (
-            "## Current workflow stage\n"
-            "## Direct workflow — objective first\n"
-            f"`workflow_mode=direct`; `{stage}` describes the kind of work, without "
-            "requiring a separate set of files. Treat it as context, not a hard boundary. This "
-            "overrides the generic instruction to work only the "
-            "active stage. Delegate the implementation, experiment, or "
-            "verification that directly advances the operator objective, and "
-            "nothing beside it; the bound is on what you build, never on how "
-            "much you measure. Do not create, "
-            "repair, or confirm sets of stage files, frontier snapshots, stage state, "
-            "checkpoints, reports, or setup documents unless the operator explicitly "
-            "requested that output or it is strictly necessary to execute the work. "
-            "Use existing records as optional evidence; their absence must not "
-            "displace substantive work."
-        )
-    else:
-        stage_gate_block = (
-            "## Current workflow stage\n"
-            f"- current: `{stage}`\n"
-            f"- sequence: {', '.join(_vstage_order) or '(none)'}\n"
-            "Use the stage as context, not a boundary. Choose the operator's most valuable "
-            "next milestone; Manager updates stages from mission results."
-        )
-
-    # The Planner gets the same library paths as other roles and searches them
-    # independently. No Skill content is selected or copied into this prompt.
-    matched_planner_skill_block = ""
-    if mission is not None:
-        planner_libraries = mission.libraries()
-        if planner_libraries.block:
-            matched_planner_skill_block = planner_libraries.block + "\n\n"
-
-    # ------------------------------------------------------------------
-    # Shared declarative knowledge. Planner may maintain pages directly; task
-    # history stays in events/handoffs and is intentionally not duplicated here.
-    # ------------------------------------------------------------------
-    wiki_block = ""
-    autors_root = _workspace / ".autors"
-    wiki_candidates = sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
-    wiki_candidates = [
-        wiki
-        for wiki in wiki_candidates
-        if (wiki / "INDEX.md").is_file() and (wiki / "pages").is_dir()
-    ]
-    if wiki_candidates:
-        paths = "\n".join(f"- `{wiki.resolve()}`" for wiki in wiki_candidates)
-        wiki_block = (
-            "## Shared project Wiki\n"
-            "Search these Wiki directories with your own file tools:\n"
-            f"{paths}\n\n"
-            "Start at INDEX.md and progressively read semantic pages as needed. "
-            "Pages contain only title, description, and Markdown content. Edit "
-            "pages and INDEX.md directly when planning establishes durable "
-            "declarative knowledge; do not copy task history or procedures.\n"
-        )
-    # What repeated lessons of this vertical have settled into; bounded, and
-    # present only once the vertical has compiled principles.
-    from ...wiki.context import render_operator_memory_block, render_project_principles
-
-    principles_block = sanitize_model_visible_text(render_project_principles(_proot))
-    # Plans are made for a person; what Argus knows about the operator frames them.
-    operator_block = sanitize_model_visible_text(render_operator_memory_block())
-    if operator_block:
-        principles_block = (operator_block + "\n\n" + principles_block) if principles_block else operator_block
-
-    host_policy_block = (
-        "## Dynamic host policy\n"
-        "- Select, divide, and prioritize work. Host sets no local-work limits by score, "
-        "output count, prose length, or keyword-inferred phases.\n"
-        "- Engineer may reversibly archive/quarantine local files with provenance; "
-        "prefer this when deletion/overwriting also suffices. Only destruction needs "
-        "operator approval.\n"
-        "- Explain the plan briefly; end with actionable lines.\n\n"
-    )
-
-    objective_contract_block = (
-        "## Success criteria\n"
-        "Stages order work without lowering the operator's criteria. Assign no task "
-        "satisfied solely by an excluded outcome. Searches, probes, computation, and "
-        "literature may support qualifying implementation but never suffice alone.\n\n"
-    )
-    # The block above states that the operator's hard criteria are binding, but
-    # until the goal contract existed it never named any: the Planner was told
-    # to honour constraints it was never shown. This adds the ones the Manager
-    # recorded from what the operator actually said, and stays empty when there
-    # are none rather than printing a heading with no rows.
-    from ...core.project_contract import contract_briefing, load_contract_for_cwd
-
-    goal_contract_block = contract_briefing(
-        load_contract_for_cwd(_workspace),
-        authoritative_objective=continuous_objective,
-    )
-    if goal_contract_block:
-        objective_contract_block += goal_contract_block + "\n\n"
-
-    external_target_block = ""
-    if os.environ.get("ARGUS_SKILL_EXTERNAL_COMPLETION_GATE", "").strip():
-        external_target_block = _EXTERNAL_TARGET_CONTRACT
-
-    final_submission_scope_block = ""
-    final_submission_scope_applies = (
-        prompt_context.completion_gate == "certified"
-        or _research_target_level is not None
-    )
-    final_stage = (
-        prompt_context.stage_order[-1]
-        if prompt_context.stage_order
-        else ""
-    )
-    if stage == final_stage and final_submission_scope_applies:
-        final_submission_scope_block = (
-            "## Final-stage task scope\n"
-            "For the active vertical's final independent certification task, "
-            "the Planner task must set `scope: \"final_submission\"` so the successful "
-            "Reviewer judgment can close the final stage. Ordinary prerequisite work "
-            "keeps the default scope, and do not use final_submission for "
-            "verticals without a certified final stage or research target."
-        )
-
-    planner_hygiene_block = (
-        "## Runtime\n"
-        "Use active project files, project-local skills, and "
-        "`python -m argus ...` or `ARGUS_SKILL_PYTHON`; do not copy stale "
-        "host paths from history."
-    )
-    # Compile from structured state only: vertical/stage, target contract,
-    # open-ended mode and available semantic libraries. Do not keyword-route
-    # task prose to decide which policy fragments the Planner receives.
-    operator_context = _operator_context_block(state_root, runtime_change_summary)
-    # Order: what is the same for every cycle of this vertical and stage,
-    # then what is the same for the whole campaign (the brief), then what
-    # changes between cycles. The provider caches the prompt prefix, so the
-    # blocks that move — live vertical facts, altitude, journal, plan,
-    # runtime digest, cycle counter, operator context — close the prompt.
+    # Order: what is the same for every cycle of this vertical and stage, then
+    # what is the same for the whole campaign (the brief), then what changes
+    # between cycles. The provider caches the prompt prefix.
     return _join_prompt_blocks(
-        ground_truth_mandate("planner", workflow_mode=workflow_mode),
-        optimize_banner,
-        research_target_block,
-        standing_continuous_block,
-        planner_core_contract,
+        _planner_page(workspace=_workspace, state=_proot, wikis=wikis, rules=rules),
         native_shell_summary(),
-        host_policy_block,
-        objective_contract_block,
-        external_target_block,
-        final_submission_scope_block,
-        stage_checklist,
-        stage_gate_block,
-        planner_hygiene_block,
-        matched_planner_skill_block,
-        _reviewed_facts_block(),
-        wiki_block,
+        prompt_context.role_banner,
+        "" if direct else prompt_context.stage_checklist,
+        "## Current workflow stage\n" + "\n".join(stage_lines),
+        skill_block,
+        operator_block,
         principles_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
+        goal_contract_block,
         sanitize_model_visible_text(prompt_context.role_context),
-        search_altitude_block,
+        sanitize_model_visible_text(prompt_context.search_altitude),
         "## Journal of completed work (most recent last)\n"
         + sanitize_model_visible_text(
             journal_tail.strip()
@@ -439,9 +236,9 @@ def build_continuous_prompt(
         + sanitize_model_visible_text(
             runtime_change_summary.strip() or "(no additional runtime context)"
         ),
-        cycle_line,
+        f"This is planning cycle #{planning_cycle + 1}.",
         trailing_policy,
-        operator_context,
+        _operator_context_block(state_root, runtime_change_summary),
     )
 
 
@@ -486,11 +283,10 @@ def build_continuous_resume_prompt(
         research_plan_context = (
             "## Research plan\n"
             "RESEARCH_PLAN.md is unchanged since your previous planning turn; "
-            "the copy already in this session is still current. `plan_update` "
-            "still replaces it when the direction changes."
+            "the copy already in this session is still current."
         )
     else:
-        research_plan_context = _RESEARCH_PLAN_CONTRACT + sanitize_model_visible_text(
+        research_plan_context = _RESEARCH_PLAN_HEADER + sanitize_model_visible_text(
             research_plan.strip()
             or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
         )
@@ -524,20 +320,16 @@ def build_continuous_resume_prompt(
     operator_context = _operator_context_block(state_root, runtime_change_summary)
     return _join_prompt_blocks(
         "## Continued Planner cycle\n"
-        "You are resuming your own Planner session. The original role "
-        "instructions remain binding; do not replay old exploration or rewrite "
-        "the static policy. Current state below supersedes stale session facts. "
-        "A file you already opened in this session, such as the stage playbook "
-        "or a Skill body, is still in your context: an instruction below to open "
-        "it before acting was met then, so open it again only if its text is no "
-        "longer in your context.",
+        "You are resuming your own Planner session; its first page still holds. "
+        "Current state below supersedes stale session facts. A rule file or Skill "
+        "you already read in this session is still in your context; open it again "
+        "only if its text is gone.",
         str(prompt_context.role_banner or ""),
         "## Current workflow stage\n"
         f"- current: `{prompt_context.stage}`\n"
         f"- sequence: {', '.join(prompt_context.stage_order) or '(none)'}\n"
         + str(prompt_context.stage_checklist or ""),
         skill_block,
-        _reviewed_facts_block(),
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         # Live vertical facts change between cycles, which is exactly what a
         # resume delta is for — the header above already promises that current
@@ -555,8 +347,7 @@ def build_continuous_resume_prompt(
         ),
         f"This is planning cycle #{planning_cycle + 1}.",
         "Inspect only what is needed to choose the next concrete task or a real "
-        "obstacle, then end with the Planner decision lines.",
-        RESEARCHER_VOICE,
+        "obstacle, then end with hand_off.",
         trailing_policy,
         operator_context,
     )

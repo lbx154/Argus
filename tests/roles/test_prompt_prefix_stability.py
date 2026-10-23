@@ -71,7 +71,7 @@ def test_engineer_static_rules_precede_every_mission_specific_line(monkeypatch, 
         cycle=2,
     )
 
-    static_end = _end_of(first, "and why it goes to them.")
+    static_end = _end_of(first, "Vertical policy for the Engineer.")
     assert _lcp(first, second) >= static_end
     # The recalled Skills, the request and the task follow the static rules.
     assert first.index("## Skill libraries") > static_end
@@ -85,7 +85,7 @@ def test_engineer_compact_team_prompt_keeps_the_same_shape(monkeypatch, tmp_path
     first = _engineer(monkeypatch, tmp_path, task="Fix the prefix.", next_action=None, cycle=1, compact_team=True)
     second = _engineer(monkeypatch, tmp_path, task="Fix the suffix instead.", next_action=None, cycle=2, compact_team=True)
 
-    static_end = _end_of(first, "and why it goes to them.")
+    static_end = _end_of(first, "Vertical policy for the Engineer.")
     assert _lcp(first, second) >= static_end
     assert first.index("## Skill libraries") > static_end
     assert first.index("Fix the prefix.") > first.index("## Skill libraries")
@@ -155,8 +155,7 @@ def test_planner_prompt_keeps_policy_and_brief_ahead_of_cycle_facts(tmp_path) ->
 
     brief_end = _end_of(first, "## Manager mission brief (authoritative)\nReach the target.")
     assert _lcp(first, second) >= brief_end
-    # The runtime hygiene rule is static and now sits in the stable prefix.
-    assert first.index("## Runtime\n") < brief_end
+    assert first.index("## Rules:") < brief_end
     for volatile in ("## Journal of completed work", "## Current reality", "planning cycle #"):
         assert first.index(volatile) > brief_end, volatile
 
@@ -201,7 +200,7 @@ def test_reviewer_static_is_identical_and_delta_opens_with_the_mission(tmp_path)
     assert static_one == static_two
     # The per-mission Skill block closes the static text, after the stage policy.
     assert static_one.rstrip().endswith("mission skill")
-    assert static_one.index("## Completion") < static_one.index("## Recalled Skills")
+    assert static_one.index("## Rules:") < static_one.index("## Recalled Skills")
     guidance_end = _end_of(delta_one, "Planner guidance:\nVerify the behavior.")
     assert _lcp(delta_one, delta_two) >= guidance_end
 

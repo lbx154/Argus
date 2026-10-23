@@ -21,6 +21,7 @@ from argus.core.verification_policy import (
 )
 from argus.roles.prompts.reviewer import render_reviewer_prompt
 from argus.verticals._base import load_vertical_contract
+from tests.role_rules import rule
 
 
 def write_state(root: Path, **fields) -> None:
@@ -138,24 +139,23 @@ def test_reviewer_injects_the_resolved_profile_not_just_the_target() -> None:
     from argus.roles.prompts import reviewer as mod
 
     source = Path(mod.__file__).read_text(encoding="utf-8")
-    block = source[source.index("verification_instruction = (") :][:1200]
+    block = source[source.index("target_block = f") :][:1200]
 
-    # Both bars are named, and they are named as different things.
-    assert "defines project " in block
-    assert "completion, not this round" in block
     assert "policy_line(_policy)" in block
-    # The old wording made the project bar the round bar.
-    assert "For project-level" not in block
+    # Both bars are named, and they are named as different things.
+    assert "defines project completion, not this round's bar" in " ".join(
+        rule("reviewer", "deciding/SKILL.md").split())
 
 
 def test_planner_injects_the_resolved_profile_too() -> None:
     from argus.roles.prompts import planner as mod
 
     source = Path(mod.__file__).read_text(encoding="utf-8")
-    block = source[source.index("research_target_block = (") :][:1200]
+    block = source[source.index("profile = resolve_policy(") :][:600]
 
-    assert "not this" in block
-    assert "_policy.profile" in block
+    assert ").profile" in block
+    assert "this round's verification profile" in block
+    assert "not this round's bar" in rule("planner", "stages-and-targets/SKILL.md")
 
 
 def test_the_injected_block_is_shorter_than_what_it_replaced() -> None:

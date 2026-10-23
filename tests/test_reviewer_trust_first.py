@@ -18,8 +18,8 @@ from __future__ import annotations
 import json
 
 from argus.reviewer import Reviewer
-from argus.reviewer._core import _verification_directive
 from argus.verticals.research.prompt_policy import academic_paper_review_block
+from tests.role_rules import lists, rule
 
 
 def _prompt() -> str:
@@ -37,14 +37,11 @@ def _prompt() -> str:
 
 
 def test_directive_trusts_and_drops_reflexive_rerun():
-    d = _verification_directive()
-    assert 'Trust consistent evidence' in d
-    assert 'gaps' in d
-    assert 'contradictions' in d
+    assert lists(_prompt(), "checking-the-work/SKILL.md")
+    d = rule("reviewer", "checking-the-work/SKILL.md")
+    assert "Trust consistent evidence; recheck only gaps, stale evidence, contradictions" in d
     assert "identity drift" in d.lower()
-    assert "git diff" in d.lower()
-    assert "hashes" not in d.lower()
-    assert len(d) < 420
+    assert "Read beyond the diff" in d
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d
 
@@ -132,36 +129,32 @@ def test_final_submission_forces_certify_over_operator_explore(tmp_path) -> None
         scope="final_submission",
     )
 
-    assert "This round: `certify`" in prompt
+    assert "## This round's bar\n`certify`" in prompt
 
 
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
     p = _prompt()
-    assert 'Trust consistent evidence' in p
     assert "use *your own* output as ground truth" not in p
     assert "## Evidence policy" not in p
 
 
 def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
-    p = _prompt()
-    assert 'Only claim-essential evidence gaps warrant `to=engineer`' in p
-    assert 'optional evidence and minor weaknesses are advice' in p
+    assert lists(_prompt(), "deciding/SKILL.md")
+    p = rule("reviewer", "deciding/SKILL.md")
+    assert "Only claim-essential evidence gaps warrant `to=engineer`" in p
+    assert "optional evidence and minor weaknesses are advice" in p
 
 
 def test_done_tracks_the_current_verification_profile(monkeypatch):
-    p = _prompt()
-
-    assert '`to=done` meets this profile' in p
-    assert 'not exhaustive proof or every file' in p
-    assert 'operator>objective>mission>preregistration' in p
-    assert 'A timeout or failed attempt' in p
+    p = rule("reviewer", "deciding/SKILL.md")
+    assert "the round's verification profile is its bar" in p
+    assert "not exhaustive proof or every file" in p
+    assert "A timeout or failed attempt" in p
 
 
 def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
-    p = _prompt()
-    assert 'Integrity is required' in p
-    assert 'not scientific value' in p
-    assert "`to=planner` for a wrong target" in p
+    assert "Integrity is required, not scientific value" in rule("reviewer", "deciding/SKILL.md")
+    assert "to the Planner for a wrong target" in rule("reviewer", "argus-reviewer-role.md")
 
 
 def test_reviewer_reasons_in_prose_and_submits_a_native_action(monkeypatch):

@@ -15,6 +15,7 @@ import pytest
 
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from tests.role_rules import rule
 
 
 @pytest.fixture(autouse=True)
@@ -288,14 +289,15 @@ def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_
 def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
     monkeypatch,
 ) -> None:
-    from argus.roles.prompts.engineer import _HANDOFF_RULE, engineer_handoff_rule
+    from argus.roles.prompts.engineer import engineer_handoff_rule
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    rule = engineer_handoff_rule()
-    assert "write it in assumptions" in rule
-    assert rule.endswith("goes to=manager.")
+    assert engineer_handoff_rule().endswith("the Manager decides in their place.")
+    rules = rule("engineer", "handing-off/SKILL.md")
+    assert "write it in `assumptions`" in rules
+    assert "goes `to=manager`." in rules
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    assert engineer_handoff_rule() == _HANDOFF_RULE
+    assert "No operator" not in engineer_handoff_rule()
 
 
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:

@@ -5,6 +5,7 @@ from pathlib import Path
 from argus.planner.planner import Planner
 from argus.skills.vertical_select import persist_vertical
 from argus.wiki.bootstrap import init_wiki
+from tests.role_rules import lists, rule
 
 
 def test_planner_uses_session_state_for_vertical_and_workspace_for_wiki(
@@ -52,6 +53,7 @@ def test_direct_workflow_planner_has_no_stage_gate(tmp_path: Path) -> None:
     assert "## Stage checklist" not in prompt
     assert "Downstream stages (LOCKED" not in prompt
     assert "## Current workflow stage" in prompt
-    assert 'context, not a hard boundary' in prompt
+    assert lists(prompt, "stages-and-targets/SKILL.md")
+    assert "context, not a hard boundary" in rule("planner", "stages-and-targets/SKILL.md")
 
 

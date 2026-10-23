@@ -35,7 +35,6 @@ from argus.core.event_catalog import EventType, validate_event_envelope
 from argus.core.file_facts import file_facts
 from argus.core.grounding_baseline import snapshot
 from argus.core.handoff import form_tool
-from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.core.models import RunnerResult
 from argus.core.residual_risk import (
     accept_residual_risk,
@@ -50,6 +49,7 @@ from argus.manager import supervision
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import ReviewGrounding, review_actions
 from tests.hand_off import hand_off
+from tests.role_rules import rule
 
 _STATEMENT = "The feed token is supplied only during the grader's own commands."
 _OBJECTIVE = (
@@ -456,8 +456,9 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
     for text in (risk_description, accepted, " ".join(rendered.split()), " ".join(manager_risk.split())):
         for condition in _FIXTURE_CONDITIONS:
             assert condition in text, (condition, text[:200])
-    assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
-    assert "impossible, not missing, only if the task, packet or environment says" in REVIEW_EVIDENCE_RULE
+    evidence = rule("reviewer", "checking-the-work/SKILL.md")
+    assert "the Engineer's cited claim alone is not evidence" in evidence
+    assert "impossible, not missing, only if the task, packet or environment says" in evidence
     # What stays: no assumed facts, no mocks in what ships.
     text = " ".join(rendered.split())
     assert "Never assume facts, data" in text

@@ -6,13 +6,6 @@ import os
 
 from ..core.shell_command import argus_command, format_native_shell_command
 
-EFFECTIVE_TASK_CONTRACT = (
-    "## Task authority\n"
-    "Follow operator>objective>mission>preregistration; memory advises. Deliver "
-    "the requested outputs, not substitutes. When equal authorities conflict, "
-    "do not pick one: name the conflict and hand it to whoever can decide."
-)
-
 NATIVE_WINDOWS_SHELL_CONTRACT = (
     "## Running commands on native Windows\n"
     "This host is native Windows. Generate and run commands with syntax "
@@ -56,7 +49,6 @@ def native_shell_summary(*, platform_name: str | None = None) -> str:
 
 __all__ = [
     "argus_command",
-    "EFFECTIVE_TASK_CONTRACT",
     "NATIVE_WINDOWS_SHELL_CONTRACT",
     "NATIVE_WINDOWS_SHELL_SUMMARY",
     "EXPERIMENT_EVIDENCE_CONTRACT",

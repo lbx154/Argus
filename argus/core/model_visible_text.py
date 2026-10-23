@@ -21,16 +21,6 @@ a handoff. Use content, timestamps, tests,
 metrics, and readable provenance; ignore lower-level identifier adjudication.
 """
 
-# Agent CLIs and Argus mask credentials in what a role sees, so a file view can
-# show ``f"******"`` where the source says ``f"Bearer {token}"``. Neither role
-# can see past the mask; arguing over it from either side cannot converge (one
-# task spent five rounds and most of its cost that way). Both roles keep their
-# judgment; what changes is the evidence they reach for: an executable check
-# whose outcome does not depend on reading the masked span.
-#
-# The Reviewer has the Engineer's tools, so it reruns the check itself; the
-# Engineer's word alone is never the evidence.
-
 # A check can also be impossible in this environment rather than missing: the
 # resource it needs exists only when the work is graded or deployed (one task's
 # event-feed token was supplied only during the grader's own commands). Asked
@@ -59,27 +49,6 @@ LABELLED_FIXTURE_CARVE_OUT = (
     f"time) is test evidence, not a substitute, and counts only if it "
     f"{_FIXTURE_CONDITIONS}; it never ships in what is delivered."
 )
-_MASKED_DISPLAY = (
-    "`******` or `<REDACTED:…>` is display masking that proves neither a defect "
-    "nor a fix; settle it the same way, with a rerunnable assertion on a "
-    "placeholder value. A check is impossible, not missing, only if the task, "
-    "packet or environment says it needs what exists only at grading or deploy "
-    "time; see unverifiable."
-)
-_NOT_EVIDENCE = "the Engineer's cited claim alone is not evidence."
-REVIEW_EVIDENCE_RULE = (
-    "You can run commands: rerun the decisive check yourself; " + _NOT_EVIDENCE
-    + " If the sandbox blocks the rerun (write or network denied), judge from "
-    "recorded runs and your own reading instead. " + _MASKED_DISPLAY
-)
-
-
-MASKED_DISPLAY_ENGINEER_RULE = (
-    "If the review disputes text a display masks (`******`, `<REDACTED:…>`), "
-    "restating the fix cannot help: add a rerunnable test asserting the behavior "
-    "with a harmless placeholder value, run it, and cite its command and result."
-)
-
 _HEX_VALUE = r"[0-9a-f]{7,128}"
 _PREFIXED_DIGEST_RE = re.compile(rf"(?i)\b(?:sha(?:-?1|-?256|-?512)?|md5):{_HEX_VALUE}\b")
 _LABELED_IDENTIFIER_RE = re.compile(
@@ -105,8 +74,6 @@ def sanitize_model_visible_text(value: object) -> str:
 __all__ = [
     "FIXTURE_EVIDENCE_RULE",
     "LABELLED_FIXTURE_CARVE_OUT",
-    "MASKED_DISPLAY_ENGINEER_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
-    "REVIEW_EVIDENCE_RULE",
     "sanitize_model_visible_text",
 ]

@@ -7,6 +7,7 @@ from argus.core.model_visible_text import (
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
 from argus.roles.prompts.manager import assemble_manager_prompt
+from tests.role_rules import lists, rule
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -46,8 +47,9 @@ def test_operator_commit_id_survives_all_role_prompt_assembly() -> None:
     for prompt in (engineer, manager, reviewer):
         assert task in prompt
         assert COMMIT_ID in prompt
-    for prompt in (manager, reviewer):
-        assert MODEL_INTEGRITY_BOUNDARY.splitlines()[0] in prompt
+    assert MODEL_INTEGRITY_BOUNDARY.splitlines()[0] in manager
+    assert lists(reviewer, "checking-the-work/SKILL.md")
+    assert "those IDs are never evidence" in rule("reviewer", "checking-the-work/SKILL.md")
 
 
 def test_host_evidence_is_sanitized_before_prompt_assembly() -> None:
@@ -73,6 +75,6 @@ def test_reviewer_requires_causal_performance_evidence() -> None:
         prior_checkpoint={},
     )
 
-    assert 'a missed threshold describes only that run' in prompt
-    assert 'Root-cause, dominant-stage, bottleneck, or replacement claims' in prompt
-    assert "profiling, timing, or a controlled comparison" in prompt
+    assert lists(prompt, "deciding/SKILL.md") and lists(prompt, "checking-the-work/SKILL.md")
+    assert "a missed threshold describes only that run" in rule("reviewer", "deciding/SKILL.md")
+    assert "Root-cause, dominant-stage, bottleneck or replacement claims need code-path evidence plus profiling, timing or a controlled comparison" in rule("reviewer", "checking-the-work/SKILL.md")

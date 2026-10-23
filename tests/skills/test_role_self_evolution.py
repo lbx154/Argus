@@ -14,6 +14,7 @@ from argus.skills.role_memory import (
     project_role_skill_dir,
 )
 from argus.skills.store import SkillStore
+from tests.role_rules import lists, rule
 
 
 def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:
@@ -80,13 +81,15 @@ def test_engineer_learning_stays_inside_the_workspace(tmp_path) -> None:
     )
 
     skill_dir = tmp_path / ".agents" / "skills"
-    assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
-    assert "Write each Skill as `<name>/SKILL.md`" in prompt
-    assert "keep the script you ran beside it" in prompt
-    assert 'Deliver the requested outputs, not substitutes' in prompt
-    assert "Keep only reusable role learning here" in prompt
-    assert "route durable project facts" in prompt
-    assert "never write shared/global layers" in prompt
+    assert f"Project Skill directory: {skill_dir}" in prompt
+    assert lists(prompt, "durable-learning/SKILL.md")
+    assert "Each Skill is `<name>/SKILL.md`" in rule("engineer", "durable-learning/SKILL.md")
+    assert "keep the script you ran beside it" in rule("engineer", "durable-learning/SKILL.md")
+    assert "Keep only reusable role learning" in rule("engineer", "durable-learning/SKILL.md")
+    assert "Deliver the requested outputs, not substitutes" in rule("engineer", "doing-the-task/SKILL.md")
+    learning = rule("engineer", "durable-learning/SKILL.md")
+    assert "Durable project facts, contracts, support limits" in learning
+    assert "never write shared or global layers" in learning
 
 
 def test_main_reviewer_never_edits_skills_directly(tmp_path) -> None:
@@ -116,7 +119,7 @@ def test_main_reviewer_never_edits_skills_directly(tmp_path) -> None:
     assert "Reviewer self-evolution" not in control
     assert "Reviewer self-evolution" not in treatment
     assert str((tmp_path / "skills" / "reviewer").resolve()) not in treatment
-    assert 'Leave source/output/build files unchanged' in treatment
+    assert 'change no source, output or build file' in treatment
 
 
 def test_reviewer_protected_resource_evidence_requires_a_traceable_mutation(
@@ -137,8 +140,8 @@ def test_reviewer_protected_resource_evidence_requires_a_traceable_mutation(
         working_dir=tmp_path,
     )
 
-    assert 'Identity drift proves neither failure nor causation' in prompt
-    assert "this mission's mutation command" in prompt
+    assert lists(prompt, "checking-the-work/SKILL.md")
+    assert "Identity drift (a changed checksum, digest or commit) proves neither failure nor causation" in rule("reviewer", "checking-the-work/SKILL.md")
 
 
 def test_planner_does_not_write_skills_during_planning(tmp_path, monkeypatch) -> None:

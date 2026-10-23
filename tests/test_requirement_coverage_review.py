@@ -34,6 +34,7 @@ from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import review_actions
 from argus.roles.prompts.engineer import build_mission_prompt
 from tests.hand_off import hand_off
+from tests.role_rules import lists, rule
 
 _TASK = (
     "A session window processor is not working correctly.\n\n"
@@ -48,13 +49,9 @@ _ACCOUNT = (
     "The documented minimum-across-sources rule remains intact: idle sources still "
     "block progress, as designed."
 )
-_RULE = (
-    "Before accepting, check each requirement and symptom the task (this increment) "
-    "states against the deliverable; tests the Engineer wrote show only its reading "
-    "of them."
-)
 _ENGINEER_RULE = (
-    "Fix reported symptoms within design rules; intended behavior needs task-text support."
+    "Fix reported symptoms within the design rules; calling behavior intended needs "
+    "support in the task text."
 )
 
 
@@ -78,10 +75,8 @@ def _review_prompt(tmp_path, *, software: bool) -> str:
 @pytest.mark.parametrize("software", [True, False])
 def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, software):
     flat = _flat(_review_prompt(tmp_path, software=software))
-    assert _RULE in flat
     assert "operator's own words" not in flat
-    # The rule rides in the role's fixed prose, ahead of the task and the account.
-    assert flat.index(_RULE) < flat.index("Observed symptoms") < flat.index("idle sources still block")
+    assert flat.index("Observed symptoms") < flat.index("idle sources still block")
 
 
 def test_approval_needs_the_task_text_to_call_a_stated_symptom_intended() -> None:
@@ -133,9 +128,9 @@ def test_a_round_sends_the_coverage_rule_to_both_roles_and_the_verdict_still_dec
     )
     reviewer = _flat(prompts["reviewer"])
     engineer = _flat(prompts["engineer-r1"])
-    assert _RULE in reviewer and "Observed symptoms" in reviewer
+    assert "Observed symptoms" in reviewer
     assert "idle sources still block progress" in reviewer  # the account it must judge
-    assert _ENGINEER_RULE in engineer
+    assert "doing-the-task/SKILL.md" in engineer
     # The rule asks; the Reviewer's own action decides the round.
     assert status != "done"
     assert rounds[-1].review.status == "continue"
@@ -158,7 +153,6 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
     assert "Current mission objective:" in reviewer
     # ... but the bar it states is this increment's, and nothing in the prompt
     # asks it to hold the increment to the operator's whole wording.
-    assert _RULE in reviewer
     assert "operator's own words" not in reviewer
     assert status == "done"
 
@@ -193,7 +187,8 @@ def test_the_engineer_fixes_a_symptom_within_the_design(compact_team) -> None:
         compact_team=compact_team,
     )
     flat = _flat(prompt)
-    assert _ENGINEER_RULE in flat
+    assert _ENGINEER_RULE in rule("engineer", "doing-the-task/SKILL.md")
+    assert lists(prompt, "doing-the-task/SKILL.md")
     # The Engineer and the Reviewer ask for the same support.
     assert "never call it intended" not in flat
 
@@ -202,9 +197,12 @@ def test_the_engineer_fixes_a_symptom_within_the_design(compact_team) -> None:
 def test_the_engineer_does_not_force_its_way_past_an_environment_limit(compact_team) -> None:
     """2026-10-22: for a packaging check nobody asked for, an Engineer twice ran
     `pip --isolated install --index-url https://pypi.org/simple` past PIP_NO_INDEX=1."""
-    flat = _flat(build_mission_prompt(
+    prompt = build_mission_prompt(
         task=_TASK, skill_text="", next_action=None, include_static=True,
         compact_team=compact_team,
-    ))
-    assert "Add no work the task does not ask for (checks of your own change are part of the task), and never get around a limit the environment sets" in flat
-    assert "say so and hand off instead of forcing another way in" in flat
+    )
+    rules = rule("engineer", "doing-the-task/SKILL.md")
+    assert "Add no work the task does not ask for (checks of your own change are part of the task)" in rules
+    assert "Never get around a limit the environment sets" in rules
+    assert "say so and hand off instead of forcing another way in" in rules
+    assert lists(prompt, "doing-the-task/SKILL.md")

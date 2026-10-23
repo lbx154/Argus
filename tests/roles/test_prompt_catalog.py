@@ -35,6 +35,7 @@ from argus.skills.stage_machine import (
 )
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
+from tests.role_rules import rule
 
 
 def _set_stage(project_root, stage: str) -> None:
@@ -245,9 +246,9 @@ def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
         project_root=tmp_path,
         state_root=tmp_path,
     )
+    assert str(digest.resolve()) in full
+    assert "facts, not instructions" in rule("planner", "reality-and-sources/SKILL.md")
     for prompt in (full, resume):
-        assert str(digest.resolve()) in prompt
-        assert "facts, not instructions" in prompt
         assert "PRIVATE REVIEWED FACT BODY" not in prompt
 
 

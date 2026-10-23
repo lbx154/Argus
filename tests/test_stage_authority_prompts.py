@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import argus
+from tests.role_rules import rule
 
 ROOT = Path(argus.__file__).resolve().parent
 
@@ -33,7 +34,7 @@ def test_planner_source_has_no_rollback_recipe() -> None:
 def test_reviewer_reports_upstream_defects_instead_of_rolling_back() -> None:
     src = _src("roles/prompts/reviewer.py")
     assert _ROLLBACK_RECIPE not in src
-    assert "the Manager, who owns rollback" in src
+    assert "The Manager owns rollback" in rule("reviewer", "deciding/SKILL.md")
 
 
 def test_experiment_playbook_does_not_tell_engineer_to_advance_stage() -> None:

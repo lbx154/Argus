@@ -14,6 +14,7 @@ from argus.engineer import round_evidence
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
 from tests.hand_off import hand_off
+from tests.role_rules import lists, rule
 
 
 class _Sink:
@@ -87,7 +88,6 @@ def _review_prompt(engineer_backend: str, tmp_path) -> str:
 
 
 def test_the_reviewer_reruns_the_check_whatever_the_engineer_backend_reports(tmp_path) -> None:
-    from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
-
-    assert REVIEW_EVIDENCE_RULE in _review_prompt("copilot", tmp_path / "a")
-    assert REVIEW_EVIDENCE_RULE in _review_prompt("claude", tmp_path / "b")
+    assert lists(_review_prompt("copilot", tmp_path / "a"), "checking-the-work/SKILL.md")
+    assert lists(_review_prompt("claude", tmp_path / "b"), "checking-the-work/SKILL.md")
+    assert "rerun the decisive check yourself" in rule("reviewer", "checking-the-work/SKILL.md")

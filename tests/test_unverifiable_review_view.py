@@ -18,6 +18,7 @@ from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEn
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import review_actions
 from tests.hand_off import hand_off
+from tests.role_rules import lists, rule
 
 _OBSTACLE = (
     "The Authorization line is masked in my view; a rerunnable local fixture "
@@ -83,10 +84,6 @@ def test_manager_supervision_failure_codes_validate() -> None:
 
 
 def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:
-    from argus.core.model_visible_text import (
-        MASKED_DISPLAY_ENGINEER_RULE,
-        REVIEW_EVIDENCE_RULE,
-    )
     from argus.roles.prompts.engineer import build_mission_prompt
 
     reviewer = Reviewer(runner=None, skill_store=None)
@@ -95,14 +92,13 @@ def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:
         planner_review_instruction="", round_index=1, session_id=None,
         main_summary="done", main_error=None, prior_checkpoint={},
     )
-    assert REVIEW_EVIDENCE_RULE in review_prompt
-    assert "display masking" in REVIEW_EVIDENCE_RULE and "rerunnable assertion" in REVIEW_EVIDENCE_RULE
+    assert lists(review_prompt, "checking-the-work/SKILL.md")
+    review_rule = rule("reviewer", "checking-the-work/SKILL.md")
+    assert "display masking" in review_rule and "rerunnable assertion" in review_rule
 
-    for include_static in (True, False):
-        engineer_prompt = build_mission_prompt(
-            task="Send the configured credential.", skill_text="",
-            next_action="The header is shown as ******.",
-            include_static=include_static,
-        )
-        assert MASKED_DISPLAY_ENGINEER_RULE in engineer_prompt
-    assert "rerunnable test" in MASKED_DISPLAY_ENGINEER_RULE
+    engineer_prompt = build_mission_prompt(
+        task="Send the configured credential.", skill_text="",
+        next_action="The header is shown as ******.",
+    )
+    assert lists(engineer_prompt, "review-rounds/SKILL.md")
+    assert "rerunnable test" in rule("engineer", "review-rounds/SKILL.md")

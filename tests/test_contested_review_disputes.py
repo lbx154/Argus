@@ -8,10 +8,9 @@ the swapped values without checking them.
 
 from __future__ import annotations
 
-from importlib import resources
-
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
+from tests.role_rules import lists, rule
 
 _DISPUTE = (
     "I disagree with the review: `grep -c '\\[ERROR\\]' today.log` prints 370 and "
@@ -20,11 +19,10 @@ _DISPUTE = (
 
 
 def test_reviewer_role_requires_labels_from_the_same_output() -> None:
-    text = (resources.files("argus.builtin_skills") / "reviewer" / "argus-reviewer-role.md").read_text(
-        encoding="utf-8")
-    assert "label comes from the same" in text
-    assert "explain what is wrong with that output" in text
-    assert "contested review" in text
+    text = rule("reviewer", "re-review/SKILL.md")
+    assert "label comes from the same output" in text
+    assert "explain what is wrong with the Engineer's output" in text
+    assert "contested finding" in text
 
 
 def test_engineer_labeled_dispute_reaches_next_review_as_something_to_resolve() -> None:
@@ -41,9 +39,9 @@ def test_engineer_labeled_dispute_reaches_next_review_as_something_to_resolve() 
         prev_review_summary="continue: ERROR and WARNING are swapped in the today row.",
     )
     assert _DISPUTE in prompt
-    assert "is not settled" in prompt
-    assert "explain what is wrong with the Engineer's output" in prompt
-    assert "independently check every value changed in response to a contested" in prompt
+    assert lists(prompt, "re-review/SKILL.md")
+    assert "read re-review before reusing it" in prompt
+    assert "is not settled" in rule("reviewer", "re-review/SKILL.md")
 
 
 def test_engineer_keeps_values_its_own_labeled_measurement_supports() -> None:
@@ -54,5 +52,5 @@ def test_engineer_keeps_values_its_own_labeled_measurement_supports() -> None:
             next_action="Swap ERROR and WARNING in every row.",
             include_static=include_static,
         )
-        assert "Never write values that your own labeled measurement contradicts" in prompt \
-            or "do not write that value" in prompt
+        assert "Read review-rounds before acting on it." in prompt
+    assert "Never write a value your own labeled measurement contradicts" in rule("engineer", "review-rounds/SKILL.md")

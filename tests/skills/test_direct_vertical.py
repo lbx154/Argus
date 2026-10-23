@@ -91,7 +91,7 @@ def test_direct_reviewer_uses_contract_not_stage_pipeline(tmp_path) -> None:
     )
 
     assert reviewer.last_prompt_block_stats["stage_checklist"]["chars"] == 0
-    assert 'done` when a direct task meets its requirements and decisive check' in prompt
+    assert "follows its 'Direct work' section" in prompt
     assert "## Upstream defects" not in prompt
 
 
@@ -131,9 +131,9 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     reviewer_prompt, reviewer_options = next(
         (prompt, options) for label, prompt, options in backend.history if label == "reviewer"
     )
-    assert ("## Engineer service" in engineer_prompt) == (workflow_mode == "direct")
+    assert ("## Current mission task" in engineer_prompt) == (workflow_mode != "direct")
     assert (
-        "when a direct task meets its requirements and decisive check" in reviewer_prompt
+        "follows its 'Direct work' section" in reviewer_prompt
     ) == (workflow_mode == "direct")
     for access in ("full_auto", "dangerous_yolo", "sandbox_mode"):
         assert getattr(reviewer_options, access) == getattr(engineer_options, access)
@@ -169,8 +169,8 @@ def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None
     assert second.session_resumed is False
     assert backend.resume_history == [("reviewer", None), ("reviewer", None)]
     prompt = backend.history[-1][1]
-    assert "## Reviewer role" in prompt
-    assert "when a direct task meets its requirements and decisive check" in prompt
+    assert "You are the Argus Reviewer" in prompt
+    assert "follows its 'Direct work' section" in prompt
 
 
 def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(

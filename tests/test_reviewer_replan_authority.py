@@ -95,13 +95,12 @@ def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
 
 def _without_host_shell_guidance(prompt: str) -> str:
     """Drop native-Windows shell guidance, which is host-specific by design."""
-    from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE
     from argus.roles.task_contract import (
         NATIVE_WINDOWS_SHELL_CONTRACT,
         NATIVE_WINDOWS_SHELL_SUMMARY,
     )
 
-    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, _WINDOWS_LONG_EXPERIMENT_RULE, NATIVE_WINDOWS_SHELL_SUMMARY):
+    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, NATIVE_WINDOWS_SHELL_SUMMARY):
         prompt = prompt.replace(text, "")
     return prompt
 

@@ -147,7 +147,7 @@ def test_fresh_backend_repeats_task_contract_on_continuation_round(
         if label.startswith("engineer-")
     ]
     assert len(engineer_prompts) == 2
-    assert all('## Task authority' in prompt for prompt in engineer_prompts)
+    assert all("You are the Argus Engineer" in prompt for prompt in engineer_prompts)
     assert all(
         "implement the contract-preserving change" in prompt
         for prompt in engineer_prompts
@@ -173,11 +173,12 @@ def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
             context,
             checkpoint,
         ).run("same matched task", workdir=root)
-        reviewer_chars = sum(
+        # The second review is where a resumed session sends only the round.
+        reviewer_chars = [
             len(prompt)
             for label, prompt, _options in backend.history
             if label == "reviewer"
-        )
+        ][-1]
         return outcome.status, reviewer_chars
 
     fresh_status, fresh_chars = run(MemoryBackend(), tmp_path / "fresh")

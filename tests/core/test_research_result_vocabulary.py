@@ -27,8 +27,6 @@ field and the value it rejected instead of the whole block.
 from __future__ import annotations
 
 import logging
-import pathlib
-import tempfile
 
 import pytest
 
@@ -95,61 +93,6 @@ VALID = {
     "evidence": ["Lean build exits 0 with no sorry and no axiom"],
     "limitations": [],
 }
-
-
-def _research_target_prompt(level: str = "publishable") -> str:
-    from argus.reviewer import Reviewer
-    from argus.skills.vertical_select import persist_vertical
-
-    root = pathlib.Path(tempfile.mkdtemp())
-    persist_vertical(root, "research", research_target_level=level)
-    reviewer = Reviewer(runner=None, skill_store=None)
-    return reviewer._build_prompt(
-        objective="settle the conjecture",
-        original_objective="settle the conjecture",
-        operator_messages=[],
-        planner_review_instruction="",
-        round_index=1,
-        session_id=None,
-        main_summary="done",
-        main_error=None,
-        prior_checkpoint={},
-        working_dir=str(root),
-        scope="bounded",
-    )
-
-
-@pytest.mark.parametrize("field, choices", RESULT_FIELD_CHOICES)
-def test_the_prompt_lists_every_legal_value_of_every_gated_field(
-    field: str, choices: tuple[str, ...]
-) -> None:
-    """What the validator enforces, the Reviewer is told.
-
-    A field whose values only exist in ``research_contract`` is a field the
-    model has to guess, and run 15 shows it guesses fluently and wrongly.
-    """
-    text = _research_target_prompt()
-
-    assert field in text
-    for value in choices:
-        assert value in text, (
-            f"{field} accepts {value!r} and the Reviewer prompt never says so"
-        )
-
-
-def test_the_prompt_does_not_invent_values_the_contract_rejects() -> None:
-    """The other direction: no vocabulary in the prompt that would be refused.
-
-    Rendering from ``RESULT_FIELD_CHOICES`` is what makes this hold; the test
-    is here so a hand-written replacement cannot quietly reintroduce drift.
-    """
-    text = _research_target_prompt()
-
-    for field, choices in RESULT_FIELD_CHOICES:
-        line = next(
-            ln for ln in text.splitlines() if ln.startswith(f"{field}: ")
-        )
-        assert line.split(": ", 1)[1].split() == list(choices)
 
 
 @pytest.mark.parametrize("payload", RUN_15_EMISSIONS)

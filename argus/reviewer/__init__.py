@@ -13,10 +13,9 @@ The execution path never parses review prose.
 """
 from __future__ import annotations
 
-from ._core import Reviewer, ReviewerConfig, _load_wiki_curator_skill_if_present
+from ._core import Reviewer, ReviewerConfig
 
 __all__ = [
     "Reviewer",
     "ReviewerConfig",
-    "_load_wiki_curator_skill_if_present",
 ]

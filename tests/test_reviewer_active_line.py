@@ -28,7 +28,7 @@ def test_reviewer_is_not_given_checkpoint_bookkeeping():
 
 def test_reviewer_never_acts_as_checkpoint_editor():
     p = _prompt()
-    assert 'Leave source/output/build files unchanged' in p
+    assert 'change no source, output or build file' in p
     assert 'Give Engineer instructions in the review' in p
     assert 'check relevant uncertainty' in p
     assert (

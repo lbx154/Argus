@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from argus.roles.prompts import engineer
+from tests.role_rules import lists, rule
 
 
 @pytest.mark.parametrize("include_static", [True, False])
@@ -54,5 +55,7 @@ def test_compact_team_performance_policy_states_when_it_applies(
         compact_team=True,
     )
 
-    assert "Performance root-cause/bottleneck/replacement claims need" in prompt
-    assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in prompt
+    assert lists(prompt, "long-runs-and-evidence/SKILL.md")
+    assert "hot-path or live-resource evidence plus timing, profiling or a controlled A/B" in rule(
+        "engineer", "long-runs-and-evidence/SKILL.md"
+    )

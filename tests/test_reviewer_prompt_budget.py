@@ -29,6 +29,7 @@ import json
 from argus.reviewer import Reviewer
 from argus.roles.prompts import reviewer as reviewer_prompt
 from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
+from tests.role_rules import lists, rule
 
 #: Blocks a vertical owns inside the static preamble, not the fixed contract.
 #: The objective/operator/planner text ("objective_context") is absent here
@@ -36,55 +37,14 @@ from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
 _TASK_OWNED_BLOCKS = (
     "stage_checklist",
     "matched_skill",
-    "direct_memory",
-    "wiki_curator",
     "research_target",
-    "surprise_judgment",
 )
 
-# Measured at 4_546 for the representative build. The margin is for one more
-# deliberate contract block, not for a paragraph of restatement: the last
-# addition was the plan-signal vocabulary (~580 chars), which names the two
-# legal `plan_signal` values and the three fields a plan challenge carries.
-# `reconsider` is the only token that opens the Reviewer -> Manager -> Planner
-# channel and it had appeared in no prompt, so deleting that block closes the
-# channel rather than tightening the prose. Research surprise judgment is
-# measured separately because it applies only to research-result reviews.
-# Re-compress before raising this.
-#
-# Raised from 5_000 for one deliberate contract block: the masked-display rule
-# (~260 chars, MASKED_DISPLAY_REVIEW_RULE). It tells the Reviewer that a
-# `******`/`<REDACTED:…>` span proves neither a defect nor a fix and must be
-# settled by a check it reruns itself. Without it one task spent five extra
-# rounds, most of its cost, disputing a line neither role could see. Measured
-# at 5_179 with it.
-#
-# Raised from 5_300 when that rule became capability-aware
-# (``review_evidence_rule``). Told to rerun a check itself, a Reviewer whose
-# tools only read and search refused the Engineer's work in 13 verdicts of one
-# A/B arm and asked for an execution surface nobody could grant. Each form now
-# says what that Reviewer judges from instead; the longest, for a read-only
-# Reviewer with host-recorded runs (~730 chars), also says that a record is
-# what the agent CLI reported, not proof, and which shapes to weigh.
-# Measured at 5_658 with it (5_694 on Windows); the others at 5_371 and 5_463.
-#
-# One rule was then admitted without raising the cap, by compressing the
-# submit paragraph: before approving, check each requirement and symptom the
-# task (this increment) states against the deliverable (Engineer-written tests
-# had carried a misread symptom through review). Measured at 5_534 (5_570 on
-# Windows); the others at 5_247 and 5_339.
-#
-# Every evidence form then gained one sentence (~124 chars), also within the
-# cap: a check is impossible, not missing, only if the task, packet or
-# environment says what it needs exists only at grading or deploy time (one
-# task looped 15 rounds over such a token). The quote, the acceptance and the
-# fixture conditions live in the action tool descriptions, not here. Measured
-# at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
-# left on Windows: re-compress before adding prose.
-#
-# The read-only forms then went: every Reviewer has the Engineer's tools and
-# gets the executing form alone. Measured at 5_198.
-FIXED_PROSE_BUDGET = 5_700
+# The page is who the Reviewer is, how it hands off and which rule file to read
+# when; the rules themselves live once each in builtin_skills/reviewer/. A rule
+# goes in a rule file, not here: raise this only for a sentence the replays show
+# is broken without it.
+FIXED_PROSE_BUDGET = 2_400
 
 
 def _fixed_prose_chars(reviewer: Reviewer) -> int:
@@ -148,11 +108,11 @@ def test_windows_fixed_contract_prose_within_budget(monkeypatch):
 def test_reviewer_scopes_product_acceptance_to_the_claim(monkeypatch):
     prompt = _prompt(monkeypatch=monkeypatch)
 
-    assert 'Test claimed UI/API/CLI/service flows' in prompt
-    assert 'at a safe public entry point' in prompt
-    assert 'Internal exploration needs its feedback experiment' in prompt
-    assert 'feedback experiment' in prompt
-    assert "Never cause external or irreversible effects" in prompt
+    assert lists(prompt, "checking-the-work/SKILL.md")
+    text = rule("reviewer", "checking-the-work/SKILL.md")
+    assert "Test claimed UI, API, CLI and service flows at a safe public entry point" in text
+    assert "Internal exploration needs its feedback experiment" in text
+    assert "Never cause external or irreversible effects" in text
 
 
 def test_the_budget_ignores_content_a_vertical_owns(monkeypatch):
@@ -202,20 +162,7 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
     ):
         assert field not in prompt
 
-    # The handoff line routes the round; a plan challenge still names its alternative.
     assert "forward_progress" not in prompt
-    assert "`to=planner`" in prompt
-    assert "alternative" in prompt
-
-
-def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
-    # The holders a review hands to used to be defined twice —
-    # once in the role block and again, at greater length, in the handoff
-    # policy. Two definitions of the same four words is the redundancy this
-    # budget exists to catch, and it cost more than the sentence it funded.
-    p = _prompt(monkeypatch=monkeypatch)
-    assert p.count('one material gap in scope') == 1
-    assert p.count('wrong target or scope change') == 1
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
@@ -359,7 +306,6 @@ def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch)
     assert "ARGUS_ROLE_DECISION=" not in prompt
     assert "End your turn with hand_off" in prompt
     assert "hand_off" in prompt
-    assert "`to=operator`" in prompt
     assert "STATUS=" not in prompt
     assert "REASON=" not in prompt
     assert "JSON Schema" not in prompt
@@ -371,13 +317,13 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 ) -> None:
     prompt = _prompt(monkeypatch=monkeypatch)
 
-    assert 'Use primary sources for external claims' in prompt
-    assert 'community code may ground implementation details' in prompt
-    assert "`to=planner` for a wrong target" in prompt
+    assert lists(prompt, "checking-the-work/SKILL.md") and lists(prompt, "argus-reviewer-role.md")
+    assert "Use primary sources for external claims; community code may ground implementation details" in rule(
+        "reviewer", "checking-the-work/SKILL.md")
+    role = rule("reviewer", "argus-reviewer-role.md")
     # dogfood8 sizefmt: a Reviewer gated a done task on a wheel build the task never asked for.
-    assert "a check they do not ask for (a packaged build, future-proofing) is a suggestion in note" in prompt
-    assert "never withholds `to=done`" in prompt
-    assert 'require experimental or research feedback' in prompt
+    assert "a check they do not ask for (a packaged build, future-proofing) is a suggestion in `note` and never withholds `to=done`" in role
+    assert "require experimental or research feedback" in role
 
 
 def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
@@ -385,8 +331,8 @@ def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     given the artifacts, every one did. The judgement question names it."""
     flat = " ".join(_prompt(monkeypatch=monkeypatch).split())
 
-    assert "which data split" in flat
-    assert "check each requirement and symptom the task (this increment) states" in flat
+    assert "Check which data split each reported metric was computed on" in rule(
+        "reviewer", "checking-the-work/SKILL.md")
     # A sub-task's Reviewer also sees the whole original request; the bar is
     # this increment's, not the operator's whole wording.
     assert "operator's own words" not in flat
