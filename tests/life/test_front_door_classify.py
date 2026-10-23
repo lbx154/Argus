@@ -53,6 +53,14 @@ def test_front_door_prompt_leaves_the_fields_to_the_form() -> None:
         assert phrase in schema
 
 
+def test_only_a_form_that_can_ask_the_operator_is_told_when_to() -> None:
+    # The front door cannot hand to the operator; told when to, it answered
+    # conflicting requirements itself instead of routing them (replay 2026-10-22).
+    assert "operator" not in form_tool("front_door")["inputSchema"]["properties"]["to"]["description"]
+    for form in ("engineer", "review", "route", "supervise"):
+        assert "contradict each other" in form_tool(form)["inputSchema"]["properties"]["to"]["description"]
+
+
 def test_front_door_prompt_says_whether_it_may_answer() -> None:
     assert "reply is the complete answer" in build_front_door_prompt("x")
     closed = build_front_door_prompt("x", allow_reply=False)

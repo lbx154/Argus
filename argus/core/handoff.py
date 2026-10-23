@@ -38,7 +38,10 @@ def form_tool(form: str, fields: Mapping[str, Any] | None = None) -> dict[str, A
     spec, core = _CONTRACT["forms"][form], _CONTRACT["core"]
     properties = {name: core[name] for name in spec["core"]}
     if spec["to"]:
-        properties["to"] = {**core["to"], "enum": spec["to"]}
+        # The operator rule goes only to a form that can hand to them: the
+        # front door cannot, and a conflict it reads is the routing call's to ask.
+        rule = f" {_CONTRACT['operator']}" if "operator" in spec["to"] else ""
+        properties["to"] = {**core["to"], "description": core["to"]["description"] + rule, "enum": spec["to"]}
     return {
         "name": ACTION,
         "description": spec["description"],

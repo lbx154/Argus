@@ -1,9 +1,10 @@
 {
   "action": "hand_off",
+  "operator": "`operator` only for what the operator alone can decide: a choice they reserved, requirements of theirs that contradict each other, or words of theirs that read more than one way where the reading changes the result.",
   "core": {
     "to": {
       "type": "string",
-      "description": "Who holds the work next. `operator` only for what the operator alone can decide: a choice they reserved, requirements of theirs that contradict each other, or words of theirs that read more than one way where the reading changes the result."
+      "description": "Who holds the work next."
     },
     "summary": {
       "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\n]*$",
@@ -103,7 +104,7 @@
       }
     },
     "front_door": {
-      "description": "Classify the operator's message; the call ends your turn. to: manager (SELF) for conversation, status, a quick inspection or a finite local task one agent can verify, and simple work with a vertical, whose stage and reviewer defaults never force team; team (TEAM) for multi-stage live research, parallel work, required independent review or high-impact operations. A control or a grant is always to=manager.",
+      "description": "Classify the operator's message; the call ends your turn. to: manager (SELF) for conversation, status, a quick inspection or a finite local task one agent can verify, and simple work with a vertical, whose stage and reviewer defaults never force team; team (TEAM) for multi-stage live research, parallel work, required independent review or high-impact operations, also when that work first needs the operator's choice: the team asks them. A control or a grant is always to=manager.",
       "core": ["to"],
       "to": ["manager", "team"],
       "required": ["to", "intake"],
