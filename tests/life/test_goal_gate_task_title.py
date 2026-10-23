@@ -160,7 +160,7 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
     }
     state.verdict = PlannerVerdict(
         project_done=False,
-        reason="close the current stage",
+        summary="close the current stage",
         new_tasks=[
             TaskSpec(
                 title="Finish and certify the delivery stage",

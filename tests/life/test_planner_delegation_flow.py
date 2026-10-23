@@ -21,9 +21,9 @@ from argus.life.memory import (
     ProjectMemory,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PLAN_RETRY
 from argus.planner import Planner, PlannerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import plan, submit
 
 
 class _MissionRunner:
@@ -37,7 +37,8 @@ class _PlannerBackend:
 
     def run_exec(self, **kwargs):  # noqa: ANN003
         self.calls.append(kwargs)
-        return RunnerResult(exit_code=0, agent_messages=[self.replies.pop(0)])
+        submit(kwargs["options"], self.replies.pop(0))
+        return RunnerResult(exit_code=0)
 
 
 def _supervisor(project: Path, life: Path, planner: _PlannerBackend) -> LifeSupervisor:
@@ -75,32 +76,8 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     project.mkdir()
     monkeypatch.chdir(project)
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=delegate the first bounded optimization",
-            "TASK_KEY=first",
-            "TASK_TITLE=Remove redundant snapshot prewarm",
-            "TASK_OBJECTIVE=Change the prewarm scheduling and add a regression test.",
-            "TASK_HYPOTHESIS=Duplicate prewarm work is the measured bottleneck.",
-            "TASK_GOAL_CONTRIBUTION=Remove wasted startup work from the user path.",
-            "TASK_EXPECTED_REGRESSIONS=Startup ordering may change during the repair.",
-            "TASK_DECISION_RULE=Revise if profiling shows prewarm is not on the critical path.",
-            "TASK_ACCEPTANCE_CHECK=pytest tests/webapi/test_index_cache.py",
-        ]),
-        "PROJECT_DONE=true\nREASON=finished one optimization",
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=continue the standing campaign with a distinct issue",
-            "TASK_KEY=second",
-            "TASK_VERTICAL=argus_maintenance",
-            "TASK_TITLE=Deduplicate Manager reply rows",
-            "TASK_OBJECTIVE=Use one message identity for live and persisted replies.",
-            "TASK_HYPOTHESIS=Identity drift causes duplicate Manager reply rows.",
-            "TASK_GOAL_CONTRIBUTION=Make the user conversation readable and stable.",
-            "TASK_EXPECTED_REGRESSIONS=Replay ordering may shift while identities converge.",
-            "TASK_DECISION_RULE=Replace this route if duplicates persist with stable ids.",
-            "TASK_ACCEPTANCE_CHECK=npm test -- stream.test.ts",
-        ]),
+        plan(summary='delegate the first bounded optimization', tasks=[{'key': 'first', 'title': 'Remove redundant snapshot prewarm', 'objective': 'Change the prewarm scheduling and add a regression test.', 'hypothesis': 'Duplicate prewarm work is the measured bottleneck.', 'goal_contribution': 'Remove wasted startup work from the user path.', 'expected_regressions': 'Startup ordering may change during the repair.', 'decision_rule': 'Revise if profiling shows prewarm is not on the critical path.', 'acceptance_check': 'pytest tests/webapi/test_index_cache.py'}]),
+        plan(summary='continue the standing campaign with a distinct issue', tasks=[{'key': 'second', 'vertical': 'argus_maintenance', 'title': 'Deduplicate Manager reply rows', 'objective': 'Use one message identity for live and persisted replies.', 'hypothesis': 'Identity drift causes duplicate Manager reply rows.', 'goal_contribution': 'Make the user conversation readable and stable.', 'expected_regressions': 'Replay ordering may shift while identities converge.', 'decision_rule': 'Replace this route if duplicates persist with stable ids.', 'acceptance_check': 'npm test -- stream.test.ts'}]),
     ])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
@@ -109,7 +86,6 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert [item.title for item in first] == ["Remove redundant snapshot prewarm"]
     supervisor.memory.backlog.update(first[0].id, status="done")
 
-    assert supervisor._plan_next_work() == PLAN_RETRY
     assert supervisor._plan_next_work() is True
     pending = supervisor.memory.backlog.pending()
     assert [item.title for item in pending] == ["Deduplicate Manager reply rows"]
@@ -122,7 +98,7 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
         "why": "Identity drift causes duplicate Manager reply rows.",
     }]
 
-    assert len(planner.calls) == 3
+    assert len(planner.calls) == 2
     assert all(call["options"].sandbox_mode == "read-only" for call in planner.calls)
     assert all(call["options"].dangerous_yolo is False for call in planner.calls)
     assert not list(project.glob("**/*.py")), "Planner must not create implementation files"
@@ -140,15 +116,7 @@ def test_planner_require_independent_review_survives_enqueue(
     project = tmp_path / "project"
     project.mkdir()
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=delegate the reviewed bounded repair",
-            "TASK_KEY=reviewed",
-            "TASK_TITLE=Adopt the reviewed bounded candidate",
-            "TASK_OBJECTIVE=Implement the candidate and close it through "
-            "the independent Reviewer.",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
-        ])
+        plan(summary='delegate the reviewed bounded repair', tasks=[{'key': 'reviewed', 'title': 'Adopt the reviewed bounded candidate', 'objective': 'Implement the candidate and close it through the independent Reviewer.', 'require_independent_review': True}])
     ])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
@@ -162,7 +130,7 @@ def test_planner_require_independent_review_survives_enqueue(
     assert PlanningContextMixin._item_requires_independent_review(pending[0]) is True
 
 
-@pytest.mark.parametrize("outcome", ["new_task", "retire_only", "waiting", "done"])
+@pytest.mark.parametrize("outcome", ["new_task", "retire_only", "waiting"])
 def test_planner_retires_pending_tasks_without_requiring_new_work(
     tmp_path: Path,
     monkeypatch,
@@ -187,31 +155,22 @@ def test_planner_retires_pending_tasks_without_requiring_new_work(
     done = backlog.add(BacklogItem.new(title="Completed work", objective="c"))
     backlog.mark_done(done.id)
     reason = "The experiment refuted this mechanism family."
-    lines = [
-        f"PROJECT_DONE={'true' if outcome == 'done' else 'false'}",
-        "REASON=Close the refuted line of work.",
-        f"RETIRE_TASK={pending.id} | {reason}",
-        f"RETIRE_TASK={running.id} | This work already started.",
-        f"RETIRE_TASK={parked.id} | This work is waiting for a GPU job.",
-        f"RETIRE_TASK={done.id} | This work already finished.",
-        "RETIRE_TASK=unknown | This item no longer exists.",
-    ]
-    if outcome == "new_task":
-        lines.extend([
-            "TASK_KEY=distinct",
-            "TASK_TITLE=Test a distinct mechanism",
-            "TASK_OBJECTIVE=Run an experiment on the untested alternative.",
-        ])
-    elif outcome == "waiting":
-        lines.extend([
-            "WAITING=true",
-            "WAITING_REASON=Await the operator's new evidence.",
-            "BLOCKER_FINGERPRINT=operator-evidence",
-            "RECHECK_CONDITION=The operator supplies new evidence.",
-            "RECHECK_TOKEN=evidence-needed",
-            "OPERATOR_ACTION_REQUIRED=true",
-        ])
-    planner.replies.append("\n".join(lines))
+    planner.replies.append(plan(
+        "operator" if outcome == "waiting" else "engineer",
+        summary="Close the refuted line of work.",
+        retire=[
+            {"id": pending.id, "reason": reason},
+            {"id": running.id, "reason": "This work already started."},
+            {"id": parked.id, "reason": "This work is waiting for a GPU job."},
+            {"id": done.id, "reason": "This work already finished."},
+            {"id": "unknown", "reason": "This item no longer exists."},
+        ],
+        tasks=[{
+            "key": "distinct", "title": "Test a distinct mechanism",
+            "objective": "Run an experiment on the untested alternative.",
+        }] if outcome == "new_task" else [],
+        **({"ask": {"question": "Can you supply the new evidence?", "options": []}} if outcome == "waiting" else {}),
+    ))
 
     with caplog.at_level("INFO", logger="argus.life.supervisor._planning_cycle_enqueue"):
         supervisor._plan_next_work()
@@ -256,13 +215,7 @@ def test_planner_reuses_front_door_route_without_manager_reclassification(
     project.mkdir()
     life = tmp_path / "life"
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=delegate the next bounded repair",
-            "TASK_KEY=repair",
-            "TASK_TITLE=Repair the lifecycle",
-            "TASK_OBJECTIVE=Fix the lifecycle and run its focused test.",
-        ])
+        plan(summary='delegate the next bounded repair', tasks=[{'key': 'repair', 'title': 'Repair the lifecycle', 'objective': 'Fix the lifecycle and run its focused test.'}])
     ])
     supervisor = _supervisor(project, life, planner)
     supervisor._vertical_resolved = False
@@ -402,18 +355,7 @@ def test_direct_kernel_workflow_does_not_generate_scope_bundle(
     project.mkdir()
     life = tmp_path / "life"
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=run one direct measured optimization",
-            "TASK_KEY=measure-hotpath",
-            "TASK_TITLE=Measure and optimize the active MLX hotpath",
-            "TASK_OBJECTIVE=Profile the current path, implement one minimal candidate, and benchmark it.",
-            "TASK_HYPOTHESIS=The measured hotpath has one removable synchronization.",
-            "TASK_GOAL_CONTRIBUTION=Directly improve M4 Pro inference.",
-            "TASK_EXPECTED_REGRESSIONS=Numerical parity and memory pressure may regress.",
-            "TASK_DECISION_RULE=Retain only if the interleaved benchmark improves.",
-            "TASK_ACCEPTANCE_CHECK=python scripts/benchmark_hotpath.py",
-        ])
+        plan(summary='run one direct measured optimization', tasks=[{'key': 'measure-hotpath', 'title': 'Measure and optimize the active MLX hotpath', 'objective': 'Profile the current path, implement one minimal candidate, and benchmark it.', 'hypothesis': 'The measured hotpath has one removable synchronization.', 'goal_contribution': 'Directly improve M4 Pro inference.', 'expected_regressions': 'Numerical parity and memory pressure may regress.', 'decision_rule': 'Retain only if the interleaved benchmark improves.', 'acceptance_check': 'python scripts/benchmark_hotpath.py'}])
     ])
     supervisor = _kernel_supervisor(project, life, planner)
     persist_vertical(life, optimize_vertical, workflow_mode="direct")
@@ -586,18 +528,7 @@ def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
         encoding="utf-8",
     )
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=finish the authoritative scope stage",
-            "TASK_KEY=scope-repair",
-            "TASK_TITLE=Reconcile the scope contract",
-            "TASK_OBJECTIVE=Repair the current scope evidence only.",
-            "TASK_HYPOTHESIS=The scope contract has one remaining inconsistency.",
-            "TASK_GOAL_CONTRIBUTION=Make the campaign ready for discovery.",
-            "TASK_EXPECTED_REGRESSIONS=None; implementation is unchanged.",
-            "TASK_DECISION_RULE=Stop if the scope is already internally consistent.",
-            "TASK_ACCEPTANCE_CHECK=scope artifacts agree",
-        ])
+        plan(summary='finish the authoritative scope stage', tasks=[{'key': 'scope-repair', 'title': 'Reconcile the scope contract', 'objective': 'Repair the current scope evidence only.', 'hypothesis': 'The scope contract has one remaining inconsistency.', 'goal_contribution': 'Make the campaign ready for discovery.', 'expected_regressions': 'None; implementation is unchanged.', 'decision_rule': 'Stop if the scope is already internally consistent.', 'acceptance_check': 'scope artifacts agree'}])
     ])
     supervisor = _kernel_supervisor(project, tmp_path / "life", planner)
 
@@ -645,18 +576,7 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     project.mkdir()
     monkeypatch.chdir(project)
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=replace the refuted candidate with the better validator route",
-            "TASK_KEY=no-gap",
-            "TASK_TITLE=Adopt the no-gap validator",
-            "TASK_OBJECTIVE=Implement and verify the no-gap validator alternative.",
-            "TASK_HYPOTHESIS=The no-gap validator meets the user goal without skip-zero.",
-            "TASK_GOAL_CONTRIBUTION=Remove an unnecessary candidate constraint.",
-            "TASK_EXPECTED_REGRESSIONS=The old skip-zero checker may become obsolete.",
-            "TASK_DECISION_RULE=Abandon if no-gap fails the original user-level property.",
-            "TASK_ACCEPTANCE_CHECK=Verify the original user property with no-gap enabled.",
-        ])
+        plan(summary='replace the refuted candidate with the better validator route', tasks=[{'key': 'no-gap', 'title': 'Adopt the no-gap validator', 'objective': 'Implement and verify the no-gap validator alternative.', 'hypothesis': 'The no-gap validator meets the user goal without skip-zero.', 'goal_contribution': 'Remove an unnecessary candidate constraint.', 'expected_regressions': 'The old skip-zero checker may become obsolete.', 'decision_rule': 'Abandon if no-gap fails the original user-level property.', 'acceptance_check': 'Verify the original user property with no-gap enabled.'}])
     ])
     supervisor = _supervisor(project, tmp_path / "life", planner)
     trigger = supervisor.memory.backlog.add(BacklogItem.new(
@@ -757,18 +677,7 @@ def _assert_replan_replace_commits_after_source_terminalized(
     project.mkdir()
     monkeypatch.chdir(project)
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=replace the terminalized source with the approved route",
-            "TASK_KEY=replacement",
-            "TASK_TITLE=Commit the replacement route",
-            "TASK_OBJECTIVE=Implement the replacement route approved by Manager.",
-            "TASK_HYPOTHESIS=The replacement route satisfies the original goal.",
-            "TASK_GOAL_CONTRIBUTION=Preserve progress after the source refuted itself.",
-            "TASK_EXPECTED_REGRESSIONS=The original route is superseded.",
-            "TASK_DECISION_RULE=Reject if the replacement does not meet the old goal.",
-            "TASK_ACCEPTANCE_CHECK=Verify the original goal on the replacement route.",
-        ])
+        plan(summary='replace the terminalized source with the approved route', tasks=[{'key': 'replacement', 'title': 'Commit the replacement route', 'objective': 'Implement the replacement route approved by Manager.', 'hypothesis': 'The replacement route satisfies the original goal.', 'goal_contribution': 'Preserve progress after the source refuted itself.', 'expected_regressions': 'The original route is superseded.', 'decision_rule': 'Reject if the replacement does not meet the old goal.', 'acceptance_check': 'Verify the original goal on the replacement route.'}])
     ])
     supervisor = _supervisor(project, tmp_path / "life", planner)
     supervisor.runner = _TerminalizedReplanRunner()

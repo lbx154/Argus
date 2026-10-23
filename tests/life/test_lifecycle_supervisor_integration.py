@@ -458,6 +458,7 @@ def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None
 from types import SimpleNamespace  # noqa: E402
 
 from argus.life.supervisor import LifeSupervisor  # noqa: E402
+from tests.hand_off import plan, submit
 
 
 class _GateStub:
@@ -646,18 +647,15 @@ def test_planner_operator_handoff_records_its_question(tmp_path: Path) -> None:
 
     class _PlannerRunner:
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            payload = "\n".join(
-                [
-                    "PROJECT_DONE=false",
-                    "REASON=paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md "
-                    "documents the image generation unknown_model external capability "
-                    "blocker; all local high-impact work is exhausted",
-                    "→ operator: Can you make the configured image route available?",
-                ]
-            )
+            submit(options, plan(
+                "operator",
+                summary="paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents the image generation "
+                "unknown_model external capability blocker; all local high-impact work is exhausted",
+                ask={"question": "Can you make the configured image route available?", "options": []},
+            ))
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[payload],
+                agent_messages=[],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,

@@ -265,7 +265,9 @@ def test_life_planner_cycle_rebuilds_skills_for_adopted_worktree(
             captured["skill_store"] = skill_store
 
         def plan_next(self, **_kwargs):
-            return object()
+            from argus.planner import PlannerVerdict
+
+            return PlannerVerdict(project_done=False, summary="next", handoff="engineer")
 
     monkeypatch.setattr("argus.planner.Planner", _Planner)
     supervisor = LifeSupervisor.__new__(LifeSupervisor)

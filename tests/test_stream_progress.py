@@ -326,7 +326,7 @@ def test_copilot_message_deltas_are_not_persisted_as_prefixes(tmp_path) -> None:
     assert persisted[0]["agent_layer"] == "reviewer"
 
 
-@pytest.mark.parametrize("role", ["planner.cycle0", "reviewer"])
+@pytest.mark.parametrize("role", ["reviewer"])
 def test_structured_role_result_is_live_but_not_persisted(
     tmp_path,
     role: str,

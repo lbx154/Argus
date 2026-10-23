@@ -123,7 +123,7 @@ def _handoff_state():
     state = _PlanCycleState(revision_request=None)
     state.planner_invoked = True
     state.verdict = PlannerVerdict(
-        project_done=False, reason="the live Route 09 finalizer decides what comes next",
+        project_done=False, summary="the live Route 09 finalizer decides what comes next",
         handoff="engineer",
     )
     return state

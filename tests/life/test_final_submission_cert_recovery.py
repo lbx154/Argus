@@ -276,7 +276,7 @@ def test_completion_uses_separate_execution_workdir(
         state.verdict = PlannerVerdict(
             project_done=True,
             new_tasks=[],
-            reason="The current final submission is independently certified.",
+            summary="The current final submission is independently certified.",
         )
         supervisor._pc_normalize_project_done(state)
         return state.verdict.project_done

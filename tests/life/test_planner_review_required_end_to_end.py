@@ -24,7 +24,7 @@ from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.loop import SkillLoop, SkillLoopConfig
 from argus.planner import PlannerConfig
 from argus.skills.vertical_select import persist_vertical
-from tests.hand_off import hand_off
+from tests.hand_off import hand_off, plan, submit
 
 
 class _PlannerBackend:
@@ -34,7 +34,8 @@ class _PlannerBackend:
 
     def run_exec(self, **kwargs):  # noqa: ANN003
         self.calls.append(kwargs)
-        return RunnerResult(exit_code=0, agent_messages=[self.replies.pop(0)])
+        submit(kwargs["options"], self.replies.pop(0))
+        return RunnerResult(exit_code=0)
 
 
 class _RecordingSink:
@@ -150,15 +151,7 @@ def test_planner_requested_review_runs_real_reviewer_round(tmp_path: Path) -> No
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
     planner = _PlannerBackend([
-        "\n".join([
-            "PROJECT_DONE=false",
-            "REASON=delegate the reviewed bounded repair",
-            "TASK_KEY=reviewed",
-            "TASK_TITLE=Adopt the reviewed bounded candidate",
-            "TASK_OBJECTIVE=Implement the candidate and close it through "
-            "the independent Reviewer.",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
-        ])
+        plan(summary='delegate the reviewed bounded repair', tasks=[{'key': 'reviewed', 'title': 'Adopt the reviewed bounded candidate', 'objective': 'Implement the candidate and close it through the independent Reviewer.', 'require_independent_review': True}])
     ])
     runner = _RealLoopRunner(skills_dir, project)
     memory = LifeMemory.open(life)

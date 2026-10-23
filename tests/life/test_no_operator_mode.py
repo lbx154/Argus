@@ -167,7 +167,7 @@ def _planner_question():
 
     return PlannerVerdict(
         project_done=False,
-        reason="the operator decides which release rule wins",
+        summary="the operator decides which release rule wins",
         handoff="operator",
         operator_question="Which release rule wins?",
     )

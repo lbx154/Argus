@@ -77,20 +77,11 @@ class PlannerRenderingMixin:
         except Exception:  # noqa: BLE001 - planner state must never stop a cycle
             return "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
 
-    def _apply_research_plan_update(self, raw_text: str) -> bool:
-        """Apply an optional full ``PLAN_UPDATE`` block from Planner output."""
-        from ...core.role_reply import read_block
-        from ...planner.planner import _GLOBAL_KEY_VALUE_KEYS
+    def _apply_research_plan_update(self, update: str) -> bool:
+        """Replace the research plan with the Planner's ``plan_update``, when it wrote one."""
         from ..research_plan import replace_research_plan
 
-        # A quoted SETTLE_INSTRUCTION line is plan text, not the end of the plan.
-        keys = (
-            *(key for key in _GLOBAL_KEY_VALUE_KEYS if key != "SETTLE_INSTRUCTION"),
-            "PLAN_UPDATE",
-            "TASK_KEY",
-        )
-        update = read_block(raw_text, "PLAN_UPDATE", keys).strip()
-        if not update or not replace_research_plan(self.memory.root, update):
+        if not update.strip() or not replace_research_plan(self.memory.root, update.strip()):
             return False
         # ``user.note`` is the canonical free-form journal event. The file is
         # already durable if event delivery happens to fail.

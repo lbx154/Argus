@@ -201,9 +201,9 @@ def seed_items_for(project_root: object, stage: str) -> "tuple[Any, ...]":
     if not stage_n:
         return ()
     try:
-        from .stage_machine import _active_vertical_checklist_defs
+        from .stage_machine import active_vertical_checklist_defs
 
-        _order, items = _active_vertical_checklist_defs(project_root)
+        _order, items = active_vertical_checklist_defs(project_root)
         return tuple(items.get(stage_n, ()))
     except Exception:  # noqa: BLE001 — seed lookup must never break planning
         return ()

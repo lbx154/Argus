@@ -21,6 +21,7 @@ from argus.life.supervisor import _planner_failure_backoff as backoff
 from argus.life.supervisor._config import LifeSupervisorConfig
 from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
+from tests.hand_off import plan, submit
 
 DAY_SECONDS = 24 * 3600.0
 # The daemon never sleeps less than its poll interval between passes.
@@ -75,9 +76,10 @@ class _ScriptedPlanner:
                 cached_input_tokens=0,
                 output_tokens=0,
             )
+        if self.reply:
+            submit(options, self.reply)
         return RunnerResult(
             exit_code=0,
-            agent_messages=[self.reply],
             stdout_lines=[],
             stderr_lines=[],
             thread_id="planner-thread",
@@ -88,21 +90,15 @@ class _ScriptedPlanner:
         )
 
 
-_UNREADABLE = "I looked around and I am not sure what to do."
+# A turn that ends without handing off.
+_UNREADABLE = None
 _OUTAGE = "stream error: HTTP 503 Service Unavailable"
-_NOT_DONE_NO_TASKS = "PROJECT_DONE=false\nREASON=still thinking about the next step"
-_ONE_TASK = "\n".join([
-    "PROJECT_DONE=false",
-    "REASON=one concrete step remains",
-    "ADVANCE_TO_STAGE=delivery",
-    "TASK_KEY=write-script",
-    "TASK_TITLE=Write the greeting script",
-    "TASK_OBJECTIVE=Write greet.py that prints hello and run it.",
-    "TASK_SCOPE=bounded",
-    "TASK_STAGE_CLOSING=false",
-    "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-    "TASK_SKIP_STAGE_TRANSITION=false",
-])
+_NOT_DONE_NO_TASKS = plan(summary='still thinking about the next step')
+_ONE_TASK = plan(summary="one concrete step remains", advance_to_stage="delivery", tasks=[{
+    "key": "write-script", "title": "Write the greeting script",
+    "objective": "Write greet.py that prints hello and run it.",
+    "scope": "bounded", "require_independent_review": False,
+}])
 
 
 class _Clock:
@@ -251,21 +247,6 @@ def test_backoff_starts_after_the_free_attempts_and_doubles_to_a_cap() -> None:
     # Jitter spreads the wait but never below half the nominal delay.
     assert all(lo >= hi / 2 for lo, hi in zip(low, high))
 
-
-def test_empty_plan_asks_the_operator_once(tmp_path, monkeypatch) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
-    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
-
-    _drive(supervisor, clock, DAY_SECONDS)
-
-    questions = [
-        item for item in supervisor.memory.backlog.active()
-        if "operator_decision" in item.tags
-    ]
-    assert len(questions) == 1
-    assert len(sink.of(EventType.LIFE_OPERATOR_QUESTION_PENDING)) == 1
 
 
 def test_operator_guidance_reaches_the_held_planner_at_once(tmp_path, monkeypatch) -> None:
@@ -568,7 +549,7 @@ def test_a_stuck_lock_holder_does_not_stall_planning(tmp_path, monkeypatch) -> N
 
 def test_execution_host_failures_are_backend_failures() -> None:
     class Verdict:
-        reason = "Planner execution host is unavailable; repair it before retrying."
+        summary = "Planner execution host is unavailable; repair it before retrying."
         error = "codex: command not found"
 
     assert backoff.planner_failure_kind(Verdict()) == backoff.FAILURE_KIND_BACKEND

@@ -1,29 +1,15 @@
-"""The baton line a role ends its turn with.
+"""The baton lines older role turns wrote, read from prose.
 
-A role ends its turn with prose and one line naming the next holder, the
-baton line of docs/role-handoff-design.md: ``→ reviewer``, ``→ engineer``,
-``→ planner``, ``→ manager``, ``→ operator: <question>`` or ``→ done``. That
-line is the only handoff the host reads; the choices a question offers are
-listed under it, one ``- <answer>`` line each.
+Roles now hand off by filling a form (``core.handoff``). What remains reads
+``→ <holder>`` lines that still appear in text: the observer counts them,
+domain intake reads a question's listed choices, and displays strip them.
 """
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 
 from .contract_resources import contract_schema_path
-from .models import ReviewStatus
-
-#: How a round settles on each holder a handoff names: the Engineer works on,
-#: the Planner replans, the Manager or the operator decides, or the candidate
-#: is accepted. The Reviewer is reached inside the round.
-HANDOFF_STATUS: dict[str, ReviewStatus] = {
-    "engineer": "continue", "planner": "replan_requested",
-    "manager": "blocked", "operator": "blocked", "done": "done",
-}
-#: The rungs an unchanged return climbs, one at a time (invariant 3).
-LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 
 # A ``RESULT=`` line's key, which a person never needs to read.
 _RESULT_KEY = re.compile(
@@ -50,12 +36,6 @@ _BATON = re.compile(
 # A choice listed under an operator question: a bulleted or numbered list item.
 _CHOICE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(?P<choice>\S.*?)\s*$")
 #: How a role offers the operator choices, said once for every role's prompt.
-OPERATOR_CHOICES_RULE = (
-    "Ask on the `→ operator:` line itself; any answers to pick from go one per line below: "
-    "`→ operator: Keep it?`, `- Yes`, `- No`."
-)
-
-
 def _baton(line: str) -> re.Match[str] | None:
     """Match one baton line, unwrapping a line wrapped whole in backticks."""
     line = line.strip()
@@ -97,19 +77,6 @@ def _choices_start(lines: list[str]) -> int:
     return len(lines)
 
 
-@dataclass(frozen=True)
-class Handoff:
-    """The holder a baton line names (one of ``_HOLDERS``), and the question an operator handoff asks.
-
-    ``options`` are the answers listed under that question, as the role wrote
-    them; an open question has none.
-    """
-
-    holder: str
-    question: str = ""
-    options: tuple[str, ...] = ()
-
-
 def baton_lines(text: str) -> list[tuple[str, str]]:
     """Every ``→ <holder>[: <argument>]`` line of ``text``, in order.
 
@@ -120,40 +87,6 @@ def baton_lines(text: str) -> list[tuple[str, str]]:
         for match in map(_baton, str(text or "").splitlines())
         if match
     ]
-
-
-def read_baton_line(text: str) -> Handoff | None:
-    """The handoff a closing ``→ <holder>`` line names, or ``None`` when none can be read.
-
-    Only the decision region is read: after the last ``Decision:``, else the
-    last five non-empty lines above the choices an operator question lists,
-    so an arrow quoted from the task cannot route the work. No line, an
-    unknown holder or two lines that disagree is unreadable; nothing
-    unreadable is ever ``done``. ``operator:`` with nothing after it asks, as
-    written, the last line of prose above it (above ``Decision:`` when there
-    is one) if it lists choices, and is unreadable otherwise. A list that
-    cannot be read as choices leaves the question standing without them.
-    """
-    from .role_reply import _DECISION_FOOTER, decision_footer_text
-
-    source = str(text or "")
-    footer = decision_footer_text(source)
-    lines = [line for line in footer.splitlines() if line.strip()]
-    start = _choices_start(lines)
-    lines, choices = lines[:start], tuple(map(_choice, lines[start:]))
-    if footer == source:
-        lines = lines[-5:]
-    named = set(baton_lines("\n".join(lines)))
-    if len(named) != 1:
-        return None
-    ((holder, argument),) = named
-    if holder == "operator" and not argument and choices:
-        prose = source[:len(source) - len(footer)] if footer != source else "\n".join(lines[:-1])
-        argument = next((line.strip() for line in reversed(prose.splitlines())
-                         if line.strip() and not _DECISION_FOOTER.match(line)), "")
-    if not holder or (holder == "operator" and not argument):
-        return None
-    return Handoff(holder, argument[:500], choices) if holder == "operator" else Handoff(holder)
 
 
 def strip_handoff(text: str) -> str:
@@ -179,12 +112,7 @@ def strip_handoff(text: str) -> str:
 
 
 __all__ = [
-    "HANDOFF_STATUS",
-    "LADDER",
-    "OPERATOR_CHOICES_RULE",
-    "Handoff",
     "baton_lines",
     "listed_choices",
-    "read_baton_line",
     "strip_handoff",
 ]

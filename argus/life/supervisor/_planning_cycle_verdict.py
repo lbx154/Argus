@@ -9,13 +9,11 @@ happens before any handoff/project_done interpretation.
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
-from ...core.mission_view import say
 from ...core.runner_errors import is_execution_host_startup_error
 from ._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
 from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
@@ -71,56 +69,9 @@ class PlanningCycleVerdictMixin:
         self._enter_pause_backoff()
         return PLAN_AWAITING
 
-    def _pause_empty_plan_for_operator(
-        self,
-        state: _PlanCycleState,
-    ) -> str:
-        """Make an exhausted empty plan visible instead of silently backing off."""
-        verdict = state.verdict
-        reason = str(verdict.reason or verdict.error or "").strip()
-        from ...core.autonomy import operator_questions_can_be_asked
-
-        if not operator_questions_can_be_asked():
-            self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "cycle": self._planning_cycles,
-                "error": verdict.error or reason,
-                "raw_text": verdict.raw_text,
-                "operator_alert": False,
-                "recoverable": True,
-                "stop_kind": "planner_empty_plan",
-            })
-            self._emit_status(
-                "planner has no concrete task; operator questions are forbidden, "
-                f"so autonomous retry/backoff remains active: {reason[:240]}"
-            )
-            return PLAN_ERROR
-        question = say(
-            "ask_direction_because" if reason else "ask_direction",
-            self._operator_chinese(), why=reason[:900],
-        )
-        self._enter_pause_backoff()
-        if not self._park_planner_question(state, question, reason):
-            self._emit_status(
-                "planner still has no concrete task; the operator question stays open"
-            )
-            return PLAN_AWAITING
-        self._emit({
-            "type": EventType.LIFE_PLANNER_ERROR,
-            "cycle": self._planning_cycles,
-            "error": verdict.error,
-            "raw_text": verdict.raw_text,
-            "operator_alert": True,
-            "recoverable": True,
-            "stop_kind": "operator_input_required",
-            **self._operator_words("planner_needs_direction"),
-        })
-        self._emit_status("planner has no concrete task; the operator is asked for direction")
-        return PLAN_AWAITING
-
     def _park_planner_question(
         self, state: _PlanCycleState | None, question: str, reason: str,
-        *, options: tuple[str, ...] = (),
+        *, options: tuple[dict[str, Any], ...] = (),
     ) -> bool:
         """Put the planning slot's question to the operator on its one card.
 
@@ -237,13 +188,6 @@ class PlanningCycleVerdictMixin:
                     return PLAN_RETRY
                 state.planner_invoked = True
                 planner_config = self._planner_config()
-                if state.settleable_operator_revisions:
-                    planner_config = replace(
-                        planner_config,
-                        settleable_instructions=tuple(
-                            sorted(state.settleable_operator_revisions)
-                        ),
-                    )
                 state.verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
@@ -267,9 +211,7 @@ class PlanningCycleVerdictMixin:
                     ),
                     config=planner_config,
                 )
-                self._apply_research_plan_update(
-                    getattr(state.verdict, "raw_text", "") or ""
-                )
+                self._apply_research_plan_update(state.verdict.plan_update)
                 # The role session (fresh or resumed) has now been shown this
                 # window and this plan, so the next resumed cycle may send only
                 # what settles after them. A backend error leaves the record
@@ -335,38 +277,6 @@ class PlanningCycleVerdictMixin:
                         "expected_plan_version": state.expected_plan_version,
                     }
                 )
-            reconciliation = ""
-            from ...planner import NO_CONCRETE_TASKS_ERROR
-
-            if str(verdict.error).startswith(NO_CONCRETE_TASKS_ERROR):
-                # "Not done, and I have no task to propose" is the Planner
-                # reporting that the work has run out at this stage — most
-                # sharply on a replan, where the Reviewer has just called the
-                # present direction a dead end. Handing that to the Manager, the
-                # sole stage authority, to roll back or hold is what lets the
-                # Planner enqueue earlier-stage work next cycle and get itself
-                # out. Nothing here judges the science; the Manager decides.
-                #
-                # This was skipped whenever a revision was in flight, which is
-                # exactly when the Planner most needs it: the verdict became a
-                # plain error, the cycle backed off, the pending item was claimed
-                # again, and the same mission reran. One project did that 100
-                # times across 75 hours without ever changing course.
-                reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
-                if not reconciliation and revision_request is None:
-                    # Replaying an unassessed review is post-upgrade recovery;
-                    # during a replan that review has already been assessed —
-                    # assessing it is what produced the revision request.
-                    reconciliation = self._reconcile_reviewed_stage_empty_plan(verdict)
-            if reconciliation in {"advance", "complete", "rollback", "hold"}:
-                # The Manager acted on the empty plan; that is not a failed turn.
-                state.planner_turn_not_failed = True
-            if reconciliation in {"advance", "complete", "rollback"}:
-                return PLAN_RETRY
-            if reconciliation == "hold":
-                return self._pc_complete_terminal_empty_plan(state)
-            if str(verdict.error).startswith(NO_CONCRETE_TASKS_ERROR):
-                return self._pause_empty_plan_for_operator(state)
             content_filtered = _is_content_filter_failure(
                 verdict.error,
                 verdict.raw_text,

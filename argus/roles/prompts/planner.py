@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
-from ...core.role_handoff import OPERATOR_CHOICES_RULE
-from ...core.role_reply import decision_footer_instruction
 from ..task_contract import (
     EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_summary,
@@ -29,14 +27,6 @@ OPERATIONS = frozenset(
 )
 
 
-_PLANNER_DECISION_FOOTER = decision_footer_instruction(
-    "PROJECT_DONE=false\n"
-    "REASON=one clear operator-language sentence with the decision and what happens next\n"
-    "TASK_KEY=k1\n"
-    "TASK_DEPS=\n"
-    "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
-    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
-)
 # The continuous prompt is budgeted (tests/test_planner_prompt_budget.py).
 _PLANNER_CORE_CONTRACT = """
 ## Assigning work
@@ -51,7 +41,7 @@ Plan from the mission workspace only; never read sibling or parent directories.
   number in time? If not, start a smaller end-to-end version. What independent
   work can start this cycle?
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
-  corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
+  corrective OperatorContext may justify a task with `vertical: "argus_maintenance"`.
   Require a harness hypothesis, executable check, exclusions, isolated reviewed
   work, and no counters, detectors, gratuitous inspections, or make-work. Deploy
   only after Reviewer `done` and operator approval.
@@ -61,38 +51,17 @@ Plan from the mission workspace only; never read sibling or parent directories.
   source, issues, or hardware when consequential. Repeated failures require rereading
   primary papers and official code. Performance claims need code-path evidence plus
   timing, profiling, or controlled comparison.
-- Only a complete operator goal permits `project_done=true`. Reviewer `done` closes
+- Only a complete operator goal is `to=done`. Reviewer `done` closes
   direct work; re-review only on request or a gap. Integrity/reproducibility are
-  prerequisites, not directions. Report what happened and what comes next.
-- End with `PROJECT_DONE`/`REASON`; tasks need `TASK_TITLE`/`TASK_OBJECTIVE`.
-  Optional `ADVANCE_TO_STAGE` must be Host-valid; omit to hold. `TASK_SCOPE`
-  defaults to `bounded`. Also: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
-  `TASK_GOAL_CONTRIBUTION`, `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`,
-  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, `TASK_VERTICAL`,
-  `TASK_GPUS`/`TASK_CPUS` (GPUs/cores held; JSON `gpu_count`/`cpu_count`).
-- Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
-  literal, relative `TASK_OWNS_PATHS=a|b` (no wildcards); stage-closing and
-  framework-maintenance work runs alone. The digest shows slots and ownership.
-- Optional `RETIRE_TASK=<item id> | <one-sentence reason>`, one line per item, retires
-  pending refuted/closed work against renamed repeats; never retire running or done work.
-- With nothing new to start, add no `TASK_*` blocks and end with one line naming
-  who acts next: `→ engineer` (the work in flight decides what comes next),
-  `→ manager` (the stage itself blocks you) or `→ operator: <one question>` (only
-  the operator can unblock it). You are called again when something new arrives:
-  a mission ends, the operator writes, the Manager directs. Invent no work that
-  needs results still in flight.
-- """ + OPERATOR_CHOICES_RULE + """
-- REASON and PLAN_REASON are operator-facing: one plain sentence in the operator's
-  language with the decision and next step, as a colleague would say it; no field
-  names, status tokens, routine steps or Argus's own bookkeeping (waiting notes,
-  duplicate tasks), and nothing the last REASON said.
-""" + "\n" + RESEARCHER_VOICE + "\n\n" + _PLANNER_DECISION_FOOTER
+  prerequisites, not directions.
+- End your turn with `hand_off`: the tasks to start, the pending work to retire,
+  any stage to move to, and who acts next.
+""" + "\n" + RESEARCHER_VOICE
 
 _RESEARCH_PLAN_CONTRACT = """## Research plan
 Keep `RESEARCH_PLAN.md` in daemon state. Create it if absent/invalid from the Manager
 brief, OBJECTIVE.md, and journal; update hypotheses, results, or direction changes.
-`PLAN_UPDATE=` ends the footer with full Markdown after tasks/retirements;
-omission keeps it. Use under ~300 lines, in order:
+`plan_update` replaces it with full Markdown; omission keeps it. Use under ~300 lines, in order:
 `# Research plan` and one-sentence objective;
 `## Central hypotheses` (numbered, untested/supported/refuted/abandoned, with
 one-line evidence pointers); `## Experiment program` (most informative next experiments
@@ -119,7 +88,7 @@ _EXTERNAL_TARGET_CONTRACT = (
     "Validation, OOF, calibration, and blend selection must use models fitted without "
     "the scored row labels; a final all-train refit is test-only evidence. "
     "Every task needs "
-    "`TASK_IMPACT_SCORE=1..5`, `TASK_IMPACT_AREA`, and `TASK_EVIDENCE`; reserve "
+    "`impact_score` 1..5, `impact_area` and `evidence`; reserve "
     "4-5 for direct target movement or a proven prerequisite. Controller "
     "feedback files are live truth."
 )
@@ -266,7 +235,7 @@ def build_continuous_prompt(
             research_target_block = (
                 "## Research target\n"
                 f"Preserve `research_target_level={_research_target_level}` from "
-                "`.argus/PIPELINE_STATE.json`; it sets `PROJECT_DONE`, not this "
+                "`.argus/PIPELINE_STATE.json`; it sets `to=done`, not this "
                 f"round (`{_policy.profile}`). At "
                 "`publishable`/`doctoral`, require technical depth, verified originality, "
                 "formal/causal grounding, and field significance. Literature reviews instead "
@@ -418,8 +387,7 @@ def build_continuous_prompt(
         final_submission_scope_block = (
             "## Final-stage task scope\n"
             "For the active vertical's final independent certification task, "
-            "the Planner structured task must emit `scope:\"final_submission\"` "
-            "(legacy key-value: `TASK_SCOPE=final_submission`) so the successful "
+            "the Planner task must set `scope: \"final_submission\"` so the successful "
             "Reviewer judgment can close the final stage. Ordinary prerequisite work "
             "keeps the default scope, and do not use final_submission for "
             "verticals without a certified final stage or research target."
@@ -518,8 +486,8 @@ def build_continuous_resume_prompt(
         research_plan_context = (
             "## Research plan\n"
             "RESEARCH_PLAN.md is unchanged since your previous planning turn; "
-            "the copy already in this session is still current. `PLAN_UPDATE=` "
-            "in your closing lines still replaces it when the direction changes."
+            "the copy already in this session is still current. `plan_update` "
+            "still replaces it when the direction changes."
         )
     else:
         research_plan_context = _RESEARCH_PLAN_CONTRACT + sanitize_model_visible_text(
