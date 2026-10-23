@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -293,28 +292,17 @@ class CommandRouter:
         from ...manager.config_intent import _apply_config_intent
         from ...manager.form import config_intents
         from ...manager.front_door import manager_turn
-        from ...webapi.manager_dispatch import _handle_pending_question_turn, _TurnEmitter
         from ..memory import MemoryBundle
 
         manager_mem = MemoryBundle.for_cwd(
             fingerprint=self.life_dir.name,
             global_root=self.life_dir.parent.parent,
         )
-        # A reply to a waiting question is read as the web chat reads it.
-        answered = _handle_pending_question_turn(
-            manager_mem,
-            [item for item in manager_mem.backlog.active() if item.pending_question.strip()],
-            text,
-            self._state,
-            _TurnEmitter(self.life_dir, f"{self.channel}-{time.time_ns()}", lambda _kind, _payload: None),
-        )
-        if answered is not None:
-            self._reply(_esc(answered["reply"]))
-            return
-
         current_task = select_current_running_item(manager_mem.backlog.active())
         daemon_status = read_daemon_status(self.life_dir)
-        if daemon_status.alive and current_task is not None:
+        # A reply to a waiting question goes to the Manager, which reads it as the web chat does.
+        waiting = any(item.pending_question.strip() for item in manager_mem.backlog.active())
+        if daemon_status.alive and current_task is not None and not waiting:
             from ...core.operator_context import import_deterministic_credential
 
             text, _credential = import_deterministic_credential(
@@ -334,6 +322,11 @@ class CommandRouter:
 
         text = self._redact_credentials(text.strip())
         reply, handoff = manager_turn(manager_mem, text, self._state)
+        if handoff is not None and handoff.get("answer"):
+            from ...webapi.manager_pending_question import apply_manager_answer
+
+            self._reply(_esc(apply_manager_answer(manager_mem, handoff, text).get("reply") or reply or ""))
+            return
         intents = config_intents(handoff.get("config", ())) if handoff is not None else ()
         if intents:
             confirmations: list[str] = []

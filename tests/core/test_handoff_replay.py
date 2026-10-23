@@ -16,6 +16,9 @@ from pathlib import Path
 import pytest
 
 from argus.core.handoff import HandOffActions
+from argus.life.consolidation import KnowledgePage, _check_principles, render_principles
+from argus.life.observer import _remark
+from argus.life.reflection import _check_reflection
 from argus.manager.stage_decider import stage_check
 from argus.planner.planner import _plan
 
@@ -32,7 +35,7 @@ def _shown(payload: dict) -> list[str]:
     """Every string the operator reads from one handoff."""
     ask = payload.get("ask", {})
     return [
-        payload.get("summary", ""), ask.get("question", ""),
+        payload.get("summary", ""), payload.get("remark", ""), ask.get("question", ""),
         *(text for option in ask.get("options", ()) for text in option.values()),
         *(text for row in payload.get("assumptions", ()) for text in row.values()),
     ]
@@ -45,7 +48,7 @@ def test_a_recorded_decision_fills_its_form(form: str, row: dict) -> None:
     actions.dispatch("hand_off", row["payload"])
 
     handoff = actions.handoff
-    assert handoff is not None and handoff.to == row["payload"]["to"]
+    assert handoff is not None and handoff.to == row["payload"].get("to", "")
     assert len(handoff.options) == len(row["payload"].get("ask", {}).get("options", ()))
     for text in _shown(row["payload"]):
         assert not _PROTOCOL.search(text), text
@@ -70,7 +73,7 @@ def test_the_host_reads_a_recorded_plan_as_the_text_readers_did(form: str, row: 
 
 def test_the_replay_covers_every_form_so_far() -> None:
     forms = {form for form, _ in (param.values for param in ROWS)}
-    assert forms == {"engineer", "review", "supervise", "plan", "stage"}
+    assert forms == {"engineer", "review", "supervise", "plan", "stage", "observe", "consolidate", "reflect"}
     assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 3
 
 
@@ -85,3 +88,43 @@ def test_the_host_reads_a_recorded_stage_decision_as_the_text_reader_did(row: di
 
     decision = actions.handoff.value
     assert (decision.action, decision.target_stage) == (row["old"]["action"], row["old"]["target_stage"])
+
+
+def _rows(form: str) -> list[dict]:
+    return [row for name, row in (param.values for param in ROWS) if name == form]
+
+
+@pytest.mark.parametrize("row", _rows("observe"))
+def test_the_host_reads_a_recorded_look_as_the_text_reader_did(row: dict) -> None:
+    actions = HandOffActions("observe", check=_remark, operator_available=False)
+
+    actions.dispatch("hand_off", row["payload"])
+
+    remark, seen_at = actions.handoff.value
+    assert remark == row.get("old_text", "")
+    assert bool(seen_at) == bool(remark) and ".jsonl" not in remark
+
+
+@pytest.mark.parametrize("row", _rows("consolidate"))
+def test_the_host_writes_recorded_principles_as_the_text_reader_did(row: dict) -> None:
+    lessons = [KnowledgePage(Path(path), path, title, "", "lesson", "", "") for path, title in row["titles"].items()]
+    actions = HandOffActions("consolidate", check=partial(_check_principles, lessons=lessons), operator_available=False)
+
+    actions.dispatch("hand_off", row["payload"])
+
+    written = render_principles(
+        actions.handoff.value, vertical=row["vertical"], titles=row["titles"], previous=row["previous"],
+        today=row["today"], lesson_count=row["lessons"],
+    )
+    # The host always closes a principle with a full stop; the model sometimes did.
+    assert written == re.sub(r"\)$", ").", row["old_text"], flags=re.MULTILINE)
+
+
+@pytest.mark.parametrize("row", _rows("reflect"))
+def test_a_recorded_reflection_fills_its_form(row: dict) -> None:
+    fact = {"evidence_refs": row["allowed_refs"]} if "allowed_refs" in row else None
+    actions = HandOffActions("reflect", check=partial(_check_reflection, fact=fact), operator_available=False)
+
+    actions.dispatch("hand_off", row["payload"])
+
+    assert actions.handoff.get("retire") == row["payload"]["retire"]

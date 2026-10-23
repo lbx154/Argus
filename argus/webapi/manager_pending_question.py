@@ -18,76 +18,6 @@ from ..core.mission_view import say, sentences, uses_cjk
 from .manager_dispatch_receipt import record_task_dispatch_ack as record_task_dispatch_ack
 
 
-def _manager_failure_facts(exc: Exception) -> dict[str, Any]:
-    """Preserve the most specific structured/provider cause in an exception chain."""
-    current: BaseException | None = exc
-    structured: BaseException | None = None
-    deepest: BaseException = exc
-    while current is not None:
-        deepest = current
-        if getattr(current, "phase", "") and structured is None:
-            structured = current
-        current = current.__cause__ or current.__context__
-    source = structured or deepest
-    raw_cause = str(getattr(source, "cause", "") or str(source)).strip()
-    from ..core.secret_guard import known_secret_values, redact_secrets_text
-
-    cause = redact_secrets_text(
-        raw_cause,
-        known_values=known_secret_values(),
-    )
-    phase = str(getattr(source, "phase", "") or "").strip()
-    if not phase:
-        phase = "timeout" if isinstance(source, TimeoutError) else "backend"
-    backend_error = redact_secrets_text(
-        str(getattr(source, "backend_error", "") or "").strip(),
-        known_values=known_secret_values(),
-    )
-    if phase in {"backend", "timeout"} and not backend_error:
-        backend_error = cause
-    return {
-        "phase": phase,
-        "cause": cause,
-        "contract_field": str(
-            getattr(source, "contract_field", "") or ""
-        ).strip(),
-        "attempts": max(1, int(getattr(source, "attempts", 1) or 1)),
-        "model_reply_snippet": str(
-            getattr(source, "model_reply_snippet", "") or ""
-        )[:300],
-        "backend_error": backend_error,
-        **(
-            {"login_required": True}
-            if bool(getattr(source, "login_required", False))
-            else {}
-        ),
-    }
-
-
-def _emit_pending_question_failure(
-    mem: Any,
-    item: Any,
-    facts: dict[str, Any],
-    *,
-    error: str,
-    answer_preserved: bool,
-) -> None:
-    from ..life.event_log import JsonlEventSink
-
-    JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
-        "type": "life.manager.intent.failed",
-        "agent_layer": "manager",
-        "intent_id": f"pending-question-{item.id}-{time.time_ns()}",
-        "item_id": item.id,
-        "source": "operator_answer",
-        "objective": f"interpret pending question answer for item {item.id}",
-        "error": error,
-        **facts,
-        "answer_preserved": answer_preserved,
-        "text": "manager pending-question interpretation failed",
-    })
-
-
 def _bridge():
     """Lazily resolve ``manager_bridge`` so tests that monkeypatch
     ``manager_bridge._lock_for`` (etc.) still take effect for calls made
@@ -126,83 +56,6 @@ def _emit_ui_turn(
         JsonlEventSink(None, life_dir=life_dir).append(event)
     except Exception:  # noqa: BLE001 — Activity mirroring must never break chat
         pass
-
-
-_PQ_KEYS = ("IS_ANSWER", "RESOLVED", "DECISION", "REPLY")
-
-
-def _named_pending_question_decision(text: str) -> dict[str, Any] | None:
-    """The Manager's ruling as stated on named lines, or ``None`` if absent.
-
-    Both booleans must actually be present. Defaulting a missing one to False
-    would turn any reply this reader could not understand into a confident
-    "that was not an answer", which is the operator being told their message was
-    ignored because we failed to read our own role's output.
-
-    DECISION and REPLY are read as blocks: an instruction for the Planner is
-    prose and regularly spans lines.
-    """
-    from ..core.role_reply import read_block, read_key_values
-
-    values = read_key_values(text, _PQ_KEYS)
-    if "IS_ANSWER" not in values or "RESOLVED" not in values:
-        return None
-    truthy = {"true", "yes", "y", "1", "on"}
-    falsy = {"false", "no", "n", "0", "off"}
-    raw_answer = values["IS_ANSWER"].strip().casefold()
-    raw_resolved = values["RESOLVED"].strip().casefold()
-    if raw_answer not in truthy | falsy or raw_resolved not in truthy | falsy:
-        return None
-    is_answer = raw_answer in truthy
-    resolved = raw_resolved in truthy
-    decision = read_block(text, "DECISION", _PQ_KEYS).strip()
-    reply = read_block(text, "REPLY", _PQ_KEYS).strip()
-    if resolved and (not is_answer or not decision):
-        return None
-    return {
-        "is_answer": is_answer,
-        "resolved": resolved,
-        "decision": decision,
-        "reply": reply,
-    }
-
-
-def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
-    named = _named_pending_question_decision(text)
-    if named is not None:
-        return named
-    cleaned = str(text or "").strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines).strip()
-    candidates = [cleaned]
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if 0 <= start < end:
-        candidates.append(cleaned[start : end + 1])
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except ValueError:
-            continue
-        if (
-            not isinstance(payload, dict)
-            or not isinstance(payload.get("is_answer"), bool)
-            or not isinstance(payload.get("resolved"), bool)
-        ):
-            continue
-        decision = str(payload.get("decision") or "").strip()
-        reply = str(payload.get("reply") or "").strip()
-        if payload["resolved"] and (not payload["is_answer"] or not decision):
-            continue
-        return {
-            "is_answer": payload["is_answer"],
-            "resolved": payload["resolved"],
-            "decision": decision,
-            "reply": reply,
-        }
-    return None
 
 
 def _decision_stale(reason: str) -> dict[str, Any]:
@@ -690,155 +543,22 @@ def _apply_operator_answer(
     }
 
 
-def _resolve_pending_question_with_manager(
-    mem: Any,
-    item: Any,
-    answer: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-    decision_option: str = "custom",
-    decision_id: str = "",
-    decision_note: str = "",
-) -> dict[str, Any]:
-    from ..core.operator_context import (
-        import_deterministic_credential,
-        persist_once_answer,
-    )
-    from ..core.run_gateway import current_run_interrupt_reason
-    from ..manager.front_door import manager_judgment
-    from ..roles.prompts.manager import build_pending_question_prompt
+def apply_manager_answer(mem: Any, handoff: Any, operator_text: str) -> dict[str, Any]:
+    """Apply the operator's answer the Manager read off its turn (``answer`` of the ``manager`` form).
 
-    cancelled_result = {
-        "answered_item_id": item.id, "answer_intent": False,
-        "resolved": False, "cancelled": True, "reply": "",
-    }
-    if current_run_interrupt_reason():
-        return cancelled_result
-    root = Path(mem.project_root)
-    answer, _credential = import_deterministic_credential(
-        root,
-        answer,
-        global_root=(
-            root.parent.parent if root.parent.name == "projects" else None
-        ),
-    )
-    prompt = build_pending_question_prompt(item, answer)
-    try:
-        # The prompt is self-contained. A full SELF turn resumed the Manager's
-        # conversation and wrapped it in ~26k characters of persona, recall,
-        # Skills and project evidence.
-        manager_reply = manager_judgment(
-            mem, prompt, chat_state,
-            run_label="manager-pending-answer", root_task_id=root_task_id,
-        )
-    except Exception as exc:  # noqa: BLE001
-        if current_run_interrupt_reason():
-            return cancelled_result
-        facts = _manager_failure_facts(exc)
-        raw_error = f"{type(exc).__name__}: {facts['cause']}"
-        failure_kind = (
-            f"{facts['phase']}, login_required"
-            if facts.get("login_required")
-            else facts["phase"]
-        )
-        message = (
-            "Manager pending-question interpretation failed "
-            f"[{failure_kind}]: {facts['cause']}. "
-            "This message has not been classified as an answer; the pending "
-            "question is unchanged. Retry after the interpretation problem is resolved."
-        )
-        _emit_pending_question_failure(
-            mem,
-            item,
-            facts,
-            error=raw_error,
-            answer_preserved=False,
-        )
-        return {
-            "error": message,
-            "answered_item_id": item.id,
-            "answer_preserved": False,
-            **facts,
-        }
-    # A provider can finish with buffered output after cancellation. The
-    # caller's later reply fence cannot undo an answer promoted to authority.
-    if current_run_interrupt_reason():
-        return cancelled_result
-    parsed = _parse_pending_question_decision(manager_reply or "")
-    if parsed is None:
-        from ..manager.domain_author import sanitize_model_reply_snippet
+    The form's check already tied it to a task waiting on a question.
+    """
+    from ..core.operator_context import persist_once_answer
 
-        snippet = sanitize_model_reply_snippet(manager_reply or "")
-        if snippet:
-            phase = "contract"
-            cause = (
-                "pending_question_decision rejected: IS_ANSWER and RESOLVED "
-                "must be booleans, and a resolved answer requires DECISION"
-            )
-        else:
-            phase = "parse"
-            cause = "model reply was empty; expected a pending-question decision"
-        facts = {
-            "phase": phase,
-            "cause": cause,
-            "contract_field": "pending_question_decision",
-            "attempts": 1,
-            "model_reply_snippet": snippet,
-            "backend_error": "",
-        }
-        raw_error = "Manager pending-question decision contract failed"
-        _emit_pending_question_failure(
-            mem,
-            item,
-            facts,
-            error=raw_error,
-            answer_preserved=False,
-        )
-        return {
-            "error": f"Manager pending-question interpretation failed [{phase}]: {cause}",
-            "answered_item_id": item.id,
-            "answer_preserved": False,
-            **facts,
-        }
-    if not parsed["is_answer"]:
-        return {
-            "answered_item_id": item.id,
-            "answer_intent": False,
-            "resolved": False,
-            "reply": "",
-        }
-    # The caller already journals the real conversation turn. Only a positive
-    # answer classification may promote it into research-role instructions.
-    if current_run_interrupt_reason():
-        return cancelled_result
-    answer_record = persist_once_answer(
-        mem.project_root,
-        answer,
-        source="operator.pending_answer",
-        mission_id=str(item.id),
+    answer = handoff.get("answer")
+    item = next(row for row in mem.backlog.active() if row.id == answer["item"])
+    record = persist_once_answer(
+        mem.project_root, operator_text, source="operator.pending_answer", mission_id=str(item.id),
     )
-    if current_run_interrupt_reason():
-        return cancelled_result
-    if not parsed["resolved"]:
-        return {
-            "answered_item_id": item.id,
-            "answer_intent": True,
-            "resolved": False,
-            "reply": parsed["reply"] or "Please clarify the requested decision.",
-        }
-
     result = _apply_operator_answer(
-        mem,
-        item,
-        answer,
-        manager_decision=parsed["decision"],
-        manager_reply=parsed["reply"],
-        decision_option=decision_option,
-        decision_id=decision_id,
-        decision_note=decision_note,
-        operator_context_persisted=True,
-        operator_context_revision=answer_record.revision,
+        mem, item, operator_text, manager_decision=answer["decision"], manager_reply=handoff.summary,
+        decision_option=answer.get("option", "custom"),
+        operator_context_persisted=True, operator_context_revision=record.revision,
     )
     if result.get("resolved") and result.get("resume_requested"):
         _keep_recorded_campaign_stop(mem, result)

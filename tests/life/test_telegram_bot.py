@@ -278,7 +278,6 @@ def _judged(monkeypatch, *, is_answer: bool, decision: str = "", reply: str = ""
             "is_answer": is_answer, "resolved": is_answer, "decision": decision, "reply": reply,
         })
 
-    monkeypatch.setattr(front_door, "manager_judgment", judge)
     return seen
 
 
@@ -290,47 +289,3 @@ def _no_new_task(monkeypatch) -> list[str]:
         lambda _mem, text, _state, persist, **_k: persist(text, None),
     )
     return triaged
-
-
-def test_a_numbered_reply_answers_the_parked_question(tmp_path, monkeypatch) -> None:
-    """No task runs, one question waits: "2" answers it, as in the web chat."""
-    router, life_dir, replies = _router(tmp_path)
-    item = _park_question(life_dir, "api", ("Keep the v1 API", "Ship the v2 schema"))
-    seen = _judged(monkeypatch, is_answer=True, decision="Ship the v2 schema.", reply="Going with v2.")
-    triaged = _no_new_task(monkeypatch)
-
-    router.dispatch("2")
-
-    assert "1. Keep the v1 API\n2. Ship the v2 schema" in seen[0]
-    assert seen[0].endswith("Operator response:\n2")
-    (row,) = LifeMemory.open(life_dir).backlog.all()
-    assert row.id == item.id and row.pending_question == ""
-    assert "Ship the v2 schema." in row.objective
-    assert (replies, triaged) == (["Going with v2."], [])
-
-
-def test_a_reply_that_is_not_an_answer_is_handled_as_before(tmp_path, monkeypatch) -> None:
-    router, life_dir, replies = _router(tmp_path)
-    item = _park_question(life_dir, "api", ("Keep the v1 API", "Ship the v2 schema"))
-    seen = _judged(monkeypatch, is_answer=False)
-    monkeypatch.setattr(front_door, "manager_turn", replying(lambda *_a, **_k: "在的，有什么需要我处理？"))
-
-    router.dispatch("在吗")
-
-    assert len(seen) == 1
-    (row,) = LifeMemory.open(life_dir).backlog.all()
-    assert row.id == item.id and row.pending_question == item.pending_question
-    assert replies == ["在的，有什么需要我处理？"]
-
-
-def test_with_several_questions_waiting_a_reply_answers_none_of_them(tmp_path, monkeypatch) -> None:
-    """As in the web chat: each is answered from its own card."""
-    router, life_dir, _replies = _router(tmp_path)
-    questions = {_park_question(life_dir, title).id for title in ("api", "data")}
-    seen = _judged(monkeypatch, is_answer=True, decision="Use v2.")
-    triaged = _no_new_task(monkeypatch)
-
-    router.dispatch("2")
-
-    assert seen == [] and triaged == ["2"]
-    assert {row.id for row in LifeMemory.open(life_dir).backlog.all() if row.pending_question} == questions

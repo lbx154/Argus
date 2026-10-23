@@ -262,19 +262,3 @@ def test_the_question_event_carries_the_options_a_role_listed(project, channel) 
     ]
     assert events[0]["options"] == ["Keep the v1 API", "Ship the v2 schema"]
     assert "1. Keep the v1 API\n2. Ship the v2 schema" in channel[0]
-
-
-def test_a_numbered_reply_reaches_the_manager_with_the_options_it_numbers() -> None:
-    from argus.roles.prompts.manager import build_pending_question_prompt
-
-    item = SimpleNamespace(
-        id="item-1", title="api", objective="ship the api", pending_question="Which requirement wins?",
-        operator_decision={"options": [{"id": "option-1", "label": "Keep the v1 API"},
-                                       {"id": "option-2", "label": "Ship the v2 schema"}]},
-    )
-
-    prompt = build_pending_question_prompt(item, "2")
-
-    assert "Answers offered, by number:\n1. Keep the v1 API\n2. Ship the v2 schema\n\n" in prompt
-    assert prompt.endswith("Operator response:\n2")
-    assert "Answers offered" not in build_pending_question_prompt(_item(objective="o"), "CIFAR")

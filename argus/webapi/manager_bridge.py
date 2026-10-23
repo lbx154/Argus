@@ -19,7 +19,6 @@ from .manager_dispatch import (
     _build_handoff,
     _cancelled_result,
     _dispatch_team_mission,
-    _handle_pending_question_turn,
     _item_to_dict,
     _manager_request_scope,
     _settle_manager_turn,
@@ -53,7 +52,6 @@ def manager_message(
     domain_answer: dict[str, Any] | None = None,
     turn_id: str = "",
     launch: dict[str, Any] | None = None,
-    pending_question_checked: str = "",
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -74,7 +72,7 @@ def manager_message(
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
             defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
-            turn_id=turn_id, launch=launch, pending_question_checked=pending_question_checked,
+            turn_id=turn_id, launch=launch,
         )
 
 
@@ -93,7 +91,6 @@ def _manager_message(
     domain_answer: dict[str, Any] | None = None,
     turn_id: str = "",
     launch: dict[str, Any] | None = None,
-    pending_question_checked: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -298,28 +295,8 @@ def _manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
 
-        pending_result = None
-        checked_question = ""
-        if not explicit_chat and domain_answer is None:
-            pending_questions = [
-                item
-                for item in mem.backlog.active()
-                if item.pending_question.strip()
-            ]
-            if len(pending_questions) == 1:
-                checked_question = (
-                    f"{pending_questions[0].id}\n{pending_questions[0].pending_question.strip()}"
-                )
-            # A message queued for model capacity was already checked against
-            # this same question; each retry once paid for that check again.
-            if not (checked_question and checked_question == pending_question_checked):
-                pending_result = _handle_pending_question_turn(
-                    mem, pending_questions, body, chat_state, emitter
-                )
         if _cancelled():
             return _cancelled_result()
-        if pending_result is not None:
-            return pending_result
 
         if reference_context:
             body = f"{body}\n\n{reference_context}"
@@ -340,7 +317,9 @@ def _manager_message(
             try:
                 if choice_action in {"ask", "prepare", "dialogue"}:
                     emitter.phase(say("gathering_options", uses_cjk(operator_text)))
-                    domain_decision = manager_intake_decision(mem, chat_state, operator_text, root_task_id=root_task_id)
+                    domain_decision = manager_intake_decision(
+                        mem, chat_state, operator_text, root_task_id=root_task_id, on_fragment=emitter.fragment,
+                    )
                     if _cancelled():
                         return _cancelled_result()
                 intake = handle_intake(life_dir, operator_text, domain_decision, route="simple",

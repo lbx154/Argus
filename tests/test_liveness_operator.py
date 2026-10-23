@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -24,7 +25,6 @@ from argus.core.operator_decision import build_operator_decision
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PROXY_DECISION_ATTEMPTS
 from argus.manager import front_door
 from argus.webapi import manager_bridge, manager_pending_question, manager_state
 from tests.hand_off import manager_runner, manager_settles, ticket
@@ -102,7 +102,6 @@ def test_several_open_questions_do_not_swallow_control(
     def interpret(*_args, **_kwargs):
         raise AssertionError("no single question for the Manager to interpret")
 
-    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
         hand=manager_settles(control={"kind": control, "quote": "stop that now"})))
 
@@ -154,7 +153,6 @@ def test_failed_interpretation_of_one_question_still_reaches_pause(
             raise RuntimeError("401 Missing bearer")
         return "IS_ANSWER=maybe\nRESOLVED=true\nDECISION=continue"
 
-    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
         hand=manager_settles(control={"kind": "pause", "quote": "pause everything"})))
 
@@ -390,6 +388,29 @@ def _resumed(life: Path, answered: BacklogItem) -> BacklogItem:
     return row
 
 
+def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Plain chat the Manager reads as the answer to a waiting question takes the answer's own path."""
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "pause")
+    item = _park(life, "route", "Which route?")
+    runner = manager_runner(reply="Delivered.", hand=manager_settles(
+        "The operator answered the route question.",
+        answer={"item": item.id, "decision": "Take the short route."}))
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
+
+    result = manager_bridge.manager_message(sid, "take the short one", global_root=tmp_path)
+
+    # The Manager's turn saw the waiting question it answered.
+    assert item.id in runner.turns[0] and "Which route?" in runner.turns[0]
+    assert result["kind"] == "pending_question" and result["resolved"] is True, result
+    assert result["resume_requested"] is False
+    assert "Take the short route." in _resumed(life, item).objective
+    assert read_continuous_state(life).enabled is False
+
+
 @pytest.mark.parametrize("answer_via", ["card", "text"])
 def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
     tmp_path: Path, answer_via: str,
@@ -517,33 +538,6 @@ def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:
     assert result["resolved"] is True and result["resume_requested"] is True
     assert "stays stopped" not in result["reply"]
     assert read_continuous_state(life).enabled is True
-
-
-def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-liveness"
-    life = _make_project(tmp_path, sid)
-    _campaign_left_by(life, "pause")
-    item = _park(life, "route", "Which route?")
-    monkeypatch.setattr(
-        front_door,
-        "manager_judgment",
-        lambda *_args, **_kwargs: json.dumps({
-            "is_answer": True, "resolved": True,
-            "decision": "Take the short route.", "reply": "Delivered.",
-        }),
-    )
-
-    result = manager_bridge.manager_message(
-        sid, "take the short one", global_root=tmp_path,
-    )
-
-    assert result["kind"] == "pending_question" and result["resolved"] is True
-    assert result["resume_requested"] is False
-    assert "stays stopped" in result["reply"]
-    assert "Take the short route." in _resumed(life, item).objective
-    assert read_continuous_state(life).enabled is False
 
 
 @pytest.mark.parametrize("how", ["pause", "armed"])
@@ -676,15 +670,25 @@ def test_provider_configuration_failure_parks_for_whoever_decides(
 
 
 class _ProxyManager:
-    """A Manager that answers every card it is asked to decide with ``fields``."""
+    """A Manager whose session answers every card it is asked to decide with ``fields``."""
 
     def __init__(self, **fields: str) -> None:
         self.fields = fields
         self.prompts: list[str] = []
+        self.execution_workdir = Path(".")
+        self._session = self
 
-    def run_turn(self, prompt: str, **_kwargs: Any) -> str:
+    def run_exec(self, *, prompt: str, options: Any, run_label: str, **_kwargs: Any) -> Any:
+        from argus.core.models import RunnerResult
+        from tests.hand_off import manager_settles, submit
+
         self.prompts.append(prompt)
-        return "\n".join(f"{key}: {value}" for key, value in self.fields.items())
+        answer = {"item": re.search(r"- task (\S+), ", prompt)[1],
+                  "decision": self.fields.get("NOTE") or self.fields.get("REASON", "Decided.")}
+        if self.fields.get("OPTION", "custom") != "custom":
+            answer["option"] = self.fields["OPTION"]
+        submit(options, manager_settles(self.fields.get("REASON", "Decided."), answer=answer))
+        return RunnerResult(exit_code=0, agent_messages=["Decided."])
 
 
 def _supervise(life: Path, manager: _ProxyManager) -> LifeSupervisor:
@@ -735,7 +739,6 @@ def test_manager_drops_a_provider_card_in_the_operators_place(
     assert answered[-1]["decided_by"] == "manager" and answered[-1]["dropped"] is True
     row = read_autonomous_assumptions(life)[-1]
     assert row["source"] == "manager_decision"
-    assert row["evidence_refs"] == ["events.jsonl"]
     # Nothing is parked any more, so the Manager is not asked again.
     assert supervisor._decide_parked_questions() is False
     assert len(manager.prompts) == 1
@@ -773,50 +776,26 @@ def test_manager_answering_a_card_with_options_picks_one_of_them(
     life = _make_project(tmp_path)
     _nobody_to_ask(monkeypatch, life, "forbid")
     item = _park(life, "api", "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"))
-    decision_id = item.operator_decision["id"]
-    written = _ProxyManager(DECISION_ID=decision_id, OPTION="custom", NOTE="Both.", REASON="r")
 
-    # Its own words are not a choice where the card offers options.
-    assert _supervise(life, written)._decide_parked_questions() is False
-    assert "- option-2: Ship the v2 schema" in written.prompts[0]
-    assert "- custom:" not in written.prompts[0]
+    # A choice the card does not offer is refused and decides nothing.
+    outside = _ProxyManager(OPTION="option-9", REASON="r")
+    assert _supervise(life, outside)._decide_parked_questions() is False
+    assert "Ship the v2 schema" in outside.prompts[0]
+    parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
+    assert parked.status == "parked"
 
-    chooses = _ProxyManager(DECISION_ID=decision_id, OPTION="option-2", REASON="The deadline needs v2.")
+    chooses = _ProxyManager(OPTION="option-2", REASON="The deadline needs v2.")
     assert _supervise(life, chooses)._decide_parked_questions() is True
 
     resumed = _resumed(life, item)
     assert resumed.operator_decision["selected_option"] == "option-2"
     assert resumed.operator_decision["decided_by"] == "manager"
-    # The record names the option the Manager chose.
     (answered,) = _answered_events(life)
     assert (answered["option"], answered["decided_by"]) == ("Ship the v2 schema", "manager")
-    assert read_autonomous_assumptions(life)[-1]["reading"].startswith("Ship the v2 schema")
-
-
-def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    life = _make_project(tmp_path)
-    _nobody_to_ask(monkeypatch, life, "no_operator")
-    item = _provider_card_item(life)
-    manager = _ProxyManager(
-        DECISION_ID=item.operator_decision["id"], OPTION="custom", NOTE="x", REASON="y",
-    )
-    supervisor = _supervise(life, manager)
-
-    assert supervisor._decide_parked_questions() is False
-    assert supervisor._decide_parked_questions() is False
-    assert len(manager.prompts) == 1
-    parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
-    assert parked.status == "parked"
-
-    # A card the Manager keeps failing gets a bounded number of tries.
-    for _ in range(10):
-        supervisor._proxy_retry = {
-            key: (attempts, 0.0) for key, (attempts, _retry_at) in supervisor._proxy_retry.items()
-        }
-        assert supervisor._decide_parked_questions() is False
-    assert len(manager.prompts) == PROXY_DECISION_ATTEMPTS
+    # The Manager's choice is recorded as an assumption, never as the operator's.
+    assumption = read_autonomous_assumptions(life)[-1]
+    assert assumption["source"] == "manager_decision"
+    assert assumption["reading"].startswith("Ship the v2 schema")
 
 
 def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(

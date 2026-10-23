@@ -9,7 +9,6 @@ from argus.core.operator_context import OperatorContextStore
 from argus.core.operator_decision import build_operator_decision
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import BacklogItem, MemoryBundle
-from argus.manager import front_door
 from argus.webapi import manager_pending_question
 
 
@@ -166,13 +165,6 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     monkeypatch,
 ) -> None:
     mem, card = _bound_blocked_project(tmp_path)
-    monkeypatch.setattr(
-        front_door,
-        "manager_judgment",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("explicit decisions must not require a model call")
-        ),
-    )
     first = manager_pending_question.manager_resolve_operator_decision(
         "s-decision",
         card["id"],
@@ -219,13 +211,6 @@ def test_campaign_generation_change_does_not_block_pending_decision(
         enabled=True,
         objective="a newer standing objective",
     )
-    monkeypatch.setattr(
-        front_door,
-        "manager_judgment",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("explicit decisions must not require a model call")
-        ),
-    )
 
     result = manager_pending_question.manager_resolve_operator_decision(
         "s-decision",
@@ -246,13 +231,6 @@ def test_concurrent_same_decision_returns_accepted_and_already_applied(
     monkeypatch,
 ) -> None:
     mem, card = _bound_blocked_project(tmp_path)
-    monkeypatch.setattr(
-        front_door,
-        "manager_judgment",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("explicit decisions must not require a model call")
-        ),
-    )
 
     def resolve():
         return manager_pending_question.manager_resolve_operator_decision(

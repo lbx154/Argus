@@ -36,7 +36,7 @@ describe("task submap evidence", () => {
     const rows = buildSubmap({ ...task, status: "failed" }, [
       event("e1", "life.mission.started"),
       event("e2", "round.start", { round_index: 1 }),
-      event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict.\n→ manager" }),
+      event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict." }),
       event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "blocked",
         text: "Requirements conflict." }),
     ], true);
@@ -314,11 +314,9 @@ it("keeps late unnumbered observations moving right without crossing earlier rou
 it("shows the result prose without runner-control fields", () => {
   expect(
     readableRecord(
-      "Decision:\nRESULT=完成 200 个独立种子。\n→ reviewer",
+      "Decision:\nRESULT=完成 200 个独立种子。",
     ),
   ).toBe("完成 200 个独立种子。");
-  expect(readableRecord("完成 200 个独立种子。\n→ reviewer")).toBe("完成 200 个独立种子。");
-  expect(readableRecord("等结果。\n- → 经理: `seed-200`")).toBe("等结果。");
 });
 
 it("reuses geometry for streaming prose while recalculating changed content bounds", () => {

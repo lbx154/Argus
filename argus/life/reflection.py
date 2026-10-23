@@ -34,20 +34,21 @@ from ..core import paths as core_paths
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
+from ..core.handoff import HandOffActions
 from ..core.knobs import learning_enabled, resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
 from ..core.paths import NATIVE_SKILLS_DIR
+from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..wiki.auto_hooks import discover_wikis
-from ..wiki.correct import RETIRE_PREFIX, retire_named
+from ..wiki.correct import retire_named
 from ..wiki.journal import append_knowledge_event
 from ..wiki.schema import parse_page
 
 log = logging.getLogger(__name__)
 
 RECEIPT_RELATIVE = Path(".argus") / "REFLECTED.json"
-_REVIEWED_FACT_PREFIX = "REVIEWED_FACT:"
 MISSION_RUN_LABEL = "reflection"
 PROMPT_CHAR_LIMIT = 12_000
 _MAX_EXISTING_TITLES = 40
@@ -410,10 +411,8 @@ def _reviewed_facts_section(candidate: dict[str, Any] | None, pointer: str) -> s
         "The Reviewer confirmed the research result below. Decide whether it belongs "
         "in the cross-campaign reviewed-facts digest. "
         + REVIEWED_FACT_CRITERIA
-        + " The host writes the digest; do not edit it. Your final message must end "
-        f"with one line: `{_REVIEWED_FACT_PREFIX} "
-        '{"fact": "<prose>", "evidence_refs": ["<ref>"]}` with refs copied verbatim '
-        f"from the allowed refs, or `{_REVIEWED_FACT_PREFIX} none`.\n"
+        + " The host writes the digest; do not edit it. Answer in reviewed_fact of your "
+        "hand_off, with refs copied verbatim from the allowed refs.\n"
         f"Reviewer reason: {sanitize_model_visible_text(candidate.get('reviewer_reason') or '')}\n"
         "Research result summary (key fields pulled out by code):\n"
         f"{sanitize_model_visible_text(candidate.get('summary') or '')}\n"
@@ -422,31 +421,18 @@ def _reviewed_facts_section(candidate: dict[str, Any] | None, pointer: str) -> s
     )
 
 
-_NO_FACT = "none"
-
-
-def _reviewed_fact_line(text: str) -> dict[str, Any] | str | None:
-    """The last ``REVIEWED_FACT:`` answer of the final message.
-
-    An object is a fact to keep, ``"none"`` an explicit decision to keep none,
-    and ``None`` means the message gave no readable answer.
-    """
-    found: dict[str, Any] | str | None = None
-    for raw in str(text or "").splitlines():
-        line = raw.strip().strip("`").strip()
-        if not line.upper().startswith(_REVIEWED_FACT_PREFIX):
-            continue
-        body = line[len(_REVIEWED_FACT_PREFIX):].strip().strip("`").strip()
-        if body.lower().rstrip(".") == _NO_FACT:
-            found = _NO_FACT
-            continue
-        try:
-            value = json.loads(body)
-        except ValueError:
-            continue
-        if isinstance(value, dict):
-            found = value
-    return found
+def _check_reflection(payload: dict[str, Any], *, fact: dict[str, Any] | None) -> None:
+    """The ``reflect`` form's rule: the digest judgment is answered exactly when asked, from its refs."""
+    judged = payload.get("reviewed_fact")
+    if bool(fact) != (judged is not None):
+        raise ValueError("reviewed_fact: answer it when a reviewed fact is put to you, and only then.")
+    if not judged:
+        return
+    if judged["keep"] != ("fact" in judged and "evidence_refs" in judged):
+        raise ValueError("reviewed_fact: keep=true goes with fact and evidence_refs, and they only with it.")
+    outside = set(judged.get("evidence_refs", ())) - set(fact.get("evidence_refs") or ())
+    if outside:
+        raise ValueError(f"reviewed_fact.evidence_refs: {', '.join(sorted(outside))} is not an allowed ref.")
 
 
 def judge_reviewed_fact_alone(
@@ -596,13 +582,11 @@ def build_reflection_prompt(
         "already is edited, not duplicated.\n\n"
         "A saved page this task showed wrong for the current facts, or whose problem has "
         "since been fixed (a lesson above, or a page the run account names), is retired, "
-        f"not written around: add a line `{RETIRE_PREFIX} <full path> — <why>` before the "
-        "WROTE line and the host takes it out of the library, recording why.\n\n"
+        "not written around: name it in retire of your hand_off and the host takes it out "
+        "of the library, recording why.\n\n"
         "You may write only inside these directories:\n"
         + "\n".join(f"- `{item}`" for item in writable)
-        + "\nDo not edit anything else. Finish with one line: `WROTE: <paths>` or "
-        "`WROTE: nothing`"
-        + (" (then the reviewed-fact line described below)." if reviewed_fact else "."),
+        + "\nDo not edit anything else. End with hand_off.",
     ]
     prompt = _bounded_prompt(sections, PROMPT_CHAR_LIMIT)
     facts = _reviewed_facts_section(reviewed_fact, reviewed_fact_pointer)
@@ -783,22 +767,22 @@ def _reflect_after_mission(
         add_dirs.append(str(operator_root))
     failure = ""
     stop_kind = ""
+    options = RunnerOptions(
+        model=resolve_light_model(backend=getattr(backend, "backend", None)),
+        reasoning_effort=resolve_light_effort(),
+        sandbox_mode="workspace-write",
+        skip_git_repo_check=True,
+        working_dir=str(workspace),
+        add_dirs=add_dirs,
+        write_dirs=add_dirs,
+        skill_paths=[],
+    )
+    actions = HandOffActions(
+        "reflect", check=lambda payload: _check_reflection(payload, fact=reviewed_fact), operator_available=False,
+    )
     try:
-        result = gateway_run_exec(
-            backend,
-            prompt=prompt,
-            options=RunnerOptions(
-                model=resolve_light_model(backend=getattr(backend, "backend", None)),
-                reasoning_effort=resolve_light_effort(),
-                sandbox_mode="workspace-write",
-                skip_git_repo_check=True,
-                working_dir=str(workspace),
-                add_dirs=add_dirs,
-                write_dirs=add_dirs,
-                skill_paths=[],
-            ),
-            run_label=MISSION_RUN_LABEL,
-        )
+        with role_actions(backend, options, actions) as bound:
+            result = gateway_run_exec(backend, prompt=prompt, options=bound, run_label=MISSION_RUN_LABEL)
     except Exception as exc:  # noqa: BLE001 - the mission result is already committed
         failure = f"{type(exc).__name__}: {exc}"
         result = None
@@ -814,14 +798,14 @@ def _reflect_after_mission(
         failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
         stop_kind = str(getattr(result, "stop_kind", "") or "")
 
-    answer = "" if failure or result is None else (result.last_agent_message or "")
+    form = None if failure else actions.handoff
     fact_recorded = False
     if reviewed_fact:
-        chosen = _reviewed_fact_line(answer)
+        chosen = form.get("reviewed_fact") if form else None
         if chosen is None:
             # The call that carried the judgment failed or gave no answer to it.
             judge_alone()
-        elif isinstance(chosen, dict):
+        elif chosen["keep"]:
             from ..manager.reviewed_facts import append_judged_fact
 
             fact_state["handled"] = True
@@ -837,14 +821,14 @@ def _reflect_after_mission(
             fact_state["handled"] = True
 
     retired: list[str] = []
-    if RETIRE_PREFIX in answer.upper():
+    if form and form.get("retire"):
         from .knowledge_recall import knowledge_roots
 
         # A page is retired where recall would show it to this project.
         libraries = {root.library: (root.scope, root.vertical)
                      for root in knowledge_roots(life_dir, global_root, workspace)
                      if root.library is not None}
-        retired = retire_named(answer, libraries, retired_by="reflection", global_root=global_root,
+        retired = retire_named(form.get("retire"), libraries, retired_by="reflection", global_root=global_root,
                                mission_id=mission_id)
     after = _snapshot(path for root, _scope in roots for path in _markdown_files(root))
     created_paths, updated_paths = _changed(before, after)

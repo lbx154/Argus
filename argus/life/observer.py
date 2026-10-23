@@ -14,16 +14,17 @@ the tools reading needs. Within a task it resumes its session and reads only
 the events added since its last look; the session ends with the task, and
 planning, which belongs to no task, is looked at afresh each time. A turn
 nobody took, such as a Planner call skipped on unchanged inputs, is not looked
-at, nor the turn that ends the work (``→ done``, or the Planner declaring the
-project done): after it nothing is left to flow. When all is well it says nothing and leaves no record of its own. A remark
-is one ``life.observer.note`` event, naming its task, for the Manager, who
+at, nor the turn that ends the work (a handoff to done, or the Planner declaring
+the project done): after it nothing is left to flow. Each look ends with the
+``observe`` form; when all is well it leaves the remark out and no record of
+its own. A remark is one ``life.observer.note`` event, naming its task and the
+event times it rests on, for the Manager, who
 hears it through its supervision and decides what to do; with no Manager, or
 once the task is delivered, the operator gets it as an alert.
 """
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -32,12 +33,12 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
+from ..core.handoff import HandOffActions
 from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
+from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec
 
 LOG = logging.getLogger(__name__)
-# A remark's pointer into the record ("(events.jsonl ts …)"), in either script.
-_EVIDENCE = re.compile(r"\s*[(（][^()（）]*events\.jsonl[^()（）]*[)）]")
 
 RUN_LABEL = "observer"
 #: The roles whose turns the Observer looks at.
@@ -72,21 +73,21 @@ def _earlier_remarks(root: Path) -> list[str]:
         raw_markers=(EventType.LIFE_OBSERVER_NOTE.value.encode(),),
         predicate=lambda row: row.get("type") == EventType.LIFE_OBSERVER_NOTE,
     )
-    return [str(row.get("evidence") or row.get("text") or "") for row in rows]
+    return [str(row.get("text") or "") for row in rows]
 
 
-def remarks(reply: str) -> list[str]:
-    """The ``→ manager: <remark>`` line of a reply; the last one counts."""
-    from ..core.role_handoff import baton_lines
-
-    return [text for to, text in baton_lines(reply) if to == "manager" and text][-1:]
+def _remark(payload: dict[str, Any]) -> tuple[str, tuple[float, ...]]:
+    """The ``observe`` form's rule: a remark says where it was seen, and only a remark does."""
+    if ("remark" in payload) != ("seen_at" in payload):
+        raise ValueError("remark and seen_at go together: leave both out when the flow is fine.")
+    return payload.get("remark", ""), tuple(payload.get("seen_at", ()))
 
 
 def look(
     backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str,
     session: tuple[str, float] | None = None,
-) -> tuple[list[str], str]:
-    """One look at the flow up to the turns that just ended: remarks worth making, and its session.
+) -> tuple[tuple[str, tuple[float, ...]] | None, str]:
+    """One look at the flow up to the turns that just ended: a new remark and where it was seen, and its session.
 
     ``session`` is the task's session so far, the thread and when its last
     look began: the look resumes it and reads only the events since. Raises
@@ -101,24 +102,27 @@ def look(
         root=root, turns=turns, said=said, chinese=session_is_chinese(load_mission_view(root)),
         since=since,
     )
-    result = run_exec(
-        backend, prompt=prompt, run_label=RUN_LABEL, resume_thread_id=thread or None,
-        options=RunnerOptions(
-            model=model or None, reasoning_effort="low",
-            working_dir=str(root), skip_git_repo_check=True,
-            # The Engineer's access: full outside safe mode, full-auto inside it.
-            full_auto=True,
-            # It only reads the event log: tools for writing, agents and
-            # GitHub/web search stay out of its requests.
-            lean_tool_surface=True,
-            excluded_tools=(*READING_ROLE_UNUSED_COPILOT_TOOLS, "apply_patch"),
-            disabled_mcp_servers=("github-mcp-server",),
-        ),
+    options = RunnerOptions(
+        model=model or None, reasoning_effort="low",
+        working_dir=str(root), skip_git_repo_check=True,
+        # The Engineer's access: full outside safe mode, full-auto inside it.
+        full_auto=True,
+        # It only reads the event log: tools for writing, agents and
+        # GitHub/web search stay out of its requests.
+        lean_tool_surface=True,
+        excluded_tools=(*READING_ROLE_UNUSED_COPILOT_TOOLS, "apply_patch"),
+        disabled_mcp_servers=("github-mcp-server",),
     )
+    actions = HandOffActions("observe", check=_remark, operator_available=False)
+    with role_actions(backend, options, actions) as bound:
+        result = run_exec(
+            backend, prompt=prompt, run_label=RUN_LABEL, resume_thread_id=thread or None, options=bound,
+        )
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
         raise RuntimeError(f"the Observer's call ended with exit code {getattr(result, 'exit_code', '?')}")
-    reply = "\n".join(getattr(result, "agent_messages", None) or [])
-    heard = [remark for remark in remarks(reply) if remark not in said]
+    heard = actions.handoff.value if actions.handoff else None
+    if heard and (not heard[0] or heard[0] in said):
+        heard = None
     return heard, str(getattr(result, "thread_id", "") or "")
 
 
@@ -237,19 +241,18 @@ class ObserverSink:
         delivered = _ended(root, task)
         if thread and task and not delivered:
             watch.sessions[task] = (thread, began)
-        for text in heard:
-            try:
-                self._say(task, text, delivered)
-            except Exception:  # noqa: BLE001 - an unsaid remark is not recorded as said
-                LOG.warning("the Observer's remark was not delivered", exc_info=True)
+        if heard is None:
+            return
+        try:
+            self._say(task, *heard, delivered)
+        except Exception:  # noqa: BLE001 - an unsaid remark is not recorded as said
+            LOG.warning("the Observer's remark was not delivered", exc_info=True)
 
-    def _say(self, task: str, text: str, delivered: bool) -> None:
+    def _say(self, task: str, text: str, seen_at: tuple[float, ...], delivered: bool) -> None:
         """One remark on ``task``, as one event: for the Manager, else an alert for the operator."""
-        event: dict[str, Any] = {"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "text": text}
-        # Readers see the remark; where it was seen stays on record.
-        said = _EVIDENCE.sub("", text).strip()
-        if said and said != text:
-            event.update(text=said, evidence=text)
+        event: dict[str, Any] = {
+            "type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "text": text, "seen_at": list(seen_at),
+        }
         if task:
             event["item_id"] = task
         if self.supervisor.manager is None or delivered:
@@ -260,4 +263,4 @@ class ObserverSink:
         self.supervisor._emit(event)
 
 
-__all__ = ["ObserverSink", "RUN_LABEL", "look", "remarks", "settle"]
+__all__ = ["ObserverSink", "RUN_LABEL", "look", "settle"]

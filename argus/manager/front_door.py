@@ -1142,23 +1142,14 @@ def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
     )
 
 
-def manager_judgment(mem: Any, prompt: str, chat_state: dict[str, Any], *,
-                     run_label: str, root_task_id: str | None = None) -> str:
-    """One stateless, read-only Manager turn on a self-contained prompt.
-
-    Unlike :func:`manager_turn` it neither resumes nor advances the
-    Manager's conversation. ``""`` when no Manager is available or it said nothing.
-    """
-    manager = getattr(_ensure_manager_runner(chat_state, mem), "manager", None)
-    if manager is None:
-        return ""
-    return manager.run_turn(prompt, run_label=run_label, root_task_id=root_task_id)
-
-
 def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                  on_fragment: Any = None, root_task_id: str | None = None,
-                 team_allowed: bool = True) -> "tuple[str | None, HandOff | None]":
+                 team_allowed: bool = True, setup: str = "") -> "tuple[str | None, HandOff | None]":
     """Hand one operator message to the Manager's session: its reply, and what it handed off.
+
+    The tasks paused on a question for the operator go with the message, so the
+    Manager can apply its answer. ``setup`` is the state of a workflow setup
+    under way with the operator, which the message continues.
 
     The reply is ``None`` only when no Manager is available. A failed turn
     replies with the failure and sets ``chat_state["_self_failure"]``.
@@ -1171,7 +1162,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     from ..core.operator_messages import humanize_runtime_reason
     from ..provider_integrations.authorization_retry import BackendLoginRequired
     from ._session_ops import reset_manager_session
-    from .form import manager_actions
+    from .form import manager_actions, waiting_questions
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
@@ -1254,14 +1245,19 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                 captured.append(text)
                 _fragment("delta", {"text": text, "message_id": self._message_id, "fragment_mode": "snapshot"})
 
+    waiting, waiting_text = waiting_questions(
+        [item for item in mem.backlog.active() if item.pending_question.strip()],
+    )
     actions = manager_actions(
-        body, active_mission=mission_is_running(mem), team_allowed=team_allowed,
+        body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,
+        waiting=waiting, setting_up=bool(setup),
         route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
                       allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
     )
     try:
         outcome = runner.manager_turn(
-            message=body, sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
+            message="\n\n".join(part for part in (setup, body, waiting_text) if part),
+            sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
             phase_cb=_phase, root_task_id=root_task_id,
         )
     except BackendLoginRequired:
@@ -1310,7 +1306,6 @@ __all__ = [
     "manager_execution_task",
     "manager_bounded_handoff",
     "manager_continuous_handoff",
-    "manager_judgment",
     "manager_turn",
     "mission_is_running",
     "prepare_manager_execution_task",

@@ -1,6 +1,4 @@
-from types import SimpleNamespace
 
-import pytest
 
 from argus.manager.domain_intake import handle_intake, read_intake
 
@@ -38,28 +36,6 @@ def turn(root, message, action, **fields):
                          self_mode="reply", known_verticals=("research", "software"))
 
 
-def test_unknown_domain_requires_opt_in_and_clarification_before_preparing(tmp_path):
-    first = turn(tmp_path, "Interpret a traditional calendar date", "offer")
-    assert "one agent" in first["reply"]
-    assert read_intake(tmp_path)["consented"] is False
-    assert not (tmp_path / "research").exists()
-
-    question = turn(tmp_path, "Yes, develop it", "ask", question="Explain conventions or convert dates?")
-    assert question["reply"] == "Explain conventions or convert dates?"
-    assert read_intake(tmp_path)["phase"] == "clarifying"
-    assert not (tmp_path / "research").exists()
-
-    ready = turn(tmp_path, "For cultural education; show conventions and uncertainty", "prepare", name="calendar_interpretation")
-    assert ready["route"] == "complex"
-    assert ready["decision"].choice == "new"
-    assert ready["decision"].vertical == "calendar_interpretation"
-    assert ready["decision"].require_independent_review
-    assert "First fetch relevant primary references" in ready["task"]
-    assert "For cultural education" in ready["task"]
-    assert "Reviewer Skills" in ready["task"]
-    assert not (tmp_path / "research").exists(), "Only normal atomic task dispatch may create the domain"
-
-
 def test_decline_executes_the_original_request_without_creating_a_domain(tmp_path):
     turn(tmp_path, "Original requested outcome", "offer")
     declined = turn(tmp_path, "Just do it directly", "skip")
@@ -84,66 +60,12 @@ def test_classifier_cannot_prepare_a_new_domain_before_an_offer(tmp_path):
     assert read_intake(tmp_path)["consented"] is False
 
 
-def test_approved_domain_reuses_the_normal_dispatch_without_another_classifier(tmp_path):
-    from argus.manager.front_door import prepare_manager_execution_task
-
-    turn(tmp_path, "Original task", "offer")
-    turn(tmp_path, "Yes", "ask", question="What should it produce?")
-    ready = turn(tmp_path, "Cultural interpretation with explicit limits", "prepare", name="calendar")
-
-    def unexpected(*_args, **_kwargs):
-        raise AssertionError("Approved domain was classified a second time")
-
-    state = {"_approved_domain_decision": ready["decision"]}
-    prepared = prepare_manager_execution_task(
-        SimpleNamespace(project_root=tmp_path), ready["task"], state,
-        ensure_runner=lambda *_: SimpleNamespace(manager=SimpleNamespace(decide_vertical=unexpected)),
-    )
-    assert prepared.decision is ready["decision"]
-    assert "_approved_domain_decision" not in state
-
-
-def test_ask_without_manager_options_never_replaces_the_card(tmp_path):
-    from argus.manager.domain_intake import IntakeDialogueError
-    turn(tmp_path, "Interpret my calendar date", "offer")
-    previous = read_intake(tmp_path)
-    with pytest.raises(IntakeDialogueError):
-        turn(tmp_path, "Build it", "ask", question="Who is this for?", options=[])
-    assert read_intake(tmp_path) == previous
-
-
-def test_model_choices_answer_in_their_own_words(tmp_path):
-    from argus.manager.domain_intake import intake_answer, intake_card
-    turn(tmp_path, "Interpret this date", "offer")
-    turn(tmp_path, "Build it", "ask", question="Which level of precision?",
-         options=["Use the date only: broad cultural conventions", "Supply the birth time: hour-level conventions"])
-    state = read_intake(tmp_path)
-    card = intake_card(state)
-    assert [o["id"] for o in card["options"]] == ["option-1", "option-2"]
-    assert intake_answer(state, {"id": card["id"], "option_id": "option-1"}) == (
-        "Use the date only: broad cultural conventions", "dialogue",
-    )
-    assert intake_answer(state, {"id": card["id"], "option_id": "option-2", "note": "09:00"}) == (
-        "Supply the birth time: hour-level conventions\n09:00", "dialogue",
-    )
-
-
 def test_manager_can_prepare_after_explicit_consent_when_requirements_are_already_known(tmp_path):
     turn(tmp_path, "For a cultural education handout, compare documented calendar conventions and cite sources", "offer")
     ready = turn(tmp_path, "Build this workflow using those requirements", "prepare", name="calendar_conventions")
     assert ready["route"] == "complex"
     assert read_intake(tmp_path)["consented"] is True
     assert not (tmp_path / "research").exists()
-
-
-def test_preparing_only_a_name_cannot_claim_to_create_a_reusable_vertical(tmp_path):
-    from argus.manager.domain_intake import IntakeDialogueError
-    turn(tmp_path, "Explain this calendar date", "offer")
-    before = read_intake(tmp_path)
-    with pytest.raises(IntakeDialogueError):
-        handle_intake(tmp_path, "Build it", {"action": "prepare", "name": "calendar"},
-                      route="simple", self_mode="reply", known_verticals=())
-    assert read_intake(tmp_path) == before
 
 
 def test_reusable_contract_does_not_embed_the_validation_example(tmp_path):

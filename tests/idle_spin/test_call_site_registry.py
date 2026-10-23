@@ -74,12 +74,6 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-project-grounding", "manager-research-target"),
     ),
     Site(
-        r"manager-domain-dialogue", FOREGROUND,
-        "One step of the operator's domain-intake conversation.",
-        ("argus/manager/domain_intake.py:100",),
-        ("manager-domain-dialogue",),
-    ),
-    Site(
         r"manager-ask", FOREGROUND,
         "Answers one question asked through /ask on the web or `argus ask`.",
         ("argus/webapi/manager_bridge.py:240", "argus/apps/cli/_core.py:1343"),
@@ -108,12 +102,6 @@ REGISTRY: tuple[Site, ...] = (
         "Answers one operator message, retried at most once for a stalled or tool-less turn.",
         ("argus/apps/_self_reply.py:921", "argus/webapi/manager_state.py:221"),
         ("simple-1", "manager-quick-reply", "self-micro", "self-implement"),
-    ),
-    Site(
-        r"manager-pending-answer", FOREGROUND,
-        "Reads one operator message against the one question a parked task is waiting on.",
-        ("argus/webapi/manager_pending_question.py:735",),
-        ("manager-pending-answer",),
     ),
     Site(
         r"reader-(foundation|application)", FOREGROUND,
@@ -272,7 +260,6 @@ PASS_THROUGH = {
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec", "run_label"),
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec._run_exec", "run_label"),
     ("argus/manager/_stage_ops.py", "run_turn", "run_label"),
-    ("argus/manager/front_door.py", "manager_judgment", "run_label"),
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),

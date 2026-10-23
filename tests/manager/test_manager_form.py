@@ -76,3 +76,32 @@ def test_the_ticket_carries_goal_checks_limits_and_readings():
     assert text.startswith("比较三个向量数据库")
     for line in ("- 报告含延迟对比", "- 只用开源", "- notes/brief.md", "- 单机部署 (not: 集群)"):
         assert line in text
+
+
+def test_an_answer_names_a_waiting_task_and_one_of_its_offered_answers() -> None:
+    from argus.manager.form import manager_actions
+
+    actions = manager_actions("v2", active_mission=False, operator_available=True, waiting={"m-1": ["option-1"]})
+    base = {"to": "manager", "summary": "Taking v2.", "assumptions": []}
+    for answer, refusal in (
+        ({"item": "m-9", "decision": "Use v2."}, "waiting on the operator"),
+        ({"item": "m-1", "option": "option-7", "decision": "Use v2."}, "answer.option"),
+    ):
+        with pytest.raises(ValueError, match=refusal):
+            actions.dispatch("hand_off", {**base, "answer": answer})
+    actions.dispatch("hand_off", {**base, "answer": {"item": "m-1", "option": "option-1", "decision": "Use v2."}})
+    assert actions.handoff.get("answer")["option"] == "option-1"
+
+
+def test_a_workflow_setup_is_whole_and_only_while_one_is_under_way() -> None:
+    from argus.manager.form import manager_actions
+
+    settle = {"to": "manager", "summary": "Prepared.", "assumptions": [], "workflow_setup": {"action": "prepare"}}
+    with pytest.raises(ValueError, match="No workflow setup"):
+        manager_actions("go", active_mission=False).dispatch("hand_off", settle)
+    setting_up = manager_actions("go", active_mission=False, setting_up=True)
+    with pytest.raises(ValueError, match="name, purpose, brief"):
+        setting_up.dispatch("hand_off", settle)
+    with pytest.raises(ValueError, match="two to four"):
+        setting_up.dispatch("hand_off", {"to": "operator", "summary": "Asking.", "assumptions": [], "ask": {
+            "question": "Which scope?", "options": [{"label": str(n)} for n in range(5)]}})

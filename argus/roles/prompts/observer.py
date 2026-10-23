@@ -20,7 +20,7 @@ def build_observer_prompt(
 ) -> str:
     """The first look at a task carries the whole brief; a resumed look, from ``since``, only what is new."""
     ended = "\n".join(map(_turn_line, turns))
-    earlier = "\n".join(f"→ manager: {text}" for text in said) or "(none)"
+    earlier = "\n".join(f"- {text}" for text in said) or "(none)"
     if since:
         return (
             "## Another look\n"
@@ -28,7 +28,7 @@ def build_observer_prompt(
             "the events from then on; the earlier ones are already in this conversation:\n"
             f"{ended}\n"
             f"Your earlier remarks:\n{earlier}\n"
-            f"Write a remark {operator_language(chinese)}.\n"
+            f"End with hand_off; a remark {operator_language(chinese)}.\n"
         )
     return (
         "## The Observer\n"
@@ -58,12 +58,11 @@ def build_observer_prompt(
         "`run_label` names the role; `role.session.turn` ends a turn, with `duration_ms`;\n"
         "- cost: usage.jsonl, with `run_label`, `cost_usd` and `completed_at`;\n"
         "- planning: `life.planner.start`, and `life.planner.verdict` with what it decided.\n\n"
-        "## Reply\n"
-        "When the flow is fine, say so in a few words and write no arrow line.\n"
-        "When it is off, write one line for the Manager, who decides what to do:\n"
-        "→ manager: <one sentence> (<where you saw it, e.g. events.jsonl ts ...>)\n"
-        "Say a thing once: repeat an earlier remark only with new evidence. Write the "
-        f"sentence {operator_language(chinese)}.\n\n"
+        "## Ending the look\n"
+        "End every look with hand_off. When the flow is fine, leave remark out. When it is "
+        "off, the remark goes to the Manager, who decides what to do; a remark on a task is "
+        "answered by the team's next turn, not by new planning. Say a thing once: repeat an "
+        f"earlier remark only with new evidence. Write the remark {operator_language(chinese)}.\n\n"
         "## This look\n"
         "These turns just ended. Read the flow back to where their task started, not only "
         "these turns; for the Planner, back to when a task last started or finished:\n"

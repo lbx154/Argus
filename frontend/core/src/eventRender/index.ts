@@ -741,7 +741,7 @@ function roundVerdict(event: TypedArgusEvent, status: string, context: RenderCon
       '': ['the Reviewer gave no verdict', '审阅者没有给出结论'],
       other: ['the Reviewer asked for another pass', '审阅者要求再改一轮'],
     },
-    // Each holder the Engineer names settles as one status (HANDOFF_STATUS, argus/core/role_handoff.py).
+    // Each holder the Engineer names settles as one status (HANDOFF_STATUS, argus/core/handoff.py).
     engineer: {
       done: ['the Engineer checked its own work and called it done', '工程师自查后认为做完了'],
       blocked: ['the Engineer handed the work to the Manager to decide', '工程师把工作交给经理定夺'],

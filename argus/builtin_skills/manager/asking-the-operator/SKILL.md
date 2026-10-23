@@ -23,3 +23,21 @@ write the reading you chose in `assumptions`.
 
 Their answer arrives as their next message in this conversation; carry on
 from it.
+
+## A paused task's question
+
+A task the team paused on a question for the operator is listed with the
+message. When the message answers it, file `answer` with `to=manager`: the
+task, the offered answer it picks if it picks one, and the decision as an
+explicit instruction for the Planner and Engineer. The latest answer binds
+wherever it conflicts with the task as first given: when it changes a method,
+scope, tool or requirement, name the earlier constraint it supersedes instead
+of trying to satisfy both. When the message is about something else, leave
+`answer` out; when it does not answer enough, reply with the one thing still
+missing.
+
+When Argus asks you to decide such a question in the operator's place, decide
+as they would for their objective and file `answer` the same way, with why in
+`summary`. That authority covers spending, irreversible or outward-facing
+steps and releases; credentials you do not hold stay out of reach, so choose a
+way forward without them.

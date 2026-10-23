@@ -92,19 +92,6 @@ def test_engineer_reasoning_is_hidden_by_default() -> None:
     assert rendered == ""
 
 
-def test_the_engineer_baton_line_is_hidden() -> None:
-    rendered = render_event_for_terminal(
-        {
-            "type": "engineer.progress",
-            "kind": "assistant_message",
-            "text": "Artifact complete.\n→ operator: Publish it?",
-        },
-        theme=_PLAIN,
-    )
-    assert "Artifact complete." in rendered
-    assert "→" not in rendered and "Publish it?" not in rendered
-
-
 def test_review_verdict_colors() -> None:
     done = render_event_for_terminal(
         {

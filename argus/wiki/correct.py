@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 import yaml
 
@@ -40,7 +40,6 @@ HISTORY_DIRNAME = ".history"
 HISTORY_HEADING = "## History"
 # A kept copy is named ``<stem>.<HISTORY_STAMP>[-<n>]<suffix>``, in UTC.
 HISTORY_STAMP = "%Y%m%dT%H%M%SZ"
-RETIRE_PREFIX = "RETIRE:"
 _FRONT_MATTER_CHARS = 8_000
 _TEXT_LIMIT = 4_000
 # Lines that open something other than a prose paragraph.
@@ -416,31 +415,22 @@ def retire_page(
     return kept
 
 
-def retirement(line: str) -> tuple[str, str] | None:
-    """The page and reason a ``RETIRE: <page> — <reason>`` line names; None for any other line."""
-    line = line.strip().lstrip("-*").strip().strip("`").strip()
-    if line[:len(RETIRE_PREFIX)].upper() != RETIRE_PREFIX:
-        return None
-    page, _, reason = line[len(RETIRE_PREFIX):].strip().partition(" ")
-    return page.strip("`").rstrip(":"), reason.strip().lstrip("—–-:").strip()
-
-
 def retire_named(
-    text: str,
+    rows: Iterable[Mapping[str, str]],
     libraries: dict[Path, tuple[str, str]],
     *,
     retired_by: str,
     global_root: str | Path,
     mission_id: str = "",
 ) -> list[str]:
-    """Carry out the ``RETIRE: <page> — <reason>`` lines of a model's reply.
+    """Retire the pages a model named, each a ``{"page", "why"}`` row of its form.
 
     The model judges which pages no longer hold; the host only retires a named
     page that sits in one of ``libraries`` (library root to its scope and
     vertical) and records it. Returns the pages retired, as named.
     """
     retired: list[str] = []
-    for page, reason in filter(None, map(retirement, str(text or "").splitlines())):
+    for page, reason in ((row["page"], row["why"]) for row in rows):
         for library, (scope, vertical) in libraries.items():
             try:
                 retire_page(
@@ -464,11 +454,9 @@ __all__ = [
     "HISTORY_DIRNAME",
     "HISTORY_HEADING",
     "HISTORY_STAMP",
-    "RETIRE_PREFIX",
     "PageCorrection",
     "PageCorrectionError",
     "correct_page",
     "retire_named",
     "retire_page",
-    "retirement",
 ]

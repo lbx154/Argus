@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -502,47 +501,6 @@ def test_read_adapter_serves_legacy_steering(tmp_path: Path) -> None:
         for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()
     ]
     assert [row["revision"] for row in rows] == [1, 2]
-
-
-def test_unclassified_pending_message_does_not_become_an_engineer_directive(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from argus.core.transcript import append_turn, read_turns
-    from argus.manager import front_door
-    from argus.webapi.manager_pending_question import (
-        _resolve_pending_question_with_manager,
-    )
-
-    monkeypatch.setattr(
-        front_door,
-        "manager_judgment",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("401 Missing bearer")
-        ),
-    )
-    item = SimpleNamespace(
-        id="blocked-item",
-        title="Blocked item",
-        objective="Continue after operator authorization.",
-        pending_question="May the technical route proceed?",
-    )
-    answer = "Always decide reversible infrastructure choices without asking me."
-    append_turn(tmp_path, "operator", answer)
-
-    result = _resolve_pending_question_with_manager(
-        SimpleNamespace(project_root=tmp_path),
-        item,
-        answer,
-        {},
-    )
-    block, revision = build_operator_context_block("engineer", tmp_path)
-
-    assert result["answer_preserved"] is False
-    assert revision == 0
-    assert answer not in block
-    assert not (tmp_path / "operator_context.jsonl").exists()
-    assert read_turns(tmp_path)[0]["text"] == answer
 
 
 def test_credential_import_keeps_raw_key_out_of_context(

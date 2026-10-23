@@ -16,7 +16,7 @@ from typing import Any, Callable, Sequence
 from ...core import paths as core_paths
 from ...core.json_codec import loads_finite_json
 from ...core.mission_view import uses_cjk
-from ...core.role_handoff import strip_handoff
+from ...core.role_reply import visible_text
 from ...core.secret_guard import known_secret_values, redact_secrets_text
 from ...life.memory import Backlog
 from .._inbox import format_inbox_event
@@ -437,7 +437,7 @@ def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -
                 f" {reason}" if reason else ""
             )
     body = _clean_follow_text(
-        strip_handoff(text),
+        visible_text(text),
         limit=None,
     )
     return "💭 " + body

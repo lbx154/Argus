@@ -17,10 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.mission_view import say, uses_cjk
-from .manager_pending_question import (
-    _emit_ui_turn,
-    _resolve_pending_question_with_manager,
-)
+from .manager_pending_question import _emit_ui_turn
 from .manager_state import _chat_state_for, _lock_for, manager_control_generation
 
 
@@ -519,73 +516,6 @@ class _TurnEmitter:
         return {"reply": text, **result}
 
 
-def _handle_pending_question_turn(
-    mem: Any,
-    pending_questions: list[Any],
-    body: str,
-    chat_state: dict[str, Any],
-    emitter: _TurnEmitter,
-) -> dict[str, Any] | None:
-    """Resolve the operator turn against outstanding pending questions.
-
-    Returns a terminal result dict only when the Manager read the turn as an
-    answer to the one open question. Otherwise it returns ``None`` and
-    ``manager_message`` continues its normal classify/triage/dispatch flow.
-
-    A question parks its own task, never the operator's control channel. With
-    several open questions, or when the Manager could not interpret the turn
-    at all, consuming it here used to swallow PAUSE, ABORT, configuration
-    changes and new work until every question was answered. Those turns now
-    reach their handlers; nothing is promoted to an answer without a positive
-    classification, and the open questions stay exactly as they were.
-    """
-    from ..life.memory import BacklogItem
-
-    if len(pending_questions) == 1:
-        emitter.phase(
-            "正在核对你的回答与已暂停的任务…"
-            if uses_cjk(body)
-            else "Checking your answer against the paused task…"
-        )
-        result = _resolve_pending_question_with_manager(
-            mem,
-            pending_questions[0],
-            body,
-            chat_state,
-            root_task_id=BacklogItem.new_id(),
-        )
-        if result.get("cancelled"):
-            # Preserve the first observed signal even for a consumptive
-            # callback; never fall through to classification or emit a reply.
-            return _cancelled_result()
-        if result.get("error") and result.get("answer_preserved") is False:
-            # Interpretation failed before any classification: the turn is
-            # not an answer and the question is unchanged. Treat it like any
-            # other turn rather than hold the control channel on the failure.
-            emitter.phase(
-                "未能判断这是否是对已暂停任务的回答；问题仍保留，本条消息按普通消息处理。"
-                if uses_cjk(body)
-                else "Could not tell whether this answers the paused task; the "
-                "question stays open and this message is handled normally."
-            )
-            return None
-        if result.get("answer_intent") is not False:
-            reply = str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(body))
-            return emitter.respond(reply, {"kind": "pending_question", **result})
-        return None
-    if len(pending_questions) > 1:
-        # No single question this turn could answer. Each one is answered
-        # from its own Needs you prompt; this turn is an ordinary message.
-        emitter.phase(
-            f"{len(pending_questions)} 个任务在等你的回答，请在各自的“需要你”提示中回答；"
-            "本条消息按普通消息处理。"
-            if uses_cjk(body)
-            else f"{len(pending_questions)} tasks are waiting for your answer; "
-            "answer each from its Needs you prompt. This message is handled normally."
-        )
-    return None
-
-
 def _standing_notice_text(instruction: str) -> str:
     text = " ".join(str(instruction or "").split())
     if len(text) > 60:
@@ -968,6 +898,14 @@ def _settle_manager_turn(
     # Argus applies what the Manager filed and confirms it after its reply.
     emitter.journal(reply, {"kind": "chat"})
     emitter.turn_id = f"{emitter.turn_id}-applied"
+    if handoff.get("answer"):
+        from .manager_pending_question import apply_manager_answer
+
+        result = apply_manager_answer(mem, handoff, operator_text)
+        return emitter.respond(
+            str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(operator_text)),
+            {"kind": "pending_question", **result},
+        )
     control = handoff.get("control", {})
     if handoff.get("authorization"):
         return _handle_authorization_control(
