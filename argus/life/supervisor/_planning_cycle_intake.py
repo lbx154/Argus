@@ -272,17 +272,6 @@ class PlanningCycleIntakeMixin:
                 ([operator_context] if operator_context else [])
             )
         )
-        if not state.had_operator_messages and not state.has_unhandled_operator_input:
-            from ...manager.supervision import waiting_for_evidence
-
-            if waiting_for_evidence(operator_context_state_root(self.memory)):
-                # A WAIT is the Manager's answer to exactly the evidence it
-                # judged: keeping work on the operator's question is no new
-                # input for the Planner. It never freezes the project: any
-                # change to that evidence, or operator words, ends it. The
-                # operator already hears what is waiting on them, once.
-                self._enter_idle_backoff()
-                return PLAN_AWAITING
         if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()

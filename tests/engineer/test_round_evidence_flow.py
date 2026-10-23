@@ -11,6 +11,7 @@ from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.engineer import round_evidence as registry
 from argus.engineer.round_evidence import RoundEvidence, RoundEvidenceRequest
+from tests.hand_off import hand_off
 
 SKILL_MD = (
     "## Title\nDemo\n\n## Description\nFixed playbook.\n\n## Category\ndemo\n\n"
@@ -21,7 +22,7 @@ _NOT_A_GATE = "weigh them as evidence, they are not a gate"
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return "submit_review", {"review": "r; do the next thing\n→ " + ("done" if status == "done" else "engineer")}
+    return hand_off("done" if status == "done" else "engineer", "r", "do the next thing")
 
 
 def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
@@ -40,9 +41,9 @@ def _queue_two_rounds(backend: MemoryBackend) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="rv1"))
     backend.queue("engineer-r2", CannedResponse(message="r2 work", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="rv2"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv2"))
 
 
 def _prompts_by_label(backend: MemoryBackend) -> dict[str, list[str]]:
@@ -111,7 +112,7 @@ def test_silent_provider_adds_no_evidence(tmp_path: Path, monkeypatch: pytest.Mo
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv1"))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful
@@ -128,7 +129,7 @@ def test_raising_provider_does_not_break_the_round(tmp_path: Path, monkeypatch: 
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv1"))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful

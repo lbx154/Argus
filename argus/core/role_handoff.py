@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 from .contract_resources import contract_schema_path
 from .models import ReviewStatus
-from .role_decision import ROLE_DECISION_PREFIX
 
 #: How a round settles on each holder a handoff names: the Engineer works on,
 #: the Planner replans, the Manager or the operator decides, or the candidate
@@ -30,8 +29,6 @@ LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 _RESULT_KEY = re.compile(
     r"(?im)^[ \t]*(?:[-*+][ \t]*)?[`*_]*(?:ARGUS_)?RESULT[`*_]*[ \t]*[:=][ \t]*"
 )
-# A role-decision event line (``core.role_decision``): read by the host, never by a person.
-_ROLE_DECISION_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]*)?`?" + re.escape(ROLE_DECISION_PREFIX))
 # The holders a baton line may name, in English or by the role names the
 # operator sees; the older Chinese names stay readable. The frontend hides
 # these lines by the same names (generated from the same contract).
@@ -162,8 +159,8 @@ def read_baton_line(text: str) -> Handoff | None:
 def strip_handoff(text: str) -> str:
     """The prose of a handoff, as a person reads it.
 
-    The baton line with the choices listed under it, a role-decision event
-    line and the ``Decision:`` footer the host reads (``ACTION=hold``, …) go;
+    The baton line with the choices listed under it and the ``Decision:``
+    footer the host reads (``ACTION=hold``, …) go;
     a ``RESULT=`` line keeps its sentence, which was always written for the
     operator.
     """
@@ -177,7 +174,7 @@ def strip_handoff(text: str) -> str:
     lines = _RESULT_KEY.sub("", source).splitlines()
     return "\n".join(
         line for line in lines[:_choices_start(lines)]
-        if not (_baton(line) or _DECISION_FOOTER.match(line) or _ROLE_DECISION_LINE.match(line))
+        if not (_baton(line) or _DECISION_FOOTER.match(line))
     ).strip()
 
 

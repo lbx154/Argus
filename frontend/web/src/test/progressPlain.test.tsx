@@ -186,9 +186,9 @@ describe('real rows from a dogfood session', () => {
     expect(plainToolLabel(ev, 'en')).toBe('Search file contents');
   });
 
-  it("the Reviewer's verdict reads as submitting the review, not as an internal tool", () => {
-    const ev = tool('argus_review_actions-submit_review: {"decision": "approve"}', 'argus_review_actions-submit_review');
-    expect(plainToolLabel(ev, 'zh-CN')).toBe('提交审阅结论');
-    expect(plainToolLabel(ev, 'en')).toBe('Submit the review');
+  it("a role's handoff reads as handing the work on, not as an internal tool", () => {
+    const ev = tool('argus_actions-hand_off: {"to": "done"}', 'argus_actions-hand_off');
+    expect(plainToolLabel(ev, 'zh-CN')).toBe('交出工作');
+    expect(plainToolLabel(ev, 'en')).toBe('Hand the work on');
   });
 });

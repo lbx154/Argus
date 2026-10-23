@@ -18,7 +18,6 @@ from typing import Callable
 
 from ..core.knobs import learning_enabled
 from ..core.ports import EventSink
-from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -475,21 +474,6 @@ class SkillLoopExecuteMixin:
             mission_id=str(mission_id or getattr(self, "_active_mission_id", "") or ""),
             enable_abort=bool(getattr(self, "_enable_mission_abort_signal", False)),
         ):
-            # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
-            # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
-            # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
-            # not classify arbitrary autonomous work — agent-produced backlog work
-            # must not be second-guessed.
-            chat_outcome = self._execute_chat_fast_path(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
-                mission_id=mission_id,
-                usage_mission_id=usage_mission_id,
-            )
-            if chat_outcome is not None:
-                return chat_outcome
-
             ex_state = _ExecuteState()
             ex_state.prelude_context_provider = prelude_context_provider
             self._build_execute_config(
@@ -534,32 +518,6 @@ class SkillLoopExecuteMixin:
                 holds_stage_authority=holds_stage_authority,
             )
             return self._build_execute_outcome(ex_state)
-
-    def _execute_chat_fast_path(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        seed_thread_id: str | None,
-        mission_id: str | None,
-        usage_mission_id: str | None,
-    ) -> "_Outcome | None":
-        """Classify and answer an operator-front-door chat message, if the
-        classifier decides this objective is chat rather than mission work.
-        Returns ``None`` when the caller should proceed with a real mission
-        (the 7×24 daemon never reaches the classifier: it always gets ``None``).
-        """
-        if not self._allow_chat_fast_path:
-            return None
-        self._set_usage_context(usage_mission_id or mission_id)
-        try:
-            return self._maybe_chat_outcome(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
-            )
-        finally:
-            self._set_usage_context(None)
 
     def _build_execute_config(
         self,
@@ -642,11 +600,9 @@ class SkillLoopExecuteMixin:
                 active_vertical or "<persisted>",
                 framework_source_root(),
             )
-        # 7×24 product: default to dangerous_yolo (no bwrap sandbox).
-        # The operator runs the daemon on their own box and explicitly
-        # consents to autonomous execution; the sandbox only fights us
-        # (`bwrap: Can't create file at /.codex: Permission denied`).
-        # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
+        # 7×24 product: the agent CLIs ask no permission (dangerous_yolo);
+        # the agent sandbox (core.sandbox) bounds what they can see.
+        # ARGUS_SKILL_SAFE_MODE=1 turns their own permission modes back on.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
             "engineer_model": args.engineer_model,
@@ -1189,6 +1145,9 @@ class SkillLoopExecuteMixin:
                         "source": challenge_decision.source,
                         "raised_at": time.time(),
                     }
+                if _final_review.reviewer_authored or review_source.startswith("engineer_"):
+                    # A role's note is for the next holder, not the operator.
+                    final_review_next_action = ""
         if ex_state.mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1352,14 +1311,13 @@ class SkillLoopExecuteMixin:
         rounds = getattr(outcome, "rounds", None) or ex_state.rounds_list
         engineer_message = str(getattr(outcome, "final_message", "") or "")
         summary_lines = []
-        visible_engineer_message = strip_handoff(engineer_message)
-        for line in visible_engineer_message.splitlines():
+        for line in engineer_message.splitlines():
             cleaned = line.strip()
             if not cleaned:
                 continue
             summary_lines.append(cleaned.lstrip("#").strip())
         summary = " ".join(summary_lines)[:1200]
-        final_output = visible_engineer_message.strip()
+        final_output = engineer_message.strip()
         return _Outcome(
             success=bool(outcome.successful and ex_state.effective_status == "done"),
             status=ex_state.effective_status,

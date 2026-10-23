@@ -332,14 +332,17 @@ def test_unreadable_authority_does_not_fail_open_when_root_unwritable(tmp_path, 
 # 7. Manager wiring — Manager LLM calls flow through the shared session
 # ---------------------------------------------------------------------------
 def test_vertical_routing_does_not_pollute_manager_session(tmp_path):
-    fake = _RecordingRunner(
-        reply=(
-            '{"choice": "existing", "vertical": "research", '
-            '"confidence": 0.95, '
-            '"execution_task": "write the paper", '
-            '"research_target_level": "publishable"}'
-        )
-    )
+    from tests.hand_off import route, submit
+
+    class _Routing(_RecordingRunner):
+        def run_exec(self, *, options, **kwargs):
+            submit(options, route(
+                choice="existing", vertical="research", execution_task="write the paper",
+                research_target_level="publishable",
+            ))
+            return super().run_exec(options=options, **kwargs)
+
+    fake = _Routing()
     mgr = Manager(project_root=tmp_path, runner=fake)
 
     # Manager repository-grounded classification is a fresh call and must not

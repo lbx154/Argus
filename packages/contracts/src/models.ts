@@ -370,7 +370,7 @@ export interface LaunchHold {
     objective?: string;
     requirements?: Array<{ text: string; authority: string }>;
     exclusions?: string[];
-    ambiguities?: string[];
+    assumptions?: string[];
   };
 }
 

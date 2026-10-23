@@ -1,4 +1,4 @@
-"""Route a turn by its baton line: the holder it names is where the work goes.
+"""Route a turn by its hand_off: the holder it names is where the work goes.
 
 The host enforces one invariant on the way (docs/role-handoff-design.md, "The
 baton", invariant 3): work that would return to a holder that already held it
@@ -13,10 +13,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from ..core.handoff import HANDOFF_STATUS, LADDER, HandOff, HandOffActions
 from ..core.models import ReviewDecision, RunnerResult
-from ..core.operator_decision import normalize_agent_options
-from ..core.role_handoff import HANDOFF_STATUS, LADDER, Handoff, read_baton_line, strip_handoff
-from .round_reviewer import backlog_history
+from .round_reviewer import backlog_history, mission_questions_allowed
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
@@ -29,7 +28,7 @@ if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
 
-def _handoff_record(holder: str, handoff: Handoff | None, message: str) -> ReviewDecision:
+def _handoff_record(holder: str, handoff: HandOff) -> ReviewDecision:
     """The round's record of the Engineer handing the work past the Reviewer.
 
     The Engineer's own words, under its own source: the host writes no verdict
@@ -37,22 +36,29 @@ def _handoff_record(holder: str, handoff: Handoff | None, message: str) -> Revie
     """
     return ReviewDecision(
         status=HANDOFF_STATUS[holder],
-        reason=strip_handoff(message) or f"Engineer handed the work to the {holder}.",
-        next_action="",
-        operator_question=handoff.question if handoff else "",
-        operator_options=normalize_agent_options(handoff.options if handoff else ()),
+        reason=handoff.summary,
+        next_action=handoff.note,
+        operator_question=handoff.question,
+        operator_options=handoff.options,
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
     )
 
 
-def sent_to(handoff: Handoff | None, supervised_config: "SupervisedConfig") -> str:
-    """Where a turn's line sends the work.
+def engineer_actions(supervised_config: "SupervisedConfig") -> HandOffActions:
+    """The Engineer's form for one turn: it accepts its own work only where no review is required."""
 
-    A missing or unreadable line names the Reviewer, never done, and accepting a
-    candidate is the Reviewer's where review is required.
-    """
-    holder = handoff.holder if handoff else "reviewer"
-    return "reviewer" if holder == "done" and supervised_config.require_independent_review else holder
+    def check(payload: dict) -> None:
+        if payload["to"] == "done" and supervised_config.require_independent_review:
+            raise ValueError("This task requires an independent review: hand it to=reviewer.")
+
+    return HandOffActions(
+        "engineer", check=check, operator_available=mission_questions_allowed(supervised_config),
+    )
+
+
+def sent_to(handoff: HandOff | None) -> str:
+    """Where a turn sends the work: the holder its hand_off names; without one, the Reviewer."""
+    return handoff.to if handoff else "reviewer"
 
 
 def outside_inputs(state: RoundLoopState) -> list[object] | None:
@@ -105,7 +111,7 @@ def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
     """The round's Engineer slot when the work climbed past the Engineer: no turn ran."""
     return EngineerTurnOutcome(
         engineer_result=RunnerResult(exit_code=0), round_thread_id=None, fatal_error=None,
-        safe_fatal_error=None, stop_kind=None, raw_engineer_message="", engineer_message="",
+        safe_fatal_error=None, stop_kind=None, handoff=None, engineer_message="",
         process_ownership_note="", round_started_at=time.time(),
     )
 
@@ -181,7 +187,7 @@ def reused_record(verdict: dict) -> ReviewDecision:
 
 
 class RoundRoutingMixin:
-    """Hand a turn to the holder its baton line names."""
+    """Hand a turn to the holder its hand_off names."""
 
     def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, list[str]]:
         """Where work handed to ``holder`` goes, and the holders it climbed past.
@@ -214,7 +220,7 @@ class RoundRoutingMixin:
         on_event: Callable[[dict], None] | None,
         climbed: bool = False,
     ) -> RoundControl:
-        """Route the turn by its line; ``climbed``: no turn ran, the work climbed past the Engineer."""
+        """Route the turn by its hand_off; ``climbed``: no turn ran, the work climbed past the Engineer."""
         state.backend_failure_streak = 0
         # A turn that reached this phase was not a backend failure, so it ends
         # any run of identical failures: the same-cause count restarts from
@@ -225,11 +231,10 @@ class RoundRoutingMixin:
         state.backend_failure_same_cause_streak = 0
         if not climbed:
             state.review_unseen = False
-        # Work that climbed past the Engineer goes where its last line sent it,
+        # Work that climbed past the Engineer goes where its last turn sent it,
         # so only a handoff to the Reviewer resumes at review.
-        handoff = None if climbed else read_baton_line(outcome.engineer_message)
         last = state.snapshots.held_verdict("engineer") if climbed and state.snapshots else None
-        wanted = (last or {}).get("holder", "reviewer") if climbed else sent_to(handoff, supervised_config)
+        wanted = (last or {}).get("holder", "reviewer") if climbed else sent_to(outcome.handoff)
         if state.snapshots is not None:
             # The Engineer held the work as its turn began, and its line sent it on.
             state.snapshots.hold("engineer", "turn", state.handed_inputs, {"holder": wanted})
@@ -252,7 +257,7 @@ class RoundRoutingMixin:
         elif passed:
             review = climb_record(passed, holder)
         else:
-            review = _handoff_record(holder, handoff, outcome.engineer_message)
+            review = _handoff_record(holder, outcome.handoff)
         return self._settle_round(
             review=review,
             round_index=round_index,

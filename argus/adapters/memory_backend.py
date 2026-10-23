@@ -33,14 +33,15 @@ class CannedResponse:
     thread_id: str | None = None
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
-    review_action: tuple[str, dict] | None = None
+    #: The Argus action the call submits, as ``(name, payload)``: ``("hand_off", {...})``.
+    action: tuple[str, dict] | None = None
 
     def render(self, prompt: str, options: RunnerOptions) -> RunnerResult:
-        if self.review_action is not None:
+        if self.action is not None:
+            from ..core.role_actions import PREFIX
             from ..core.role_tool_bridge import bridge_request
 
-            action, payload = self.review_action
-            bridge_request("ARGUS_PLUGIN_REVIEW", action, payload, env=options.extension_env)
+            bridge_request(PREFIX, *self.action, env=options.extension_env)
         if self.message_factory is not None:
             text = self.message_factory(prompt, options)
         else:
@@ -70,9 +71,9 @@ class MemoryBackend:
         backend.queue("matcher", CannedResponse(message='{"matched": []}'))
         backend.queue("distiller", CannedResponse(message_factory=lambda p, o: SKILL_MD))
         backend.queue("engineer-r1", CannedResponse(message="round 1 work"))
-        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "Repair the failing check.\n→ engineer"})))
+        backend.queue("reviewer", CannedResponse(action=("hand_off", {"to": "engineer", ...})))
         backend.queue("engineer-r2", CannedResponse(message="round 2 work"))
-        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "The check passes.\n→ done"})))
+        backend.queue("reviewer", CannedResponse(action=("hand_off", {"to": "done", ...})))
 
     Calls without a queued response return ``default``.
     """

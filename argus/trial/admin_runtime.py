@@ -81,6 +81,10 @@ def main() -> None:
     parser.add_argument("--model-socket", type=Path, help="The same metered model socket used by invitation accounts")
     parser.add_argument("--model-port", type=int, default=18765)
     args = parser.parse_args()
+    from ..core.sandbox import sandbox_tool
+
+    if sandbox_tool() is None:
+        parser.error("A workspace on a shared host runs its agents in a sandbox: install bubblewrap")
     os.umask(0o077)
     settings = Settings.load(args.portal_config)
     root = args.state_dir.resolve(strict=True)

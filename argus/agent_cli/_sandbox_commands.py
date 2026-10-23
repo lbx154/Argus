@@ -10,8 +10,10 @@ flag ordering, or sandbox-mode semantics changed.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from .runner_backend import (
@@ -391,40 +393,28 @@ class CommandBuilderMixin:
                 dangerous_yolo=True,
                 full_auto=False,
             )
-        if self.backend in (
-            BACKEND_CLAUDE,
-            BACKEND_COPILOT,
-            BACKEND_CURSOR,
-            BACKEND_GROK,
-            BACKEND_OPENCODE,
-            BACKEND_PI,
-            BACKEND_QODER,
-            BACKEND_DSH,
-        ):
-            return options
-        if options.sandbox_mode is not None:
-            return options
-        from ..core.sandbox import (
-            engineer_sandbox_mode,
-            fail_closed_workdir,
-            writable_roots,
-        )
+        return options
 
-        mode = engineer_sandbox_mode()
-        if mode is None:
-            # Gate OFF: byte-for-byte legacy behaviour for EVERY role.
-            return options
-        merged = [*(options.add_dirs or []), *writable_roots()]
-        # Fail closed: a sandboxed role with no -C would root its writable
-        # workspace at the inherited cwd (the daemon's "/"). Pin a contained dir.
-        working_dir = options.working_dir or fail_closed_workdir()
-        return dataclasses.replace(
-            options,
-            sandbox_mode=mode,
-            dangerous_yolo=False,
-            full_auto=False,
-            add_dirs=merged,
-            working_dir=working_dir,
+    def _confined(self, command: list[str], options, env: Mapping[str, str]) -> list[str]:
+        """``command`` inside the host's agent sandbox (``core.sandbox``).
+
+        A host without one runs a single operator's CLIs unconfined and says
+        so once; a call that must be isolated raises instead.
+        """
+        from ..core.sandbox import isolated_workdir_command, sandbox_tool
+
+        if sandbox_tool() is None and not options.isolate_workdir:
+            _warn_unconfined()
+            return command
+        return isolated_workdir_command(
+            command,
+            backend=self.backend,
+            working_dir=options.working_dir,
+            handed=[*(options.add_dirs or ()), *(options.skill_paths or ()), *(options.plugin_dirs or ())],
+            written=options.write_dirs or (),
+            named=[*command, *(options._training_environment or {}).values()],
+            writable=not (options.disable_tools or options.sandbox_mode == "read-only"),
+            env=env,
         )
 
     def _build_codex_command(
@@ -494,15 +484,10 @@ class CommandBuilderMixin:
             # caller's responsibility (it MUST exclude ~/.argus-skill, the
             # package, and ~/.codex).
             command.extend(["-s", options.sandbox_mode])
-            # Always pin -C. Emitting -s workspace-write with no -C roots the
-            # writable workspace at the inherited cwd (the daemon's "/"), which
-            # would expose the whole FS — fall closed to a private scratch dir.
+            # Without -C the workspace is the inherited cwd, which the agent
+            # sandbox already bounds.
             if options.working_dir:
                 command.extend(["-C", options.working_dir])
-            else:
-                from ..core.sandbox import fail_closed_workdir
-
-                command.extend(["-C", fail_closed_workdir()])
             for extra_dir in options.add_dirs or []:
                 command.extend(["--add-dir", extra_dir])
             if options.sandbox_mode == "workspace-write":
@@ -576,9 +561,10 @@ class CommandBuilderMixin:
                 "--permission-mode",
                 "accept_edits" if is_qoder else "acceptEdits",
             ])
-        # Argus's own call-bound tools, which no permission mode pre-approves.
+        # Argus's own call-bound tools, which no permission mode pre-approves
+        # and a tool-free call keeps.
         trusted = getattr(options, "trusted_tool_names", None) or []
-        if trusted and not options.disable_tools:
+        if trusted:
             command.extend(["--allowedTools", ",".join(trusted)])
         # --add-dir
         if options.add_dirs:
@@ -658,25 +644,26 @@ class CommandBuilderMixin:
             command.append(f"--excluded-tools={','.join(excluded)}")
             for server in getattr(options, "disabled_mcp_servers", ()) or ():
                 command.extend(["--disable-mcp-server", server])
+        trusted = getattr(options, "trusted_tool_names", None) or []
         if options.disable_tools:
-            command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
+            # A tool-free call keeps only Argus's own call-bound tools.
+            command.append(f"--available-tools={','.join(trusted) or _COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
-            tools = ",".join(["view", "rg", "glob", *(getattr(options, "trusted_tool_names", None) or [])])
             command.extend([
-                "--available-tools", tools,
+                "--available-tools", ",".join(["view", "rg", "glob", *trusted]),
                 "--allow-tool", "view,rg,glob",
             ])
-            if getattr(options, "trusted_tool_names", None):
-                permissions = []
-                for name in options.trusted_tool_names:
-                    server, separator, tool = name.partition("-")
-                    permissions.append(f"{server}({tool})" if separator else name)
-                command.extend(["--allow-tool", ",".join(permissions)])
         elif options.dangerous_yolo:
             command.append("--yolo")
         else:
             # Copilot prompt mode requires automatic tool approval in non-interactive runs.
             command.append("--allow-all-tools")
+        if trusted and (options.disable_tools or options.sandbox_mode == "read-only"):
+            permissions = []
+            for name in trusted:
+                server, separator, tool = name.partition("-")
+                permissions.append(f"{server}({tool})" if separator else name)
+            command.extend(["--allow-tool", ",".join(permissions)])
         if options.add_dirs:
             for dir_path in options.add_dirs:
                 command.extend(["--add-dir", dir_path])
@@ -800,13 +787,9 @@ class CommandBuilderMixin:
             self.agent_bin,
             "--mode",
             "json",
+            "--session-dir",
+            _pi_session_dir(),
         ]
-        if options.isolate_workdir:
-            if resume_thread_id:
-                raise ValueError("isolated Pi calls cannot resume a persisted session")
-            command.append("--no-session")
-        else:
-            command.extend(["--session-dir", _pi_session_dir()])
         command.extend([
             # Disable ambient resources. Explicit ``--skill`` paths below remain
             # additive, so only the current Argus role libraries are visible.
@@ -819,9 +802,8 @@ class CommandBuilderMixin:
         ])
         for path in options.skill_paths or []:
             command.extend(["--skill", path])
-        if not options.disable_tools:
-            for path in getattr(options, "trusted_extensions", None) or []:
-                command.extend(["--extension", path])
+        for path in getattr(options, "trusted_extensions", None) or []:
+            command.extend(["--extension", path])
         if getattr(options, "output_schema", None) is not None:
             from ._structured_output import PI_OUTPUT_SCHEMA_EXTENSION, output_schema_json
 
@@ -838,7 +820,9 @@ class CommandBuilderMixin:
         if options.reasoning_effort:
             command.extend(["--thinking", options.reasoning_effort])
         if options.disable_tools:
-            command.append("--no-tools")
+            # A tool-free call keeps only Argus's own call-bound tools.
+            trusted = getattr(options, "trusted_tool_names", None) or []
+            command.extend(["--tools", ",".join(trusted)] if trusted else ["--no-tools"])
         elif options.sandbox_mode == "read-only":
             command.extend(["--tools", ",".join(["read", "grep", "find", "ls", *(getattr(options, "trusted_tool_names", None) or [])])])
         merged_extra_args = [*self.default_extra_args]
@@ -876,11 +860,6 @@ class CommandBuilderMixin:
         options,
     ) -> list[str]:
         """Build a Grok Build headless turn using its Messages-compatible stream."""
-        if options.isolate_workdir:
-            raise ValueError(
-                "isolated Grok calls are not supported because Grok authentication "
-                "and session state are intentionally hidden by worktree isolation"
-            )
         command = [
             self.agent_bin,
             "--no-auto-update",
@@ -954,6 +933,15 @@ class CommandBuilderMixin:
         if merged_extra_args:
             command.extend(merged_extra_args)
         return command
+
+
+@functools.cache
+def _warn_unconfined() -> None:
+    log.warning(
+        "This host has no sandbox (bubblewrap, or sandbox-exec on macOS): agent "
+        "CLIs can read and write everything this account can."
+    )
+
 
 def _dsh_overlay_patch_path() -> str:
     """Path of the env-driven overlay attached to every dsh headless boot.

@@ -22,10 +22,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core import command_record
-from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
+from ..core.autonomy import (
+    AUTOMATIC_RETRY_WINDOW_SECONDS,
+    RETRY_WINDOW_SPENT_REASON,
+    record_assumptions,
+)
 from ..core.event_catalog import EventType
 from ..core.models import ReviewDecision, RoundRecord
-from ..core.role_handoff import read_baton_line
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -35,7 +38,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
     stop_park_reason,
 )
-from .round_routing import sent_to
+from .round_routing import engineer_actions, sent_to
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -178,6 +181,7 @@ class RoundExecutionMixin:
 
         operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
+        actions = engineer_actions(supervised_config)
         # What the agent CLI's stream reports of the Engineer's commands is kept
         # in host memory for the Reviewer, not in a project file. It is not
         # tamper-proof; the record shows conflicts and unverified results.
@@ -194,7 +198,9 @@ class RoundExecutionMixin:
                 ),
                 supervised_config=supervised_config,
                 on_event=on_event,
+                actions=actions,
             )
+        handoff = actions.handoff
         new_tid = engineer_result.thread_id
         if new_tid:
             state.engineer_thread_ids.add(str(new_tid))
@@ -207,9 +213,10 @@ class RoundExecutionMixin:
             engineer_result.stop_kind
         ) or stop_kind_from_external_interrupt(fatal_error)
         round_thread_id = new_tid
-        raw_engineer_message = engineer_result.last_agent_message or ""
+        # Its note is the Engineer's account for the next holder; with no
+        # hand_off, its last message is all there is to read.
         engineer_message = redact_secrets_text(
-            raw_engineer_message,
+            handoff.note if handoff else engineer_result.last_agent_message or "",
             known_values=known_secret_values(),
         )
         engineer_session = state.engineer_session
@@ -219,7 +226,11 @@ class RoundExecutionMixin:
             engineer_result,
             decisive_output=engineer_message,
         )
-        holder = sent_to(read_baton_line(raw_engineer_message), supervised_config)
+        holder = sent_to(handoff)
+        if handoff and state.state_root:
+            record_assumptions(
+                state.state_root, handoff.assumptions, item_id=state.mission_item_id, source=handoff.form,
+            )
         if on_event:
             on_event({
                 "type": EventType.ROLE_SESSION_TURN,
@@ -331,7 +342,7 @@ class RoundExecutionMixin:
             fatal_error=fatal_error,
             safe_fatal_error=safe_fatal_error,
             stop_kind=stop_kind,
-            raw_engineer_message=raw_engineer_message,
+            handoff=handoff,
             engineer_message=engineer_message,
             process_ownership_note=process_ownership_note,
             round_started_at=round_started_at,
@@ -987,7 +998,7 @@ class RoundExecutionMixin:
         checkpoint_path = supervised_config.checkpoint_path
         wind_down_summary = ""
         wind_down_usage: dict[str, int] = {}
-        if outcome.round_thread_id and not self.engineer_config.isolate_workdir:
+        if outcome.round_thread_id:
             wind_down_result = self._run_provider_turn_cap_wind_down(
                 round_index=round_index,
                 thread_id=str(outcome.round_thread_id),

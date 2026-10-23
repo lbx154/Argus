@@ -7,6 +7,7 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def test_runner_process_ownership_fact_reaches_reviewer(tmp_path) -> None:
@@ -21,7 +22,7 @@ def test_runner_process_ownership_fact_reaches_reviewer(tmp_path) -> None:
     )
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("submit_review", {'review': 'The result is complete.\n→ done'})),
+        CannedResponse(action=hand_off("done", 'The result is complete.')),
     )
     engineer = SupervisedEngineer(
         engineer_runner=backend,

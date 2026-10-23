@@ -20,6 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..core.autonomy import record_assumptions
 from ..core.event_catalog import EventType
 from ..core.mission_view import uses_cjk
 from ..core.models import ReviewDecision, RoundRecord
@@ -73,7 +74,7 @@ def mission_state_root(supervised_config: Any) -> Path | None:
     return None
 
 
-def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
+def mission_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     from ..core.autonomy import operator_questions_can_be_asked
 
     root = getattr(supervised_config, "state_root", None)
@@ -311,7 +312,7 @@ def mission_grounding(
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
         # The same rule settlement applies to this Reviewer's questions, so
         # the acceptance it is told to seek is one that can actually be given.
-        "operator_questions_allowed": _operator_questions_allowed(supervised_config),
+        "operator_questions_allowed": mission_questions_allowed(supervised_config),
     }
 
 
@@ -549,6 +550,10 @@ class RoundReviewerMixin:
             # Provenance: only this call's own judgment becomes a finding
             # carried forward to later rounds.
             review.reviewer_authored = True
+            if state.state_root:
+                record_assumptions(
+                    state.state_root, review.assumptions, item_id=state.mission_item_id, source="review",
+                )
         session_metadata_persisted = True
         if reviewer_session is not None:
             if reviewer_resume_id and not review.session_resumed:

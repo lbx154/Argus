@@ -1,5 +1,5 @@
-"""The Manager's controls a round reads: a task-scoped WAIT or STOP applied only
-between completed role operations, and the supervision directive that answers a stall."""
+"""The Manager's controls a round reads: a task-scoped STOP applied only between
+completed role operations, and the supervision directive that answers a stall."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,20 +9,17 @@ from .round_state import RoundLoopState, TerminalResult
 
 
 def manager_wait_terminal(config: SupervisedConfig, state: RoundLoopState) -> TerminalResult | None:
-    from ..manager.supervision import mission_stop_reason, mission_wait_reason
+    from ..manager.supervision import mission_stop_reason
 
-    root, mission = config.state_root, config.session_id
-    status, reason = "manager_wait", mission_wait_reason(root, mission)
-    if not reason:
-        # A stopped run parks where the Planner can retire it or the operator
-        # resume it; the workspace stays as the rounds left it.
-        status, reason = "manager_stop", mission_stop_reason(root, mission)
+    # A stopped run parks where the Planner can retire it or the operator
+    # resume it; the workspace stays as the rounds left it.
+    reason = mission_stop_reason(config.state_root, config.session_id)
     if not reason:
         return None
     # Preserve the actual Engineer and Reviewer history. This is a Manager
     # control boundary, so it must not manufacture a Reviewer verdict/round.
     return (
-        status, state.rounds, state.last_engineer_message, reason,
+        "manager_stop", state.rounds, state.last_engineer_message, reason,
         state.engineer_session.thread_id or None if state.engineer_session else None,
     )
 

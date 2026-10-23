@@ -55,10 +55,10 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
   return role === 'reviewer' || role === 'planner';
 }
 
-// A role-decision event line, the Decision: marker and the baton line that
-// names the next holder (argus/core/role_handoff.py).
+// The Decision: marker and the baton line that names the next holder
+// (argus/core/role_handoff.py).
 const AGENT_HANDOFF_LINE = new RegExp(
-  '^(?:[-*+]\\s*)?`?ARGUS_ROLE_DECISION=|^(?:final\\s+)?decision\\s*:'
+  '^(?:final\\s+)?decision\\s*:'
   + `|^[>*\\s-]*(?:→|->|=>)\\s*[\`*]*(?:${BATON_HOLDER_NAMES.join('|')})[\`*]*\\s*(?:$|[:：])`,
   'i',
 );

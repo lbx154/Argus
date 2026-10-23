@@ -324,12 +324,13 @@ class RunExecMixin:
             return f"Process exited with code {returncode} before turn completion."
         return ""
 
-    def _cli_log_hint(self) -> str:
+    def _cli_log_hint(self, options) -> str:
         """Where the CLI keeps its own log, for a record with nothing else to show."""
         if self.backend == BACKEND_COPILOT:
+            from ..core.sandbox import private_path
             from .copilot_home import copilot_log_dir
 
-            return str(copilot_log_dir())
+            return str(private_path(copilot_log_dir(), options.working_dir))
         return ""
 
     def _run_exec_start_gate(
@@ -379,33 +380,25 @@ class RunExecMixin:
             from .copilot_launcher import stable_copilot_command
 
             command = stable_copilot_command(command)
-        if options.isolate_workdir:
-            try:
-                from ..core.sandbox import isolated_workdir_command
-                from .copilot_home import copilot_account_home
-
-                command = isolated_workdir_command(
-                    command,
-                    working_dir=options.working_dir,
-                    account_home=(
-                        copilot_account_home()
-                        if getattr(self, "backend", None) == BACKEND_COPILOT else None
-                    ),
-                )
-            except RuntimeError as exc:
-                return (
-                    command,
-                    None,
-                    AgentRunResult(
-                        command=[self.agent_bin],
-                        exit_code=-1,
-                        thread_id=resume_thread_id,
-                        turn_completed=False,
-                        turn_failed=True,
-                        fatal_error=f"maintenance isolation unavailable: {exc}",
-                    ),
-                    prompt_path,
-                )
+        # Every agent CLI Argus starts is a role process; the marker keeps
+        # orchestrator control state out of its reach.
+        env = mark_role_process_env(self._child_env(options, executable=command[0]))
+        try:
+            command = self._confined(command, options, env)
+        except RuntimeError as exc:
+            return (
+                command,
+                None,
+                AgentRunResult(
+                    command=[self.agent_bin],
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    turn_completed=False,
+                    turn_failed=True,
+                    fatal_error=f"agent sandbox unavailable: {exc}",
+                ),
+                prompt_path,
+            )
         try:
             with self._prompt_stdin(stdin_prompt) as child_stdin:
                 process = spawn_owned_process(
@@ -421,11 +414,7 @@ class RunExecMixin:
                     errors="replace",
                     bufsize=1,
                     cwd=options.working_dir or None,
-                    # Every agent CLI Argus starts is a role process; the
-                    # marker keeps orchestrator control state out of its reach.
-                    env=mark_role_process_env(
-                        self._child_env(options, executable=command[0]),
-                    ),
+                    env=env,
                     **background_subprocess_kwargs(),
                 )
         except BaseException:
@@ -1043,7 +1032,7 @@ class RunExecMixin:
             state.fatal_error = _incomplete_turn_error(
                 state.stderr_lines,
                 receipt=receipt,
-                log_hint=self._cli_log_hint(),
+                log_hint=self._cli_log_hint(options),
             )
 
         return AgentRunResult(

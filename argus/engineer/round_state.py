@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.handoff import HandOff
 from ..core.models import LoopStatus, RoundRecord
 from ..core.role_session import RoleSessionCapsule
 from ..core.stop_kinds import StopKind
@@ -109,7 +110,8 @@ class EngineerTurnOutcome:
     fatal_error: str | None
     safe_fatal_error: str | None
     stop_kind: StopKind | None
-    raw_engineer_message: str
+    #: The turn's ``hand_off``; ``None`` when it ended without one.
+    handoff: HandOff | None
     engineer_message: str
     process_ownership_note: str
     round_started_at: float

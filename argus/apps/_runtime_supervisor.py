@@ -301,7 +301,6 @@ def _invoke_supervisor(
     continuous: bool = False,
     continuous_objective: str = "",
     open_ended: bool = True,
-    allow_chat_fast_path: bool = False,
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
@@ -375,11 +374,6 @@ def _invoke_supervisor(
     from ._runtime import build_life_runner
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
-    # Chat fast-path is operator-front-door-only: only human free text sent to the
-    # cockpit is eligible. Planner / backlog / daemon missions keep the
-    # runner default (False) so the harness never classifies agent work.
-    if hasattr(runner, "_allow_chat_fast_path"):
-        runner._allow_chat_fast_path = bool(allow_chat_fast_path)
     summary = run_life_supervisor(
         mem=mem,
         runner=runner,

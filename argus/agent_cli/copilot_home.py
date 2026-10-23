@@ -349,10 +349,15 @@ def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
     # turn would collapse the storage/state isolation this module provides.
     _sync_operator_auth(personal / "config.json", home / "config.json")
 
+    sweep_copilot_sessions(home, source)
+    return home
+
+
+def sweep_copilot_sessions(home: Path, env: Mapping[str, str]) -> None:
+    """Prune ``home``'s old sessions, at most once per sweep interval."""
     now = time.time()
     if _sweep_is_due(home, now):
-        prune_copilot_sessions(home, env=source, now=now)
-    return home
+        prune_copilot_sessions(home, env=env, now=now)
 
 
 def copilot_log_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -398,6 +403,7 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
 
 __all__ = [
     "prune_copilot_sessions",
+    "sweep_copilot_sessions",
     "COPILOT_HOME_ENV",
     "COPILOT_ACCOUNT_HOME_KNOB",
     "COPILOT_TOKEN_FROM_ENV_KNOB",

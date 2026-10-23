@@ -1,32 +1,38 @@
 """Regression: ``Manager.classify_front_door`` must run FRESH on the raw backend
 — never resume the persistent Manager session, and with bounded classify effort.
 
-The merged front-door classify is a stateless label call. It must go to
+The merged front-door classify is a stateless form call. It must go to
 ``self.runner`` with ``resume_thread_id=None`` (no giant-session resume, which is
-what made every cockpit message slow), at ``medium`` effort by default.
+what made every cockpit message slow), at ``low`` effort by default, with only
+the ``hand_off`` action bound.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 
+from argus.core.role_actions import PREFIX
+from argus.core.role_tool_bridge import bridge_request
 from argus.manager import Manager
 
 
-class _FakeResult:
-    def __init__(self, msg: str, exit_code: int = 0) -> None:
-        self.exit_code = exit_code
-        self.last_agent_message = msg
+def _form(**fields: Any) -> dict[str, Any]:
+    return {"to": "manager", "intake": {"type": "ephemeral", "scope": "project"}, **fields}
 
 
 class _RecordingBackend:
-    def __init__(self, answer: str) -> None:
-        self.answer = answer
-        self.backend = "pi"
+    backend = "pi"
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
         self.calls: list[dict] = []
 
-    def run_exec(self, **kwargs) -> _FakeResult:
+    def run_exec(self, **kwargs) -> Any:
         self.calls.append(kwargs)
-        return _FakeResult(self.answer)
+        bridge_request(PREFIX, "hand_off", self.payload, env=kwargs["options"].extension_env)
+        return SimpleNamespace(exit_code=0)
 
 
 class _ExplodingSession:
@@ -36,8 +42,8 @@ class _ExplodingSession:
         )
 
 
-def _manager(answer: str, tmp_path) -> tuple[Manager, _RecordingBackend]:
-    backend = _RecordingBackend(answer)
+def _manager(payload: dict[str, Any], tmp_path) -> tuple[Manager, _RecordingBackend]:
+    backend = _RecordingBackend(payload)
     mgr = Manager(project_root=tmp_path, runner=backend)
     mgr._session = _ExplodingSession()  # explode if resumed
     return mgr, backend
@@ -49,16 +55,9 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
         "argus.core.knobs.resolve_light_model",
         lambda **_kwargs: "fast-manager",
     )
-    mgr, backend = _manager(
-        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF",
-        tmp_path,
-    )
+    mgr, backend = _manager(_form(), tmp_path)
 
-    intent, control, route = mgr.classify_front_door("你好")
-
-    assert intent is None
-    assert control is None
-    assert route == "simple"
+    assert mgr.classify_front_door("你好") == (None, None, "simple")
     assert len(backend.calls) == 1
     call = backend.calls[0]
     assert call["resume_thread_id"] is None                    # fresh, no session
@@ -66,82 +65,51 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     assert call["options"].reasoning_effort == "low"
     assert call["options"].model == "fast-manager"
     assert call["options"].disable_tools is True
+    assert call["options"].trusted_tool_names == ["hand_off"]
     assert not call["options"].watchdog_hard_idle_seconds
     assert call["options"].extra_args == [
         "--system-prompt",
-        "Return only the requested Argus Manager classification decision.",
+        "Classify the Argus operator message with hand_off only.",
     ]
 
 
-@pytest.mark.parametrize("selected,expected", [("software", "software"), ("NONE", ""), ("../escape", "")])
+@pytest.mark.parametrize("selected,expected", [("software", "software"), ("../escape", "")])
 @pytest.mark.parametrize("active", [False, True])
 def test_single_agent_vertical_selection_is_validated_in_existing_classifier(tmp_path, selected, expected, active):
-    mgr, backend = _manager(
-        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: IMPLEMENT\n"
-        f"DOMAIN_ACTION: NONE\nSKILL_VERTICAL: {selected}", tmp_path,
-    )
+    mgr, backend = _manager(_form(self_mode="implement", domain={"vertical": selected}), tmp_path)
     decisions = []
     result = mgr.classify_front_door("Fix one function", domain_sink=decisions.append, active_mission=active)
     assert result == (None, None, "simple")
     assert decisions == [{"action": "none", "vertical": expected}]
     assert len(backend.calls) == 1
-    assert "SKILL_VERTICAL" in backend.calls[0]["prompt"]
+    assert "domain.vertical" in backend.calls[0]["prompt"]
 
 
 def test_front_door_effort_env_override(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "high")
-    mgr, backend = _manager(
-        "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM",
-        tmp_path,
-    )
+    mgr, backend = _manager(_form(to="team"), tmp_path)
     mgr.classify_front_door("optimize as many kernels as possible")
     assert backend.calls[0]["options"].reasoning_effort == "high"
 
 
 def test_front_door_config_axis(tmp_path) -> None:
-    mgr, backend = _manager(
-        "CONFIG: SET backend ALL copilot\nCONTROL: NONE\nROUTE: SELF",
-        tmp_path,
-    )
+    mgr, _backend = _manager(_form(config=[{"knob": "backend", "value": "copilot"}]), tmp_path)
     intent, control, route = mgr.classify_front_door("用 copilot")
     assert intent is not None and intent.knob == "backend" and intent.value == "copilot"
-    assert control is None
+    assert (control, route) == (None, "simple")
     # the exploding session was never touched (else the assertion above would fire)
 
 
-def test_front_door_no_dispatch_axis(tmp_path) -> None:
-    mgr, _backend = _manager(
-        "CONFIG: NONE\nCONTROL: NO_DISPATCH\nROUTE: TEAM",
-        tmp_path,
-    )
-
-    intent, control, route = mgr.classify_front_door(
-        "inspect the source tree read-only; do not dispatch"
-    )
-
-    assert intent is None
-    assert control == "no_dispatch"
-    assert route == "simple"
-
-
 def test_explicit_run_exec_still_honoured(tmp_path) -> None:
-    mgr, backend = _manager(
-        "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF",
-        tmp_path,
-    )
+    mgr, backend = _manager(_form(), tmp_path)
     seen: list[str] = []
 
-    def _explicit(prompt: str) -> _FakeResult:
+    def _explicit(prompt: str, actions: Any) -> Any:
         seen.append(prompt)
-        return _FakeResult(
-            "CONFIG: SET safe_mode - on\nCONTROL: NONE\nROUTE: SELF"
-        )
+        actions.dispatch("hand_off", _form(config=[{"knob": "safe_mode", "value": "on"}]))
+        return SimpleNamespace(exit_code=0)
 
-    intent, control, route = mgr.classify_front_door(
-        "be careful",
-        run_exec=_explicit,
-    )
+    intent, control, route = mgr.classify_front_door("be careful", run_exec=_explicit)
     assert intent is not None and intent.knob == "safe_mode"
-    assert control is None
-    assert route == "simple"
+    assert (control, route) == (None, "simple")
     assert seen and not backend.calls  # used the explicit run_exec, not the default

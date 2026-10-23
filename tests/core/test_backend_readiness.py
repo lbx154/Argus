@@ -280,47 +280,13 @@ def test_pi_below_supported_floor_fails(monkeypatch) -> None:
     assert "pi update --self" in report.problems[0].remediation
 
 
-def test_grok_readiness_accepts_api_key_without_spending_a_turn(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("XAI_API_KEY", "test-key")
-    # An xAI-catalog id, as a real Grok install carries: with no model set at
-    # all the shared OpenAI default resolves instead, which readiness now
-    # rejects on purpose (see test_claude_readiness_fails_on_the_openai_...).
-    monkeypatch.setenv("ARGUS_SKILL_MODEL", "grok-4")
-    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/grok")
-
-    def run(command, *, timeout_s, input_text=None):
-        del timeout_s, input_text
-        assert command[-1] == "--version"
-        return _completed("grok 0.1.0\n")
-
-    monkeypatch.setattr(readiness, "_run_text", run)
-
-    report = readiness.check_backend_readiness("grok", "subscription_cli")
-
-    assert report.ok
-    assert report.auth_checked
-    assert report.version == "0.1.0"
-
-
-def test_grok_readiness_reports_login_when_no_credentials_exist(
-    monkeypatch, tmp_path
-) -> None:
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setenv("GROK_HOME", str(tmp_path / "grok-home"))
-    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/grok")
-    monkeypatch.setattr(
-        readiness,
-        "_run_text",
-        lambda command, **_kwargs: _completed("grok 0.1.0\n"),
-    )
-
-    report = readiness.check_backend_readiness("grok", "subscription_cli")
+@pytest.mark.parametrize("backend", ["cursor", "opencode", "grok", "dsh"])
+def test_a_backend_that_cannot_submit_argus_actions_is_refused(backend) -> None:
+    report = readiness.check_backend_readiness(backend, "subscription_cli")
 
     assert not report.ok
-    assert report.problems[0].capability == "authentication"
-    assert "grok login" in report.problems[0].remediation
+    assert report.problems[0].capability == "backend"
+    assert "cannot submit Argus actions" in report.problems[0].detail
 
 
 def test_qoder_readiness_accepts_pat_without_spending_a_turn(

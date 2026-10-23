@@ -10,13 +10,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, TextIO
 
-from ..core.sandbox import sandboxed_child_env
+from ..core.sandbox import private_path, sandboxed_child_env
 from ._sandbox_commands import (
     _OPENCODE_FULL_ACCESS_AGENT,
     _OPENCODE_NO_TOOLS_AGENT,
     _OPENCODE_READ_ONLY_AGENT,
 )
-from .copilot_home import apply_copilot_home, apply_copilot_provider
+from .copilot_home import (
+    COPILOT_HOME_ENV,
+    apply_copilot_env_token,
+    apply_copilot_home,
+    apply_copilot_provider,
+    sweep_copilot_sessions,
+)
 from .runner_backend import (
     BACKEND_COPILOT,
     BACKEND_DSH,
@@ -334,21 +340,18 @@ class PromptDeliveryMixin:
             # Workdir isolation strips ambient credentials. Reapply only the
             # explicitly selected trial provider, never unrelated accounts.
             apply_copilot_provider(env)
-            from ..core.sandbox import isolated_copilot_home
-            from .copilot_home import apply_copilot_env_token, copilot_account_home
-
             # Headless opt-in: the operator's explicit Copilot token survives
             # the scrub above; GH_TOKEN/GITHUB_TOKEN and git creds do not.
             apply_copilot_env_token(env)
-
-            if copilot_account_home(env) is not None:
-                home = isolated_copilot_home(options.working_dir)
-                env["COPILOT_HOME"] = str(home)
-                env["GH_CONFIG_DIR"] = str(home / "gh")
         if self.backend == BACKEND_COPILOT and env is not None:
+            # The sandbox keeps this workdir's sessions in its own copy of the
+            # home; one an agent redirected elsewhere is left alone.
+            home = private_path(env.get(COPILOT_HOME_ENV) or Path.home() / ".copilot", options.working_dir)
+            if Path(os.path.realpath(home)) == home:
+                sweep_copilot_sessions(home, env)
             env.setdefault(COPILOT_TASK_WAIT_ENV, COPILOT_MAX_TASK_WAIT_SECONDS)
         plugin_env = getattr(options, "extension_env", None)
-        if plugin_env and not options.disable_tools:
+        if plugin_env:
             env = dict(os.environ) if env is None else env
             for key, value in plugin_env.items():
                 if not key.startswith("ARGUS_PLUGIN_"):

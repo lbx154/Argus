@@ -237,7 +237,7 @@ def render_mission_brief(
     if pending_path is not None:
         lines.append(
             f"- Latest work awaiting review: `{pending_path}`" if holder == "reviewer"
-            else f"- Latest Engineer work (→ {holder}): `{pending_path}`"
+            else f"- Latest Engineer work (to={holder}): `{pending_path}`"
         )
     engineer_summary = _brief_text(
         (pending_engineer or reviewed).get("engineer_summary"), limit=1200,
@@ -246,7 +246,7 @@ def render_mission_brief(
         label = (
             "Reviewed Engineer work" if not pending_engineer
             else "Unreviewed Engineer work" if holder == "reviewer"
-            else f"Engineer work (→ {holder})"
+            else f"Engineer work (to={holder})"
         )
         lines.append(f"- {label}: {engineer_summary}")
     next_action = (

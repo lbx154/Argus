@@ -155,6 +155,7 @@ def run_agent_repair_prompt(
                 model=model or None,
                 working_dir=str(working_dir),
                 add_dirs=[str(path) for path in add_dirs] or None,
+                write_dirs=[str(path) for path in add_dirs] or None,
                 dangerous_yolo=True,
                 full_auto=True,
                 skip_git_repo_check=True,

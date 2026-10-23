@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from tests.hand_off import hand_off
 
 
 def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
@@ -18,7 +19,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=("submit_review", {'review': (('beta is absent') + '\n\n' + (reviewer_action)) + "\n→ engineer"})
+            action=hand_off("engineer", "beta is absent", reviewer_action)
         ),
     )
     backend.queue(
@@ -28,7 +29,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=("submit_review", {'review': 'latest operator scope is satisfied\n→ done'})
+            action=hand_off("done", 'latest operator scope is satisfied')
         ),
     )
     loop = SkillLoop(

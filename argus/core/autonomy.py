@@ -1,8 +1,10 @@
 """Whether the operator can be asked, and what was decided without asking.
 
 Whether a question needs a person is the judgement of the role that raises
-it: a role that needs the operator ends its turn with ``→ operator:
-<question>`` (docs/role-handoff-design.md, "The baton").
+it: a role that needs the operator hands the work ``to=operator`` with its
+question (``core.handoff``), and every reading it chose without asking is one
+of its handoff's assumptions, recorded here whether or not the operator could
+have been asked.
 
 Whether the operator can be asked at all is one switch,
 ``ARGUS_SKILL_OPERATOR_AVAILABLE``: ``--no-operator`` turns it off for one
@@ -26,6 +28,9 @@ from .mission_view import say
 OPERATOR_AVAILABLE_KNOB = "ARGUS_SKILL_OPERATOR_AVAILABLE"
 AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
 _ASSUMPTION_SHOWN_CHARS = 300
+#: Who chose what an assumption records: the Manager's forms and its answers
+#: to parked questions (``manager_decision``) are the Manager's; the rest the team's.
+_MANAGER_SOURCES = frozenset({"route", "supervise", "manager_decision"})
 # How long Argus keeps retrying an outside failure on its own (a provider
 # outage, a rate limit, an unreachable backend) before it stops retrying and
 # tells the operator. Operator decision, 2026-10-19: three hours.
@@ -149,6 +154,17 @@ def record_autonomous_assumption(
     return row
 
 
+def record_assumptions(
+    state_root: Path | str, assumptions: Iterable[Mapping[str, str]], *, item_id: str, source: str,
+) -> None:
+    """Record each reading a handoff chose in the operator's place; ``source`` is its form."""
+    for assumption in assumptions:
+        record_autonomous_assumption(
+            state_root, item_id=item_id, reading=assumption["chose"],
+            conflict=assumption["instead_of"], source=source,
+        )
+
+
 def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
     return [
         row
@@ -158,18 +174,24 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
 
 
 def render_autonomous_assumptions(
-    state_root: Path | str, *, limit: int = 8, chinese: bool = False,
+    state_root: Path | str, *, item_id: str = "", limit: int = 8, chinese: bool = False,
 ) -> str:
-    rows = read_autonomous_assumptions(state_root)[-limit:]
+    """What was decided without asking, this run's or, with ``item_id``, that task's."""
+    rows = [
+        row for row in read_autonomous_assumptions(state_root)
+        if not item_id or row.get("item_id") == item_id
+    ][-limit:]
     if not rows:
         return ""
     lines = [say("assumed_head", chinese)]
     for row in rows:
         conflict = str(row.get("conflict") or "").strip()[:_ASSUMPTION_SHOWN_CHARS]
         reading = str(row.get("reading") or "").strip()[:_ASSUMPTION_SHOWN_CHARS]
-        verb = say("assumed_by_manager" if row.get("source") == "manager_decision" else "assumed_by_me", chinese)
+        source = row.get("source")
+        verb = say("assumed_by_manager" if source in _MANAGER_SOURCES else "assumed_by_me", chinese)
         lines.append("- " + (
-            say("assumed_choice", chinese, conflict=conflict, verb=verb, reading=reading)
+            say("assumed_answer" if source == "manager_decision" else "assumed_choice",
+                chinese, conflict=conflict, verb=verb, reading=reading)
             if conflict
             else say("assumed_reading", chinese, verb=verb, reading=reading)
         ))
@@ -182,6 +204,7 @@ __all__ = [
     "operator_available",
     "operator_questions_can_be_asked",
     "read_autonomous_assumptions",
+    "record_assumptions",
     "record_autonomous_assumption",
     "render_autonomous_assumptions",
     "start_autonomy_run",

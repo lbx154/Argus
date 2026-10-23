@@ -1,20 +1,10 @@
-"""Codex sandbox policy for builder roles (engineer / reviewer / planner).
+"""Sandboxes for the agent CLIs Argus starts.
 
-Domain-agnostic plumbing: decides whether a codex-spawning role runs sandboxed
-(``-s workspace-write`` confined to its project workdir) instead of the legacy
-``--dangerously-bypass-approvals-and-sandbox`` (no sandbox at all), and computes
-the ``--add-dir`` writable allowlist.
-
-OFF by default. Opt in with ``ARGUS_SKILL_ENGINEER_SANDBOX=workspace-write`` once
-the sandbox is verified on the box (network, caches, and remote accelerator access all
-working). The default keeps existing 7x24 daemons byte-for-byte unchanged.
-
-Containment invariant: a sandboxed builder may write ONLY its project workdir
-(the codex ``-C`` root) plus the minimal out-of-cwd allowlist below; it must
-NEVER be able to write the "gate's brain" (``~/.argus-skill``: special_prompts /
-skills / capabilities / per-project checkpoint+events), the package source, or
-``~/.codex`` — because writes there let the engineer edit its own gate / poison
-the reviewer without touching the package.
+``isolated_workdir_command`` is the agent sandbox every role's CLI runs in,
+on every backend: it sees only its workdir and what its call is given.
+``forbidden_write_roots`` names what no role may ever write (the "gate's
+brain", the package, the active Python), and ``sandboxed_child_env`` keeps
+push-capable credentials out of a sandboxed call's environment.
 """
 from __future__ import annotations
 
@@ -24,26 +14,9 @@ import site
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-
-_SANDBOX_ENV = "ARGUS_SKILL_ENGINEER_SANDBOX"
-# Only genuinely-containing modes are accepted. ``danger-full-access`` is
-# deliberately NOT here: it leaves ~/.argus-skill / the package / ~/.codex fully
-# writable, so accepting it would let a run *present* as "sandboxed" while the
-# self-gate-rewrite hole stays wide open. An unknown/dangerous value resolves to
-# ``None`` (the honest legacy bypass), never a fake sandbox.
-_VALID_MODES = {"workspace-write", "read-only"}
-
-
-def engineer_sandbox_mode() -> str | None:
-    """Resolve the codex sandbox mode for builder roles, or ``None`` for the
-    legacy ``dangerous_yolo`` path. Default OFF (``None``)."""
-    val = os.environ.get(_SANDBOX_ENV, "").strip().lower()
-    if val in _VALID_MODES:
-        return val
-    if val in {"1", "true", "yes", "on"}:
-        return "workspace-write"
-    return None
+from urllib.parse import quote
 
 
 def _package_root() -> str | None:
@@ -68,7 +41,7 @@ def _user_site_packages(home: Path) -> Path:
         return user_site
 
 
-def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
+def forbidden_write_roots() -> list[str]:
     """Paths a sandboxed builder must NEVER be able to write."""
     from .paths import global_root
 
@@ -105,97 +78,12 @@ def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) ->
     pkg = _package_root()
     if pkg:
         roots.append(pkg)
-    if life_root:
-        roots.append(str(Path(life_root)))
     # de-dup, normalized
     out: list[str] = []
     for r in roots:
         rp = str(Path(r))
         if rp not in out:
             out.append(rp)
-    return out
-
-
-def _is_forbidden(path: str, forbidden: list[str]) -> bool:
-    p = str(Path(path))
-    for f in forbidden:
-        if p == f or p.startswith(f.rstrip("/") + os.sep):
-            return True
-    return False
-
-
-def fail_closed_workdir() -> str:
-    """A contained write-root for a sandboxed spawn that has NO project workdir.
-
-    Without ``-C``, codex ``workspace-write`` roots its writable workspace at the
-    inherited cwd — and the 7x24 daemon runs at ``/`` (``os.chdir("/")``), which
-    would hand a sandboxed role write access to the WHOLE filesystem (incl. the
-    gate brain and the package source). So whenever no workdir is supplied we
-    fall closed to a private, per-process scratch dir under the temp root instead
-    of ever emitting a rootless ``-s workspace-write``.
-
-    The pid-derived path is predictable and ``/tmp`` is in the sandboxed
-    engineer's ``--add-dir`` allowlist, so a prior turn can PRE-PLANT it as a
-    symlink to the gate brain (``mkdir(exist_ok=True)`` follows the link, handing
-    the rootless reviewer's ``-C`` the real inode). If the scratch is a symlink or
-    resolves under a forbidden root we abandon it for a fresh, unpredictable,
-    non-symlink dir — mirroring ``writable_roots``' realpath hardening for this
-    ``-C`` path."""
-    d = Path(tempfile.gettempdir()) / f"argus-sandbox-scratch-{os.getpid()}"
-    try:
-        d.mkdir(parents=True, exist_ok=True)
-        if not d.is_symlink():
-            real = os.path.realpath(d)
-            forbidden = [os.path.realpath(f) for f in forbidden_write_roots()]
-            if not _is_forbidden(real, forbidden):
-                return real
-    except Exception:  # pragma: no cover — defensive
-        pass
-    # Pre-planted symlink / forbidden target, or mkdir failed: a fresh,
-    # unpredictable, non-symlink scratch that could not have been pre-planted.
-    try:
-        return tempfile.mkdtemp(prefix=f"argus-sandbox-scratch-{os.getpid()}-")
-    except Exception:  # pragma: no cover — defensive
-        return tempfile.gettempdir()
-
-
-def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
-    """``--add-dir`` allowlist for a sandboxed builder: the minimal set of
-    out-of-cwd dirs autonomous research legitimately writes. The project workdir
-    is the ``-C`` root (always writable) and is NOT included here. Any candidate
-    under a forbidden root is dropped."""
-    home = Path.home()
-    candidates = [
-        str(home / ".cache"),    # pip / HuggingFace / torch / conda caches
-        str(home / ".triton"),   # Triton JIT / autotune cache (kernel work)
-        str(home / ".nv"),       # NVIDIA compute cache (ptxas / nvrtc)
-        str(home / ".kube"),     # kubectl / OIDC token cache
-        "/tmp",
-    ]
-    # NOTE: ``sys.prefix`` (the active venv) is deliberately NOT writable — its
-    # site-packages auto-runs ``.pth`` / ``sitecustomize.py`` at interpreter
-    # start, so granting write there is a sandbox escape (and on a non-editable
-    # install it is also the package source). Mission deps must install to a
-    # workdir-local target (e.g. ``pip install --target <workdir>/.pylibs``),
-    # never the live env; pip's download cache (~/.cache) stays writable so
-    # cached installs still work.
-    if os.path.isdir("/scratch"):
-        candidates.append("/scratch")
-    # Resolve symlinks on BOTH sides before the forbidden check (and hand codex
-    # the real inode): a prior sandboxed session can write ~/.cache, so it could
-    # repoint an allowlisted dir at the venv / gate brain via symlink and escape
-    # on the next spawn. Comparing real paths closes that cross-session vector.
-    forbidden = [os.path.realpath(f) for f in forbidden_write_roots(life_root=life_root)]
-    out: list[str] = []
-    for c in candidates:
-        try:
-            cp = os.path.realpath(c)
-        except Exception:  # pragma: no cover — defensive
-            cp = str(Path(c))
-        if _is_forbidden(cp, forbidden):
-            continue
-        if cp not in out:
-            out.append(cp)
     return out
 
 
@@ -230,307 +118,258 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def _resolver_config_target() -> Path | None:
-    """Return the real resolver file when /etc/resolv.conf is a symlink."""
-    try:
-        target = Path("/etc/resolv.conf").resolve(strict=True)
-    except OSError:
+# ---------------------------------------------------------------------------
+# The agent sandbox: every role's agent CLI sees only what its call is given.
+
+# System software, read-only. A deployment keeps tenant data and keys elsewhere.
+_SYSTEM_DIRS = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/sys")
+
+
+def sandbox_tool() -> str | None:
+    """The host's sandbox: bubblewrap, else macOS ``sandbox-exec``, else none."""
+    if os.name != "posix":
         return None
-    return target if target != Path("/etc/resolv.conf") else None
+    return shutil.which("bwrap") or (shutil.which("sandbox-exec") if sys.platform == "darwin" else None)
+
+
+def _private_root(working_dir: str | os.PathLike[str] | None) -> Path:
+    from .paths import global_root
+
+    # The workdir's path as one directory name. Without '%', which a SQLite
+    # URI naming a file under it would read as an escape.
+    name = quote(os.path.realpath(working_dir or os.sep), safe="").replace("%", "=")
+    return Path(os.path.realpath(global_root())) / "sandbox" / name
+
+
+def private_path(path: str | os.PathLike[str], working_dir: str | os.PathLike[str] | None) -> Path:
+    """Where agents working in ``working_dir`` keep ``path``, a file of their
+    home or of the Argus runtime.
+
+    Under bubblewrap each workdir has its own copy of both, so no project sees
+    another's CLI sessions. ``sandbox-exec`` cannot remap paths: the real one.
+    """
+    tool = sandbox_tool()
+    if tool is None or Path(tool).name != "bwrap":
+        return Path(path)
+    real = Path(os.path.realpath(path))
+    return _private_root(working_dir) / real.relative_to(real.anchor)
+
+
+def private_copies(path: str | os.PathLike[str]) -> list[Path]:
+    """Every workdir's private copy of ``path`` (see :func:`private_path`)."""
+    real = Path(os.path.realpath(path))
+    return sorted(_private_root(None).parent.glob(f"*/{real.relative_to(real.anchor)}"))
+
+
+def _cli_files(backend: str, env: Mapping[str, str], home: Path) -> tuple[list[Path], list[Path]]:
+    """The login files ``backend`` refreshes, and the settings it only reads,
+    from the operator's own setup. The rest of its home is the workdir's."""
+    def at(variable: str, default: str) -> Path:
+        return Path(env.get(variable) or home / default).expanduser()
+
+    codex, claude, copilot = at("CODEX_HOME", ".codex"), at("CLAUDE_CONFIG_DIR", ".claude"), at("COPILOT_HOME", ".copilot")
+    pi, qoder = at("PI_CODING_AGENT_DIR", ".pi/agent"), at("QODER_CONFIG_DIR", ".qoder")
+    return {
+        "codex": ([codex / "auth.json"], [codex / "config.toml", codex / "AGENTS.md"]),
+        "claude": ([claude / ".credentials.json"], [claude / "settings.json", claude / "CLAUDE.md"]),
+        "qoder": ([qoder / ".credentials.json"], [qoder / "settings.json"]),
+        "copilot": ([copilot / "config.json"], [
+            copilot / "settings.json", copilot / "permissions-config.json", home / ".cache/copilot",
+        ]),
+        "pi": ([pi / "auth.json"], [pi / "models.json", pi / "settings.json"]),
+        "opencode": ([home / ".local/share/opencode/auth.json"], [home / ".config/opencode"]),
+        "cursor": ([home / ".config/cursor/auth.json", home / ".cursor/cli-config.json"], []),
+        "grok": ([at("GROK_HOME", ".grok") / "auth.json"], []),
+        "dsh": ([], [at("DSH_HOME", ".dsh") / ".env"]),
+    }.get(backend, ([], []))
+
+
+def _outermost(paths: Iterable[Path]) -> list[Path]:
+    kept: list[Path] = []
+    for path in sorted(set(paths), key=lambda value: len(value.parts)):
+        if not any(path.is_relative_to(outer) for outer in kept):
+            kept.append(path)
+    return kept
+
+
+def _install_root(executable: Path) -> Path:
+    """An npm-installed CLI needs the ``node_modules`` it was installed into;
+    anything else is one file."""
+    parts = executable.parts
+    return Path(*parts[:parts.index("node_modules") + 1]) if "node_modules" in parts[:-1] else executable
+
+
+def _interpreter(executable: Path, search_path: str | None) -> list[Path]:
+    """The interpreter a script's ``#!`` line names, e.g. ``node``."""
+    try:
+        with executable.open("rb") as handle:
+            line = handle.readline(256)
+    except OSError:
+        return []
+    words = line[2:].decode(errors="replace").split() if line.startswith(b"#!") else []
+    if words and Path(words[0]).name == "env":
+        words = [word for word in words[1:] if not word.startswith("-")]
+    found = shutil.which(words[0], path=search_path) if words else None
+    return [Path(os.path.realpath(found))] if found else []
+
+
+def _git_common_dir(workdir: Path) -> list[Path]:
+    """A linked worktree's repository, whose history it reads but never edits."""
+    if not (workdir / ".git").is_file():
+        return []
+    try:
+        found = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=workdir, capture_output=True, text=True, check=False,
+        ).stdout.strip()
+    except OSError:
+        return []
+    return [Path(found)] if found else []
+
+
+def _resolver_config_target() -> list[Path]:
+    """The real resolver file when /etc/resolv.conf points outside /etc."""
+    target = Path(os.path.realpath("/etc/resolv.conf"))
+    return [target] if target.is_file() and target != Path("/etc/resolv.conf") else []
 
 
 def _backend_support_executables(executable: Path) -> list[Path]:
     """Return narrowly scoped executables needed by a user-level CLI wrapper.
 
     The local ``codex`` command may be a stable wrapper that selects the newest
-    VS Code extension binary at runtime. Bubblewrap hides ``$HOME`` and exposing
-    only the wrapper therefore makes a healthy backend fail with exit 127. Bind
-    only matching executable files, never the extension tree or user home.
+    VS Code extension binary at runtime, and ``copilot`` one that selects the
+    native binary of an nvm install. Bind only matching executable files, never
+    the extension tree or the user home.
     """
-    executable_real = os.path.realpath(executable)
-    if (
-        executable.name == "cli.js"
-        and "pi-coding-agent" in executable.as_posix()
-    ):
-        node = shutil.which("node")
-        return [Path(node).resolve()] if node else []
     if executable.name == "copilot":
-        copilot_executables: list[Path] = []
-        root = Path.home() / ".nvm" / "versions" / "node"
-        for candidate in root.glob(
-            "*/lib/node_modules/@github/copilot/node_modules/"
-            "@github/copilot-*/copilot"
-        ):
-            try:
-                if (
-                    candidate.is_file()
-                    and os.access(candidate, os.X_OK)
-                    and os.path.realpath(candidate) != executable_real
-                ):
-                    copilot_executables.append(candidate.resolve())
-            except OSError:
-                continue
-        return sorted(set(copilot_executables), key=str)
-    if executable.name != "codex":
+        pattern = "*/lib/node_modules/@github/copilot/node_modules/@github/copilot-*/copilot"
+        roots = [Path.home() / ".nvm" / "versions" / "node"]
+    elif executable.name == "codex":
+        pattern = "openai.chatgpt-*/bin/*/codex"
+        roots = [Path.home() / name / "extensions" for name in (".vscode-server", ".vscode-server-insiders", ".vscode")]
+    else:
         return []
-    roots = (
-        Path.home() / ".vscode-server" / "extensions",
-        Path.home() / ".vscode-server-insiders" / "extensions",
-        Path.home() / ".vscode" / "extensions",
-    )
-    codex_executables: list[Path] = []
-    for root in roots:
-        for candidate in root.glob("openai.chatgpt-*/bin/*/codex"):
-            try:
-                if (
-                    candidate.is_file()
-                    and os.access(candidate, os.X_OK)
-                    and os.path.realpath(candidate) != executable_real
-                ):
-                    codex_executables.append(candidate.resolve())
-            except OSError:
-                continue
-    return sorted(set(codex_executables), key=str)
-
-
-def isolated_copilot_home(working_dir: str | os.PathLike[str] | None) -> Path:
-    if not working_dir:
-        raise RuntimeError("worktree isolation requires an explicit workdir")
-    return Path(working_dir).resolve() / ".argus-self-maintenance-runtime" / "copilot-home"
+    found = {
+        candidate.resolve()
+        for root in roots for candidate in root.glob(pattern)
+        if candidate.is_file() and os.access(candidate, os.X_OK) and candidate.resolve() != executable
+    }
+    return sorted(found, key=str)
 
 
 def isolated_workdir_command(
     command: list[str],
     *,
+    backend: str,
     working_dir: str | os.PathLike[str] | None,
-    account_home: Path | None = None,
+    handed: Iterable[str | os.PathLike[str]] = (),
+    written: Iterable[str | os.PathLike[str]] = (),
+    named: Iterable[str] = (),
+    writable: bool = True,
+    env: Mapping[str, str] | None = None,
 ) -> list[str]:
-    """Wrap any role CLI in a read-only-root, worktree-write bubblewrap."""
-    if os.name != "posix" or not working_dir:
-        raise RuntimeError("worktree isolation requires POSIX and an explicit workdir")
-    bwrap = shutil.which("bwrap")
-    sandbox_exec = (
-        shutil.which("sandbox-exec")
-        if sys.platform == "darwin" and not bwrap
-        else None
+    """Run ``command`` where it sees only what its call is given.
+
+    Visible: the workdir and the directories ``handed`` to the call, the files
+    ``named`` on its command line,
+    system software, the CLI itself and the Python that runs Argus's action
+    tools. Its home and the Argus runtime are the workdir's private copies,
+    into which only the CLI's login and settings are brought. No other
+    project, tenant, Argus setting or CLI transcript exists in there.
+    """
+    tool = sandbox_tool()
+    if tool is None:
+        raise RuntimeError("this host has no sandbox; install bubblewrap")
+    from .paths import global_root
+
+    env = os.environ if env is None else env
+    found = shutil.which(command[0], path=env.get("PATH"))
+    if not found:
+        raise RuntimeError(f"cannot find the agent CLI {command[0]}")
+    executable = Path(os.path.realpath(found))
+    support = _backend_support_executables(executable)
+    if executable.name == "copilot" and support:
+        executable, support = support[-1], []
+    command = [str(executable), *command[1:]]
+
+    def real(path: str | os.PathLike[str]) -> Path:
+        return Path(os.path.realpath(path))
+
+    def named_as(path: str | os.PathLike[str]) -> set[Path]:
+        """A path as the CLI may name it: as given and resolved."""
+        return {Path(os.path.abspath(path)), real(path)}
+
+    home = Path(env.get("HOME") or Path.home())
+    login, settings = _cli_files(backend, env, home)
+    private = _outermost(
+        real(path) for path in [home, global_root(), *(file.parent for file in [*login, *settings])]
     )
-    if not bwrap and not sandbox_exec:
-        raise RuntimeError(
-            "worktree isolation requires bubblewrap or macOS sandbox-exec"
+    workdir = Path(os.path.abspath(working_dir)) if working_dir else None
+    given = [*([workdir] if workdir else []), *map(Path, handed), *map(Path, written)]
+    shared = [real(path) for path in given]
+    files = [
+        path for path in (Path(arg.lstrip("@")) for arg in named if arg.lstrip("@").startswith("/"))
+        if os.path.exists(path) and not os.path.isdir(path)
+    ]
+    argus = [real(path) for path in (sys.prefix, sys.base_prefix, sys.executable, _package_root()) if path]
+    writes = [real(path) for path in [*([workdir] if workdir else []), *map(Path, written)]] if writable else []
+    readable = _outermost(
+        path for path in (
+            *map(Path, _SYSTEM_DIRS), *argus, _install_root(executable), *support,
+            *_interpreter(executable, env.get("PATH")), *_resolver_config_target(),
+            *(_git_common_dir(workdir) if workdir else []), *map(real, files),
         )
-    if not command:
-        raise RuntimeError("worktree isolation requires a command")
-    executable = Path(command[0]).expanduser()
-    if not executable.is_absolute():
-        resolved_executable = shutil.which(command[0])
-        if not resolved_executable:
-            raise RuntimeError(
-                f"worktree isolation cannot resolve executable: {command[0]}"
-            )
-        executable = Path(resolved_executable)
-        command = [str(executable), *command[1:]]
-    executable = executable.resolve()
-    support_executables = _backend_support_executables(executable)
-    if executable.name == "copilot" and support_executables:
-        executable = support_executables[-1]
-        command = [str(executable), *command[1:]]
-        support_executables = []
-    root = os.path.realpath(os.fspath(working_dir))
-    if not os.path.isdir(root):
-        raise RuntimeError("isolated workdir does not exist")
-    runtime_root = Path(root) / ".argus-self-maintenance-runtime"
-    private_copilot = isolated_copilot_home(root)
-    if account_home is not None:
-        if (
-            not private_copilot.resolve().is_relative_to(Path(root))
-            or private_copilot.resolve() == account_home.resolve()
-        ):
-            raise RuntimeError("dedicated Copilot home must be separate from the sandbox runtime")
-        private_copilot.mkdir(parents=True, exist_ok=True, mode=0o700)
-    private_state = private_copilot / "session-state"
-    private_state.mkdir(parents=True, exist_ok=True)
-    copilot_home = account_home or Path.home() / ".copilot"
-    for name in ("config.json", "settings.json", "permissions-config.json"):
-        source = copilot_home / name
-        target = private_copilot / name
-        if account_home is not None:
-            # Reference the selected credentials; never copy another login.
-            target.unlink(missing_ok=True)
-            if source.is_file():
-                target.symlink_to(source)
-        elif source.is_file():
-            shutil.copy2(source, target)
-
-    if sandbox_exec:
-        private_home = runtime_root / "seatbelt-home"
-        private_tmp = runtime_root / "tmp"
-        private_home.mkdir(parents=True, exist_ok=True)
-        private_tmp.mkdir(parents=True, exist_ok=True)
-        private_home_copilot = private_home / ".copilot"
-        private_home_copilot.mkdir(parents=True, exist_ok=True)
-        for name in ("config.json", "settings.json", "permissions-config.json"):
-            source = private_copilot / name
-            if account_home is None and source.is_file():
-                shutil.copy2(source, private_home_copilot / name)
-
-        def seatbelt_path(path: str | os.PathLike[str]) -> str:
-            return '"' + os.fspath(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-        writable = (root, str(private_tmp), "/dev")
-        write_filters = "".join(
-            f"(require-not (subpath {seatbelt_path(path)}))"
-            for path in writable
+        if not any(path.is_relative_to(inside) for inside in shared)
+    )
+    if Path(tool).name == "sandbox-exec":
+        homes = [file.parent for file in [*login, *settings] if not file.is_dir()]
+        return _seatbelt(
+            tool, command, workdir=workdir, hidden=private, readable=[*readable, *settings, *shared],
+            writable=[*writes, *homes],
         )
-        profile = (
-            "(version 1)(allow default)"
-            f"(deny file-write* {write_filters})"
-        )
-        if account_home is not None:
-            profile += f"(deny file-write* (subpath {seatbelt_path(account_home)}))"
-        for sensitive in (
-            Path.home() / ".ssh",
-            Path.home() / ".aws",
-            Path.home() / ".gnupg",
-            Path.home() / ".kube",
-            Path.home() / ".docker",
-            Path.home() / ".config" / "gh",
-        ):
-            profile += (
-                f"(deny file-read* (subpath {seatbelt_path(sensitive)}))"
-            )
-        return [
-            sandbox_exec,
-            "-p",
-            profile,
-            "/usr/bin/env",
-            f"HOME={private_home}",
-            f"TMPDIR={private_tmp}",
-            *command,
-        ]
 
+    # (source, destination, writable). Deeper mounts cover shallower ones, and
+    # at equal depth a private copy covers the real directory.
+    mounts = [(path, path, False) for path in readable]
+    for path in private:
+        copy = _private_root(working_dir) / path.relative_to(path.anchor)
+        copy.mkdir(parents=True, exist_ok=True, mode=0o700)
+        mounts += [(copy, target, True) for target in named_as(path)]
+    for files_, rw in ((login, True), (settings, False)):
+        mounts += [(real(file), target, rw) for file in files_ for target in named_as(file)]
+    for path in given:
+        rw = any(real(path).is_relative_to(inside) for inside in writes)
+        mounts += [(real(path), target, rw) for target in named_as(path)]
+    if workdir and (workdir / ".git").is_file():
+        # A linked worktree's pointer stays put: the daemon's own git commands
+        # later run in this tree and must not follow it anywhere else.
+        mounts += [(real(workdir / ".git"), target, False) for target in named_as(workdir / ".git")]
     wrapped = [
-        bwrap,
-        "--die-with-parent",
-        "--new-session",
-        "--unshare-pid",
-        "--unshare-uts",
-        "--unshare-ipc",
-        "--ro-bind",
-        "/",
-        "/",
-        "--tmpfs",
-        "/tmp",
+        tool, "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-uts", "--unshare-ipc",
+        "--proc", "/proc", "--dev-bind", "/dev", "/dev", "--tmpfs", "/dev/shm", "--tmpfs", "/tmp",
     ]
-    hidden_roots = (
-        "/root",
-        "/home",
-        "/data",
-        "/scratch",
-        "/mnt",
-        "/workspace",
-        "/run",
-        "/var/lib/kubelet",
-        "/etc/kubernetes",
-        "/etc/azure",
+    for source, target, rw in sorted(dict.fromkeys(mounts), key=lambda m: (len(m[1].parts), m[0] != m[1])):
+        wrapped += ["--bind-try" if rw else "--ro-bind-try", str(source), str(target)]
+    return [*wrapped, "--setenv", "TMPDIR", "/tmp", "--chdir", str(workdir or home), "--", *command]
+
+
+def _seatbelt(
+    tool: str, command: list[str], *, workdir: Path | None,
+    hidden: list[Path], readable: list[Path], writable: list[Path],
+) -> list[str]:
+    """``sandbox-exec`` cannot remap paths: the home and the Argus runtime are
+    hidden rather than replaced, and each CLI keeps its real home."""
+    tmp = _private_root(workdir) / "tmp"
+    tmp.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    def any_of(paths: Iterable[Path | str]) -> str:
+        quoted = (os.path.realpath(path).replace("\\", "\\\\").replace('"', '\\"') for path in paths)
+        return "(require-any " + "".join(f'(subpath "{path}")' for path in quoted) + ")"
+
+    profile = (
+        "(version 1)(allow default)"
+        f"(deny file-read-data (require-all {any_of([*hidden, '/Users', '/Volumes', tempfile.gettempdir()])}"
+        f" (require-not {any_of([*readable, *writable, tmp])})))"
+        f"(deny file-write* (require-not {any_of([*writable, tmp, '/dev'])}))"
     )
-    for hidden in hidden_roots:
-        if os.path.isdir(hidden):
-            wrapped.extend(["--tmpfs", hidden])
-
-    mount_roots = [
-        Path(value)
-        for value in ("/tmp", *hidden_roots)
-        if os.path.isdir(value)
-    ]
-    created_dirs: set[str] = {str(value) for value in mount_roots}
-
-    def ensure_dir_chain(path: Path) -> None:
-        matching = [
-            candidate
-            for candidate in mount_roots
-            if path == candidate or candidate in path.parents
-        ]
-        if not matching:
-            return
-        current = max(matching, key=lambda value: len(value.parts))
-        relative = path.relative_to(current)
-        for part in relative.parts:
-            current /= part
-            rendered = str(current)
-            if rendered not in created_dirs:
-                wrapped.extend(["--dir", rendered])
-                created_dirs.add(rendered)
-
-    def bind_dir(source: Path, target: Path, *, writable: bool) -> None:
-        if not source.is_dir():
-            return
-        ensure_dir_chain(target)
-        wrapped.extend([
-            "--bind" if writable else "--ro-bind",
-            str(source),
-            str(target),
-        ])
-
-    def bind_file(source: Path, target: Path) -> None:
-        if not source.is_file():
-            return
-        ensure_dir_chain(target.parent)
-        wrapped.extend(["--ro-bind", str(source), str(target)])
-
-    # /etc/resolv.conf commonly points into /run, which is hidden above.
-    # Re-expose only that symlink target so isolated backends retain DNS.
-    resolver_target = _resolver_config_target()
-    if resolver_target is not None:
-        bind_file(resolver_target, resolver_target)
-
-    worktree = Path(root)
-    bind_dir(worktree, worktree, writable=True)
-    git_entry = worktree / ".git"
-    if git_entry.is_file():
-        # Linked worktrees store a writable `gitdir: ...` pointer here. Keep
-        # the pointer immutable so a confined role cannot redirect the daemon's
-        # later unsandboxed validation/commit commands to attacker metadata.
-        bind_file(git_entry, git_entry)
-    bind_dir(Path(sys.prefix), Path(sys.prefix), writable=False)
-    # Hidden roots such as /home are replaced with tmpfs above. Re-expose only
-    # the selected backend executable so configured per-user CLI installs remain
-    # runnable without revealing the rest of their home directory.
-    bind_file(executable, executable)
-    for support_executable in support_executables:
-        bind_file(support_executable, support_executable)
-    bind_dir(
-        Path.home() / ".cache" / "copilot",
-        Path.home() / ".cache" / "copilot",
-        writable=False,
-    )
-    try:
-        common = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=worktree,
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        common = ""
-    if common:
-        common_path = Path(common)
-        bind_dir(common_path, common_path, writable=False)
-    if account_home is None:
-        bind_dir(private_copilot, Path.home() / ".copilot", writable=False)
-        bind_dir(private_state, Path.home() / ".copilot" / "session-state", writable=True)
-    else:
-        for name in ("config.json", "settings.json", "permissions-config.json"):
-            source = account_home / name
-            bind_file(source, source)
-    wrapped.extend([
-        "--dev-bind",
-        "/dev",
-        "/dev",
-        "--proc",
-        "/proc",
-        "--chdir",
-        root,
-    ])
-    return [*wrapped, "--", *command]
-
+    return [tool, "-p", profile, "/usr/bin/env", f"TMPDIR={tmp}", *command]

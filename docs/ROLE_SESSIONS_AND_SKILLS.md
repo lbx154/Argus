@@ -75,10 +75,10 @@ Store plugin; the software role playbooks no longer link to them.
 
 The Reviewer and the Observer run with the Engineer's access on every backend:
 the same approval mode, sandbox and tool set, so a Reviewer can rerun checks
-and reach the network itself. Outside safe mode that is full access; in safe
-mode it is the Engineer's full-auto setting. Worktree isolation stays the
-Engineer's alone. The Reviewer's verdict tools ride on top as the only
-addition (Claude and Qoder name them in `--allowedTools`, which no permission
+and reach the network itself. Outside safe mode the CLI asks no permission;
+in safe mode it uses the Engineer's full-auto setting. Either way the agent
+sandbox shows it only its workdir and the directories it is handed. The
+Reviewer's verdict tools ride on top as the only addition (Claude and Qoder name them in `--allowedTools`, which no permission
 mode pre-approves).
 
 Independence rests on facts, not permissions. The round already snapshots the

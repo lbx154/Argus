@@ -173,6 +173,7 @@ class _StagedResearchManager:
 
     def decide_vertical(self, text, **_kwargs):
         return SimpleNamespace(
+                assumptions=(),
             execution_task=text,
             workflow_mode="staged",
             vertical="research",
@@ -284,7 +285,7 @@ def test_direct_dispatch_attaches_reference_deps(
     monkeypatch.setattr(front_door, "manager_continuous_handoff", handoff)
 
     prepared = SimpleNamespace(
-        decision=SimpleNamespace(workflow_mode="direct"),
+        decision=SimpleNamespace(workflow_mode="direct", assumptions=()),
         lifetime="bounded",
         continuous=False,
         open_ended=False,

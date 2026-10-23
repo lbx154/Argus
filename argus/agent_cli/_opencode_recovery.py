@@ -7,10 +7,12 @@ Extracted verbatim from ``agent_cli_runner.py``.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 from pathlib import Path
 
+from ..core.sandbox import private_path
 from ._process_control import background_subprocess_kwargs
 
 
@@ -40,11 +42,13 @@ class OpenCodeRecoveryMixin:
             return [], "OpenCode stream ended before exposing the current message identity."
 
         command = [self._resolve_executable(self.agent_bin), "export", thread_id]
+        env = self._child_env(options, executable=command[0]) or dict(os.environ)
         try:
+            # The session lives where the turn's own sandbox kept it.
             exported = subprocess.run(
-                command,
+                self._confined(command, options, env),
                 cwd=options.working_dir or None,
-                env=self._child_env(options, executable=command[0]),
+                env=env,
                 text=True,
                 # UTF-8 avoids a cp1252 decode crash on Windows when the exported
                 # session JSON contains non-Latin-1 model output.
@@ -54,7 +58,7 @@ class OpenCodeRecoveryMixin:
                 check=False,
                 **background_subprocess_kwargs(),
             )
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             return [], f"OpenCode session export failed: {exc}"
         if exported.returncode != 0:
             return (
@@ -185,11 +189,12 @@ class OpenCodeRecoveryMixin:
     ) -> tuple[dict | None, str | None]:
         """Read one interrupted turn when ``opencode export`` truncates stdout."""
         command = [self._resolve_executable(self.agent_bin), "db", "path"]
+        env = self._child_env(options, executable=command[0]) or dict(os.environ)
         try:
             located = subprocess.run(
-                command,
+                self._confined(command, options, env),
                 cwd=options.working_dir or None,
-                env=self._child_env(options, executable=command[0]),
+                env=env,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -200,7 +205,7 @@ class OpenCodeRecoveryMixin:
             )
         except subprocess.TimeoutExpired:
             return None, "OpenCode database path lookup timed out."
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             return None, f"OpenCode database path lookup failed: {exc}"
         if located.returncode != 0:
             return None, (
@@ -210,7 +215,7 @@ class OpenCodeRecoveryMixin:
         path_lines = [line.strip() for line in located.stdout.splitlines() if line.strip()]
         if not path_lines:
             return None, "OpenCode database path lookup returned no path."
-        database_path = Path(path_lines[-1]).expanduser()
+        database_path = private_path(Path(path_lines[-1]).expanduser(), options.working_dir)
         if not database_path.is_file():
             return None, f"OpenCode database does not exist at {database_path}."
 

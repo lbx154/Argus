@@ -11,8 +11,7 @@ from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
-from ...core.role_decision import decision_footer_instruction
-from ...core.role_handoff import OPERATOR_CHOICES_RULE
+from ...core.role_reply import decision_footer_instruction
 from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
@@ -28,8 +27,8 @@ LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
 _COMPOSABLE_WORKFLOW_ROUTING = (
-    "For a composable vertical, use WORKFLOW_PROFILE=custom and "
-    "WORKFLOW_STAGES=<requested stage names separated by ;> when no preset "
+    "For a composable vertical, use workflow_profile=custom and "
+    "workflow_stages=<requested stage names> when no preset "
     "matches exactly. Host adds mandatory companions and keeps canonical order. "
     "Select creation stages only when creating/changing those outputs; existing "
     "inputs still need evidence. Explain requested, added and excluded work. "
@@ -47,10 +46,10 @@ _RESEARCH_DELIVERABLE_ROUTING = (
     "diagrams, Figure 1, sections, drafts, and manuscript revisions are `research`. "
     "If only that part is requested and a full campaign excluded, choose `direct`; "
     "produce that part without adding a manuscript, experiments, or literature review. "
-    "Set START_STAGE to `idea` for proposing, comparing, or reviewing ideas or surveys; "
+    "Set start_stage to `idea` for proposing, comparing, or reviewing ideas or surveys; "
     "`experiment` for bounded empirical studies or implementations with real runs "
     "and no manuscript; `paper` for figures, drafts, sections, or revisions.\n\n"
-    "Optional START_STAGE=<stage name or empty> applies only to WORKFLOW_MODE=direct: "
+    "Optional start_stage applies only to workflow_mode=direct: "
     "choose a stage of that vertical, or leave empty for its first stage. Staged "
     "work always begins at its first stage.\n\n"
 )
@@ -102,23 +101,6 @@ OPERATIONS = frozenset(
         PENDING_QUESTION,
     }
 )
-
-
-_ROUTE_POLICY = (
-    "ROUTE: Default SELF for conversation, status, a quick inspection or a finite local "
-    "task one agent can verify. Simple work uses SELF+vertical; its stages/reviewer "
-    "defaults never force TEAM. TEAM for multi-stage live research, parallel work, "
-    "required independent review or high-impact operations.\n\n"
-)
-
-
-def build_route_prompt(text: str) -> str:
-    return (
-        "Reply with exactly one word: SELF or TEAM.\n"
-        f"{_ROUTE_POLICY}"
-        f"Message:\n{(text or '').strip()}\n\n"
-        "Answer:\n"
-    )
 
 
 def current_date_line(now: datetime | None = None) -> str:
@@ -300,95 +282,21 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
 
 
 def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_reply: bool = True) -> str:
-    """Merged cockpit front door: classify once and reuse every cheap decision."""
-    reply_rule = ("REPLY is the complete human-facing answer; "
-           "never expose route, control, lifetime, or role-protocol labels.\n\n"
-           if allow_reply else
-           "REPLY must be NONE except for a GREETING. The persistent Manager will answer using conversation "
-           "and Skill context. Return routing fields only; do not draft, outline, "
-           "or answer the user's question here. SELF_MODE may still be REPLY.\n\n")
-    cleaned = (text or "").strip()
-    return (
-        "Classify only.\n"
-        "INTAKE_TYPE: an ask done once, however big (`帮我调研X`), is "
-        "EPHEMERAL (live-mission edit: OBJECTIVE_AMENDMENT); "
-        "STANDING_DIRECTIVE only to govern later turns (`以后都用中文`; "
-        "PREFERENCE_VALUE=lasting rule only); "
-        "or PREFERENCE|CREDENTIAL_GRANT|REVOCATION. Unsure: EPHEMERAL.\n\n"
-        "CONFIG: setting as `SET model ALL <id>`, `SET effort planner,engineer "
-        "high`: roles ALL or some of manager,planner,engineer,"
-        "reviewer for model|effort; `-` for backend,global_daily_cap,max_daemons,"
-        "codex_daily_requests,copilot_daily_requests,copilot_daily_premium,safe_mode,"
-        "show_reasoning,telegram. Questions/task-local: NONE. Join with `; `.\n\n"
-        "CONTROL: PAUSE=stop campaign; ABORT=end current mission; NO_DISPATCH=no new work; "
-        "STEER=explicit new direction for an active mission. Questions/explanations/"
-        "criticism/suggestions: NONE. Explicit continue/resume after pause: TEAM, "
-        "not control. Ambiguity: NONE; controls: ROUTE SELF.\n\n"
-        "AUTHORIZATION: explicit grants: "
-        "validator_repair,"
-        "acceptance_retry,provenance_repair,artifact_refresh,resume_blocked_work. "
-        "Questions/quotes: NONE.\n\n"
-        "STEER_DIRECTIVE: its direction, else NONE.\n\n"
-        "OPERATOR_QUESTION_POLICY: FORBID only for an explicit command "
-        "against questions; ALLOW only when explicitly re-enabled; else "
-        "UNCHANGED.\n\n"
-        f"{_ROUTE_POLICY}"
-        "SELF_MODE: Status: PROJECTSTATUS=this project; ARGUSSTATUS=this Argus's "
-        "projects; HOSTSTATUS=server activity. Host reads facts; REPLY=NONE. "
-        "INSPECT=diagnosis/history/specific files or processes; "
-        "REPLY=context-only conversation, no live-state claims; "
-        "MICRO=checked mutation; IMPLEMENT=code+tests; DEBUG=diagnosis/fix+tests; "
-        "REVIEW=local review; SYNTHESIZE=supplied sources; TEAM=NONE. "
-        "Fixes prefer DEBUG; calculations/mutations/tests need execution. "
-        f"{reply_rule}"
-        f"{RESEARCHER_VOICE_BRIEF}\n\n"
-        "LIFETIME: TEAM: default BOUNDED for casual unscoped work absent ongoing "
-        "intent; STANDING=ongoing intent. "
-        "SELF: NONE.\n\n"
-        "GREETING: pure greetings; REPLY greets + 2-3 starter asks. "
-        "NAME: topic in the message's language; greeting/chat/settings NONE.\n\n"
-        + decision_footer_instruction(
-            "INTAKE_TYPE: EPHEMERAL\n"
-            "INTAKE_SCOPE: PROJECT\n"
-            "INTAKE_ROLES: ALL\n"
-            "PREFERENCE_KIND: NONE\n"
-            "PREFERENCE_VALUE: NONE\n"
-            "REVOKE_REVISION: NONE\n"
-            "CONFIG: NONE\n"
-            "CONTROL: NONE\n"
-            "AUTHORIZATION: NONE\n"
-            "STEER_DIRECTIVE: NONE\n"
-            "OPERATOR_QUESTION_POLICY: unchanged\n"
-            "ROUTE: SELF\n"
-            "SELF_MODE: REPLY\n"
-            f"REPLY: {'the full answer' if allow_reply else 'NONE'}\n"
-            "LIFETIME: NONE\n"
-            "GREETING: NONE\n"
-            "NAME: short title"
-        )
-        + "\n"
-        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
-        f"Message:\n{cleaned}\n\n"
+    """Merged cockpit front door: classify the message once, with hand_off."""
+    reply_rule = (
+        "You may answer here: reply is the complete answer for the operator, without "
+        "route, control, lifetime or role-protocol labels."
+        if allow_reply else
+        "Do not answer here except a greeting: the persistent Manager answers with "
+        "conversation and Skill context, so leave reply out and do not draft, outline "
+        "or answer the question. self_mode may still be reply."
     )
-
-
-def build_steer_confirmation_prompt(text: str, *, active_mission: bool) -> str:
-    """Render the second, mutation-only LLM gate for a proposed STEER."""
     return (
-        "Decide whether the current operator message explicitly commands changing "
-        "the active mission. This is a mutation authorization check, not general intent "
-        "classification.\n\n"
-        "Return STEER only when ACTIVE_MISSION=YES and the message itself clearly "
-        "orders a change to that mission's direction, priority, method, evidence, or "
-        "constraints. Do not infer authorization from frustration, criticism, a feature "
-        "idea, or an implied preference. Questions and information requests are SELF, "
-        "including questions asking whether profiling exists, whether a technique is "
-        "supported, what the team is doing, why it chose a path, or whether another "
-        "approach might work. A separate new task is also SELF for this decision because it "
-        "does not mutate the active mission.\n\n"
-        "Reply with exactly one word: STEER or SELF.\n\n"
+        "Classify the operator's message with hand_off only.\n\n"
+        f"{reply_rule}\n\n"
+        f"{RESEARCHER_VOICE_BRIEF}\n\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
-        f"Message:\n{(text or '').strip()}\n"
+        f"Message:\n{(text or '').strip()}\n\n"
     )
 
 
@@ -449,9 +357,9 @@ def build_fast_vertical_decision_prompt(
             if any("Custom workflow stages" in purpose for purpose in verticals_with_purpose.values())
             else ""
         )
-        + "If the chosen vertical lists workflow profiles, return WORKFLOW_PROFILE with "
+        + "If the chosen vertical lists workflow profiles, return workflow_profile with "
         "the smallest supported scope that fully covers the requested deliverable, "
-        "and use WORKFLOW_MODE=staged. "
+        "and use workflow_mode=staged. "
         "Choose full only for an explicitly requested complete workflow or matching "
         "end-to-end delivery. Preserve the active profile during supplemental work. "
         "If hardware versus software acceleration is unclear, request clarification "
@@ -471,25 +379,13 @@ def build_fast_vertical_decision_prompt(
         "from the requested outcome even when the operator did not name the label. "
         "Always output `research_direction_mode` too: `broad` while the direction is "
         "being discovered and `locked` for a concrete operator-supplied idea. "
-        "Never invent another direction-mode value. Never infer a "
-        "publication venue. Independent review "
+        "Never infer a publication venue. Independent review "
         "defaults on; set `require_independent_review=false` only for an authorized "
-        "deliberate waiver and state the reason in `RATIONALE`.\n\n"
+        "deliberate waiver and state the reason in the summary.\n\n"
         + _RESEARCH_DELIVERABLE_ROUTING
         + RESEARCHER_VOICE + "\n\n"
-        + decision_footer_instruction(
-            "CHOICE=existing\n"
-            "SESSION_TITLE=concise topic summary in the user's language\n"
-            "VERTICAL=software\n"
-            "DOMAIN=\n"
-            "WORKFLOW_MODE=direct\n"
-            "START_STAGE=\n"
-            "REQUIRE_INDEPENDENT_REVIEW=true\n"
-            "CONFIDENCE=0.9\n"
-            "RATIONALE=brief reason"
-        )
-        + "\nUse choice `grounded` with an empty vertical when repository inspection "
-        "is needed. For a research-target vertical, the research target and "
+        "End with hand_off: choice `grounded` with an empty vertical when repository "
+        "inspection is needed. For a research-target vertical, the research target and "
         "direction fields are required Manager decisions.\n\n"
         "## Built-in verticals\n"
         f"{menu}\n\n"
@@ -543,9 +439,9 @@ def build_vertical_decision_prompt(
             if any("Custom workflow stages" in purpose for purpose in verticals_with_purpose.values())
             else ""
         )
-        + "When its menu lists workflow profiles, also select WORKFLOW_PROFILE: the "
+        + "When its menu lists workflow profiles, also select workflow_profile: the "
         "smallest supported scope covering the requested deliverable, with "
-        "WORKFLOW_MODE=staged, or full for a "
+        "workflow_mode=staged, or full for a "
         "complete workflow. Omitted stages are outside scope, not completed. "
         "Do not invent a profile, weaken its checks, or change an active task's "
         "profile. Clarify hardware/software and delivery-level ambiguity before work.\n\n"
@@ -565,44 +461,22 @@ def build_vertical_decision_prompt(
         "`argus_maintenance`; papers and surveys are `research`.\n\n"
         "Use exploratory for well-defined investigation, publishable for requested original work "
         "at publication level, and doctoral only when explicit. "
-        "For research_direction_mode, use `broad` or `locked` as defined below; "
-        "values such as `exploratory`, `publishable`, or `experimental_validation` are "
-        "invalid. Never infer a venue. Independent review defaults on; "
+        "Set research_direction_mode as defined below. Never infer a venue. "
+        "Independent review defaults on; "
         "`require_independent_review=false` needs an authorized deliberate waiver "
-        "explained in `rationale`.\n\n"
+        "explained in the summary.\n\n"
         + _RESEARCH_DELIVERABLE_ROUTING
         + RESEARCHER_VOICE + "\n\n"
-        + "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
-        "at the end. The operator reads `rationale` beside the plan: why, in a sentence "
-        "or two of plain words, without verticals, workflow modes, routes or other "
-        "internal names. Add `session_title`: a concise topic summary in the user's "
-        "language, without input IDs or filler. Include `execution_task` for a new vertical, "
+        + "End with hand_off. Include `execution_task` for a new vertical, "
         "or when the Task carries conversation context: then it is the current message's "
         "work alone, as a standalone handoff without the context markers; omit it for a "
         "standalone existing route. Preserve "
         "paths, commands, order, and stopping conditions; leave review out, since "
-        "`REQUIRE_INDEPENDENT_REVIEW` carries it. "
+        "`require_independent_review` carries it. "
         "For research-target verticals, add `research_target_level` and "
         "`research_direction_mode`; use `target_venue` only if operator-stated. "
-        "For a new vertical add `confidence`, `precise_constraints`, `exclusions`, "
-        "and `ambiguities` from the operator's words.\n\n"
-        + decision_footer_instruction(
-            "CHOICE=existing\n"
-            "SESSION_TITLE=concise topic summary in the user's language\n"
-            "VERTICAL=software\n"
-            "DOMAIN=\n"
-            "WORKFLOW_MODE=direct\n"
-            "START_STAGE=\n"
-            "REQUIRE_INDEPENDENT_REVIEW=true\n"
-            "RATIONALE=brief reason"
-        )
-        + "\n"
-        "Do not invent constraints or missing numbers; report uncertainty.\n"
-        "If the operator must decide something before any work can start, such as "
-        "a choice they reserved or requirements that contradict each other, still "
-        "write the Decision lines and end them with `→ operator: <one question>`: "
-        "the task then waits for their answer instead of starting. "
-        + OPERATOR_CHOICES_RULE + "\n\n"
+        "For a new vertical add `precise_constraints` and `exclusions` from the "
+        "operator's words. Do not invent constraints or missing numbers.\n\n"
         "## Built-in verticals\n"
         f"{menu}\n\n"
         "## Optional research domains\n"
@@ -1203,12 +1077,10 @@ __all__ = [
     "build_project_completion_report_prompt",
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
-    "build_route_prompt",
     "build_self_learning_note",
     "build_simple_prompt",
     "build_skill_placements_prompt",
     "build_stage_decision_prompt",
-    "build_steer_confirmation_prompt",
     "build_vertical_decision_prompt",
     "manager_workspace_capability_prompt",
     "stage_decision_request",

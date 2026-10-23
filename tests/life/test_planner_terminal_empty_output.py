@@ -12,7 +12,6 @@ import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
-from argus.core.role_decision import encode_role_decision
 from argus.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
@@ -1115,7 +1114,7 @@ class _StructuredPlannerRunner(_EmptyPlannerThenManagerRunner):
         }
         return RunnerResult(
             exit_code=0,
-            agent_messages=[encode_role_decision("planner", payload)],
+            agent_messages=[json.dumps(payload)],
             stdout_lines=[],
             stderr_lines=[],
             thread_id="planner-thread",
@@ -1165,7 +1164,7 @@ class _SettlingStructuredPlannerRunner(_StructuredPlannerRunner):
             prompt=prompt, options=options, run_label=run_label,
             resume_thread_id=resume_thread_id,
         )
-        payload = json.loads(result.agent_messages[0].split("=", 1)[1])["payload"]
+        payload = json.loads(result.agent_messages[0])
         payload["tasks"].append({
             "key": "fresh-task",
             "deps": [],
@@ -1174,7 +1173,7 @@ class _SettlingStructuredPlannerRunner(_StructuredPlannerRunner):
             "scope": "bounded",
         })
         payload["settle_instructions"] = list(self.settle)
-        result.agent_messages = [encode_role_decision("planner", payload)]
+        result.agent_messages = [json.dumps(payload)]
         return result
 
 

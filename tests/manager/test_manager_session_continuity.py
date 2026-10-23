@@ -161,7 +161,7 @@ def test_new_manager_thread_rehydrates_current_controls_questions_and_issued_dec
     receipt_dir = tmp_path / "manager-supervision"
     receipt_dir.mkdir()
     issued = {"id": "a" * 64, "status": "issued", "decision": {
-        "action": "wait", "reason": "ISSUED_NOT_APPLIED: await the operator's unit answer."}, "effects": {}}
+        "action": "steer", "reason": "ISSUED_NOT_APPLIED: await the operator's unit answer."}, "effects": {}}
     (receipt_dir / (issued["id"] + ".json")).write_text(json.dumps(issued))
     (receipt_dir / "latest.json").write_text(json.dumps(issued))
     permission = append_directive(tmp_path, "LATEST_AUTHORITY: inspect only; do not change source files.",
@@ -219,7 +219,7 @@ def test_new_thread_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_p
     directory.mkdir()
     identity = "c" * 32
     (directory / "latest.json").write_text(json.dumps({"id": identity, "status": "applied", "decision": {"reason": "STALE_APPLIED"}}))
-    canonical = {"id": identity, "status": "issued", "decision": {"action": "wait", "reason": "PENDING_DELIVERY"}, "effects": {}}
+    canonical = {"id": identity, "status": "issued", "decision": {"action": "steer", "reason": "PENDING_DELIVERY"}, "effects": {}}
     path = directory / (identity + ".json")
     path.write_text(json.dumps(canonical))
     before = path.read_bytes()

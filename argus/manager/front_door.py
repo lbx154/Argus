@@ -187,11 +187,10 @@ def _cwd_as_workspace() -> Path:
 
     The cwd is not a safe default here. ``spawn_detached_daemon`` runs
     ``os.chdir("/")`` (``daemon/process.py``), so a daemonized front door would
-    hand the Manager runner a workspace rooted at the filesystem root — the very
-    hazard ``core.sandbox.fail_closed_workdir`` exists to prevent for spawned
-    roles, reintroduced one layer up. The gate brain (``~/.argus-skill``), the
-    package source and the active venv are equally off-limits, for the reasons
-    ``core.sandbox.forbidden_write_roots`` sets out.
+    hand the Manager runner a workspace rooted at the filesystem root. The gate
+    brain (``~/.argus-skill``), the package source and the active venv are
+    equally off-limits, for the reasons ``core.sandbox.forbidden_write_roots``
+    sets out.
     """
     from ..core.sandbox import forbidden_write_roots
 
@@ -210,8 +209,8 @@ def _cwd_as_workspace() -> Path:
             f"workspace looks like, not a project. Pass an explicit session root "
             f"(mem.project_root / life_dir) from the caller."
         )
-    # Same containment test as ``core.sandbox._is_forbidden``, applied to the
-    # workspace we are about to hand the Manager runner.
+    # Containment by real path, applied to the workspace we are about to hand
+    # the Manager runner.
     for root in forbidden_write_roots():
         real = os.path.realpath(root)
         if str(cwd) == real or str(cwd).startswith(real.rstrip("/") + os.sep):
@@ -539,7 +538,10 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
         exclusions = tuple(getattr(decision, "exclusions", ()) or ())
-        ambiguities = tuple(getattr(decision, "ambiguities", ()) or ())
+        assumptions = tuple(
+            f"{row['chose']} (rather than {row['instead_of']})"
+            for row in getattr(decision, "assumptions", ())
+        )
         current = load_contract(state_dir)
         if current is None:
             save_contract(
@@ -548,7 +550,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
                     objective=body,
                     clauses=clauses,
                     exclusions=exclusions,
-                    ambiguities=ambiguities,
+                    assumptions=assumptions,
                 ),
             )
             return
@@ -569,16 +571,16 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             if objective_changed or exclusions
             else current.exclusions
         )
-        proposed_ambiguities = (
-            ambiguities
-            if objective_changed or ambiguities
-            else current.ambiguities
+        proposed_assumptions = (
+            assumptions
+            if objective_changed or assumptions
+            else current.assumptions
         )
         if (
             new_objective == current.objective
             and proposed_clauses == current.clauses
             and proposed_exclusions == current.exclusions
-            and proposed_ambiguities == current.ambiguities
+            and proposed_assumptions == current.assumptions
         ):
             return
 
@@ -598,7 +600,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             objective=new_objective,
             clauses=proposed_clauses,
             exclusions=proposed_exclusions,
-            ambiguities=proposed_ambiguities,
+            assumptions=proposed_assumptions,
             by="manager",
             confirmation=confirmation,
             note="operator front-door handoff",

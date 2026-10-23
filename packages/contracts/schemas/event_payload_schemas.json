@@ -714,14 +714,8 @@
             "superseded",
             "observation_incomplete",
             "busy",
-            "decision_missing",
-            "decision_incomplete",
-            "decision_invalid",
-            "directive_missing",
-            "evidence_uncited",
-            "evidence_outside_snapshot",
-            "advisor_unavailable",
-            "advisor_disposition_missing"
+            "handoff_missing",
+            "decision_invalid"
           ]
         },
         "backend_exit_code": {

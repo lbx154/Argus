@@ -10,6 +10,8 @@ import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.role_actions import PREFIX
+from argus.core.role_tool_bridge import bridge_request
 from argus.core.run_gateway import run_exec
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.event_log import JsonlEventSink
@@ -19,7 +21,7 @@ from argus.manager._session_ops import manager_pipeline_lock
 from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import observe_project
 from argus.manager.session_context import conversation_backend
-from argus.manager.supervision import schedule_supervision, supervise, waiting_for_evidence
+from argus.manager.supervision import schedule_supervision, supervise
 
 
 def project(root, *, question=""):
@@ -39,6 +41,11 @@ def review(root, status, reason):
     })
 
 
+def hand_off(options, **payload):
+    bridge_request(PREFIX, "hand_off", {"evidence_refs": ["mission-view.json"], "assumptions": [], **payload},
+                   env=options.extension_env)
+
+
 class EvidenceBackend:
     def __init__(self):
         self.calls = []
@@ -48,15 +55,12 @@ class EvidenceBackend:
         if run_label == "manager-supervision":
             assert options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
             facts, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{"objective"'):])
-            if any(task["pending_question"] for task in facts["tasks"]):
-                answer = {"action": "wait", "reason": "The author declaration is still missing; resume after the operator supplies it."}
-            elif facts["review"].get("status") in {"continue", "blocked"}:
-                answer = {"action": "steer", "reason": "The grouped-mean check fails; repair grouping before another review.",
-                          "directive": "Repair the grouped mean while preserving the missing-value acceptance check."}
+            if facts["review"].get("status") in {"continue", "blocked"}:
+                hand_off(options, to="team", summary="The grouped-mean check fails; repair grouping before another review.",
+                         note="Repair the grouped mean while preserving the missing-value acceptance check.")
             else:
-                answer = {"action": "continue", "reason": "The recorded grouping check passed; continue the planned validation."}
-            answer["evidence_refs"] = ["backlog.jsonl" if answer["action"] == "wait" else "mission-view.json"]
-            text = json.dumps(answer)
+                hand_off(options, to="team", summary="The recorded grouping check passed; continue the planned validation.")
+            text = "Judged."
         else:
             text = "The grouped-mean validation is the current task."
         return RunnerResult(exit_code=0, agent_messages=[text], thread_id=resume_thread_id or "persistent-manager")
@@ -221,28 +225,6 @@ def test_changed_goal_rejects_a_slow_supervision_result_without_holding_pipeline
             release.set()
 
 
-def test_unchanged_wait_ignores_polling_rounds_and_own_receipts_then_wakes_on_answer(tmp_path):
-    backlog, item = project(tmp_path, question="Provide the author declaration")
-    backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend)
-    event = {"type": "life.planner.verdict", "item_id": item.id, "reason": "Need author declaration", "ts": 10}
-    first = supervise(manager, tmp_path, event)
-    assert first["status"] == "applied" and first["decision"]["action"] == "wait"
-    assert waiting_for_evidence(tmp_path)
-    with (tmp_path / "events.jsonl").open("a") as log:
-        for number in range(60):
-            log.write(json.dumps({"type": "life.planner.deferred", "ts": number, "reason": "poll"}) + "\n")
-    repeated = {**event, "ts": 100, "round_index": 11}
-    assert supervise(manager, tmp_path, repeated)["id"] == first["id"]
-    assert len(backend.calls) == 1 and waiting_for_evidence(tmp_path)
-    # The wait preserves campaign authority and the question until real input arrives.
-    assert read_continuous_state(tmp_path).enabled
-    backlog.update(item.id, pending_question="")
-    assert backlog.resume_parked()
-    assert not waiting_for_evidence(tmp_path)
-    assert observe_project(tmp_path, event=event).evidence_revision != first["evidence_revision"]
-
-
 def test_failed_provider_does_not_modify_any_team_control(tmp_path):
     project(tmp_path)
 
@@ -369,15 +351,15 @@ def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
     project(tmp_path)
 
     class Unfounded(EvidenceBackend):
-        def run_exec(self, **kwargs):
-            return RunnerResult(exit_code=0, agent_messages=[json.dumps({
-                "action": "steer", "reason": "Claim from an unread file", "directive": "Change course",
-                "evidence_refs": ["other-project/private.json"],
-            })])
+        def run_exec(self, *, options, **kwargs):
+            with pytest.raises(ValueError, match="1 of 1 are not paths"):
+                hand_off(options, to="team", summary="Claim from an unread file", note="Change course",
+                         evidence_refs=["other-project/private.json"])
+            return RunnerResult(exit_code=0, agent_messages=["The Manager gave up."])
 
     result = supervise(Manager(tmp_path, runner=Unfounded()),
                        tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-    assert result["status"] == "failed" and result["cited_refs"] == []
+    assert result["status"] == "failed" and result["error_code"] == "handoff_missing" and result["cited_refs"] == []
     assert load_active_manager_directive(tmp_path) is None
     assert not (tmp_path / "inbox.jsonl").exists()
 
@@ -413,49 +395,6 @@ def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidenc
     assert "Missing-value check has just failed" in second.calls[0][0]
     record = supervise(restarted.manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
     assert record["status"] == "applied" and second.calls[-1][1] == "persistent-manager"
-
-
-def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path, monkeypatch):
-    from argus.life.memory import LifeMemory
-    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
-    from argus.planner import PlannerVerdict
-
-    backlog, item = project(tmp_path, question="Supply the missing author declaration")
-    manager = Manager(tmp_path, runner=EvidenceBackend())
-    assert supervise(manager, tmp_path, {"type": EventType.LIFE_PLANNER_VERDICT})["status"] == "applied"
-    calls = []
-
-    def plan_next(_planner, **kwargs):
-        calls.append(kwargs)
-        return PlannerVerdict(
-            project_done=False,
-            reason="The independent checker is temporarily unavailable",
-            error="The independent checker is temporarily unavailable",
-        )
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
-    supervisor = LifeSupervisor(
-        memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(),
-        sink=JsonlEventSink(None, life_dir=tmp_path), planner_runner=object(),
-        config=LifeSupervisorConfig(
-            continuous=True, continuous_objective=read_continuous_state(tmp_path).objective,
-            project_worktree=tmp_path, artifact_root=tmp_path, final_certification_gate=False,
-            open_ended=True,
-        ),
-    )
-    supervisor._vertical_resolved = True
-    # The WAIT is the Manager's answer to the evidence it judged: while that
-    # holds, the Planner is not asked, and nothing new is said each pass; the
-    # answer moves it.
-    for _ in range(4):
-        assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == []
-    assert "requested operator facts" not in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
-    backlog.update(item.id, pending_question="")
-    assert backlog.resume_parked()
-    assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 1
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
@@ -513,7 +452,7 @@ def test_model_change_rotates_provider_identity_with_a_durable_conversation_hand
     assert "The grouped-mean validation is the current task." in backend.calls[-1][0]
     state = json.loads((tmp_path / ".manager_session.json").read_text())
     assert state["identity"]["model"] == "model-b"
-    assert state["rotation_reason"] == "the configured model or backend changed"
+    assert state["rotation_reason"] == "the configured model, backend or handoff protocol changed"
 
 
 def test_an_interactive_ask_neither_waits_for_nor_interrupts_a_background_turn(tmp_path, monkeypatch):
@@ -643,112 +582,6 @@ def test_partial_delivery_never_overwrites_a_new_operator_direction(tmp_path, mo
     assert len(backend.calls) == 1
 
 
-def role_loop(root, mission_id, backend):
-    from argus import SkillLoop, SkillLoopConfig
-
-    return SkillLoop(
-        skills_dir=root / "skills", engineer_runner=backend, reviewer_runner=backend,
-        config=SkillLoopConfig(
-            engineer_model="fixture", reviewer_model="fixture", workflow_mode="direct",
-            active_vertical="software", max_rounds=1,
-            require_independent_review=True, require_post_task_learning=False,
-            wiki_enabled=False, auto_init_wiki=False, session_id=mission_id,
-            state_root=root,
-        ),
-    )
-
-
-def task_at(backlog, item_id):
-    return next(item for item in backlog.active() if item.id == item_id)
-
-
-def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_path):
-    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-    from argus.life.memory import LifeMemory
-    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-
-    backlog, task_a = project(tmp_path)
-    supervisor = LifeSupervisor(
-        memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(),
-        sink=JsonlEventSink(None, life_dir=tmp_path), config=LifeSupervisorConfig(project_worktree=tmp_path),
-    )
-    backlog.mark_running(task_a.id)
-    backlog.update(task_a.id, pending_question="Provide the author declaration")
-    task_b = BacklogItem.new(title="Independent lint check", objective="Check local syntax independently")
-    backlog.add(task_b)
-    backlog.mark_running(task_b.id)
-    manager = Manager(tmp_path, runner=EvidenceBackend())
-    receipt = supervise(manager, tmp_path, {"type": EventType.LIFE_PLANNER_VERDICT})
-    assert receipt["waiting_task_ids"] == [task_a.id]
-    assert waiting_for_evidence(tmp_path, task_a.id)
-    assert not waiting_for_evidence(tmp_path, task_b.id)
-    backend_a = MemoryBackend()
-    outcome_a = role_loop(tmp_path, task_a.id, backend_a).run(task_a.objective, workdir=tmp_path)
-    assert (outcome_a.status, outcome_a.park_reason) == ("parked", "operator_question")
-    assert outcome_a.rounds == [] and backend_a.history == []
-    state = SimpleNamespace(
-        item=task_at(backlog, task_a.id), outcome=SimpleNamespace(final_review_status=""),
-        status=outcome_a.status, park_reason=outcome_a.park_reason,
-        stop_kind=outcome_a.stop_kind, stop_reason=outcome_a.reason,
-        usage_summary=SimpleNamespace(pricing_status="known"), usd=0.0, known_usd=0.0,
-        context_packet_path=None,
-    )
-    assert supervisor._maybe_pause_for_recoverable_stop(state)["status"] == "parked"
-    assert task_at(backlog, task_a.id).pending_question == "Provide the author declaration"
-    assert waiting_for_evidence(tmp_path, task_a.id)
-
-    backend_b = MemoryBackend()
-    backend_b.queue("engineer-r1", CannedResponse(message="The independent syntax check passed"))
-    backend_b.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'Syntax verified\n→ done'})))
-    assert role_loop(tmp_path, task_b.id, backend_b).run(task_b.objective, workdir=tmp_path).successful
-    backlog.update(task_b.id, status="done")
-    assert waiting_for_evidence(tmp_path, task_a.id), "unrelated task completion cannot answer A's question"
-
-    backlog.update(task_a.id, pending_question="")
-    assert backlog.resume_parked()
-    backlog.mark_running(task_a.id)
-    assert not waiting_for_evidence(tmp_path, task_a.id)
-    backend_a.queue("engineer-r1", CannedResponse(message="Applied the supplied author declaration"))
-    backend_a.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'Declaration verified\n→ done'})))
-    assert role_loop(tmp_path, task_a.id, backend_a).run(task_a.objective, workdir=tmp_path).successful
-
-
-def test_wait_arriving_during_engineer_work_finishes_the_write_and_skips_reviewer(tmp_path):
-    from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-
-    backlog, item = project(tmp_path)
-    backlog.mark_running(item.id)
-    backlog.update(item.id, pending_question="Supply the author declaration")
-    entered, release = threading.Event(), threading.Event()
-    artifact = tmp_path / "checked.txt"
-
-    def write_artifact(_prompt, _options):
-        artifact.write_text("in progress")
-        entered.set()
-        assert release.wait(2)
-        artifact.write_text("write complete")
-        return "The finite local write completed"
-
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message_factory=write_artifact))
-    loop = role_loop(tmp_path, item.id, backend)
-    manager = Manager(tmp_path, runner=EvidenceBackend())
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        work = pool.submit(loop.run, item.objective, workdir=tmp_path)
-        try:
-            assert entered.wait(1)
-            assert supervise(manager, tmp_path, {"type": EventType.LIFE_PLANNER_VERDICT})["status"] == "applied"
-            assert not work.done() and artifact.read_text() == "in progress"
-            release.set()
-            outcome = work.result(timeout=1)
-            assert outcome.status == "parked"
-            assert outcome.rounds == [], "the control boundary must not fabricate a Reviewer verdict"
-            assert artifact.read_text() == "write complete"
-            assert [label for label, _, _ in backend.history] == ["engineer-r1"]
-        finally:
-            release.set()
-
-
 def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, monkeypatch):
     from argus.manager import supervision
 
@@ -874,16 +707,19 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
     assert types.count(EventType.LIFE_MANAGER_SUPERVISION_APPLIED) == 1
 
 
+def task_at(backlog, item_id):
+    return next(item for item in backlog.active() if item.id == item_id)
+
+
 class AskingBackend(EvidenceBackend):
     """A Manager that judges the work handed to it is the operator's to decide."""
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.calls.append((prompt, resume_thread_id, run_label))
-        text = (
-            "ACTION: continue\nREASON: Requirements A and B conflict; only the operator may choose.\n"
-            "EVIDENCE_REFS: backlog.jsonl\n→ operator: Keep A or B?\n- Keep A\n- Keep B"
-        )
-        return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
+        hand_off(options, to="operator", summary="Requirements A and B conflict; only the operator may choose.",
+                 evidence_refs=["backlog.jsonl"],
+                 ask={"question": "Keep A or B?", "options": [{"label": "Keep A"}, {"label": "Keep B"}]})
+        return RunnerResult(exit_code=0, agent_messages=["Asked."], thread_id="persistent-manager")
 
 
 def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operator(tmp_path):
@@ -928,48 +764,44 @@ def test_work_handed_to_the_manager_waits_on_the_question_it_puts_to_the_operato
     ]
 
 
-def test_the_reason_the_operator_reads_is_written_in_their_words(tmp_path):
+def test_the_summary_the_operator_reads_is_written_in_their_words(tmp_path):
     """2026-10-22 (sizefmt): the Manager's column read "仅任务 206cf84789c6 正在由工程师执行
-    …正式交棒独立 Reviewer". Its REASON is asked for the way the Observer's remark is."""
+    …正式交棒独立 Reviewer". Its summary is asked for the way the Observer's remark is."""
+    from argus.core.handoff import form_tool
     from argus.manager.supervision import _prompt
     from argus.roles.prompts.voice import operator_language
 
-    def reason_line():
-        prompt = _prompt(observe_project(tmp_path))
-        return next(line for line in prompt.splitlines() if line.startswith("REASON:"))
-
     project(tmp_path)
-    assert operator_language(False) in reason_line()
+    assert operator_language(False) in _prompt(observe_project(tmp_path))
     JsonlEventSink(None, life_dir=tmp_path).append({
         "type": EventType.LIFE_MANAGER_INTENT_STARTED, "intent_id": "i-1",
         "objective": "给 sizefmt 加一个 format_mib",
     })
-    reason = reason_line()
-    assert operator_language(True) in reason and "naming no task ids" in reason
+    assert operator_language(True) in _prompt(observe_project(tmp_path))
+    assert "naming no task ids" in form_tool("supervise")["description"]
 
 
-def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_report(tmp_path, monkeypatch):
-    """With nobody to ask, the Manager's steer chose one reading of a requirement
-    read two ways; the run report says it was chosen for the operator."""
+@pytest.mark.parametrize("operator_available", ["true", "false"])
+def test_a_reading_the_manager_chooses_for_the_operator_reaches_the_report(tmp_path, monkeypatch, operator_available):
+    """The Manager's steer chose one reading of a requirement read two ways;
+    whether or not the operator could have been asked, the run report says so."""
     from argus.core.autonomy import read_autonomous_assumptions, render_autonomous_assumptions
     from argus.life.memory import LifeMemory
     from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus.manager import supervision
     from argus.roles.prompts.manager import build_project_completion_report_prompt
 
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", operator_available)
     monkeypatch.setenv("ARGUS_AUTONOMY_RUN_ID", "assumption-run")
-    reading = "format_hours truncates like format_minutes (5400 → 1 h), not half up like format_days"
+    reading = "format_hours truncates like format_minutes (5400 → 1 h)"
+    other = "format_hours rounds half up like format_days"
 
     class ChoosingBackend(EvidenceBackend):
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls.append((prompt, resume_thread_id, run_label))
-            text = (
-                "ACTION: steer\nREASON: The rounding requirement reads two ways.\n"
-                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Truncate partial hours.\n"
-                f"ASSUMPTION: {reading}"
-            )
-            return RunnerResult(exit_code=0, agent_messages=[text], thread_id="persistent-manager")
+            hand_off(options, to="team", summary="The rounding requirement reads two ways.",
+                     note="Truncate partial hours.", evidence_refs=["backlog.jsonl"],
+                     assumptions=[{"chose": reading, "instead_of": other}])
+            return RunnerResult(exit_code=0, agent_messages=["Steered."], thread_id="persistent-manager")
 
     root = tmp_path / "state"
     _, item = project(root)
@@ -977,10 +809,9 @@ def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_r
     record = supervise(Manager(root, runner=backend), root,
                        {"type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id})
     assert record["status"] == "applied", record
-    assert "ASSUMPTION:" in backend.calls[0][0]
     (row,) = read_autonomous_assumptions(root)
-    assert (row["item_id"], row["reading"], row["source"]) == (item.id, reading, "manager_decision")
-    assert f"the Manager decided for you: {reading}" in render_autonomous_assumptions(root)
+    assert (row["item_id"], row["reading"], row["conflict"], row["source"]) == (item.id, reading, other, "supervise")
+    assert reading in render_autonomous_assumptions(root)
 
     class Runner:
         manager = None
@@ -994,7 +825,3 @@ def test_a_reading_the_manager_chooses_for_an_unreachable_operator_reaches_the_r
         completion_context=supervisor._manager_project_completion_context(),
     )
     assert "Name each recorded assumption" in report and reading in report
-    # A field that states nothing records nothing.
-    assert supervision._decision(
-        "ACTION: continue\nREASON: r\nEVIDENCE_REFS: backlog.jsonl\nASSUMPTION: none"
-    )["assumption"] == ""

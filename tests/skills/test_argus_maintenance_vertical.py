@@ -12,6 +12,7 @@ from argus.skills.vertical_select import (
 )
 from argus.verticals._base import load_vertical_contract
 from argus.verticals.argus_maintenance.architecture_audit import scan_repository
+from tests.hand_off import hand_off
 
 
 def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
@@ -39,7 +40,7 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     backend.queue("engineer-r1", CannedResponse(message="Implemented and verified."))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("submit_review", {'review': (('Verified.') + '\n\n' + ('None.')) + "\n→ done"})),
+        CannedResponse(action=hand_off("done", "Verified.")),
     )
     loop = SkillLoop(
         skills_dir=skills,

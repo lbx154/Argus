@@ -26,6 +26,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import (
     StopKind,
@@ -34,7 +35,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
 )
 from ..core.workspace_snapshot import WorkspaceSnapshots
-from .tools import review_action_tools
+from .tools import review_actions
 
 log = logging.getLogger(__name__)
 
@@ -406,6 +407,8 @@ def _parallel_final_review_passes(
                 skip_git_repo_check=config.skip_git_repo_check,
                 extra_args=list(config.extra_args) if config.extra_args else None,
                 working_dir=str(working_dirs[label]),
+                add_dirs=[str(tree) for tree in (comparison.before_paper, comparison.after_paper)]
+                if comparison and label == "ScientificLoss" else None,
             ),
             run_label=f"reviewer-{label.lower()}",
         )
@@ -627,15 +630,12 @@ class ReviewerConfig:
 
 
 def _engineer_access(config: ReviewerConfig) -> dict[str, Any]:
-    """The Engineer's access, so the Reviewer can run and fetch what it judges.
-
-    Worktree isolation stays the Engineer's: it hides the paths the Reviewer's
-    verdict tools and prompt-named records live on.
-    """
+    """The Engineer's access, so the Reviewer can run and fetch what it judges."""
     return {
         "full_auto": config.full_auto,
         "dangerous_yolo": config.dangerous_yolo,
         "sandbox_mode": config.sandbox_mode,
+        "isolate_workdir": config.isolate_workdir,
     }
 
 
@@ -886,27 +886,34 @@ class Reviewer:
             decision.changed_during_review = changed
             return decision
 
-        add_dirs = list(config.add_dirs)
-        if str(getattr(self.runner, "backend", "")).lower() == "copilot":
-            # Copilot denies a read outside its add-dirs, and this prompt names
-            # files outside the workdir by absolute path: the project state
-            # beside the Engineer log (handoffs, round checks, goal contract),
-            # the checkpoint, and the active vertical's packaged playbooks.
-            prompt_dirs = [
-                Path(value).expanduser().resolve().parent
-                for value in (engineer_log_path, checkpoint_path)
-                if value
-            ]
-            if config.vertical_state_root:
-                prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
-            add_dirs += [
-                *(str(path) for path in review_libraries.library_roots),
-                *(str(path) for path in prompt_dirs if path.is_dir()),
-                *vertical_skill_read_dirs(vertical),
-            ]
+        # The sandbox shows only what a call is given, and this prompt names
+        # files outside the workdir by absolute path: the project state beside
+        # the Engineer log (handoffs, round checks, goal contract), the
+        # checkpoint, and the active vertical's packaged playbooks.
+        prompt_dirs = [
+            Path(value).expanduser().resolve().parent
+            for value in (engineer_log_path, checkpoint_path)
+            if value
+        ]
+        if config.vertical_state_root:
+            prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
+        write_dirs = [str(path) for path in prompt_dirs if path.is_dir()]
+        add_dirs = [
+            *config.add_dirs,
+            *(str(path) for path in review_libraries.library_roots),
+            *write_dirs,
+            *vertical_skill_read_dirs(vertical),
+        ]
 
         try:
-            with review_action_tools(
+            actions = review_actions(
+                venue=venue, venue_required=venue_required,
+                grounding=_review_grounding(
+                    config,
+                    task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                ),
+            )
+            with role_actions(
                 self.runner,
                 RunnerOptions(
                     model=config.model,
@@ -915,6 +922,7 @@ class Reviewer:
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     add_dirs=add_dirs or None,
+                    write_dirs=write_dirs or None,
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a
@@ -925,17 +933,13 @@ class Reviewer:
                     lean_tool_surface=True,
                     excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
                 ),
-                venue=venue, venue_required=venue_required,
-                grounding=_review_grounding(
-                    config,
-                    task_parts=(objective, original_objective or "", scope, planner_review_instruction),
-                ),
-            ) as (actions, options):
+                actions,
+            ) as options:
                 result = gateway_run_exec(
                     self.runner, prompt=prompt, resume_thread_id=resume,
                     options=options, run_label="reviewer",
                 )
-                decision = actions.decision
+            decision = actions.handoff.value if actions.handoff else None
             changed = _changed_during_review(config.snapshots)
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             stopped_by = (
@@ -984,12 +988,12 @@ class Reviewer:
                 return with_call_metadata(ReviewDecision(
                     status="blocked",
                     reason=(
-                        "The Reviewer ended without submitting a review action. "
+                        "The Reviewer ended without handing the work on. "
                         "Its reply was not interpreted as acceptance or rejection."
                     ),
                     next_action=(
                         "Ask the independent Reviewer to submit its judgment through "
-                        "submit_review."
+                        "hand_off."
                     ),
                     backend_unavailable=True,
                     backend_stop_kind="backend_unavailable",

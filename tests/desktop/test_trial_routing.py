@@ -86,6 +86,7 @@ def test_persisted_personal_control_knob_is_not_rewritten(isolated_trial, monkey
 
 def test_front_door_classification_reaches_execution_in_trial_mode(isolated_trial, monkeypatch):
     from argus.adapters.agent_cli_backend import _exec
+    from argus.core.handoff import HandOffActions
     from argus.life import router
     from argus.manager import _front_door_ops
 
@@ -100,7 +101,8 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
         return RunnerResult(exit_code=0, agent_messages=["synthetic classification"])
     monkeypatch.setattr(_exec, "_execute_prepared", execute_prepared)
     monkeypatch.setattr(_front_door_ops, "gateway_run_exec", _exec.execute)
-    monkeypatch.setattr(router, "classify_front_door", lambda text, *, run_exec, **kw: run_exec(text))
+    monkeypatch.setattr(router, "classify_front_door",
+                        lambda text, *, run_exec, **kw: run_exec(text, HandOffActions("front_door")))
     manager = SimpleNamespace(
         runner=backend, manager_session_root=isolated_trial / "manager",
         _task_usage_scope=lambda _: nullcontext(),

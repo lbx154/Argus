@@ -8,11 +8,12 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def _review_action(status: str, reason: str, *, next_action: str = "") -> tuple[str, dict]:
     holder = {"done": "done", "continue": "engineer", "replan_requested": "planner"}[status]
-    return "submit_review", {"review": "\n\n".join(filter(None, (reason, next_action, f"→ {holder}")))}
+    return hand_off(holder, reason, next_action)
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -27,19 +28,19 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 def test_repeated_reviewer_prose_does_not_force_harness_replan(tmp_path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="first full run"))
-    backend.queue("reviewer", CannedResponse(review_action=_review_action(
+    backend.queue("reviewer", CannedResponse(action=_review_action(
         "continue",
         "chunk_kda verifier failed with CUDA illegal memory access.",
         next_action="Localize the first failing case.",
     )))
     backend.queue("engineer-r2", CannedResponse(message="second full run"))
-    backend.queue("reviewer", CannedResponse(review_action=_review_action(
+    backend.queue("reviewer", CannedResponse(action=_review_action(
         "continue",
         "The chunk_kda gate again failed with CUDA illegal memory access.",
         next_action="Inspect the next concrete failure.",
     )))
     backend.queue("engineer-r3", CannedResponse(message="fixed"))
-    backend.queue("reviewer", CannedResponse(review_action=_review_action(
+    backend.queue("reviewer", CannedResponse(action=_review_action(
         "done",
         "The Reviewer verified the repaired result.",
     )))
@@ -58,7 +59,7 @@ def test_repeated_reviewer_prose_does_not_force_harness_replan(tmp_path) -> None
 def test_explicit_reviewer_replan_verdict_is_authoritative(tmp_path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="inspected evidence"))
-    backend.queue("reviewer", CannedResponse(review_action=_review_action(
+    backend.queue("reviewer", CannedResponse(action=_review_action(
         "replan_requested",
         "The current mission contract is invalidated by the new evidence.",
     )))
@@ -78,9 +79,7 @@ def test_explicit_reviewer_replan_verdict_is_authoritative(tmp_path) -> None:
 def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="implemented skip-zero"))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {
-        "review": "The skip-zero candidate works, but later evidence refutes its necessity. Consider the no-gap validator alternative.\n→ done",
-    })))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "The skip-zero candidate works, but later evidence refutes its necessity. Consider the no-gap validator alternative.")))
 
     status, rounds, _final, reason, _thread = _engineer(backend).run(
         objective="Generate the skip-zero candidate.",

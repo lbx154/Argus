@@ -31,7 +31,7 @@ def memory(tmp_path):
 def manager_runner(monkeypatch):
     class Manager:
         def decide_vertical(self, body, **kwargs):
-            return SimpleNamespace(execution_task=f"managed: {body}")
+            return SimpleNamespace(assumptions=(), execution_task=f"managed: {body}")
 
         def commit_vertical_decision(self, body, decision, **kwargs):
             return decision

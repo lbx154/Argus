@@ -24,6 +24,7 @@ from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.loop import SkillLoop, SkillLoopConfig
 from argus.planner import PlannerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 
 class _PlannerBackend:
@@ -76,7 +77,7 @@ class _RealLoopRunner:
         self.reviewer_backend.queue(
             "reviewer",
             CannedResponse(
-                review_action=("submit_review", {'review': 'The submitted artifact satisfies its checklist.\n→ done'}),
+                action=hand_off("done", 'The submitted artifact satisfies its checklist.'),
                 thread_id="v1",
             ),
         )

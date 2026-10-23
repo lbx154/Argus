@@ -31,6 +31,7 @@ from argus.engineer import round_reviewer
 from argus.life import knowledge_recall
 from argus.life.memory import BacklogItem, LifeMemory, request_running_item_abort
 from argus.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+from tests.hand_off import hand_off
 
 
 def _runtime_case(tmp_path, monkeypatch, *, enable_abort=True, with_stop=True):
@@ -248,7 +249,7 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
 
 def _queue_success(backend, *, first_message=None):
     backend.queue("engineer-r1", CannedResponse(message="implementation ready", message_factory=first_message))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': (('verified') + '\n\n' + ('none')) + "\n→ done"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "verified")))
 
 
 def _translated_watchdog(case):

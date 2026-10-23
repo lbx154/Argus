@@ -22,9 +22,17 @@ def conversation_backend(runner: Any) -> Any:
 
 
 def session_identity(runner: Any, options: Any) -> dict[str, str]:
+    """What a continued thread must share with this turn; any change rotates it.
+
+    ``protocol`` is how the session hands work on, so a thread taught the
+    older baton lines is never resumed under ``hand_off``.
+    """
+    from ..core.handoff import ACTION
+
     return {
         "backend": str(getattr(runner, "backend", "") or ""),
         "model": str(getattr(options, "model", "") or ""),
+        "protocol": ACTION,
     }
 
 

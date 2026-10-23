@@ -13,10 +13,7 @@ from typing import Any
 from ..core.event_catalog import EventType
 from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
 from ..core.ports import RunnerBackend
-from ..core.role_decision import (
-    decision_footer_instruction,
-    latest_role_decision,
-)
+from ..core.role_reply import decision_footer_instruction
 from ..core.role_session import (
     RoleSessionCapsule,
     objective_revision,
@@ -271,6 +268,7 @@ class Planner:
             reasoning_effort=cfg.reasoning_effort or "xhigh",
             working_dir=cfg.working_dir,
             add_dirs=add_dirs or None,
+            write_dirs=[cfg.state_root] if cfg.state_root else None,
             # Planner chooses and delegates work; it does not execute it. Keep
             # the boundary role-owned so an upstream yolo setting cannot grant
             # shell, network, build, test, or write tools to this call.
@@ -324,12 +322,7 @@ class Planner:
                 raw_text=exc_text,
                 error=exc_text,
             )
-        process_decision = latest_role_decision(result, "planner")
-        text = (
-            json.dumps(process_decision, ensure_ascii=False)
-            if process_decision is not None
-            else "\n".join(getattr(result, "agent_messages", None) or [])
-        )
+        text = "\n".join(getattr(result, "agent_messages", None) or [])
         session_metadata_persisted = session.complete(
             result, decisive_output=text, prompt=full_prompt
         )
@@ -344,11 +337,7 @@ class Planner:
         details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
         if failed:
             session.rotate("backend_failure")
-        verdict = None if failed else (
-            parse_planner_payload(process_decision)
-            if process_decision is not None
-            else parse_planner_text(text)
-        )
+        verdict = None if failed else parse_planner_text(text)
         if callable(cfg.on_event):
             cfg.on_event({
                 "type": EventType.ROLE_SESSION_TURN,
@@ -534,12 +523,7 @@ class Planner:
             except Exception as exc:  # noqa: BLE001
                 last_error = f"{type(exc).__name__}: {exc}"
                 break
-            process_decision = latest_role_decision(result, "planner")
-            text = (
-                json.dumps(process_decision, ensure_ascii=False)
-                if process_decision is not None
-                else "\n".join(getattr(result, "agent_messages", None) or [])
-            )
+            text = "\n".join(getattr(result, "agent_messages", None) or [])
             raw_attempts.append(text)
             if int(getattr(result, "exit_code", 0) or 0) != 0 or bool(
                 getattr(result, "fatal_error", None)
@@ -561,11 +545,7 @@ class Planner:
                     f"planner repair backend exit {getattr(result, 'exit_code', 'unknown')}"
                 )
                 continue
-            repaired = (
-                parse_planner_payload(process_decision)
-                if process_decision is not None
-                else parse_planner_text(text)
-            )
+            repaired = parse_planner_text(text)
             if (
                 not repaired.error
                 and not (open_ended and repaired.project_done)

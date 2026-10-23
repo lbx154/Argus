@@ -5,6 +5,7 @@ from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from tests.hand_off import hand_off
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
@@ -19,7 +20,7 @@ SKILL_MD = (
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return "submit_review", {'review': 'reviewed\n\n' + ('continue\n→ engineer' if status == 'continue' else '—\n→ done')}
+    return hand_off("engineer" if status == "continue" else "done", "reviewed", "continue")
 
 
 def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
@@ -62,9 +63,9 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
         return "Reviewed round 2."
 
     backend.queue("engineer-r1", CannedResponse(message_factory=engineer_one))
-    backend.queue("reviewer", CannedResponse(message_factory=reviewer_one, review_action=_review("continue")))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_one, action=_review("continue")))
     backend.queue("engineer-r2", CannedResponse(message_factory=engineer_two))
-    backend.queue("reviewer", CannedResponse(message_factory=reviewer_two, review_action=_review("done")))
+    backend.queue("reviewer", CannedResponse(message_factory=reviewer_two, action=_review("done")))
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -102,7 +103,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
     assert str(checkpoint.resolve()) in prompts["engineer-r2"]
     reviewer_prompts = [p for label, p, _ in backend.history if label == "reviewer"]
     assert all(str(checkpoint.resolve()) not in prompt for prompt in reviewer_prompts)
-    assert all("submit_review" in prompt for prompt in reviewer_prompts)
+    assert all("hand_off" in prompt for prompt in reviewer_prompts)
 
 
 def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
@@ -111,7 +112,7 @@ def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="work"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
+    backend.queue("reviewer", CannedResponse(action=_review("done")))
 
     outcome = SkillLoop(
         skills_dir=tmp_path / "skills",

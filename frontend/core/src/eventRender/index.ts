@@ -124,7 +124,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   const cause = (chinese: boolean) => (Object.hasOwn(why, code) ? why[code][chinese ? 1 : 0] : '')
     || stopClause(code, chinese) || stopClause(stopKind, chinese);
   const [en, zh] = cause(false) ? [` (${cause(false)})`, `（${cause(true)}）`] : ['', ''];
-  const text = stage === 'commit' && ['continue', 'wait', 'steer', 'stop'].includes(stringField(event, 'action'))
+  const text = stage === 'commit' && ['continue', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, `The Manager decided on an adjustment, but it couldn't be applied${en}; the work carries on as it was.`, `经理想调整一下工作，但没能生效${zh}；工作按原样继续。`)
     : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later and the work carries on.`, `经理这次没能看完进展${zh}，稍后再看，工作照常进行。`);
   return { text, tone: 'warn' };

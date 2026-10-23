@@ -157,6 +157,7 @@ def test_guard_reuses_the_daemon_manager_instead_of_building_a_runner(
         def decide_vertical(self, body: str, *, root_task_id: str | None = None):
             calls.append((body, root_task_id))
             return SimpleNamespace(
+                assumptions=(),
                 execution_task=f"managed: {body}",
                 vertical="software",
                 stage="implementation",
@@ -311,6 +312,7 @@ def test_dispatch_records_manager_decision_on_the_operator_item(
     class Manager:
         def decide_vertical(self, body: str, **_kwargs):
             return SimpleNamespace(
+                assumptions=(),
                 execution_task=f"managed: {body}",
                 vertical="argus_maintenance",
                 stage="scope",

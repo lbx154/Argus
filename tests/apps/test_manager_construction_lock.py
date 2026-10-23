@@ -214,7 +214,13 @@ def test_self_question_completes_during_a_peer_mission(
     def run_exec(_backend, **kwargs):
         calls.append(kwargs)
         if kwargs["run_label"] == "manager-frontdoor-classify":
-            message = "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: inspect"
+            from argus.core.role_actions import PREFIX
+            from argus.core.role_tool_bridge import bridge_request
+
+            bridge_request(PREFIX, "hand_off", {
+                "to": "manager", "intake": {"type": "ephemeral", "scope": "project"},
+            }, env=kwargs["options"].extension_env)
+            message = ""
         else:
             assert kwargs["run_label"] == "simple-1"
             message = "The CTB experiment is still running; this node records its current attempt."

@@ -364,12 +364,8 @@ def test_dedicated_account_reaches_every_one_shot_mode(
 
     env = _child_env_for("copilot", working_dir=tmp_path, **options)
 
-    if options.get("isolate_workdir"):
-        from argus.core.sandbox import isolated_copilot_home
-
-        assert env["COPILOT_HOME"] == str(isolated_copilot_home(tmp_path))
-    else:
-        assert env["COPILOT_HOME"] == str(chosen)
+    # The sandbox, not the environment, keeps an isolated call's sessions apart.
+    assert env["COPILOT_HOME"] == str(chosen)
     assert "GITHUB_TOKEN" not in env
     assert os.environ["GITHUB_TOKEN"] == "fake-outer-token"
     assert os.environ["COPILOT_HOME"] == str(tmp_path / "outer-session")

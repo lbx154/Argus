@@ -288,15 +288,14 @@ def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_
 def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
     monkeypatch,
 ) -> None:
-    from argus.roles.prompts.engineer import engineer_operator_handoff_rule
+    from argus.roles.prompts.engineer import _HANDOFF_RULE, engineer_handoff_rule
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    rule = engineer_operator_handoff_rule()
-    assert "only for an action only the operator could approve" in rule
-    assert rule.endswith("the Manager decides it.")
+    rule = engineer_handoff_rule()
+    assert "write it in assumptions" in rule
+    assert rule.endswith("goes to=manager.")
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    rule = engineer_operator_handoff_rule()
-    assert rule.endswith("that parks the task until they answer.")
+    assert engineer_handoff_rule() == _HANDOFF_RULE
 
 
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
@@ -311,7 +310,7 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     )
     text = render_autonomous_assumptions(tmp_path)
     assert text.startswith("Decided without asking you")
-    assert "Two release rules conflict. → I went with: The stricter one." in text
+    assert "I went with: The stricter one. (rather than Two release rules conflict.)" in text
     assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
 
 
@@ -397,7 +396,7 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         config=LifeSupervisorConfig(continuous=False, open_ended=False),
     )
     record_autonomous_assumption(
-        supervisor._project_state_root(), item_id="", reading="Hello goes to stdout",
+        supervisor._project_state_root(), item_id="task-1", reading="Hello goes to stdout",
         source="engineer",
     )
     supervisor._emit({
@@ -423,5 +422,5 @@ def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_p
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     (tmp_path / "life").mkdir()
     block, _ = build_operator_context_block("engineer", tmp_path / "life")
-    assert "CHECKPOINT.md and the run report" in block
+    assert "in its handoff's assumptions" in block
     assert "in the deliverable" not in block

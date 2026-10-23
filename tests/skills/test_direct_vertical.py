@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from argus import SkillLoop, SkillLoopConfig
@@ -16,6 +14,7 @@ from argus.skills.vertical_select import (
     persist_vertical,
 )
 from argus.verticals._base import load_vertical, load_vertical_contract
+from tests.hand_off import hand_off, route, submit
 
 
 def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
@@ -36,21 +35,16 @@ def test_runtime_resolves_direct_workflow(tmp_path) -> None:
 
 def test_manager_can_commit_software_with_direct_workflow(tmp_path) -> None:
     class _Result:
-        last_agent_message = json.dumps(
-            {
-                "choice": "existing",
-                "vertical": "software",
-                "workflow_mode": "direct",
-                "confidence": 0.95,
-                "execution_task": "创作一篇《秋江赋》，语言典雅但可读。",
-            }
-        )
-        agent_messages = [last_agent_message]
+        agent_messages: list[str] = []
         thread_id = "manager-direct"
         tool_activity_observed = True
 
     class _Runner:
-        def run_exec(self, **kwargs):
+        def run_exec(self, *, options, **kwargs):
+            submit(options, route(
+                choice="existing", vertical="software", workflow_mode="direct",
+                execution_task="创作一篇《秋江赋》，语言典雅但可读。",
+            ))
             return _Result()
 
     division = Manager(project_root=tmp_path, runner=_Runner()).divide(
@@ -110,7 +104,7 @@ def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:
     calls: list[bool] = []
     reviewer.mission.libraries = lambda: (
         calls.append(True)
-        or SimpleNamespace(block="## Skill libraries\n- `/semantic/library`")
+        or SimpleNamespace(block="## Skill libraries\n- `/semantic/library`", library_roots=[])
     )
 
     reviewer.evaluate(
@@ -157,7 +151,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     backend.queue("engineer-r1", CannedResponse(message="The requested task is complete."))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("submit_review", {'review': 'The focused check passed.\n→ done'})),
+        CannedResponse(action=hand_off("done", 'The focused check passed.')),
     )
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -193,7 +187,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
 def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None:
     backend = MemoryBackend()
     response = CannedResponse(
-        review_action=("submit_review", {'review': 'Complete.\n→ done'}),
+        action=hand_off("done", 'Complete.'),
         thread_id="reviewer-thread",
     )
     backend.queue("reviewer", response)
