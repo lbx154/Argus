@@ -67,18 +67,21 @@ export function LaunchSettingsBar({
   );
 }
 
-/** A planned first task waiting for the operator: what Argus understood, the queued plan, start or rewrite. */
+/** A planned first task waiting for the operator: what Argus understood, its plan, start or rewrite. */
 export function LaunchHoldCard({
   hold,
   backlog,
   onStart,
   onRewrite,
+  onOpenArtifact,
   readOnly,
 }: {
   hold: LaunchHold;
   backlog: BacklogItem[];
   onStart: () => Promise<void>;
   onRewrite: () => Promise<void>;
+  /** Previews a workspace file, as a link in the conversation does. */
+  onOpenArtifact?: (path: string) => void;
   readOnly?: boolean;
 }) {
   const { locale } = useI18n();
@@ -99,7 +102,12 @@ export function LaunchHoldCard({
       <dl className="mt-2 space-y-2 text-xs leading-5 text-ink-dim">
         <div>
           <dt className="font-medium text-ink">{zh ? 'Argus 理解的目标' : 'Goal as Argus understood it'}</dt>
-          <dd className="line-clamp-4 whitespace-pre-wrap">{objective}</dd>
+          <dd><details className="group">
+            <summary className="cursor-pointer list-none">
+              <span className="line-clamp-4 whitespace-pre-wrap group-open:line-clamp-none">{objective}</span>
+              <span className="text-blue group-open:hidden">{zh ? '展开全部' : 'Show all'}</span>
+            </summary>
+          </details></dd>
         </div>
         {understood.requirements?.length ? <div>
           <dt className="font-medium text-ink">{zh ? '要求' : 'Requirements'}</dt>
@@ -109,12 +117,21 @@ export function LaunchHoldCard({
           <dt className="font-medium text-warn">{zh ? '经理替你定的理解（开始前可以改）' : 'Readings the Manager chose for you (you can change them first)'}</dt>
           <dd><ul className="list-disc pl-4">{understood.assumptions.map((text) => <li key={text}>{text}</li>)}</ul></dd>
         </div> : null}
-        <div>
+        {hold.plan ? <div>
+          <dt className="font-medium text-ink">{zh ? '计划' : 'Plan'}</dt>
+          <dd>
+            <p className="whitespace-pre-wrap">{hold.plan.summary}</p>
+            {onOpenArtifact ? <button type="button" onClick={() => onOpenArtifact(hold.plan!.path)}
+              className="mt-1 text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+              {zh ? '查看完整计划' : 'Open the full plan'}
+            </button> : null}
+          </dd>
+        </div> : <div>
           <dt className="font-medium text-ink">{zh ? `计划${plan.length ? `（${plan.length} 项）` : ''}` : `Plan${plan.length ? ` (${plan.length})` : ''}`}</dt>
           <dd>{plan.length
             ? <ol className="list-decimal pl-4">{plan.map((title, index) => <li key={`${index}:${title}`}>{title}</li>)}</ol>
             : (zh ? '开始后由规划者把第一阶段拆成具体任务。' : 'The Planner splits the first stage into tasks once it starts.')}</dd>
-        </div>
+        </div>}
         {settings ? <div><dt className="font-medium text-ink">{zh ? '开工设置' : 'Launch settings'}</dt><dd>{settings}</dd></div> : null}
       </dl>
       {!readOnly ? <div className="mt-3 flex flex-wrap gap-2">

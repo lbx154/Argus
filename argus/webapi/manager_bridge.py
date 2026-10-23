@@ -309,6 +309,7 @@ def _manager_message(
         public_task = operator_text
         intake_before = None
         handoff = None
+        reply = None
         if choice_action:
             from ..manager.domain_intake import handle_intake, manager_intake_decision
             from ..skills.vertical_select import available_verticals
@@ -434,7 +435,8 @@ def _manager_message(
     item_payload = _item_to_dict(item, public_task or body)
     result = {
         "kind": "task",
-        "reply": None,
+        # The Manager's own words on the ticket it handed over, if it wrote them.
+        "reply": reply,
         "item": item_payload,
         "daemon_alive": bool(daemon_alive),
         "daemon_pid": daemon_pid,

@@ -92,6 +92,19 @@ describe('launch settings and the confirm-before-start card', () => {
     expect(readOnly).not.toContain('开始执行');
   });
 
+  it('shows the plan the Manager handed over and the whole goal, not four lines of it', () => {
+    // Trial s-99ca9ad6: "the plan" was one queued title and the goal was cut to four lines.
+    const planned = { ...hold, plan: { path: 'RL_RESEARCH_PLAN.md', summary: '1. 选 0.5B 模型\n2. 先复现 GRPO 基线' } };
+    const html = renderToStaticMarkup(<LaunchHoldCard hold={planned} onStart={async () => undefined} onRewrite={async () => undefined}
+      onOpenArtifact={() => undefined}
+      backlog={[{ id: 'a', title: '收集近三年的视频去噪方法', objective: 'x', status: 'pending', priority: 1 }]} />);
+    expect(html).toContain('1. 选 0.5B 模型\n2. 先复现 GRPO 基线');
+    expect(html).toContain('查看完整计划');
+    expect(html).not.toContain('收集近三年的视频去噪方法');
+    expect(html).toContain('group-open:line-clamp-none');
+    expect(html).toContain('展开全部');
+  });
+
   it('reports a held plan as waiting for the operator, not as ready for new work', async () => {
     const { currentWorkStatus, workStatusLabel } = await import('../lib/workStatus');
     const status = currentWorkStatus(snapshot({ launch_hold: hold, backlog: [{ id: 'a', title: 't', objective: 't', status: 'pending', priority: 1 }] }), null, [], 200);

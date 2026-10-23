@@ -94,6 +94,9 @@ def launch_note(settings: dict[str, Any] | None, *, language_hint: str = "") -> 
     if deliverable in _DELIVERABLE_TEXT:
         zh, en = _DELIVERABLE_TEXT[deliverable]
         lines.append(f"成果形式：{zh}。" if chinese else f"Output form: {en}.")
+    if settings.get("hold"):
+        # The Manager's reply closes the turn, so it must not say work began.
+        lines.append("先排好计划，等我确认后才开始执行。" if chinese else "Plan it first; work starts only after I confirm.")
     if not lines:
         return ""
     heading = _HEADINGS[0] if chinese else _HEADINGS[1]

@@ -18,7 +18,7 @@ _ROLE_KNOBS = frozenset({"model", "effort"})
 _ROUTE_FIELDS = (
     "summary", "assumptions", "vertical", "domain", "workflow_mode", "start_stage",
     "research_target_level", "research_direction_mode", "target_venue", "require_independent_review",
-    "operator_decides_stages",
+    "operator_decides_stages", "plan",
 )
 
 

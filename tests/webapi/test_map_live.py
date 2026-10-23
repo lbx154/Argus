@@ -690,7 +690,7 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     assert work[0]["text"] == "先读设计规范，再生成幻灯片。"
     assert [s["kind"] for s in work[0]["steps"]] == ["tool_use", "command_execution"]
     assert work[0]["steps"][1] == {
-        "kind": "command_execution", "label": "$ python build.py", "ts": 4.0, "tool": "Build the deck",
+        "kind": "command_execution", "label": "运行 build.py", "ts": 4.0, "tool": "Build the deck",
     }
     assert work[0]["ts"] == 2.0 and work[0]["ts_end"] == 4.0
     assert work[1]["text"] == "八页已生成，开始校验。" and len(work[1]["steps"]) == 1
@@ -761,7 +761,7 @@ def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():
     segments: dict = {}
     events = normalize_events(rows, {"a"}, set(), segments, "/proj")
     steps = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
-    assert [s["label"] for s in steps] == ["查阅 main.py", "查阅技能 playbook", "查找 .py 文件"]
+    assert [s["label"] for s in steps] == ["查阅 main.py", "查找 .py 文件"], "reading a skill is no step"
 
 
 def test_command_steps_read_like_turn_steps_without_backend_session_paths():
@@ -772,7 +772,7 @@ def test_command_steps_read_like_turn_steps_without_backend_session_paths():
     ]
     events = normalize_events(rows, {"a"}, set(), {}, "/proj")
     (step,) = [s for e in events if e["type"] == "work.segment" for s in e["steps"]]
-    assert step["label"] == "$ mkdir -p …/files && pytest -q | tee …/pytest.log"
+    assert step["label"] == "运行测试"
 
 
 def test_steps_that_already_read_plainly_are_not_relabelled_again():

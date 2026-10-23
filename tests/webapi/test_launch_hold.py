@@ -37,6 +37,7 @@ def test_launch_note_states_each_choice_in_the_request_language():
     en = launch_note({**settings, "first_result_hours": 24.0}, language_hint="study this")
     assert "within 1 day" in en and "Research ambition: exploratory" in en
     assert launch_note(None) == ""
+    assert "等我确认后才开始执行" in launch_note({"hold": True}, language_hint="研究")
     assert not launch_target_level_stated(launch_note({"first_result_hours": 2.0}, language_hint="研究"))
     # Titles and summaries read the request without the note appended to it.
     assert strip_launch_note("帮我研究一下这个问题" + zh) == "帮我研究一下这个问题"
@@ -176,3 +177,55 @@ def test_any_daemon_start_supersedes_the_hold(tmp_path, monkeypatch):
     result = daemon_lifecycle.start_project_daemon("s-hold-superseded", global_root=tmp_path)
     assert result["already_alive"] is True
     assert launch_hold.read_launch_hold(life) is None
+
+
+_PLAN = {"path": "RL_RESEARCH_PLAN.md", "summary": "1. 选 0.5B 模型和 GSM8K。\n2. 先复现 GRPO 基线。\n3. 再试新算法。"}
+
+
+def test_the_ticket_carries_the_plan_file_to_the_route():
+    from argus.manager.domain_author import RouteContext
+    from argus.manager.form import _route
+    from tests.hand_off import ticket
+
+    _, payload = ticket("RL 一个小模型", plan=_PLAN)
+    route = _route(payload)
+    assert route["plan"] == _PLAN
+    decision = RouteContext(known_verticals=("software",)).decide({**route, "choice": "existing", "vertical": "software"})
+    assert decision.plan == _PLAN
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_held_card_shows_the_plan_and_the_manager_closes_the_turn(tmp_path, monkeypatch, streaming):
+    # Trial s-99ca9ad6: the card listed one queued title as "the plan", the
+    # 18k-character plan file was nowhere on it, and a fixed sentence replaced
+    # the Manager's own words.
+    from argus.manager import Manager, front_door
+    from argus.manager.domain_author import VerticalDecision
+    from argus.webapi import manager_state
+    from tests.hand_off import manager_runner
+
+    sid = "s-hold-plan"
+    life = _project(tmp_path, sid)
+    manager_state._STATES.pop(sid, None)
+    manager = Manager(life)
+    said = "我先写好了计划框架，放在 RL_RESEARCH_PLAN.md。你确认方向后再开始。"
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_args: manager_runner(manager, reply=said))
+    monkeypatch.setattr(manager, "decide_vertical", lambda *_args, **_kwargs: VerticalDecision(
+        choice="existing", vertical="research", workflow_mode="direct",
+        execution_task="RL 一个小模型", research_target_level="exploratory", plan=dict(_PLAN),
+    ))
+    starts = []
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
+                              start=lambda *args, **kwargs: starts.append(kwargs) or {"rc": 0})
+    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
+        response = client.post(
+            f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
+            json={"text": "RL 一个小模型，计划写详细点", "launch": {"hold": True}},
+        )
+        frames = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        result = next(frame["result"] for frame in frames if frame["type"] == "done") if streaming else response.json()
+        assert starts == [] and result["reply"] == said
+        [row] = LifeMemory.open(life).backlog.active()
+        assert row.manager_decision["plan"] == _PLAN
+        snapshot = client.get(f"/api/projects/{sid}/snapshot?compact=true").json()
+        assert snapshot["launch_hold"]["plan"] == _PLAN
