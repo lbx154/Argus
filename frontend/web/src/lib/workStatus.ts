@@ -1,6 +1,7 @@
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import { parkReason } from '../../../core/src/missionOutcome';
+import { deriveMissionView } from '../../../core/src/mission';
 import type { Locale } from '../i18n';
 import { roleActionLabel } from './taskLanguage';
 
@@ -11,7 +12,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | '';
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | 'project_done' | '';
   /** The Manager is answering a request the operator sent, not tidying up on its own. */
   foreground?: boolean;
 }
@@ -148,6 +149,8 @@ export function currentWorkStatus(
     }
     return asked ?? { ...result, role: '',
       state: snapshot.daemon.alive && (view?.routing?.continuous || snapshot.continuous?.enabled) ? 'waiting' : 'step_finished',
+      // The campaign closed: the project, not just this step, is over.
+      reason: deriveMissionView(snapshot).state === 'complete' ? 'project_done' : '',
     };
   }
   if (!snapshot.daemon.alive) {
@@ -179,6 +182,7 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   if (status.reason === 'operator_input') return zh ? '有个问题在等你回答' : 'A question is waiting for your answer';
   if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
+  if (status.reason === 'project_done') return zh ? '项目已完成' : 'Project complete';
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
     return roleActionLabel(status.role, zh, status.title);

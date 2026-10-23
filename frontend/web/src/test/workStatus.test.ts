@@ -67,6 +67,12 @@ describe('shared work status', () => {
     expect(currentWorkStatus(snapshot, view).state).toBe('waiting');
     view.routing.continuous = false;
     expect(workStatusLabel(currentWorkStatus(snapshot, view), 'zh-CN')).toBe('这一步已结束');
+    // Trial s-f0e1b2f0: the Planner closed the campaign and the sidebar still said "这一步已结束".
+    snapshot.daemon.alive = false;
+    snapshot.continuous = { enabled: false, objective: 'format_mib', done_reason: 'planner declared project done', done_at: '2026-10-22T10:33:15Z' };
+    const done = currentWorkStatus(snapshot, view);
+    expect(done).toMatchObject({ state: 'step_finished', reason: 'project_done' });
+    expect(workStatusLabel(done, 'zh-CN')).toBe('项目已完成');
   });
 
   it('shows the Planner choosing the next step after a step finishes, but not post-step housekeeping', () => {
