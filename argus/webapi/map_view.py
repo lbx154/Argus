@@ -226,6 +226,8 @@ def fold_progress(
         segment["overflow"] += 1
         return
     step = _step_from_progress(row, workspace)
+    if not step["label"]:
+        return
     last = segment["steps"][-1] if segment["steps"] else None
     if last is not None and _same_call(last, step):
         # A later report about the call just listed (started, then failed):

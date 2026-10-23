@@ -47,3 +47,10 @@ def test_saved_tool_label_without_arguments_loses_its_glyph() -> None:
     label = plain_step_label(f"⚙ {name}", name, "")
     assert not label.startswith("⚙")
     assert label.strip()
+
+
+def test_argus_own_tool_is_no_work_step() -> None:
+    internal = _row("failed", 1.1, kind="command_execution", tool_name="",
+                    text="python -m argus.tools.manager_live_view --state-dir /data/proj status")
+    steps = _steps([_row("completed", 1.0), internal])
+    assert [step["kind"] for step in steps] == ["tool_use"]

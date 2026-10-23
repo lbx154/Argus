@@ -424,3 +424,34 @@ def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_p
     block, _ = build_operator_context_block("engineer", tmp_path / "life")
     assert "in its handoff's assumptions" in block
     assert "in the deliverable" not in block
+
+
+def test_engineer_evidence_for_the_next_holder_lives_in_the_working_directory() -> None:
+    # dogfood8 sizefmt: build logs under copilot-home/session-state/<id>/files
+    # were named in the note, and the sandboxed Reviewer could not read them.
+    from argus.core.workspace_facts import IGNORED_NAMES
+    from argus.roles.prompts.engineer import engineer_handoff_rule
+
+    assert "`.argus/evidence/`" in engineer_handoff_rule()
+    assert ".argus" in IGNORED_NAMES, "evidence is not mistaken for the deliverable"
+
+
+def test_the_manager_sees_each_recorded_assumption_once_before_deciding(tmp_path) -> None:
+    # dogfood8 sizefmt: four supervisions restated one reading in new words, and
+    # the operator read it four times in the result and the report.
+    from argus.core.autonomy import record_autonomous_assumption
+    from argus.daemon.state import write_continuous_config
+    from argus.manager.observation import observe_project
+    from argus.manager.supervision import _prompt
+
+    reading = "format_mib 沿用 format_kib 的规则，非负字节数除以 1024**2 后丢弃小数；1572864 输出 \"1 MiB\"。"
+    write_continuous_config(tmp_path, enabled=True, objective="Add format_mib to sizefmt.")
+    record_autonomous_assumption(
+        tmp_path, item_id="e102a530003d", source="supervise", reading=reading,
+        conflict="沿用 format_gib 的最近整数、半数进位规则；1572864 输出 \"2 MiB\"。",
+    )
+    observation = observe_project(tmp_path)
+    assert [row["reading"] for row in observation.facts["recorded_assumptions"]] == [reading]
+    prompt = _prompt(observation)
+    assert "非负字节数除以 1024**2 后丢弃小数" in prompt
+    assert "only a reading this decision chooses for the first time" in prompt

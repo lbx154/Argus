@@ -13,7 +13,8 @@ step was useful, on-track, or complete — that stays with the agent.
 
 ``describe_progress_step`` returns ``(label, detail)``:
 
-* ``label`` — one short scannable line for the live status row.
+* ``label`` — one short scannable line for the live status row; empty for
+  Argus' own tool, which is no step of the operator's.
 * ``detail`` — the longer redacted body for an expandable/secondary row; may be
   empty when the label already says everything.
 """
@@ -364,8 +365,10 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
             status = str(event.get("status") or "").strip().lower()
             marker = "✗ $" if status in {"failed", "error"} else "$"
             if _ARGUS_TOOL.search(head):
-                # Argus' own tool: the operator is told one ran, not shown its command line.
-                return "运行 Argus 内部工具", _clip(command, _DETAIL_LIMIT)
+                # Argus' own tool is how Argus works, not a step of the operator's
+                # work: no label, so it is never shown as one. Its event, failure
+                # included, stays in the agent's log.
+                return "", ""
             if head:
                 label = f"{marker} {_clip(plain_command(head, workspace), _LABEL_LIMIT - 2)}"
                 # Only carry a detail when it actually adds something (a
@@ -511,11 +514,14 @@ class ProgressDeduper:
     def phase_kind(self, event: Any, label: str) -> str:
         """The phase kind to stream for ``event``, or ``""`` to stay silent.
 
+        An event with no label (Argus' own tool) is no operator step.
         A new call streams under its own kind. A later report about a call
         already on screen (it failed) streams as ``tool_result`` so the open
         step changes in place: a failed read is one failed step, not a
         "completed" step followed by a second, failed copy of itself.
         """
+        if not label:
+            return ""
         verdict = self.classify(event, label)
         if verdict == "repeat":
             return ""
