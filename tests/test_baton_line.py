@@ -5,7 +5,6 @@ older ``NEXT_OWNER=`` footer is not.
 """
 from __future__ import annotations
 
-
 from argus.core.role_handoff import listed_choices, strip_handoff
 
 # --- Reading the line -------------------------------------------------------

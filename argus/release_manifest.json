@@ -1,7 +1,7 @@
 {
-  "git_commit": "6daae04327914eca7300d6ee63c9cfe7d174bc71",
+  "git_commit": "be30717f319f460f9f8e5a0403ab01f5c3fcb837",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+6daae0432791",
+  "release_id": "0.1.8+be30717f319f",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,

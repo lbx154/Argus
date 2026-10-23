@@ -353,6 +353,12 @@ class _StageDecisionMixin:
 
         Returns a ``StageDecision`` (action, target_stage, reason, diagnostic).
         """
+        from ..core.external_completion_gate import external_completion_gate_issue
+        from ..core.research_contract import resolve_research_target_level
+        from ..skills.vertical_select import (
+            resolve_vertical,
+            resolve_workflow_mode,
+        )
         from .stage_decider import (
             StageDecision,
             completion_trigger_reason,
@@ -360,12 +366,6 @@ class _StageDecisionMixin:
             external_completion_gate_stage_guard_decision,
             final_stage_completion_blockers,
             final_stage_completion_decision,
-        )
-        from ..core.external_completion_gate import external_completion_gate_issue
-        from ..core.research_contract import resolve_research_target_level
-        from ..skills.vertical_select import (
-            resolve_vertical,
-            resolve_workflow_mode,
         )
 
         decision = handoff.value if handoff else StageDecision(

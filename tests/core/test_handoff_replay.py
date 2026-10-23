@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from argus.core.handoff import HandOffActions
-from argus.planner.planner import _plan
 from argus.manager.stage_decider import stage_check
+from argus.planner.planner import _plan
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "handoff_replay"
 ROWS = [
