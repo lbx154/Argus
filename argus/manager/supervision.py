@@ -227,7 +227,9 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "You are the persistent project Manager.\n"
         + asked
         + "Judge from the evidence below whether the team's course serves the operator's "
-        f"objective, and end your turn with hand_off, its summary {language}.\n\n"
+        f"objective, and end your turn with hand_off, its summary {language}.\n"
+        "Each reading in recorded_assumptions is already shown to the operator; your "
+        "assumptions name only a reading this decision chooses for the first time.\n\n"
         + observation.render()
     )
 

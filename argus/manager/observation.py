@@ -222,7 +222,15 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     facts["manager_supervision"] = {key: supervision[key] for key in (
         "id", "status", "decision", "effects", "issued_at", "applied_at",
     ) if key in supervision}
+    from ..core.autonomy import read_autonomous_assumptions
     from ..core.residual_risk import residual_risk_records
+
+    # Every reading already chosen in the operator's place this run, in the
+    # one place it is kept: a decision that restates one would list it twice.
+    facts["recorded_assumptions"] = [
+        {key: row.get(key) for key in ("item_id", "source", "conflict", "reading")}
+        for row in read_autonomous_assumptions(root)
+    ]
 
     # Every acceptance of a check left unverified, with its id so the Manager
     # can revoke one; a revoked one stays listed as revoked.
@@ -248,7 +256,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     revision = fact_text({
         **_semantic({key: value for key, value in facts.items()
                      if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled",
-                                    "manager_supervision", "accepted_residual_risks"}}),
+                                    "manager_supervision", "accepted_residual_risks",
+                                    "recorded_assumptions"}}),
         "daemon_health": facts["daemon"]["health"],
         "backlog_revision": backlog_revision,
         "source_semantics": source_semantics,

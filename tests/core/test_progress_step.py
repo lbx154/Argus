@@ -219,14 +219,17 @@ def test_a_regular_expression_is_not_shown_raw(pattern: str) -> None:
     assert describe_progress_step({"kind": "tool_use", "text": text}, _WS)[0] == "搜索文件内容"
 
 
-def test_argus_own_tool_is_named_not_spelled_out() -> None:
-    command = (
-        "python -m argus.tools.manager_live_view --workspace /srv/state/workspaces/s-1 "
-        "--state-dir /srv/state/projects/s-1 status"
-    )
-    label, detail = describe_progress_step({"kind": "command_execution", "text": command}, _WS)
-    assert label == "运行 Argus 内部工具"
-    assert detail == command, "the command line stays in the folded detail"
+def test_argus_own_tool_is_no_operator_step_even_when_it_fails() -> None:
+    # A Manager turn's failed status read (trial s-ea560f48): the operator saw
+    # it as a red "运行 Argus 内部工具" step with its command line.
+    event = {
+        "type": "engineer.progress", "kind": "command_execution", "status": "failed",
+        "text": "/usr/bin/bash -lc 'python -m argus.tools.manager_live_view --workspace "
+                "/srv/state/workspaces/s-1 --state-dir /srv/state/projects/s-1 status'",
+    }
+    label, _ = describe_progress_step(event, _WS)
+    assert label == ""
+    assert ProgressDeduper().phase_kind(event, label) == "", "never streamed as a step"
 
 
 def test_backend_session_paths_in_a_command_are_cut_to_their_last_name() -> None:
