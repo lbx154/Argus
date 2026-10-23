@@ -38,11 +38,12 @@ from argus.core.vertical_contract import (
     vertical_contract,
 )
 from argus.life.memory import Backlog, BacklogItem
-from argus.reviewer.tools import ReviewActions
+from argus.reviewer.tools import review_actions
 from argus.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
 from argus.roles.prompts.types import RoleName, RolePromptRequest
 from argus.skills.stage_machine import ChecklistItem
 from argus.verticals import _registry as vertical_registry
+from tests.hand_off import hand_off
 
 ARGUS = Path(argus.__file__).resolve().parent
 
@@ -739,12 +740,9 @@ _WELL_FORMED = {
 
 
 def _submit(research_result: dict) -> ReviewDecision | None:
-    actions = ReviewActions()
-    actions.dispatch("submit_review", {
-        "review": "The synthesis is supported by the cited sources.\n→ done",
-        "research_result": research_result,
-    })
-    return actions.decision
+    actions = review_actions()
+    actions.dispatch(*hand_off("done", "The synthesis is supported by the cited sources.", research_result=research_result))
+    return actions.handoff.value
 
 
 def test_a_structured_result_reaches_the_event_payload_as_its_own_copy() -> None:
@@ -1153,7 +1151,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.manager.config_intent._front_door_classify",
     "life -> argus.manager.front_door._accepts_parameter",
     "life -> argus.planner.planner._GLOBAL_KEY_VALUE_KEYS",
-    "life -> argus.roles.prompts.manager._IDENTITY_GUARD",
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
@@ -1831,7 +1828,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "project_dir": 34,
     # Stage steering reads the existing Manager authority root, not the
     # execution worktree; this is one new consumer, not a new root alias.
-    "manager_session_root": 25,
+    "manager_session_root": 24,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,

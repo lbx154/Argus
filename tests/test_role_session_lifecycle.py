@@ -13,10 +13,11 @@ from argus.core.role_session import (
     signal_role_session_file,
 )
 from argus.planner import Planner, PlannerConfig
+from tests.hand_off import hand_off
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return "submit_review", {'review': f'review-{status}\n\n' + ('finish\n→ engineer' if status == 'continue' else 'none\n→ done')}
+    return hand_off("engineer" if status == "continue" else "done", f"review-{status}", "finish")
 
 
 def _context(tmp_path: Path) -> tuple[Path, Path]:
@@ -78,9 +79,9 @@ def test_resumable_backend_resumes_each_role_without_crossing_roles(tmp_path: Pa
     context, checkpoint = _context(tmp_path)
     backend = _resumable()
     backend.queue("engineer-r1", CannedResponse(message="engineer one", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="v1"))
     backend.queue("engineer-r2", CannedResponse(message="engineer two", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
     outcome = _loop(
@@ -127,10 +128,10 @@ def test_fresh_backend_repeats_task_contract_on_continuation_round(
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
     backend.queue(
-        "reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1")
+        "reviewer", CannedResponse(action=_review("continue"), thread_id="v1")
     )
     backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v2"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v2"))
 
     outcome = _loop(
         backend,
@@ -160,11 +161,11 @@ def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
         context, checkpoint = _context(root)
         backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
         backend.queue(
-            "reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1")
+            "reviewer", CannedResponse(action=_review("continue"), thread_id="v1")
         )
         backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
         backend.queue(
-            "reviewer", CannedResponse(review_action=_review("done"), thread_id="v2")
+            "reviewer", CannedResponse(action=_review("done"), thread_id="v2")
         )
         outcome = _loop(
             backend,
@@ -191,9 +192,9 @@ def test_a_role_with_no_thread_to_resume_is_told_the_round(tmp_path: Path) -> No
     backend = _resumable()
     # The provider reports no thread, so round 2 cannot resume round 1.
     backend.queue("engineer-r1", CannedResponse(message="one"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("continue")))
+    backend.queue("reviewer", CannedResponse(action=_review("continue")))
     backend.queue("engineer-r2", CannedResponse(message="two"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
+    backend.queue("reviewer", CannedResponse(action=_review("done")))
 
     outcome = _loop(
         backend,
@@ -226,7 +227,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     context, checkpoint = _context(tmp_path)
     first = _resumable()
     first.queue("engineer-r1", CannedResponse(message="partial", thread_id="e1"))
-    first.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
+    first.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="v1"))
     first_loop = _loop(first, tmp_path, context, checkpoint)
     first_loop.config.max_rounds = 1
     interrupted = first_loop.run("same objective", workdir=tmp_path)
@@ -251,7 +252,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
 
     second = _resumable()
     second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
-    second.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
+    second.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     outcome = _loop(second, tmp_path, context, checkpoint).run(
         "same objective", workdir=tmp_path
     )
@@ -293,6 +294,21 @@ def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:
     assert capsule.prepare() is None
     assert capsule.action == "rotated"
     assert capsule.rotation_reason == "branch_changed"
+
+
+def test_a_capsule_from_the_baton_line_protocol_is_rotated(tmp_path: Path) -> None:
+    options = dict(
+        role="engineer", policy="rolling", objective_revision="v1", workdir=tmp_path,
+        backend="codex", model="model", checkpoint_path=None, path=tmp_path / "engineer.json",
+    )
+    RoleSessionCapsule.open(**options).complete(RunnerResult(exit_code=0, thread_id="thread-1"))
+    stored = json.loads(options["path"].read_text(encoding="utf-8"))
+    options["path"].write_text(json.dumps({**stored, "schema_version": 2}), encoding="utf-8")
+
+    capsule = RoleSessionCapsule.open(**options)
+
+    assert capsule.thread_id == ""
+    assert capsule.rotation_reason == "schema_version_changed"
 
 
 def test_a_long_session_keeps_resuming(tmp_path: Path) -> None:
@@ -417,12 +433,16 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=("submit_review", {'review': (('The Engineer repeated an obsolete repair.') + '\n\n' + ('Use the current frontier and repair the active cluster.')) + "\n→ engineer", 'session_signal': {'kind': 'quality_degradation', 'target': 'engineer', 'detail': 'Repeated the obsolete repair after a current handoff.'}}),
+            action=hand_off(
+                "engineer", "The Engineer repeated an obsolete repair.",
+                "Use the current frontier and repair the active cluster.",
+                session_signal={'kind': 'quality_degradation', 'target': 'engineer', 'detail': 'Repeated the obsolete repair after a current handoff.'},
+            ),
             thread_id="v1",
         ),
     )
     backend.queue("engineer-r2", CannedResponse(message="second", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
     outcome = _loop(
@@ -472,7 +492,7 @@ def test_cross_role_signal_file_migrates_old_capsule_and_forces_fresh_thread(
     )
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["thread_id"] == ""
     assert payload["turns"] == 0
     assert payload["signal_kind"] == "repeated_contradiction"
@@ -484,7 +504,7 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     planner_capsule = tmp_path / "state" / "role-sessions" / "planner.json"
     planner_capsule.parent.mkdir(parents=True)
     planner_capsule.write_text(json.dumps({
-        "schema_version": 2,
+        "schema_version": 3,
         "role": "planner",
         "policy": "rolling",
         "thread_id": "planner-old",
@@ -495,7 +515,7 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=("submit_review", {'review': 'The plan step is complete.\n→ done', 'session_signal': {'kind': 'repeated_contradiction', 'target': 'planner', 'detail': 'The plan keeps asserting a stage that the record contradicts.'}}),
+            action=hand_off("done", 'The plan step is complete.', session_signal={'kind': 'repeated_contradiction', 'target': 'planner', 'detail': 'The plan keeps asserting a stage that the record contradicts.'}),
             thread_id="v1",
         ),
     )

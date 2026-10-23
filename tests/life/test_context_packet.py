@@ -15,6 +15,7 @@ from argus.life.context_packet import (
 )
 from argus.life.memory import BacklogItem
 from argus.life.supervisor import LifeSupervisor
+from tests.hand_off import hand_off
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -438,7 +439,7 @@ def test_public_skill_loop_brief_preserves_contract_and_advances_current_work(
     def run(context_packet_path: str) -> tuple[object, list[tuple[str, str, object]]]:
         backend = MemoryBackend()
         backend.queue("engineer-r1", CannedResponse(message="public flow exercised"))
-        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'public flow verified\n→ done'})))
+        backend.queue("reviewer", CannedResponse(action=hand_off("done", 'public flow verified')))
         outcome = SkillLoop(
             skills_dir=tmp_path / "skills",
             engineer_runner=backend,

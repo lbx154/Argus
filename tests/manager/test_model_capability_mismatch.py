@@ -23,6 +23,7 @@ from argus.manager.front_door import (
     manager_bounded_handoff,
     prepare_manager_execution_task,
 )
+from tests.hand_off import route, submit
 
 MODEL_ID = "opencode-go/mimo-v2.5"
 
@@ -30,14 +31,14 @@ MODEL_ID = "opencode-go/mimo-v2.5"
 class _Result:
     def __init__(
         self,
-        message: str,
+        decision: dict | None = None,
         *,
         tool_activity_observed: bool = True,
         fatal_error: str = "",
         exit_code: int = 0,
     ) -> None:
-        self.last_agent_message = message
-        self.agent_messages = [message]
+        self.decision = decision
+        self.agent_messages = []
         self.tool_activity_observed = tool_activity_observed
         self.fatal_error = fatal_error
         self.exit_code = exit_code
@@ -48,24 +49,22 @@ class _MutableRunner:
         self.result = result
         self.calls: list[str] = []
 
-    def run_exec(self, *, run_label: str, **_kwargs):
+    def run_exec(self, *, run_label: str, options, **_kwargs):
         self.calls.append(run_label)
         if isinstance(self.result, BaseException):
             raise self.result
+        if self.result.decision:
+            submit(options, route(**self.result.decision))
         return self.result
 
 
 def _malformed() -> _Result:
-    return _Result("I think this is probably software work.")
+    """A turn that ends in prose ("probably software work") without handing over its route."""
+    return _Result()
 
 
 def _valid() -> _Result:
-    return _Result(json.dumps({
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "rationale": "repository repair",
-    }))
+    return _Result({"choice": "existing", "vertical": "software", "workflow_mode": "direct"})
 
 
 def _manager(tmp_path, runner: _MutableRunner) -> Manager:
@@ -104,9 +103,9 @@ def test_contract_failure_increments_and_success_resets(
     ("result", "expected"),
     [
         (TimeoutError("provider timed out"), "provider timed out"),
-        (_Result("", fatal_error="HTTP 429 rate limited", exit_code=1), "429"),
-        (_Result("", fatal_error="HTTP 503 unavailable", exit_code=1), "503"),
-        (_Result("", fatal_error="401 authentication failed", exit_code=1), "401"),
+        (_Result(fatal_error="HTTP 429 rate limited", exit_code=1), "429"),
+        (_Result(fatal_error="HTTP 503 unavailable", exit_code=1), "503"),
+        (_Result(fatal_error="401 authentication failed", exit_code=1), "401"),
     ],
 )
 def test_transient_and_auth_failures_do_not_increment_or_change_message(
@@ -133,14 +132,13 @@ def test_repository_tool_contract_has_its_own_clause(tmp_path, monkeypatch) -> N
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", MODEL_ID)
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
     no_tool = _Result(
-        json.dumps({
+        {
             "choice": "new",
             "vertical": "custom_runtime",
             "workflow_mode": "staged",
             "execution_task": "Build the project-specific runtime.",
-            "rationale": "new local capability",
-            "confidence": 0.9,
-        }),
+            "summary": "new local capability",
+        },
         tool_activity_observed=False,
     )
     manager = _manager(tmp_path, _MutableRunner(no_tool))
@@ -187,9 +185,8 @@ def test_threshold_changes_message_publishes_alert_and_stays_fail_closed(
             )
         assert type(caught.value) is ManagerHandoffError
         assert str(caught.value).startswith(
-            "Manager handoff failed: routing failed [parse]: model_reply"
+            "Manager handoff failed: routing failed [contract]: Manager ended without handing over"
         )
-        assert "(attempts=2)" in str(caught.value)
         assert "role-capability mismatch" not in str(caught.value)
         assert contract_failure_count(memory.project_root, model_id=MODEL_ID) == expected_count
 

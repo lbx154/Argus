@@ -12,6 +12,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.event_catalog import EventType
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -28,12 +29,10 @@ def test_an_engineer_keeps_the_work_until_it_hands_it_over(tmp_path: Path) -> No
     for index in range(1, 8):
         backend.queue(
             f"engineer-r{index}",
-            CannedResponse(message=f"round {index}: more to do\n\n→ engineer"),
+            CannedResponse(action=hand_off("engineer", f"round {index}: more to do", f"round {index}: more to do\n")),
         )
     backend.queue("engineer-r8", CannedResponse(message="Finished and verified."))
-    backend.queue("reviewer", CannedResponse(review_action=(
-        "submit_review", {"review": "The objective is verified complete.\n→ done"},
-    )))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "The objective is verified complete.")))
 
     status, _rounds, _final, _reason, _thread = _engineer(backend).run(
         objective="Finish the task.",
@@ -55,13 +54,11 @@ def test_continue_verdicts_never_end_the_mission_by_count(tmp_path: Path) -> Non
     rounds = 30
     for index in range(1, rounds):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"round {index} changed nothing"))
-        backend.queue("reviewer", CannedResponse(review_action=(
-            "submit_review", {"review": "The residual did not move.\nTry another route.\n→ engineer"},
+        backend.queue("reviewer", CannedResponse(action=(
+            "hand_off", {"to": "engineer", "summary": "The residual did not move.", "note": "The residual did not move.\nTry another route.", "assumptions": []},
         )))
     backend.queue(f"engineer-r{rounds}", CannedResponse(message="Found the bug."))
-    backend.queue("reviewer", CannedResponse(review_action=(
-        "submit_review", {"review": "The residual is gone.\n→ done"},
-    )))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "The residual is gone.")))
     events: list[dict] = []
 
     status, records, _final, _reason, _thread = _engineer(backend).run(

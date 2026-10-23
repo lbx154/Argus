@@ -333,22 +333,6 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
     assert "codex" not in check.detail
 
 
-def test_opencode_preflight_does_not_claim_live_authentication(monkeypatch):
-    from argus.webapi.diagnostics import _check_backend_preflight
-
-    monkeypatch.setattr(
-        "shutil.which",
-        lambda name: "/usr/bin/opencode" if name == "opencode" else None,
-    )
-    _mock_backend_commands(monkeypatch, "1.2.10")
-
-    check = _check_backend_preflight(backend="opencode")
-
-    assert check.ok is True
-    assert "credentials listed; live token not checked" in check.detail
-    assert "authentication checked" not in check.detail
-
-
 def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypatch):
     from argus.webapi.diagnostics import _check_backend_preflight
 

@@ -83,7 +83,7 @@ def clear_launch_hold(life_dir: Path | str) -> bool:
 
 
 def _understood(life_dir: Path) -> dict[str, Any]:
-    """What the Manager recorded for this request: goal, requirements, open questions."""
+    """What the Manager recorded for this request: goal, requirements, assumptions."""
     try:
         from ..core.project_contract import load_contract
 
@@ -99,7 +99,7 @@ def _understood(life_dir: Path) -> dict[str, Any]:
             for clause in contract.clauses[:12]
         ],
         "exclusions": [text[:400] for text in contract.exclusions[:8]],
-        "ambiguities": [text[:400] for text in contract.ambiguities[:8]],
+        "assumptions": [text[:400] for text in contract.assumptions[:8]],
     }
 
 

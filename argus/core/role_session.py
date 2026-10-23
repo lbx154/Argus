@@ -28,7 +28,9 @@ ROLE_SESSION_SIGNALS = frozenset({
     "reviewer_confusion",
     "quality_degradation",
 })
-ROLE_SESSION_SCHEMA_VERSION = 2
+#: A capsule from another version is rotated, never resumed: version 3 threads
+#: hand work on with ``hand_off`` (core.handoff), not baton lines.
+ROLE_SESSION_SCHEMA_VERSION = 3
 _SEEN_THREAD_IDS_LIMIT = 64
 
 log = logging.getLogger(__name__)
@@ -228,7 +230,8 @@ class RoleSessionCapsule:
             "model": model,
         }
         changed = next(
-            (name for name, value in expected.items() if payload.get(name) != value),
+            (name for name, value in {**expected, "schema_version": ROLE_SESSION_SCHEMA_VERSION}.items()
+             if payload.get(name) != value),
             "",
         )
         capsule = cls(

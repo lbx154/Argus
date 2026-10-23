@@ -1,0 +1,220 @@
+{
+  "action": "hand_off",
+  "core": {
+    "to": {
+      "type": "string",
+      "description": "Who holds the work next. `operator` only for what the operator alone can decide: a choice they reserved, requirements of theirs that contradict each other, or words of theirs that read more than one way where the reading changes the result."
+    },
+    "summary": {
+      "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\n]*$",
+      "description": "One sentence the operator reads, in the language they wrote in: what this turn achieved, found or is stuck on. No \"I\", no Argus file names such as CHECKPOINT.md, no protocol words; plain text, no Markdown."
+    },
+    "note": {
+      "type": "string", "maxLength": 12000,
+      "description": "For whoever holds the work next: what changed, the decisive check, what is still missing, and why it goes to them. The operator does not see it."
+    },
+    "ask": {
+      "type": "object", "additionalProperties": false, "required": ["question", "options"],
+      "description": "With to=operator only: one question in the operator's language, with two to five answers to pick from, or none for an open question.",
+      "properties": {
+        "question": {"type": "string", "minLength": 4, "maxLength": 300},
+        "options": {
+          "type": "array", "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["label"],
+            "properties": {
+              "label": {"type": "string", "minLength": 1, "maxLength": 120},
+              "description": {"type": "string", "maxLength": 300, "description": "What choosing it means."}
+            }
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array", "maxItems": 5,
+      "description": "Each place where the operator's words read more than one way, the reading changes the result, and you chose one without asking: the reading you chose and the one you did not. [] when there is none. The operator is shown each one with the result. Unsure whether it is theirs to decide? Ask with to=operator.",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["chose", "instead_of"],
+        "properties": {
+          "chose": {"type": "string", "minLength": 3, "maxLength": 300},
+          "instead_of": {"type": "string", "minLength": 3, "maxLength": 300}
+        }
+      }
+    }
+  },
+  "forms": {
+    "engineer": {
+      "description": "Hand the work on when your turn is over; the call ends your turn, so do not repeat it in your reply. to: reviewer, the work is ready for the independent review (do not start one yourself or through a subagent); done, the milestone is complete and the task requires no independent review; engineer, you keep working next turn; planner, the task is mis-scoped; manager, an obstacle only the Manager can remove; operator, a decision only the operator can make.",
+      "core": ["to", "summary", "note", "ask", "assumptions"],
+      "to": ["reviewer", "done", "engineer", "planner", "manager", "operator"],
+      "required": ["to", "summary", "note", "assumptions"],
+      "properties": {}
+    },
+    "review": {
+      "description": "Submit your judgment of this candidate; the call ends your turn. to: done accepts it, only after you checked each requirement and symptom the task (this increment) states, and each acceptance criterion, against the deliverable: tests the Engineer wrote show the code matches its reading of the task, not that the reading is right, and a stated symptom called intended or out of scope needs support in the task text itself; engineer returns concrete in-scope repairs, named in note; planner, the task or plan is wrong; manager, an obstacle or a conflict in the acceptance criteria only the Manager can settle; operator, a decision only the operator can make.",
+      "core": ["to", "summary", "note", "ask", "assumptions"],
+      "to": ["done", "engineer", "planner", "manager", "operator"],
+      "required": ["to", "summary", "note", "assumptions"],
+      "properties": {
+        "learning": {
+          "type": "object", "additionalProperties": false, "required": ["verdict", "reason"],
+          "description": "With to=done: is anything from this task worth keeping for later work: a failure, a correction, a surprise, a new technique, a reusable pattern, a recalled lesson this task's evidence disproved? When unsure, worth_reflecting.",
+          "properties": {"verdict": {"enum": ["worth_reflecting", "nothing_new"]}, "reason": {"type": "string"}}
+        },
+        "session_signal": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "target", "detail"],
+          "description": "An observed role-session quality problem, not an ordinary task repair.",
+          "properties": {
+            "kind": {"enum": ["repeated_contradiction", "reviewer_confusion", "quality_degradation"]},
+            "target": {"enum": ["planner", "engineer", "reviewer"]},
+            "detail": {"type": "string"}
+          }
+        },
+        "unverifiable": {
+          "type": "string",
+          "description": "Not with to=done: a decisive check that cannot happen here, and the risk left. Where the operator can be asked, leaving it unverified is their decision: ask them with to=operator and accept_risk. Where they cannot, the Manager sees this and decides whether to accept that risk."
+        },
+        "impossible_because": {
+          "type": "object", "additionalProperties": false, "required": ["quote", "source"],
+          "description": "Required when you call a check impossible here because what it needs exists only at grading or deploy time: the task, packet or environment statement that says so, quoted verbatim, and its source ('task', or a workspace file the packet names or unchanged since work on this objective began; never one written or edited since). The host checks the quote. Without such a statement the check is missing, not impossible.",
+          "properties": {"quote": {"type": "string", "minLength": 20}, "source": {"type": "string", "minLength": 1}}
+        },
+        "residual_risk": {
+          "type": "object", "additionalProperties": false,
+          "required": ["check", "evidence", "risk", "impossible_because", "accepted_by", "acceptance"],
+          "description": "Only with to=done, when one decisive check stays unverified because it is impossible here and leaving it so was accepted: by the operator choosing to accept it on the question you raised with accept_risk, or, in a run with no operator, by the Manager (cite the risk id listed under Accepted residual risk). Name the check exactly as accepted. Without that acceptance, do not accept the candidate. The evidence you judged it from must be something you read yourself. A test fixture counts only if it follows the documented interface or schema, runs the real entry point (not a stub of the code under test) and is labelled a test fixture. The Engineer's word alone is never that evidence.",
+          "properties": {
+            "check": {"type": "string", "minLength": 3},
+            "evidence": {"type": "string", "minLength": 3},
+            "risk": {"type": "string", "minLength": 3},
+            "impossible_because": {
+              "type": "object", "additionalProperties": false, "required": ["quote", "source"],
+              "properties": {"quote": {"type": "string", "minLength": 20}, "source": {"type": "string", "minLength": 1}}
+            },
+            "accepted_by": {"enum": ["operator", "manager"]},
+            "acceptance": {"type": "string", "minLength": 3, "description": "The Manager's risk id, or the operator's decision id; the host checks the recorded choice, not this text."}
+          }
+        },
+        "accept_risk": {
+          "type": "object", "additionalProperties": false, "required": ["check", "risk"],
+          "description": "With to=operator, when the question is whether to leave one check impossible here unverified: name the check and the risk. The host offers the choice to accept that risk or keep the check, in place of ask's options; only choosing it accepts.",
+          "properties": {"check": {"type": "string", "minLength": 3}, "risk": {"type": "string", "minLength": 3}}
+        }
+      }
+    },
+    "front_door": {
+      "description": "Classify the operator's message; the call ends your turn. to: manager (SELF) for conversation, status, a quick inspection or a finite local task one agent can verify, and simple work with a vertical, whose stage and reviewer defaults never force team; team (TEAM) for multi-stage live research, parallel work, required independent review or high-impact operations. A control or a grant is always to=manager.",
+      "core": ["to"],
+      "to": ["manager", "team"],
+      "required": ["to", "intake"],
+      "properties": {
+        "intake": {
+          "type": "object", "additionalProperties": false, "required": ["type", "scope"],
+          "description": "type: an ask done once, however big (`帮我调研X`), is ephemeral, and objective_amendment when it edits the live mission; standing_directive only to govern later turns (`以后都用中文`), with preference_value the lasting rule only; otherwise preference, credential_grant or revocation. Unsure: ephemeral. roles: the roles it applies to, [] for all.",
+          "properties": {
+            "type": {"enum": ["ephemeral", "objective_amendment", "standing_directive", "preference", "credential_grant", "revocation"]},
+            "scope": {"enum": ["mission", "project", "global"]},
+            "roles": {"type": "array", "items": {"enum": ["manager", "planner", "engineer", "reviewer"]}},
+            "preference_kind": {"enum": ["autonomy", "interaction", "workflow"]},
+            "preference_value": {"type": "string"},
+            "revoke_revision": {"type": "integer", "minimum": 1}
+          }
+        },
+        "config": {
+          "type": "array", "maxItems": 8,
+          "description": "Settings the operator explicitly changes, one entry per setting. model and effort take roles ([] for all); the other settings take none. Questions and task-local wishes change no setting.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["knob", "value"],
+            "properties": {
+              "knob": {"enum": ["model", "effort", "backend", "global_daily_cap", "max_daemons", "codex_daily_requests", "copilot_daily_requests", "copilot_daily_premium", "safe_mode", "show_reasoning", "telegram"]},
+              "roles": {"type": "array", "items": {"enum": ["manager", "planner", "engineer", "reviewer"]}},
+              "value": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "control": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "quote"],
+          "description": "Only for an explicit command: pause stops the campaign; abort ends the current mission; no_dispatch starts no new work; steer gives an active mission an explicit new direction, priority, method, evidence or constraint, with that direction in directive. Questions, explanations, criticism, suggestions, a feature idea, an implied preference and a separate new task are no control; an explicit continue or resume after a pause is to=team. quote: the operator's own words that give the command, verbatim.",
+          "properties": {
+            "kind": {"enum": ["pause", "abort", "no_dispatch", "steer"]},
+            "directive": {"type": "string", "minLength": 1},
+            "quote": {"type": "string", "minLength": 2}
+          }
+        },
+        "authorization": {
+          "type": "array",
+          "description": "Grants the operator explicitly gives; questions and quotes grant nothing.",
+          "items": {"enum": ["validator_repair", "acceptance_retry", "provenance_repair", "artifact_refresh", "resume_blocked_work"]}
+        },
+        "operator_question_policy": {
+          "enum": ["allow", "forbid"],
+          "description": "forbid only for an explicit command against questions; allow only when they are explicitly re-enabled."
+        },
+        "self_mode": {
+          "enum": ["reply", "inspect", "project_status", "argus_status", "host_status", "micro", "implement", "debug", "review", "synthesize"],
+          "description": "With to=manager. project_status: this project; argus_status: this Argus's projects; host_status: server activity (the host reads the facts; no reply). inspect: diagnosis, history, specific files or processes; reply: context-only conversation, no live-state claims; micro: a checked mutation; implement: code and tests; debug: diagnosis or fix with tests; review: a local review; synthesize: supplied sources. Fixes prefer debug; calculations, mutations and tests need execution."
+        },
+        "reply": {"type": "string", "description": "The complete answer for the operator, only when you were told you may answer here."},
+        "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team: standing for ongoing intent, else bounded. With a steer: standing only when it makes the mission ongoing."},
+        "greeting": {"type": "boolean", "description": "A pure greeting; reply greets and offers two or three starter asks."},
+        "name": {"type": "string", "maxLength": 80, "description": "The topic, in the message's language; left out for a greeting, chat or settings."},
+        "domain": {
+          "type": "object", "additionalProperties": false,
+          "description": "Only when domain fit is described below: the domain step, and the matching capability.",
+          "properties": {
+            "action": {"enum": ["offer", "ask", "skip", "cancel"]},
+            "vertical": {"type": "string"}
+          }
+        }
+      }
+    },
+    "route": {
+      "description": "Record your routing decision; the call ends your turn. to: team dispatches the work as decided; operator, the operator must decide something before any work can start, such as a choice they reserved or requirements that contradict each other, and the task waits on their answer. summary: why this route, in plain words, without verticals, workflow modes or other internal names.",
+      "core": ["to", "summary", "note", "ask", "assumptions"],
+      "to": ["team", "operator"],
+      "required": ["to", "summary", "assumptions", "choice"],
+      "properties": {
+        "choice": {"enum": ["existing", "new", "grounded"], "description": "existing: a listed capability; new: a reusable new domain, only if none fits; grounded: only in the fast pass, when repository inspection is needed (leave vertical empty)."},
+        "vertical": {"type": "string", "description": "The exact listed vertical name, or the slug of a new domain."},
+        "domain": {"type": "string", "description": "Only a listed optional research domain; empty otherwise."},
+        "workflow_mode": {"enum": ["direct", "staged"]},
+        "workflow_profile": {"type": "string"},
+        "workflow_stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "start_stage": {"type": "string"},
+        "research_target_level": {"enum": ["exploratory", "publishable", "doctoral"]},
+        "research_direction_mode": {"enum": ["broad", "locked"]},
+        "target_venue": {"type": "string", "maxLength": 100},
+        "require_independent_review": {"type": "boolean"},
+        "execution_task": {"type": "string"},
+        "session_title": {"type": "string", "description": "A concise topic summary in the operator's language, without input ids or filler."},
+        "precise_constraints": {"type": "array", "items": {"type": "string"}, "description": "Mechanically checkable requirements the operator stated, verbatim; never invented."},
+        "exclusions": {"type": "array", "items": {"type": "string"}, "description": "What the operator ruled out, verbatim."}
+      }
+    },
+    "supervise": {
+      "description": "Record your judgment of the team's course; the call ends your turn. to: team, the course is right, and with a note your corrected instruction, read by whoever holds the work at their next boundary; planner, your note needs new planning (tasks to add, retire or replace); operator, work handed to you waits on a choice only the operator can make, and the task waits on their answer; stop parks this mission, when changing direction will not help. summary: the decisive observed condition and what happens next, naming no task ids.",
+      "core": ["to", "summary", "note", "ask", "assumptions"],
+      "to": ["team", "planner", "operator", "stop"],
+      "required": ["to", "summary", "evidence_refs", "assumptions"],
+      "properties": {
+        "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "description": "The evidence_refs paths your decision rests on."},
+        "consultation": {
+          "type": "object", "additionalProperties": false, "required": ["id", "disposition"],
+          "description": "The advisor consultation your decision used, and whether you adopted its result.",
+          "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 128}, "disposition": {"enum": ["adopt", "reject"]}}
+        },
+        "risk": {
+          "type": "object", "additionalProperties": false,
+          "description": "Only when the operator cannot be asked: accept the residual risk of one check a Reviewer showed impossible here, when the Reviewer read the best evidence reachable here; or revoke an acceptance that no longer holds. A test fixture counts only if it follows the documented interface or schema, runs the real entry point (not a stub of the code under test) and is labelled a test fixture.",
+          "properties": {
+            "accept": {
+              "type": "object", "additionalProperties": false, "required": ["check", "risk"],
+              "properties": {"check": {"type": "string", "minLength": 3, "maxLength": 240}, "risk": {"type": "string", "minLength": 3, "maxLength": 1000}}
+            },
+            "revoke": {"type": "string", "pattern": "^risk-[0-9a-f]{10}$"}
+          }
+        }
+      }
+    }
+  }
+}

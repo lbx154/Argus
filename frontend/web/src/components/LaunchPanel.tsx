@@ -105,9 +105,9 @@ export function LaunchHoldCard({
           <dt className="font-medium text-ink">{zh ? '要求' : 'Requirements'}</dt>
           <dd><ul className="list-disc pl-4">{understood.requirements.map((requirement) => <li key={requirement.text}>{describeRequirement(requirement, zh)}</li>)}</ul></dd>
         </div> : null}
-        {understood.ambiguities?.length ? <div>
-          <dt className="font-medium text-warn">{zh ? '还没说清楚的地方（开始前可以补充）' : 'Still unclear (you can add details first)'}</dt>
-          <dd><ul className="list-disc pl-4">{understood.ambiguities.map((text) => <li key={text}>{text}</li>)}</ul></dd>
+        {understood.assumptions?.length ? <div>
+          <dt className="font-medium text-warn">{zh ? '经理替你定的理解（开始前可以改）' : 'Readings the Manager chose for you (you can change them first)'}</dt>
+          <dd><ul className="list-disc pl-4">{understood.assumptions.map((text) => <li key={text}>{text}</li>)}</ul></dd>
         </div> : null}
         <div>
           <dt className="font-medium text-ink">{zh ? `计划${plan.length ? `（${plan.length} 项）` : ''}` : `Plan${plan.length ? ` (${plan.length})` : ''}`}</dt>

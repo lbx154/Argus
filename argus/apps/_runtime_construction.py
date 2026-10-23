@@ -277,11 +277,6 @@ class _RunnerConstructionMixin:
         # latest thread_id and forward it to the next mission.
         self._next_seed_thread_id: str | None = seed_thread_id
         self.last_thread_id: str | None = seed_thread_id
-        # Chat fast-path is operator-front-door-only: enabled per invocation by
-        # ``_invoke_supervisor`` for human free-text typed at the cockpit.
-        # Defaults False so planner / backlog / daemon missions are never
-        # classified — the harness must not second-guess agent-produced work.
-        self._allow_chat_fast_path: bool = False
 
     def _build_manager_skill_store(
         self,

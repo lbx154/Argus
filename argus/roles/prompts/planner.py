@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
-from ...core.role_decision import decision_footer_instruction
 from ...core.role_handoff import OPERATOR_CHOICES_RULE
+from ...core.role_reply import decision_footer_instruction
 from ..task_contract import (
     EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_summary,

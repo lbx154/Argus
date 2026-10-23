@@ -11,8 +11,6 @@ from ..core.models import LoopOutcome, LoopStatus
 from ..core.stop_kinds import run_park_reason, stop_kind_is_recoverable
 from .loop_state import MissionContext, SkillLibraryState
 
-_MANAGER_PARKS = {"manager_wait": "operator_question", "manager_stop": "research_open"}
-
 
 class MissionSettlementMixin:
     def _settle_mission_outcome(
@@ -26,9 +24,9 @@ class MissionSettlementMixin:
         last_thread_id: str | None,
     ) -> LoopOutcome:
         stop_kind = rounds[-1].stop_kind if rounds else None
-        # The Manager parks a run without a round of its own; any other park
-        # is its last round's stop.
-        park_reason = _MANAGER_PARKS.get(status, "")
+        # The Manager stops a run without a round of its own, for the Planner
+        # to retire; any other park is its last round's stop.
+        park_reason = "research_open" if status == "manager_stop" else ""
         if park_reason:
             status, stop_kind = "parked", None
         elif status == "parked":

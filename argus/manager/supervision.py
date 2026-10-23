@@ -16,10 +16,12 @@ from typing import Any, Callable
 
 import portalocker
 
+from ..core.autonomy import record_assumptions
 from ..core.event_catalog import EventType
+from ..core.handoff import HandOffActions
 from ..core.models import RunnerOptions
+from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
-from ..core.workspace_facts import fact_text
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
 from ._helpers import _manager_backend_failure
 from ._session_ops import (
@@ -30,11 +32,9 @@ from ._session_ops import (
 from .observation import (
     ManagerObservation,
     _read_object,
-    _semantic,
     control_identity,
     observe_project,
 )
-from .stage_decider import extract_answer
 from .supervision_errors import _failure_reason, _provider_failure_metadata
 
 LOG = logging.getLogger(__name__)
@@ -129,40 +129,6 @@ def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
     JsonlEventSink(None, life_dir=root).append(payload)
 
 
-def waiting_for_evidence(root: Path | str | None, mission_id: str | None = None) -> bool:
-    """An applied WAIT defers repeated planning only while its evidence is current."""
-    if root is None:
-        return False
-    root = Path(root)
-    record = _latest_record(root)
-    if record.get("status") != "applied" or record.get("decision", {}).get("action") != "wait":
-        return False
-    observation = observe_project(root, event=record.get("source_event", {}))
-    if observation.control_revision != record.get("applied_control_revision"):
-        return False
-    questions = {item["id"]: item for item in observation.facts["tasks"] if item.get("pending_question")}
-    waiting_ids = set(record.get("waiting_task_ids", []))
-    if mission_id is not None:
-        task = questions.get(mission_id)
-        return bool(task and mission_id in waiting_ids and fact_text(_semantic(task)) == record.get("waiting_task_revisions", {}).get(mission_id))
-    return bool(
-        observation.evidence_revision == record.get("evidence_revision")
-        and waiting_ids.intersection(questions)
-    )
-
-
-def mission_wait_reason(root: Path | str | None, mission_id: str | None) -> str:
-    """A safe role boundary may pause only this still-waiting running mission."""
-    if root is None or not mission_id or not waiting_for_evidence(root, mission_id):
-        return ""
-    from ..life.memory import Backlog
-
-    task = next((item for item in Backlog(Path(root) / "backlog.jsonl").active() if item.id == mission_id), None)
-    if task is None or task.status != "running" or not task.pending_question:
-        return ""
-    return f"Manager is waiting for the requested operator facts: {task.pending_question}"
-
-
 def mission_stop_reason(root: Path | str | None, mission_id: str | None) -> str:
     """Why the Manager stopped this run of the mission, or "" when it did not."""
     if root is None or not mission_id:
@@ -186,247 +152,6 @@ class SupervisionDecisionError(ValueError):
         self.code = code
 
 
-_DECISION_KEYS = (
-    "ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION",
-    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK", "ASSUMPTION",
-)
-_BARE_KEY_LINE = re.compile(
-    r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
-)
-
-_COLON_KEY_LINE = re.compile(
-    # Same decoration as role_reply's key pattern: a bullet, a quote marker or a
-    # list number before the key.
-    r"^(?:[-*+]\s*)?(?:[^\w`*]+\s*)?(?:\d+[.)]\s*)?[`*_]*(?:ARGUS_)?(?P<key>"
-    + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True))
-    + r")[`*_]*\s*[:=]\s*(?P<value>.*)$",
-    re.IGNORECASE,
-)
-
-
-def _bare_named_lines(text: str) -> dict[str, str]:
-    """Read named lines when the reply wrote any of them without the colon.
-
-    The key must be written in capitals at the start of its own line, exactly as
-    the prompt names it, so ordinary prose ("Action items ...") is not read as a
-    field. Like ``read_key_values`` this reads the final decision footer and the
-    last line for a key wins, so a draft block followed by a final block yields
-    the final answer; both the colon and colon-less forms are read in one pass
-    so their order is kept. Returns nothing when every line carried a colon.
-    """
-    from ..core.role_reply import decision_footer_text
-
-    found: dict[str, str] = {}
-    saw_bare = False
-    for raw in decision_footer_text(str(text or "")).splitlines():
-        line = raw.strip()
-        match = _COLON_KEY_LINE.match(line.strip("`").strip())
-        if match is None:
-            match = _BARE_KEY_LINE.match(line)
-            saw_bare = saw_bare or match is not None
-        if match is not None:
-            found[match.group("key").upper()] = match.group("value").strip().strip("`").strip()
-    return found if saw_bare else {}
-
-
-_ACTIONS = ("continue", "steer", "wait", "stop")
-_VERBS = "|".join(_ACTIONS)
-# A verb counts only when a separator follows it (a colon, a dash or the end of
-# the line) and what follows does not negate or hedge it: "STEER \u2014 rerun the
-# fixture" is a decision, "Steer is not needed" and "wait and see" are not.
-_LEADING_ACTION = re.compile(
-    rf"^[`*_]*(?P<verb>{_VERBS})[`*_]*"
-    r"(?:\s*$|\s*(?::|\u2014|\u2013|\s-\s)\s*(?P<rest>.*)$)",
-    re.IGNORECASE | re.DOTALL,
-)
-_HEDGE = re.compile(
-    r"^(?:not\b|no\b|never\b|unless\b|if\b|only if\b|maybe\b|perhaps\b|optional\b|"
-    r"unnecessary\b|unneeded\b|hold off\b|do not\b|don't\b|"
-    r"isn't\b|is not\b|would not\b|wouldn't\b|\?)",
-    re.IGNORECASE,
-)
-_FIRST_VERB = re.compile(rf"^[`*_]*({_VERBS})\b", re.IGNORECASE)
-# A rescue reader for replies that put every field on one line
-# ("DECISION: STEER \u2014 ACTION: ... REASON: ... EVIDENCE_REFS: ...") or each
-# key alone on a line with its value below it. Only capitalised keys count,
-# exactly as the prompt writes them, so ordinary prose is never a field.
-_RESCUE_KEYS = ("DECISION", *_DECISION_KEYS)
-_RESCUE_INLINE = re.compile(
-    r"(?<![A-Za-z0-9_])[`*_]*(?:ARGUS_)?(?P<key>"
-    + "|".join(sorted(_RESCUE_KEYS, key=len, reverse=True))
-    + r")[`*_]*\s*[:=]"
-)
-_RESCUE_BLOCK = re.compile(
-    r"(?m)^[ \t>*#_`-]*(?P<key>"
-    + "|".join(sorted(_RESCUE_KEYS, key=len, reverse=True))
-    + r")[`*_]*[ \t]*$"
-)
-
-
-def _rescued_fields(text: str) -> dict[str, str]:
-    """Split a reply into its capitalised named fields wherever they appear.
-
-    Used only after the line reader found no complete decision, so no reply
-    that parses today is read differently. Each field runs to the next key;
-    the last occurrence of a key wins, like the line reader.
-    """
-    from ..core.role_reply import decision_footer_text
-
-    source = decision_footer_text(str(text or ""))
-    marks = sorted(
-        [(match.start(), match.end(), match.group("key")) for match in _RESCUE_INLINE.finditer(source)]
-        + [(match.start(), match.end(), match.group("key")) for match in _RESCUE_BLOCK.finditer(source)]
-    )
-    found: dict[str, str] = {}
-    for index, (_start, end, key) in enumerate(marks):
-        if index and marks[index - 1][1] > _start:
-            continue
-        stop = marks[index + 1][0] if index + 1 < len(marks) else len(source)
-        value = " ".join(source[end:stop].split()).strip().strip("`").strip()
-        # Trailing dashes separate fields; a trailing comma stays, so a verb
-        # followed by one ("STEER, ...") is never read as a clean decision.
-        value = value.rstrip("\u2014\u2013-|").strip()
-        if value:
-            found[key.lower()] = value
-    return found
-
-
-def _leading_verb(text: Any) -> str:
-    match = _LEADING_ACTION.match(str(text or "").strip())
-    if match is None or _HEDGE.match((match.group("rest") or "").strip()):
-        return ""
-    return match.group("verb").lower()
-
-
-def _action_of(value: dict[str, Any]) -> str:
-    """The chosen action: an exact ACTION, else the verb a DECISION or ACTION states.
-
-    A DECISION whose verb differs from the verb the ACTION text starts with is
-    a conflict, and no action is read from it.
-    """
-    stated = str(value.get("action") or "").strip().lower()
-    decided = _leading_verb(value.get("decision"))
-    if stated in _ACTIONS:
-        return "conflicting" if decided and decided != stated else stated
-    first = _FIRST_VERB.match(str(value.get("action") or "").strip())
-    if decided and first and first.group(1).lower() != decided:
-        return "conflicting"
-    return decided or _leading_verb(value.get("action")) or stated
-
-
-def _decision(text: str) -> dict[str, Any]:
-    from ..core.role_reply import read_key_values
-
-    try:
-        value = json.loads(text)
-    except ValueError:
-        from ..core.role_handoff import read_baton_line
-
-        fields = read_key_values(text, _DECISION_KEYS)
-        fields.update(_bare_named_lines(text))
-        value = {key.lower(): val for key, val in fields.items()}
-        handoff = read_baton_line(text)
-        if handoff is not None:
-            value["handoff"], value["question"], value["options"] = (
-                handoff.holder, handoff.question, list(handoff.options),
-            )
-    if not isinstance(value, dict):
-        raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
-    if isinstance(text, str) and "decision" not in value:
-        # The line reader does not read DECISION; a DECISION that disagrees
-        # with the stated ACTION makes the reply ambiguous.
-        stated_decision = _rescued_fields(text).get("decision")
-        if stated_decision:
-            value = {**value, "decision": stated_decision}
-    try:
-        return _validated_decision(value)
-    except SupervisionDecisionError:
-        rescued = _rescued_fields(text) if isinstance(text, str) else {}
-        if rescued:
-            try:
-                return _validated_decision(rescued)
-            except SupervisionDecisionError:
-                pass
-        raise  # the first reading's failure names what was missing
-
-
-# What a field says when it states nothing. The Manager answers in prose, so
-# "none", "(none)", "not applicable", "nothing accepted", "not accepted yet"
-# and "none yet ..." must all read as nothing; only an explicit ACCEPT_RISK:
-# yes with a named check and risk accepts anything.
-_STATES_NOTHING = re.compile(
-    r"^(?:none|nil|null|n/?a|na|no|nothing|not|never|tbd|pending|unknown|undecided)\b",
-    re.IGNORECASE,
-)
-_RISK_ID = re.compile(r"\brisk-[0-9a-f]{10}\b")
-_RISK_VERB = re.compile(r"^[`*_\s]*(yes|no|revoke)\b", re.IGNORECASE)
-
-
-def _stated(value: Any, limit: int = 1000) -> str:
-    """What the field states, or "" when it states nothing."""
-    text = " ".join(str(value or "").split())
-    bare = text.strip(" .,;:`*_-()[]{}\"'").strip()
-    if not bare or _STATES_NOTHING.match(bare):
-        return ""
-    return text[:limit]
-
-
-def _risk_decision(value: dict[str, Any]) -> dict[str, str]:
-    """ACCEPT_RISK: yes (with RISK_CHECK and RESIDUAL_RISK), revoke <id>, or nothing.
-
-    Anything else -- an absent or "no" ACCEPT_RISK, a check or risk that is
-    empty or says none -- accepts nothing. A RESIDUAL_RISK without an explicit
-    ACCEPT_RISK: yes is a remark, not an acceptance.
-    """
-    raw = " ".join(str(value.get("accept_risk") or "").split())
-    verb = _RISK_VERB.match(raw)
-    if verb is None:
-        return {}
-    if verb.group(1).lower() == "revoke":
-        found = _RISK_ID.search(raw) or _RISK_ID.search(str(value.get("risk_check") or ""))
-        return {"action": "revoke", "risk_id": found.group(0)} if found else {}
-    if verb.group(1).lower() != "yes":
-        return {}
-    check, risk = _stated(value.get("risk_check"), 240), _stated(value.get("residual_risk"))
-    return {"action": "accept", "check": check, "risk": risk} if check and risk else {}
-
-
-def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
-    action = _action_of(value)
-    reason = str(value.get("reason") or "").strip()
-    directive = str(value.get("directive") or "").strip()
-    if action not in _ACTIONS or not reason or len(reason) > 4000:
-        raise SupervisionDecisionError(
-            "decision_incomplete",
-            "Manager supervision decision is incomplete "
-            f"(action={'unrecognized' if action else 'missing'}, reason={'present' if reason else 'missing'})",
-        )
-    if action == "steer" and (not directive or len(directive) > 4000):
-        raise SupervisionDecisionError("directive_missing", "Steering requires a bounded team instruction")
-    refs = value.get("evidence_refs", [])
-    if isinstance(refs, str):
-        refs = [ref.strip() for ref in refs.split(";") if ref.strip()]
-    if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
-        raise SupervisionDecisionError("evidence_uncited", "Manager must cite the evidence used for its decision")
-    options = value.get("options")
-    return {"action": action, "reason": reason, "directive": directive,
-            # ``→ planner``: the directive is new planning, so the Planner is asked.
-            "handoff": str(value.get("handoff") or ""),
-            # ``→ operator: <question>``: the task handed here waits on their answer,
-            # one of the ``options`` listed under it or their own.
-            "question": str(value.get("question") or ""),
-            "options": list(options) if isinstance(options, (list, tuple)) else [],
-            "cited_refs": list(dict.fromkeys(refs)),
-            "consultation_id": str(value.get("consultation_id") or "")[:128],
-            "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
-            # Accepting (or revoking) the residual risk of one check impossible
-            # here; see _risk_decision for what counts.
-            "risk_decision": _risk_decision(value),
-            # The reading of the operator's requirement the directive chose in
-            # their place, recorded for the run report.
-            "assumption": _stated(value.get("assumption"))}
-
-
 def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
     """The Manager decides in the operator's place whenever they cannot be asked.
 
@@ -439,58 +164,70 @@ def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
     return not operator_questions_can_be_asked(root)
 
 
+def _check(
+    payload: dict[str, Any], *, root: Path, event: dict[str, Any], observation: ManagerObservation,
+) -> dict[str, Any]:
+    """The decision a supervise call records, or a refusal the Manager can act on."""
+    available = {ref["path"] for ref in observation.facts["evidence_refs"]}
+    cited = list(dict.fromkeys(payload["evidence_refs"]))
+    outside = [ref for ref in cited if ref not in available]
+    if outside:
+        raise ValueError(
+            f"evidence_refs: {len(outside)} of {len(cited)} are not paths listed under "
+            "evidence_refs below; cite only those."
+        )
+    to, note = payload["to"], payload.get("note", "").strip()
+    if to == "planner" and not note:
+        raise ValueError("to=planner needs your instruction for the Planner in note.")
+    if to == "planner" and event.get("type") == EventType.LIFE_OBSERVER_NOTE:
+        raise ValueError(
+            "An Observer's remark never moves the work to the Planner: hand it "
+            "to=team, with your instruction in note."
+        )
+    consultation = payload.get("consultation", {})
+    if consultation:
+        from ..advisor.receipts import read_receipt
+
+        advice = read_receipt(root, consultation["id"])
+        if not advice or advice.get("status") != "completed":
+            raise ValueError("consultation.id names no completed advisor consultation.")
+    risk = payload.get("risk", {})
+    if "risk" in payload and len(risk) != 1:
+        raise ValueError("risk takes either accept or revoke.")
+    if "accept" in risk and not _manager_holds_operator_authority(root):
+        raise ValueError("The operator can be asked, so accepting a residual risk is theirs to decide.")
+    return {
+        "action": "stop" if to == "stop" else "steer" if note else "continue",
+        "reason": payload["summary"], "directive": note,
+        # to=planner: the directive is new planning, so the Planner is asked;
+        # to=operator: the task handed here waits on their answer.
+        "handoff": to,
+        "question": payload.get("ask", {}).get("question", ""),
+        "options": payload.get("ask", {}).get("options", []),
+        "cited_refs": cited,
+        "consultation_id": consultation.get("id", ""),
+        "advisor_disposition": consultation.get("disposition", ""),
+        "risk_decision": (
+            {"action": "accept", **risk["accept"]} if "accept" in risk
+            else {"action": "revoke", "risk_id": risk["revoke"]} if risk else {}
+        ),
+        "assumptions": payload["assumptions"],
+    }
+
+
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     from ..core.mission_view import load_mission_view, session_is_chinese
-    from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
-    from ..core.role_handoff import OPERATOR_CHOICES_RULE
     from ..roles.prompts.voice import operator_language
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     root = getattr(observation, "root", None)
-    # Who decides in the operator's place depends on this project's question policy.
-    holds = _manager_holds_operator_authority(root)
-    # The REASON is shown to the operator as written, like the Observer's remark.
+    # The summary is shown to the operator as written, like the Observer's remark.
     language = operator_language(root is not None and session_is_chinese(load_mission_view(root)))
     return (
         "You are the persistent project Manager.\n"
         + asked
         + "Judge from the evidence below whether the team's course serves the operator's "
-        "objective, and decide one of:\n"
-        "- CONTINUE: the course is right;\n"
-        "- STEER: give the team a concrete corrected instruction, read at its next boundary;\n"
-        + ("" if holds else "- WAIT: pause automatic planning until the operator answers the pending question;\n")
-        + "- STOP: park this mission; changing direction will not help.\n"
-        + (
-            "The operator cannot be asked, so a check the Reviewer showed impossible here "
-            "is yours to leave unverified: when the Reviewer read the best evidence reachable "
-            "here, accept that one check's residual risk with ACCEPT_RISK: yes. "
-            + FIXTURE_EVIDENCE_RULE
-            + " Revoke an acceptance that no longer holds with ACCEPT_RISK: revoke <risk id>.\n"
-            if holds else ""
-        )
-        + "End your reply with these fields, each on its own line in the form KEY: value:\n"
-        + f"ACTION: {'continue, steer or stop' if holds else 'continue, steer, wait or stop'} (the single word)\n"
-        f"REASON: the decisive observed condition and what should happen next, {language}, "
-        "naming no task ids: the operator reads it\n"
-        "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
-        "DIRECTIVE: the corrected team instruction (only for STEER)\n"
-        + (
-            "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
-            "RISK_CHECK: the one check left unverified (only with yes)\n"
-            "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
-            "ASSUMPTION: the reading of the operator's requirement your DIRECTIVE chose in "
-            "their place and the conflict behind it, in their language, for the run report "
-            "(only when it chose one)\n"
-            if holds else ""
-        )
-        + "Add a last line `→ planner` only when a STEER needs new planning (tasks to add, "
-        "retire or replace); otherwise whoever holds the work reads it at their next boundary.\n"
-        + ("" if holds else (
-            "When work handed to you waits on a choice only the operator can make, make that "
-            "last line `→ operator: <one question>` instead: the task then waits on their answer. "
-            + OPERATOR_CHOICES_RULE + "\n"
-        ))
-        + "\n"
+        f"objective, and end your turn with hand_off, its summary {language}.\n\n"
         + observation.render()
     )
 
@@ -636,11 +373,12 @@ def _apply(
             # Work that moved on while the Manager decided does not void its
             # decision; voided, the decision was lost and nobody asked again.
             record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
-            if decision["action"] == "wait" and not decision.get("question") and not any(
-                item.get("pending_question") for item in observation.facts["tasks"]
-            ):
-                raise SupervisionSuperseded("operator question no longer waits")
             effects = record.setdefault("effects", {"supervision_id": record["id"]})
+            # Each reading the Manager chose in the operator's place, once per decision.
+            record_assumptions(
+                root, decision["assumptions"], item_id=str(record["trigger"].get("item_id") or ""),
+                source="supervise",
+            )
             if decision.get("question"):
                 effects["question_item_id"] = _put_to_operator(root, record, decision["question"])
             if decision["action"] == "continue":
@@ -687,24 +425,10 @@ def _apply(
                     directive = set_active_manager_directive(
                         root, decision["directive"], source=source,
                         scope_objective=observation.continuous.objective,
-                        # An Observer's remark never moves the baton, so a steer
-                        # it prompted is read by the team, never handed to the Planner.
-                        for_planner=decision.get("handoff") == "planner"
-                        and record["trigger"].get("type") != EventType.LIFE_OBSERVER_NOTE,
+                        for_planner=decision["handoff"] == "planner",
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)
-                if decision.get("assumption"):
-                    from ..core.autonomy import record_autonomous_assumption
-
-                    record_autonomous_assumption(
-                        root, item_id=str(record["trigger"].get("item_id") or ""),
-                        reading=decision["assumption"], source="manager_decision",
-                        key=source, evidence_refs=decision["cited_refs"],
-                    )
-            effects["automatic_planning_paused"] = decision["action"] == "wait"
-            if decision["action"] == "wait":
-                effects["waiting_task_ids"] = record["waiting_task_ids"]
             record["applied_control_revision"] = observe_project(root, event=event).control_revision
             _write(path, record)
             return effects
@@ -874,44 +598,24 @@ def supervise(
                     working_dir=str(getattr(manager, "execution_workdir", root)),
                     external_interrupt_reason_provider=interrupt_reason,
                 )
-                with run_interrupt_scope(interrupt_reason):
-                    result = run_exec(session, prompt=_prompt(observation, str(event.get("consult_reason") or "")), options=options, run_label="manager-supervision")
+                actions = HandOffActions(
+                    "supervise", check=partial(_check, root=root, event=event, observation=observation),
+                )
+                with run_interrupt_scope(interrupt_reason), role_actions(session, options, actions) as bound:
+                    result = run_exec(session, prompt=_prompt(observation, str(event.get("consult_reason") or "")), options=bound, run_label="manager-supervision")
                 record["call_id"] = getattr(result, "call_id", "") or ""
                 record["backend_exit_code"] = int(getattr(result, "exit_code", 0) or 0)
                 backend_failed, _ = _manager_backend_failure(result)
                 if interrupted() or backend_failed:
                     raise RuntimeError("Manager supervision was interrupted or failed")
                 failure_stage = "decision"
-                decision = _decision(extract_answer(result))
-                if (decision["action"] == "wait" or decision["question"]) and _manager_holds_operator_authority(root):
-                    raise SupervisionDecisionError(
-                        "wait_unavailable", "the operator cannot be asked, so nothing waits on them",
-                    )
-                if decision["action"] == "wait":
-                    waiting = [task for task in observation.facts["tasks"] if task.get("pending_question")]
-                    record["waiting_task_ids"] = [task["id"] for task in waiting]
-                    record["waiting_task_revisions"] = {task["id"]: fact_text(_semantic(task)) for task in waiting}
-                    record["waiting_questions"] = {task["id"]: task["pending_question"] for task in waiting}
+                if actions.handoff is None:
+                    raise SupervisionDecisionError("handoff_missing", "Manager supervision ended without handing off")
+                decision = actions.handoff.value
                 available = {ref["path"]: ref for ref in observation.facts["evidence_refs"]}
-                cited = decision["cited_refs"]
-                if any(ref not in available for ref in cited):
-                    outside = sum(ref not in available for ref in cited)
-                    raise SupervisionDecisionError(
-                        "evidence_outside_snapshot",
-                        f"Manager cited {outside} of {len(cited)} evidence references outside the observed project snapshot",
-                    )
                 record["available_refs"] = list(available.values())
-                record["cited_refs"] = [available[ref] for ref in cited]
+                record["cited_refs"] = [available[ref] for ref in decision["cited_refs"]]
                 record["evidence_refs"] = record["cited_refs"]
-                consultation_id = decision.get("consultation_id")
-                if consultation_id:
-                    from ..advisor.receipts import read_receipt
-
-                    advice = read_receipt(root, consultation_id)
-                    if not advice or advice.get("status") != "completed":
-                        raise SupervisionDecisionError("advisor_unavailable", "Manager referenced unavailable advisor evidence")
-                    if decision.get("advisor_disposition") not in {"adopt", "reject"}:
-                        raise SupervisionDecisionError("advisor_disposition_missing", "Manager must explain whether it adopted the advisor result")
                 record["decision"] = decision
                 failure_stage = "commit"
                 record["status"] = "issued"
@@ -1058,8 +762,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled":
         reason = (
-            f"{event.get('text')}; CONTINUE keeps waiting on that turn, STEER stops it "
-            "and restarts the Engineer with your directive"
+            f"{event.get('text')}; to=team without a note keeps waiting on that turn, "
+            "and a note stops it and restarts the Engineer with your instruction"
         )
     elif event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager":
         said = event.get("evidence") or event.get("text")
@@ -1169,4 +873,4 @@ def start_supervision(root: Path | str | None = None) -> None:
             _STOPPED_ROOTS.discard(str(Path(root).resolve()))
 
 
-__all__ = ["HANDED_TO_MANAGER", "supervise", "schedule_supervision", "recover_issued_supervision", "waiting_for_evidence", "mission_wait_reason", "shutdown_supervision", "start_supervision", "SupervisionSink"]
+__all__ = ["HANDED_TO_MANAGER", "supervise", "schedule_supervision", "recover_issued_supervision", "shutdown_supervision", "start_supervision", "SupervisionSink"]

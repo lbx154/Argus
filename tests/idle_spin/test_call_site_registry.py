@@ -74,16 +74,9 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-frontdoor-classify",),
     ),
     Site(
-        r"manager-route", FOREGROUND,
-        "Routes one operator message to a lone worker or the full team.",
-        ("argus/manager/_front_door_ops.py:177",),
-        ("manager-route",),
-    ),
-    Site(
-        r"manager-classify-(fast|grounded|grounded-retry|context-retry|field-retry"
-        r"|tool-loop-retry)",
+        r"manager-classify-(fast|grounded|grounded-retry)",
         FOREGROUND,
-        "Decides the vertical for one operator objective, with bounded format retries; a "
+        "Decides the vertical for one operator objective, with one grounding retry; a "
         "daemon asks once per start (_vertical_resolved, the boot handoff).",
         ("argus/manager/_vertical_ops.py:746", "argus/manager/_vertical_ops.py:943"),
         ("manager-classify-fast", "manager-classify-grounded-retry"),
@@ -135,12 +128,6 @@ REGISTRY: tuple[Site, ...] = (
         "Reads one operator message against the one question a parked task is waiting on.",
         ("argus/webapi/manager_pending_question.py:735",),
         ("manager-pending-answer",),
-    ),
-    Site(
-        r"router-classify", FOREGROUND,
-        "Classifies one operator message for the chat fast path.",
-        ("argus/apps/_self_reply.py:406",),
-        ("router-classify",),
     ),
     Site(
         r"reader-(foundation|application)", FOREGROUND,
@@ -308,7 +295,8 @@ PASS_THROUGH = {
     ("argus/manager/_stage_ops.py", "run_turn", "run_label"),
     ("argus/manager/front_door.py", "manager_judgment", "run_label"),
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
-    ("argus/manager/_vertical_ops.py", "_decide_vertical_once.invoke_grounded_route", "run_label"),
+    ("argus/manager/_vertical_ops.py", "_decide_vertical_once.route", "run_label"),
+    ("argus/manager/_vertical_ops.py", "_decide_vertical_once.grounded", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
     ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),

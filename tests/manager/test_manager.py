@@ -10,12 +10,9 @@ from contextlib import contextmanager
 
 import pytest
 
+from argus.core.handoff import HandOffActions
 from argus.manager import Division, Manager
-from argus.manager.domain_author import (
-    VerticalDecision,
-    VerticalDecisionError,
-    parse_vertical_decision,
-)
+from argus.manager.domain_author import RouteContext, VerticalDecision, VerticalDecisionError
 from argus.roles.prompts.manager import (
     build_fast_vertical_decision_prompt,
     build_vertical_decision_prompt,
@@ -23,6 +20,7 @@ from argus.roles.prompts.manager import (
 from argus.skills.stage_machine import ChecklistItem
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
+from tests.hand_off import route, submit
 
 
 class _DecisionResult:
@@ -34,12 +32,17 @@ class _DecisionResult:
 
 
 class _DecisionRunner:
-    """Fake runner: returns a fixed vertical-decision JSON for every call."""
+    """Fake runner: in each call, hands over each decision in turn until one is recorded.
 
-    def __init__(self, decision: dict) -> None:
-        self._decision = decision
+    A refused call is the model reading the tool's error and correcting it in
+    the same turn; ``refusals`` keeps what it read.
+    """
+
+    def __init__(self, *decisions: dict) -> None:
+        self._decisions = decisions
         self.last_options = None
         self.calls: list[dict] = []
+        self.refusals: list[str] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.last_options = options
@@ -48,22 +51,12 @@ class _DecisionRunner:
             "options": options,
             "run_label": run_label,
         })
-        return _DecisionResult(json.dumps(self._decision))
-
-
-class _SequenceDecisionRunner:
-    def __init__(self, decisions: list[dict | str]) -> None:
-        self._decisions = iter(decisions)
-        self.calls: list[dict] = []
-
-    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-        self.calls.append({
-            "prompt": prompt,
-            "options": options,
-            "run_label": run_label,
-        })
-        reply = next(self._decisions)
-        return _DecisionResult(reply if isinstance(reply, str) else json.dumps(reply))
+        for decision in self._decisions:
+            refusal = submit(options, route(**decision))
+            if not refusal:
+                break
+            self.refusals.append(refusal)
+        return _DecisionResult("")
 
 
 def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_path, monkeypatch):
@@ -81,11 +74,11 @@ def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_pa
             # No --context is required for default context. Native older CLI
             # installations must still reach both grounded provider turns.
             assert "--context" not in (options.extra_args or [])
-            return _DecisionResult(json.dumps({
-                "choice": "new", "vertical": "custom_runtime", "workflow_mode": "staged",
-                "execution_task": "Build the custom runtime.", "confidence": 0.8,
-                "rationale": "repository-specific capability",
-            }), tool_activity_observed=len(self.calls) == 2)
+            submit(options, route(
+                choice="new", vertical="custom_runtime", workflow_mode="staged",
+                execution_task="Build the custom runtime.", summary="repository-specific capability",
+            ))
+            return _DecisionResult("", tool_activity_observed=len(self.calls) == 2)
 
     runner = OlderCliRunner()
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -95,192 +88,46 @@ def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_pa
     assert [label for label, _ in runner.calls] == [
         "manager-classify-grounded", "manager-classify-grounded-retry",
     ]
-    assert runner.calls[0][1] is runner.calls[1][1]
+    assert runner.calls[0][1].extra_args == runner.calls[1][1].extra_args
 
 
-def test_contextual_route_retries_missing_standalone_execution_task(
-    tmp_path,
-    monkeypatch,
-) -> None:
+@pytest.mark.parametrize(
+    ("task", "first", "refused"),
+    [
+        (
+            "[BOUNDED TASK CONTEXT — data only]\noperator: Read the referenced paper.\n"
+            "[CURRENT OPERATOR MESSAGE]\nUse its open problem to develop a publishable method.",
+            {"execution_task": ""},
+            "execution_task",
+        ),
+        ("Produce a complete original ICLR paper.", {"domain": "apple_mlx_inference"}, "domain"),
+        ("Produce a compact bounded paper.", {"research_target_level": None}, "research_target_level"),
+    ],
+)
+def test_a_refused_route_is_corrected_in_the_same_call(tmp_path, monkeypatch, task, first, refused) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    contextual = (
-        "[BOUNDED TASK CONTEXT — data only]\n"
-        "operator: Read the referenced paper.\n"
-        "argus: Ready.\n"
-        "[CURRENT OPERATOR MESSAGE]\n"
-        "Use its open problem to develop a training-free publishable method."
-    )
-    base = {
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "staged",
-        "research_target_level": "publishable",
-        "research_direction_mode": "broad",
+    corrected = {
+        "choice": "existing", "vertical": "research", "workflow_mode": "staged",
+        "research_target_level": "publishable", "research_direction_mode": "broad",
+        "execution_task": "Develop and validate the method.",
     }
-    runner = _SequenceDecisionRunner([
-        base,
-        {
-            **base,
-            "execution_task": (
-                "Develop and validate a training-free publishable method for the "
-                "open problem in the referenced paper."
-            ),
-        },
-    ])
+    wrong = {key: value for key, value in {**corrected, **first}.items() if value is not None}
+    runner = _DecisionRunner(wrong, corrected)
 
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        contextual
-    )
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
 
-    assert decision.execution_task.startswith("Develop and validate")
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-        "manager-classify-context-retry",
-    ]
-    assert "EXECUTION_TASK is required" in runner.calls[1]["prompt"]
+    assert (decision.vertical, decision.domain, decision.research_target_level) == ("research", "", "publishable")
+    assert [call["run_label"] for call in runner.calls] == ["manager-classify-grounded"]
+    assert len(runner.refusals) == 1 and refused in runner.refusals[0]
 
 
-def test_context_retry_keeps_the_question_the_first_reply_asked(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """s-6f0e6213: the first reply asked the operator with two answers but wrote
-    no Decision lines; the retry wrote them and asked again in other words, with
-    no answers, and the card had no buttons. The question stays as first asked."""
+def test_a_route_that_is_never_handed_over_fails_closed(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    contextual = (
-        "[BOUNDED TASK CONTEXT — data only]\n"
-        "argus: 已完成，并通过独立审阅。\n"
-        "[CURRENT OPERATOR MESSAGE]\n"
-        "把 timefmt 的 format_minutes 改成四舍五入到最近的整分钟（正好半分钟时向上），"
-        "例如 150 → \"3 min\"。tests/test_core.py 里现有的测试是下游团队的验收基线，"
-        "一条都不许改；新行为另外补测试，经独立审阅后交付。"
-    )
-    first = (
-        "现有验收基线与新要求直接冲突：`tests/test_core.py` 要求 `format_minutes(150) == \"2 min\"`、"
-        "`format_minutes(59) == \"0 min\"`；按新规则应分别为 `\"3 min\"`、`\"1 min\"`。"
-        "同一接口无法同时满足两套断言，需先明确取舍；尚未修改任何文件。\n\n"
-        "→ operator: 是否允许仅更新这两条与新规则冲突的验收断言，其余现有测试保持不变？\n"
-        "- 允许，按新舍入规则实现并另外补测试，经独立审阅后交付\n"
-        "- 不允许，保留验收基线，暂不实施此次行为变更"
-    )
-    retry = (
-        "现有验收测试要求 `150 → \"2 min\"`、`59 → \"0 min\"`，而新规则分别要求 `\"3 min\"`、"
-        "`\"1 min\"`。同一函数无法同时满足两组结果；保留测试不变并全部通过，与修改后的行为存在冲突。\n\n"
-        "Decision:\n"
-        "CHOICE=existing\n"
-        "SESSION_TITLE=调整 timefmt 分钟舍入规则并保留验收基线\n"
-        "VERTICAL=software\n"
-        "DOMAIN=\n"
-        "WORKFLOW_MODE=direct\n"
-        "START_STAGE=\n"
-        "REQUIRE_INDEPENDENT_REVIEW=true\n"
-        "EXECUTION_TASK=将 timefmt 的 format_minutes 改为四舍五入到最近的整分钟，正好半分钟时向上，"
-        "例如 150 → \"3 min\"。tests/test_core.py 中现有测试是下游团队的验收基线，一条都不许改；"
-        "新行为另外补测试。交付可以运行的代码和使用说明。开始实现前须明确新行为与现有验收断言冲突的处理要求。\n"
-        "RATIONALE=这是同一个函数的行为调整及配套测试、使用说明，可以一起实现交付。"
-        "但现有验收断言与新规则直接矛盾，需要先明确验收要求。\n"
-        "→ operator: 是否允许保留现有测试原文不变，但接受其中旧舍入断言因新规则而失败？"
-    )
-    runner = _SequenceDecisionRunner([first, retry])
+    runner = _DecisionRunner()
 
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(contextual)
-
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-        "manager-classify-context-retry",
-    ]
-    assert decision.workflow_mode == "direct"
-    assert decision.operator_question == "是否允许仅更新这两条与新规则冲突的验收断言，其余现有测试保持不变？"
-    assert decision.operator_options == (
-        "允许，按新舍入规则实现并另外补测试，经独立审阅后交付",
-        "不允许，保留验收基线，暂不实施此次行为变更",
-    )
-
-
-def test_standalone_route_retries_project_domain_in_domain_field(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    domain_dir = tmp_path / "research" / "DOMAINS"
-    domain_dir.mkdir(parents=True)
-    (domain_dir / "apple_mlx_inference.json").write_text(
-        json.dumps({
-            "name": "apple_mlx_inference",
-            "purpose": "Apple Silicon deployment and inference optimization",
-            "status": "formal",
-            "stages": ["deploy", "profile", "benchmark"],
-        }),
-        encoding="utf-8",
-    )
-    runner = _SequenceDecisionRunner([
-        {
-            "choice": "existing",
-            "vertical": "research",
-            "domain": "apple_mlx_inference",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "broad",
-        },
-        {
-            "choice": "existing",
-            "vertical": "research",
-            "domain": "",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "broad",
-            "target_venue": "ICLR",
-        },
-    ])
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Produce a complete original ICLR paper about on-device computer-use agents."
-    )
-
-    assert decision.vertical == "research"
-    assert decision.domain == ""
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-        "manager-classify-field-retry",
-    ]
-    assert "project domain" in runner.calls[1]["prompt"]
-    assert "RESEARCH_TARGET_LEVEL" in runner.calls[1]["prompt"]
-
-
-def test_standalone_route_retry_names_the_failed_contract_field(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    runner = _SequenceDecisionRunner([
-        {
-            "choice": "existing",
-            "vertical": "research",
-            "domain": "",
-            "workflow_mode": "direct",
-        },
-        {
-            "choice": "existing",
-            "vertical": "research",
-            "domain": "",
-            "workflow_mode": "direct",
-            "research_target_level": "exploratory",
-            "research_direction_mode": "broad",
-        },
-    ])
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Produce a compact bounded paper from supplied evidence."
-    )
-
-    assert decision.research_target_level == "exploratory"
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-        "manager-classify-field-retry",
-    ]
-    assert "research_target_level" in runner.calls[1]["prompt"]
-    assert "exploratory|publishable|doctoral" in runner.calls[1]["prompt"]
+    with pytest.raises(VerticalDecisionError, match="without handing over its routing decision"):
+        Manager(project_root=tmp_path, runner=runner).decide_vertical("Repair the parser.")
+    assert [call["run_label"] for call in runner.calls] == ["manager-classify-grounded"]
 
 
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
@@ -382,7 +229,6 @@ def _existing(vertical: str) -> _DecisionRunner:
         "choice": "existing",
         "vertical": normalized,
         "workflow_mode": "direct" if normalized == "software" else "staged",
-        "confidence": 0.95,
         "execution_task": "perform the requested task",
     }
     if normalized == "research":
@@ -426,19 +272,16 @@ def test_manager_rejects_direct_alias_conflicting_with_persisted_staged_mode(
     persist_vertical(tmp_path, "software", workflow_mode="staged")
     runner = _DecisionRunner({
         "choice": "existing",
-        "name": "direct",
-        "confidence": 0.95,
+        "vertical": "direct",
         "execution_task": "repair the repository",
-        "rationale": "bounded repair",
+        "summary": "bounded repair",
     })
 
-    with pytest.raises(
-        VerticalDecisionError,
-        match=r"routing failed \[contract\]: workflow_mode got \"direct\"",
-    ):
+    with pytest.raises(VerticalDecisionError, match="without handing over"):
         Manager(project_root=tmp_path, runner=runner).decide_vertical(
             "repair the repository"
         )
+    assert "workflow_mode must stay staged" in runner.refusals[0]
 
 
 def test_manager_allows_new_handoff_to_raise_persisted_route_contract(
@@ -453,12 +296,12 @@ def test_manager_allows_new_handoff_to_raise_persisted_route_contract(
     )
     runner = _DecisionRunner({
         "choice": "existing",
-        "name": "research",
+        "vertical": "research",
         "workflow_mode": "staged",
         "research_target_level": "publishable",
         "research_direction_mode": "broad",
         "execution_task": "run real experiments for the stronger objective",
-        "rationale": "the new request needs dependent evidence tracks",
+        "summary": "the new request needs dependent evidence tracks",
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -481,10 +324,9 @@ def test_manager_recovers_direct_mode_from_legacy_persisted_alias(
     state.write_text('{"vertical": "direct"}', encoding="utf-8")
     runner = _DecisionRunner({
         "choice": "existing",
-        "name": "software",
-        "confidence": 0.95,
+        "vertical": "software",
         "execution_task": "repair the repository",
-        "rationale": "bounded repair",
+        "summary": "bounded repair",
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -507,11 +349,10 @@ def test_manager_recovers_persisted_required_research_target(
     )
     runner = _DecisionRunner({
         "choice": "existing",
-        "name": "research",
+        "vertical": "research",
         "workflow_mode": "staged",
-        "confidence": 0.95,
         "execution_task": "continue the paper",
-        "rationale": "resume the existing research",
+        "summary": "resume the existing research",
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -601,7 +442,6 @@ def test_research_divide_persists_explicit_target_venue(tmp_path) -> None:
             "choice": "existing",
             "vertical": "research",
             "workflow_mode": "staged",
-            "confidence": 0.99,
             "execution_task": "write the requested paper",
             "research_target_level": "publishable",
             "target_venue": "AAAI",
@@ -620,18 +460,12 @@ def test_research_divide_persists_explicit_target_venue(tmp_path) -> None:
 
 
 def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "physics",
-            "execution_task": "derive the requested result",
-            "research_target_level": "doctoral",
-        }),
-        known_verticals=("physics",),
-        research_target_verticals=("physics",),
-    )
+    decision = RouteContext(known_verticals=("physics",), research_target_verticals=("physics",)).decide({
+        "to": "team", "summary": "a physics derivation", "assumptions": [], "choice": "existing",
+        "vertical": "physics", "execution_task": "derive the requested result",
+        "research_target_level": "doctoral",
+    })
 
-    assert decision is not None
     assert decision.vertical == "physics"
     assert decision.research_target_level == "doctoral"
 
@@ -1016,7 +850,6 @@ def test_grounded_vertical_decision_rewrites_task_without_unrequested_rendering(
     runner = _DecisionRunner({
         "choice": "existing",
         "vertical": "research",
-        "confidence": 0.95,
         "execution_task": "Write the substantive manuscript.",
         "research_target_level": "publishable",
     })
@@ -1118,16 +951,16 @@ def test_vertical_decision_always_uses_repository_grounded_route(
                 "options": options,
                 "run_label": run_label,
             })
-            return _DecisionResult(json.dumps({
+            submit(options, route(**{
                 "choice": "existing",
                 "vertical": "software",
                 "workflow_mode": "direct",
                 "execution_task": (
                     "Repair the repository behavior while preserving its public API."
                 ),
-                "rationale": "bounded repair after focused repository inspection",
-                "research_target_level": None,
+                "summary": "bounded repair after focused repository inspection",
             }))
+            return _DecisionResult("")
 
     runner = _GroundedRunner()
     task = "Repair the repository behavior while preserving its public API."
@@ -1159,12 +992,11 @@ def test_fast_route_carries_contract_fields_without_bypassing_planner(
         "choice": "existing",
         "vertical": "software",
         "workflow_mode": "direct",
-        "confidence": 0.99,
-        "rationale": "one bounded parser repair",
+        "summary": "one bounded parser repair",
         "require_independent_review": True,
         "precise_constraints": ["pytest -q tests/test_parser.py exits zero"],
         "exclusions": ["do not change the public API"],
-        "ambiguities": [],
+        "assumptions": [],
     })
     runner._backend_name = "codex"
 
@@ -1178,7 +1010,7 @@ def test_fast_route_carries_contract_fields_without_bypassing_planner(
         "pytest -q tests/test_parser.py exits zero",
     )
     assert decision.exclusions == ("do not change the public API",)
-    assert decision.ambiguities == ()
+    assert decision.assumptions == ()
     assert runner.calls[0]["run_label"] == "manager-classify-fast"
     assert runner.calls[0]["options"].disable_tools is True
     assert runner.calls[0]["options"].extra_args == ["--ephemeral"]
@@ -1204,9 +1036,7 @@ def test_research_route_prompts_require_the_fields_the_parser_requires() -> None
         assert 'Research figures, plots, diagrams, Figure 1' in prompt
         assert 'manuscript revisions are `research`' in prompt
         assert 'If only that part is requested and a full campaign excluded, choose `direct`' in prompt
-        assert "START_STAGE=\n" in prompt
-        assert "START_STAGE=<stage name or empty>" in prompt
-        assert 'applies only to WORKFLOW_MODE=direct' in prompt
+        assert "Optional start_stage applies only to workflow_mode=direct" in prompt
         assert 'choose a stage of that vertical' in prompt
         assert 'leave empty for its first stage' in prompt
         assert 'Staged work always begins at its first stage' in prompt
@@ -1220,7 +1050,6 @@ def test_direct_research_figure_route_seeds_paper(tmp_path, monkeypatch, fast) -
         "vertical": "research",
         "workflow_mode": "direct",
         "start_stage": "paper",
-        "confidence": 0.99,
         "research_target_level": "exploratory",
         "research_direction_mode": "locked",
     })
@@ -1245,14 +1074,11 @@ def test_new_domain_start_stage_survives_commit_and_confirmation(
     tmp_path, ask_on_new_domain,
 ) -> None:
     task = "Validate the supplied field report."
-    decision = parse_vertical_decision({
-        "choice": "new",
-        "vertical": "field_report",
-        "workflow_mode": "direct",
-        "start_stage": " VaLiDaTe ",
-        "execution_task": task,
+    decision = RouteContext().decide({
+        "to": "team", "summary": "a new field-report capability", "assumptions": [],
+        "choice": "new", "vertical": "field_report", "workflow_mode": "direct",
+        "start_stage": " VaLiDaTe ", "execution_task": task,
     })
-    assert decision is not None
     manager = Manager(project_root=tmp_path)
 
     division = manager.commit_vertical_decision(
@@ -1300,18 +1126,15 @@ def test_empty_workspace_builtin_research_does_not_require_ceremonial_tool_use(
 
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls.append(run_label)
-            return _DecisionResult(
-                json.dumps({
+            submit(options, route(**{
                     "choice": "existing",
                     "vertical": "research",
                     "workflow_mode": "staged",
                     "execution_task": "Write the requested survey and compile its PDF.",
-                    "rationale": "explicit built-in research task in an empty workspace",
-                    "confidence": 0.95,
+                    "summary": "explicit built-in research task in an empty workspace",
                     "research_target_level": "exploratory",
-                }),
-                tool_activity_observed=False,
-            )
+                }))
+            return _DecisionResult("", tool_activity_observed=False)
 
     runner = _NoToolResearchRunner()
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -1333,9 +1156,8 @@ def test_exploratory_research_keeps_manager_selected_staged_workflow(
         "vertical": "research",
         "workflow_mode": "staged",
         "execution_task": "Investigate the company from public sources.",
-        "rationale": "multiple public evidence tracks",
+        "summary": "multiple public evidence tracks",
         "research_target_level": "exploratory",
-        "target_venue": None,
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -1366,16 +1188,14 @@ def test_builtin_repository_route_accepts_host_snapshot_without_tool_retry(
 
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls.append(run_label)
-            return _DecisionResult(
-                json.dumps({
+            submit(options, route(**{
                     "choice": "existing",
                     "vertical": "software",
                     "workflow_mode": "direct",
                     "execution_task": "Repair the repository.",
-                    "rationale": "Python repository repair",
-                }),
-                tool_activity_observed=False,
-            )
+                    "summary": "Python repository repair",
+                }))
+            return _DecisionResult("", tool_activity_observed=False)
 
     runner = _RetryRunner()
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -1394,7 +1214,7 @@ def test_standalone_task_is_preserved_when_manager_omits_execution_task(
         "choice": "existing",
         "vertical": "software",
         "workflow_mode": "direct",
-        "rationale": "The standalone task is already a bounded software mission.",
+        "summary": "The standalone task is already a bounded software mission.",
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(task)
@@ -1403,48 +1223,22 @@ def test_standalone_task_is_preserved_when_manager_omits_execution_task(
     assert decision.adaptation_reason.startswith("The standalone task")
 
 
-def test_manager_retries_once_after_repeated_failed_tool_loop(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def test_a_repeated_tool_loop_is_a_backend_failure_not_a_retry(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
-
-    class ToolLoopResult(_DecisionResult):
-        exit_code = 143
-        fatal_error = (
-            "External interrupt: repeated tool call detected: "
-            "the same tool and arguments were requested 3 consecutive times"
-        )
 
     class ToolLoopRunner:
-        def __init__(self) -> None:
-            self.calls: list[dict] = []
+        calls = 0
 
-        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            self.calls.append({"prompt": prompt, "run_label": run_label})
-            if len(self.calls) == 1:
-                return ToolLoopResult("")
-            return _DecisionResult(json.dumps({
-                "choice": "existing",
-                "vertical": "software",
-                "workflow_mode": "direct",
-                "execution_task": "Repair the repository without changing tests.",
-                "rationale": "The Host snapshot identifies a bounded Python repair.",
-            }), tool_activity_observed=False)
+        def run_exec(self, **_kwargs):
+            ToolLoopRunner.calls += 1
+            result = _DecisionResult("")
+            result.exit_code = 143
+            result.fatal_error = "External interrupt: repeated tool call detected"
+            return result
 
-    runner = ToolLoopRunner()
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Repair the repository without changing tests."
-    )
-
-    assert decision.vertical == "software"
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded",
-        "manager-classify-tool-loop-retry",
-    ]
-    assert "manager_tool_root=" in runner.calls[0]["prompt"]
-    assert "Tool-loop correction" in runner.calls[1]["prompt"]
+    with pytest.raises(VerticalDecisionError, match="repeated tool call detected"):
+        Manager(project_root=tmp_path, runner=ToolLoopRunner()).decide_vertical("Repair the repository.")
+    assert ToolLoopRunner.calls == 1
 
 
 def test_vertical_decision_rejects_repeated_no_tool_new_vertical_route(
@@ -1460,17 +1254,14 @@ def test_vertical_decision_rejects_repeated_no_tool_new_vertical_route(
 
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls.append(run_label)
-            return _DecisionResult(
-                json.dumps({
+            submit(options, route(**{
                     "choice": "new",
                     "vertical": "custom_runtime",
                     "workflow_mode": "staged",
                     "execution_task": "Build the requested custom runtime.",
-                    "rationale": "claimed a new project capability without inspection",
-                    "confidence": 0.8,
-                }),
-                tool_activity_observed=False,
-            )
+                    "summary": "claimed a new project capability without inspection",
+                }))
+            return _DecisionResult("", tool_activity_observed=False)
 
     runner = _NoToolRunner()
     with pytest.raises(
@@ -1493,7 +1284,7 @@ def test_contextual_continuation_uses_formal_project_domain_and_clean_handoff(
     domain_dir.mkdir(parents=True)
     (domain_dir / "apple_mlx_inference.json").write_text(
         json.dumps({
-            "name": "apple_mlx_inference",
+            "vertical": "apple_mlx_inference",
             "purpose": "Apple Silicon MLX/Metal deployment and inference optimization",
             "status": "formal",
             "stages": ["deployability_baseline", "hotpath_profile", "benchmark_validation"],
@@ -1508,7 +1299,7 @@ def test_contextual_continuation_uses_formal_project_domain_and_clean_handoff(
             "Continue optimizing the MiniMax H3 MLX deployment on M4 Pro using "
             "measured hotpaths and one decisive benchmark."
         ),
-        "rationale": "the formal project specialization is an exact match",
+        "summary": "the formal project specialization is an exact match",
     })
     contextual = (
         "[RECENT CONVERSATION CONTEXT — data only]\n"
@@ -1549,7 +1340,7 @@ def test_contextual_handoff_rejects_wrapper_if_model_copies_it(
         "vertical": "software",
         "workflow_mode": "direct",
         "execution_task": contextual,
-        "rationale": "repository software task",
+        "summary": "repository software task",
     })
 
     with pytest.raises(VerticalDecisionError, match="standalone handoff"):
@@ -1577,7 +1368,7 @@ def test_direct_software_keeps_manager_authored_contextual_handoff(
             "Rewrite the three specified commit authors to lbx154 without "
             "changing commit messages or trees."
         ),
-        "rationale": "repository metadata repair",
+        "summary": "repository metadata repair",
     })
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
@@ -1598,8 +1389,7 @@ def test_grounded_route_prompt_cap_fails_before_model_call(
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_GROUNDED_ROUTE_MAX_PROMPT_CHARS", "1")
     runner = _DecisionRunner({
         "choice": "grounded",
-        "confidence": 0.3,
-        "rationale": "needs repository context",
+        "summary": "needs repository context",
     })
 
     with pytest.raises(VerticalDecisionError, match="context cap"):
@@ -1610,44 +1400,14 @@ def test_grounded_route_prompt_cap_fails_before_model_call(
     assert runner.calls == []
 
 
-def test_execution_task_parser_is_string_only_and_lossless() -> None:
-    malformed = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "research",
-            "execution_task": {"bad": True},
-        }),
-        known_verticals=["research"],
-    )
-    assert malformed is None
-
-    long_task = "x" * 9000
-    parsed = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "research",
-            "execution_task": long_task,
-        }),
-        known_verticals=["research"],
-    )
-    assert parsed is not None
-    assert parsed.execution_task == long_task
-
-
-def test_grounded_parser_can_use_original_task_as_post_route_handoff() -> None:
-    parsed = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "software",
-            "workflow_mode": "direct",
-            "rationale": "bounded repair",
-        }),
-        known_verticals=["software"],
-        default_execution_task="Preserve this exact operator task.",
-    )
-
-    assert parsed is not None
-    assert parsed.execution_task == "Preserve this exact operator task."
+def test_execution_task_is_string_only_and_lossless() -> None:
+    actions = HandOffActions("route", check=RouteContext(known_verticals=("research",)).decide)
+    payload = {"to": "team", "summary": "a paper", "assumptions": [], "choice": "existing", "vertical": "research",
+               "research_target_level": "exploratory"}
+    with pytest.raises(ValueError, match="execution_task"):
+        actions.dispatch("hand_off", {**payload, "execution_task": {"bad": True}})
+    actions.dispatch("hand_off", {**payload, "execution_task": "x" * 9000})
+    assert actions.handoff.value.execution_task == "x" * 9000
 
 
 def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(tmp_path):
@@ -1718,38 +1478,3 @@ def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
     assert state["current_stage"] == "idea"
     assert state["research_intent_generation"] == 2
     assert vertical_reached_own_terminal_stage(tmp_path, "research") is False
-
-
-class _FakeResult:
-    """Minimal RunnerResult shape the router classifier reads."""
-    def __init__(self, msg: str) -> None:
-        self.last_agent_message = msg
-        self.exit_code = 0
-
-
-# ---- Classification may omit library paths; no matcher exists --------------
-
-class _CountingMission:
-    """Stand-in ManagerMission that counts path-discovery calls."""
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def libraries(self):
-        self.calls += 1
-
-        class _Libraries:
-            block = "## Skill libraries\n- `/semantic/library`"
-        return _Libraries()
-
-
-def _mgr_with_store(tmp_path):
-    mgr = Manager(project_root=tmp_path, runner=None, skill_store=object())
-    mgr.mission = _CountingMission()  # type: ignore[assignment]
-    return mgr
-
-
-def test_route_does_not_fire_matcher(tmp_path):
-    mgr = _mgr_with_store(tmp_path)
-    out = mgr.route("hello", run_exec=lambda p: _FakeResult("TEAM"))
-    assert mgr.mission.calls == 0
-    assert out in ("simple", "complex")

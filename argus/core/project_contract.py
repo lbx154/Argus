@@ -15,7 +15,8 @@ An unpublished-data boundary can require judgment without becoming freely mutabl
 New unannotated requirements default to operator ownership. Legacy files preserve
 their historical defaults only during loading (precise: operator, semantic:
 manager), without rewriting files or clause ids. Explicit authority always wins.
-The objective and exclusions also belong to the operator; ambiguities are questions.
+The objective and exclusions also belong to the operator; assumptions are the
+readings of their words the Manager chose without asking.
 
 Deliberate non-goal: this module does not decide whether a project is finished.
 Completion lives in :mod:`argus.core.project_api`, and existing projects
@@ -81,7 +82,7 @@ class GoalContract:
     objective: str
     clauses: tuple[Clause, ...] = ()
     exclusions: tuple[str, ...] = ()
-    ambiguities: tuple[str, ...] = ()
+    assumptions: tuple[str, ...] = ()
     revision: int = 1
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -103,7 +104,7 @@ class GoalContract:
             "objective": self.objective,
             "clauses": [c.to_dict() for c in self.clauses],
             "exclusions": list(self.exclusions),
-            "ambiguities": list(self.ambiguities),
+            "assumptions": list(self.assumptions),
             "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -188,7 +189,7 @@ def new_contract(
     objective: str,
     clauses: Iterable[Clause] = (),
     exclusions: Iterable[str] = (),
-    ambiguities: Iterable[str] = (),
+    assumptions: Iterable[str] = (),
     now: float | None = None,
 ) -> GoalContract:
     stamp = float(now if now is not None else time.time())
@@ -199,7 +200,7 @@ def new_contract(
         objective=cleaned_objective,
         clauses=_dedup(clauses),
         exclusions=tuple(dict.fromkeys(str(v).strip() for v in exclusions if str(v).strip())),
-        ambiguities=tuple(dict.fromkeys(str(v).strip() for v in ambiguities if str(v).strip())),
+        assumptions=tuple(dict.fromkeys(str(v).strip() for v in assumptions if str(v).strip())),
         revision=1,
         created_at=stamp,
         updated_at=stamp,
@@ -275,7 +276,7 @@ def revise_contract(
     objective: str | None = None,
     clauses: Iterable[Clause] | None = None,
     exclusions: Iterable[str] | None = None,
-    ambiguities: Iterable[str] | None = None,
+    assumptions: Iterable[str] | None = None,
     by: str,
     confirmation: ContractConfirmation | None = None,
     note: str = "",
@@ -283,7 +284,7 @@ def revise_contract(
 ) -> tuple[GoalContract, ContractRevision]:
     """Apply a proposed change, or raise :class:`ContractError` saying why not.
 
-    Explicitly manager-owned clauses and ambiguities may change autonomously.
+    Explicitly manager-owned clauses and assumptions may change autonomously.
     Operator-owned clauses, exclusions and the objective require confirmation,
     independently of how a clause is checked. Changing ownership also requires
     confirmation when it adds or removes an operator-owned requirement.
@@ -328,10 +329,10 @@ def revise_contract(
         objective=new_objective,
         clauses=proposed,
         exclusions=proposed_exclusions,
-        ambiguities=(
-            current.ambiguities
-            if ambiguities is None
-            else tuple(dict.fromkeys(str(v).strip() for v in ambiguities if str(v).strip()))
+        assumptions=(
+            current.assumptions
+            if assumptions is None
+            else tuple(dict.fromkeys(str(v).strip() for v in assumptions if str(v).strip()))
         ),
         revision=revision.revision,
         created_at=current.created_at,
@@ -410,7 +411,7 @@ def load_contract(state_dir: Path | str) -> GoalContract | None:
                 if isinstance(row, dict) and str(row.get("kind") or "") in _CLAUSE_KINDS
             ),
             exclusions=tuple(str(v) for v in contract.get("exclusions") or []),
-            ambiguities=tuple(str(v) for v in contract.get("ambiguities") or []),
+            assumptions=tuple(str(v) for v in contract.get("assumptions") or []),
             revision=int(contract.get("revision") or 1),
             created_at=float(contract.get("created_at") or 0.0),
             updated_at=float(contract.get("updated_at") or 0.0),
@@ -517,13 +518,13 @@ def contract_briefing(
         lines.append("")
         lines.append("Explicitly does not count as success:")
         lines.extend(f"- {text}" for text in contract.exclusions)
-    if contract.ambiguities:
+    if contract.assumptions:
         lines.append("")
         lines.append(
-            "Open questions the operator has not answered. Do not invent an "
-            "answer and proceed as if it were agreed:"
+            "Readings of the operator's words the Manager chose without asking; "
+            "the operator is told each one with the result:"
         )
-        lines.extend(f"- {text}" for text in contract.ambiguities)
+        lines.extend(f"- {text}" for text in contract.assumptions)
     if not lines:
         return ""
     return "## Goal contract (revision %d)\n%s" % (

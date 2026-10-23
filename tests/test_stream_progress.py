@@ -846,7 +846,7 @@ def test_codex_command_keeps_failure_and_summary_lines_not_its_banner() -> None:
 
 def test_manager_stream_is_operator_visible() -> None:
     """The Manager drives the operator's own turn — its work must be narrated."""
-    for label in ("simple-1", "chat-1", "manager-frontdoor-classify", "router-classify"):
+    for label in ("simple-1", "chat-1", "manager-frontdoor-classify"):
         sink = _RecordingSink()
         cb = make_stream_progress_callback(sink)
         cb(f"{label}.stdout", _tool_start_line("view", {"path": "/repo/a.py"}))

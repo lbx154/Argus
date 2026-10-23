@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def test_done_is_the_reviewers_completion_judgment() -> None:
@@ -52,11 +53,10 @@ class _ReviewerRunner:
         self.tool_activity = tool_activity
 
     def run_exec(self, **_kwargs) -> RunnerResult:
+        from argus.core.role_actions import PREFIX
         from argus.core.role_tool_bridge import bridge_request
 
-        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
-            "review": "The requested outcome is complete.\n→ done",
-        }, env=_kwargs["options"].extension_env)
+        bridge_request(PREFIX, *hand_off("done", "The requested outcome is complete."), env=_kwargs["options"].extension_env)
         return RunnerResult(
             exit_code=0,
             tool_activity_observed=self.tool_activity,
@@ -91,7 +91,7 @@ def test_empty_reviewer_output_does_not_create_engineer_work(tmp_path) -> None:
     assert decision.status == "blocked"
     assert decision.backend_unavailable is True
     assert "not interpreted as acceptance or rejection" in decision.reason
-    assert "review action" in decision.reason
+    assert "without handing the work on" in decision.reason
 
 
 def test_done_remains_reviewer_judgment_after_real_tool_activity(tmp_path) -> None:

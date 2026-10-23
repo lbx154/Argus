@@ -126,11 +126,10 @@ describe('the web feed line', () => {
       kind: 'agent_message',
       text: (
         'I need the operator to choose the report format.\n'
-        + 'ARGUS_ROLE_DECISION={"role":"planner","payload":{}}\n'
         + 'Decision:\n'
         + '→ operator: Which format?'
       ),
-      agent_layer: 'engineer',
+      agent_layer: 'planner',
     });
     expect(rendered?.text).toBe('I need the operator to choose the report format.');
   });

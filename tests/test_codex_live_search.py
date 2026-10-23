@@ -33,6 +33,7 @@ from argus.engineer.runner import (
 )
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
+from tests.hand_off import hand_off
 
 pytestmark = pytest.mark.usefixtures("optimize_vertical")
 
@@ -203,7 +204,7 @@ def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> 
 
 
 def _done_review() -> CannedResponse:
-    return CannedResponse(review_action=("submit_review", {'review': (('Verified.') + '\n\n' + ('None.')) + "\n→ done"}))
+    return CannedResponse(action=hand_off("done", "Verified."))
 
 
 def _build_loop(

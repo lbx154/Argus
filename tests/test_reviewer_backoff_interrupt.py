@@ -17,6 +17,7 @@ from argus.core.run_gateway import run_interrupt_scope
 from argus.engineer import round_execution, round_reviewer
 from argus.engineer.runner import EngineerConfig, SupervisedEngineer
 from argus.reviewer import ReviewerConfig
+from tests.hand_off import hand_off
 
 REVIEW_FAILURE = "Process exited with code 1 before turn completion."
 ENGINEER_OUTPUT = "The requested local result is ready for independent review."
@@ -53,11 +54,10 @@ class Backend:
             return RunnerResult(exit_code=0, agent_messages=[ENGINEER_OUTPUT])
         if self.calls == 1:
             return RunnerResult(exit_code=1, fatal_error=REVIEW_FAILURE)
+        from argus.core.role_actions import PREFIX
         from argus.core.role_tool_bridge import bridge_request
 
-        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
-            "review": "The local result was independently checked.\n→ done",
-        }, env=_kwargs["options"].extension_env)
+        bridge_request(PREFIX, *hand_off("done", "The local result was independently checked."), env=_kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 
 

@@ -5,6 +5,7 @@ import pytest
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.roles.prompts.engineer import build_mission_prompt
+from tests.hand_off import hand_off
 
 _GROUNDING = (
     "\n\n## Manager project grounding (advisory evidence)\n"
@@ -115,9 +116,9 @@ def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path
     feedback = "Keep the requested search.py file on disk after verification."
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="first result"))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': (('search.py is missing') + '\n\n' + (feedback)) + "\n→ engineer"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("engineer", "search.py is missing", feedback)))
     backend.queue("engineer-r2", CannedResponse(message="corrected result"))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'requested files present\n→ done'})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", 'requested files present')))
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,

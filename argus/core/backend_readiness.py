@@ -19,6 +19,7 @@ from ..agent_cli.runner_backend import (
 )
 from .knob_store import read_persisted_knobs, write_persisted_knobs
 from .knobs import resolve_runner_bin_setting
+from .role_actions import ACTION_BACKENDS
 
 AUTH_MODE_KNOB = "ARGUS_SKILL_BACKEND_AUTH_MODE"
 AUTH_MODE_SUBSCRIPTION = "subscription_cli"
@@ -42,14 +43,9 @@ _VERSION_RE = re.compile(
 _AUTH_COMMANDS: dict[str, tuple[str, ...]] = {
     "codex": ("login", "status"),
     "claude": ("auth", "status"),
-    "cursor": ("status",),
-    "opencode": ("auth", "list"),
     # qodercli exits non-zero from --list-models when unauthenticated, so it
     # doubles as a read-only auth probe.
     "qoder": ("--list-models",),
-    # dsh exposes no read-only auth-status command that does not cost a model
-    # call; the probe below short-circuits on DEEPSEEK_API_KEY instead.
-    "dsh": (),
 }
 _INSTALL_COMMANDS = {
     "codex": "npm install -g @openai/codex@latest",
@@ -66,12 +62,8 @@ _LOGIN_COMMANDS = {
     "codex": "codex login",
     "copilot": "copilot login",
     "claude": "claude auth login",
-    "cursor": "agent login",
-    "opencode": "opencode auth login",
     "pi": "pi, then /login",
-    "grok": "grok login",
     "qoder": "qodercli login",
-    "dsh": "export DEEPSEEK_API_KEY=<key> in the launching environment (or set it on the dsh web Models page)",
 }
 
 
@@ -646,71 +638,18 @@ def _probe_cli_auth(
     env_map = env if env is not None else os.environ
     if backend == "copilot":
         return _probe_copilot_auth(executable, timeout_s)
-    if backend == "cursor" and str(env_map.get("CURSOR_API_KEY") or "").strip():
-        return True, ""
     if backend == "pi":
         _catalog, detail = _probe_pi_catalog(executable, timeout_s)
         return (bool(_catalog), detail)
-    if backend == "grok":
-        if str(env_map.get("XAI_API_KEY") or "").strip():
-            return True, ""
-        grok_home = Path(
-            str(env_map.get("GROK_HOME") or Path.home() / ".grok")
-        ).expanduser()
-        auth_file = grok_home / "auth.json"
-        try:
-            if auth_file.is_file() and auth_file.stat().st_size > 2:
-                return True, ""
-        except OSError as exc:
-            return False, f"{type(exc).__name__}: {exc}"
-        return False, (
-            "no XAI_API_KEY or cached Grok login was found; "
-            "Grok Build does not expose a read-only auth-status command"
-        )
     if backend == "qoder":
         # A PAT is the headless path; otherwise fall through to the generic
         # `qodercli --list-models` probe below, which reports login state.
         if str(env_map.get("QODER_PERSONAL_ACCESS_TOKEN") or "").strip():
             return True, ""
-    if backend == "dsh":
-        # dsh has no read-only auth probe: the headless profile rejects an
-        # unauthenticated boot with MISSING_CREDENTIAL. Treat an exported
-        # key as ready and otherwise report the remediation directly. dsh's
-        # layered env loader (process > cwd .env > $DSH_HOME/.env) also
-        # admits DEEPSEEK_API_KEY from $DSH_HOME/.env, so scan that file too
-        # rather than misreporting a working deployment as unauthenticated.
-        if str(env_map.get("DEEPSEEK_API_KEY") or "").strip():
-            return True, ""
-        dsh_home = Path(
-            str(env_map.get("DSH_HOME") or Path.home() / ".dsh")
-        ).expanduser()
-        env_file = dsh_home / ".env"
-        try:
-            if env_file.is_file():
-                for line in env_file.read_text(encoding="utf-8").splitlines():
-                    name, sep, raw = line.strip().partition("=")
-                    if sep and name.strip() == "DEEPSEEK_API_KEY" and raw.strip():
-                        return True, ""
-        except OSError:
-            pass
-        return False, (
-            "no DEEPSEEK_API_KEY was found in the environment or "
-            f"{env_file}; export it or set it through the dsh credentials "
-            "service (the web Models page)"
-        )
-    suffix = _AUTH_COMMANDS.get(backend)
-    if suffix is None:
-        return False, f"no read-only authentication probe is defined for {backend}"
     try:
-        result = _run_text((executable, *suffix), timeout_s=timeout_s)
+        result = _run_text((executable, *_AUTH_COMMANDS[backend]), timeout_s=timeout_s)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"{type(exc).__name__}: {exc}"
-    combined = "\n".join(filter(None, (result.stdout, result.stderr))).strip()
-    if backend == "cursor" and any(
-        marker in combined.casefold()
-        for marker in ("not logged in", "not authenticated", "authentication required")
-    ):
-        return False, combined[:300]
     if result.returncode == 0:
         return True, ""
     detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
@@ -806,6 +745,15 @@ def check_backend_readiness(
                 "backend",
                 f"unsupported backend {profile.backend!r}",
                 "choose one of: " + ", ".join(SUPPORTED_BACKENDS),
+            )
+        )
+        return report
+    if profile.backend not in ACTION_BACKENDS:
+        report.problems.append(
+            ReadinessProblem(
+                "backend",
+                f"{profile.backend} cannot submit Argus actions, which every role ends its turn with",
+                "choose one of: " + ", ".join(sorted(ACTION_BACKENDS)),
             )
         )
         return report
@@ -1125,10 +1073,7 @@ def format_backend_readiness(report: BackendReadiness) -> str:
     for warning in report.warnings:
         lines.append(f"  warning: {warning}")
     if report.ok:
-        if report.auth_checked and report.profile.backend == "opencode":
-            auth = "credentials listed; live token not checked"
-        else:
-            auth = "checked" if report.auth_checked else "configuration validated"
+        auth = "checked" if report.auth_checked else "configuration validated"
         lines.append(f"  ready: yes ({auth})")
     else:
         lines.append("  ready: no")

@@ -1,6 +1,6 @@
-"""When the Manager is asked to supervise, and how its reply is read.
+"""When the Manager is asked to supervise, and what its handoff decides.
 
-Only what is put to it: an Engineer's ``→ manager``, a check whose risk the
+Only what is put to it: an Engineer handing the work to the Manager, a check whose risk the
 Manager accepts in the operator's place, a workspace the Reviewer changed while
 judging, a stalled Engineer turn, an Observer remark, a runtime incident. Nothing counts rounds or watches the Reviewer's
 mood; a blocked verdict goes to the stage decision, a question to the
@@ -8,20 +8,22 @@ operator, and any other boundary only delivers a decision already issued.
 """
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
+from argus.core.role_actions import PREFIX
+from argus.core.role_tool_bridge import bridge_request
 from argus.daemon.state import write_continuous_config
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager, supervision
 
 
 class _Backend:
-    def __init__(self, text: str = "") -> None:
-        self.text = text
+    """A Manager that hands off ``payload``, or ends its turn without a handoff."""
+
+    def __init__(self, payload: dict | None = None) -> None:
+        self.payload = payload
         self.prompts: list[str] = []
 
     def fork(self):
@@ -29,7 +31,13 @@ class _Backend:
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.prompts.append(prompt)
-        return RunnerResult(exit_code=0, call_id="offline", agent_messages=[self.text])
+        if self.payload:
+            bridge_request(PREFIX, "hand_off", self.payload, env=options.extension_env)
+        return RunnerResult(exit_code=0, call_id="offline", agent_messages=["Judged."])
+
+
+def judged(summary: str, *, to: str = "team", note: str = "") -> dict:
+    return {"to": to, "summary": summary, "note": note, "evidence_refs": ["backlog.jsonl"], "assumptions": []}
 
 
 @pytest.fixture()
@@ -121,7 +129,7 @@ _TURN_STALL = {
 def test_a_stalled_turn_reaches_the_manager_with_its_choices(admitted):
     event = admitted(_TURN_STALL)
     assert event["consult_reason"].startswith("the Engineer's turn has made no progress for 30 min")
-    assert "CONTINUE keeps waiting on that turn, STEER stops it" in event["consult_reason"]
+    assert "to=team without a note keeps waiting on that turn" in event["consult_reason"]
 
 
 _REMARK = {
@@ -156,7 +164,7 @@ def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_
     """The report is the news: an applied look at the same files does not answer it."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    backend = _Backend(json.dumps({"action": "continue", "reason": "The run is still plausible.", "evidence_refs": ["backlog.jsonl"]}))
+    backend = _Backend(judged("The run is still plausible."))
     manager = Manager(tmp_path, runner=backend)
     first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
     assert first["status"] == "applied" and len(backend.prompts) == 1
@@ -170,12 +178,13 @@ def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
     """The next trigger on the same evidence asks again after a failed or superseded check."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    manager = Manager(tmp_path, runner=_Backend("I am not sure."))
+    manager = Manager(tmp_path, runner=_Backend())
     event = {**_review(2), "consult_reason": "the Engineer handed the work to you"}
-    assert supervision.supervise(manager, tmp_path, event)["status"] == "failed"
-    good = json.dumps({"action": "steer", "reason": "The same failure repeats; change approach.",
-                       "directive": "Write a reproducible check first.", "evidence_refs": ["backlog.jsonl"]})
-    manager.runner.text = good
+    failed = supervision.supervise(manager, tmp_path, event)
+    assert (failed["status"], failed["error_code"]) == ("failed", "handoff_missing")
+    manager.runner.payload = judged(
+        "The same failure repeats; change approach.", note="Write a reproducible check first.",
+    )
     assert supervision.supervise(manager, tmp_path, event)["status"] == "applied"
     assert len(manager.runner.prompts) == 2
 
@@ -183,104 +192,33 @@ def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
 def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    backend = _Backend(json.dumps({"action": "continue", "reason": "The repair is under way.", "evidence_refs": ["backlog.jsonl"]}))
+    backend = _Backend(judged("The repair is under way."))
     event = {**_review(2, forward_progress=False), "consult_reason": "the Engineer handed the work to you"}
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied"
+    assert record["status"] == "applied" and record["decision"]["action"] == "continue"
     assert "consulted now because of: the Engineer handed the work to you" in backend.prompts[0]
-    assert "ACTION: continue, steer, wait or stop" in backend.prompts[0]
     assert record["trigger"]["round_index"] == 2
     assert record["trigger"]["consult_reason"] == "the Engineer handed the work to you"
 
 
-@pytest.mark.parametrize(("event", "planned"), [
-    ({**_review(2, status="blocked", review_source="engineer_handoff"),
-      "consult_reason": "the Engineer handed the work to you"}, True),
-    ({**_REMARK, "stall_reason": "observer", "consult_reason": "the Observer says the Planner spins"}, False),
-])
-def test_only_a_steer_not_prompted_by_the_observer_reaches_the_planner(tmp_path, event, planned):
-    """2026-10-20: Observer remark, Manager steer, Planner turn, remark again, four
-    times over, each remark worded anew. A remark never moves the baton."""
+def test_new_planning_goes_to_the_planner(tmp_path):
     from argus.manager.directive import load_active_manager_directive
 
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    backend = _Backend("ACTION: steer\nREASON: Plan the grouping repair apart.\n"
-                       "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Split the repair into two tasks.\n→ planner")
+    backend = _Backend(judged(
+        "Plan the grouping repair apart.", to="planner", note="Split the repair into two tasks.",
+    ))
+    event = {**_review(2, status="blocked", review_source="engineer_handoff"),
+             "consult_reason": "the Engineer handed the work to you"}
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
 
-    assert record["status"] == "applied" and record["decision"]["handoff"] == "planner"
-    directive = load_active_manager_directive(tmp_path)
-    assert bool(directive.planner_revision) is planned
+    assert record["status"] == "applied" and record["decision"]["action"] == "steer"
+    assert load_active_manager_directive(tmp_path).planner_revision
 
 
 def test_engineer_phase_starts_no_longer_trigger_a_check(admitted):
     assert admitted({"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 3}) is None
-
-
-# --------------------------------------------------------------------------- reading replies
-
-REFS = "handoffs/a/round-0001.json; handoffs/a/frontier.json"
-
-
-@pytest.mark.parametrize(("text", "action"), [
-    # Every field on one line, the verdict under DECISION and prose under ACTION.
-    (f"DECISION: STEER — ACTION: Obtain reproducible test evidence. REASON: The pass claim is unverified. "
-     f"EVIDENCE_REFS: {REFS}\nDIRECTIVE: Run the regression tests and report the command.", "steer"),
-    (f"DECISION: CONTINUE — ACTION: Accept the completed task. REASON: Review passed. EVIDENCE_REFS: {REFS}", "continue"),
-    # The verb leads the ACTION value and prose follows it.
-    (f"ACTION: STEER — run the fixture through the real CLI.\nREASON: The header is unproven.\n"
-     f"EVIDENCE_REFS: {REFS}\nDIRECTIVE: Run the fixture.", "steer"),
-    # Each key alone on its line with the value below it.
-    (f"ACTION\nCONTINUE\n\nREASON\nThe reviewer certified the checklist.\n\nEVIDENCE_REFS\n{REFS}", "continue"),
-])
-def test_replies_in_the_shapes_models_actually_wrote_are_read(text, action):
-    decision = supervision._decision(text)
-    assert decision["action"] == action
-    assert decision["reason"]
-    assert decision["cited_refs"] == ["handoffs/a/round-0001.json", "handoffs/a/frontier.json"]
-    if action == "steer":
-        assert decision["directive"]
-
-
-def test_a_steer_names_the_planner_only_when_it_needs_new_planning():
-    steer = "ACTION: steer\nREASON: char_count runs on its own.\nEVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Keep A/B parked."
-    assert supervision._decision(steer)["handoff"] == ""
-    assert supervision._decision(steer + "\n→ planner")["handoff"] == "planner"
-
-
-R = "EVIDENCE_REFS: backlog.jsonl"
-
-
-@pytest.mark.parametrize("text", [
-    "ACTION: continue-to-elsewhere\nREASON: odd\nEVIDENCE_REFS: backlog.jsonl",
-    "The action: continue was considered. Reason: unclear.",
-    "DECISION: maybe — REASON: unsure. EVIDENCE_REFS: backlog.jsonl",
-    # A verb followed by a negation, a hedge or a question is not a decision.
-    f"ACTION: Steer is not needed; continue the current course.\nREASON: progress is real.\n{R}\nDIRECTIVE: none",
-    f"ACTION: STEER not warranted; CONTINUE\nREASON: fine\n{R}",
-    f"DECISION: I would not STEER here. REASON: progress ok. {R}",
-    f"ACTION: wait and see whether the reviewer accepts\nREASON: the engineer fixed it\n{R}",
-    f"ACTION: Continue, but STEER if round 4 repeats\nREASON: ok\n{R}\nDIRECTIVE: Repeat the fixture.",
-    f"Option A — DECISION: STEER, DIRECTIVE: rerun tests. On reflection that is unnecessary. REASON: verified. {R}",
-    f"DECISION: Steer? No — continuing is justified. REASON: verified. {R}",
-    f"DECISION: STEER — not needed. REASON: verified. {R}",
-    # A DECISION verb and a different verb opening ACTION conflict.
-    f"DECISION: CONTINUE — ACTION: STEER the engineer to rerun. REASON: x. {R} DIRECTIVE: rerun.",
-    f"DECISION: STEER — ACTION: Continue independent review; REASON: unread. {R} — DIRECTIVE: Render it.",
-    f"My Decision: steer. Reason: unclear. {R}",
-    f"ACTION: STEER — do not change course yet.\nREASON: ok\n{R}\nDIRECTIVE: x",
-    f"ACTION: STEER — don't, the fix landed.\nREASON: ok\n{R}\nDIRECTIVE: x",
-    f"ACTION: STEER — unneeded.\nREASON: ok\n{R}\nDIRECTIVE: x",
-    f"ACTION: STEER — only if round 4 repeats.\nREASON: ok\n{R}\nDIRECTIVE: x",
-    f"ACTION: WAIT — hold off until the reviewer runs.\nREASON: ok\n{R}",
-    f"ACTION: STEER — optional.\nREASON: ok\n{R}\nDIRECTIVE: x",
-    # An exact ACTION that a DECISION contradicts.
-    f"DECISION: STEER\nACTION: continue\nREASON: ok\n{R}",
-])
-def test_rescue_reading_never_invents_a_decision(text):
-    with pytest.raises(supervision.SupervisionDecisionError):
-        supervision._decision(text)
 
 
 @pytest.mark.parametrize("status", ["done", "continue", "blocked"])
@@ -289,3 +227,55 @@ def test_a_workspace_changed_during_review_reaches_the_manager_whatever_the_verd
     assert "src/model.py" in event["consult_reason"]
     assert "decide whether this review counts" in event["consult_reason"]
     assert admitted(_review(1, status=status)) is None
+
+
+# --------------------------------------------------------------------------- the supervise form
+
+def _form(root, event=None):
+    from functools import partial
+
+    from argus.core.handoff import HandOffActions
+    from argus.manager.observation import observe_project
+
+    write_continuous_config(root, enabled=True, objective="Produce a validated grouped summary")
+    Backlog(root / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
+    return HandOffActions("supervise", check=partial(
+        supervision._check, root=root, event=event or {}, observation=observe_project(root),
+    ))
+
+
+@pytest.mark.parametrize(("change", "event", "refusal"), [
+    ({"evidence_refs": ["other-project/private.json"]}, None, "1 of 1 are not paths"),
+    ({"to": "planner"}, None, "needs your instruction for the Planner"),
+    ({"to": "planner", "note": "Retire the task."}, _REMARK, "An Observer's remark never moves the work"),
+    ({"consultation": {"id": "advice-1", "disposition": "adopt"}}, None, "no completed advisor consultation"),
+    ({"risk": {"accept": {"check": "live token", "risk": "untested"}, "revoke": "risk-0123456789"}}, None,
+     "either accept or revoke"),
+    ({"risk": {"accept": {"check": "live token", "risk": "untested"}}}, None, "theirs to decide"),
+])
+def test_a_decision_the_evidence_does_not_support_is_refused_in_the_turn(tmp_path, change, event, refusal):
+    with pytest.raises(ValueError, match=refusal):
+        _form(tmp_path, event).dispatch("hand_off", {**judged("Decided."), **change})
+
+
+@pytest.mark.parametrize(("change", "decided"), [
+    ({}, {"action": "continue", "directive": "", "handoff": "team", "risk_decision": {}}),
+    ({"note": "Rerun the fixture."}, {"action": "steer", "directive": "Rerun the fixture.", "handoff": "team"}),
+    ({"to": "stop"}, {"action": "stop", "handoff": "stop"}),
+    ({"risk": {"revoke": "risk-0123456789"}}, {"risk_decision": {"action": "revoke", "risk_id": "risk-0123456789"}}),
+])
+def test_the_handoff_becomes_the_decision_the_receipt_applies(tmp_path, change, decided):
+    actions = _form(tmp_path)
+    actions.dispatch("hand_off", {**judged("Decided."), **change})
+    decision = actions.handoff.value
+    assert {key: decision[key] for key in decided} == decided
+    assert decision["reason"] == "Decided." and decision["cited_refs"] == ["backlog.jsonl"]
+
+
+def test_with_nobody_to_ask_the_manager_accepts_a_residual_risk(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    actions = _form(tmp_path)
+    actions.dispatch("hand_off", {**judged("Accepted."), "risk": {"accept": {"check": "live token", "risk": "untested"}}})
+    assert actions.handoff.value["risk_decision"] == {"action": "accept", "check": "live token", "risk": "untested"}
+    with pytest.raises(ValueError, match="cannot be asked"):
+        actions.dispatch("hand_off", {**judged("Ask.", to="operator"), "ask": {"question": "Keep A or B?", "options": []}})

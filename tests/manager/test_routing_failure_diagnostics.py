@@ -84,32 +84,20 @@ def test_backend_failure_preserves_provider_cause_and_event_fields(
     assert event["attempts"] == 1
 
 
-def test_contract_failure_names_field_and_bounds_reply_snippet(
+def test_a_route_never_handed_over_is_a_contract_failure_without_retry(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
-    reply = json.dumps({
-        "choice": "existing",
-        "vertical": "research",
-        "workflow_mode": "staged",
-        "research_target_level": "phd",
-        "execution_task": "Investigate the claim.",
-        "rationale": "research request",
-        "padding": "z" * 500,
-    })
     manager = Manager(
         project_root=tmp_path,
         execution_workdir=tmp_path,
-        runner=_Runner(_Result(reply)),
+        runner=_Runner(_Result("The task is research; I would choose the research vertical.")),
     )
 
     with pytest.raises(ManagerClassificationContractError) as caught:
         manager.decide_vertical("Investigate the claim.")
 
     assert caught.value.phase == "contract"
-    assert caught.value.contract_field == "research_target_level"
-    assert 'got "phd"' in caught.value.cause
-    assert "exploratory|publishable|doctoral" in caught.value.cause
-    assert 0 < len(caught.value.model_reply_snippet) <= 300
-    assert caught.value.attempts == 2
+    assert caught.value.contract_field == "hand_off"
+    assert caught.value.attempts == 1

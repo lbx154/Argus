@@ -439,7 +439,7 @@ def test_a_reviewed_task_is_announced_once_in_the_reviewer_s_words(tmp_path) -> 
         rounds: int = 1
         final_review_status: str = "done"
         final_review_source: str = "reviewer"
-        final_review_reason: str = "Review passed: reran the full suite, 138 passed.\n→ done"
+        final_review_reason: str = "Review passed: reran the full suite, 138 passed."
         final_residual_risk: str = ""
         final_message: str = ""
         summary: str = "Implemented wrap in `core.py`; awaiting the independent rerun."

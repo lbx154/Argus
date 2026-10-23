@@ -348,16 +348,19 @@ def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
     from argus.core.models import RunnerResult
     from argus.daemon.state import write_continuous_config
     from argus.manager import Manager, supervision
+    from tests.hand_off import hand_off, submit
 
     class _Steers:
         def fork(self):
             return self
 
-        def run_exec(self, **_kwargs):
-            return RunnerResult(exit_code=0, agent_messages=[
-                "ACTION: steer\nREASON: The Planner keeps waking for nothing.\n"
-                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Stop re-planning unchanged work.\n→ planner"
-            ])
+        def run_exec(self, *, options, **_kwargs):
+            steer = {"summary": "The Planner keeps waking for nothing.", "note": "Stop re-planning unchanged work.",
+                     "evidence_refs": ["backlog.jsonl"]}
+            # Handed to the Planner, the remark's steer is refused; the Manager corrects it.
+            assert "Observer" in submit(options, hand_off("planner", **steer))
+            assert not submit(options, hand_off("team", **steer))
+            return RunnerResult(exit_code=0)
 
     project = tmp_path / "project"
     project.mkdir()

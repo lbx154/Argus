@@ -7,6 +7,7 @@ from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.builtins import seed_vertical_skills
 from argus.skills.store import SkillStore
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 
 class _LibraryAwareBackend:
@@ -22,22 +23,16 @@ class _LibraryAwareBackend:
         library_available = bool(
             self.library_root and f"`{self.library_root}`" in prompt
         )
-        # The Reviewer submits its judgment through a native review action;
-        # prose is never parsed for a decision.
+        # The Reviewer submits its judgment through hand_off; prose is never
+        # parsed for a decision.
+        from argus.core.role_actions import PREFIX
         from argus.core.role_tool_bridge import bridge_request
 
         env = kwargs["options"].extension_env
-        if library_available:
-            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
-                "review": (
-                    "The Reviewer can inspect its software review library. "
-                    "Trace the changed signature through unchanged callers.\n→ engineer"
-                ),
-            }, env=env)
-        else:
-            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
-                "review": "No Reviewer library was supplied.\n→ done",
-            }, env=env)
+        bridge_request(PREFIX, *(hand_off(
+            "engineer", "The Reviewer can inspect its software review library.",
+            "Trace the changed signature through unchanged callers.",
+        ) if library_available else hand_off("done", "No Reviewer library was supplied.")), env=env)
         return RunnerResult(exit_code=0, agent_messages=["Review submitted."])
 
 

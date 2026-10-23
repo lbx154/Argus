@@ -48,7 +48,7 @@ const hold: LaunchHold = {
   understood: {
     objective: '帮我研究视频去噪\n\n【开工设置（我在界面上选的）】\n- 研究定位：探索性。',
     requirements: [{ text: 'research target level: publishable', authority: 'manager' }],
-    ambiguities: ['评测数据集未指定'],
+    assumptions: ['公开评测集 (rather than 自采数据)'],
   },
 };
 
@@ -84,7 +84,7 @@ describe('launch settings and the confirm-before-start card', () => {
     expect(html).toContain('计划已排好 · 等你确认后开始');
     expect(html).toContain('帮我研究视频去噪');
     expect(html).not.toContain('开工设置（我在界面上选的）');
-    expect(html).toContain('评测数据集未指定');
+    expect(html).toContain('公开评测集 (rather than 自采数据)');
     expect(html).toContain('收集近三年的视频去噪方法');
     expect(html).toContain('开始执行');
     expect(html).toContain('撤回并修改要求');

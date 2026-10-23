@@ -26,6 +26,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import (
     StopKind,
@@ -34,7 +35,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
 )
 from ..core.workspace_snapshot import WorkspaceSnapshots
-from .tools import review_action_tools
+from .tools import review_actions
 
 log = logging.getLogger(__name__)
 
@@ -906,7 +907,14 @@ class Reviewer:
             ]
 
         try:
-            with review_action_tools(
+            actions = review_actions(
+                venue=venue, venue_required=venue_required,
+                grounding=_review_grounding(
+                    config,
+                    task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                ),
+            )
+            with role_actions(
                 self.runner,
                 RunnerOptions(
                     model=config.model,
@@ -925,17 +933,13 @@ class Reviewer:
                     lean_tool_surface=True,
                     excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
                 ),
-                venue=venue, venue_required=venue_required,
-                grounding=_review_grounding(
-                    config,
-                    task_parts=(objective, original_objective or "", scope, planner_review_instruction),
-                ),
-            ) as (actions, options):
+                actions,
+            ) as options:
                 result = gateway_run_exec(
                     self.runner, prompt=prompt, resume_thread_id=resume,
                     options=options, run_label="reviewer",
                 )
-                decision = actions.decision
+            decision = actions.handoff.value if actions.handoff else None
             changed = _changed_during_review(config.snapshots)
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             stopped_by = (
@@ -984,12 +988,12 @@ class Reviewer:
                 return with_call_metadata(ReviewDecision(
                     status="blocked",
                     reason=(
-                        "The Reviewer ended without submitting a review action. "
+                        "The Reviewer ended without handing the work on. "
                         "Its reply was not interpreted as acceptance or rejection."
                     ),
                     next_action=(
                         "Ask the independent Reviewer to submit its judgment through "
-                        "submit_review."
+                        "hand_off."
                     ),
                     backend_unavailable=True,
                     backend_stop_kind="backend_unavailable",

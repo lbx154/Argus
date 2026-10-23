@@ -25,7 +25,7 @@ def memory(tmp_path):
 def manager_runner(monkeypatch):
     class Manager:
         def decide_vertical(self, body, **kwargs):
-            return SimpleNamespace(execution_task=f"managed: {body}")
+            return SimpleNamespace(assumptions=(), execution_task=f"managed: {body}")
 
         def commit_vertical_decision(self, body, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
@@ -40,13 +40,14 @@ def manager_runner(monkeypatch):
 def _direct_manager(monkeypatch, **decision) -> None:
     class Manager:
         def decide_vertical(self, body, **kwargs):
-            return SimpleNamespace(
-                execution_task=f"managed: {body}",
-                vertical="software",
-                workflow_mode="direct",
-                require_independent_review=True,
+            return SimpleNamespace(**{
+                "assumptions": (),
+                "execution_task": f"managed: {body}",
+                "vertical": "software",
+                "workflow_mode": "direct",
+                "require_independent_review": True,
                 **decision,
-            )
+            })
 
         def commit_vertical_decision(self, body, decision, **kwargs):
             return decision
@@ -181,6 +182,20 @@ def test_a_choice_the_operator_reserved_waits_on_them_instead_of_dispatching(
     resumed, _ = memory.backlog.resume_with_operator_reply(item.id, "A")
     assert memory.backlog.next_pending().id == resumed.id == item.id
     assert "manager_direct" in resumed.tags
+
+
+def test_the_readings_the_route_chose_are_recorded_for_its_task(memory, monkeypatch) -> None:
+    from argus.core.autonomy import read_autonomous_assumptions
+
+    reading = {"chose": "round half up", "instead_of": "truncate like format_kib"}
+    _direct_manager(monkeypatch, assumptions=(reading,), form="route")
+
+    item, _, _ = dispatch.enqueue_mission(memory, "round the minutes", {})
+
+    rows = read_autonomous_assumptions(memory.project.root)
+    assert [(row["item_id"], row["reading"], row["conflict"], row["source"]) for row in rows] == [
+        (item.id, "round half up", "truncate like format_kib", "route"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -379,6 +394,7 @@ def test_contextual_continuous_title_uses_manager_execution_task_in_every_status
         def decide_vertical(self, body, **kwargs):
             assert body == routing_body
             return SimpleNamespace(
+                assumptions=(),
                 execution_task=execution_task,
                 workflow_mode="staged",
             )

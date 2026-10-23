@@ -6,7 +6,6 @@ rejected the whole route with no retry.
 """
 from __future__ import annotations
 
-import json
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -16,6 +15,7 @@ from argus.manager import Manager
 from argus.manager.domain_author import VerticalDecisionError
 from argus.skills.stage_machine import ChecklistItem
 from argus.verticals import _registry
+from tests.hand_off import route, submit
 
 
 def _module(name, *, profiles):
@@ -55,22 +55,19 @@ class RouteRunner:
     def __init__(self, vertical, **extra):
         self.decision = {
             "choice": "existing", "vertical": vertical, "workflow_mode": "staged",
-            "confidence": 0.99, "execution_task": "Compare four models.",
+            "execution_task": "Compare four models.",
             **extra,
         }
 
-    def run_exec(self, *, prompt, **kwargs):
-        message = json.dumps(self.decision)
-        return SimpleNamespace(
-            last_agent_message=message, agent_messages=[message],
-            thread_id="route-test", tool_activity_observed=True,
-        )
+    def run_exec(self, *, prompt, options, **kwargs):
+        submit(options, route(**self.decision))
+        return SimpleNamespace(agent_messages=[], thread_id="route-test", tool_activity_observed=True)
 
 
 @pytest.mark.parametrize("fast", ["0", "1"])
 @pytest.mark.parametrize("extra", [
     {"workflow_profile": "full"},
-    {"workflow_profile": "custom", "workflow_requested_stages": ["verify"]},
+    {"workflow_profile": "custom", "workflow_stages": ["verify"]},
 ])
 def test_profile_for_profileless_vertical_is_dropped_not_fatal(
     verticals, tmp_path, monkeypatch, fast, extra,

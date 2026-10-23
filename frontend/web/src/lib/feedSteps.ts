@@ -551,8 +551,8 @@ export function plainToolLabel(ev: EventMsg, locale: Locale): string {
     const what = argument(null, field(ev, 'text'), ['description']);
     return what ? `${zh ? '交给子助手：' : 'Hand to a helper: '}${clip(what, 48)}` : zh ? '交给一个子助手' : 'Hand to a helper';
   }
-  // The Reviewer's verdict goes through Argus' own action, not a tool of the work.
-  if (name.endsWith('submit_review')) return zh ? '提交审阅结论' : 'Submit the review';
+  // A role hands the work on through Argus' own action, not a tool of the work.
+  if (name.endsWith('hand_off')) return zh ? '交出工作' : 'Hand the work on';
   const shown = target.startsWith('/') ? basename(target) : target;
   const say: Record<ToolAction, [string, string, string, string]> = {
     read: ['查阅', '查阅文件', 'Read', 'Read a file'],

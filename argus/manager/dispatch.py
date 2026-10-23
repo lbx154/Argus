@@ -352,6 +352,9 @@ def enqueue_mission(
             event["operator_priority"] = True
         sink = JsonlEventSink(None, life_dir=life_dir)
         sink.append(event)
+        from ..core.autonomy import record_assumptions
+
+        record_assumptions(life_dir, prepared_handoff.decision.assumptions, item_id=item.id, source="route")
         if question:
             from ..life.supervisor.pending_notify import ask_operator
 

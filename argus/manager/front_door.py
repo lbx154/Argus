@@ -539,7 +539,10 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
         exclusions = tuple(getattr(decision, "exclusions", ()) or ())
-        ambiguities = tuple(getattr(decision, "ambiguities", ()) or ())
+        assumptions = tuple(
+            f"{row['chose']} (rather than {row['instead_of']})"
+            for row in getattr(decision, "assumptions", ())
+        )
         current = load_contract(state_dir)
         if current is None:
             save_contract(
@@ -548,7 +551,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
                     objective=body,
                     clauses=clauses,
                     exclusions=exclusions,
-                    ambiguities=ambiguities,
+                    assumptions=assumptions,
                 ),
             )
             return
@@ -569,16 +572,16 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             if objective_changed or exclusions
             else current.exclusions
         )
-        proposed_ambiguities = (
-            ambiguities
-            if objective_changed or ambiguities
-            else current.ambiguities
+        proposed_assumptions = (
+            assumptions
+            if objective_changed or assumptions
+            else current.assumptions
         )
         if (
             new_objective == current.objective
             and proposed_clauses == current.clauses
             and proposed_exclusions == current.exclusions
-            and proposed_ambiguities == current.ambiguities
+            and proposed_assumptions == current.assumptions
         ):
             return
 
@@ -598,7 +601,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             objective=new_objective,
             clauses=proposed_clauses,
             exclusions=proposed_exclusions,
-            ambiguities=proposed_ambiguities,
+            assumptions=proposed_assumptions,
             by="manager",
             confirmation=confirmation,
             note="operator front-door handoff",

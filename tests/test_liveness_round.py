@@ -10,6 +10,7 @@ from pathlib import Path
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -28,27 +29,11 @@ def _labels(backend: MemoryBackend) -> list[str]:
 # --- 1. Self-review mode: the Engineer finishes on its own line ---------
 
 
-def test_a_decorated_done_finishes_a_self_reviewed_mission(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Fixed it; tests pass.\n**→ done**"))
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="low-risk repair",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=4, require_independent_review=False),
-        workdir=tmp_path,
-    )
-
-    assert status == "done"
-    assert _labels(backend) == ["engineer-r1"]
-    assert rounds[0].review.review_source == "engineer_self_review"
-
-
 def test_unfinished_self_reviewed_turns_go_on_until_the_engineer_says_done(tmp_path: Path) -> None:
     backend = MemoryBackend()
     for index in (1, 2, 3):
-        backend.queue(f"engineer-r{index}", CannedResponse(message=f"Step {index} written.\n→ engineer"))
-    backend.queue("engineer-r4", CannedResponse(message="All steps hold.\n→ done"))
+        backend.queue(f"engineer-r{index}", CannedResponse(action=hand_off("engineer", f"Step {index} written.")))
+    backend.queue("engineer-r4", CannedResponse(action=hand_off("done", "All steps hold.")))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",
@@ -67,7 +52,7 @@ def test_a_round_capped_self_reviewed_mission_adds_no_reviewer_call(tmp_path: Pa
     self-reviewed mission without buying a Reviewer call."""
     backend = MemoryBackend()
     for index in (1, 2, 3, 4):
-        backend.queue(f"engineer-r{index}", CannedResponse(message=f"Step {index} written.\n→ engineer"))
+        backend.queue(f"engineer-r{index}", CannedResponse(action=hand_off("engineer", f"Step {index} written.")))
 
     status, _rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",

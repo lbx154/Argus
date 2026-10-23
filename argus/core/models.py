@@ -18,9 +18,7 @@ LoopStatus = Literal[
     # Waiting on something; ``LoopOutcome.park_reason`` says what. In the
     # round loop's own result the reason is the last round's stop kind.
     "parked",
-    # The Manager parked the run between role operations: on the operator's
-    # answer to its question (wait), or for the Planner to retire (stop).
-    "manager_wait",
+    # The Manager parked the run between role operations for the Planner to retire.
     "manager_stop",
     "aborted",
     "replan_requested",
@@ -179,7 +177,6 @@ class RunnerResult:
     # private process group; the runner attempted cleanup by that exact PGID.
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
-    role_decisions: list[dict[str, Any]] = field(default_factory=list)
     operator_context_revision: int = 0
 
     @property
@@ -204,6 +201,8 @@ class ReviewDecision:
     learning_reason: str = ""
     # Explicit role-session signal, supplied through the native review action.
     session_signal: dict[str, str] = field(default_factory=dict)
+    # The readings the Reviewer chose in the operator's place (``core.handoff``).
+    assumptions: list[dict[str, str]] = field(default_factory=list)
     # The Reviewer's own judgment that the fact it disputes cannot be observed
     # through any view it has (a masked display, for example), so repeating the
     # finding cannot settle it. Routed to the Manager; it decides nothing here.

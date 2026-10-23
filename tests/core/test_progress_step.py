@@ -63,7 +63,7 @@ _WS = "/work/proj"
         # A patch with no braces in it still names its file, not its "***" header.
         ("apply_patch: *** Begin Patch\n*** Update File: /work/proj/pkg/core.py\n@@\n def f():", "修改 core.py"),
         ('view: {"path": "/work/proj"}', "查阅项目目录"),
-        ('argus_review_actions-submit_review: {"review": "ok"}', "提交审阅结论"),
+        ('argus_actions-hand_off: {"to": "done"}', "交出工作"),
         ('mystery_tool: {"x": 1}', "调用 mystery_tool"),
         # Trial s-6f0e6213 read "调用 task": a helper agent the role starts.
         ('task: {"description": "独立审阅小时格式化接口", "prompt": "..."}', "交给子助手：独立审阅小时格式化接口"),

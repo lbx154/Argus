@@ -1052,35 +1052,13 @@ class MissionExecutionRuntimeMixin:
             resumable=True,
             park_reason=reason,
         )
-        if reason == "operator_question":
-            # A task-scoped Manager WAIT is observed at a safe role boundary;
-            # it has no provider interruption and preserves the existing question.
-            from ...core.operator_context import operator_context_state_root
-            from ...manager.supervision import waiting_for_evidence
-
-            current = next((row for row in self.memory.backlog.active() if row.id == item.id), None)
-            settled = self.memory.backlog.park_after_manager_wait(
-                item.id,
-                expected_question=current.pending_question if current is not None else "",
-                reason=state.stop_reason,
-                outcome=pause_outcome,
-                wait_current=waiting_for_evidence(operator_context_state_root(self.memory), item.id),
-            )
-            if settled is None or settled.status != "parked":
-                return {
-                    "status": settled.status if settled is not None else "superseded",
-                    "item_id": item.id, "success": False, "recoverable": True,
-                    "cost_usd": state.usd, "known_cost_usd": state.known_usd,
-                    "pricing_status": usage_summary.pricing_status,
-                }
-        else:
-            self.memory.backlog.update(
-                item.id,
-                park_reason=reason,
-                finished_ts=time.time(),
-                last_error=state.stop_reason,
-                outcome=pause_outcome,
-            )
+        self.memory.backlog.update(
+            item.id,
+            park_reason=reason,
+            finished_ts=time.time(),
+            last_error=state.stop_reason,
+            outcome=pause_outcome,
+        )
         if reason == "provider_fence":
             # The model service turned this task away past its automatic
             # retries; it would turn every other call away too.

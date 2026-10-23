@@ -28,7 +28,7 @@ def _settle(state: RoundLoopState, review: ReviewDecision, config: SupervisedCon
     outcome = EngineerTurnOutcome(
         engineer_result=SimpleNamespace(exit_code=0, fatal_error=None),
         round_thread_id=None, fatal_error=None, safe_fatal_error=None, stop_kind=None,
-        raw_engineer_message="e", engineer_message="e",
+        handoff=None, engineer_message="e",
         process_ownership_note="", round_started_at=0.0,
     )
     return RoundSettlementMixin()._settle_round(

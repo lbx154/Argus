@@ -1,12 +1,8 @@
 """argus.manager._front_door_ops — mixin for conversational/routing methods.
 
-``_FrontDoorMixin`` holds every Manager method that handles front-door
-classification: conversational-intent detection, config-intent recognition,
-the combined front-door classify, route, and persistence-lifetime decision.
-Also carries the skill-placement judge (used by the Manager-as-janitor path).
-
-All calls either defer to ``life/router.py`` helpers (which do the actual model
-calls) or wire a thin run_exec shim over ``self.runner`` / ``self._session``.
+``_FrontDoorMixin`` holds the Manager's combined front-door classify, which
+defers to ``life/router.py`` over a thin run_exec shim on ``self.runner``, and
+the skill-placement judge (used by the Manager-as-janitor path).
 """
 from __future__ import annotations
 
@@ -14,14 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from ..skills import vertical_select
-from ._helpers import (
-    _manager_reasoning_effort,
-    gateway_run_exec,
-)
+from ._helpers import gateway_run_exec
 
 
 class _FrontDoorMixin:
-    """Mixin: is_conversational, classify_*, route, and skill placement."""
+    """Mixin: the front-door classify and skill placement."""
 
     project_root: Path
     learned_vertical_root: Path
@@ -41,7 +34,6 @@ class _FrontDoorMixin:
         operator_question_policy_sink: Any = None,
         authorization_sink: Any = None,
         failure_sink: Any = None,
-        config_failure_sink: Any = None,
         intake_sink: Any = None,
         domain_sink: Any = None,
         active_mission: bool = False,
@@ -63,7 +55,7 @@ class _FrontDoorMixin:
                        **list_selectable_data_domain_summaries(self.project_root, learned_root=self.learned_vertical_root)}
             domain_prompt = intake_prompt(catalog, read_intake(self.project_root))
             if active_mission:
-                domain_prompt += "\nAn active mission exists: use DOMAIN_ACTION=NONE; select Skills only.\n"
+                domain_prompt += "\nAn active mission exists: leave domain.action out; set domain.vertical only.\n"
             original_domain_sink = domain_sink
 
             def domain_sink(decision: dict[str, str]) -> None:
@@ -77,6 +69,7 @@ class _FrontDoorMixin:
                 return None, None, "complex"
             from ..core.knobs import resolve_light_effort, resolve_light_model
             from ..core.models import RunnerOptions
+            from ..core.role_actions import role_actions
 
             _backend = self.runner
             from ..core.operator_context import build_operator_context_block
@@ -91,30 +84,28 @@ class _FrontDoorMixin:
             ).strip().lower()
             _pi = _backend_name == "pi"
 
-            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+            def run_exec(prompt: str, actions: Any) -> Any:  # noqa: ANN401
                 from ..core.operator_context import append_operator_context
 
-                return gateway_run_exec(
-                    _backend,
-                    prompt=append_operator_context(prompt, operator_context),
-                    options=RunnerOptions(
-                        model=resolve_light_model(backend=getattr(_backend, "backend", None)),
-                        reasoning_effort=_effort,
-                        skip_git_repo_check=True,
-                        disable_tools=True,
-                        extra_args=(
-                            [
-                                "--system-prompt",
-                                "Return only the requested Argus Manager "
-                                "classification decision.",
-                            ]
-                            if _pi
-                            else (["--ephemeral"] if _backend_name == "codex" else None)
-                        ),
+                options = RunnerOptions(
+                    model=resolve_light_model(backend=getattr(_backend, "backend", None)),
+                    reasoning_effort=_effort,
+                    skip_git_repo_check=True,
+                    disable_tools=True,
+                    extra_args=(
+                        ["--system-prompt", "Classify the Argus operator message with hand_off only."]
+                        if _pi
+                        else (["--ephemeral"] if _backend_name == "codex" else None)
                     ),
-                    run_label="manager-frontdoor-classify",
-                    resume_thread_id=None,
                 )
+                with role_actions(_backend, options, actions) as bound:
+                    return gateway_run_exec(
+                        _backend,
+                        prompt=append_operator_context(prompt, operator_context),
+                        options=bound,
+                        run_label="manager-frontdoor-classify",
+                        resume_thread_id=None,
+                    )
 
         with self._task_usage_scope(root_task_id):
             return classify_front_door(
@@ -129,50 +120,11 @@ class _FrontDoorMixin:
                 operator_question_policy_sink=operator_question_policy_sink,
                 authorization_sink=authorization_sink,
                 failure_sink=failure_sink,
-                config_failure_sink=config_failure_sink,
                 intake_sink=intake_sink,
                 active_mission=active_mission,
                 domain_sink=domain_sink,
                 domain_prompt=domain_prompt,
             )
-
-    def route(
-        self,
-        text: str,
-        *,
-        run_exec: Any = None,
-        root_task_id: str | None = None,
-    ) -> str:
-        """The Manager's lego-block router: pick the SMALLEST block that fits the
-        operator's input — ``"chat"`` (one codex reply), ``"simple"`` (one bounded
-        codex turn, no reviewer/planner), or ``"complex"`` (the full mission
-        pipeline). The Manager owns this call. Reuses
-        ``life/router.classify_route`` (biases hard to ``"complex"`` so real work
-        never silently skips the reviewer). With no backend, returns ``"complex"``
-        — the safe default that never drops work to a bad classify."""
-        from ..life.router import classify_route
-
-        if run_exec is None:
-            if self.runner is None:
-                return "complex"
-            from ..core.models import RunnerOptions
-
-            _backend = self._session
-
-            def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return gateway_run_exec(
-                    _backend,
-                    prompt=prompt,
-                    options=RunnerOptions(
-                        reasoning_effort=_manager_reasoning_effort(),
-                        skip_git_repo_check=True,
-                    ),
-                    run_label="manager-route",
-                )
-
-        with self._task_usage_scope(root_task_id):
-            return classify_route(text, run_exec=run_exec)
-
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:

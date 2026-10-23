@@ -87,7 +87,7 @@ def _install_manager(monkeypatch, execution_for, *, session_title="") -> None:
             return None, None, "complex"
 
         def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(execution_task=execution_for(text), session_title=session_title)
+            return SimpleNamespace(assumptions=(), execution_task=execution_for(text), session_title=session_title)
 
         def commit_vertical_decision(self, text, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
@@ -1554,6 +1554,7 @@ def test_finite_staged_paper_request_runs_as_a_finite_campaign(
         def decide_vertical(self, text, **_kwargs):
             decisions.append(text)
             return SimpleNamespace(
+                assumptions=(),
                 execution_task=text,
                 workflow_mode="staged",
                 vertical="research",
@@ -2706,16 +2707,18 @@ def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_missio
                  "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"):
         monkeypatch.delenv(name, raising=False)
     manager_state._STATES.clear()
-    classifier_output = (
-        "CONFIG: SET role model=house-model-3 for ALL\n"
-        "CONTROL: NONE\nROUTE: SELF\nSELF_MODE: MICRO\nINTAKE_TYPE: PREFERENCE\n"
-    )
+    form = {
+        "to": "manager", "self_mode": "micro", "intake": {"type": "preference", "scope": "global"},
+        "config": [{"knob": "model", "value": "house-model-3"}],
+    }
+
+    def run_exec(_prompt, actions):
+        actions.dispatch("hand_off", form)
+        return SimpleNamespace(exit_code=0)
 
     class _Manager:
         def classify_front_door(self, text, *, root_task_id=None, **kwargs):
-            result = SimpleNamespace(exit_code=0, last_agent_message=classifier_output,
-                                     role_decisions=[], fatal_error=None)
-            return classify_front_door(text, run_exec=lambda _prompt: result, **kwargs)
+            return classify_front_door(text, run_exec=run_exec, **kwargs)
 
     ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())  # noqa: E731
     monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)

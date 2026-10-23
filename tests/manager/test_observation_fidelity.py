@@ -11,6 +11,8 @@ import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
+from argus.core.role_actions import PREFIX
+from argus.core.role_tool_bridge import bridge_request
 from argus.daemon.state import write_continuous_config
 from argus.life.context_packet import mission_context_dir
 from argus.life.memory import Backlog, BacklogItem
@@ -26,10 +28,15 @@ LONG_EXCERPT_PREFIX = "Recorded diagnostic detail from the earlier attempt. " * 
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Observation fidelity tests must not call any provider")
+    """Only the call's own loopback action bridge may be reached."""
+    connect = socket.socket.connect
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    def loopback_only(self, address):
+        if address[0] != "127.0.0.1":
+            raise AssertionError("Observation fidelity tests must not call any provider")
+        return connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", loopback_only)
 
 
 class Backend:
@@ -43,14 +50,15 @@ class Backend:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         assert run_label == "manager-supervision" and options.disable_tools
         self.prompts.append(prompt)
+        bridge_request(PREFIX, "hand_off", {
+            "to": "team", "summary": "Repair the observed grouping error while preserving the acceptance standard.",
+            "note": "Compute each group separately and preserve missing-value checks.",
+            "evidence_refs": ["backlog.jsonl"], "assumptions": [],
+        }, env=options.extension_env)
         if self.before_return:
             self.before_return()
         return RunnerResult(exit_code=0, call_id=f"offline-fidelity-{len(self.prompts)}",
-                            thread_id=resume_thread_id or "offline-fidelity-session", agent_messages=[json.dumps({
-                                "action": "steer", "reason": "Repair the observed grouping error while preserving the acceptance standard.",
-                                "directive": "Compute each group separately and preserve missing-value checks.",
-                                "evidence_refs": ["backlog.jsonl"],
-                            })])
+                            thread_id=resume_thread_id or "offline-fidelity-session", agent_messages=["Steered."])
 
 
 def project(root, acceptance="Compute each group separately; exclude missing values"):

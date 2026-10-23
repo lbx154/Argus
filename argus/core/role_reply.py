@@ -279,28 +279,6 @@ def read_list(values: Mapping[str, str], key: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(part for part in parts if part))
 
 
-def read_list_semicolon(values: Mapping[str, str], key: str) -> tuple[str, ...]:
-    """``read_list`` without ``|`` as a separator.
-
-    For fields that carry the operator's own words back verbatim. ``|`` is not
-    punctuation in every domain: in mathematics it is absolute value, and
-    ``sum |z_i|^2 = 5`` split on it becomes three fragments — ``sum``, ``z_i``,
-    ``^2 = 5`` — none of which is a constraint. It is also set-builder
-    notation, a shell pipe, a regex alternation and a table delimiter, so the
-    same cut lands on Markdown tables and command lines too.
-
-    ``read_list`` keeps ``|`` because its callers name paths, stages and
-    identifiers, where a literal pipe is vanishingly rare and a second
-    separator is a real convenience. This reader is for the other case, and
-    the prompts that feed it ask for ``;`` alone.
-    """
-    raw = str(values.get(key.upper()) or "").strip()
-    if not raw or raw.lower() in {"none", "null", "(none)", "-"}:
-        return ()
-    parts = [part.strip() for part in raw.split(";")]
-    return tuple(dict.fromkeys(part for part in parts if part))
-
-
 def read_bool(values: Mapping[str, str], key: str, default: bool = False) -> bool:
     raw = str(values.get(key.upper()) or "").strip().casefold()
     if raw in {"true", "yes", "y", "1", "done", "complete", "completed"}:
@@ -381,7 +359,17 @@ def legacy_json_object(text: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def decision_footer_instruction(example: str) -> str:
+    """Ask for natural reasoning followed by the minimum actionable footer."""
+    return (
+        "Reason naturally, then end with only the Host actions below "
+        "(replace examples; omit unused lines):\nDecision:\n"
+        + str(example or "").strip()
+    )
+
+
 __all__ = [
+    "decision_footer_instruction",
     "decision_footer_text",
     "legacy_json_object",
     "read_block",
@@ -389,7 +377,6 @@ __all__ = [
     "read_float",
     "read_key_values",
     "read_list",
-    "read_list_semicolon",
     "read_optional",
     "read_records",
     "strip_control_footer",

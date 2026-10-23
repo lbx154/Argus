@@ -7,6 +7,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.engineer.round_evidence import RoundEvidence
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -39,21 +40,22 @@ def test_reviewer_sees_the_self_handoff_turn_before_the_final_one(tmp_path: Path
 
     def round_one(_prompt, _options) -> str:
         (work / "evaluate.py").write_text("SPLIT = 'train'\n")
-        return (
-            "Switched evaluate.py to score on the train split (MARKER_R1).\n"
-            "→ engineer"
-        )
+        return ""
 
     def round_two(_prompt, _options) -> str:
         (work / "report.md").write_text("accuracy 0.99\n")
-        return "Wrote report.md with accuracy 0.99.\n→ done"
+        return ""
 
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1"))
-    backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2"))
+    backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1", action=hand_off(
+        "engineer", "Switched the split.", "Switched evaluate.py to score on the train split (MARKER_R1).",
+    )))
+    backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2", action=hand_off(
+        "reviewer", "Wrote report.md with accuracy 0.99.",
+    )))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"}), thread_id="v1"),
+        CannedResponse(action=hand_off("done", "ok"), thread_id="v1"),
     )
 
     status, _rounds, *_ = _engineer(backend).run(
@@ -78,20 +80,20 @@ def test_a_later_review_still_sees_the_whole_task(tmp_path: Path) -> None:
 
     def round_one(_prompt, _options) -> str:
         (work / "evaluate.py").write_text("SPLIT = 'test'\n")
-        return "Fixed the split (MARKER_R1).\n→ reviewer"
+        return "Fixed the split (MARKER_R1)."
 
     def round_two(_prompt, _options) -> str:
         (work / "report.md").write_text("accuracy 0.81\n")
-        return "Wrote report.md.\n→ done"
+        return "Wrote report.md."
 
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1"))
     backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2"))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("submit_review", {"review": "Now write the report.\n→ engineer"})),
+        CannedResponse(action=hand_off("engineer", "Now write the report.")),
     )
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "ok")))
 
     status, *_ = _engineer(backend).run(
         objective="fix the split and report accuracy",
@@ -122,13 +124,13 @@ def test_unreviewed_turn_evidence_waits_for_the_reviewer(
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
-        CannedResponse(message="Step one.\n→ engineer"),
+        CannedResponse(action=hand_off("engineer", "Step one.")),
     )
     backend.queue(
         "engineer-r2",
-        CannedResponse(message="Step two.\n→ done"),
+        CannedResponse(action=hand_off("reviewer", "Step two.")),
     )
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "ok")))
 
     status, *_ = _engineer(backend).run(
         objective="two-step task",
@@ -149,10 +151,10 @@ def test_the_reviewer_judges_every_turn_the_engineer_kept_for_itself(tmp_path: P
     for index in (1, 2):
         backend.queue(
             f"engineer-r{index}",
-            CannedResponse(message=f"step {index} written\n→ engineer"),
+            CannedResponse(action=hand_off("engineer", f"step {index} written")),
         )
     backend.queue("engineer-r3", CannedResponse(message="all steps written and checked"))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "ok")))
 
     status, rounds, *_ = _engineer(backend).run(
         objective="keep going",

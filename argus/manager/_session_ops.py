@@ -452,6 +452,11 @@ class _ManagerSession:
             tmp.unlink(missing_ok=True)
 
     @property
+    def backend(self) -> str:
+        """The agent CLI behind the session, which decides how its Argus actions are bound."""
+        return getattr(self.runner, "backend", "")
+
+    @property
     def thread_id(self) -> str | None:
         """The current persistent session thread_id (for tests / future
         chat-reply wiring); ``None`` when no session has been established."""
@@ -548,7 +553,7 @@ class _ManagerSession:
                 identity = session_identity(self.runner, options)
                 call_prompt = prompt
                 rotation_reason = (
-                    "the configured model or backend changed"
+                    "the configured model, backend or handoff protocol changed"
                     if tid and prior.get("identity") not in (None, identity) else ""
                 )
                 if rotation_reason:

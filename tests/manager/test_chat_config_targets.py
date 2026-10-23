@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus.core.knob_store import read_persisted_knobs
-from argus.life.router import ConfigIntent, _parse_config_decision
+from argus.life.router import ConfigIntent
 from argus.manager.config_intent import (
     _ROLE_EFFORT_ENVS,
     _ROLE_MODEL_ENVS,
@@ -37,7 +37,7 @@ def _catalog(backend: str) -> list[str]:
 
 
 def test_unknown_model_does_not_drop_other_settings_in_the_same_message(home) -> None:
-    intent = _parse_config_decision("SET effort ALL high; SET model ALL nope-1")
+    intent = (ConfigIntent("effort", (), "high"), ConfigIntent("model", (), "nope-1"))
     lines: list[str] = []
 
     assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
@@ -50,7 +50,7 @@ def test_unknown_model_does_not_drop_other_settings_in_the_same_message(home) ->
 
 
 def test_model_is_vetted_against_the_backend_switched_to_in_the_same_message(home) -> None:
-    intent = _parse_config_decision("SET backend ALL copilot; SET model ALL hosted-y")
+    intent = (ConfigIntent("backend", (), "copilot"), ConfigIntent("model", (), "hosted-y"))
     lines: list[str] = []
 
     assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
@@ -60,7 +60,7 @@ def test_model_is_vetted_against_the_backend_switched_to_in_the_same_message(hom
     assert stored["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
 
     # The old backend's model is not valid on the new one.
-    again = _parse_config_decision("SET backend ALL copilot; SET model ALL house-a")
+    again = (ConfigIntent("backend", (), "copilot"), ConfigIntent("model", (), "house-a"))
     assert _apply_config_intent(home, again, {}, on_confirm=lines.append, model_catalog=_catalog)
     assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "hosted-y"
     assert any("house-a" in line and "copilot" in line for line in lines)
@@ -84,7 +84,7 @@ def test_role_model_is_vetted_against_the_shared_backend(home, monkeypatch) -> N
 
 
 def test_a_backend_change_is_one_setting_for_every_role(home) -> None:
-    intent = _parse_config_decision("SET backend reviewer copilot")
+    intent = ConfigIntent("backend", (), "copilot")
     lines: list[str] = []
 
     assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
@@ -103,18 +103,6 @@ def test_refusal_names_the_backend_whose_list_lacks_the_model(home) -> None:
 
     assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
     assert len(lines) == 1 and "codex" in lines[0]
-
-
-@pytest.mark.parametrize(
-    ("line", "knob", "value"),
-    [
-        ("SET telegram - on for ALL", "telegram", "on"),
-        ("SET safe_mode - to off", "safe_mode", "off"),
-        ("SET global_daily_cap - 50 USD", "global_daily_cap", "50 USD"),
-    ],
-)
-def test_global_settings_shed_filler_words(line: str, knob: str, value: str) -> None:
-    assert _parse_config_decision(line) == ConfigIntent(knob=knob, roles=(), value=value)
 
 
 def test_telegram_chat_vets_models_like_the_web_chat(tmp_path, monkeypatch, home) -> None:
@@ -139,7 +127,7 @@ def test_telegram_chat_vets_models_like_the_web_chat(tmp_path, monkeypatch, home
 def test_config_change_grounding_note_is_tagged_as_config(home, tmp_path) -> None:
     import json
 
-    intent = _parse_config_decision("SET effort ALL high")
+    intent = ConfigIntent("effort", (), "high")
     assert _apply_config_intent(home, intent, {}, on_confirm=lambda _line: None, model_catalog=_catalog)
 
     notes = [

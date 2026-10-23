@@ -182,22 +182,18 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         preselected_skill_block="",
     )
 
-    assert "complete human-facing answer" in front
-    assert "never expose route, control, lifetime, or role-protocol labels" in front
+    assert "reply is the complete answer for the operator" in front
+    assert "without route, control, lifetime or role-protocol labels" in front
     assert "operator's language and plain language" in pending
     assert "one operator-language sentence stating the decisive evidence" in stage
     assert "REASON and PLAN_REASON are operator-facing" in continuous
     assert "no field\n  names, status tokens, routine steps or Argus's own bookkeeping" in continuous
     assert "nothing the last REASON said" in continuous
     for engineer_prompt in (engineer, continuation):
-        assert "short handoff in the operator's language" in engineer_prompt
+        assert "summary is the one sentence the operator reads" in engineer_prompt
         assert "output paths" in engineer_prompt
         assert "the decisive check" in engineer_prompt
-    assert "Express the complete review naturally in the operator's language" in reviewer
-    # 2026-10-21: Argus's completion message quoted a first sentence in the Reviewer's own "I".
-    assert "its first sentence is what the operator reads: only this work's result" in reviewer
-    assert 'without "I"' in reviewer
-    assert "No JSON or other closing line is read" in reviewer
+    assert "its summary is what the operator reads, only this work's result" in reviewer
 
 
 def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:

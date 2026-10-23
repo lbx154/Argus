@@ -144,14 +144,14 @@ def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
 
 def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
     p = _prompt()
-    assert 'Only claim-essential evidence gaps warrant `→ engineer`' in p
+    assert 'Only claim-essential evidence gaps warrant `to=engineer`' in p
     assert 'optional evidence and minor weaknesses are advice' in p
 
 
 def test_done_tracks_the_current_verification_profile(monkeypatch):
     p = _prompt()
 
-    assert '`→ done` meets this profile' in p
+    assert '`to=done` meets this profile' in p
     assert 'not exhaustive proof or every file' in p
     assert 'operator>objective>mission>preregistration' in p
     assert 'A timeout or failed attempt' in p
@@ -161,12 +161,12 @@ def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
     p = _prompt()
     assert 'Integrity is required' in p
     assert 'not scientific value' in p
-    assert "`→ planner` for a wrong target" in p
+    assert "`to=planner` for a wrong target" in p
 
 
 def test_reviewer_reasons_in_prose_and_submits_a_native_action(monkeypatch):
     p = _prompt()
-    assert "review naturally" in p
+    assert "End your turn with hand_off" in p
     assert "ARGUS_ROLE_DECISION=" not in p
     assert "STATUS=" not in p
-    assert "submit_review" in p
+    assert "hand_off" in p

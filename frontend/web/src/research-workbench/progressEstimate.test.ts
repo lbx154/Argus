@@ -167,11 +167,11 @@ describe('deriveProgressEstimate', () => {
     expect(reviewCheckpoint(result)?.status).not.toBe('done');
   });
 
-  it('uses the latest verdict for this task and round, with its scope and next action', () => {
+  it('uses the latest verdict for this task and round, with its scope; its note stays out', () => {
     const result = deriveProgressEstimate(snapshot(), [...events, reviewEvent(), reviewEvent({ ts: 990, status: 'continue', reason: 'The argument assumes an unproved lemma.', next_action: 'Prove the missing lemma.' })], 1_000);
     expect(result.review.state).toBe('needs_work');
     expect(result.review.detail).toBe('The argument assumes an unproved lemma.');
-    expect(result.nextAction).toBe('Prove the missing lemma.');
+    expect(result.nextAction).toBe('');
     expect(result.review.scope).toContain('第 1 轮');
   });
 

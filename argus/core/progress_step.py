@@ -336,8 +336,8 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
         # A helper the role starts: say what it was given, not the tool's name.
         what = _first_value(payload, ("description",))
         return f"交给子助手：{_clip(what, 48)}" if what else "交给一个子助手"
-    # The Reviewer's verdict goes through Argus' own action, not a tool of the work.
-    return "提交审阅结论" if name.endswith("submit_review") else f"调用 {name}"
+    # A role hands the work on through Argus' own action, not a tool of the work.
+    return "交出工作" if name.endswith("hand_off") else f"调用 {name}"
 
 
 def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:

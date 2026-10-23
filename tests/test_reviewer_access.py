@@ -18,11 +18,13 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.agent_cli.agent_cli_runner import AgentCliRunner
 from argus.agent_cli.agent_cli_runner import RunnerOptions as NativeOptions
+from argus.core.role_actions import role_actions
 from argus.core.workspace_snapshot import WorkspaceSnapshots
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer.tools import review_action_tools
+from argus.reviewer.tools import review_actions
 from argus.skills.store import SkillStore
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 
 @pytest.fixture
@@ -59,7 +61,7 @@ def _evaluate(backend, workdir, **config):
 ])
 def test_the_reviewer_runs_with_the_engineer_s_access(tmp_path, access):
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "One repair remains.\n→ engineer"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("engineer", "One repair remains.")))
 
     _evaluate(backend, tmp_path, **access)
 
@@ -91,9 +93,7 @@ def _without_verdict_tools(argv: list[str]) -> list[str]:
 def test_reviewer_argv_is_the_engineer_s_plus_its_verdict_tools(backend, access):
     runner = AgentCliRunner(agent_bin=backend, backend=backend)
     engineer = NativeOptions(**access)
-    with review_action_tools(
-        SimpleNamespace(backend=backend), engineer, venue="", venue_required=False,
-    ) as (_actions, reviewer):
+    with role_actions(SimpleNamespace(backend=backend), engineer, review_actions()) as reviewer:
         argv = runner._build_command(resume_thread_id=None, options=replace(
             engineer, extra_args=reviewer.extra_args, trusted_tool_names=reviewer.trusted_tool_names,
             trusted_extensions=reviewer.trusted_extensions, extension_env=reviewer.extension_env,
@@ -102,7 +102,7 @@ def test_reviewer_argv_is_the_engineer_s_plus_its_verdict_tools(backend, access)
     assert _without_verdict_tools(argv) == runner._build_command(resume_thread_id=None, options=engineer)
     if "--allowedTools" in argv:
         allowed = argv[argv.index("--allowedTools") + 1].split(",")
-        assert allowed and all(name.startswith("mcp__argus_review_actions__") for name in allowed)
+        assert allowed and all(name.startswith("mcp__argus_actions__") for name in allowed)
 
 
 def test_provider_exception_does_not_invent_completed_call_metadata(
@@ -114,7 +114,7 @@ def test_provider_exception_does_not_invent_completed_call_metadata(
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(
         message_factory=fail,
-        review_action=("submit_review", {"review": "Approval before the provider failed.\n→ done"}),
+        action=hand_off("done", "Approval before the provider failed."),
     ))
     decision = _evaluate(backend, tmp_path)
     assert decision.status == "blocked" and decision.backend_unavailable
@@ -149,7 +149,7 @@ def test_a_reviewer_that_edits_the_work_is_recorded_beside_its_verdict(tmp_path)
 
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(
-        message_factory=edit, review_action=("submit_review", {"review": "The answer is right.\n→ done"}),
+        message_factory=edit, action=hand_off("done", "The answer is right."),
     ))
     decision = _evaluate(backend, workdir, snapshots=snapshots)
 
@@ -161,7 +161,7 @@ def test_a_reviewer_that_edits_the_work_is_recorded_beside_its_verdict(tmp_path)
 def test_a_review_that_changes_nothing_says_nothing(tmp_path):
     workdir, snapshots = _snapshots(tmp_path)
     backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "The answer is right.\n→ done"})))
+    backend.queue("reviewer", CannedResponse(action=hand_off("done", "The answer is right.")))
 
     decision = _evaluate(backend, workdir, snapshots=snapshots)
 
@@ -179,7 +179,7 @@ def test_a_snapshot_that_cannot_be_taken_does_not_hold_up_the_review(tmp_path, m
 
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(
-        message_factory=edit, review_action=("submit_review", {"review": "The answer is right.\n→ done"}),
+        message_factory=edit, action=hand_off("done", "The answer is right."),
     ))
     decision = _evaluate(backend, workdir, snapshots=snapshots)
 
@@ -199,7 +199,7 @@ def test_research_reviewer_is_granted_the_playbook_its_prompt_names(tmp_path):
     backend = MemoryBackend()
     backend.backend = "copilot"
     backend.queue("reviewer", CannedResponse(
-        review_action=("submit_review", {"review": "One check remains.\n→ engineer"}),
+        action=hand_off("engineer", "One check remains."),
     ))
 
     Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
@@ -240,7 +240,7 @@ def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_
     backend = MemoryBackend()
     backend.backend = backend_name
     backend.queue("reviewer", CannedResponse(
-        review_action=("submit_review", {"review": "One repair remains.\n→ engineer"}),
+        action=hand_off("engineer", "One repair remains."),
     ))
 
     Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
@@ -280,7 +280,7 @@ def test_the_reviewer_reads_what_its_engineer_reads(tmp_path, backend_name):
     backend = MemoryBackend()
     backend.backend = backend_name
     backend.queue("reviewer", CannedResponse(
-        review_action=("submit_review", {"review": "One repair remains.\n→ engineer"}),
+        action=hand_off("engineer", "One repair remains."),
     ))
 
     Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
