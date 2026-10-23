@@ -180,7 +180,7 @@ def fold_progress(
     revision) instead of being cut at the read boundary.
     """
     kind = str(row.get("kind") or "")
-    if row.get("transient") or row.get("final_delivery"):
+    if row.get("transient"):
         return
     if kind not in NARRATION_KINDS and kind not in STEP_KINDS:
         return

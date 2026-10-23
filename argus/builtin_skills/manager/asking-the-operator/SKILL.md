@@ -13,8 +13,10 @@ about; unfamiliarity is not a spelling error.
 
 Ask with `hand_off` (`to=operator`): one question in their language, and two
 to five different answers to pick from, each with what choosing it means.
-Leave the options empty only for a truly open question. Ask nothing else in
-the same turn, and start no work that the answer would change.
+Leave the options empty only for a truly open question. The operator sees
+this ask, not your reply text, so the question itself says what they need to
+know to choose. Ask nothing else in the same turn, and start no work that the
+answer would change.
 
 When Argus says the operator cannot be asked in this run, decide yourself and
 write the reading you chose in `assumptions`.

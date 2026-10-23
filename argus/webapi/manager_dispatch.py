@@ -951,10 +951,9 @@ def _settle_manager_turn(
         if handoff is not None:
             from ..life.supervisor.pending_notify import numbered_options
 
-            chinese = uses_cjk(operator_text)
+            # The ask is the one place the operator sees the question.
             reply = "\n\n".join(part for part in (
-                reply if reply != handoff.summary else "", handoff.question,
-                numbered_options(handoff.options, chinese),
+                handoff.question, numbered_options(handoff.options, uses_cjk(operator_text)),
             ) if part)
         result: dict[str, Any] = {"kind": "chat"}
         delivery = chat_state.pop("_self_delivery", None)

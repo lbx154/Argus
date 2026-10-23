@@ -1,8 +1,6 @@
 """Reports Argus writes about its own background work are not operator messages."""
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from argus.apps._inbox import queue_inbox_message
@@ -27,22 +25,15 @@ def test_host_reports_are_read_once_without_the_front_door(tmp_path, monkeypatch
     persist_vertical(project, "software", workflow_mode="direct")
     queue_inbox_message(life, report, source=source)
     queue_inbox_message(life, "Please also plot the residuals.", source="operator")
-    classified: list[str] = []
-
-    def classify(text, *, intake_sink, **kwargs):
-        classified.append(text)
-        intake_sink({"kind": "ephemeral"})
-
     receiver = DurableInboxReceiver(life, consumer="supervisor", project_root=project)
-    manager = SimpleNamespace(classify_front_door=classify)
-    first = receiver.receive(manager=manager, mission_id="", limit=10)
+    first = receiver.receive(mission_id="", limit=10)
     assert [str(text) for text in first] == [report.strip()]
-    assert first[0].ephemeral and classified == []
+    assert first[0].ephemeral
     receiver.settle(first)
-    second = receiver.receive(manager=manager, mission_id="", limit=10)
+    second = receiver.receive(mission_id="", limit=10)
     assert [str(text) for text in second] == ["Please also plot the residuals."]
-    # Only the operator's own words went through the Manager's front door.
-    assert classified == ["Please also plot the residuals."]
+    # The inbox classifies nothing: the operator's words reach the round as guidance.
+    assert second[0].ephemeral
     # Nothing about the report became durable operator context.
     assert not [
         record for record in OperatorContextStore(life).records()

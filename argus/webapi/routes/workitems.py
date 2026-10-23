@@ -59,27 +59,13 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
 
     @app.post("/api/projects/{sid}/nudge", dependencies=[Depends(ctx.require_auth)])
     def _post_nudge(sid: str, body: NudgeIn) -> dict[str, Any]:
-        from ...apps._inbox import InboxError, InboxPressure
-
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty nudge text")
-        try:
-            ctx.not_found_if_none(
-                mission_items.enqueue_nudge(
-                    sid, body.text, global_root=ctx.project_root_or_404(sid)
-                ),
-                sid,
-            )
-        except InboxPressure as exc:
-            raise HTTPException(
-                status_code=429,
-                detail="指令队列已满或内容过长，本次未接收。请缩短内容或稍后重试。",
-            ) from exc
-        except InboxError as exc:
-            raise HTTPException(
-                status_code=503, detail="指令暂未接收，请稍后重试。",
-            ) from exc
-        return {"ok": True}
+        result = ctx.not_found_if_none(
+            mission_items.enqueue_nudge(sid, body.text, global_root=ctx.project_root_or_404(sid)),
+            sid,
+        )
+        return {"ok": result.get("kind") != "error", **result}
 
     @app.post(
         "/api/projects/{sid}/backlog/{item_id}/answer",

@@ -208,10 +208,6 @@ class VerticalDecision:
     # the Manager must never invent one, because a constraint nobody asked for
     # becomes a goal nobody agreed to.
     precise_constraints: tuple[str, ...] = ()
-    # What the operator ruled out. Kept beside the constraints rather than
-    # folded into them: `render_contract` gives exclusions their own heading,
-    # and "do not do X" read as a requirement is the opposite instruction.
-    exclusions: tuple[str, ...] = ()
     # Readings of the operator's words the Manager chose without asking:
     # ``{"chose": ..., "instead_of": ...}`` each (``core.autonomy.record_assumptions``).
     assumptions: tuple[dict[str, str], ...] = ()
@@ -220,11 +216,6 @@ class VerticalDecision:
     session_title: str = ""
     workflow_profile: str = ""
     workflow_requested_stages: tuple[str, ...] = ()
-    # ``to=operator``: the operator decides before any work starts, so the
-    # task waits on this question, and the answers it offers, instead of
-    # being dispatched.
-    operator_question: str = ""
-    operator_options: tuple[dict[str, str], ...] = ()
 
 
 def _listed(payload: Mapping[str, Any], key: str) -> tuple[str, ...]:
@@ -279,11 +270,8 @@ class RouteContext:
             execution_task=execution_task,
             require_independent_review=payload.get("require_independent_review", True),
             precise_constraints=_listed(payload, "precise_constraints"),
-            exclusions=_listed(payload, "exclusions"),
             assumptions=tuple(payload["assumptions"]),
             session_title=topic_name(payload.get("session_title")),
-            operator_question=payload.get("ask", {}).get("question", ""),
-            operator_options=tuple(payload.get("ask", {}).get("options", ())),
         )
         if choice == "new":
             return self._new(payload, decision)

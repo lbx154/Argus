@@ -116,7 +116,6 @@ def _manager_message(
     from ..core.transcript import append_turn
     from ..life.memory import BacklogItem, MemoryBundle
     from ..manager.config_intent import record_manager_handoff
-    from ..manager.form import ticket
     from ..manager.front_door import manager_turn, mission_is_running
     from .attachments import attachment_context_refs, compose_message_body
 
@@ -390,7 +389,9 @@ def _manager_message(
             )
             if settled is not None:
                 return settled
-            body = ticket(handoff.payload)
+            # The ticket carries its route, checked in the Manager's turn.
+            chat_state["_approved_domain_decision"] = handoff.value
+            body = handoff.value.execution_task
             public_task = handoff.get("goal")
             chat_state["_team_lifetime"] = handoff.get("lifetime", "bounded")
 

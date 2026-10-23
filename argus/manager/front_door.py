@@ -9,6 +9,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from inspect import Parameter, signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator
@@ -540,7 +541,6 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             ))
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
-        exclusions = tuple(getattr(decision, "exclusions", ()) or ())
         assumptions = tuple(
             f"{row['chose']} (rather than {row['instead_of']})"
             for row in getattr(decision, "assumptions", ())
@@ -552,7 +552,6 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
                 contract=new_contract(
                     objective=body,
                     clauses=clauses,
-                    exclusions=exclusions,
                     assumptions=assumptions,
                 ),
             )
@@ -569,11 +568,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             if objective_changed or clauses
             else current.clauses
         )
-        proposed_exclusions = (
-            exclusions
-            if objective_changed or exclusions
-            else current.exclusions
-        )
+        proposed_exclusions = () if objective_changed else current.exclusions
         proposed_assumptions = (
             assumptions
             if objective_changed or assumptions
@@ -1327,7 +1322,11 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                 captured.append(text)
                 _fragment("delta", {"text": text, "message_id": self._message_id, "fragment_mode": "snapshot"})
 
-    actions = manager_actions(body, active_mission=mission_is_running(mem), team_allowed=team_allowed)
+    actions = manager_actions(
+        body, active_mission=mission_is_running(mem), team_allowed=team_allowed,
+        route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
+                      allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
+    )
     try:
         outcome = runner.manager_turn(
             message=body, sink=_Capture(), actions=actions, seed_thread_id=chat_state.get("last_thread_id"),

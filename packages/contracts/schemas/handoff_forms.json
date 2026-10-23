@@ -156,7 +156,7 @@
       }
     },
     "manager": {
-      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide (Argus shows your question and its options under your reply, so do not repeat them there); manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
+      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide (the operator sees your ask, its question and options, instead of your reply, so the question carries what they need to decide); manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
       "core": ["to", "summary", "ask", "assumptions"],
       "to": ["manager", "team", "operator"],
       "required": ["to", "summary", "assumptions"],
@@ -166,6 +166,14 @@
         "constraints": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: limits the operator stated, verbatim; never invented."},
         "context": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: paths of the files the team should read first."},
         "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team, or a steer: standing for ongoing intent, else bounded."},
+        "vertical": {"type": "string", "minLength": 1, "description": "With to=team: the team's workflow, from the menu in the team-handoff rules, or a project domain's slug; a new reusable slug only when none fits."},
+        "domain": {"type": "string", "description": "With vertical=research: an optional research domain from the menu."},
+        "workflow_mode": {"enum": ["direct", "staged"], "description": "With to=team: direct for one coherent Engineer task, staged for dependent phases."},
+        "start_stage": {"type": "string", "description": "With workflow_mode=direct: the stage it starts at, if not the first."},
+        "research_target_level": {"enum": ["exploratory", "publishable", "doctoral"], "description": "With vertical=research: the success bar."},
+        "research_direction_mode": {"enum": ["broad", "locked"], "description": "With vertical=research: broad while the direction is open, locked for the operator's concrete idea."},
+        "target_venue": {"type": "string", "maxLength": 100, "description": "With vertical=research: only a venue the operator named."},
+        "require_independent_review": {"type": "boolean", "description": "With to=team: false only when the operator waived independent review."},
         "intake": {
           "type": "object", "additionalProperties": false, "required": ["type", "scope"],
           "description": "A lasting rule the operator gave: standing_directive to govern later turns (`以后都用中文`), with preference_value the rule only; otherwise preference, credential_grant or revocation; objective_amendment when it edits the live mission. roles: the roles it applies to, [] for all.",
@@ -212,9 +220,9 @@
       }
     },
     "route": {
-      "description": "Record your routing decision; the call ends your turn. to: team dispatches the work as decided; operator, the operator must decide something before any work can start, such as a choice they reserved or requirements that contradict each other, and the task waits on their answer. summary: why this route, in plain words, without verticals, workflow modes or other internal names.",
-      "core": ["to", "summary", "note", "ask", "assumptions"],
-      "to": ["team", "operator"],
+      "description": "Record your routing decision; the call ends your turn. to: team dispatches the work as decided. summary: why this route, in plain words, without verticals, workflow modes or other internal names.",
+      "core": ["to", "summary", "note", "assumptions"],
+      "to": ["team"],
       "required": ["to", "summary", "assumptions", "choice"],
       "properties": {
         "choice": {"enum": ["existing", "new", "grounded"], "description": "existing: a listed capability; new: a reusable new domain, only if none fits; grounded: only in the fast pass, when repository inspection is needed (leave vertical empty)."},
@@ -228,10 +236,7 @@
         "research_direction_mode": {"enum": ["broad", "locked"]},
         "target_venue": {"type": "string", "maxLength": 100},
         "require_independent_review": {"type": "boolean"},
-        "execution_task": {"type": "string"},
-        "session_title": {"type": "string", "description": "A concise topic summary in the operator's language, without input ids or filler."},
-        "precise_constraints": {"type": "array", "items": {"type": "string"}, "description": "Mechanically checkable requirements the operator stated, verbatim; never invented."},
-        "exclusions": {"type": "array", "items": {"type": "string"}, "description": "What the operator ruled out, verbatim."}
+        "execution_task": {"type": "string"}
       }
     },
     "stage": {

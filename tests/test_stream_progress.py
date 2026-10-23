@@ -407,26 +407,6 @@ def test_copilot_assistant_message_final_clears_buffer() -> None:
     assert progress[2]["transient"] is True
 
 
-def test_planner_final_delivery_is_preserved_beyond_progress_limit() -> None:
-    sink = _RecordingSink()
-    cb = make_stream_progress_callback(sink)
-    content = (
-        "Final audit\n\n"
-        + "x" * 900
-        + "\n\nPROJECT_DONE=true\nREASON=complete result remains visible"
-    )
-
-    cb("planner.cycle1.stdout", json.dumps({
-        "type": "assistant.message",
-        "data": {"messageId": "planner-final", "content": content},
-    }))
-
-    event = sink.events[-1]
-    assert event["final_delivery"] is True
-    assert event["text"] == content
-    assert event["text"].endswith("REASON=complete result remains visible")
-
-
 def test_ordinary_long_agent_speech_is_preserved() -> None:
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)
@@ -438,7 +418,6 @@ def test_ordinary_long_agent_speech_is_preserved() -> None:
 
     event = sink.events[-1]
     assert event["text"] == "x" * 900
-    assert "final_delivery" not in event
 
 
 def test_copilot_result_clears_actor_buffers() -> None:

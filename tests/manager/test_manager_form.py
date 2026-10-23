@@ -12,11 +12,23 @@ def _call(actions, **payload):
     return ""
 
 
-def test_a_ticket_needs_its_goal_and_acceptance():
-    actions = manager_actions("做一份完整的调研报告", active_mission=False, operator_available=True)
-    assert "goal and acceptance" in _call(actions, to="team")
-    assert _call(actions, to="team", goal="调研报告", acceptance=["报告存在"]) == ""
-    assert actions.handoff.to == "team"
+def test_a_ticket_carries_its_goal_acceptance_and_route():
+    routed: list[dict] = []
+    actions = manager_actions(
+        "做一份完整的调研报告", active_mission=False, operator_available=True,
+        route=lambda payload: routed.append(payload) or "decision",
+    )
+    assert "goal, acceptance and vertical" in _call(actions, to="team", goal="调研报告", acceptance=["报告存在"])
+    assert _call(
+        actions, to="team", goal="调研报告", acceptance=["报告存在"], constraints=["只用公开数据"],
+        vertical="research", research_target_level="exploratory", name="向量库调研",
+    ) == ""
+    assert actions.handoff.to == "team" and actions.handoff.value == "decision"
+    [payload] = routed
+    assert payload["execution_task"] == ticket(actions.handoff.payload)
+    assert payload["precise_constraints"] == ["只用公开数据"]
+    assert payload["session_title"] == "向量库调研"
+    assert payload["vertical"] == "research" and payload["research_target_level"] == "exploratory"
 
 
 def test_an_answer_kept_with_the_manager_cannot_go_to_the_team():
@@ -51,7 +63,7 @@ def test_a_control_is_the_operators_explicit_word(control, active, refusal):
 def test_settings_are_applied_by_argus_not_the_team():
     actions = manager_actions("把模型换成 x", active_mission=False, operator_available=True)
     config = [{"knob": "model", "roles": ["engineer", "engineer"], "value": "x"}]
-    assert "to=manager" in _call(actions, to="team", goal="g", acceptance=["a"], config=config)
+    assert "to=manager" in _call(actions, to="team", goal="g", acceptance=["a"], vertical="software", config=config)
     assert _call(actions, to="manager", config=config) == ""
     assert config_intents(actions.handoff.get("config"))[0].roles == ("engineer",)
 

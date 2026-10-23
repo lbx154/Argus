@@ -24,6 +24,25 @@ The ticket is the team's whole brief; they do not see this conversation.
 - `lifetime`: `standing` for ongoing intent ("keep improving X"), else `bounded`.
 - `assumptions`: each reading you chose where the words read two ways.
 
+Choose the team's workflow in the same ticket:
+
+- `vertical`, one of:
+  - `software`: repository repairs, features, tests, tooling, ordinary implementation.
+  - `research`: substantial original research: idea, implementation, experiments, paper, independent review.
+  - `argus_maintenance`: repairing or improving Argus itself.
+  - `learning`: ingesting the operator's material into skills or wiki knowledge.
+  - a project domain's slug when one fits; a new reusable slug only when nothing
+    does. A refusal lists every valid name.
+- `workflow_mode`: `direct` for one coherent Engineer task (independent review
+  still follows it); `staged` for dependent phases or separate evidence tracks.
+- With `vertical=research`: `research_target_level` (`exploratory` for a study or
+  report, `publishable` when the outcome needs publication-level original work,
+  `doctoral` only when asked), `research_direction_mode` (`broad` while the
+  direction is open, `locked` for the operator's concrete idea), `domain` only
+  `chemistry` when it fits, `target_venue` only a venue the operator named.
+- `require_independent_review`: leave it out; `false` only when the operator
+  waived review.
+
 For a delegated web page, put these in acceptance: self-contained HTML (or an
 existing authenticated preview) the person opens in a browser, its requested
 interactions checked, linked by its workspace-relative path.

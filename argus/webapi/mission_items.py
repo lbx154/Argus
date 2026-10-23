@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
-from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
+from ..apps._inbox import count_pending_inbox_messages
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..core.config_snapshot import build_config_snapshot
 from ..core.mission_view import operator_objective
@@ -141,14 +141,16 @@ def enqueue_task_command(
 
 def enqueue_nudge(
     sid: str, text: str, *, global_root: Path | str | None = None, source: str = "web"
-) -> bool | None:
-    """Queue operator guidance to the inbox (also emits ``life.inbox.queued``
-    so it shows on the live stream)."""
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
+) -> dict[str, Any] | None:
+    """Operator guidance while the team works: one turn of the Manager's session, like any message.
+
+    The Manager answers it, steers the running mission, or hands over new work.
+    """
+    if project_life_dir(sid, global_root=global_root) is None:
         return None
-    queue_inbox_message(life_dir, text.strip(), source=source)
-    return True
+    from .manager_bridge import manager_message
+
+    return manager_message(sid, text.strip(), global_root=global_root, source_channel=source)
 
 
 def get_status(

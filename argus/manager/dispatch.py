@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -321,13 +320,6 @@ def enqueue_mission(
             original_objective=execution_body,
             manager_decision=manager_decision,
         )
-        question = str(getattr(prepared_handoff.decision, "operator_question", "") or "")
-        if question:
-            # Only the operator can decide before this work starts: it is never
-            # queued, and their answer continues it like any parked question.
-            from ..life.memory import park_item
-
-            park_item(item, "operator_question")
         try:
             mem.backlog.add(item)
         except OSError as exc:
@@ -355,15 +347,6 @@ def enqueue_mission(
         from ..core.autonomy import record_assumptions
 
         record_assumptions(life_dir, prepared_handoff.decision.assumptions, item_id=item.id, source="route")
-        if question:
-            from ..life.supervisor.pending_notify import ask_operator
-
-            ask_operator(
-                life_dir, item, question, layer="manager",
-                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
-                save=partial(mem.backlog.update, item.id), emit=sink.append,
-                options=getattr(prepared_handoff.decision, "operator_options", ()),
-            )
         return item
 
     if direct and campaign_running:
