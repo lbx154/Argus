@@ -1828,7 +1828,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "project_dir": 34,
     # Stage steering reads the existing Manager authority root, not the
     # execution worktree; this is one new consumer, not a new root alias.
-    "manager_session_root": 24,
+    "manager_session_root": 23,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,

@@ -19,9 +19,6 @@ from argus.core.role_reply import (
     read_float,
     read_key_values,
     read_list,
-    read_optional,
-    strip_control_footer,
-    strip_named_lines,
 )
 
 _KEYS = ("VERTICAL", "WORKFLOW_MODE", "CONFIDENCE", "RATIONALE", "TARGET_VENUE")
@@ -116,55 +113,12 @@ def test_explicit_footer_ignores_quoted_or_abandoned_fields() -> None:
     assert "CONTROL" not in values
 
 
-def test_stripping_control_lines_also_removes_footer_marker() -> None:
-    reply = "Natural explanation.\nDecision:\nVERTICAL=software"
-
-    assert strip_named_lines(reply, ("VERTICAL",)) == "Natural explanation."
-
-
-def test_collapsed_control_footer_is_removed_from_user_summary() -> None:
-    summary = (
-        "Implemented the cache and passed 20 tests. "
-        "RESULT=cache implementation passed NEXT_OWNER=reviewer"
-    )
-
-    assert strip_control_footer(
-        summary,
-        ("RESULT", "NEXT_OWNER"),
-    ) == "Implemented the cache and passed 20 tests."
-
-
-def test_natural_result_colon_is_not_mistaken_for_a_footer() -> None:
-    summary = (
-        "We fixed the race; as a result: throughput improved by 20%. "
-        "All tests pass."
-    )
-
-    assert strip_control_footer(summary, ("RESULT", "NEXT_OWNER")) == summary
-
-
-def test_natural_inline_result_equals_is_not_mistaken_for_a_footer() -> None:
-    summary = (
-        "Implemented caching layer. Benchmarked result=3x faster than baseline "
-        "under load."
-    )
-
-    assert strip_control_footer(summary, ("RESULT", "NEXT_OWNER")) == summary
-
-
 def test_an_unanswered_key_is_absent_not_empty() -> None:
     """A caller must be able to tell "did not answer" from "answered nothing"."""
     values = read_key_values("VERTICAL=research", _KEYS)
 
     assert "TARGET_VENUE" not in values
     assert values.get("TARGET_VENUE") is None
-
-
-def test_a_declined_value_reads_as_empty() -> None:
-    values = read_key_values("TARGET_VENUE=none", _KEYS)
-
-    assert "TARGET_VENUE" in values
-    assert read_optional(values, "TARGET_VENUE") == ""
 
 
 def test_a_list_splits_on_semicolons_not_commas() -> None:
@@ -252,20 +206,6 @@ OPERATOR_QUESTION=none
     )
 
 
-def test_internal_handoff_lines_are_removed_from_visible_speech() -> None:
-    visible = strip_named_lines(
-        (
-            "Waiting for your format choice.\n"
-            "MILESTONE_STATUS=continue\n"
-            "OPERATOR_QUESTION=Which format?\n"
-            "OPERATOR_OPTIONS=json :: false :: JSON :: Structured report"
-        ),
-        ("MILESTONE_STATUS", "OPERATOR_QUESTION", "OPERATOR_OPTIONS"),
-    )
-
-    assert visible == "Waiting for your format choice."
-
-
 def test_a_block_stops_at_the_next_key_not_at_the_end() -> None:
     from argus.core.role_reply import read_block
 
@@ -281,127 +221,6 @@ def test_a_missing_block_is_empty_not_the_whole_reply() -> None:
 
 
 # -- the stage decision, converted off forced JSON ---------------------------
-
-
-def test_a_verbatim_live_stage_verdict_parses() -> None:
-    """Captured from copilot against the converted stage prompt on 2026-07-26.
-
-    Kept verbatim, prose and all, because the point of the change is that the
-    Manager may reason out loud around its verdict — a fixture that omitted the
-    prose would not be testing the thing that changed.
-    """
-    from argus.manager.stage_decider import parse_stage_decision
-
-    reply = (
-        "ADVANCE is both illegal (no next stage) and unsupported. HOLD is the "
-        "only legal and honest move.\n"
-        "\n"
-        "ACTION=hold\n"
-        "TARGET_STAGE=delivery\n"
-        "REASON=All three delivery checklist items are unmet with zero "
-        "supporting evidence.\n"
-        "LIVE_VIEW_PATHS=notes.md; CHECKPOINT.md\n"
-        "LIVE_VIEW_TITLE=Delivery held: no implementation artifacts exist\n"
-        "LIVE_VIEW_REASON=The working directory is empty.\n"
-    )
-
-    decision = parse_stage_decision(
-        reply, current_stage="delivery", stage_order=["delivery"]
-    )
-
-    assert decision.action == "hold"
-    assert decision.target_stage == "delivery"
-    assert "checklist items are unmet" in decision.reason
-
-
-def test_the_same_reply_carries_the_live_view_choice() -> None:
-    from argus.manager.live_view import parse_live_view_response
-
-    decided, view = parse_live_view_response(
-        "ACTION=hold\n"
-        "LIVE_VIEW_PATHS=notes.md; CHECKPOINT.md\n"
-        "LIVE_VIEW_TITLE=Delivery held\n"
-        "LIVE_VIEW_REASON=nothing was built\n"
-    )
-
-    assert decided is True
-    assert view is not None
-    assert view.title == "Delivery held"
-    assert len(view.paths) == 2
-
-
-def test_an_empty_live_view_line_clears_the_panel() -> None:
-    """Distinct from never mentioning it, which must leave the panel alone."""
-    from argus.manager.live_view import parse_live_view_response
-
-    cleared, view = parse_live_view_response("ACTION=hold\nLIVE_VIEW_PATHS=\n")
-    untouched, _ = parse_live_view_response("ACTION=hold\n")
-
-    assert cleared is True and view is None
-    assert untouched is False
-
-
-def test_a_stage_verdict_still_parses_from_volunteered_json() -> None:
-    from argus.manager.stage_decider import parse_stage_decision
-
-    decision = parse_stage_decision(
-        '{"action":"hold","target_stage":"delivery","reason":"not yet"}',
-        current_stage="delivery",
-        stage_order=["delivery"],
-    )
-
-    assert decision.action == "hold" and decision.reason == "not yet"
-
-
-def test_the_stage_prompt_no_longer_demands_json() -> None:
-    from types import SimpleNamespace
-
-    from argus.roles.prompts.manager import build_stage_decision_prompt
-
-    review = SimpleNamespace(
-        status="done", reason="r", next_action="", operator_question="", checklist=[]
-    )
-    prompt = build_stage_decision_prompt(
-        current_stage="delivery",
-        next_stage="",
-        later_stages=[],
-        earlier_stages=[],
-        checklist_md="- x",
-        review=review,
-        planner_verdict=None,
-        open_ended=True,
-        continuous_objective="obj",
-    )
-
-    assert "JSON" not in prompt
-    assert "ARGUS_ROLE_DECISION=" not in prompt
-    assert "ACTION=hold" in prompt
-
-
-def test_stage_prompt_exposes_dynamic_later_stage_choices() -> None:
-    from types import SimpleNamespace
-
-    from argus.roles.prompts.manager import build_stage_decision_prompt
-
-    prompt = build_stage_decision_prompt(
-        current_stage="research",
-        next_stage="plan",
-        later_stages=["plan", "benchmark", "run", "analysis", "draft"],
-        earlier_stages=[],
-        checklist_md="- literature is grounded",
-        review=SimpleNamespace(status="done", reason="scope and sources verified"),
-        continuous_objective="Write a literature-only survey with no experiments.",
-    )
-
-    assert "Legal ADVANCE targets (later stages)" in prompt
-    assert "`plan`, `benchmark`, `run`, `analysis`, `draft`" in prompt
-    assert "literature-only survey" in prompt
-    assert "Manager chooses ADVANCE, HOLD, ROLLBACK, or COMPLETE" in prompt
-    assert "## Operator objective" in prompt
-    assert "survey with no experiments" in prompt
-
-
-# -- prompt rewrite ----------------------------------------------------------
 
 
 def test_a_verbatim_live_rewrite_parses_with_its_questions() -> None:
@@ -533,64 +352,6 @@ _PANEL = (
     "- checklist: 0/3\n"
     "```\n"
 )
-
-
-def test_authored_panel_content_survives_its_own_blank_lines() -> None:
-    """File content is the one field that genuinely needs a delimiter.
-
-    It is multi-line and may contain anything, so a flat `KEY=value` cannot
-    carry it. A fenced block is what a model writes for file content anyway.
-    """
-    from argus.manager.live_view import parse_manager_presentations
-
-    presentations = parse_manager_presentations(_PANEL)
-
-    assert len(presentations) == 1
-    assert presentations[0].path == ".argus/live/status.md"
-    assert presentations[0].content.count("\n") == 4
-    assert "checklist: 0/3" in presentations[0].content
-
-
-def test_the_same_reply_also_carries_the_panel_selection() -> None:
-    from argus.manager.live_view import parse_live_view_response
-
-    decided, view = parse_live_view_response(_PANEL)
-
-    assert decided is True
-    assert view is not None and view.title == "Delivery held"
-    assert len(view.paths) == 2
-
-
-def test_a_path_with_no_content_block_is_dropped_not_guessed() -> None:
-    """The caller replaces a missing presentation with a status page.
-
-    Inventing content would put Manager-attributed prose in front of the
-    operator that the Manager never wrote.
-    """
-    from argus.manager.live_view import parse_manager_presentations
-
-    assert parse_manager_presentations("PRESENTATION=.argus/live/a.md\n") == ()
-
-
-def test_a_path_outside_the_managed_directory_is_refused() -> None:
-    from argus.manager.live_view import parse_manager_presentations
-
-    assert parse_manager_presentations(
-        "PRESENTATION=/etc/passwd\n```\nx\n```\n"
-    ) == ()
-
-
-def test_volunteered_json_presentations_still_parse() -> None:
-    from argus.manager.live_view import parse_manager_presentations
-
-    presentations = parse_manager_presentations(
-        '{"presentations":[{"path":".argus/live/a.md","content":"x"}]}'
-    )
-
-    assert len(presentations) == 1
-
-
-# -- repeated records --------------------------------------------------------
 
 
 def test_several_verdicts_are_read_as_separate_records() -> None:

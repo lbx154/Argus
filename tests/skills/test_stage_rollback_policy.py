@@ -18,6 +18,7 @@ from argus.skills.stage_machine import (
 )
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals import _registry
+from tests.hand_off import stage
 
 
 @pytest.fixture(autouse=True)
@@ -66,13 +67,7 @@ def test_external_vertical_rollback_policy_across_runtime_entries(
     state, workdir, _provider = _external_project(tmp_path, monkeypatch, policy)
     before = read_pipeline_state(state)
     if entrypoint == "manager":
-        prompts = []
-
-        def model(prompt: str):
-            prompts.append(prompt)
-            return SimpleNamespace(last_agent_message=(
-                "ACTION=rollback\nTARGET_STAGE=build\nREASON=Repair upstream evidence."
-            ))
+        model = stage(move="rollback", target_stage="build")
 
         transition = Manager(
             project_root=state, execution_workdir=workdir, runner=object(),
@@ -86,15 +81,15 @@ def test_external_vertical_rollback_policy_across_runtime_entries(
             stage_closing=True,
             run_exec=model,
         )
-        assert len(prompts) == 1
+        assert len(model.prompts) == 1
         if policy is False:
             assert transition.action == "hold"
             assert "forward-only" in transition.reason
             assert transition.diagnostic == "external_lab_rollback_rejected"
-            assert "Legal ROLLBACK targets: none" in prompts[0]
+            assert "Rollback targets: none" in model.prompts[0]
         else:
             assert transition.action == "rollback"
-            assert "Legal ROLLBACK targets: none" not in prompts[0]
+            assert "Rollback targets: none" not in model.prompts[0]
     else:
         def apply():
             if entrypoint == "stage":

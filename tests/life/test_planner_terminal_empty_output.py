@@ -27,6 +27,7 @@ from argus.life.supervisor._constants import (
 from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
 from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
+from tests.hand_off import route, submit
 
 pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
@@ -162,6 +163,15 @@ class _EmptyPlannerThenManagerRunner:
         self.planner_calls = 0
         self.manager_calls = 0
 
+    def file_stage_form(self, options) -> str:
+        """File the Manager's stage form over the call's bridge; returns the closing reply."""
+        if self.manager_action == "complete":
+            form = route("done")
+        else:
+            form = route(move=self.manager_action, target_stage=self.manager_target_stage)
+        assert submit(options, form) == ""
+        return "final delivery remains certified; hold terminal stage"
+
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         if run_label.startswith("planner.cycle"):
             self.planner_calls += 1
@@ -175,11 +185,7 @@ class _EmptyPlannerThenManagerRunner:
         else:
             assert run_label == "manager-stage"
             self.manager_calls += 1
-            payload = {
-                "action": self.manager_action,
-                "target_stage": self.manager_target_stage,
-                "reason": "final delivery remains certified; hold terminal stage",
-            }
+            payload = self.file_stage_form(options)
         return RunnerResult(
             exit_code=0,
             agent_messages=[json.dumps(payload) if isinstance(payload, dict) else payload],
@@ -258,11 +264,7 @@ class _EmptyThenTaskPlannerRunner(_EmptyPlannerThenManagerRunner):
         else:
             assert run_label == "manager-stage"
             self.manager_calls += 1
-            payload = {
-                "action": self.manager_action,
-                "target_stage": self.manager_target_stage,
-                "reason": "final delivery remains certified; hold terminal stage",
-            }
+            payload = self.file_stage_form(options)
         return RunnerResult(
             exit_code=0,
             agent_messages=[json.dumps(payload) if isinstance(payload, dict) else payload],

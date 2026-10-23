@@ -24,3 +24,22 @@ def submit(options, action: tuple[str, dict]) -> str:
     except ValueError as refusal:
         return str(refusal)
     return ""
+
+
+def stage(to: str = "team", summary: str = "Why the stage moves.", **fields):
+    """A Manager stage model, ``run_exec(prompt, actions)``, that files the stage form with ``fields``.
+
+    A refused call is dropped, as a model that never corrects it hands nothing off.
+    The prompts it was given are kept on ``run.prompts``.
+    """
+    from contextlib import suppress
+    from types import SimpleNamespace
+
+    def run(prompt: str, actions) -> SimpleNamespace:
+        run.prompts.append(prompt)
+        with suppress(ValueError):
+            actions.dispatch("hand_off", {"to": to, "summary": summary, "assumptions": [], **fields})
+        return SimpleNamespace(exit_code=0)
+
+    run.prompts = []
+    return run

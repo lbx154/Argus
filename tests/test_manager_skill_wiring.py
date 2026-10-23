@@ -16,6 +16,7 @@ from argus.skills.store import (
     ROLE_SKILL_POOLS,
     role_of_path,
 )
+from tests.hand_off import stage
 
 _BUILTIN_ROOT = Path(_builtin.__file__).parent
 
@@ -82,21 +83,6 @@ class _StubReview:
     checklist: list = []
 
 
-class _CapturingRunExec:
-    """Captures the prompt passed to the manager's stage-decision LLM call and
-    returns a HOLD verdict so no stage write happens."""
-
-    def __init__(self) -> None:
-        self.prompts: list[str] = []
-
-    def __call__(self, prompt: str) -> RunnerResult:
-        self.prompts.append(prompt)
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=['{"action": "hold", "target_stage": "research", "reason": "stub"}'],
-        )
-
-
 class _CapturingStageRunner:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -137,7 +123,7 @@ def test_manager_decision_prompt_carries_paths_not_skill_body(
     )
     mgr = Manager(project_root=tmp_path, runner=object(), skill_store=store)
 
-    cap = _CapturingRunExec()
+    cap = stage(move="hold")
     decision = mgr.decide_stage_transition(
         review=_StubReview(), project_root=tmp_path, run_exec=cap
     )
@@ -149,7 +135,7 @@ def test_manager_decision_prompt_carries_paths_not_skill_body(
     assert "DO NOT PRELOAD THIS MANAGER BODY" not in prompt
     assert "The Manager's role" not in prompt
     assert "ARGUS_ROLE_DECISION=" not in prompt
-    assert "ACTION=hold" in prompt
+    assert "move=hold" in prompt
     assert "Right-sidebar presentation" not in prompt
     assert "LIVE_VIEW_PATHS" not in prompt
     assert decision.action == "hold"
@@ -159,7 +145,7 @@ def test_manager_decision_prompt_unchanged_without_store(tmp_path: Path) -> None
     # With NO skill_store the decision prompt must NOT carry the role-skill header
     # (byte-for-byte back-compat with the pre-skill Manager).
     mgr = Manager(project_root=tmp_path, runner=object(), skill_store=None)
-    cap = _CapturingRunExec()
+    cap = stage(move="hold")
     mgr.decide_stage_transition(review=_StubReview(), project_root=tmp_path, run_exec=cap)
     assert cap.prompts
     assert "Argus manager role skill" not in cap.prompts[0]

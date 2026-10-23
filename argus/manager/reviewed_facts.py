@@ -13,7 +13,6 @@ from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
-from .stage_decider import extract_answer
 
 log = logging.getLogger(__name__)
 
@@ -295,7 +294,7 @@ def review_and_append_fact(
 
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         return False
-    decision = _json_object(extract_answer(result))
+    decision = _json_object((result.last_agent_message or ""))
     if not decision or decision.get("append") is not True:
         return False
     fact = " ".join(str(decision.get("fact") or "").split())

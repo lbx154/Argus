@@ -192,6 +192,16 @@
         "exclusions": {"type": "array", "items": {"type": "string"}, "description": "What the operator ruled out, verbatim."}
       }
     },
+    "stage": {
+      "description": "Record your stage decision; the call ends your turn. to: team, the team works on, with move; done, the objective is complete; operator, the stage cannot be decided without a choice only the operator can make. summary: the decisive evidence, whether the stage moves, and what happens next.",
+      "core": ["to", "summary", "ask", "assumptions"],
+      "to": ["team", "done", "operator"],
+      "required": ["to", "summary", "assumptions"],
+      "properties": {
+        "move": {"enum": ["advance", "hold", "rollback"], "description": "With to=team: advance to a later stage when concrete evidence meets this stage's requirements; hold to keep working on this one; rollback to an earlier stage whose evidence is broken."},
+        "target_stage": {"type": "string", "minLength": 1, "description": "The stage to move to: a later one to advance (the next one when left out), an earlier one to roll back."}
+      }
+    },
     "supervise": {
       "description": "Record your judgment of the team's course; the call ends your turn. to: team, the course is right, and with a note your corrected instruction, read by whoever holds the work at their next boundary; planner, your note needs new planning (tasks to add, retire or replace); operator, work handed to you waits on a choice only the operator can make, and the task waits on their answer; stop parks this mission, when changing direction will not help. summary: the decisive observed condition and what happens next, naming no task ids.",
       "core": ["to", "summary", "note", "ask", "assumptions"],

@@ -185,7 +185,7 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
     assert "reply is the complete answer for the operator" in front
     assert "without route, control, lifetime or role-protocol labels" in front
     assert "operator's language and plain language" in pending
-    assert "one operator-language sentence stating the decisive evidence" in stage
+    assert "## Writing for people" in stage
     assert "REASON and PLAN_REASON are operator-facing" in continuous
     assert "no field\n  names, status tokens, routine steps or Argus's own bookkeeping" in continuous
     assert "nothing the last REASON said" in continuous
