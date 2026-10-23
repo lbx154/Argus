@@ -133,6 +133,27 @@ def _contract(mod: VerticalDefinition) -> VerticalContract:
     return vertical_contract(name, mod)
 
 
+def builtin_skill_parents(name: object) -> tuple[str, ...]:
+    """Validate and return a built-in vertical's ``VERTICAL_SKILL_PARENTS``.
+
+    A built-in declares its skill parents on its ``stages`` module — the same
+    declaration shape plugins use, validated by the same ``_registry`` check
+    so the two paths cannot drift (``blue_team`` seeds ``red_team``'s skills
+    before its own). A name that is not a built-in vertical, or a built-in
+    that declares nothing, returns ``()``; an invalid declaration raises
+    loudly — it is this package's own code, not a third-party's.
+    """
+    cleaned = _normalize_vertical_name(name)
+    stages_path = os.path.join(os.path.dirname(__file__), cleaned, "stages.py")
+    optional = Path(stages_path).with_name("workbench.json").is_file()
+    if not os.path.isfile(stages_path) or optional:
+        return ()
+    from ._registry import _skill_parents
+
+    module = importlib.import_module(f"argus.verticals.{cleaned}.stages")
+    return _skill_parents(cleaned, module)
+
+
 def vertical_mission_prelude(
     *,
     vertical_root: Path,
@@ -219,6 +240,7 @@ __all__ = [
     "DEFAULT_VERTICAL",
     "VerticalContract",
     "VerticalDefinition",
+    "builtin_skill_parents",
     "load_vertical",
     "load_vertical_contract",
     "vertical_mission_prelude",

@@ -251,16 +251,23 @@ def domain_skill_source_path(domain: str) -> Path:
 def vertical_skill_parents(vertical: str) -> tuple[str, ...]:
     """Verticals whose skill trees are seeded before ``vertical``'s own, in order.
 
-    A vertical declares its own parents: an entry-point plugin exposes
-    ``VERTICAL_SKILL_PARENTS`` (validated by ``verticals._registry``); the
-    built-in verticals declare none. A parent may itself be a plugin
+    A vertical declares its own parents: an entry-point or managed plugin
+    exposes ``VERTICAL_SKILL_PARENTS`` (validated by ``verticals._registry``);
+    a built-in vertical declares the same attribute on its ``stages`` module,
+    resolved through the ``verticals._base`` loader so the skills package
+    never imports a concrete vertical (``blue_team`` seeds ``red_team``'s
+    skills before its own). A parent may itself be a plugin
     (``nanogpt_speedrun <- speedrun``) or built in (``kernelbench <-
     kernel_engineering``); ``_vertical_skill_roots`` resolves both the same way.
     """
     from ..verticals._registry import vertical_plugin
 
     plugin = vertical_plugin(vertical)
-    return plugin.skill_parents if plugin is not None else ()
+    if plugin is not None:
+        return plugin.skill_parents
+    from ..verticals._base import builtin_skill_parents
+
+    return builtin_skill_parents(vertical)
 
 
 def _vertical_skill_roots(vertical: str) -> list[Traversable]:
