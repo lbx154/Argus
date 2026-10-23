@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
+from ..core.hosting import hosting
 from .state import (
     _daemon_log_path,
     _daemon_pid_path,
@@ -385,13 +386,8 @@ def spawn_detached_process(
     # unlocking here would release the parent's lock before pid publication.
     release_spawn_lock(spawn_lock_fd, unlock=False)
 
-    from ..trial.training_runtime import (
-        complete_daemon_fork,
-        prepare_daemon_fork,
-        wait_daemon_claim,
-    )
-
-    training_handoff = prepare_daemon_fork(config)
+    hosted = hosting()
+    training_handoff = hosted.prepare_daemon_fork(config)
 
     # First child — become session leader.
     try:
@@ -405,10 +401,10 @@ def spawn_detached_process(
     except OSError:
         pid2 = -1
     if pid2 > 0:
-        wait_daemon_claim(training_handoff)
+        hosted.wait_daemon_claim(training_handoff)
         os._exit(0)
 
-    complete_daemon_fork(training_handoff, forked=pid2 == 0)
+    hosted.complete_daemon_fork(training_handoff, forked=pid2 == 0)
 
     # Grandchild: this is the daemon. Redirect std fds to the log file.
     os.chdir("/")

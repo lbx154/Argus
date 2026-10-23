@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from ..agent_cli.runner_backend import SUPPORTED_BACKENDS
+from .hosting import hosting
 
 
 @dataclass(frozen=True)
@@ -457,16 +458,13 @@ def resolve_role_model(
     consistently, not just in whichever process happened to make it.
     """
     env_map = env if env is not None else os.environ
-    from ..trial import CLIENT_MODEL
-    from ..trial.client import trial_enabled
-
-    hosted_trial = trial_enabled(env_map) and str(
+    hosted_trial = hosting().enabled(env_map) and str(
         backend or resolve_role_backend(route, env=env_map, default="codex")
     ).strip().lower() == "copilot"
     # Trial is a custom catalog. Normalize automatic choices before admission,
     # logging and execution, not only in the CLI command builder (upstream's
     # trial_model_options). Explicit choices still reach the validation guard.
-    auto_model = CLIENT_MODEL if hosted_trial else ""
+    auto_model = hosting().client_model if hosted_trial else ""
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:
@@ -493,7 +491,7 @@ def resolve_role_model(
             else persisted_shared
         )
     if hosted_trial:
-        return CLIENT_MODEL
+        return hosting().client_model
     from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
 
     # default="codex": the backend is used here ONLY to choose between "name an
@@ -642,9 +640,7 @@ def backend_uses_openai_catalog(
     if normalized not in _OPENAI_CATALOG_BACKENDS:
         return False
     if normalized == "copilot":
-        from ..trial.client import trial_enabled
-
-        return not trial_enabled(env)
+        return not hosting().enabled(env)
     try:
         from ..tools.capability_vault import read_codex_provider_config
 
@@ -736,11 +732,8 @@ def resolve_role_reasoning_effort(
     switch or natural-language "engineer 用 high 强度") -> ``default``.
     """
     env_map = env if env is not None else os.environ
-    from ..trial import REASONING_EFFORT
-    from ..trial.client import trial_enabled
-
-    if trial_enabled(env_map):
-        return REASONING_EFFORT
+    if hosting().enabled(env_map):
+        return hosting().reasoning_effort
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:

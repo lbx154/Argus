@@ -15,7 +15,7 @@ import pytest
 import uvicorn
 from cryptography.fernet import Fernet
 
-from argus.trial import client
+from argus.trial import client, hosting
 from argus.trial.gateway import Settings, create_app
 from argus.trial.secrets import Vault, write_private
 
@@ -45,7 +45,7 @@ def test_trial_setup_selects_copilot_and_does_not_use_pi(monkeypatch):
     from argus.tools import setup
 
     captured = []
-    monkeypatch.setattr(client, "setup_trial", lambda url, **kwargs: captured.append(url) or 0)
+    monkeypatch.setattr(hosting, "setup", lambda url, **kwargs: captured.append(url) or 0)
     assert setup.run_setup(trial_url="https://trial.example.com") == 0
     assert captured == ["https://trial.example.com"]
     assert setup.run_setup(trial_url="https://trial.example.com", backend="pi") == 2

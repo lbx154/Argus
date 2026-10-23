@@ -25,6 +25,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+from ...core.hosting import hosting
 from ...core.models import RunnerOptions, RunnerResult
 from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
@@ -49,19 +50,17 @@ def execute(
     # The generated command, reservation, and settled usage record therefore
     # share one model id instead of independently guessing after the call.
     options = backend._resolve_execution_options(options)
-    from ...trial.client import trial_enabled
-    hosted_trial = backend._runner.backend == "copilot" and trial_enabled()
+    hosted = hosting()
+    hosted_trial = backend._runner.backend == "copilot" and hosted.enabled()
     if hosted_trial:
         from dataclasses import replace
 
-        from ...trial.client import trial_model_options
         try:
-            model, effort = trial_model_options(options.model, options.reasoning_effort)
+            model, effort = hosted.model_options(options.model, options.reasoning_effort)
         except ValueError as exc:
             return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
         options = replace(options, model=model, reasoning_effort=effort)
-        from ...trial.attention import reason
-        if blocked := reason():
+        if blocked := hosted.attention_reason():
             return RunnerResult(exit_code=1, fatal_error=blocked, stop_kind="permanent_error")
     from ...core.workbench_plugins import prepare_plugin_run
     usage_context = getattr(backend, "_usage_context_snapshot", None)
@@ -78,7 +77,7 @@ def execute(
             # A plugin may apply its own explicit model override while binding
             # tools. Validate that final selection before accounting/spawn too.
             try:
-                model, effort = trial_model_options(options.model, options.reasoning_effort)
+                model, effort = hosted.model_options(options.model, options.reasoning_effort)
             except ValueError as exc:
                 return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
             options = replace(options, model=model, reasoning_effort=effort)
@@ -92,8 +91,6 @@ def execute(
             }
             and not is_provider_turn_cap_receipt(result.fatal_error)
         ):
-            from ...trial.attention import record_failure
-
             # A local turn allowance belongs to the checkpoint/continuation
             # handler, not the account-wide no-replay gate. Actual provider or
             # ambiguous request failures still pause, but retain their cause.
@@ -101,7 +98,7 @@ def execute(
                 str(result.fatal_error or ""),
                 known_values=getattr(backend, "_known_secret_values", ()),
             ).strip()
-            result.fatal_error = record_failure(diagnostic)
+            result.fatal_error = hosted.record_failure(diagnostic)
             if diagnostic:
                 result.fatal_error += "\n具体原因：" + diagnostic[:1200]
             result.stop_kind = "permanent_error"
@@ -182,9 +179,7 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
             if denied is not None:
                 return denied
 
-            from ...trial.training_runtime import capture_runtime_call
-
-            with capture_runtime_call(ctx, cli_options):
+            with hosting().capture_runtime_call(ctx, cli_options):
                 return spawn_and_finish(ctx, cli_options)
         finally:
             release_provider_slot(slot)

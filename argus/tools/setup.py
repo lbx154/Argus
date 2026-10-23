@@ -26,6 +26,7 @@ from ..core.backend_readiness import (
     format_backend_readiness,
     persist_validated_profile,
 )
+from ..core.hosting import hosting
 
 
 def _write_stderr(text: str) -> None:
@@ -619,10 +620,8 @@ def _run_setup(
         if api_url or api_key or api_model or backend not in (None, "copilot") or auth_mode:
             _write_stderr("argus: --trial-url selects its own backend and model; omit other backend/auth/API options\n")
             return SETUP_EXIT_USAGE
-        from ..trial.client import setup_trial
-
         try:
-            return setup_trial(trial_url, non_interactive=non_interactive)
+            return hosting().setup(trial_url, non_interactive=non_interactive)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             _write_stderr(f"argus: trial setup failed: {exc}\n")
             return SETUP_EXIT_NOT_READY
