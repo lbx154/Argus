@@ -334,6 +334,10 @@ class CommandRouter:
 
         text = self._redact_credentials(text.strip())
         reply, handoff = manager_turn(manager_mem, text, self._state)
+        if ruling := self._state.pop("_stage_ruling", None):
+            from ...apps._inbox import queue_inbox_message
+
+            queue_inbox_message(self.life_dir, ruling, source="manager.stage")
         intents = config_intents(handoff.get("config", ())) if handoff is not None else ()
         if intents:
             confirmations: list[str] = []

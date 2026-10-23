@@ -29,10 +29,10 @@
   },
   "global/manager/asking-the-operator/SKILL.md": {
     "title": "向操作者提问",
-    "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处。",
+    "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处；阶段决定默认由经理自己定，操作者要求参与时才带选项问。",
     "originalName": "Asking the operator",
     "source": "argus/builtin_skills/manager/asking-the-operator/SKILL.md",
-    "sourceBytes": 1086
+    "sourceBytes": 1779
   },
   "global/manager/evidence-based-stage-decision.md": {
     "title": "经理的职责与阶段决定",

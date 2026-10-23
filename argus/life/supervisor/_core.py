@@ -1811,7 +1811,7 @@ class LifeSupervisor(
         The report's message id makes retry safe even when the process died
         after leaving it. External letters/notifications remain separate.
         """
-        from ...webapi.deferred_messages import team_report_left
+        from ...core.team_reports import team_report_left
 
         delivery_id = str(event.get("mission_delivery_id") or "")
         if not delivery_id or self._project_report_tells(event):
@@ -1928,7 +1928,7 @@ class LifeSupervisor(
         self, life_dir: Path | str, *, text: str, message_id: str, event_fields: dict[str, Any],
     ) -> None:
         """Hand a team result to the Manager; it tells the operator in its own session."""
-        from ...webapi.deferred_messages import post_team_report
+        from ...core.team_reports import post_team_report
 
         post_team_report(Path(life_dir), message_id=message_id, text=text, event_fields=event_fields)
         self._emit({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
