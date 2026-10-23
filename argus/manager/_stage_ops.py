@@ -180,7 +180,7 @@ class _StageDecisionMixin:
         (short-circuit before any model call).
         """
         from ..skills.stage_machine import (
-            _active_vertical_checklist_defs as _vertical_defs,
+            active_vertical_checklist_defs as _vertical_defs,
         )
         from ..skills.stage_machine import current_stage as _current_stage
         from ..skills.stage_machine import (
@@ -822,7 +822,7 @@ class _StageDecisionMixin:
                     source="no_review_hold",
                 )
             planner_reason = str(
-                getattr(planner_verdict, "reason", "") or planner_verdict
+                getattr(planner_verdict, "summary", "") or planner_verdict
             )
             if planner_handoff:
                 review = SimpleNamespace(

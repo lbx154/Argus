@@ -243,8 +243,10 @@ class PlanningCycleCompletionMixin:
                         continue
                 elif root != report_root:
                     continue
+                # The ledger gives what each stage settled, never a role's own words.
                 reviews[stage] = {
-                    **review,
+                    "summary": str(review.get("manager_reason") or ""),
+                    "certified": bool(review.get("certified")),
                     "reporting_use": "historical_stage_progression_only",
                     "manuscript_freshness": manuscript_review_status(review, workdir),
                 }
@@ -495,7 +497,7 @@ class PlanningCycleCompletionMixin:
             terminal_signature=terminal_signature,
             cycle=self._planning_cycles,
             project_done=False,
-            reason=verdict.reason,
+            reason=verdict.summary,
             task_count=0,
             enqueued_tasks=0,
             skipped_duplicate_tasks=0,
@@ -526,7 +528,7 @@ class PlanningCycleCompletionMixin:
                 return PLAN_RETRY
             if verdict.handoff == "operator":
                 self._park_planner_question(
-                    state, verdict.operator_question or verdict.reason, verdict.reason,
+                    state, verdict.operator_question or verdict.summary, verdict.summary,
                     options=verdict.operator_options,
                 )
             return None
@@ -560,7 +562,7 @@ class PlanningCycleCompletionMixin:
                         expected_version=expected_plan_version,
                         supersede_item_ids=[item.id for item in state.revision_active_items],
                         superseded_by_plan_id=superseding_plan_id,
-                        reason=verdict.reason,
+                        reason=verdict.summary,
                     )
                 except Exception as exc:  # noqa: BLE001
                     self._emit(
@@ -583,7 +585,7 @@ class PlanningCycleCompletionMixin:
                             "plan_id": expected_plan_id,
                             "plan_version": expected_plan_version,
                             "superseded_by_plan_id": superseding_plan_id,
-                            "reason": verdict.reason,
+                            "reason": verdict.summary,
                         }
                     )
                 self._emit(
@@ -592,7 +594,7 @@ class PlanningCycleCompletionMixin:
                         "old_plan_id": expected_plan_id,
                         "old_plan_version": expected_plan_version,
                         "superseded_item_ids": list(result.superseded_ids),
-                        "reason": verdict.reason,
+                        "reason": verdict.summary,
                     }
                 )
                 return PLAN_RETRY
@@ -623,7 +625,7 @@ class PlanningCycleCompletionMixin:
         streak paces the retry, alerts, and stops it with the operator told.
         """
         state.verdict = replace(
-            state.verdict, reason=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
+            state.verdict, summary=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
         )
         self._emit({
             "type": EventType.LIFE_PLANNER_ERROR,
@@ -671,7 +673,7 @@ class PlanningCycleCompletionMixin:
             state.verdict = replace(
                 verdict,
                 project_done=False,
-                reason=reason,
+                summary=reason,
                 new_tasks=[],
             )
             return PLAN_RETRY
@@ -766,7 +768,7 @@ class PlanningCycleCompletionMixin:
             self._emit({
                 "type": "life.planner.continuation_required",
                 "cycle": self._planning_cycles,
-                "reason": verdict.reason,
+                "reason": verdict.summary,
             })
             self._emit_status(
                 "planner completed one increment, but the standing objective "
@@ -853,7 +855,7 @@ class PlanningCycleCompletionMixin:
                 terminal_signature=self._open_ended_terminal_idle_signature(),
                 cycle=self._planning_cycles,
                 project_done=verdict.project_done,
-                reason=verdict.reason,
+                reason=verdict.summary,
                 task_count=len(verdict.new_tasks),
                 enqueued_tasks=0,
                 skipped_duplicate_tasks=0,
@@ -868,7 +870,7 @@ class PlanningCycleCompletionMixin:
             clear_completion_rejection_circuit(
                 self._completion_rejection_circuit_file()
             )
-            self._emit_status(f"planner: project done — {verdict.reason}")
+            self._emit_status(f"planner: project done — {verdict.summary}")
             return False
 
         state.verdict = verdict

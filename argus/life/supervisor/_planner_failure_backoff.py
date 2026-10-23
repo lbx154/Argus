@@ -114,7 +114,7 @@ def planner_failure_kind(verdict: Any) -> str:
     if verdict is None:
         # The supervisor's own planning code raised before a verdict existed.
         return FAILURE_KIND_INTERNAL
-    reason = str(getattr(verdict, "reason", "") or "").strip().casefold()
+    reason = str(getattr(verdict, "summary", "") or "").strip().casefold()
     error = str(getattr(verdict, "error", "") or "").strip()
     if reason.startswith("planner backend raised") and _INTERNAL_EXCEPTIONS.match(error):
         return FAILURE_KIND_INTERNAL
@@ -393,7 +393,7 @@ class PlannerFailureBackoffMixin:
                     "detail": " ".join(
                         str(
                             getattr(verdict, "error", "")
-                            or getattr(verdict, "reason", "")
+                            or getattr(verdict, "summary", "")
                             or result
                             or ""
                         ).split()

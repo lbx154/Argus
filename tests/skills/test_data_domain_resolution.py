@@ -45,7 +45,7 @@ def test_data_domain_resolves_and_seeds_first_stage(tmp_path, monkeypatch):
     vs.persist_vertical(tmp_path, "robotics_sim")
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
     assert sc.current_stage(tmp_path) == "scope"  # seeded to the domain's first stage
-    order, _items = sc._active_vertical_checklist_defs(tmp_path)
+    order, _items = sc.active_vertical_checklist_defs(tmp_path)
     assert list(order) == ["scope", "simulate", "measure", "report"]
 
 

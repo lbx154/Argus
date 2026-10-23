@@ -61,7 +61,7 @@ def _supervisor(project: Path, life: Path, **config_overrides) -> LifeSupervisor
 def _idle_verdict() -> PlannerVerdict:
     return PlannerVerdict(
         project_done=False,
-        reason="the long training run is still producing its result",
+        summary="the long training run is still producing its result",
         handoff="engineer",
     )
 
@@ -178,12 +178,12 @@ def test_a_manager_hold_wakes_the_planner_to_plan_the_next_step(
     calls = _install_planner(monkeypatch, [
         PlannerVerdict(
             project_done=False,
-            reason="Step 1 passed review; the original task has ended.",
+            summary="Step 1 passed review; the original task has ended.",
             handoff="manager",
         ),
         PlannerVerdict(
             project_done=False,
-            reason="Step 2 is next.",
+            summary="Step 2 is next.",
             new_tasks=[TaskSpec(title="Step 2: to_camel", objective="Add to_camel(s) with tests.")],
         ),
     ])
@@ -464,7 +464,7 @@ def test_backend_failures_never_arm_the_skip(tmp_path: Path, monkeypatch) -> Non
         verdicts=[
             PlannerVerdict(
                 project_done=False,
-                reason="planner backend failed before producing output; will retry later",
+                summary="planner backend failed before producing output; will retry later",
                 error="backend exit 1",
             ),
             _idle_verdict(),
@@ -491,7 +491,7 @@ def test_an_unusable_answer_is_not_bought_again_on_unchanged_inputs(
     calls = _install_planner(
         monkeypatch,
         verdicts=[
-            PlannerVerdict(project_done=False, reason=unusable, error=unusable)
+            PlannerVerdict(project_done=False, summary=unusable, error=unusable)
             for _ in range(3)
         ],
     )
@@ -519,7 +519,7 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
     project.mkdir()
     verdict = PlannerVerdict(
         project_done=False,
-        reason="the dataset choice is the operator's",
+        summary="the dataset choice is the operator's",
         handoff="operator",
         operator_question="Which dataset should I use?",
     ) if declared else _idle_verdict()

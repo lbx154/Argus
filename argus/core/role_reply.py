@@ -288,13 +288,6 @@ def read_bool(values: Mapping[str, str], key: str, default: bool = False) -> boo
     return default
 
 
-def read_float(values: Mapping[str, str], key: str, default: float = 0.0) -> float:
-    try:
-        return float(str(values.get(key.upper()) or "").strip())
-    except (TypeError, ValueError):
-        return default
-
-
 def read_optional(values: Mapping[str, str], key: str) -> str:
     """A value the role may explicitly decline to give.
 
@@ -374,7 +367,6 @@ __all__ = [
     "legacy_json_object",
     "read_block",
     "read_bool",
-    "read_float",
     "read_key_values",
     "read_list",
     "read_optional",

@@ -8,6 +8,7 @@ from argus.core.models import RunnerResult
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._planning_context import PlanningContextMixin
+from tests.hand_off import plan, submit
 
 
 def _note(diagnostic: str, reason: str = "gate held") -> str:
@@ -93,22 +94,11 @@ def test_feedback_writes_gate_metadata_during_enqueue(
         def __init__(self) -> None:
             self.calls = 0
 
-        def run_exec(self, **_kwargs):
+        def run_exec(self, **kwargs):
             self.calls += 1
+            submit(kwargs["options"], plan(summary='final certification remains', tasks=[{'key': 'final-certification', 'title': 'Make final certification host-visible', 'objective': 'Run the final independent verification.', 'acceptance_check': 'Reviewer PASS is recorded.'}]))
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[
-                    "\n".join(
-                        [
-                            "PROJECT_DONE=false",
-                            "REASON=final certification remains",
-                            "TASK_KEY=final-certification",
-                            "TASK_TITLE=Make final certification host-visible",
-                            "TASK_OBJECTIVE=Run the final independent verification.",
-                            "TASK_ACCEPTANCE_CHECK=Reviewer PASS is recorded.",
-                        ]
-                    )
-                ],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,

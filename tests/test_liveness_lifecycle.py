@@ -27,8 +27,9 @@ from argus.life.supervisor._constants import (
     MANAGER_FEEDBACK_REPLAN_LIMIT,
     PLAN_RETRY,
 )
-from argus.planner import PlannerConfig, parse_planner_text
+from argus.planner import PlannerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import plan, submit
 
 
 class _MissionRunner:
@@ -42,7 +43,8 @@ class _PlannerBackend:
 
     def run_exec(self, **kwargs):  # noqa: ANN003
         self.calls.append(kwargs)
-        return RunnerResult(exit_code=0, agent_messages=[self.replies.pop(0)])
+        submit(kwargs["options"], self.replies.pop(0))
+        return RunnerResult(exit_code=0)
 
 
 def _supervisor(
@@ -111,15 +113,14 @@ def test_planner_sees_and_retires_a_wedging_park_and_its_dependents_are_released
     assert f"blocks pending: [{child.id}]" in digest
     assert f"parked task {question.id}" not in digest, "questions stay the operator's"
 
-    planner.replies.append("\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Retire the stuck proof and attempt it again with a new method.",
-        f"RETIRE_TASK={park.id} | The current method is exhausted.",
-        f"RETIRE_TASK={question.id} | Not mine to retire.",
-        "TASK_KEY=again",
-        "TASK_TITLE=Prove the bound",
-        "TASK_OBJECTIVE=prove it",
-    ]))
+    planner.replies.append(plan(
+        summary="Retire the stuck proof and attempt it again with a new method.",
+        retire=[
+            {"id": park.id, "reason": "The current method is exhausted."},
+            {"id": question.id, "reason": "Not mine to retire."},
+        ],
+        tasks=[{"key": "again", "title": "Prove the bound", "objective": "prove it"}],
+    ))
     assert supervisor._plan_next_work() is True
 
     rows = {item.id: item for item in backlog.history()}
@@ -150,18 +151,14 @@ def test_retiring_a_park_while_reproposing_it_and_its_dependent_keeps_the_depend
     child = backlog.add(
         BacklogItem.new(title="Write up the bound", objective="write", deps=[park.id])
     )
-    planner.replies.append("\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Retire the stuck proof and redo it, then write it up.",
-        f"RETIRE_TASK={park.id} | The current method is exhausted.",
-        "TASK_KEY=again",
-        "TASK_TITLE=Prove the bound",
-        "TASK_OBJECTIVE=prove it",
-        "TASK_KEY=writeup",
-        "TASK_DEPS=again",
-        "TASK_TITLE=Write up the bound",
-        "TASK_OBJECTIVE=write",
-    ]))
+    planner.replies.append(plan(
+        summary="Retire the stuck proof and redo it, then write it up.",
+        retire=[{"id": park.id, "reason": "The current method is exhausted."}],
+        tasks=[
+            {"key": "again", "title": "Prove the bound", "objective": "prove it"},
+            {"key": "writeup", "deps": ["again"], "title": "Write up the bound", "objective": "write"},
+        ],
+    ))
 
     assert supervisor._plan_next_work() is True
     backlog.next_pending()
@@ -462,14 +459,13 @@ def test_handoff_with_concrete_tasks_enqueues_the_tasks(
     tmp_path: Path, monkeypatch,
 ) -> None:
     project = _project(tmp_path, monkeypatch)
-    planner = _PlannerBackend(["\n".join([
-        "PROJECT_DONE=false",
-        "REASON=The sweep is still running; write the analysis harness meanwhile.",
-        "TASK_KEY=harness",
-        "TASK_TITLE=Write the analysis harness",
-        "TASK_OBJECTIVE=Write the harness that reads the sweep output schema.",
-        "→ engineer",
-    ])])
+    planner = _PlannerBackend([plan(
+        summary="The sweep is still running; write the analysis harness meanwhile.",
+        tasks=[{
+            "key": "harness", "title": "Write the analysis harness",
+            "objective": "Write the harness that reads the sweep output schema.",
+        }],
+    )])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
     assert supervisor._plan_next_work() is True
@@ -479,15 +475,16 @@ def test_handoff_with_concrete_tasks_enqueues_the_tasks(
     ]
 
 
-def _handoff_with_task(baton: str) -> str:
-    return "\n".join([
-        "PROJECT_DONE=false",
-        "REASON=The release is held; write the changelog meanwhile.",
-        "TASK_KEY=changelog",
-        "TASK_TITLE=Write the changelog",
-        "TASK_OBJECTIVE=Write the changelog for the held release.",
-        baton,
-    ])
+def _handoff_with_task(to: str, **fields) -> tuple[str, dict]:
+    return plan(
+        to,
+        summary="The release is held; write the changelog meanwhile.",
+        tasks=[{
+            "key": "changelog", "title": "Write the changelog",
+            "objective": "Write the changelog for the held release.",
+        }],
+        **fields,
+    )
 
 
 def test_operator_question_with_tasks_is_asked_beside_them(
@@ -496,7 +493,7 @@ def test_operator_question_with_tasks_is_asked_beside_them(
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_handoff_with_task("→ operator: Is the release hold lifted?")])
+    planner = _PlannerBackend([_handoff_with_task("operator", ask={"question": "Is the release hold lifted?", "options": []})])
     supervisor = _supervisor(project, life, planner)
 
     assert supervisor._plan_next_work() is True
@@ -538,7 +535,7 @@ def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans
     beside it do not swallow the request; the Manager's repair is planned."""
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_handoff_with_task("→ manager")])
+    planner = _PlannerBackend([_handoff_with_task("manager")])
     supervisor = _supervisor(project, life, planner)
     manager = _StageManager(_stage_decision())
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
@@ -558,7 +555,7 @@ def test_stage_reconciliation_request_held_by_a_failsafe_keeps_tasks(
 ) -> None:
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_handoff_with_task("→ manager")])
+    planner = _PlannerBackend([_handoff_with_task("manager")])
     supervisor = _supervisor(project, life, planner)
     manager = _StageManager(_stage_decision(source="no_review_hold", diagnostic=""))
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
@@ -575,32 +572,12 @@ def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
     tmp_path: Path, monkeypatch,
 ) -> None:
     project = _project(tmp_path, monkeypatch)
-    planner = _PlannerBackend(["\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Build the parser, then use it.",
-        "TASK_KEY=parser",
-        "TASK_VERTICAL=no_such_vertical",
-        "TASK_TITLE=Build the parser",
-        "TASK_OBJECTIVE=Build the parser.",
-        "TASK_KEY=use",
-        "TASK_DEPS=parser",
-        "TASK_TITLE=Use the parser",
-        "TASK_OBJECTIVE=Run the parser over the corpus.",
-        "TASK_KEY=report",
-        "TASK_DEPS=use",
-        "TASK_TITLE=Report the parse",
-        "TASK_OBJECTIVE=Summarize the parse results.",
-        "TASK_KEY=solo",
-        "TASK_DEPS=imagined-key",
-        "TASK_TITLE=Independent cleanup",
-        "TASK_OBJECTIVE=Tidy the fixtures.",
-    ])])
+    planner = _PlannerBackend([plan(summary='Build the parser, then use it.', tasks=[{'key': 'parser', 'vertical': 'no_such_vertical', 'title': 'Build the parser', 'objective': 'Build the parser.'}, {'key': 'use', 'deps': ['parser'], 'title': 'Use the parser', 'objective': 'Run the parser over the corpus.'}, {'key': 'report', 'deps': ['use'], 'title': 'Report the parse', 'objective': 'Summarize the parse results.'}, {'key': 'solo', 'title': 'Independent cleanup', 'objective': 'Tidy the fixtures.'}])])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
     assert supervisor._plan_next_work() is True
 
     pending = supervisor.memory.backlog.pending()
-    # A key naming nothing at all is still dropped; a filtered sibling is not.
     assert [item.title for item in pending] == ["Independent cleanup"]
     held = [
         event for event in _events(supervisor)
@@ -612,35 +589,12 @@ def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
     ]
 
 
-def test_structured_planner_decision_carries_retirements() -> None:
-    verdict = parse_planner_text(json.dumps({
-        "project_done": False,
-        "reason": "Close the refuted line.",
-        "retire_tasks": [
-            {"id": "abc123", "reason": "refuted"},
-            "def456 | superseded by the new design",
-            {"id": "noreason"},
-        ],
-    }))
-
-    assert not verdict.error
-    assert verdict.retire_tasks == (
-        ("abc123", "refuted"),
-        ("def456", "superseded by the new design"),
-    )
-    assert any("retirement 3 skipped" in note for note in verdict.diagnostics)
-
-
 # I2/I1: a Manager WAIT holds only the evidence it judged.
 
 
 # I2/I3: a Planner that hands the stage to the Manager is answered once.
 
-_MANAGER_HANDOFF = "\n".join([
-    "PROJECT_DONE=false",
-    "REASON=The vendor has not published the dataset the stage needs.",
-    "→ manager",
-])
+_MANAGER_HANDOFF = plan("manager", summary="The vendor has not published the dataset the stage needs.")
 
 
 def test_a_handoff_the_managers_backend_left_unanswered_is_retried_as_a_failed_turn(

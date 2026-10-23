@@ -387,7 +387,7 @@ class PlanningCycleMixin(
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        key = (stage, " ".join(str(verdict.reason or "").split()))
+        key = (stage, " ".join(str(verdict.summary or "").split()))
         if key == getattr(self, "_last_planner_handoff_key", None):
             return ""
         self._last_planner_handoff_key = key
@@ -658,8 +658,7 @@ class PlanningCycleMixin(
 
             state.verdict = PlannerVerdict(
                 project_done=True,
-                new_tasks=[],
-                reason="independent final certification is current",
+                summary="independent final certification is current",
             )
             return self._pc_normalize_project_done(state)
         return None

@@ -16,7 +16,6 @@ from __future__ import annotations
 from argus.core.role_reply import (
     legacy_json_object,
     read_bool,
-    read_float,
     read_key_values,
     read_list,
     read_optional,
@@ -44,7 +43,6 @@ I chose staged because the speedup bar needs repeated profile/measure cycles.
 
     assert values["VERTICAL"] == "kernel_engineering"
     assert values["WORKFLOW_MODE"] == "staged"
-    assert read_float(values, "CONFIDENCE") == 0.82
 
 
 def test_the_shapes_a_model_actually_writes_are_all_accepted() -> None:
@@ -58,7 +56,6 @@ def test_the_shapes_a_model_actually_writes_are_all_accepted() -> None:
 
     assert values["VERTICAL"] == "kernel_engineering"
     assert values["WORKFLOW_MODE"] == "staged"
-    assert read_float(values, "CONFIDENCE") == 0.9
 
 
 def test_a_leading_status_emoji_does_not_hide_the_decision() -> None:

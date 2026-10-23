@@ -54,7 +54,7 @@ def test_late_host_failure_preserves_newer_operator_generation(tmp_path, monkeyp
                 done_reason="operator paused this" if change == "operator hold" else "",
             )
         after_operator.append(read_continuous_state(root))
-        return PlannerVerdict(project_done=False, reason="host unavailable", error=HOST_ERROR)
+        return PlannerVerdict(project_done=False, summary="host unavailable", error=HOST_ERROR)
 
     monkeypatch.setattr(Planner, "plan_next", plan_next)
     state = _PlanCycleState(None)
@@ -86,7 +86,7 @@ def test_planner_pause_uses_project_config_without_changing_global_state(tmp_pat
         root=global_root, project_root=project, backlog=supervisor.memory.backlog,
     )
     monkeypatch.setattr(Planner, "plan_next", lambda *args, **kwargs: PlannerVerdict(
-        project_done=False, reason="host unavailable", error=HOST_ERROR,
+        project_done=False, summary="host unavailable", error=HOST_ERROR,
     ))
     state = _PlanCycleState(None)
     assert supervisor._pc_invoke_planner(state) is None
@@ -139,7 +139,7 @@ def test_non_host_planner_errors_keep_existing_policy(tmp_path, monkeypatch, err
     root = supervisor.memory.root
     write_continuous_config(root, enabled=True, objective="original campaign")
     state = _PlanCycleState(None)
-    state.verdict = PlannerVerdict(project_done=False, reason=error, error=error)
+    state.verdict = PlannerVerdict(project_done=False, summary=error, error=error)
     assert supervisor._pc_normalize_verdict(state) == PLAN_ERROR
     assert read_continuous_state(root).enabled is (error == "ordinary backend failure")
     alerts = [event for event in events if event.get("type") == "life.planner.error"]

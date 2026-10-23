@@ -168,7 +168,7 @@ def normalize_stage_for_project(
         if vertical:
             order = contract.stage_order
         else:
-            order, _items = _active_vertical_checklist_defs(project_root)
+            order, _items = active_vertical_checklist_defs(project_root)
         known = {_normalize_stage(item) for item in order}
         if normalized not in known:
             return ""
@@ -181,7 +181,7 @@ def _legacy_research_stage_payload(project_root: Path | str) -> dict | None:
     payload = read_pipeline_state(root)
     if str(payload.get("vertical") or "").strip().lower() != "research":
         return None
-    order, _items = _active_vertical_checklist_defs(root)
+    order, _items = active_vertical_checklist_defs(root)
     canonical = tuple(_normalize_stage(stage) for stage in order)
     raw = _normalize_stage(payload.get("current_stage"))
     mapped = normalize_stage_for_project(root, raw)
@@ -234,7 +234,7 @@ def current_stage(project_root: Path | str = ".") -> str:
         payload = read_pipeline_state(root)
     except (OSError, ValueError, json.JSONDecodeError):
         payload = None
-    order, items = _active_vertical_checklist_defs(project_root)
+    order, items = active_vertical_checklist_defs(project_root)
     fallback = _normalize_stage(order[0]) if order else "research"
     stage = normalize_stage_for_project(
         project_root,
@@ -329,7 +329,7 @@ def _set_stage(
 
     The ONE primitive behind :func:`advance_stage` and :func:`rollback_stage`.
     Resolves the active vertical's stage order + items via
-    ``_active_vertical_checklist_defs`` (fails open to the default vertical, so the
+    ``active_vertical_checklist_defs`` (fails open to the default vertical, so the
     research/paper path stays byte-identical), validates ``target_stage`` against
     them, then writes the shared pipeline-state sidecar:
 
@@ -355,7 +355,7 @@ def _set_stage(
     import datetime as _dt
 
     root = Path(project_root)
-    raw_order, items = _active_vertical_checklist_defs(project_root)
+    raw_order, items = active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
     target = normalize_stage_for_project(project_root, target_stage)
     # Stage EXISTENCE is governed by STAGE_ORDER, not CHECKLIST_ITEMS: a
@@ -570,7 +570,7 @@ def advance_stage(
     :func:`complete_final_stage` for what happened when a primitive relied on
     the intent instead of the check.
     """
-    raw_order, _items = _active_vertical_checklist_defs(project_root)
+    raw_order, _items = active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
     target = normalize_stage_for_project(project_root, target_stage)
     if target not in order:
@@ -715,7 +715,7 @@ def complete_final_stage(
     it stops is the *accident-shaped* forgery: reaching for a function whose
     name promised a check it did not perform.
     """
-    raw_order, _items = _active_vertical_checklist_defs(project_root)
+    raw_order, _items = active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
     cur = _normalize_stage(current_stage(project_root))
     if cur not in order:
@@ -814,7 +814,7 @@ def _research_checklist_defs():
     )
 
 
-def _active_vertical_checklist_defs(project_root):
+def active_vertical_checklist_defs(project_root):
     """Return ``(stage_order, items_dict)`` for the ACTIVE vertical.
 
     Resolves the active vertical via ``vertical_select.resolve_vertical`` +
@@ -945,7 +945,7 @@ def resolve_stage_checklist_contract(
 ) -> StageChecklistContract:
     """Resolve checklist provenance without treating an empty list as success."""
     stage_norm = _normalize_stage(stage)
-    _stage_order, vertical_items = _active_vertical_checklist_defs(project_root)
+    _stage_order, vertical_items = active_vertical_checklist_defs(project_root)
     optional = stage_norm in _active_vertical_optional_stages(project_root)
     override = None
     try:
@@ -1172,7 +1172,7 @@ def format_full_pipeline_checklist(
     blocks = [header]
     overlay_present = False
     # Iterate the active vertical's stage order and render its items.
-    stage_order, vert_items = _active_vertical_checklist_defs(project_root)
+    stage_order, vert_items = active_vertical_checklist_defs(project_root)
     for stage in stage_order:
         annotations: dict[str, list[str]] = {}
         items = _store_or_seed_items(project_root, vert_items, stage)

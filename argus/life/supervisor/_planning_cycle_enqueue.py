@@ -254,7 +254,7 @@ class PlanningCycleEnqueueMixin:
                 _apply_planner_stage_request(
                     state_root=Path(state_root),
                     requested_stage=requested_stage,
-                    reason=state.verdict.reason or "Planner requested stage transition",
+                    reason=state.verdict.summary or "Planner requested stage transition",
                     evidence_root=Path(context_root).resolve(),
                 )
             except Exception as exc:  # noqa: BLE001 - invalid requests replan safely
@@ -566,7 +566,7 @@ class PlanningCycleEnqueueMixin:
                         "require_independent_review=false"
                     ),
                     "title": task.title,
-                    "reason": str(state.verdict.reason or "Planner waiver"),
+                    "reason": str(state.verdict.summary or "Planner waiver"),
                 })
             item = BacklogItem.new(
                 item_id=item_id,
@@ -984,7 +984,7 @@ class PlanningCycleEnqueueMixin:
             resume_outcome=PLAN_RETRY,
             cycle=self._planning_cycles,
             project_done=verdict.project_done,
-            reason=verdict.reason,
+            reason=verdict.summary,
             task_count=len(verdict.new_tasks),
             enqueued_tasks=len(state.added_titles),
             skipped_duplicate_tasks=len(state.skipped_duplicate_titles),

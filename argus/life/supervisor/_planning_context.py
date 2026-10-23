@@ -551,7 +551,7 @@ class PlanningContextMixin:
         reason = f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
         return PlannerVerdict(
             project_done=False,
-            reason=reason,
+            summary=reason,
             handoff="operator",
             operator_question=reason,
         )
@@ -571,7 +571,7 @@ class PlanningContextMixin:
         return replace(
             verdict,
             project_done=False,
-            reason=wait_reason,
+            summary=wait_reason,
             handoff="operator",
             operator_question=wait_reason,
             new_tasks=[],
@@ -753,7 +753,7 @@ class PlanningContextMixin:
         A question for the operator goes on the planning slot's card, which the
         operator answers, or the Manager while the operator cannot be asked.
         """
-        reason = str(verdict.reason or verdict.operator_question or "").strip()
+        reason = str(verdict.summary or verdict.operator_question or "").strip()
         if verdict.handoff == "operator":
             self._park_planner_question(
                 state, str(verdict.operator_question or reason), reason,

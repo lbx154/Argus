@@ -11,6 +11,11 @@ def route(to: str = "team", summary: str = "Why this route.", **fields) -> tuple
     return "hand_off", {"to": to, "summary": summary, "assumptions": [], **fields}
 
 
+def plan(to: str = "engineer", summary: str = "Why this plan.", **fields) -> tuple[str, dict]:
+    """A Planner call (the plan form) with ``fields``; ``tasks`` default to none."""
+    return "hand_off", {"to": to, "summary": summary, "assumptions": [], **fields}
+
+
 def submit(options, action: tuple[str, dict]) -> str:
     """Submit ``action`` over a fake runner's call-bound bridge, as an agent CLI's tool call would.
 

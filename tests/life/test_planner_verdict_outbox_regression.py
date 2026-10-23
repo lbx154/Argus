@@ -31,24 +31,19 @@ from argus.life.supervisor import (
 from argus.life.supervisor._constants import PLAN_RETRY
 from argus.planner import Planner
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import plan, submit
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _with_mission_quality(text: str) -> str:
-    lines: list[str] = []
-    for line in text.splitlines():
-        lines.append(line)
-        if line.strip().startswith("TASK_OBJECTIVE="):
-            lines.extend([
-                "TASK_HYPOTHESIS=The task tests its stated mechanism.",
-                "TASK_GOAL_CONTRIBUTION=Advance the requested project outcome.",
-                "TASK_EXPECTED_REGRESSIONS=Local checks may regress during repair.",
-                "TASK_DECISION_RULE=Replan if evidence refutes the mechanism.",
-            ])
-    return "\n".join(lines)
+_MISSION_QUALITY = {
+    "hypothesis": "The task tests its stated mechanism.",
+    "goal_contribution": "Advance the requested project outcome.",
+    "expected_regressions": "Local checks may regress during repair.",
+    "decision_rule": "Replan if evidence refutes the mechanism.",
+}
 
 
 class _FailingSink:
@@ -136,27 +131,14 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
     for title, objective in tasks:
         mem.backlog.add(BacklogItem.new(title=title, objective=objective))
 
-    verdict_lines = [
-        "PROJECT_DONE=false",
-        "REASON=continue improving the pipeline",
-    ]
-    for index, (title, objective) in enumerate(tasks):
-        verdict_lines.extend(
-            [
-                f"TASK_KEY=task-{index}",
-                "TASK_DEPS=",
-                f"TASK_TITLE={title}",
-                f"TASK_OBJECTIVE={objective}",
-                "TASK_IMPACT_SCORE=5",
-                "TASK_IMPACT_AREA=reliability",
-                "TASK_EVIDENCE=still needed",
-                "TASK_SCOPE=bounded",
-                "TASK_STAGE_CLOSING=false",
-                "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-                "TASK_SKIP_STAGE_TRANSITION=false",
-            ]
-        )
-    verdict_text = _with_mission_quality("\n".join(verdict_lines))
+    verdict = plan(summary="continue improving the pipeline", tasks=[
+        {
+            "key": f"task-{index}", "title": title, "objective": objective, **_MISSION_QUALITY,
+            "impact_score": 5, "impact_area": "reliability", "evidence": "still needed",
+            "scope": "bounded", "require_independent_review": False,
+        }
+        for index, (title, objective) in enumerate(tasks)
+    ])
 
     class _CountingPlannerRunner:
         def __init__(self) -> None:
@@ -164,9 +146,9 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
 
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.call_count += 1
+            submit(options, verdict)
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[verdict_text],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,
@@ -379,30 +361,17 @@ def test_stale_outbox_discard_resumes_planning_and_enqueues_recovery_task(
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls += 1
             assert run_label == "planner.cycle0"
+            submit(options, plan(summary="stale verdict was discarded; schedule concrete recovery", tasks=[{
+                "key": "recovery",
+                "title": "Recover after stale planner verdict",
+                "objective": "Inspect the changed semantic state and repair the planner recovery path.",
+                "acceptance_check": "pytest tests/life/test_planner_verdict_outbox_regression.py",
+                "scope": "bounded",
+                "require_independent_review": False,
+                **_MISSION_QUALITY,
+            }]))
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[
-                    _with_mission_quality("\n".join(
-                        [
-                            "PROJECT_DONE=false",
-                            "REASON=stale verdict was discarded; schedule concrete recovery",
-                            "TASK_KEY=recovery",
-                            "TASK_TITLE=Recover after stale planner verdict",
-                            (
-                                "TASK_OBJECTIVE=Inspect the changed semantic state and "
-                                "repair the planner recovery path."
-                            ),
-                            (
-                                "TASK_ACCEPTANCE_CHECK=pytest "
-                                "tests/life/test_planner_verdict_outbox_regression.py"
-                            ),
-                            "TASK_SCOPE=bounded",
-                            "TASK_STAGE_CLOSING=false",
-                            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-                            "TASK_SKIP_STAGE_TRANSITION=false",
-                        ]
-                    ))
-                ],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,

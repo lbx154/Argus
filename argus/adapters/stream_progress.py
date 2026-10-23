@@ -125,19 +125,14 @@ def _is_final_delivery_message(text: str) -> bool:
 
 def _is_structured_role_result(actor: str, text: str) -> bool:
     """Return whether a role message is its machine-consumed verdict footer."""
-    role = (actor or "").lower()
-    if not (role.startswith("planner") or role.startswith("reviewer")):
+    if not (actor or "").lower().startswith("reviewer"):
         return False
     lines = {
         line.strip().partition("=")[0].upper()
         for line in str(text or "").splitlines()
         if "=" in line
     }
-    if role.startswith("reviewer") and {"STATUS", "REASON"} <= lines:
-        return True
-    if role.startswith("planner") and (
-        {"PROJECT_DONE", "REASON"} <= lines or "PLAN_REASON" in lines
-    ):
+    if {"STATUS", "REASON"} <= lines:
         return True
     # Backward compatibility for an old role turn already in flight.
     try:

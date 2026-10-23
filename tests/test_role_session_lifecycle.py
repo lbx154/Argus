@@ -13,7 +13,7 @@ from argus.core.role_session import (
     signal_role_session_file,
 )
 from argus.planner import Planner, PlannerConfig
-from tests.hand_off import hand_off
+from tests.hand_off import hand_off, plan
 
 
 def _review(status: str) -> tuple[str, dict]:
@@ -338,11 +338,11 @@ def test_planner_session_survives_new_planner_instance(tmp_path: Path) -> None:
     backend = _resumable()
     backend.queue(
         "planner.cycle0",
-        CannedResponse(message="PROJECT_DONE=true\nREASON=done", thread_id="p1"),
+        CannedResponse(action=plan('done', summary='done'), thread_id="p1"),
     )
     backend.queue(
         "planner.cycle1",
-        CannedResponse(message="PROJECT_DONE=true\nREASON=done", thread_id="p1"),
+        CannedResponse(action=plan('done', summary='done'), thread_id="p1"),
     )
     capsule_path = tmp_path / "state" / "planner.json"
     config = PlannerConfig(
@@ -399,9 +399,9 @@ def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
     for cycle in range(2):
         backend.queue(
             f"planner.cycle{cycle}",
-            CannedResponse(message="PROJECT_DONE=false\nREASON=waiting\n→ operator: A or B?", thread_id="p1"),
+            CannedResponse(action=plan("operator", summary="waiting", ask={"question": "A or B?", "options": []}), thread_id="p1"),
         )
-    backend.queue("planner.cycle2", CannedResponse(message="PROJECT_DONE=true\nREASON=done", thread_id="p1"))
+    backend.queue("planner.cycle2", CannedResponse(action=plan('done', summary='done'), thread_id="p1"))
     events: list[dict] = []
     for cycle in range(2):
         # A Manager WAIT or steer reserves the campaign: a new generation, same objective.
