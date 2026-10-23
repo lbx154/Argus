@@ -411,6 +411,7 @@ class CommandBuilderMixin:
             backend=self.backend,
             working_dir=options.working_dir,
             handed=[*(options.add_dirs or ()), *(options.skill_paths or ()), *(options.plugin_dirs or ())],
+            written=options.write_dirs or (),
             named=[*command, *(options._training_environment or {}).values()],
             writable=not (options.disable_tools or options.sandbox_mode == "read-only"),
             env=env,

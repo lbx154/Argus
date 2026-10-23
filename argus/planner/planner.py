@@ -268,6 +268,7 @@ class Planner:
             reasoning_effort=cfg.reasoning_effort or "xhigh",
             working_dir=cfg.working_dir,
             add_dirs=add_dirs or None,
+            write_dirs=[cfg.state_root] if cfg.state_root else None,
             # Planner chooses and delegates work; it does not execute it. Keep
             # the boundary role-owned so an upstream yolo setting cannot grant
             # shell, network, build, test, or write tools to this call.

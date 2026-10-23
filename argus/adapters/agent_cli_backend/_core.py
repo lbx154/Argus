@@ -458,6 +458,7 @@ class AgentCliBackend:
             extension_env=options.extension_env,
             live_search=options.live_search,
             add_dirs=list(options.add_dirs) if options.add_dirs else None,
+            write_dirs=list(options.write_dirs) if options.write_dirs else None,
             skill_paths=list(options.skill_paths) if options.skill_paths else None,
             sandbox_mode=options.sandbox_mode,
             force_safe_mode=options.force_safe_mode,

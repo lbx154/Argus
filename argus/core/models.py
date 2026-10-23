@@ -49,6 +49,10 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     working_dir: str | None = None
     add_dirs: list[str] | None = None
+    # Of ``add_dirs``, the ones the call writes. A sandboxed call only reads
+    # every other directory it is given: a library recalled for reference,
+    # another project's knowledge.
+    write_dirs: list[str] | None = None
     # Role-owned Skill paths for backends with an explicit native loader. Other
     # backends use the path-only discovery block in the prompt.
     skill_paths: list[str] | None = None

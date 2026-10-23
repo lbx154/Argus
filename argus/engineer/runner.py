@@ -445,6 +445,7 @@ class SupervisedEngineer(
                     run_label=run_label,
                     on_event=on_event,
                 )
+        packet = supervised_config.context_packet_path if supervised_config is not None else ""
         try:
             options = RunnerOptions(
                 model=self.engineer_config.model,
@@ -455,6 +456,8 @@ class SupervisedEngineer(
                 ),
                 extra_args=self.engineer_config.extra_args,
                 add_dirs=self.engineer_config.add_dirs,
+                # It edits CHECKPOINT.md beside its handoff packet.
+                write_dirs=[str(Path(packet).expanduser().resolve().parent)] if packet else None,
                 skill_paths=self.engineer_config.skill_paths,
                 full_auto=self.engineer_config.full_auto,
                 skip_git_repo_check=self.engineer_config.skip_git_repo_check,

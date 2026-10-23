@@ -794,6 +794,7 @@ def _reflect_after_mission(
                 skip_git_repo_check=True,
                 working_dir=str(workspace),
                 add_dirs=add_dirs,
+                write_dirs=add_dirs,
                 skill_paths=[],
             ),
             run_label=MISSION_RUN_LABEL,

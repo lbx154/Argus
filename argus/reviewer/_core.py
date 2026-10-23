@@ -897,10 +897,11 @@ class Reviewer:
         ]
         if config.vertical_state_root:
             prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
+        write_dirs = [str(path) for path in prompt_dirs if path.is_dir()]
         add_dirs = [
             *config.add_dirs,
             *(str(path) for path in review_libraries.library_roots),
-            *(str(path) for path in prompt_dirs if path.is_dir()),
+            *write_dirs,
             *vertical_skill_read_dirs(vertical),
         ]
 
@@ -921,6 +922,7 @@ class Reviewer:
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     add_dirs=add_dirs or None,
+                    write_dirs=write_dirs or None,
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a

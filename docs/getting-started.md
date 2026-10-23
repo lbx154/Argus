@@ -91,12 +91,14 @@ Two things follow from that design and explain most of what you will see:
 | Python 3.11+ | the `argus` package (`pyproject.toml` requires `>=3.11`) |
 | Node.js 22.12+ | the terminal cockpit is an Ink app; `argus` refuses to start it on older Node (`argus: Ink TUI requires Node.js 22.12 or newer`) |
 | One authenticated agent CLI | Argus reuses its login; there is no separate Argus account |
-| bubblewrap (Linux) | each agent sees only its project; macOS uses the built-in `sandbox-exec`, and without either the agents run with your account's full access |
+| bubblewrap (Linux) | each agent sees only its project; macOS uses the built-in `sandbox-exec`, and without either the agents run with your account's full access. The host must let unprivileged users create user namespaces (`bwrap --unshare-user --ro-bind / / true` succeeds) |
 
 Install and log into one CLI first. The README's
 [Quick Install](../README.md#quick-install) table lists the install and login
 command for each backend; for example GitHub Copilot CLI is
 `npm install -g @github/copilot` then `copilot login`.
+An agent in the sandbox cannot reach the system keychain, so Copilot's login
+must be the one kept in `~/.copilot/config.json`.
 
 ## Install
 

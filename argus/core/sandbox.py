@@ -8,7 +8,6 @@ push-capable credentials out of a sandboxed call's environment.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import site
@@ -17,6 +16,7 @@ import sys
 import tempfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from urllib.parse import quote
 
 
 def _package_root() -> str | None:
@@ -135,8 +135,10 @@ def sandbox_tool() -> str | None:
 def _private_root(working_dir: str | os.PathLike[str] | None) -> Path:
     from .paths import global_root
 
-    key = hashlib.sha256(os.path.realpath(working_dir or os.sep).encode()).hexdigest()[:16]
-    return Path(os.path.realpath(global_root())) / "sandbox" / key
+    # The workdir's path as one directory name. Without '%', which a SQLite
+    # URI naming a file under it would read as an escape.
+    name = quote(os.path.realpath(working_dir or os.sep), safe="").replace("%", "=")
+    return Path(os.path.realpath(global_root())) / "sandbox" / name
 
 
 def private_path(path: str | os.PathLike[str], working_dir: str | os.PathLike[str] | None) -> Path:
@@ -261,14 +263,15 @@ def isolated_workdir_command(
     backend: str,
     working_dir: str | os.PathLike[str] | None,
     handed: Iterable[str | os.PathLike[str]] = (),
+    written: Iterable[str | os.PathLike[str]] = (),
     named: Iterable[str] = (),
     writable: bool = True,
     env: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Run ``command`` where it sees only what its call is given.
 
-    Visible: the workdir and the directories ``handed`` to the call (writable
-    unless the call only reads), the files ``named`` on its command line,
+    Visible: the workdir and the directories ``handed`` to the call, the files
+    ``named`` on its command line,
     system software, the CLI itself and the Python that runs Argus's action
     tools. Its home and the Argus runtime are the workdir's private copies,
     into which only the CLI's login and settings are brought. No other
@@ -302,19 +305,14 @@ def isolated_workdir_command(
         real(path) for path in [home, global_root(), *(file.parent for file in [*login, *settings])]
     )
     workdir = Path(os.path.abspath(working_dir)) if working_dir else None
-    given = [*([workdir] if workdir else []), *map(Path, handed)]
+    given = [*([workdir] if workdir else []), *map(Path, handed), *map(Path, written)]
     shared = [real(path) for path in given]
     files = [
         path for path in (Path(arg.lstrip("@")) for arg in named if arg.lstrip("@").startswith("/"))
         if os.path.exists(path) and not os.path.isdir(path)
     ]
     argus = [real(path) for path in (sys.prefix, sys.base_prefix, sys.executable, _package_root()) if path]
-    # The workdir and handed directories are writable when the call writes,
-    # except a library handed from inside Argus or its Python.
-    writes = [
-        real(path) for path in given
-        if writable and (path == workdir or not any(real(path).is_relative_to(inside) for inside in argus))
-    ]
+    writes = [real(path) for path in [*([workdir] if workdir else []), *map(Path, written)]] if writable else []
     readable = _outermost(
         path for path in (
             *map(Path, _SYSTEM_DIRS), *argus, _install_root(executable), *support,
@@ -340,7 +338,8 @@ def isolated_workdir_command(
     for files_, rw in ((login, True), (settings, False)):
         mounts += [(real(file), target, rw) for file in files_ for target in named_as(file)]
     for path in given:
-        mounts += [(real(path), target, real(path) in writes) for target in named_as(path)]
+        rw = any(real(path).is_relative_to(inside) for inside in writes)
+        mounts += [(real(path), target, rw) for target in named_as(path)]
     if workdir and (workdir / ".git").is_file():
         # A linked worktree's pointer stays put: the daemon's own git commands
         # later run in this tree and must not follow it anywhere else.

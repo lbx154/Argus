@@ -83,7 +83,7 @@ def _run(project: Project, script: str, monkeypatch, *, writable: bool = True):
     env = {**os.environ, "HOME": str(project.home)}
     command = sandbox.isolated_workdir_command(
         ["/bin/sh", "-c", script], backend="codex", working_dir=project.workdir,
-        handed=[project.handoff], writable=writable, env=env,
+        written=[project.handoff], writable=writable, env=env,
     )
     return subprocess.run(command, env=env, cwd=project.workdir, capture_output=True, text=True, timeout=120)
 
@@ -130,16 +130,34 @@ def test_an_agent_writes_its_workdir_and_its_own_home_copy_only(world, monkeypat
     assert (project.handoff / "mission.json").read_text().endswith("note\n")
 
 
-def test_a_library_handed_from_inside_argus_stays_read_only(world, monkeypatch, host_sandbox):
-    project = world["tenant-a", "alpha"]
-    library = Path(sandbox.__file__).parents[1] / "builtin_skills"
+def test_a_library_handed_for_reference_is_read_only(world, monkeypatch, host_sandbox):
+    """Another project's knowledge, the skill library and Argus's own skills
+    are read where they lie; the workdir and the handoff the call writes stay writable."""
+    project, sibling = world["tenant-a", "alpha"], world["tenant-a", "beta"]
+    wiki = sibling.workdir / ".autors" / "beta" / "wiki"
+    skills = project.state / "skills"
+    libraries = [wiki, skills, Path(sandbox.__file__).parents[1] / "builtin_skills"]
+    for library in libraries[:2]:
+        library.mkdir(parents=True)
+        (library / "page.md").write_text(f"PAGE {library.name}\n")
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(project.state))
+    env = {**os.environ, "HOME": str(project.home)}
     command = sandbox.isolated_workdir_command(
-        ["/bin/sh", "-c", f"ls {library} >/dev/null && touch {library}/planted"],
-        backend="codex", working_dir=project.workdir, handed=[library],
+        ["/bin/sh", "-c", "\n".join([
+            *(f"cat {library}/page.md; echo x >> {library}/page.md; touch {library}/planted" for library in libraries[:2]),
+            f"ls {libraries[2]} >/dev/null && touch {libraries[2]}/planted",
+            "echo made > results/new.txt",
+            f"echo note >> {project.handoff}/mission.json",
+        ])],
+        backend="codex", working_dir=project.workdir, handed=libraries, written=[project.handoff], env=env,
     )
-    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
-    assert "Read-only file system" in result.stderr and not (library / "planted").exists()
+    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+    assert "PAGE wiki" in result.stdout and "PAGE skills" in result.stdout, result.stderr
+    assert result.stderr.count("Read-only file system") == 5, result.stderr
+    assert (wiki / "page.md").read_text() == "PAGE wiki\n" and (skills / "page.md").read_text() == "PAGE skills\n"
+    assert not any((library / "planted").exists() for library in libraries)
+    assert (project.workdir / "results" / "new.txt").read_text() == "made\n"
+    assert (project.handoff / "mission.json").read_text().endswith("note\n")
 
 
 def test_a_reading_call_cannot_write_even_its_workdir(world, monkeypatch, host_sandbox):

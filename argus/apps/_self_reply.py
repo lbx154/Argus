@@ -529,6 +529,7 @@ class SelfReplyMixin:
                 on_event=sink.handle_event,
             )
         memory = getattr(args, "manager_memory", None)
+        write_dirs: list[str] = []
         if lean:
             prompt = build_quick_reply_prompt(objective=objective)
             from ..manager.observation import observe_project
@@ -569,11 +570,9 @@ class SelfReplyMixin:
             )
             native_skill_paths = [str(path) for path in libraries.native_paths]
             session_root = getattr(self, "_manager_session_root", None)
-            add_dirs = [
-                *([str(Path(session_root).expanduser())]
-                  if session_root and Path(session_root).expanduser() != workdir else []),
-                *(str(path) for path in libraries.library_roots),
-            ]
+            if session_root and Path(session_root).expanduser() != workdir:
+                write_dirs = [str(Path(session_root).expanduser())]
+            add_dirs = [*write_dirs, *(str(path) for path in libraries.library_roots)]
         if not lean:
             from ..life.knowledge_recall import knowledge_read_dirs
 
@@ -685,6 +684,7 @@ class SelfReplyMixin:
             disable_tools=lean,
             working_dir=str(workdir),
             add_dirs=add_dirs,
+            write_dirs=write_dirs,
             skill_paths=native_skill_paths,
             extra_args=extra_args,
             watchdog_soft_idle_seconds=env_int(
