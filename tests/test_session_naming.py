@@ -1,12 +1,7 @@
 """Session auto-naming and mission-context rendering."""
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-import pytest
-
 from argus.apps.cli._follow import _format_follow_mission_context
-from argus.manager.config_intent import _front_door_classify
 from argus.manager.front_door import (
     _derive_session_name,
     _maybe_name_session,
@@ -104,77 +99,6 @@ def test_team_task_does_not_replace_manual_name_after_greeting(tmp_path):
     )
 
     assert read_session_meta(tmp_path, sid).display_name == "用户手工名称"
-
-
-@pytest.mark.parametrize("route", ["simple", "complex"])
-def test_front_door_names_first_message_for_every_route(tmp_path, route):
-    from argus.core.session import read_session_meta, resolve_session
-
-    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
-    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-
-    class _Manager:
-        def classify_front_door(self, text, *, name_sink=None):
-            assert text == "帮我简单证明勾股定理"
-            assert name_sink is not None
-            name_sink("勾股定理简证")
-            return None, None, route
-
-    result = _front_door_classify(
-        object(),
-        "帮我简单证明勾股定理",
-        cs,
-        ensure_runner=lambda *_: SimpleNamespace(manager=_Manager()),
-    )
-
-    assert result == (None, None, route)
-    assert read_session_meta(tmp_path, sid).display_name == "勾股定理简证"
-
-
-def test_pure_greeting_does_not_claim_the_session_name(tmp_path):
-    from argus.core.session import read_session_meta, resolve_session
-
-    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
-    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-
-    class _GreetingManager:
-        def classify_front_door(
-            self,
-            text,
-            *,
-            name_sink=None,
-            greeting_sink=None,
-        ):
-            name_sink("问候")
-            greeting_sink("你好")
-            return None, None, "simple"
-
-    result = _front_door_classify(
-        object(),
-        "你好",
-        cs,
-        ensure_runner=lambda *_: SimpleNamespace(manager=_GreetingManager()),
-    )
-
-    assert result == (None, None, "simple")
-    assert read_session_meta(tmp_path, sid).display_name == ""
-
-
-def test_front_door_keeps_naming_available_after_classifier_failure(tmp_path):
-    from argus.core.session import read_session_meta, resolve_session
-
-    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
-    cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
-    result = _front_door_classify(
-        object(),
-        "fallback task title",
-        cs,
-        ensure_runner=lambda *_: None,
-    )
-    assert result == (None, None, "complex")
-    assert read_session_meta(tmp_path, sid).display_name == ""
-    _maybe_name_session(cs, "fallback task title", suggested_name="Recovered Agent summary")
-    assert read_session_meta(tmp_path, sid).display_name == "Recovered Agent summary"
 
 
 # ---- objective=- root-cause fix ------------------------------------------

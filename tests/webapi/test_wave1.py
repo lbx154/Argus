@@ -18,7 +18,7 @@ import pytest
 from argus.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import LifeMemory
-from argus.manager import config_intent, front_door
+from argus.manager import front_door
 from argus.webapi import (
     artifacts,
     daemon_lifecycle,
@@ -28,6 +28,7 @@ from argus.webapi import (
     project_crud,
     server,
 )
+from tests.hand_off import manager_runner
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -434,7 +435,6 @@ def test_project_picker_uses_campaign_objective_before_greeting(
 
     ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())
     monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
     assert (
         project_crud.set_continuous(
             sid,
@@ -1185,7 +1185,6 @@ class TestManagerMessageLifecycleErrors:
         state: str,
         monkeypatch,
     ) -> None:
-        from argus.manager import config_intent as ci
         from argus.manager import front_door as fd
 
         sid = f"s-mgr-err-{state}"
@@ -1199,16 +1198,8 @@ class TestManagerMessageLifecycleErrors:
         # Persist the blocking lifecycle state.
         _persist_lifecycle_state(life_dir, state)
 
-        # Stub the front-door classify so we take the TEAM/complex path
-        # without calling a real model (route="complex", no config intent,
-        # no control signal).
-        monkeypatch.setattr(
-            ci,
-            "_front_door_classify",
-            lambda mem, text, chat_state, **kwargs: (None, None, "complex"),
-        )
-        # Stub triage to return None → TEAM path (not a chat/SELF reply).
-        monkeypatch.setattr(fd, "manager_triage", lambda *a, **kw: None)
+        # A Manager that hands the message to the team as a ticket.
+        monkeypatch.setattr(fd, "_ensure_manager_runner", lambda *_a: manager_runner())
         # No active mission — so we don't take the "already running" early-return.
         monkeypatch.setattr(fd, "mission_is_running", lambda mem: False)
 

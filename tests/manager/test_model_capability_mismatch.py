@@ -7,7 +7,6 @@ import pytest
 
 from argus.core.transcript import read_turns
 from argus.life import MemoryBundle
-from argus.life.memory import LifeMemory
 from argus.manager import Manager
 from argus.manager.classification_contract import (
     REPOSITORY_TOOL_CLAUSE,
@@ -253,39 +252,3 @@ def test_cockpit_manager_model_alias_is_role_specific(tmp_path, monkeypatch) -> 
     assert "ARGUS_SKILL_MODEL" not in stored
 
 
-def test_manager_chat_surfaces_capability_message_without_dispatch(
-    tmp_path, monkeypatch,
-) -> None:
-    from argus.manager import config_intent, front_door
-    from argus.webapi import manager_bridge, manager_state
-
-    sid = "manager-mismatch-inline"
-    life_dir = tmp_path / "projects" / sid
-    life_dir.mkdir(parents=True)
-    (life_dir / "events.jsonl").write_text("", encoding="utf-8")
-    (life_dir / "backlog.jsonl").write_text("", encoding="utf-8")
-    manager_state._STATES.clear()
-    message = "[not dispatched] Manager model role-capability mismatch: test"
-
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *_args, **_kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        manager_bridge,
-        "_dispatch_team_mission",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            ManagerModelCapabilityMismatchError(message)
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "Repair the parser.",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "error", "reply": message}
-    assert LifeMemory.open(life_dir).backlog.all() == []

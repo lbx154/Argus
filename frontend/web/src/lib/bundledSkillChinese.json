@@ -27,12 +27,54 @@
     "source": "argus/builtin_skills/engineer/web-primary-source-evidence.md",
     "sourceBytes": 1297
   },
+  "global/manager/asking-the-operator/SKILL.md": {
+    "title": "向操作者提问",
+    "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处。",
+    "originalName": "Asking the operator",
+    "source": "argus/builtin_skills/manager/asking-the-operator/SKILL.md",
+    "sourceBytes": 1086
+  },
   "global/manager/evidence-based-stage-decision.md": {
     "title": "经理的职责与阶段决定",
     "summary": "经理是唯一改变阶段的角色；结合规划和评审证据决定继续、推进、返回或结束，部署始终需要操作者批准。",
     "originalName": "The Manager's role and stage decisions",
     "source": "argus/builtin_skills/manager/evidence-based-stage-decision.md",
     "sourceBytes": 2939
+  },
+  "global/manager/replying/SKILL.md": {
+    "title": "回复操作者",
+    "summary": "用操作者的语言直接回答，说清结论、依据和不确定之处。",
+    "originalName": "Replying to the operator",
+    "source": "argus/builtin_skills/manager/replying/SKILL.md",
+    "sourceBytes": 1686
+  },
+  "global/manager/research-and-sources/SKILL.md": {
+    "title": "调研与引用来源",
+    "summary": "查阅原始资料并注明出处，分清事实、推断和未知。",
+    "originalName": "Research and sources",
+    "source": "argus/builtin_skills/manager/research-and-sources/SKILL.md",
+    "sourceBytes": 1813
+  },
+  "global/manager/settings-and-control/SKILL.md": {
+    "title": "设置与运行控制",
+    "summary": "按操作者明确的话修改设置、暂停、终止或调整方向，由 Argus 执行并核对。",
+    "originalName": "Settings, control and lasting rules",
+    "source": "argus/builtin_skills/manager/settings-and-control/SKILL.md",
+    "sourceBytes": 1730
+  },
+  "global/manager/team-handoff/SKILL.md": {
+    "title": "把任务交给团队",
+    "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单。",
+    "originalName": "Handing work to the team",
+    "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
+    "sourceBytes": 2943
+  },
+  "global/manager/workspace-and-view/SKILL.md": {
+    "title": "工作区与进度查看",
+    "summary": "读取工作区和团队进度，如实说明当前状态。",
+    "originalName": "Workspace and the right-side view",
+    "source": "argus/builtin_skills/manager/workspace-and-view/SKILL.md",
+    "sourceBytes": 947
   },
   "global/performance-profile-ground-truth.md": {
     "title": "真实工作负载性能分析",

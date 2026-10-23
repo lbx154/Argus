@@ -23,7 +23,7 @@ from argus.daemon import protocol as daemon_protocol
 from argus.daemon.state import write_continuous_config
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus.manager import config_intent, front_door
+from argus.manager import front_door
 from argus.manager.front_door import (
     ManagerHandoffError,
     ManagerHandoffSupersededError,
@@ -40,6 +40,7 @@ from argus.webapi import (
     server,
 )
 from argus.webapi.daemon_services import DaemonServices
+from tests.hand_off import manager_runner, ticket
 
 pytest.importorskip("fastapi")
 import threading
@@ -94,20 +95,14 @@ def _install_manager(monkeypatch, execution_for) -> None:
     manager_state._STATES.clear()
 
     class _Manager:
-        def classify_front_door(self, _text, *, lifetime_sink=None, **_kwargs):
-            if lifetime_sink is not None:
-                lifetime_sink("standing")
-            return None, None, "complex"
-
         def decide_vertical(self, text, **kwargs):
             return SimpleNamespace(execution_task=execution_for(text))
 
         def commit_vertical_decision(self, text, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
 
-    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner",
+                        lambda chat_state, mem: manager_runner(_Manager(), hand=lambda text: ticket(text, lifetime="standing")))
 
 
 # ── tasks ─────────────────────────────────────────────────────────────────
@@ -192,7 +187,7 @@ def test_post_task_preserves_active_continuous_campaign_governance(
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+        lambda chat_state, mem: manager_runner(_Manager()),
     )
 
     response = mission_items.enqueue_task(
@@ -487,93 +482,18 @@ def test_replace_project_daemon_parks_state_then_starts_target(
 # ── nudge ─────────────────────────────────────────────────────────────────
 
 
-def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
+def test_post_nudge_is_a_turn_of_the_manager_session(ctx, monkeypatch) -> None:
+    from argus.apps._inbox import count_pending_inbox_messages
+
     root, sid, life = ctx
+    runner = manager_runner(hand=None, reply="Noted: I will fix the framework.")
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
     client = TestClient(server.create_app(global_root=root))
     r = client.post(f"/api/projects/{sid}/nudge", json={"text": "don't nudge, fix the framework"})
-    assert r.status_code == 200 and r.json()["ok"] is True
-    from argus.apps._inbox import claim_inbox_message, release_inbox_claim
-
-    claim = claim_inbox_message(life)
-    assert claim is not None and claim.text == "don't nudge, fix the framework"
-    release_inbox_claim(life, claim)
-    # and a life.inbox.queued event shows on the stream (via /events)
-    types = [e["type"] for e in client.get(f"/api/projects/{sid}/events").json()["events"]]
-    assert "life.inbox.queued" in types
-
-
-def test_nudge_pressure_rejects_without_a_success_receipt(ctx, monkeypatch):
-    from argus.apps import _inbox_protocol
-    from argus.apps._inbox import count_pending_inbox_messages
-
-    root, sid, life = ctx
-    monkeypatch.setattr(_inbox_protocol, "MAX_PENDING_MESSAGES", 0)
-    client = TestClient(server.create_app(global_root=root))
-    response = client.post(f"/api/projects/{sid}/nudge", json={"text": "Retain this only if accepted."})
-    assert response.status_code == 429
-    assert "未接收" in response.json()["detail"]
+    assert r.status_code == 200
+    assert r.json()["kind"] == "chat" and r.json()["reply"] == "Noted: I will fix the framework."
+    assert runner.turns == ["don't nudge, fix the framework"]
     assert count_pending_inbox_messages(life) == 0
-
-
-def test_nudge_busy_retries_without_duplicate_acceptance(ctx):
-    import sqlite3
-
-    from argus.apps._inbox import count_pending_inbox_messages, queue_inbox_message
-    from argus.apps._inbox_protocol import PROTOCOL_DIR
-
-    root, sid, life = ctx
-    queue_inbox_message(life, "Earlier accepted input", source="test")
-    client = TestClient(server.create_app(global_root=root))
-    with sqlite3.connect(life / PROTOCOL_DIR / "queue.sqlite3") as writer:
-        writer.execute("BEGIN IMMEDIATE")
-        response = client.post(f"/api/projects/{sid}/nudge", json={"text": "A retryable new instruction"})
-        assert response.status_code == 503
-        assert "未接收" in response.json()["detail"]
-        assert count_pending_inbox_messages(life) == 1
-        writer.rollback()
-    response = client.post(f"/api/projects/{sid}/nudge", json={"text": "A retryable new instruction"})
-    assert response.status_code == 200 and response.json() == {"ok": True}
-    assert count_pending_inbox_messages(life) == 2
-
-
-def test_nudge_acknowledgement_does_not_wait_for_advisory_event_writer(ctx):
-    import threading
-    import time
-
-    from argus.apps._inbox import count_pending_inbox_messages
-    from argus.core.mission_view._replay import events_locked
-
-    root, sid, life = ctx
-    client = TestClient(server.create_app(global_root=root))
-    done = threading.Event()
-    observed = {}
-
-    def post():
-        try:
-            observed["response"] = client.post(
-                f"/api/projects/{sid}/nudge", json={"text": "Durable guidance with a busy event log"},
-            )
-        finally:
-            done.set()
-
-    worker = threading.Thread(target=post, daemon=True)
-    try:
-        with events_locked(life):
-            started = time.monotonic()
-            worker.start()
-            acknowledged = done.wait(0.75)
-            elapsed = time.monotonic() - started
-            assert count_pending_inbox_messages(life) == 1
-            assert acknowledged, "Durable input receipt waited for its advisory event"
-            assert observed["response"].status_code == 200
-            assert observed["response"].json() == {"ok": True}
-            (life / "nudge-event-lock-observation.json").write_text(json.dumps({
-                "acknowledged_while_event_lock_held_seconds": elapsed,
-                "durable_pending_count": 1,
-            }))
-    finally:
-        worker.join(3)
-    assert not worker.is_alive()
 
 
 # ── continuous ────────────────────────────────────────────────────────────
@@ -771,7 +691,7 @@ def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+        lambda chat_state, mem: manager_runner(_Manager()),
     )
 
     with pytest.raises(ManagerHandoffSupersededError):

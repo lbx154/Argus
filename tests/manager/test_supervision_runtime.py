@@ -12,7 +12,6 @@ from argus.core.event_catalog import EventType
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.role_actions import PREFIX
 from argus.core.role_tool_bridge import bridge_request
-from argus.core.run_gateway import run_exec
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import Backlog, BacklogItem
@@ -20,7 +19,6 @@ from argus.manager import Manager
 from argus.manager._session_ops import manager_pipeline_lock
 from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import observe_project
-from argus.manager.session_context import conversation_backend
 from argus.manager.supervision import schedule_supervision, supervise
 
 
@@ -138,33 +136,6 @@ def test_the_operator_s_answer_is_observed_beside_the_objective(tmp_path) -> Non
     backlog.resume_with_operator_reply(item.id, "A.", manager_decision="A.")
 
     assert observe_project(tmp_path).facts["operator_answers"] == ["A or B? → A. (the operator)"]
-
-
-def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp_path, monkeypatch):
-    from argus.manager import front_door
-    from argus.webapi import manager_bridge, manager_state
-
-    project(tmp_path)
-    first = EvidenceBackend()
-    manager = Manager(tmp_path, runner=first)
-    frontend = SimpleNamespace(manager=manager, _backend=first)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: frontend)
-    reply = manager_bridge._answer_inline("persistent-sid", tmp_path, "What is running now?")
-    assert "grouped-mean" in reply
-    assert "Current project evidence" in first.calls[0][0]
-    assert first.calls[0][1] is None
-
-    second = EvidenceBackend()
-    restarted = Manager(tmp_path, runner=second)
-    record = supervise(restarted, tmp_path, {"type": "life.mission.completed", "item_id": "check"})
-    assert record["status"] == "applied"
-    assert second.calls[0][1] == "persistent-manager"
-
-    manager_state.release_manager_context("persistent-sid")
-    again = SimpleNamespace(manager=Manager(tmp_path, runner=second), _backend=second)
-    result = run_exec(conversation_backend(again), prompt="Explain your last decision", options=RunnerOptions(), run_label="simple-1")
-    assert result.thread_id == "persistent-manager"
-    assert second.calls[-1][1] == "persistent-manager"
 
 
 def test_new_review_evidence_changes_the_action_and_steering_reaches_engineer(tmp_path):
@@ -364,39 +335,6 @@ def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
     assert not (tmp_path / "inbox.jsonl").exists()
 
 
-def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidence(tmp_path):
-    from argus.apps._runtime import _SkillLoopRunner
-
-    backlog, item = project(tmp_path)
-
-    def frontend(backend):
-        runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
-        runner._backend = backend
-        runner._manager_session_root = tmp_path
-        runner._args = SimpleNamespace(workdir=str(tmp_path), engineer_model="local-engineer")
-        runner._next_seed_thread_id = runner.last_thread_id = None
-        runner.manager = Manager(tmp_path, runner=backend)
-        return runner
-
-    sink = SimpleNamespace(handle_event=lambda event: None)
-    first = EvidenceBackend()
-    runner = frontend(first)
-    assert runner._simple_quick_reply(objective="What are we checking?", sink=sink, lean=True).success
-    backlog.update(item.id, last_error="Missing-value check has just failed")
-    assert runner._simple_quick_reply(objective="What changed since your reply?", sink=sink, lean=True).success
-    assert [call[1] for call in first.calls] == [None, "persistent-manager"]
-    assert "Missing-value check has just failed" not in first.calls[0][0]
-    assert "Missing-value check has just failed" in first.calls[1][0]
-
-    second = EvidenceBackend()
-    restarted = frontend(second)
-    assert restarted._simple_quick_reply(objective="Explain the remaining check", sink=sink).success
-    assert second.calls[0][1] == "persistent-manager"
-    assert "Missing-value check has just failed" in second.calls[0][0]
-    record = supervise(restarted.manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-    assert record["status"] == "applied" and second.calls[-1][1] == "persistent-manager"
-
-
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
     from argus.manager.supervision import (
         schedule_supervision,
@@ -453,44 +391,6 @@ def test_model_change_rotates_provider_identity_with_a_durable_conversation_hand
     state = json.loads((tmp_path / ".manager_session.json").read_text())
     assert state["identity"]["model"] == "model-b"
     assert state["rotation_reason"] == "the configured model, backend or handoff protocol changed"
-
-
-def test_an_interactive_ask_neither_waits_for_nor_interrupts_a_background_turn(tmp_path, monkeypatch):
-    from argus.manager import front_door
-    from argus.webapi import manager_bridge
-
-    project(tmp_path)
-    entered, release = threading.Event(), threading.Event()
-
-    class Background(EvidenceBackend):
-        def run_exec(self, **kwargs):
-            if kwargs["run_label"] == "manager-supervision":
-                entered.set()
-                assert release.wait(5)
-                assert not kwargs["options"].external_interrupt_reason_provider()
-            return super().run_exec(**kwargs)
-
-    backend = Background()
-    manager = Manager(tmp_path, runner=backend)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: SimpleNamespace(manager=manager, _backend=backend))
-    assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "What is the task?")
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        background = pool.submit(supervise, manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-        assert entered.wait(1)
-        try:
-            started = time.monotonic()
-            assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
-            assert time.monotonic() - started < 1
-        finally:
-            release.set()
-        assert background.result(timeout=5)["status"] == "applied"
-    # The ask answered on a fresh thread; the background turn kept the shared one.
-    resumes = {label: [] for _prompt, _resume, label in backend.calls}
-    for _prompt, resume, label in backend.calls:
-        resumes[label].append(resume)
-    assert resumes["manager-ask"] == [None, None]
-    assert resumes["manager-supervision"] == ["persistent-manager"]
-    assert manager._session.thread_id == "persistent-manager"
 
 
 @pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])

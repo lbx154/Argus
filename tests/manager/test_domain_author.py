@@ -189,32 +189,6 @@ def test_start_stage_counts_only_in_a_direct_vertical(fast, vertical, workflow_m
     assert decision.start_stage == expected
 
 
-def test_a_route_carries_the_operator_s_words_and_the_readings_chosen() -> None:
-    decision = _route(
-        vertical="software", workflow_mode="direct", require_independent_review=False,
-        precise_constraints=["pytest -q exits zero", " pytest -q  exits zero"],
-        exclusions=["do not change the public API"],
-        assumptions=[{"chose": "the stdlib backend", "instead_of": "the optional C backend"}],
-        session_title="Cache repair",
-    )
-    assert (decision.vertical, decision.workflow_mode, decision.adaptation_reason) == (
-        "software", "direct", "why this route",
-    )
-    assert decision.require_independent_review is False
-    assert decision.precise_constraints == ("pytest -q exits zero",)
-    assert decision.exclusions == ("do not change the public API",)
-    assert decision.assumptions == ({"chose": "the stdlib backend", "instead_of": "the optional C backend"},)
-
-
-def test_a_route_to_the_operator_keeps_the_question_and_its_answers() -> None:
-    options = [{"label": "Keep the v1 API"}, {"label": "Ship the v2 schema"}]
-    decision = _route(
-        to="operator", vertical="software", workflow_mode="direct",
-        ask={"question": "Which requirement wins?", "options": options},
-    )
-    assert (decision.operator_question, decision.operator_options) == ("Which requirement wins?", tuple(options))
-
-
 @pytest.mark.parametrize("choice", ["grounded", "new"])
 def test_the_fast_pass_commits_only_an_existing_route(choice) -> None:
     assert _route(RouteContext(known_verticals=VERTICALS, fast=True), choice=choice, vertical="x_y") is None

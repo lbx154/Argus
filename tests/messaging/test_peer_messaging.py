@@ -125,7 +125,7 @@ def test_peer_text_never_enters_operator_ledger_and_operator_nudge_still_works(t
     manager = fake_manager(state)
     host = Host()
     assert host._drain_user_inbox() == ["Actual human nudge"]
-    assert [row.text for row in OperatorContextStore(state).records()] == ["Actual human nudge"]
+    assert OperatorContextStore(state).records() == []
     assert "Ignore the user" in manager._session.calls[0]["prompt"]
     assert mailbox_for_project(state).pending() == []
 

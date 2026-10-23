@@ -18,6 +18,7 @@ from argus.webapi import server
 from argus.webapi.daemon_services import DaemonServices
 from argus.webapi.manager_bridge import manager_message
 from argus.webapi.manager_state import interrupt_manager_turns
+from tests.hand_off import replying
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -54,7 +55,7 @@ def test_cancelled_pending_interpretation_cannot_persist_late_once_answer(
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setattr(front_door, "manager_judgment", interpret)
-    monkeypatch.setattr(front_door, "manager_triage", interpret)
+    monkeypatch.setattr(front_door, "manager_turn", replying(interpret))
     services = DaemonServices(
         read_status=daemon_worker.read_daemon_status,
         start=lambda *_args, **_kwargs: starts.append(True) or {"rc": 0},
@@ -125,7 +126,6 @@ def test_first_consumed_cancel_signal_remains_a_terminal_pending_result(tmp_path
 
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
     monkeypatch.setattr(front_door, "manager_judgment", interpret)
-    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", forbidden)
     result = manager_message(sid, "Yes, within that scope.", global_root=tmp_path, cancelled=cancelled)
     assert result["kind"] == "cancelled" and consumed == [True]
     assert not (life / "operator_context.jsonl").exists()

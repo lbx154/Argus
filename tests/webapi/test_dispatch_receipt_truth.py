@@ -5,7 +5,6 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,10 +14,11 @@ from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
 from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import Backlog
-from argus.manager import Manager, config_intent, dispatch, front_door
+from argus.manager import Manager, dispatch, front_door
 from argus.manager.domain_author import VerticalDecision
 from argus.webapi import manager_state, server
 from argus.webapi.daemon_services import DaemonServices
+from tests.hand_off import manager_runner
 
 GOAL = "比较相同批量下两组延迟，并保留缺失值说明。"
 
@@ -38,14 +38,8 @@ def test_real_dispatch_ack_does_not_invent_execution_or_repeat_the_confirmation(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("Dispatch receipt regressions must remain offline")
 
-    def classify(_memory, _body, state, **_kwargs):
-        state["_frontdoor_lifetime"] = "bounded"
-        return None, None, "complex"
-
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_args: SimpleNamespace(manager=manager))
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_args: manager_runner(manager))
     monkeypatch.setattr(manager, "decide_vertical", lambda *_args, **_kwargs: VerticalDecision(
         choice="existing", vertical="research", workflow_mode="direct",
         execution_task=GOAL, research_target_level="exploratory",

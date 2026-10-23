@@ -24,6 +24,16 @@ def _set_objective(root: Path, objective: str) -> None:
     )
 
 
+
+def _steer(chat_state, life_dir, emitter):
+    """Apply the steer a Manager filed, its directive and lifetime given as the test's chat-state fields."""
+    from argus.webapi.manager_dispatch import _handle_steer_control
+
+    directive = chat_state.pop("_frontdoor_steering_directive")
+    lifetime = chat_state.pop("_frontdoor_lifetime", "bounded")
+    return _handle_steer_control(life_dir, emitter, chat_state=chat_state, body=directive,
+                                 directive=directive, lifetime=lifetime)
+
 def test_directives_accumulate_until_explicitly_retracted(tmp_path: Path) -> None:
     _set_objective(tmp_path, "prove the theorem")
 
@@ -175,12 +185,12 @@ def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) ->
     emitter = _TurnEmitter(tmp_path, "turn-1", lambda *_args: None)
 
     result = _handle_steer_control(
-        {
-            "_frontdoor_steering_directive": "continue autonomously",
-            "_frontdoor_lifetime": "standing",
-        },
         tmp_path,
         emitter,
+        chat_state={},
+        body="continue autonomously",
+        directive="continue autonomously",
+        lifetime="standing",
     )
 
     continuous = read_continuous_state(tmp_path)
@@ -211,7 +221,6 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
 ) -> None:
     from argus.daemon import state as daemon_state
     from argus.webapi.manager_dispatch import (
-        _handle_steer_control,
         _TurnEmitter,
     )
 
@@ -233,7 +242,7 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
         "config": {"continuous": False},
         "continuous_objective": "stale cache",
     }
-    result = _handle_steer_control(
+    result = _steer(
         chat_state,
         tmp_path,
         _TurnEmitter(tmp_path, "turn-2", lambda *_args: None),
@@ -257,7 +266,6 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
     from argus.life.memory import BacklogItem, LifeMemory
     from argus.manager import directive as directive_module
     from argus.webapi.manager_dispatch import (
-        _handle_steer_control,
         _TurnEmitter,
     )
 
@@ -296,7 +304,7 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
         "continuous_objective": "stale cache",
     }
 
-    result = _handle_steer_control(
+    result = _steer(
         chat_state,
         tmp_path,
         _TurnEmitter(tmp_path, "turn-race", lambda *_args: None),
@@ -322,7 +330,6 @@ def test_directive_write_failure_happens_before_standing_cas(
     from argus.daemon import state as daemon_state
     from argus.manager import directive as directive_module
     from argus.webapi.manager_dispatch import (
-        _handle_steer_control,
         _TurnEmitter,
     )
 
@@ -354,7 +361,7 @@ def test_directive_write_failure_happens_before_standing_cas(
         unexpected_cas,
     )
     with pytest.raises(OSError, match="directive write failed"):
-        _handle_steer_control(
+        _steer(
             {
                 "_frontdoor_steering_directive": "promote safely",
                 "_frontdoor_lifetime": "standing",

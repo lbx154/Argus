@@ -14,6 +14,7 @@ import pytest
 from argus.daemon.life_worker import read_continuous_state, write_continuous_config
 from argus.life import MemoryBundle
 from argus.manager import dispatch, front_door
+from tests.hand_off import manager_runner
 
 
 @pytest.fixture()
@@ -28,7 +29,7 @@ def memory(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def manager_runner(monkeypatch):
+def _offline_manager_runner(monkeypatch):
     class Manager:
         def decide_vertical(self, body, **kwargs):
             return SimpleNamespace(assumptions=(), execution_task=f"managed: {body}")
@@ -39,7 +40,7 @@ def manager_runner(monkeypatch):
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=Manager()),
+        lambda state, mem: manager_runner(Manager()),
     )
 
 
@@ -56,7 +57,7 @@ def manager_runner(monkeypatch):
 def test_team_lifetime_only_sets_whether_the_campaign_stops(memory, hint, open_ended):
     state = {"backend": "codex"}
     if hint is not None:
-        state["_frontdoor_lifetime"] = hint
+        state["_team_lifetime"] = hint
 
     dispatch.enqueue_mission(memory, "do the work", state)
 
@@ -64,7 +65,7 @@ def test_team_lifetime_only_sets_whether_the_campaign_stops(memory, hint, open_e
     assert campaign.enabled is True
     assert campaign.open_ended is open_ended
     assert state["config"]["continuous"] is True
-    assert "_frontdoor_lifetime" not in state
+    assert "_team_lifetime" not in state
 
 
 @pytest.mark.parametrize("hint", ["bounded", "standing"])
@@ -81,7 +82,7 @@ def test_every_lifetime_uses_the_campaign_handoff(memory, monkeypatch, hint):
 
     monkeypatch.setattr(front_door, "manager_continuous_handoff", _continuous)
     monkeypatch.setattr(front_door, "manager_bounded_handoff", _bounded)
-    state = {"backend": "codex", "_frontdoor_lifetime": hint}
+    state = {"backend": "codex", "_team_lifetime": hint}
 
     dispatch.enqueue_mission(memory, "keep improving", state)
 
@@ -91,7 +92,7 @@ def test_every_lifetime_uses_the_campaign_handoff(memory, monkeypatch, hint):
 def test_standing_work_replaces_the_running_campaign(memory):
     life_dir = front_door._life_dir_for(memory)
     write_continuous_config(life_dir, enabled=True, objective="existing campaign")
-    state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
+    state = {"backend": "codex", "_team_lifetime": "standing"}
 
     dispatch.enqueue_mission(memory, "more work", state)
 

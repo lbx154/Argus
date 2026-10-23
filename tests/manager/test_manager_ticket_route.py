@@ -79,7 +79,7 @@ def test_inbox_text_is_guidance_never_a_lasting_rule(tmp_path, monkeypatch):
     queue_inbox_message(life, "以后都用中文回复", source="operator")
     receiver = DurableInboxReceiver(life, consumer="supervisor", project_root=project)
     [text] = receiver.receive(mission_id="", limit=10)
-    assert str(text) == "以后都用中文回复" and text.ephemeral
+    assert str(text) == "以后都用中文回复"
     receiver.settle([text])
     assert not OperatorContextStore(life).records()
 

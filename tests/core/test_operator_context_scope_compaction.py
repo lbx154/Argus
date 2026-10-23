@@ -82,40 +82,6 @@ def test_global_preference_crosses_only_its_user_and_project_override_can_be_rev
     assert OperatorContextStore(second).project("planner").preferences == ()
 
 
-def test_real_front_door_intake_writes_to_the_same_shared_store_later_roles_read(
-    tmp_path: Path,
-) -> None:
-    from argus.life.memory import MemoryBundle
-    from argus.manager.config_intent import _front_door_classify
-
-    memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-writer")
-
-    class Manager:
-        def classify_front_door(self, _text, *, intake_sink, **_kwargs):
-            intake_sink(
-                {
-                    "kind": "preference",
-                    "scope": "global",
-                    "preference_kind": "workflow",
-                    "preference_value": "Use evidence before repeating an experiment.",
-                }
-            )
-            return None, None, "simple"
-
-    result = _front_door_classify(
-        memory,
-        "Remember this preference across my projects.",
-        {},
-        ensure_runner=lambda *_args: SimpleNamespace(manager=Manager()),
-    )
-    assert result == (None, None, "simple")
-    assert OperatorContextStore(memory.project_root).revision == 0
-    another = tmp_path / "projects/s-reader"
-    prompt, _ = build_operator_context_block("planner", another)
-    assert "Use evidence before repeating an experiment." in prompt
-    assert "global preference ledger" in prompt
-
-
 def test_legacy_local_global_label_stays_local_through_compaction(tmp_path: Path) -> None:
     user = tmp_path / "user"
     first, second = user / "projects/first", user / "projects/second"

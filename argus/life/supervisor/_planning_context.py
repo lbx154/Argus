@@ -932,7 +932,7 @@ class PlanningContextMixin:
         transient_ids = [
             message.delivery_id
             for message in getattr(state, "inbox_delivery_messages", ())
-            if getattr(message, "ephemeral", False)
+            if getattr(message, "delivery_id", "")
             and not getattr(message, "host_report", False)
         ]
         if current and transient_ids:

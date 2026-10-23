@@ -7,6 +7,7 @@ from argus.life.memory import LifeMemory
 from argus.life.telegram_bot import _CommandRouter
 from argus.manager import front_door
 from argus.manager.front_door import ManagerHandoffError
+from tests.hand_off import manager_runner, replying
 
 
 def test_detect_active_layer_requires_explicit_agent_layer() -> None:
@@ -59,7 +60,7 @@ def _install_manager(monkeypatch, execution_for) -> None:
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(manager=_Manager()),
+        lambda chat_state, mem: manager_runner(_Manager()),
     )
 
 
@@ -95,11 +96,7 @@ def test_free_text_manager_self_reply_is_not_enqueued(
     tmp_path, monkeypatch,
 ) -> None:
     router, life_dir, replies = _router(tmp_path)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda mem, text, state: "在的，有什么需要我处理？",
-    )
+    monkeypatch.setattr(front_door, "manager_turn", replying(lambda mem, text, state: "在的，有什么需要我处理？"))
 
     router.dispatch("在吗")
 
@@ -158,27 +155,6 @@ def test_add_does_not_enqueue_raw_text_when_manager_handoff_fails(
 
     assert LifeMemory.open(life_dir).backlog.all() == []
     assert replies and "这条命令暂时无法完成" in replies[-1]
-    assert "safe handoff unavailable" not in replies[-1]
-
-
-def test_free_text_reports_manager_handoff_failure(
-    tmp_path, monkeypatch,
-) -> None:
-    router, life_dir, replies = _router(tmp_path)
-
-    def fail_handoff(*args, **kwargs):
-        raise ManagerHandoffError("safe handoff unavailable")
-
-    monkeypatch.setattr(front_door, "manager_bounded_handoff", fail_handoff)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *_args, **_kwargs: None,
-    )
-    router.dispatch("write paper; Manager owns the sidebar")
-
-    assert LifeMemory.open(life_dir).backlog.all() == []
-    assert replies and "暂时无法安排这项任务" in replies[-1]
     assert "safe handoff unavailable" not in replies[-1]
 
 
@@ -302,7 +278,7 @@ def _judged(monkeypatch, *, is_answer: bool, decision: str = "", reply: str = ""
 
 def _no_new_task(monkeypatch) -> list[str]:
     triaged: list[str] = []
-    monkeypatch.setattr(front_door, "manager_triage", lambda _m, text, _s, **_k: triaged.append(text))
+    monkeypatch.setattr(front_door, "manager_turn", replying(lambda _m, text, _s, **_k: triaged.append(text)))
     monkeypatch.setattr(
         front_door, "manager_bounded_handoff",
         lambda _mem, text, _state, persist, **_k: persist(text, None),
@@ -331,7 +307,7 @@ def test_a_reply_that_is_not_an_answer_is_handled_as_before(tmp_path, monkeypatc
     router, life_dir, replies = _router(tmp_path)
     item = _park_question(life_dir, "api", ("Keep the v1 API", "Ship the v2 schema"))
     seen = _judged(monkeypatch, is_answer=False)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *_a, **_k: "在的，有什么需要我处理？")
+    monkeypatch.setattr(front_door, "manager_turn", replying(lambda *_a, **_k: "在的，有什么需要我处理？"))
 
     router.dispatch("在吗")
 

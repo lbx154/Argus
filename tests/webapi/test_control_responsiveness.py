@@ -8,13 +8,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from argus.core.models import RunnerOptions, RunnerResult
-from argus.core.run_gateway import run_exec
+from argus.core.models import RunnerResult
 from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon.state import read_continuous_state, write_continuous_config
-from argus.life.memory import LifeMemory, MemoryBundle
-from argus.manager import config_intent, front_door
+from argus.life.memory import MemoryBundle
+from argus.manager import front_door
 from argus.manager._session_ops import manager_pipeline_lock
 from argus.webapi import manager_bridge, manager_dispatch, manager_state, project_crud, server
 from argus.webapi.daemon_services import DaemonServices
@@ -62,44 +61,6 @@ def test_continuous_stop_does_not_wait_for_busy_manager_lock(tmp_path):
             future.result(timeout=2)
 
 
-def test_http_stop_interrupts_manager_provider_and_prevents_late_dispatch(tmp_path, monkeypatch):
-    sid, life = _project(tmp_path)
-    entered, cleanup = threading.Event(), threading.Event()
-    reasons = []
-
-    class SlowBackend:
-        def run_exec(self, *, options, **kwargs):
-            interrupt = options.external_interrupt_reason_provider
-            assert callable(interrupt)
-            entered.set()
-            deadline = time.monotonic() + 3
-            while not cleanup.is_set() and time.monotonic() < deadline:
-                reason = interrupt()
-                if reason:
-                    reasons.append(reason)
-                    return RunnerResult(exit_code=130, fatal_error="External interrupt: " + reason)
-                cleanup.wait(0.01)
-            raise AssertionError("Manager provider did not receive stop")
-
-    def classify(*args, **kwargs):
-        run_exec(SlowBackend(), prompt="classify", options=RunnerOptions(), run_label="manager-test")
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(daemon_worker, 'stop_daemon', lambda *args, **kwargs: 0)
-    with ThreadPoolExecutor(max_workers=1) as pool, TestClient(server.create_app(global_root=tmp_path)) as client:
-        future = pool.submit(manager_bridge.manager_message, sid, "Develop the next experiment", global_root=tmp_path)
-        try:
-            assert entered.wait(2)
-            response = client.post(f"/api/projects/{sid}/daemon/stop", json={"force": True})
-            assert response.status_code == 200 and response.json()["command_status"] == "applied"
-            assert future.result(timeout=1)["kind"] == "cancelled"
-            assert reasons == ["operator interrupted Manager request"]
-            assert LifeMemory.open(life).backlog.all() == []
-        finally:
-            cleanup.set()
-
-
 def test_new_objective_supersedes_an_older_waiting_handoff(tmp_path, monkeypatch):
     sid, life = _project(tmp_path)
     held, release, prepared = threading.Event(), threading.Event(), threading.Event()
@@ -123,7 +84,6 @@ def test_new_objective_supersedes_an_older_waiting_handoff(tmp_path, monkeypatch
 
     ensure = lambda *args: SimpleNamespace(manager=Manager())
     monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
 
     def holder():
         with manager_pipeline_lock(life):
@@ -168,7 +128,6 @@ def test_old_request_cannot_adopt_a_new_generation_after_slow_project_open(tmp_p
         return objective
 
     monkeypatch.setattr(MemoryBundle, "for_cwd", delayed_open)
-    monkeypatch.setattr(config_intent, "_front_door_classify", lambda *args, **kwargs: (None, None, "complex"))
     monkeypatch.setattr(front_door, "manager_continuous_handoff", commit)
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="older") as pool:
         old = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="Old", global_root=tmp_path)
@@ -195,7 +154,6 @@ def test_stop_after_goal_commit_prevents_late_http_start(tmp_path, monkeypatch):
         assert release.wait(3)
         return objective
 
-    monkeypatch.setattr(config_intent, "_front_door_classify", lambda *args, **kwargs: (None, None, "complex"))
     monkeypatch.setattr(front_door, "manager_continuous_handoff", commit)
     services = DaemonServices(read_status=daemon_worker.read_daemon_status,
         start=lambda *args, **kwargs: starts.append(True) or {"rc": 0})
@@ -221,10 +179,6 @@ def test_failed_replacement_preserves_cached_committed_goal(tmp_path, monkeypatc
     state = manager_state._chat_state_for(sid)
     state.update(config={"continuous": True}, continuous_objective="Previous")
 
-    def fail(*args, **kwargs):
-        raise front_door.ManagerHandoffError("backend unavailable")
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", fail)
     with pytest.raises(front_door.ManagerHandoffError):
         project_crud.set_continuous(sid, enabled=True, objective="Replacement", global_root=tmp_path)
     assert read_continuous_state(life).objective == state["continuous_objective"] == "Previous"

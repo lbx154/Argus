@@ -5,13 +5,12 @@ Only synthetic state and in-process model doubles; no credentials or network.
 from __future__ import annotations
 
 import os
-from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
 
 from argus.core import knobs
-from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.models import RunnerOptions
 from argus.trial import CLIENT_MODEL, client
 
 
@@ -82,34 +81,6 @@ def test_persisted_personal_control_knob_is_not_rewritten(isolated_trial, monkey
     monkeypatch.setenv("ARGUS_SKILL_MODEL", CLIENT_MODEL)
     assert knobs.resolve_light_model() == CLIENT_MODEL
     assert read_persisted_knobs() == before
-
-
-def test_front_door_classification_reaches_execution_in_trial_mode(isolated_trial, monkeypatch):
-    from argus.adapters.agent_cli_backend import _exec
-    from argus.core.handoff import HandOffActions
-    from argus.life import router
-    from argus.manager import _skill_placement_ops
-
-    calls = []
-    backend = SimpleNamespace(
-        backend="copilot", _runner=SimpleNamespace(backend="copilot"),
-        _refresh_known_secret_values=lambda: None,
-        _resolve_execution_options=lambda value: value,
-    )
-    def execute_prepared(_backend, **kwargs):
-        calls.append(kwargs["options"].model)
-        return RunnerResult(exit_code=0, agent_messages=["synthetic classification"])
-    monkeypatch.setattr(_exec, "_execute_prepared", execute_prepared)
-    monkeypatch.setattr(_skill_placement_ops, "gateway_run_exec", _exec.execute)
-    monkeypatch.setattr(router, "classify_front_door",
-                        lambda text, *, run_exec, **kw: run_exec(text, HandOffActions("front_door")))
-    manager = SimpleNamespace(
-        runner=backend, manager_session_root=isolated_trial / "manager",
-        _task_usage_scope=lambda _: nullcontext(),
-    )
-    result = _skill_placement_ops._SkillPlacementMixin.classify_front_door(manager, "A normal test message")
-    assert result.exit_code == 0, result.fatal_error
-    assert calls == [CLIENT_MODEL]
 
 
 @pytest.mark.parametrize("model", [None, "", "auto", "AUTO", "default", CLIENT_MODEL])

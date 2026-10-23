@@ -28,12 +28,10 @@ def test_host_reports_are_read_once_without_the_front_door(tmp_path, monkeypatch
     receiver = DurableInboxReceiver(life, consumer="supervisor", project_root=project)
     first = receiver.receive(mission_id="", limit=10)
     assert [str(text) for text in first] == [report.strip()]
-    assert first[0].ephemeral
     receiver.settle(first)
     second = receiver.receive(mission_id="", limit=10)
     assert [str(text) for text in second] == ["Please also plot the residuals."]
     # The inbox classifies nothing: the operator's words reach the round as guidance.
-    assert second[0].ephemeral
     # Nothing about the report became durable operator context.
     assert not [
         record for record in OperatorContextStore(life).records()

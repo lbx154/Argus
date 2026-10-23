@@ -8,6 +8,7 @@ import pytest
 
 from argus.life import BacklogItem, MemoryBundle
 from argus.manager import dispatch, front_door
+from tests.hand_off import manager_runner
 
 
 @pytest.fixture()
@@ -22,7 +23,7 @@ def memory(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def manager_runner(monkeypatch):
+def _offline_manager_runner(monkeypatch):
     class Manager:
         def decide_vertical(self, body, **kwargs):
             return SimpleNamespace(assumptions=(), execution_task=f"managed: {body}")
@@ -33,7 +34,7 @@ def manager_runner(monkeypatch):
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=Manager()),
+        lambda state, mem: manager_runner(Manager()),
     )
 
 
@@ -58,7 +59,7 @@ def _direct_manager(monkeypatch, **decision) -> None:
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(manager=Manager()),
+        lambda *_args, **_kwargs: manager_runner(Manager()),
     )
 
 
@@ -145,7 +146,7 @@ def test_direct_task_joins_a_running_campaign_without_replacing_it(
         memory.project.root, enabled=True, objective="existing campaign",
     )
     _direct_manager(monkeypatch)
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+    state = {"backend": "codex", "_team_lifetime": "bounded"}
 
     item, _, _ = dispatch.enqueue_mission(memory, "one finite check", state)
 
@@ -154,34 +155,7 @@ def test_direct_task_joins_a_running_campaign_without_replacing_it(
     assert campaign.enabled is True
     assert campaign.objective == "existing campaign"
     assert state["continuous_objective"] == "existing campaign"
-    assert "_frontdoor_lifetime" not in state
-
-
-def test_a_choice_the_operator_reserved_waits_on_them_instead_of_dispatching(
-    memory,
-    monkeypatch,
-) -> None:
-    """2026-10-20: the Manager read that only the operator could pick A or B,
-    yet an Engineer spent 44 seconds finding that out. The task now waits on
-    the Manager's question and resumes on the answer."""
-    from argus.life.memory import park_reason
-
-    _direct_manager(monkeypatch, operator_question="A or B?", adaptation_reason="A and B conflict")
-
-    item, _, _ = dispatch.enqueue_mission(memory, "pick A or B, then change truncate", {})
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert park_reason(stored) == "operator_question"
-    assert stored.pending_question == stored.operator_decision["question"] == "A or B?"
-    assert memory.backlog.next_pending() is None
-    assert any(
-        event.get("type") == "life.operator_question.pending" and event["item_id"] == item.id
-        for event in _events(memory)
-    )
-
-    resumed, _ = memory.backlog.resume_with_operator_reply(item.id, "A")
-    assert memory.backlog.next_pending().id == resumed.id == item.id
-    assert "manager_direct" in resumed.tags
+    assert "_team_lifetime" not in state
 
 
 def test_the_readings_the_route_chose_are_recorded_for_its_task(memory, monkeypatch) -> None:
@@ -207,7 +181,7 @@ def test_every_team_task_arms_a_planner_run_campaign(memory, lifetime, open_ende
 
     state = {"backend": "codex"}
     if lifetime is not None:
-        state["_frontdoor_lifetime"] = lifetime
+        state["_team_lifetime"] = lifetime
 
     item, _, _ = dispatch.enqueue_mission(memory, "write the paper", state)
 
@@ -216,7 +190,7 @@ def test_every_team_task_arms_a_planner_run_campaign(memory, lifetime, open_ende
     assert campaign.open_ended is open_ended
     assert campaign.objective == "managed: write the paper"
     assert "operator_priority" in item.tags
-    assert "_frontdoor_lifetime" not in state
+    assert "_team_lifetime" not in state
 
 
 def test_direct_item_carries_the_stage_the_supervisor_replays(memory, monkeypatch):
@@ -334,7 +308,7 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     item, _, _ = dispatch.enqueue_mission(
         memory,
         "operator request",
-        {"backend": "codex", "_frontdoor_lifetime": "standing"},
+        {"backend": "codex", "_team_lifetime": "standing"},
     )
 
     payload = json.loads(
@@ -371,70 +345,6 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     assert queued["item_id"] == item.id
     assert queued["source"] == "manager_operator"
     assert queued["operator_priority"] is True
-
-
-def test_contextual_continuous_title_uses_manager_execution_task_in_every_status(
-    memory,
-    monkeypatch,
-):
-    from argus.webapi.manager_session_intent import contextualize_operator_turn
-    from argus.webapi.project_state import compact_backlog_item
-
-    execution_task = "修复上下文化连续任务的标题，并保留目标、依赖与状态行为。"
-    routing_body = contextualize_operator_turn(
-        "那就继续修最后一个问题",
-        [
-            {"role": "operator", "text": "先处理标题泄露问题。"},
-            {"role": "argus", "text": "会保持普通研究任务行为不变。"},
-        ],
-        last_team_task="分阶段修复 Argus 用户体验问题。",
-    )
-
-    class ContextResolvingManager:
-        def decide_vertical(self, body, **kwargs):
-            assert body == routing_body
-            return SimpleNamespace(
-                assumptions=(),
-                execution_task=execution_task,
-                workflow_mode="staged",
-            )
-
-        def commit_vertical_decision(self, body, decision, **kwargs):
-            assert body == routing_body
-            return decision
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=ContextResolvingManager()),
-    )
-
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        routing_body,
-        {"backend": "codex", "config": {"continuous": True}},
-    )
-
-    assert item is not None
-    assert item.objective == execution_task
-    assert item.original_objective == execution_task
-    assert item.deps == []
-    views = [compact_backlog_item(item)]
-    running = memory.backlog.mark_running(item.id)
-    assert running is not None
-    views.append(compact_backlog_item(running))
-    failed = memory.backlog.mark_failed(item.id, error="受控失败")
-    assert failed is not None
-    views.append(compact_backlog_item(failed))
-
-    assert [view["status"] for view in views] == ["pending", "running", "failed"]
-    # The title is the task's short name: its clause, not the sentence's period.
-    assert {view["title"] for view in views} == {execution_task.rstrip("。")}
-    for view in views:
-        visible = json.dumps(view, ensure_ascii=False)
-        assert "[BOUNDED TASK CONTEXT" not in visible
-        assert "[CURRENT OPERATOR MESSAGE]" not in visible
-        assert "先处理标题泄露问题" not in visible
 
 
 def test_continuous_replacement_queues_operator_task_after_running_work(memory):

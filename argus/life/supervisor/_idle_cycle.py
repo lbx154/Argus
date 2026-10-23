@@ -430,7 +430,7 @@ class IdleCycleMixin:
                 if carryover is None:
                     carryover = []
                     self._operator_guidance_carryover = carryover
-                if not getattr(message, "ephemeral", False):
+                if not getattr(message, "delivery_id", ""):
                     carryover.append(message)
                 self._emit_status(
                     "operator inbox resolved pending question "

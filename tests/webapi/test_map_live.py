@@ -916,26 +916,6 @@ def _legacy_solo_rows(*, failed=False, observed=True, run_label="self-implement"
     ]
 
 
-@pytest.mark.parametrize("failed", [False, True])
-def test_legacy_solo_receipts_recover_truthful_execution_without_inventing_tools(failed):
-    asks, turns = {}, {}
-    rows = _legacy_solo_rows(failed=failed)
-    assert turn_records(rows[:2], turns, asks) == {}
-    assert turn_records(rows[2:3], turns, asks) == {}
-    recovered = turn_records(rows[3:], turns, asks)["turn:web-legacy"]
-    assert asks == {}
-    assert recovered["card"]["status"] == ("failed" if failed else "done")
-    assert recovered["card"]["started_ts"] == 11
-    assert recovered["card"]["finished_ts"] == 13
-    work, reply = recovered["events"]
-    assert work["steps"] == []
-    assert work["tool_details_recorded"] is False
-    assert work["association"] == "single_active_window"
-    assert reply["status"] == recovered["card"]["status"]
-    if failed:
-        assert work["text"] == recovered["card"]["summary"] == "Hard idle timeout"
-
-
 @pytest.mark.parametrize(
     "run_label", ["map-summary", "curator.distill", "self-learning-review"],
 )
@@ -949,19 +929,6 @@ def test_legacy_recovery_requires_observed_tools_and_an_unambiguous_start():
     assert turn_records([rows[0], *rows[2:]]) == {}
     other = {**rows[0], "message_id": "web-other-operator"}
     assert turn_records([rows[0], other, *rows[1:]]) == {}
-
-
-@pytest.mark.parametrize("run_label", ["simple-1", "chat-1", "manager-quick-reply"])
-def test_legacy_questions_recover_the_recorded_answer_without_execution_steps(run_label):
-    rows = _legacy_solo_rows(run_label=run_label, observed=False)
-    rows[-1]["text"] = "A detailed answer. " * 500
-    turns, asks = {}, {}
-    assert turn_records(rows[:2], turns, asks) == {}
-    turn = turn_records(rows[2:], turns, asks)["turn:web-legacy"]
-    assert turn["card"]["turn_kind"] == "qa"
-    assert turn["card"]["status"] == "done"
-    assert [e["type"] for e in turn["events"]] == ["turn.replied"]
-    assert turn["events"][0]["text"] == rows[-1]["text"].strip()
 
 
 def test_question_card_lifecycle_is_incremental_and_cancellable():
@@ -994,18 +961,6 @@ def test_durable_tool_steps_take_priority_over_legacy_execution_receipts():
     assert work["steps"][0]["label"] == "查阅 actual.csv"
     assert "tool_details_recorded" not in work
     assert work["association"] == "explicit"
-
-
-def test_successful_solo_retry_does_not_inherit_an_earlier_failure():
-    rows = _legacy_solo_rows(failed=True)
-    retry = _legacy_solo_rows()
-    retried = [
-        *rows[:3],
-        {**retry[1], "call_id": "solo-2", "ts": 13},
-        {**retry[2], "call_id": "solo-2", "ts": 14},
-        {**retry[3], "ts": 15},
-    ]
-    assert turn_records(retried)["turn:web-legacy"]["card"]["status"] == "done"
 
 
 def test_history_pages_carry_work_segments_and_turns_and_regrow_open_segments(tmp_path):

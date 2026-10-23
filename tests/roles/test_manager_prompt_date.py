@@ -9,8 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from argus.roles.prompts.manager import (
-    build_quick_reply_prompt,
-    build_simple_prompt,
+    build_manager_prompt,
     current_date_line,
 )
 
@@ -23,12 +22,8 @@ def test_date_line_names_the_calendar_day_and_weekday() -> None:
     assert "training" in line.lower()
 
 
-def test_reply_prompts_carry_todays_date() -> None:
-    today = datetime.now().astimezone().strftime("%Y-%m-%d")
-    assert today in build_simple_prompt(objective="what is new in agentic RL?")
-    assert today in build_quick_reply_prompt(objective="what is 2+2?")
 
 
-def test_date_line_precedes_the_task_so_it_is_read_as_context() -> None:
-    prompt = build_simple_prompt(objective="summarize the latest results")
-    assert prompt.index(datetime.now().astimezone().strftime("%Y-%m-%d")) < prompt.index("Task:")
+def test_the_manager_prompt_carries_todays_date(tmp_path) -> None:
+    prompt = build_manager_prompt("what is new in agentic RL?", workspace=tmp_path, state_root=tmp_path)
+    assert current_date_line() in prompt

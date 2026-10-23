@@ -41,13 +41,11 @@ class OperatorInboxText(str):
     """String compatibility for display, with a physical delivery identity."""
 
     delivery_id: str
-    ephemeral: bool
     host_report: bool
 
-    def __new__(cls, text: str, *, delivery_id: str, ephemeral: bool, host_report: bool = False):
+    def __new__(cls, text: str, *, delivery_id: str, host_report: bool = False):
         value = super().__new__(cls, text)
         value.delivery_id = delivery_id
-        value.ephemeral = ephemeral
         value.host_report = host_report
         return value
 
@@ -58,12 +56,7 @@ def is_host_report(message: str) -> bool:
 
 
 def operator_live_turn(messages: Iterable[str]) -> str:
-    # Replaying a canonical receipt must not reinstate consumed/revoked
-    # authority through the higher-precedence live-turn channel.
-    return "\n".join(
-        text for text in messages
-        if not isinstance(text, OperatorInboxText) or text.ephemeral
-    )
+    return "\n".join(messages)
 
 
 def unique_operator_messages(messages: Iterable[str]) -> list[str]:
@@ -255,7 +248,7 @@ class DurableInboxReceiver:
     def _text(claim: Any) -> OperatorInboxText:
         return OperatorInboxText(
             claim.transient_text,
-            delivery_id=_identity(claim), ephemeral=True,
+            delivery_id=_identity(claim),
             host_report=_host_report(claim),
         )
 
@@ -263,7 +256,7 @@ class DurableInboxReceiver:
         from ._inbox import settle_inbox_claim
 
         for text in messages:
-            if not isinstance(text, OperatorInboxText) or not text.ephemeral:
+            if not isinstance(text, OperatorInboxText):
                 continue
             claim = self.pending.get(text.delivery_id)
             if claim is None:

@@ -11,8 +11,8 @@ import json
 import time
 from pathlib import Path
 
-from argus.life.memory import BacklogItem, LifeMemory
 from argus.webapi import manager_bridge, manager_dispatch, manager_state
+from tests.hand_off import replying
 
 
 def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
@@ -93,20 +93,7 @@ def test_manager_stream_announces_classification_before_model_call(
     manager_state._STATES.clear()
     fragments: list[tuple[str, dict]] = []
 
-    def _classify(mem, text, chat_state, *, root_task_id=None):
-        assert fragments == [
-            (
-                "phase",
-                {"role": "manager", "label": "Understanding your request…"},
-            )
-        ]
-        return None, "simple"
-
-    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _classify)
-    monkeypatch.setattr(
-        "argus.manager.front_door.manager_triage",
-        lambda *a, **k: "done",
-    )
+    monkeypatch.setattr("argus.manager.front_door.manager_turn", replying(lambda *a, **k: "done"))
 
     result = manager_bridge.manager_message(
         "s-phase001",
@@ -126,17 +113,13 @@ def test_manager_stream_and_persisted_reply_share_message_id(
     manager_state._STATES.clear()
     fragments: list[tuple[str, dict]] = []
 
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify",
-        lambda *a, **k: (None, "simple"),
-    )
 
     def _triage(*args, on_fragment=None, **kwargs):
         assert on_fragment is not None
         on_fragment("delta", {"text": "done", "message_id": "internal-id"})
         return "done"
 
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _triage)
+    monkeypatch.setattr("argus.manager.front_door.manager_turn", replying(_triage))
 
     result = manager_bridge.manager_message(
         "s-stream001",
@@ -159,238 +142,3 @@ def test_manager_stream_and_persisted_reply_share_message_id(
     assert delta["fragment_mode"] == "snapshot"
 
 
-def test_natural_language_abort_is_control_not_backlog_work(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    life = _make_project(tmp_path, "s-abort001")
-    memory = LifeMemory.open(life)
-    item = memory.backlog.add(
-        BacklogItem.new(title="long task", objective="run a long task")
-    )
-    memory.backlog.mark_running(item.id)
-    manager_state._STATES.clear()
-
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify",
-        lambda *a, **k: (None, "abort", "simple"),
-    )
-    monkeypatch.setattr(
-        "argus.manager.front_door.manager_triage",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("abort control must not enter Manager reply work")
-        ),
-    )
-    monkeypatch.setattr(
-        "argus.manager.dispatch.enqueue_mission",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("abort control must never enqueue a mission")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        "s-abort001",
-        "停止现在的所有任务",
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "control"
-    assert result["control"] == "abort"
-    assert result["requested"] is True
-    assert result["item_id"] == item.id
-    assert result["reply"] == "我已要求当前任务停止。"
-    assert item.id not in result["reply"]
-    assert len(memory.backlog.all()) == 1
-    request = json.loads(
-        (life / "running_item_abort.json").read_text(encoding="utf-8")
-    )
-    assert "停止现在的所有任务" in request["reason"]
-
-
-def test_web_process_restart_seeds_one_startup_handoff(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    life = _make_project(tmp_path, "s-restart01")
-    from argus.core.transcript import append_turn
-
-    append_turn(life, "operator", "old question")
-    append_turn(life, "argus", "old answer")
-    manager_state._STATES.clear()  # model a fresh web process
-    seen: list[str] = []
-    classified: list[str] = []
-
-    def _classify(mem, text, chat_state, *, root_task_id=None):
-        classified.append(text)
-        chat_state["_frontdoor_self_mode"] = "reply"
-        return None, "simple"
-
-    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _classify)
-
-    def _triage(mem, body, chat_state, **_kw):
-        assert _kw["self_mode"] == "inspect"
-        seen.append(body)
-        chat_state["last_thread_id"] = "warm-thread"
-        return "ok"
-
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _triage)
-
-    manager_bridge.manager_message(
-        "s-restart01",
-        "new question",
-        global_root=tmp_path,
-    )
-    assert "SESSION HANDOFF" in seen[0]
-    assert "old question" in seen[0] and "old answer" in seen[0]
-    assert seen[0].count("new question") == 1
-    assert classified == ["new question"]
-    assert manager_state._STATES["s-restart01"]["startup_handoffs"] == 1
-
-    manager_bridge.manager_message(
-        "s-restart01",
-        "next question",
-        global_root=tmp_path,
-    )
-    assert "SESSION HANDOFF" not in seen[1]
-    assert classified == ["new question", "next question"]
-    assert manager_state._STATES["s-restart01"]["startup_handoffs"] == 1
-    assert "needs_startup_handoff" not in manager_state._STATES["s-restart01"]
-
-
-def test_status_question_uses_model_path_and_consumes_pending_handoff(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    _make_project(tmp_path, "s-status001")
-    manager_state._STATES.clear()
-    state = manager_state._chat_state_for("s-status001")
-    state.update({
-        "turns": 4,
-        "last_thread_id": "warm-thread",
-        "needs_startup_handoff": True,
-    })
-    model_calls: list[str] = []
-
-    def _classify(_mem, _text, chat_state, **_kwargs):
-        model_calls.append("classify")
-        chat_state["_frontdoor_self_mode"] = "inspect"
-        return None, None, "simple"
-
-    def _triage(_mem, body, _chat_state, **_kwargs):
-        model_calls.append("triage")
-        assert body == "What is the current status?"
-        return "model status reply"
-
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify",
-        _classify,
-    )
-    monkeypatch.setattr(
-        "argus.manager.front_door.manager_triage",
-        _triage,
-    )
-
-    result = manager_bridge.manager_message(
-        "s-status001",
-        "What is the current status?",
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "chat"
-    assert result["reply"] == "model status reply"
-    assert model_calls == ["classify", "triage"]
-    assert state["turns"] == 5
-    assert "needs_startup_handoff" not in state
-    assert int(state.get("startup_handoffs", 0)) == 0
-
-
-def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkeypatch) -> None:
-    """The cockpit front-door is a full NL control surface: a hyperparameter
-    request ("set the engineer to xhigh") is applied + confirmed inline, never
-    enqueued as a mission and never reaching triage. Now driven by the MERGED
-    front-door classify (``_front_door_classify`` → intent + route) + explicit
-    ``_apply_config_intent``."""
-    _make_project(tmp_path, "s-cfg00001")
-    manager_state._STATES.clear()
-
-    triaged: list[str] = []
-
-    def _fake_front_door(mem, text, chat_state, *, root_task_id=None):
-        # config request → non-None intent (apply path); else None + route.
-        return (object() if "xhigh" in text else None), "simple"
-
-    def _fake_apply(mem, intent, chat_state, *, on_confirm=None, **_kw):
-        if on_confirm:
-            on_confirm("Set Engineer reasoning effort to xhigh.")
-        return True
-
-    def _fake_triage(mem, body, chat_state, **_kw):
-        triaged.append(body)
-        return "chatted"
-
-    monkeypatch.setattr("argus.manager.config_intent._front_door_classify", _fake_front_door)
-    monkeypatch.setattr("argus.manager.config_intent._apply_config_intent", _fake_apply)
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
-
-    r = manager_bridge.manager_message(
-        "s-cfg00001", "set the engineer to xhigh", global_root=tmp_path
-    )
-    assert r["kind"] == "chat"
-    assert "xhigh" in r["reply"]
-    assert triaged == []  # config short-circuits BEFORE triage — not enqueued
-
-    # A status-looking read now uses the same model-selected SELF path.
-    r2 = manager_bridge.manager_message("s-cfg00001", "how's it going?", global_root=tmp_path)
-    assert r2["kind"] == "chat"
-    assert r2["reply"] == "chatted"
-    # The follow-up turn reaches triage wrapped in prior-turn context; the
-    # current operator message rides at the end of the contextualized body.
-    assert len(triaged) == 1
-    assert triaged[0].endswith("how's it going?")
-
-
-def test_active_mission_config_change_is_still_applied_inline(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    life = _make_project(tmp_path, "s-cfg-active")
-    memory = LifeMemory.open(life)
-    item = memory.backlog.add(
-        BacklogItem.new(title="active", objective="work")
-    )
-    memory.backlog.mark_running(item.id)
-    manager_state._STATES.clear()
-    applied: list[object] = []
-
-    intent = object()
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify",
-        lambda *a, **k: (intent, None, "complex"),
-    )
-
-    def _apply(mem, candidate, chat_state, *, on_confirm=None, **_kw):
-        applied.append(candidate)
-        if on_confirm:
-            on_confirm("Set budget to $20.")
-        return True
-
-    monkeypatch.setattr(
-        "argus.manager.config_intent._apply_config_intent",
-        _apply,
-    )
-    monkeypatch.setattr(
-        "argus.manager.front_door.manager_triage",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("config intent must short-circuit triage")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        "s-cfg-active",
-        "set the budget to 20",
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "chat"
-    assert applied == [intent]
-    assert len(memory.backlog.all()) == 1

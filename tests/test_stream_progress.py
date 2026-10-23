@@ -948,19 +948,3 @@ def test_non_shell_tool_call_stays_a_tool_use() -> None:
     assert "action_summary" not in call
 
 
-@pytest.mark.parametrize("mode", ["inspect", "micro", "implement", "debug", "review", "synthesize"])
-def test_every_self_turn_streams_as_manager_work(mode: str) -> None:
-    """Trial s-cc7ba48e: two self-implement turns made 34 tool calls and left no
-    step on record, because only ``simple-1`` was a visible Manager label."""
-    from argus.apps._self_reply import _SELF_EXECUTION_CONTRACTS
-
-    label = "simple-1" if mode == "inspect" else f"self-{mode}"
-    assert mode == "inspect" or mode in _SELF_EXECUTION_CONTRACTS
-    sink = _RecordingSink()
-    cb = make_stream_progress_callback(sink)
-    cb(f"{label}.stdout", json.dumps({
-        "type": "tool.execution_start",
-        "data": {"toolCallId": "call-1", "toolName": "bash", "arguments": {"command": "pytest -q"}},
-    }))
-
-    assert [(e["agent_layer"], e["kind"]) for e in sink.events] == [("manager", "command_execution")]

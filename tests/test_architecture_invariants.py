@@ -1097,7 +1097,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/supervision.py -> daemon",
     "provider_integrations/copilot_usage.py -> trial",
     "reviewer/_core.py -> manager",
-    "roles/prompts/manager.py -> manager",
     "skills/builtins.py -> domains",
     "skills/builtins.py -> verticals",
     "skills/checklist_store.py -> verticals",
@@ -1123,7 +1122,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "adapters -> argus.agent_cli._structured_output",
     "apps -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "apps -> argus.manager._session_ops",
-    "apps -> argus.manager.config_intent._front_door_classify",
     "apps -> argus.manager.front_door._ensure_manager_runner",
     "apps -> argus.skills.vertical_select._persisted_vertical",
     "apps -> argus.verticals._base",
@@ -1148,8 +1146,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.core.operator_context._current_mission_id",
     "life -> argus.daemon.state._fsync_directory",
     "life -> argus.manager.config_intent._apply_config_intent",
-    "life -> argus.manager.config_intent._front_door_classify",
-    "life -> argus.manager.front_door._accepts_parameter",
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
@@ -1159,7 +1155,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "maintenance -> argus.agent_cli._process_control",
     "manager -> argus.apps._life_actions",
     "manager -> argus.apps._runtime",
-    "manager -> argus.apps.cli._follow",
     "manager -> argus.daemon.state._fsync_directory",
     "manager -> argus.life.memory._TERMINAL_STATUSES",
     "manager -> argus.life.memory._read_jsonl_tail_history",
@@ -1205,10 +1200,8 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "webapi -> argus.life.supervisor._mission_execution_runtime",
     "webapi -> argus.manager._session_ops",
     "webapi -> argus.manager.config_intent._apply_config_intent",
-    "webapi -> argus.manager.config_intent._front_door_classify",
-    "webapi -> argus.manager.dispatch._daemon_status",
-    "webapi -> argus.manager.front_door._accepts_parameter",
     "webapi -> argus.manager.front_door._ensure_manager_runner",
+    "webapi -> argus.manager.front_door._maybe_name_session",
     "webapi -> argus.manager.front_door._operator_workspace",
 })
 
@@ -1817,16 +1810,14 @@ def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant
 RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "life_root": 4,
     "memory_root": 42,
-    # 41 on both origin/main and dev on 2026-09-16 with the same four files
-    # (apps/_runtime_construction 7, apps/_self_reply 15, manager/front_door 10,
-    # webapi/attachments 9); the 40 was a miscount, not a spread.
-    "session_root": 33,
+    # The one-Manager front door dropped the classify and quick-reply paths.
+    "session_root": 26,
     # manager/self_context adds one required LayeredSkillStore(project_dir=...)
     # keyword naming the Skill directory, not another project-state alias.
     "project_dir": 34,
     # Stage steering reads the existing Manager authority root, not the
     # execution worktree; this is one new consumer, not a new root alias.
-    "manager_session_root": 23,
+    "manager_session_root": 22,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,

@@ -25,11 +25,9 @@ from argus.core.session import (
     read_session_meta,
     write_session_meta,
 )
-from argus.core.transcript import append_turn
 from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
-from argus.manager import Manager, config_intent, dispatch, front_door
-from argus.manager.domain_author import VerticalDecision
+from argus.manager import Manager, dispatch, front_door
 from argus.webapi import (
     daemon_lifecycle,
     manager_bridge,
@@ -42,6 +40,7 @@ from argus.webapi import (
     server,
 )
 from argus.webapi.daemon_services import DaemonServices, ProjectDaemonStarter
+from tests.hand_off import manager_runner, manager_settles, ticket
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -77,24 +76,18 @@ def _identity_manager_handoff(monkeypatch) -> None:
     _install_manager(monkeypatch, lambda text: text)
 
 
-def _install_manager(monkeypatch, execution_for, *, session_title="") -> None:
+def _install_manager(monkeypatch, execution_for, *, session_title="", lifetime="standing") -> None:
     manager_state._STATES.clear()
 
     class _Manager:
-        def classify_front_door(self, _text, *, lifetime_sink=None, **_kwargs):
-            if lifetime_sink is not None:
-                lifetime_sink("standing")
-            return None, None, "complex"
-
         def decide_vertical(self, text, **kwargs):
             return SimpleNamespace(assumptions=(), execution_task=execution_for(text), session_title=session_title)
 
         def commit_vertical_decision(self, text, decision, **kwargs):
             return SimpleNamespace(execution_task=decision.execution_task)
 
-    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner",
+                        lambda chat_state, mem: manager_runner(_Manager(), hand=lambda text: ticket(text, lifetime=lifetime)))
 
 
 def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None:
@@ -109,75 +102,25 @@ def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None
     assert body["reply"] == "你好呀 👋"
 
 
-@pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("failed", [False, True])
-def test_self_steps_reach_the_map_with_or_without_streaming(
-    client: TestClient, tmp_path: Path, monkeypatch, streaming: bool, failed: bool,
-) -> None:
-    from argus.webapi.map_view import read_map
-
-    def classify(_mem, _body, state, **_kwargs):
-        state["_frontdoor_self_mode"] = "implement"
-        return None, None, "simple"
-
-    def triage(_mem, _body, state, *, on_fragment=None, **_kwargs):
-        assert callable(on_fragment)
-        on_fragment("phase", {"kind": "tool_use", "label": "read: input.csv",
-                              "call_id": "read-1", "status": "running"})
-        on_fragment("phase", {"kind": "tool_result", "label": "read complete",
-                              "call_id": "read-1", "status": "completed"})
-        on_fragment("phase", {"kind": "command_execution", "label": "write report",
-                              "call_id": "write-1", "status": "running"})
-        if failed:
-            state["_self_failure"] = "The execution stopped before completion."
-            return state["_self_failure"]
-        on_fragment("phase", {"kind": "tool_result", "label": "write complete",
-                              "call_id": "write-1", "status": "completed"})
-        return "The report was written."
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-    suffix = "/message/stream" if streaming else "/message"
-    response = client.post(f"/api/projects/s-msgtest0{suffix}", json={"text": "Write the report."})
-    assert response.status_code == 200
-    life = tmp_path / "projects/s-msgtest0"
-    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
-    reply = next(event for event in reversed(events) if event["type"] == "ui.argus")
-    assert [step["call_id"] for step in reply["steps"]] == ["read-1", "write-1"]
-    assert reply["steps"][0]["status"] == "completed"
-    assert reply["steps"][1]["status"] == ("interrupted" if failed else "completed")
-    data = read_map("s-msgtest0", tmp_path, life)
-    assert len(data["tasks"]) == 1
-    assert data["tasks"][0]["status"] == ("failed" if failed else "done")
-    assert data["events"][-1]["status"] == ("failed" if failed else "done")
-
-
 @pytest.mark.parametrize("failed", [False, True])
 def test_manager_tool_steps_become_work_records_on_the_turn_card(
     client: TestClient, tmp_path: Path, monkeypatch, failed: bool,
 ) -> None:
     from argus.core.mission_view import load_mission_view
 
-    def classify(_mem, _body, state, **_kwargs):
-        state["_frontdoor_self_mode"] = "implement"
-        return None, None, "simple"
+    def tool_steps(turn):
+        phase = turn["phase_cb"]
+        phase("$ wc -l README.md", kind="command_execution",
+              meta={"tool_name": "Count README lines", "call_id": "c1", "status": "running"})
+        phase("↳ Count README lines · completed", kind="tool_result",
+              meta={"call_id": "c1", "status": "completed", "output_excerpt": "1 README.md"})
+        phase("⚙ view README.md", kind="tool_use", meta={"tool_name": "view", "call_id": "v1", "status": "running"})
+        if not failed:
+            phase("↳ view · completed", kind="tool_result", meta={"call_id": "v1", "status": "completed"})
 
-    def triage(_mem, _body, state, *, on_fragment=None, **_kwargs):
-        on_fragment("phase", {"kind": "command_execution", "label": "$ wc -l README.md",
-                              "tool": "Count README lines", "call_id": "c1", "status": "running"})
-        on_fragment("phase", {"kind": "tool_result", "label": "↳ Count README lines · completed",
-                              "call_id": "c1", "status": "completed", "output": "1 README.md"})
-        on_fragment("phase", {"kind": "tool_use", "label": "⚙ view README.md",
-                              "tool": "view", "call_id": "v1", "status": "running"})
-        if failed:
-            state["_self_failure"] = "The execution stopped before completion."
-            return state["_self_failure"]
-        on_fragment("phase", {"kind": "tool_result", "label": "↳ view · completed",
-                              "call_id": "v1", "status": "completed"})
-        return "One line."
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        hand=None, reply="One line.", during=tool_steps,
+        failure="The execution stopped before completion." if failed else ""))
     response = client.post("/api/projects/s-msgtest0/message", json={"text": "How many lines?"})
     assert response.status_code == 200
     life = tmp_path / "projects/s-msgtest0"
@@ -239,281 +182,6 @@ def test_queued_manager_message_cannot_resurrect_deleted_project(
     assert not life.exists()
 
 
-@pytest.mark.parametrize("route_override", ["auto", "task"])
-@pytest.mark.parametrize("active_mission", [False, True])
-def test_pure_greeting_uses_one_frontdoor_model_call(
-    tmp_path: Path, monkeypatch, route_override, active_mission,
-) -> None:
-    sid = "s-one-call-greeting"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    monkeypatch.setattr(front_door, "mission_is_running", lambda mem: active_mission)
-
-    def classify(mem, text, chat_state, **kwargs):
-        assert kwargs["active_mission"] is active_mission
-        chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("pure greeting must not make a second model call")
-        ),
-    )
-
-    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path,
-                                            route_override=route_override)
-
-    assert result == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
-    assert LifeMemory.open(life).backlog.all() == []
-    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
-    assert not any(event["type"] in {"life.manager.task.started", "life.planner.task_added",
-                                     "life.manager.intent.started", "wiki.initialized"} for event in events)
-
-
-def test_message_only_fast_reply_uses_only_frontdoor_call(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-one-call-fast-reply"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_self_mode"] = "reply"
-        chat_state["_frontdoor_fast_reply"] = "OK"
-        return None, "no_dispatch", "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("message-only fast reply must not make a second model call")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "reply exactly OK",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "chat", "reply": "OK"}
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_profile_self_skill_disables_stateless_fast_reply(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-profile-self-reply"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    skill_dir = tmp_path / "skills" / "self"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "terminology.md").write_text(
-        "---\nname: terminology\ndescription: Apply learned terminology\n---\n",
-        encoding="utf-8",
-    )
-    state = manager_state._chat_state_for(sid)
-    state["manager_runner"] = SimpleNamespace(
-        manager=SimpleNamespace(
-            self_mission=SimpleNamespace(
-                libraries=lambda: SimpleNamespace(native_paths=[skill_dir])
-            )
-        )
-    )
-
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_self_mode"] = "reply"
-        chat_state["_frontdoor_fast_reply"] = "generic stale answer"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: "learned terminology answer",
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "What does the learned term mean?",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "chat", "reply": "learned terminology answer"}
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_profile_skill_upgrades_reply_mode_without_fast_reply(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-profile-skill-reply-mode"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    skill_dir = tmp_path / "skills" / "engineer"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "procedure.md").write_text(
-        "---\nname: procedure\ndescription: Apply learned procedure\n---\n",
-        encoding="utf-8",
-    )
-    state = manager_state._chat_state_for(sid)
-    state["manager_runner"] = SimpleNamespace(
-        manager=SimpleNamespace(
-            self_mission=SimpleNamespace(
-                libraries=lambda: SimpleNamespace(native_paths=[skill_dir])
-            )
-        )
-    )
-    seen: dict[str, str] = {}
-
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_self_mode"] = "reply"
-        return None, None, "simple"
-
-    def triage(*args, **kwargs):
-        seen["self_mode"] = kwargs["self_mode"]
-        return "learned procedure answer"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "How should this learned procedure work?",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "chat", "reply": "learned procedure answer"}
-    assert seen["self_mode"] == "inspect"
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-@pytest.mark.parametrize("prior_turn_count", [0, 1], ids=["cold", "warm"])
-@pytest.mark.parametrize("fast_reply", ["", "I do not know your name."])
-def test_followup_self_turn_disables_stateless_fast_reply(
-    tmp_path: Path,
-    monkeypatch,
-    prior_turn_count: int,
-    fast_reply: str,
-) -> None:
-    sid = "s-contextual-self-reply"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    state = manager_state._chat_state_for(sid)
-    state["turns"] = prior_turn_count
-    append_turn(life, "operator", "Proceedings of the AMS 是什么期刊？")
-    append_turn(life, "argus", "它是美国数学会的综合性数学期刊。")
-    seen: dict[str, str] = {}
-
-    def classify(mem, text, chat_state, **kwargs):
-        seen["classified"] = text
-        chat_state["_frontdoor_self_mode"] = "reply"
-        chat_state["_frontdoor_fast_reply"] = fast_reply
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    def triage(*args, **kwargs):
-        seen["body"] = args[1]
-        seen["self_mode"] = kwargs["self_mode"]
-        return "Your name is Xiaobei."
-
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "What was my name?",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "chat", "reply": "Your name is Xiaobei."}
-    assert seen["self_mode"] == "inspect"
-    assert seen["classified"] == "What was my name?"
-    assert "SESSION HANDOFF" in seen["body"]
-    assert "Proceedings of the AMS" in seen["body"]
-    assert "它是美国数学会的综合性数学期刊。" in seen["body"]
-    assert "[CURRENT OPERATOR MESSAGE]\nWhat was my name?" in seen["body"]
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_recent_identical_team_request_reuses_durable_existing_item(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-team-replay"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    request = "Create result.txt."
-    item = LifeMemory.open(life).backlog.add(
-        BacklogItem.new(
-            title="Create result",
-            objective=request,
-            manager_decision={"routed": True},
-        )
-    )
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("duplicate TEAM replay must not call the model")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        request,
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "task"
-    assert result["duplicate"] is True
-    assert result["dispatch_state"] == "already_queued"
-    assert result["item"]["id"] == item.id
-    assert len(LifeMemory.open(life).backlog.all()) == 1
-
-
-def test_recent_identical_raw_team_request_survives_manager_rewording(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.core.transcript import append_turn
-
-    sid = "s-team-reworded-replay"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    request = "启动 TEAM，只创建 result.txt。"
-    append_turn(life, "operator", request)
-    item = LifeMemory.open(life).backlog.add(
-        BacklogItem.new(
-            title="Create result",
-            objective="Create only result.txt.",
-            manager_decision={"routed": True},
-        )
-    )
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("duplicate TEAM replay must not call the model")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        request,
-        global_root=tmp_path,
-    )
-
-    assert result["duplicate"] is True
-    assert result["item"]["id"] == item.id
-    assert len(LifeMemory.open(life).backlog.all()) == 1
-
-
 def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -548,14 +216,10 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     )
     manager_state._STATES.clear()
 
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_authorization"] = [
-            "validator_repair",
-            "acceptance_retry",
-        ]
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=manager_settles(authorization=[
+        "validator_repair",
+        "acceptance_retry",
+    ])))
     monkeypatch.setattr(
         manager_dispatch,
         "_authorization_workdir",
@@ -622,11 +286,7 @@ def test_validator_authorization_allows_exact_repair_only(
     )
     manager_state._STATES.clear()
 
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_authorization"] = ["validator_repair"]
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=manager_settles(authorization=["validator_repair"])))
     monkeypatch.setattr(
         manager_dispatch,
         "_authorization_workdir",
@@ -652,11 +312,7 @@ def test_authorization_without_current_blocker_fails_closed(
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
 
-    def classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_authorization"] = ["resume_blocked_work"]
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=manager_settles(authorization=["resume_blocked_work"])))
 
     result = manager_bridge.manager_message(
         sid,
@@ -669,231 +325,6 @@ def test_authorization_without_current_blocker_fails_closed(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-greeting-no-cache"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    classify_calls = 0
-
-    def classify(mem, text, chat_state, **kwargs):
-        nonlocal classify_calls
-        classify_calls += 1
-        chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    triage_bodies: list[str] = []
-
-    def triage(mem, body, chat_state, **kwargs):
-        triage_bodies.append(body)
-        return "一切正常，任务仍在推进。"
-
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    first = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
-    second = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
-
-    assert first == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
-    # A pure greeting stays lightweight even when a handoff exists.
-    assert second == first
-    assert triage_bodies == []
-    # The classifier ran on both turns — greeting replies are never cached.
-    assert classify_calls == 2
-
-
-def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch):
-    sid = "s-greeting-handoff"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    append_turn(life, "operator", "Explain the binary search invariant.")
-    append_turn(life, "argus", "The target remains in the search interval.")
-    state = manager_state._chat_state_for(sid)
-    state["needs_startup_handoff"] = True
-
-    def classify(mem, text, chat_state, **kwargs):
-        if text == "你好":
-            chat_state["_frontdoor_greeting_reply"] = "你好！"
-        return None, None, "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    triage_bodies = []
-    monkeypatch.setattr(front_door, "manager_triage",
-                        lambda mem, body, *a, **kw: triage_bodies.append(body) or "Continuing the explanation.")
-    for _ in range(2):
-        result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path, route_override="task")
-        assert result == {"kind": "chat", "reply": "你好！"}
-        assert state["needs_startup_handoff"] is True
-        assert triage_bodies == []
-    manager_bridge.manager_message(sid, "Continue the explanation.", global_root=tmp_path)
-    assert len(triage_bodies) == 1
-    assert "binary search invariant" in triage_bodies[0]
-    assert not state.get("needs_startup_handoff")
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-@pytest.mark.parametrize("route_override", ["auto", "task", "chat"])
-def test_contextual_greeting_calls_real_manager(
-    tmp_path: Path, monkeypatch, route_override,
-) -> None:
-    sid = "s-context-greeting"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    triage_calls: list[str] = []
-
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "simple"),
-    )
-
-    def triage(mem, body, chat_state, **kwargs):
-        triage_calls.append(body)
-        return "当前任务仍在推进。"
-
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "你好，项目现在进展怎么样？",
-        global_root=tmp_path,
-        route_override=route_override,
-    )
-
-    assert triage_calls == ["你好，项目现在进展怎么样？"]
-    assert result == {"kind": "chat", "reply": "当前任务仍在推进。"}
-
-
-def test_advertised_what_are_you_doing_query_uses_frontdoor_manager_path(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-status-frontdoor"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    classified = threading.Event()
-    calls: list[tuple[str, str, str | None]] = []
-
-    def classify(mem, text, chat_state, **kwargs):
-        calls.append(("classify", text, None))
-        classified.set()
-        return None, None, "simple"
-
-    def triage(mem, body, chat_state, **kwargs):
-        calls.append(("triage", body, kwargs.get("route")))
-        return "当前即时状态由 Manager 读取项目状态后回复。"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        with manager_state.manager_context_lock(sid):
-            future = pool.submit(
-                manager_bridge.manager_message,
-                sid,
-                "你在干什么？",
-                global_root=tmp_path,
-            )
-            assert not classified.wait(timeout=0.05)
-            assert not future.done()
-        result = future.result(timeout=2)
-
-    assert result == {"kind": "chat", "reply": "当前即时状态由 Manager 读取项目状态后回复。"}
-    assert calls == [
-        ("classify", "你在干什么？", None),
-        ("triage", "你在干什么？", "simple"),
-    ]
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    from argus.daemon.state import read_continuous_state, write_continuous_config
-
-    sid = "s-natural-pause"
-    life = _make_project(tmp_path, sid)
-    memory = LifeMemory.open(life)
-    running = memory.backlog.add(BacklogItem.new(title="looping", objective="work"))
-    memory.backlog.mark_running(running.id)
-    blocked = BacklogItem.new(title="blocked", objective="choose")
-    blocked.pending_question = "Which route?"
-    memory.backlog.add(blocked)
-    write_continuous_config(life, enabled=True, objective="keep optimizing")
-    calls: list[str] = []
-
-    def triage(mem, body, chat_state, **kwargs):
-        calls.append("pending-question-manager")
-        assert "Operator response:\n停一下，你在干什么？" in body
-        return "IS_ANSWER=false\nRESOLVED=false\nDECISION=\nREPLY=\n"
-
-    def classify(mem, text, chat_state, **kwargs):
-        calls.append("frontdoor-classifier")
-        assert text == "停一下，你在干什么？"
-        return None, "pause", "simple"
-
-    monkeypatch.setattr(front_door, "manager_judgment", triage)
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "停一下，你在干什么？",
-        global_root=tmp_path,
-    )
-
-    assert calls == ["pending-question-manager", "frontdoor-classifier"]
-    assert result["kind"] == "control"
-    assert result["control"] == "pause"
-    assert result["pause_persisted"] is True
-    assert result["item_id"] == running.id
-    assert "已暂停" in result["reply"]
-    assert "做到的部分都保存了" in result["reply"]
-    assert "daemon" not in result["reply"]
-    assert read_continuous_state(life).enabled is False
-    assert (life / "running_item_abort.json").exists()
-    stored = LifeMemory.open(life).backlog.all()
-    assert next(row for row in stored if row.id == blocked.id).pending_question == "Which route?"
-
-
-def test_natural_pause_waits_for_busy_manager_session_lock_and_uses_classifier(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-pause-lock-frontdoor"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    classified = threading.Event()
-
-    def classify(mem, text, chat_state, **kwargs):
-        classified.set()
-        assert text == "停一下"
-        return None, "pause", "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("classified pause control must not fall through to triage")
-        ),
-    )
-
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        with manager_state.manager_context_lock(sid):
-            future = pool.submit(
-                manager_bridge.manager_message,
-                sid,
-                "停一下",
-                global_root=tmp_path,
-            )
-            assert not classified.wait(timeout=0.05)
-            assert not future.done()
-        result = future.result(timeout=2)
-
-    assert classified.is_set()
-    assert result["kind"] == "control"
-    assert result["control"] == "pause"
-
-
 def test_pause_is_serialized_after_inflight_manager_turn(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -903,23 +334,17 @@ def test_pause_is_serialized_after_inflight_manager_turn(
     release = threading.Event()
     call_order: list[str] = []
 
-    def classify(mem, text, chat_state, **kwargs):
+    def turn(text):
         if "start another long-running task" in text:
-            call_order.append("first-classify")
+            call_order.append("first-turn")
             entered.set()
             assert release.wait(timeout=3)
-            return None, None, "simple"
-        call_order.append("pause-classify")
+            return None
+        call_order.append("pause-turn")
         assert text == "停一下"
-        return None, "pause", "simple"
+        return manager_settles(control={"kind": "pause", "quote": "停一下"})
 
-    def triage(mem, body, chat_state, **kwargs):
-        call_order.append("first-triage")
-        assert body == "start another long-running task"
-        return "First Manager turn completed inline."
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=turn, reply="First Manager turn completed inline."))
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(
@@ -947,155 +372,34 @@ def test_pause_is_serialized_after_inflight_manager_turn(
     }
     assert paused["kind"] == "control"
     assert paused["control"] == "pause"
-    assert call_order == ["first-classify", "first-triage", "pause-classify"]
+    assert call_order == ["first-turn", "pause-turn"]
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_classifier_explanation_cannot_escape_as_manager_reply(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-fast-leak"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    triage_calls: list[str] = []
-
-    def classify(mem, text, chat_state, **kwargs):
-        # Even a custom/legacy classifier trying to smuggle a reply through
-        # chat_state cannot bypass the actual Manager turn.
-        chat_state["_frontdoor_fast_reply"] = (
-            "这是需要结合具体上下文的反思性问题，不属于通用闲聊，需在对话中实质回应。"
-        )
-        return None, None, "simple"
-
-    def triage(mem, body, chat_state, **kwargs):
-        triage_calls.append(body)
-        return "有加深，具体体现在对核心障碍的理解上。"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", triage)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "你觉得你对这个问题的理解是否有加深？",
-        global_root=tmp_path,
-    )
-
-    assert triage_calls == ["你觉得你对这个问题的理解是否有加深？"]
-    assert result == {
-        "kind": "chat",
-        "reply": "有加深，具体体现在对核心障碍的理解上。",
-    }
-
-
-@pytest.mark.parametrize("route_override", ["auto", "task"])
-def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
-    tmp_path: Path, monkeypatch, route_override,
-) -> None:
-    sid = "s-classify-fail"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-
-    def failed_classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_failure"] = "classifier failed"
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError(
-                "a failed classifier must not start another Manager turn"
-            )
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "请介绍当前状态",
-        global_root=tmp_path,
-        route_override=route_override,
-    )
-
-    assert result["kind"] == "error"
-    assert result["success"] is False
-    assert result["error_code"] == "classification_failed"
-    assert result["reply"].startswith("[not dispatched]")
-    assert "Manager backend" in result["reply"]
-    assert "argus doctor --deep" in result["reply"]
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_interrupted_solo_work_reports_failure_without_enqueuing(
+def test_interrupted_manager_turn_reports_failure_without_enqueuing(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-solo-failed"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
 
-    def classify(_mem, _text, state, **_kwargs):
-        state["_frontdoor_self_mode"] = "implement"
-        return None, None, "simple"
+    def interrupted(turn):
+        turn["sink"].handle_event({
+            "type": "round.main.completed",
+            "last_message": "I am building the real workbook.",
+            "turn_completed": False,
+        })
 
-    class InterruptedRunner:
-        last_thread_id = None
-        last_chat_outcome = SimpleNamespace(
-            success=False,
-            stop_reason="Forced restart after hard idle timeout (120s)",
-        )
-
-        def chat_reply_if_conversational(self, **kwargs):
-            kwargs["sink"].handle_event({
-                "type": "round.main.completed",
-                "last_message": "I am building the real workbook.",
-                "turn_completed": False,
-            })
-            return True
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door, "_ensure_manager_runner", lambda *_args: InterruptedRunner(),
-    )
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        hand=None, during=interrupted, failure="Forced restart after hard idle timeout (120s)"))
     result = manager_bridge.manager_message(sid, "Build the workbook.", global_root=tmp_path)
 
-    assert result["mission_result"] is True
+    assert result["kind"] == "error"
     assert result["success"] is False
     assert "did not finish within 120 seconds" in result["reply"]
     assert "hard idle timeout" not in result["reply"]
     assert result["reply"] != "I am building the real workbook."
     assert "delivery" not in result
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_cancelled_manager_request_cannot_dispatch_after_classification(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-cancelled"
-    life = _make_project(tmp_path, sid)
-    cancelled = threading.Event()
-
-    def classify(*args, **kwargs):
-        cancelled.set()
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("cancelled request must stop before triage/dispatch")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "start a long task",
-        global_root=tmp_path,
-        cancelled=cancelled.is_set,
-    )
-
-    assert result["kind"] == "cancelled"
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -1106,12 +410,6 @@ def test_cancel_during_handoff_stops_before_backlog_commit(
     sid = "s-cancel-commit"
     life = _make_project(tmp_path, sid)
     cancelled = threading.Event()
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
     def handoff(mem, body, state, *, persist, **kwargs):
         cancelled.set()
@@ -1137,22 +435,16 @@ def test_manager_steer_persists_high_priority_live_directive(
     sid = "s-manager-steer"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
-    def classify(_mem, _text, chat_state, **_kwargs):
-        chat_state["_frontdoor_steering_directive"] = (
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(title="current work", objective="finish current work"))
+    assert memory.backlog.claim_next() is not None
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=manager_settles(
+        control={"kind": "steer", "quote": "停止形式检查", "directive": (
             "暂停当前形式化路线；先检索最接近的前人研究，再由 Planner "
             "根据来源证据安排下一节点。"
-        )
-        chat_state["_frontdoor_lifetime"] = "standing"
-        return None, "steer", "simple"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("structured steering must not run a second model turn")
-        ),
-    )
+        )},
+        lifetime="standing",
+    )))
 
     result = manager_bridge.manager_message(
         sid,
@@ -1184,7 +476,6 @@ def test_manager_steer_persists_high_priority_live_directive(
     continuous = read_continuous_state(life)
     assert continuous.enabled is True
     assert continuous.open_ended is True
-    assert continuous.objective == active.text
 
 
 def test_message_task_lazily_spawns_daemon(tmp_path: Path, monkeypatch) -> None:
@@ -1222,21 +513,8 @@ def test_manager_handoff_failure_persists_and_streams_error_reply(
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
 
-    class _FailingManager:
-        def decide_vertical(self, text, **kwargs):
-            raise RuntimeError("provider quota reached")
-
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda *args, **kwargs: SimpleNamespace(manager=_FailingManager()),
-    )
+    monkeypatch.setattr(dispatch, "enqueue_mission", lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("provider quota reached")))
     fragments: list[tuple[str, dict]] = []
 
     result = manager_bridge.manager_message(
@@ -1319,14 +597,7 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     ))
     assert memory.backlog.claim_next() is not None
     manager_state._STATES.clear()
-    seen = {"classify": 0}
-
-    def classify(*args, **kwargs):
-        seen["classify"] += 1
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    seen: dict[str, object] = {}
 
     def enqueue(mem, body, chat_state, **kwargs):
         seen["enqueued"] = body
@@ -1343,134 +614,18 @@ def test_active_mission_team_message_uses_continuous_dispatch(
 
     assert result["kind"] == "task"
     assert result["continuous"] is True
-    assert seen["classify"] == 1
-    assert "last_team_task: finish current work" in seen["enqueued"]
-    assert "[CURRENT OPERATOR MESSAGE]\n你怎么不动了？" in seen["enqueued"]
+    assert seen["enqueued"] == "你怎么不动了？"
     assert len(memory.backlog.all()) == 1
 
 
-def test_mission_claimed_during_classification_still_uses_continuous_dispatch(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-active-race"
-    life = _make_project(tmp_path, sid)
-    memory = LifeMemory.open(life)
-    manager_state._STATES.clear()
-
-    def classify(*args, **kwargs):
-        item = memory.backlog.add(
-            BacklogItem.new(title="concurrent work", objective="work")
-        )
-        assert memory.backlog.mark_running(item.id) is not None
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: None)
-
-    def enqueue(mem, body, chat_state, **kwargs):
-        chat_state.setdefault("config", {})["continuous"] = True
-        return None, True, 456
-
-    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
-
-    result = manager_bridge.manager_message(
-        sid,
-        "start another task",
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "task"
-    assert result["continuous"] is True
-    assert len(memory.backlog.all()) == 1
-
-
-def test_no_dispatch_control_stays_inline_even_if_route_says_team(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-no-dispatch"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    seen: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, "no_dispatch", "complex"),
-    )
-
-    def reply(mem, body, state, **kwargs):
-        seen["route"] = kwargs.get("route")
-        return "read-only result"
-
-    monkeypatch.setattr(front_door, "manager_triage", reply)
-    monkeypatch.setattr(
-        dispatch,
-        "enqueue_mission",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("NO_DISPATCH must never enqueue")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "inspect read-only; do not dispatch",
-        global_root=tmp_path,
-    )
-
-    assert result == {"kind": "chat", "reply": "read-only result"}
-    assert seen["route"] == "simple"
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_no_dispatch_control_fails_closed_when_inline_reply_fails(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-no-dispatch-fail"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, "no_dispatch", "simple"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dispatch,
-        "enqueue_mission",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("failed inline NO_DISPATCH must not enqueue")
-        ),
-    )
-
-    result = manager_bridge.manager_message(
-        sid,
-        "read only and do not dispatch",
-        global_root=tmp_path,
-    )
-
-    assert result["kind"] == "error"
-    assert result["success"] is False
-    assert result["error_code"] == "inline_reply_failed"
-    assert result["reply"].startswith("[not dispatched]")
-    assert LifeMemory.open(life).backlog.all() == []
-
-
-def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
+def test_a_failed_manager_turn_never_falls_through_to_task_dispatch(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     sid = "s-simple-fail"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "simple"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(failure="The Manager turn did not complete."))
     monkeypatch.setattr(
         dispatch,
         "enqueue_mission",
@@ -1488,7 +643,6 @@ def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
     assert result["kind"] == "error"
     assert result["success"] is False
     assert result["error_code"] == "inline_reply_failed"
-    assert result["reply"].startswith("[not dispatched]")
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -1502,12 +656,6 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
     manager_state._chat_state_for(sid).setdefault("config", {})["continuous"] = True
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
     def enqueue(mem, body, chat_state, **kwargs):
         assert seen["order"] == ["lifecycle"]
@@ -1575,20 +723,9 @@ def test_finite_staged_paper_request_runs_as_a_finite_campaign(
                 headline=lambda: "research staged workflow",
             )
 
-    def classify(_mem, _text, chat_state, **_kwargs):
-        # This is the exact regression: the finish line is finite, so the cheap
-        # front door says BOUNDED, while Manager correctly says STAGED.
-        chat_state["_frontdoor_lifetime"] = "bounded"
-        return None, None, "complex"
-
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
-    )
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
+        _StagedResearchManager(), hand=lambda text: ticket(text, lifetime="bounded")))
 
     objective = "给我写个论文 iclr的 我要投稿"
     result = manager_bridge.manager_message(sid, objective, global_root=tmp_path)
@@ -1617,7 +754,8 @@ def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
     objective = "prove the bounded integer lemma"
-    manager = Manager(project_root=life)
+    manager = Manager(project_root=life, runner=SimpleNamespace(run_exec=lambda **_k: (_ for _ in ()).throw(
+        AssertionError("a ticket's route needs no routing call"))))
     monkeypatch.setattr(
         manager,
         "_decide_research_target",
@@ -1625,29 +763,9 @@ def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     )
 
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    monkeypatch.setattr(
-        manager,
-        "decide_vertical",
-        lambda task, **kwargs: VerticalDecision(
-            choice="existing",
-            vertical=targeted_vertical,
-            workflow_mode="direct",
-            execution_task=task,
-            research_target_level="exploratory",
-        ),
-    )
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(manager=manager),
-    )
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda chat_state, mem: manager_runner(
+        manager, hand=lambda text: ticket(text, vertical=targeted_vertical, workflow_mode="direct",
+                                          research_target_level="exploratory")))
     monkeypatch.setattr(
         daemon_lifecycle,
         'start_project_daemon',
@@ -1662,11 +780,11 @@ def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["kind"] == "task"
+    assert payload["kind"] == "task", payload
     assert payload["item"]["status"] == "pending"
     backlog = LifeMemory.open(life).backlog.all()
     assert len(backlog) == 1
-    assert backlog[0].objective == objective
+    assert backlog[0].objective.startswith(objective)
     state = json.loads(
         (life / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
@@ -1700,13 +818,6 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     )
     blocked.pending_question = "Should the appendix be included?"
     mem.backlog.add(blocked)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("the explicit answer endpoint must not call a model")
-        ),
-    )
     started: list[str] = []
     monkeypatch.setattr(
         daemon_lifecycle,
@@ -1813,13 +924,6 @@ def test_concurrent_pending_answers_resume_the_task_once(
     blocked = BacklogItem.new(title="Blocked", objective="Original objective")
     blocked.pending_question = "Choose A or B?"
     LifeMemory.open(life).backlog.add(blocked)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("the explicit answer endpoint must not call a model")
-        ),
-    )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(
@@ -1886,7 +990,7 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
         "reply": "",
     })
     monkeypatch.setattr(front_door, "manager_judgment", lambda *args, **kwargs: not_an_answer)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: not_an_answer)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=None, reply="Still running."))
 
     result = manager_bridge.manager_message(
         "s-msgtest0",
@@ -1901,39 +1005,6 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     assert not (life / "operator_context.jsonl").exists()
     turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
     assert [turn["text"] for turn in turns if turn["role"] == "operator"] == ["What is the status?"]
-
-
-@pytest.mark.parametrize("failure", ["backend", "contract"])
-def test_unclassified_message_stays_in_conversation_without_research_directive(
-    tmp_path: Path, monkeypatch, failure: str,
-) -> None:
-    life = _make_project(tmp_path)
-    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "paused_operator"
-    blocked.pending_question = "Which GPU may I use?"
-    LifeMemory.open(life).backlog.add(blocked)
-    question = "Explain why the bound in this document matters."
-
-    def interpret(*_args, **_kwargs):
-        if failure == "backend":
-            raise RuntimeError("classification unavailable")
-        return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
-
-    monkeypatch.setattr(front_door, "manager_judgment", interpret)
-    monkeypatch.setattr(front_door, "manager_triage", interpret)
-    result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
-
-    # A failed interpretation no longer consumes the turn: it continues to the
-    # ordinary front door (which here fails the same way) instead of holding
-    # the control channel, and nothing is promoted to an answer.
-    assert result["kind"] != "pending_question"
-    assert "answered_item_id" not in result
-    assert not (life / "operator_context.jsonl").exists()
-    assert not (life / "inbox.jsonl").exists()
-    rows = LifeMemory.open(life).backlog.all()
-    assert len(rows) == 1 and rows[0].pending_question == blocked.pending_question
-    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text().splitlines()]
-    assert [turn["text"] for turn in turns if turn["role"] == "operator"] == [question]
 
 
 def test_manager_keeps_pending_question_when_answer_is_insufficient(
@@ -2307,7 +1378,7 @@ def test_create_daemon_persists_only_manager_execution_handoff(
     tmp_path: Path, monkeypatch,
 ) -> None:
     spawned: dict[str, object] = {}
-    _install_manager(monkeypatch, lambda text: "write the MRAM paper")
+    _install_manager(monkeypatch, lambda text: "write the MRAM paper", session_title="MRAM paper")
     monkeypatch.setattr(
         daemon_worker,
         'spawn_detached_daemon_clean',
@@ -2315,15 +1386,6 @@ def test_create_daemon_persists_only_manager_execution_handoff(
             objective=cfg.continuous_objective,
         ) or 0,
     )
-    def _name_from_front_door(mem, text, chat_state, **_kwargs):
-        front_door._maybe_name_session(
-            chat_state,
-            text,
-            suggested_name="MRAM paper",
-        )
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", _name_from_front_door)
     raw = "write the MRAM paper; Manager owns the right sidebar"
 
     result = daemon_lifecycle.create_daemon(objective=raw, global_root=tmp_path)
@@ -2336,40 +1398,6 @@ def test_create_daemon_persists_only_manager_execution_handoff(
     assert session["display_name"] == "MRAM paper"
     assert spawned["objective"] == "write the MRAM paper"
     assert raw not in (life_dir / "continuous.json").read_text()
-
-
-@pytest.mark.parametrize(
-    ("lifetime", "expected_open_ended"),
-    [("bounded", False), ("standing", True)],
-)
-def test_named_daemon_uses_manager_lifetime(
-    tmp_path: Path,
-    monkeypatch,
-    lifetime: str,
-    expected_open_ended: bool,
-) -> None:
-    monkeypatch.setattr(
-        daemon_worker,
-        'spawn_detached_daemon_clean',
-        lambda *_args, **_kwargs: 0,
-    )
-
-    def _classify(mem, text, chat_state, **_kwargs):
-        chat_state["_frontdoor_lifetime"] = lifetime
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", _classify)
-
-    result = daemon_lifecycle.create_daemon(
-        objective="write one reviewed report and stop",
-        name="finite report",
-        global_root=tmp_path,
-    )
-
-    continuous = json.loads(
-        (tmp_path / "projects" / result["sid"] / "continuous.json").read_text()
-    )
-    assert continuous["open_ended"] is expected_open_ended
 
 
 def test_create_daemon_preserves_manual_rename_during_manager_handoff(
@@ -2698,7 +1726,6 @@ def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_missio
     tmp_path: Path, monkeypatch,
 ) -> None:
     from argus.core.knob_store import read_persisted_knobs
-    from argus.life.router import classify_front_door
 
     sid = "s-config-chat"
     life = _make_project(tmp_path, sid)
@@ -2707,28 +1734,12 @@ def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_missio
                  "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL"):
         monkeypatch.delenv(name, raising=False)
     manager_state._STATES.clear()
-    form = {
-        "to": "manager", "self_mode": "micro", "intake": {"type": "preference", "scope": "global"},
-        "config": [{"knob": "model", "value": "house-model-3"}],
-    }
-
-    def run_exec(_prompt, actions):
-        actions.dispatch("hand_off", form)
-        return SimpleNamespace(exit_code=0)
-
-    class _Manager:
-        def classify_front_door(self, text, *, root_task_id=None, **kwargs):
-            return classify_front_door(text, run_exec=run_exec, **kwargs)
-
-    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())  # noqa: E731
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    monkeypatch.setattr(config_intent, "_ensure_manager_runner", ensure)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(hand=manager_settles(
+        intake={"type": "preference", "scope": "global"}, config=[{"knob": "model", "value": "house-model-3"}],
+    )))
     monkeypatch.setattr(mission_items, "backend_model_ids", lambda _backend, _root=None: [
         "house-model-2", "house-model-3",
     ])
-    monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("a settings change must not reach the full Manager turn")))
-
     result = manager_bridge.manager_message(sid, "把默认模型改成 house-model-3", global_root=tmp_path)
 
     assert result["kind"] == "chat", result

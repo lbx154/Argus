@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...roles.task_contract import argus_command
+from ...core.shell_command import argus_command
 from .library_preparation import STAGE_PLAYBOOK_PATHS
 from .notes import RESEARCH_NOTES_FILENAME, read_research_notes
 
