@@ -178,7 +178,7 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
     assert "reply is the complete answer for the operator" in front
     assert "without route, control, lifetime or role-protocol labels" in front
     assert "operator's language and plain language" in pending
-    assert "one operator-language sentence stating the decisive evidence" in stage
+    assert "## Writing for people" in stage
     for engineer_prompt in (engineer, continuation):
         assert "summary is the one sentence the operator reads" in engineer_prompt
         assert "output paths" in engineer_prompt

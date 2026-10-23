@@ -226,7 +226,6 @@ class _VerticalDecisionMixin:
         """Attach a bounded repository-grounding brief before code handoff."""
         from ..core.models import RunnerOptions
         from ..core.role_slots import role_call_slot
-        from .stage_decider import extract_answer
 
         if not _software_grounding_required(workflow_mode):
             return task.strip()
@@ -280,7 +279,7 @@ class _VerticalDecisionMixin:
             log.debug("Manager software grounding call failed", exc_info=True)
             return task.strip()
         failed, _detail = _manager_backend_failure(result)
-        brief = extract_answer(result).strip()
+        brief = (result.last_agent_message or "").strip()
         if failed:
             return task.strip()
         if not brief:
@@ -336,7 +335,6 @@ class _VerticalDecisionMixin:
         from ..core.models import RunnerOptions
         from ..core.role_reply import read_key_values
         from ..roles.prompts.manager import build_research_target_prompt
-        from .stage_decider import extract_answer
 
         try:
             with self._task_usage_scope(root_task_id):
@@ -361,7 +359,7 @@ class _VerticalDecisionMixin:
         if failed:
             cause = detail or "Manager research-target backend failed"
             raise _backend_decision_error(cause, task=task, attempts=1)
-        raw_reply = extract_answer(result)
+        raw_reply = (result.last_agent_message or "")
         target_level = str(
             read_key_values(raw_reply, ("RESEARCH_TARGET_LEVEL",)).get("RESEARCH_TARGET_LEVEL") or ""
         ).strip().lower()

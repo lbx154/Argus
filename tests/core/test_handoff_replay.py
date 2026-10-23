@@ -17,6 +17,7 @@ import pytest
 
 from argus.core.handoff import HandOffActions
 from argus.planner.planner import _plan
+from argus.manager.stage_decider import stage_check
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "handoff_replay"
 ROWS = [
@@ -69,5 +70,18 @@ def test_the_host_reads_a_recorded_plan_as_the_text_readers_did(form: str, row: 
 
 def test_the_replay_covers_every_form_so_far() -> None:
     forms = {form for form, _ in (param.values for param in ROWS)}
-    assert forms == {"engineer", "review", "front_door", "route", "supervise", "plan"}
-    assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 4
+    assert forms == {"engineer", "review", "front_door", "route", "supervise", "plan", "stage"}
+    assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 5
+
+
+@pytest.mark.parametrize("row", [row for form, row in (param.values for param in ROWS)
+                                 if form == "stage" and not row.get("old_defect")])
+def test_the_host_reads_a_recorded_stage_decision_as_the_text_reader_did(row: dict) -> None:
+    actions = HandOffActions("stage", operator_available=True, check=partial(
+        stage_check, current_stage=row["stage"], stage_order=[row["stage"]], allow_done=False,
+    ))
+
+    actions.dispatch("hand_off", row["payload"])
+
+    decision = actions.handoff.value
+    assert (decision.action, decision.target_stage) == (row["old"]["action"], row["old"]["target_stage"])

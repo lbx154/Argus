@@ -813,9 +813,8 @@ def _reflect_after_mission(
     ):
         failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
         stop_kind = str(getattr(result, "stop_kind", "") or "")
-    from ..manager.stage_decider import extract_answer
 
-    answer = "" if failure or result is None else extract_answer(result)
+    answer = "" if failure or result is None else (result.last_agent_message or "")
     fact_recorded = False
     if reviewed_fact:
         chosen = _reviewed_fact_line(answer)

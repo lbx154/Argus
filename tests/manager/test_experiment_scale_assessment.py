@@ -15,6 +15,7 @@ from argus.skills.stage_machine import current_stage
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals.research.prompt_policy import render_role_prompt_fragment
 from argus.verticals.research.stages import STAGE_CHECKLISTS
+from tests.hand_off import stage
 
 
 def _experiment_manager(tmp_path, *, workflow_mode="staged"):
@@ -76,16 +77,7 @@ def test_expansion_plan_does_not_advance_but_sufficient_scale_can(tmp_path):
 
 def test_manager_receives_planner_adequacy_rationale(tmp_path):
     manager, root, _workdir = _experiment_manager(tmp_path)
-    prompts = []
-
-    def decide(prompt):
-        prompts.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"advance","target_stage":"paper",'
-                '"reason":"Reviewed evidence and Planner scale assessment are sufficient."}'
-            )
-        )
+    decide = stage(move="advance", target_stage="paper")
 
     decision = manager.decide_stage_transition(
         review=ReviewDecision(status="done", reason="Expanded comparison accepted.", next_action=""),
@@ -97,7 +89,7 @@ def test_manager_receives_planner_adequacy_rationale(tmp_path):
     )
     assert decision.action == "advance"
     assert current_stage(root) == "paper"
-    assert "Released task families" in prompts[0]
+    assert "Released task families" in decide.prompts[0]
 
 
 def test_direct_experiment_request_is_not_forced_into_paper(tmp_path):

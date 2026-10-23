@@ -810,7 +810,7 @@ def build_stage_decision_prompt(
             "Reviewer assessment is therefore expected. The waiver "
             "itself is not evidence: inspect CHECKPOINT.md and the project outputs "
             "against every applicable requirement for the current stage. You "
-            "MAY ADVANCE when that evidence genuinely satisfies the stage; HOLD "
+            "may advance when that evidence genuinely satisfies the stage; hold "
             "otherwise. A final-submission or explicitly independent-review task "
             "still requires a real Reviewer assessment.\n"
         )
@@ -823,8 +823,8 @@ def build_stage_decision_prompt(
                 "This is an open-ended campaign. Completing the final-stage checkpoint "
                 "does not complete the operator objective by itself. If the original "
                 "objective remains unresolved and the Planner identifies further "
-                "high-impact work that belongs to an earlier stage, ROLL BACK to the "
-                "earliest stage needed for that work. HOLD only when no legal work can "
+                "high-impact work that belongs to an earlier stage, roll back to the "
+                "earliest stage needed for that work. Hold only when no legal work can "
                 "run yet; do not mark the campaign complete merely because a report or "
                 "review file exists.\n\n"
             )
@@ -852,7 +852,7 @@ def build_stage_decision_prompt(
     mission_scope_block = ""
     if mission_scope_change:
         rollback_sentence = (
-            "ROLL BACK only when earlier-stage evidence is genuinely broken; "
+            "roll back only when earlier-stage evidence is genuinely broken; "
             if allow_rollback
             else "never move this sequence of stages backward; "
         )
@@ -860,88 +860,61 @@ def build_stage_decision_prompt(
             "## Mission-scope arbitration\n"
             "The Reviewer found that the proposed next work cannot legally run "
             "as another Engineer round within the current mission's agreed scope. "
-            "Reviewer advice is not authorization. HOLD the current stage when "
+            "Reviewer advice is not authorization. Hold the current stage when "
             "the repair belongs in this stage so Planner can replace the mission; "
             f"{rollback_sentence}"
-            "ADVANCE only when independent review finds every current-stage requirement met. "
+            "Advance only when independent review finds every current-stage requirement met. "
             "Do not rewrite implementation details yourself.\n\n"
         )
 
-    actions = "ADVANCE, HOLD, ROLLBACK, or COMPLETE" if allow_rollback else (
-        "ADVANCE, HOLD, or COMPLETE"
-    )
     rollback_rule = (
-        "- ROLLBACK only when evidence from an earlier stage is broken; name the "
+        "- move=rollback only when evidence from an earlier stage is broken; name the "
         "earliest affected stage.\n"
         if allow_rollback
         else (
             "- This vertical is forward-only. Keep the current stage and schedule "
-            "repairs there; never request rollback.\n"
+            "repairs there; never roll back.\n"
         )
     )
     rollback_targets = (
-        f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
+        f"Rollback targets (earlier stages): {earlier}\n\n"
         if allow_rollback
-        else "Legal ROLLBACK targets: none (forward-only vertical)\n\n"
+        else "Rollback targets: none (forward-only vertical)\n\n"
     )
     completion_rule = (
-        "- COMPLETE at the current stage when the independently reviewed direct "
-        "objective is fully satisfied. Do not ADVANCE merely because later stages "
-        "exist; they are outside this direct request. Open-ended campaigns never "
-        "complete automatically.\n"
+        "- to=done when the independently reviewed direct objective is fully "
+        "satisfied. Do not advance merely because later stages exist; they are "
+        "outside this direct request. Open-ended campaigns never complete "
+        "automatically.\n"
         if allow_early_completion
         else (
-            "- COMPLETE only at the final stage of a finite objective. Open-ended "
+            "- to=done only at the final stage of a finite objective. Open-ended "
             "campaigns never complete automatically.\n"
         )
     )
     return (
-        "Decide how the work should proceed from the evidence below. Reviewer and Planner "
-        f"advise; Manager chooses {actions}. ADVANCE (`advance`) means move on to the "
-        "next stage; HOLD (`hold`) means stay and keep working; ROLLBACK (`rollback`) "
-        "means go back to an earlier stage when allowed; COMPLETE (`complete`) means "
-        "finish the objective. You only judge here: you change no files and run no "
-        "builds or tests, since the work and its checks are the team's.\n\n"
+        "Decide how the work should proceed from the evidence below, and record it "
+        "with hand_off. Reviewer and Planner advise; you decide: to=team with "
+        "move=advance (on to a later stage), move=hold (stay and keep working) or "
+        "move=rollback (back to an earlier stage), or to=done (finish the objective). "
+        "You only judge here: you change no files and run no builds or tests, since "
+        "the work and its checks are the team's.\n\n"
         "## Your decision\n"
-        "- ADVANCE only when concrete evidence supports the stage's requirements.\n"
-        "- HOLD when work remains or evidence is unclear, including when Reviewer asks "
+        "- Advance only when concrete evidence supports the stage's requirements.\n"
+        "- Hold when work remains or evidence is unclear, including when Reviewer asks "
         "for replanning inside this stage.\n"
         + rollback_rule
         + completion_rule
         + "- A weak proxy or one failed attempt is not completion. Do not repeat the "
-        "Reviewer's checks without a contradiction. When unsure, HOLD.\n"
+        "Reviewer's checks without a contradiction. When unsure, hold.\n"
         "- Judge the science, not the bookkeeping. A missing or outdated note for the "
         "next stage, review file, template detail, or file marker is repair work for the "
-        "next round; it is never by itself a reason to HOLD a stage whose work "
+        "next round; it is never by itself a reason to hold a stage whose work "
         "the Reviewer found sound.\n"
         "- Evidence scale is part of the science. The stated requirements may appear met by a "
         "handful of items or one model; when the objective's claim is broader than what "
-        "was measured, HOLD for the wider evidence rather than ADVANCE on a narrow win.\n\n"
+        "was measured, hold for the wider evidence rather than advance on a narrow win.\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + decision_footer_instruction(
-            "ACTION=hold\n"
-            f"TARGET_STAGE={current_stage}\n"
-            "REASON=one operator-language sentence stating the decisive evidence, "
-            "whether the stage moves, and what happens next; do not repeat status tokens"
-        )
-        + "\nInclude live-view fields only when changing the panel. "
-        # The policy bullet above says to COMPLETE *at the current stage*, but
-        # that reads as guidance about WHEN to complete; this line is the format
-        # contract, and it used to pin TARGET_STAGE for HOLD only. So a Manager
-        # that correctly decided to complete would fill TARGET_STAGE with the
-        # stage it considered the objective completed *through*, and
-        # ``parse_stage_decision`` silently downgraded the verdict to HOLD with
-        # ``illegal_complete_target``. Testbed runs 11 and 12 both did exactly
-        # that: ``ACTION=complete`` / ``TARGET_STAGE=review`` against
-        # ``current_stage=scope``, so the stage never advanced in either run
-        # even though both campaigns completed and delivered.
-        #
-        # Pinning it here then produced run 15, which obeyed the instruction and
-        # was refused for completing from a non-final stage. Both shapes are now
-        # executed as a one-step advance, so neither the obedient nor the
-        # improvising Manager loses its verdict; this line only keeps the trace
-        # exact.
-        f"For HOLD and for COMPLETE, set TARGET_STAGE to `{current_stage}`.\n\n"
         # The objective and the stage's requirements hold across the
         # campaign's decisions; the wait and scope arbitration, the evidence
         # and the Planner note belong to this one decision, so they close the
@@ -949,7 +922,7 @@ def build_stage_decision_prompt(
         f"{objective_block}"
         f"{open_ended_block}"
         f"Current stage: `{current_stage}`\n"
-        f"Legal ADVANCE targets (later stages): {legal_advance}\n"
+        f"Advance targets (later stages): {legal_advance}\n"
         f"{rollback_targets}"
         "## What the current stage requires\n"
         f"{checklist_md}\n\n"

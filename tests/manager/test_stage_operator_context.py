@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +9,7 @@ from argus.core.operator_context import append_directive
 from argus.manager import Manager
 from argus.manager.directive import clear_active_manager_directive, set_active_manager_directive
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import stage
 
 
 @pytest.mark.parametrize("structured", [False, True])
@@ -35,14 +35,7 @@ def test_stage_manager_receives_current_operator_context_from_state_root(
     else:
         set_active_manager_directive(state, directive)
     set_active_manager_directive(work, "WRONG_WORKTREE_STEERING")
-    prompts = []
-
-    def decide(prompt):
-        prompts.append(prompt)
-        return SimpleNamespace(last_agent_message=json.dumps({
-            "action": "hold", "target_stage": "setup",
-            "reason": "Remaining implementation is not complete.",
-        }))
+    decide = stage(move="hold")
 
     manager = Manager(state, runner=object(), execution_workdir=work)
     for _ in range(2):
@@ -55,8 +48,8 @@ def test_stage_manager_receives_current_operator_context_from_state_root(
         )
         assert decision.action == "hold"
         assert decision.source == "manager_llm"
-    assert len(prompts) >= 2
-    for prompt in prompts:
+    assert len(decide.prompts) >= 2
+    for prompt in decide.prompts:
         assert directive in prompt
         assert "WRONG_WORKTREE_STEERING" not in prompt
         assert "ENGINEER_ONLY_PRIVATE_NOTE" not in prompt
@@ -75,15 +68,12 @@ def test_changed_operator_context_prevents_stale_stage_commit(optimize_vertical,
     set_active_manager_directive(state, "Current scope is unchanged.")
     before = (state / ".argus/PIPELINE_STATE.json").read_bytes()
 
-    def decide(_prompt):
+    def decide(prompt, actions):
         if retract:
             clear_active_manager_directive(state)
         else:
             set_active_manager_directive(state, "Reassess the changed requirement.")
-        return SimpleNamespace(last_agent_message=json.dumps({
-            "action": "advance", "target_stage": "measure",
-            "reason": "Decision based on the old requirement.",
-        }))
+        return stage(move="advance", target_stage="measure")(prompt, actions)
 
     result = Manager(state, runner=object(), execution_workdir=work).decide_stage_transition(
         review=ReviewDecision(status="done", reason="One bounded repair accepted.", next_action=""),

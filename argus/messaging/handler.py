@@ -26,7 +26,6 @@ def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], 
     from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
     from ..manager._session_ops import _ManagerSession
     from ..manager.observation import observe_project
-    from ..manager.stage_decider import extract_answer
 
     root = Path(manager.manager_session_root)
     if mailbox_for_project(root).project_id != message["recipient"]:
@@ -87,7 +86,7 @@ def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], 
         raise PeerResponseInterrupted(reason)
     if result.exit_code != 0 or result.fatal_error:
         raise RuntimeError("peer Manager response failed")
-    answer = str(extract_answer(result)).strip().encode("utf-8")[:MAX_TEXT_BYTES].decode("utf-8", errors="ignore")
+    answer = (result.last_agent_message or "").strip().encode("utf-8")[:MAX_TEXT_BYTES].decode("utf-8", errors="ignore")
     if not answer:
         raise ValueError("peer Manager returned no response")
     return {"text": answer, "call_id": str(result.call_id or "")}

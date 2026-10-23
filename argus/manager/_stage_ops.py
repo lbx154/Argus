@@ -12,18 +12,22 @@ byte-for-byte.
 from __future__ import annotations
 
 import logging
-import time
+from contextlib import nullcontext
 from dataclasses import asdict
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+from ..core.handoff import HandOff, HandOffActions
+from ..core.role_actions import role_actions
 from ._helpers import (
     _manager_model,
     _manager_reasoning_effort,
     gateway_run_exec,
     log,
 )
+from .stage_decider import stage_check
 
 _log = logging.getLogger(__name__)
 
@@ -244,21 +248,18 @@ class _StageDecisionMixin:
         # a Manager prompt names are read where they lie.
         skill_dirs = [str(root) for root in self.mission.libraries().library_roots]
 
-        def _run_exec(prompt: str) -> Any:  # noqa: ANN401
-            return gateway_run_exec(
-                _backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=_manager_model(),
-                    reasoning_effort=_manager_reasoning_effort(),
-                    working_dir=str(self.execution_workdir),
-                    dangerous_yolo=False,
-                    sandbox_mode="read-only",
-                    skip_git_repo_check=True,
-                    add_dirs=skill_dirs or None,
-                ),
-                run_label=run_label,
+        def _run_exec(prompt: str, actions: HandOffActions | None = None) -> Any:  # noqa: ANN401
+            options = RunnerOptions(
+                model=_manager_model(),
+                reasoning_effort=_manager_reasoning_effort(),
+                working_dir=str(self.execution_workdir),
+                dangerous_yolo=False,
+                sandbox_mode="read-only",
+                skip_git_repo_check=True,
+                add_dirs=skill_dirs or None,
             )
+            with role_actions(_backend, options, actions) if actions else nullcontext(options) as bound:
+                return gateway_run_exec(_backend, prompt=prompt, options=bound, run_label=run_label)
 
         # F3: meter each manager-stage codex turn so its tokens fold into
         # the per-mission cost sink + the daily cap — they were previously
@@ -286,7 +287,7 @@ class _StageDecisionMixin:
 
         The turn runs read-only in the project directory so the model can open
         files, is metered like any other Manager call, and returns an empty
-        string when no backend is available or the model returned nothing twice.
+        string when no backend is available or the model wrote nothing.
         """
         run_exec, hold = self._build_stage_run_exec(None, on_event, run_label=run_label)
         if hold is not None or run_exec is None:
@@ -301,57 +302,15 @@ class _StageDecisionMixin:
         run_label: str = "manager-prose",
         root_task_id: str | None = None,
     ) -> str:
-        """The prose of one Manager turn (:meth:`run_turn`), footer removed.
-
-        This is how the Manager writes for a person: a letter to the operator.
-        """
-        raw = self.run_turn(
+        """The prose of one Manager turn (:meth:`run_turn`): a letter to the operator."""
+        return self.run_turn(
             prompt, on_event=on_event, run_label=run_label, root_task_id=root_task_id,
-        )
-        if not str(raw or "").strip():
-            return ""
-        from ..core.role_reply import strip_control_footer
-
-        return strip_control_footer(
-            raw,
-            ("ACTION", "TARGET_STAGE", "REASON"),
         ).strip()
 
-    def _run_stage_model(
-        self,
-        run_exec: Any,
-        prompt: str,
-        root_task_id: str | None,
-    ) -> str:
-        """Phase 3: run the model with empty-output retry.
-
-        Returns the raw model output string (may be empty on repeated failure).
-        """
+    def _run_stage_model(self, run_exec: Any, prompt: str, root_task_id: str | None) -> str:
+        """Run one Manager turn in the task's usage scope; its reply, or '' when it wrote none."""
         with self._task_usage_scope(root_task_id):
-            raw = self._extract_answer_safe(run_exec(prompt))
-            # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
-            # turn. An empty raw makes parse_stage_decision fall back to a silent
-            # "manager held (default)" — which, after a DONE reviewer verdict,
-            # wedges current_stage FOREVER (research completes but never advances
-            # to plan, because no later mission re-triggers a stage decision).
-            # Replay once on an empty response before accepting a hold,
-            # matching the non-idempotent model-call retry discipline. A genuine,
-            # non-empty hold verdict is never retried.
-            _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 1:
-                _empty_retries += 1
-                time.sleep(1.0)
-                raw = self._extract_answer_safe(run_exec(prompt))
-        return raw or ""
-
-    @staticmethod
-    def _extract_answer_safe(result: Any) -> str:
-        """Wrap extract_answer so it never raises; returns '' on any failure."""
-        from .stage_decider import extract_answer
-        try:
-            return extract_answer(result) or ""
-        except Exception:  # noqa: BLE001
-            return ""
+            return run_exec(prompt).last_agent_message or ""
 
     def report_project_completion(
         self,
@@ -376,19 +335,11 @@ class _StageDecisionMixin:
         )
         if hold is not None or run_exec is None:
             return fallback_project_report(completion_context, continuous_objective)
-        raw = self._run_stage_model(run_exec, prompt, root_task_id)
-        if not raw.strip():
-            return ""
-        from ..core.role_reply import strip_control_footer
+        return self._run_stage_model(run_exec, prompt, root_task_id).strip()
 
-        return strip_control_footer(
-            raw,
-            ("ACTION", "TARGET_STAGE", "REASON"),
-        ).strip()
-
-    def _parse_and_finalize_stage_decision(
+    def _finalize_stage_decision(
         self,
-        raw: str,
+        handoff: HandOff | None,
         cur: str,
         order: list[str],
         review: Any,
@@ -397,97 +348,19 @@ class _StageDecisionMixin:
         planner_handoff: bool,
         checklist_contract: Any,
         root: Path,
-        on_event: Any,
     ) -> Any:
-        """Phase 4: parse raw output, apply live view, finalize the decision.
+        """Phase 4: hold when nothing was handed off, then put the decision to the gates.
 
-        Returns a ``StageDecision``-like object (action, target_stage, reason, …).
+        Returns a ``StageDecision`` (action, target_stage, reason, diagnostic).
         """
         from .stage_decider import (
+            StageDecision,
             completion_trigger_reason,
             external_completion_gate_rework_decision,
             external_completion_gate_stage_guard_decision,
-            fallback_empty_stage_decision,
+            final_stage_completion_blockers,
             final_stage_completion_decision,
-            parse_stage_decision,
         )
-
-        if not str(raw or "").strip():
-            decision = fallback_empty_stage_decision(
-                review,
-                current_stage=cur,
-                stage_order=order,
-                checklist_contract=checklist_contract,
-            )
-            rework_decision = external_completion_gate_rework_decision(
-                review,
-                current_stage=cur,
-                stage_order=order,
-                project_root=self.execution_workdir,
-            )
-            if rework_decision is not None:
-                decision = rework_decision
-            decision = external_completion_gate_stage_guard_decision(
-                review,
-                decision,
-                current_stage=cur,
-                stage_order=order,
-                project_root=self.execution_workdir,
-            )
-            from ..skills.vertical_select import resolve_workflow_mode
-            from .stage_decider import StageDecision
-
-            if (
-                planner_handoff
-                and (not open_ended or resolve_workflow_mode(root) != "direct")
-                and decision.action in {"advance", "complete"}
-            ):
-                decision = StageDecision(
-                    "hold",
-                    cur,
-                    "a Planner handoff cannot advance without reviewer evidence",
-                    "planner_handoff_advance_rejected",
-                )
-            return decision
-
-        # Apply live view and emit event.
-        try:
-            from .live_view import (
-                apply_manager_rendering_response,
-                parse_live_view_response,
-            )
-
-            live_decided, _live_view = parse_live_view_response(raw)
-            live_view = apply_manager_rendering_response(
-                self.execution_workdir,
-                raw,
-                manifest_root=self.manager_session_root,
-            )
-            if live_decided and on_event is not None:
-                on_event({
-                    "type": "manager.live_view.updated",
-                    "title": live_view.title if live_view else "",
-                    "paths": list(live_view.paths) if live_view else [],
-                    "reason": live_view.reason if live_view else "",
-                    "explicit_clear": live_view is None,
-                    "text": (
-                        f"Manager refreshed right sidebar: {live_view.title}"
-                        if live_view
-                        else "Manager cleared right sidebar"
-                    ),
-                })
-        except Exception as exc:  # noqa: BLE001 — rendering never blocks stage
-            log.debug("manager live-view refresh failed", exc_info=True)
-            if on_event is not None:
-                on_event({
-                    "type": "manager.live_view.rejected",
-                    "error": str(exc)[:500],
-                    "text": (
-                        "Manager right-sidebar update rejected; "
-                        "previous valid view preserved"
-                    ),
-                })
-
         from ..core.external_completion_gate import external_completion_gate_issue
         from ..core.research_contract import resolve_research_target_level
         from ..skills.vertical_select import (
@@ -495,7 +368,9 @@ class _StageDecisionMixin:
             resolve_workflow_mode,
         )
 
-        decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
+        decision = handoff.value if handoff else StageDecision(
+            "hold", cur, "manager held: no stage decision was handed off", "handoff_missing",
+        )
 
         _completion_vertical = resolve_vertical(root)
         _research_target_level = resolve_research_target_level(root)
@@ -550,19 +425,9 @@ class _StageDecisionMixin:
             if final_decision is not None:
                 decision = final_decision
             else:
-                from .stage_decider import (
-                    StageDecision,
-                    final_stage_completion_blockers,
-                    stage_position_is_the_only_completion_blocker,
-                )
-
-                # Report which of the checks refused. The bare "rejected by the
-                # project completion contract" left the Planner guessing:
-                # testbed run 13 answered it by queueing a mission to "record
-                # the missing route/ledger state or equivalent gate metadata",
-                # when the real answer was that it was sitting at ``scope`` and
-                # needed to advance.
-                blockers = final_stage_completion_blockers(
+                # Report which of the checks refused, so the Planner repairs
+                # what is actually missing.
+                detail = "; ".join(final_stage_completion_blockers(
                     review,
                     current_stage=cur,
                     stage_order=order,
@@ -573,33 +438,18 @@ class _StageDecisionMixin:
                     checklist_contract=checklist_contract,
                     completion_blocker=_completion_blocker,
                     allow_early_completion=_allow_early_completion,
+                ))
+                decision = StageDecision(
+                    "hold",
+                    cur,
+                    (
+                        f"Manager completion rejected: {detail}"
+                        if detail
+                        else "Manager completion rejected by the project "
+                        "completion contract"
+                    ),
+                    "manager_completion_rejected",
                 )
-                if stage_position_is_the_only_completion_blocker(blockers):
-                    # Nothing is wrong with this completion except where the
-                    # pipeline is standing, so stand somewhere else. Reporting
-                    # the refusal better was not enough on its own: run 15 got
-                    # the improved sentence and still sat at ``scope`` with the
-                    # problem solved, because a Manager cannot act on an
-                    # explanation it is given after its turn has ended.
-                    decision = StageDecision(
-                        "advance",
-                        order[order.index(cur) + 1],
-                        decision.reason or "operator objective complete",
-                        "complete_at_nonfinal_advanced",
-                    )
-                else:
-                    detail = "; ".join(blockers)
-                    decision = StageDecision(
-                        "hold",
-                        cur,
-                        (
-                            f"Manager completion rejected: {detail}"
-                            if detail
-                            else "Manager completion rejected by the project "
-                            "completion contract"
-                        ),
-                        "manager_completion_rejected",
-                    )
         rework_decision = external_completion_gate_rework_decision(
             review,
             current_stage=cur,
@@ -615,8 +465,6 @@ class _StageDecisionMixin:
             stage_order=order,
             project_root=self.execution_workdir,
         )
-
-        from .stage_decider import StageDecision
 
         if decision.action == "rollback":
             from ..skills.stage_machine import stage_rollback_error
@@ -1056,14 +904,15 @@ class _StageDecisionMixin:
 
             prompt = append_operator_context(prompt, self._stage_operator_context())
 
-            raw = self._run_stage_model(
-                run_exec,
-                prompt,
-                root_task_id,
-            )
-
-            decision = self._parse_and_finalize_stage_decision(
-                raw,
+            # A stage question has no task to wait on yet, so the Manager decides
+            # and records the reading it chose.
+            actions = HandOffActions("stage", operator_available=False, check=partial(
+                stage_check, current_stage=cur, stage_order=order, allow_done=allow_direct_completion,
+            ))
+            with self._task_usage_scope(root_task_id):
+                run_exec(prompt, actions)
+            decision = self._finalize_stage_decision(
+                actions.handoff,
                 cur=cur,
                 order=order,
                 review=review,
@@ -1072,7 +921,6 @@ class _StageDecisionMixin:
                 planner_handoff=planner_handoff,
                 checklist_contract=checklist_contract,
                 root=root,
-                on_event=on_event,
             )
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)

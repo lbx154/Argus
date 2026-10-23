@@ -9,6 +9,7 @@ from argus.core.manuscript_snapshot import manuscript_snapshot
 from argus.core.models import ReviewDecision
 from argus.manager import Manager
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import stage
 
 pytestmark = pytest.mark.usefixtures("optimize_vertical")
 
@@ -217,16 +218,7 @@ def test_stage_closing_stale_manuscript_review_holds(tmp_path) -> None:
 
 def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"ordinary work does not close the stage"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(),
@@ -236,7 +228,7 @@ def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> No
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
     assert _state(state_root)["current_stage"] == "setup"
@@ -310,16 +302,7 @@ def test_engineer_operator_abort_before_review_holds_without_manager_model(
 
 def test_reviewer_operator_abort_still_uses_manager_model(tmp_path) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"the Reviewer was interrupted"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(
@@ -333,7 +316,7 @@ def test_reviewer_operator_abort_still_uses_manager_model(tmp_path) -> None:
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
 
@@ -351,16 +334,7 @@ def test_direct_final_self_review_still_uses_manager(
         runner=object(),
     )
 
-    calls: list[str] = []
-
-    def manager_model(_prompt: str):
-        calls.append(_prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"delivery",'
-                '"reason":"self-review cannot auto-complete the project"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(review_source="engineer_self_review"),
@@ -370,23 +344,14 @@ def test_direct_final_self_review_still_uses_manager(
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
 
 
 def test_clean_acceptance_with_operator_question_uses_manager(tmp_path) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"operator authority is required"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(operator_question="May the trusted scope be expanded?"),
@@ -396,7 +361,7 @@ def test_clean_acceptance_with_operator_question_uses_manager(tmp_path) -> None:
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
 
@@ -415,16 +380,7 @@ def test_clean_acceptance_with_operator_question_uses_manager(tmp_path) -> None:
 )
 def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"review controls were incomplete"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=review,
@@ -434,7 +390,7 @@ def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> No
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
 
@@ -453,16 +409,7 @@ def test_ambiguous_or_changed_authority_keeps_manager_semantics(
     mission_scope,
 ) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"Manager retained semantic adjudication"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(**review_changes),
@@ -472,7 +419,7 @@ def test_ambiguous_or_changed_authority_keeps_manager_semantics(
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert decision.source == "manager_llm"
     assert _state(state_root)["current_stage"] == "setup"
@@ -483,8 +430,6 @@ def test_failed_vertical_completion_preflight_keeps_manager_semantics(
     monkeypatch,
 ) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
-
     def fail_completion(*_args, **_kwargs):
         raise RuntimeError("completion evidence conflicts")
 
@@ -493,14 +438,7 @@ def test_failed_vertical_completion_preflight_keeps_manager_semantics(
         fail_completion,
     )
 
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"completion evidence conflicts"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(),
@@ -510,7 +448,7 @@ def test_failed_vertical_completion_preflight_keeps_manager_semantics(
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert _state(state_root)["current_stage"] == "setup"
 
@@ -520,7 +458,6 @@ def test_open_external_completion_gate_keeps_manager_semantics(
     monkeypatch,
 ) -> None:
     manager, state_root, _workdir = _manager(tmp_path)
-    calls: list[str] = []
     monkeypatch.setenv(
         "ARGUS_SKILL_EXTERNAL_COMPLETION_GATE",
         "MLE_MEDAL_GATE.json:satisfied",
@@ -530,14 +467,7 @@ def test_open_external_completion_gate_keeps_manager_semantics(
         "optimize",
     )
 
-    def manager_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"setup",'
-                '"reason":"external completion gate is open"}'
-            )
-        )
+    manager_model = stage(move="hold")
 
     decision = manager.decide_stage_transition(
         review=_review(),
@@ -547,7 +477,7 @@ def test_open_external_completion_gate_keeps_manager_semantics(
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
+    assert len(manager_model.prompts) == 1
     assert decision.action == "hold"
     assert _state(state_root)["current_stage"] == "setup"
 
@@ -561,16 +491,7 @@ def test_replan_rollback_and_illegal_target_still_use_manager(tmp_path) -> None:
         stage_closing=True,
         run_exec=lambda _prompt: pytest.fail("deterministic setup advance called model"),
     )
-    calls: list[str] = []
-
-    def rollback_model(prompt: str):
-        calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"rollback","target_stage":"setup",'
-                '"reason":"upstream evidence is unreliable"}'
-            )
-        )
+    rollback_model = stage(move="rollback", target_stage="setup")
 
     rollback = manager.decide_stage_transition(
         review=_review(
@@ -582,7 +503,7 @@ def test_replan_rollback_and_illegal_target_still_use_manager(tmp_path) -> None:
         stage_closing=True,
         run_exec=rollback_model,
     )
-    assert len(calls) == 1
+    assert len(rollback_model.prompts) == 1
     assert rollback.action == "rollback"
     assert _state(state_root)["current_stage"] == "setup"
 
@@ -591,15 +512,10 @@ def test_replan_rollback_and_illegal_target_still_use_manager(tmp_path) -> None:
         project_root=state_root,
         mission_scope="bounded",
         stage_closing=True,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"advance","target_stage":"not-a-stage",'
-                '"reason":"invalid"}'
-            )
-        ),
+        run_exec=stage(move="advance", target_stage="not-a-stage"),
     )
     assert invalid.action == "hold"
-    assert invalid.diagnostic == "illegal_advance_target"
+    assert invalid.diagnostic == "handoff_missing"
     assert _state(state_root)["current_stage"] == "setup"
     assert workdir.is_dir()
 

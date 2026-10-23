@@ -33,7 +33,6 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     from ..core.transcript import read_turns
     from .front_door import _ensure_manager_runner
     from .session_context import conversation_backend
-    from .stage_decider import extract_answer
 
     state = read_intake(mem.project_root)
     runner = _ensure_manager_runner(chat_state, mem)
@@ -99,7 +98,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
         )
     if getattr(result, "exit_code", 0) != 0 or getattr(result, "fatal_error", None):
         raise IntakeDialogueError("Manager could not finish the question")
-    raw = decision_footer_text(extract_answer(result))
+    raw = decision_footer_text((result.last_agent_message or ""))
     keys = ("DOMAIN_ACTION", "DOMAIN_NAME", "DOMAIN_PURPOSE", "VERTICAL_BRIEF", "TASK_TITLE", "TASK_SUMMARY", "DOMAIN_QUESTION")
     values = read_key_values(raw, keys)
     action = str(values.get("DOMAIN_ACTION") or "").lower()

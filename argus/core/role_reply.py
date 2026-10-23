@@ -288,46 +288,6 @@ def read_bool(values: Mapping[str, str], key: str, default: bool = False) -> boo
     return default
 
 
-def read_optional(values: Mapping[str, str], key: str) -> str:
-    """A value the role may explicitly decline to give.
-
-    ``none``/``null``/``n/a`` come back as ``""`` so a caller does not have to
-    re-check for the four ways a model writes "not applicable".
-    """
-    raw = str(values.get(key.upper()) or "").strip()
-    if raw.casefold() in {"none", "null", "n/a", "na", "-", "(none)"}:
-        return ""
-    return raw
-
-
-def strip_named_lines(text: str, keys: Iterable[str]) -> str:
-    pattern = _line_pattern(keys)
-    return "\n".join(
-        line
-        for line in str(text or "").splitlines()
-        if pattern.match(line) is None and _DECISION_FOOTER.match(line) is None
-    ).strip()
-
-
-def strip_control_footer(text: str, keys: Iterable[str]) -> str:
-    """Remove named control fields even after a summary collapsed newlines."""
-    names = sorted(
-        {str(key).strip().upper() for key in keys if str(key).strip()},
-        key=len,
-        reverse=True,
-    )
-    cleaned = strip_named_lines(text, names)
-    if not names:
-        return cleaned
-    marker = re.search(
-        r"(?i)(?:^|(?<=" + _SENTENCE_END_CLASS + r")\s+)(?:ARGUS_)?(?:"
-        + "|".join(re.escape(name) for name in names)
-        + r")\s*=",
-        cleaned,
-    )
-    return cleaned[: marker.start()].rstrip() if marker else cleaned
-
-
 def legacy_json_object(text: str) -> dict[str, Any] | None:
     """A JSON object the role volunteered, if it did. Never required.
 
@@ -369,8 +329,5 @@ __all__ = [
     "read_bool",
     "read_key_values",
     "read_list",
-    "read_optional",
     "read_records",
-    "strip_control_footer",
-    "strip_named_lines",
 ]
