@@ -23,6 +23,7 @@ from argus.skills.vertical_select import (
 )
 from argus.verticals import _registry
 from argus.verticals._base import load_vertical, load_vertical_contract
+from tests.hand_off import route, submit
 
 
 @pytest.fixture
@@ -170,19 +171,16 @@ class ProfileRunner:
         self.profile = profile
         self.prompts = []
 
-    def run_exec(self, *, prompt, **kwargs):
+    def run_exec(self, *, prompt, options, **kwargs):
         self.prompts.append(prompt)
         decision = {
             "choice": "existing", "vertical": "profile_lab", "workflow_mode": "staged",
-            "confidence": 0.99, "execution_task": "Design and verify a small block.",
+            "execution_task": "Design and verify a small block.",
         }
         if self.profile is not None:
             decision["workflow_profile"] = self.profile
-        message = json.dumps(decision)
-        return SimpleNamespace(
-            last_agent_message=message, agent_messages=[message], thread_id="profile-test",
-            tool_activity_observed=True,
-        )
+        submit(options, route(**decision))
+        return SimpleNamespace(agent_messages=[], thread_id="profile-test", tool_activity_observed=True)
 
 
 @pytest.mark.parametrize("fast", ["0", "1"])
@@ -196,7 +194,7 @@ def test_manager_selects_commits_and_advertises_profile(provider, tmp_path, monk
     division = manager.commit_vertical_decision("Design and verify a small block.", decision)
     assert division.stages == list(provider.WORKFLOW_PROFILES[profile]["stages"])
     assert read_pipeline_state(tmp_path)["workflow_profile"] == profile
-    assert any("WORKFLOW_PROFILE" in prompt for prompt in runner.prompts)
+    assert any("workflow_profile" in prompt for prompt in runner.prompts)
     assert "design and verify only" in available_vertical_purposes()["profile_lab"]
 
 
@@ -353,17 +351,14 @@ def test_manager_composes_and_explains_requested_scope(composable_provider, tmp_
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", fast)
 
     class CustomRunner:
-        def run_exec(self, *, prompt, **kwargs):
-            assert "WORKFLOW_STAGES=" in prompt
-            reply = (
-                "CHOICE=existing\nVERTICAL=profile_lab\nWORKFLOW_MODE=staged\n"
-                "WORKFLOW_PROFILE=custom\nWORKFLOW_STAGES=design\nCONFIDENCE=0.99\n"
-                "EXECUTION_TASK=Build a block without delivery packaging.\n"
-            )
-            return SimpleNamespace(
-                last_agent_message=reply, agent_messages=[reply], thread_id="custom",
-                tool_activity_observed=True,
-            )
+        def run_exec(self, *, prompt, options, **kwargs):
+            assert "workflow_stages=" in prompt
+            submit(options, route(
+                choice="existing", vertical="profile_lab", workflow_mode="staged",
+                workflow_profile="custom", workflow_stages=["design"],
+                execution_task="Build a block without delivery packaging.",
+            ))
+            return SimpleNamespace(agent_messages=[], thread_id="custom", tool_activity_observed=True)
 
     manager = Manager(project_root=tmp_path, runner=CustomRunner())
     decision = manager.decide_vertical("Build a block without packaging.")
@@ -425,18 +420,19 @@ def test_invalid_requirement_graphs_fail_visibly(provider, requirements):
         vertical_contract("profile_lab", provider)
 
 
-@pytest.mark.parametrize("parse_name", ["parse_fast_vertical_decision", "parse_vertical_decision"])
-def test_composition_parser_accepts_lists_not_ambiguous_json_strings(parse_name):
-    from argus.manager import domain_author
+@pytest.mark.parametrize("fast", [True, False])
+def test_composition_takes_a_list_of_stages_not_an_ambiguous_string(fast):
+    from argus.core.handoff import HandOffActions
+    from argus.manager.domain_author import RouteContext
 
-    parse = getattr(domain_author, parse_name)
+    actions = HandOffActions("route", check=RouteContext(known_verticals=("software",), fast=fast).decide)
     payload = {
-        "choice": "existing", "vertical": "software", "workflow_mode": "staged",
-        "workflow_profile": "custom", "workflow_stages": ["rtl", "ppa"],
-        "execution_task": "work", "confidence": 0.99,
+        "to": "team", "summary": "a custom flow", "assumptions": [], "choice": "existing",
+        "vertical": "software", "workflow_mode": "staged", "workflow_profile": "custom",
+        "workflow_stages": ["rtl", "ppa"], "execution_task": "work",
     }
-    decision = parse(payload, known_verticals=["software"])
-    assert decision.workflow_requested_stages == ("rtl", "ppa")
+    actions.dispatch("hand_off", payload)
+    assert actions.handoff.value.workflow_requested_stages == ("rtl", "ppa")
     for invalid in ("rtl;ppa", None, 3, ["rtl", {}]):
-        payload["workflow_stages"] = invalid
-        assert parse(payload, known_verticals=["software"]) is None
+        with pytest.raises(ValueError, match="workflow_stages"):
+            actions.dispatch("hand_off", {**payload, "workflow_stages": invalid})

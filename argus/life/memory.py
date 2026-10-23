@@ -2810,46 +2810,6 @@ class Backlog:
             updates["outcome"] = dict(outcome)
         return self.update(item_id, **updates)
 
-    def park_after_manager_wait(
-        self,
-        item_id: str,
-        *,
-        expected_question: str,
-        reason: str,
-        outcome: dict[str, Any] | None = None,
-        wait_current: bool = True,
-    ) -> BacklogItem | None:
-        """Settle an interrupted turn only while its exact Manager question remains.
-
-        An answer or replacement can win before the old turn reaches settlement.
-        Keep the current row's contract and result; that old WAIT cannot park it.
-        """
-        if wait_current and (
-            not isinstance(expected_question, str) or not expected_question.strip()
-        ):
-            raise ValueError("Manager WAIT requires a non-empty question witness")
-        with self._locked():
-            items = self._load()
-            item = next((row for row in items if row.id == item_id), None)
-            if item is None:
-                return next(
-                    (row for row in reversed(self._load_archive()) if row.id == item_id),
-                    None,
-                )
-            if item.status != "running":
-                return item
-            if wait_current and item.pending_question == expected_question:
-                item.last_error = str(reason)
-                if outcome is not None:
-                    item.outcome = dict(outcome)
-                park_item(item, "operator_question")
-            else:
-                item.status = "pending"
-                item.started_ts = None
-                item.finished_ts = None
-            self._save(items)
-            return item
-
     def resume_parked(self, reasons: Collection[str] | None = None) -> list[BacklogItem]:
         """Atomically re-arm parked rows, each with a fresh usage attempt.
 

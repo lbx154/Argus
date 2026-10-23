@@ -6,6 +6,7 @@ import pytest
 
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.role_actions import PREFIX
 from argus.core.role_tool_bridge import bridge_request
 from argus.core.venue_review import (
     ACCEPTANCE_BAR_POLICY,
@@ -20,6 +21,7 @@ from argus.core.venue_review import (
 from argus.engineer.round_settlement import RoundSettlementMixin
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 
 def assessment(recommendation="weak_accept", *, clear=True, issues=None, venue="ICLR 2027"):
@@ -176,10 +178,10 @@ class _Runner:
 
     def run_exec(self, **kwargs):
         self.prompt = kwargs["prompt"]
-        payload = {"review": "Assessed current paper.\n→ done"}
+        payload = hand_off("done", "Assessed current paper.")[1]
         if self.report:
             payload["recommendation"] = self.report["recommendation"]
-        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=kwargs["options"].extension_env)
+        bridge_request(PREFIX, "hand_off", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 
 

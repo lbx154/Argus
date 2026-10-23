@@ -200,7 +200,7 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
     openEnded,
     review,
     acceptanceCriteria: current?.acceptance_check || dag.find((item) => item.id === taskId)?.acceptance_check || '',
-    nextAction: current?.pending_question || String(currentReview?.next_action || ''),
+    nextAction: current?.pending_question || '',
     taskEvents: activityEvents,
   };
 }

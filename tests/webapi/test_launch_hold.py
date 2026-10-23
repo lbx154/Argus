@@ -152,7 +152,7 @@ def test_inferred_target_level_is_manager_owned_and_chosen_level_operator_owned(
     life = _project(tmp_path, "s-target-authority")
     mem = SimpleNamespace(project_root=life)
     decision = SimpleNamespace(precise_constraints=(), research_target_level="publishable",
-                               target_venue="", exclusions=(), ambiguities=())
+                               target_venue="", exclusions=(), assumptions=())
     _record_goal_contract(mem, "写一篇论文", decision)
     clause = next(c for c in load_contract(life).clauses if c.text.startswith("research target level"))
     assert clause.authority == AUTHORITY_MANAGER

@@ -11,22 +11,17 @@ from argus.agent_cli.models import AgentRunResult
 from argus.manager import Manager
 from argus.manager._session_ops import _ManagerSession
 from argus.manager.domain_author import VerticalDecisionError
+from tests.hand_off import route, submit
 
-_FAST_DECISION = json.dumps(
-    {
-        "choice": "existing",
-        "vertical": "software",
-        "workflow_mode": "direct",
-        "confidence": 0.99,
-    }
-)
+_FAST_DECISION = {"choice": "existing", "vertical": "software", "workflow_mode": "direct"}
 _CODEX_WARNING = "failed to record rollout items: thread example not found"
 
 
 class _Result:
     def __init__(
         self,
-        message: str = _FAST_DECISION,
+        message: str = "Routed.",
+        decision: dict | None = _FAST_DECISION,
         *,
         exit_code: int = 0,
         turn_completed: bool = True,
@@ -35,7 +30,6 @@ class _Result:
         stderr_lines: list[str] | None = None,
         thread_id: str = "thread-1",
         tool_activity_observed: bool = True,
-        role_decisions: list[dict] | None = None,
     ) -> None:
         self.exit_code = exit_code
         self.turn_completed = turn_completed
@@ -46,7 +40,7 @@ class _Result:
         self.last_agent_message = message
         self.thread_id = thread_id
         self.tool_activity_observed = tool_activity_observed
-        self.role_decisions = list(role_decisions or [])
+        self.decision = decision
 
 
 class _Runner:
@@ -56,6 +50,8 @@ class _Runner:
 
     def run_exec(self, **kwargs):  # noqa: ANN003, ANN201
         self.calls.append(kwargs)
+        if self.result.decision and kwargs["options"] is not None:
+            submit(kwargs["options"], route(**self.result.decision))
         return self.result
 
 
@@ -114,7 +110,7 @@ def test_adapter_preserves_turn_failed_for_manager_consumers() -> None:
             command=["codex"],
             exit_code=0,
             thread_id="thread-1",
-            agent_messages=[_FAST_DECISION],
+            agent_messages=["Routed."],
             turn_completed=False,
             turn_failed=True,
             fatal_error=None,
@@ -136,7 +132,7 @@ def test_adapter_preserves_turn_failed_when_fatal_normalizes_away() -> None:
             command=["codex"],
             exit_code=0,
             thread_id="thread-1",
-            agent_messages=[_FAST_DECISION],
+            agent_messages=["Routed."],
             turn_completed=False,
             turn_failed=True,
             fatal_error="Reconnecting... 1/3",
@@ -162,13 +158,10 @@ def test_nonzero_exit_fails_and_reports_stderr_diagnostic(tmp_path) -> None:
     assert len(runner.calls) == 1
 
 
-def test_missing_required_output_still_fails(tmp_path) -> None:
-    runner = _Runner(_Result(message=""))
+def test_a_route_never_handed_over_still_fails(tmp_path) -> None:
+    runner = _Runner(_Result(decision=None))
 
-    with pytest.raises(
-        VerticalDecisionError,
-        match=r"routing failed \[parse\].*expected named decision fields",
-    ):
+    with pytest.raises(VerticalDecisionError, match="without handing over its routing decision"):
         Manager(project_root=tmp_path, runner=runner).decide_vertical("fix it")
 
 
@@ -195,16 +188,8 @@ def test_completed_success_does_not_retry_from_stderr_text(tmp_path) -> None:
     assert result.thread_id == "completed-thread"
 
 
-def test_process_decision_succeeds_without_final_manager_message(tmp_path) -> None:
-    runner = _Runner(
-        _Result(
-            message="",
-            role_decisions=[{
-                "role": "manager",
-                "payload": json.loads(_FAST_DECISION),
-            }],
-        )
-    )
+def test_a_handed_over_route_needs_no_final_manager_message(tmp_path) -> None:
+    runner = _Runner(_Result(message=""))
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
         "fix the requested bug"

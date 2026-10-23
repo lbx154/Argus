@@ -31,8 +31,9 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer.tools import ReviewActions
+from argus.reviewer.tools import review_actions
 from argus.roles.prompts.engineer import build_mission_prompt
+from tests.hand_off import hand_off
 
 _TASK = (
     "A session window processor is not working correctly.\n\n"
@@ -84,14 +85,14 @@ def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, soft
 
 
 def test_approval_needs_the_task_text_to_call_a_stated_symptom_intended() -> None:
-    tools = {tool["name"]: tool for tool in ReviewActions().tools}
-    description = _flat(tools["submit_review"]["description"])
+    tools = {tool["name"]: tool for tool in review_actions().tools}
+    description = _flat(tools["hand_off"]["description"])
     # The tool and the prompt name the same bar.
     assert "each requirement and symptom the task (this increment) states" in description
     assert "each acceptance criterion" in description
     assert "not that the reading is right" in description
     assert "called intended or out of scope needs support in the task text itself" in description
-    assert "`→ done` accepts it only after" in description
+    assert "to: done accepts it, only after" in description
 
 
 # --- A real round: what the Reviewer is actually sent ----------------------
@@ -100,7 +101,7 @@ def test_approval_needs_the_task_text_to_call_a_stated_symptom_intended() -> Non
 def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, verdict):
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message=_ACCOUNT))
-    backend.queue("reviewer", CannedResponse(review_action=verdict))
+    backend.queue("reviewer", CannedResponse(action=verdict))
     workdir = tmp_path / "work"
     workdir.mkdir(exist_ok=True)
     engineer = SupervisedEngineer(
@@ -125,10 +126,10 @@ def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, 
 def test_a_round_sends_the_coverage_rule_to_both_roles_and_the_verdict_still_decides(tmp_path) -> None:
     status, rounds, prompts = _mission(
         tmp_path, objective=_TASK, original_objective=None,
-        verdict=("submit_review", {
-            "review": "The second symptom is stated, and DESIGN.md does not call the stall "
-                      "intended; fix it within the minimum-across-sources rule.\n→ engineer",
-        }),
+        verdict=hand_off(
+            "engineer", "The second symptom is stated, and DESIGN.md does not call the stall intended.",
+            "Fix it within the minimum-across-sources rule.",
+        ),
     )
     reviewer = _flat(prompts["reviewer"])
     engineer = _flat(prompts["engineer-r1"])
@@ -148,9 +149,7 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
     )
     status, _rounds, prompts = _mission(
         tmp_path, objective=increment, original_objective=original,
-        verdict=("submit_review", {
-            "review": "Read the late-event test and its recorded run; the increment's symptom is fixed.\n→ done",
-        }),
+        verdict=hand_off("done", "Read the late-event test and its recorded run; the increment's symptom is fixed."),
     )
     reviewer = _flat(prompts["reviewer"])
     # The whole request is shown for context ...

@@ -1549,7 +1549,6 @@ class LifeSupervisor(
         try:
             from ...core.operator_messages import (
                 brief_title,
-                first_sentence,
                 publish_operator_message,
                 render_operator_update,
             )
@@ -1573,9 +1572,6 @@ class LifeSupervisor(
             title = str(event.get("title") or say("this_task", chinese)).strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
-            from ...core.role_handoff import strip_handoff
-
-            summary = strip_handoff(summary)
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")
@@ -1778,24 +1774,20 @@ class LifeSupervisor(
                 continuation = ""
             else:
                 continuation = say("no_file_produced", chinese)
-            assumptions_line = ""
-            if overall_complete:
-                from ...core.autonomy import render_autonomous_assumptions
+            from ...core.autonomy import render_autonomous_assumptions
 
-                # What was decided without an operator belongs in the
-                # completion message, not only in the event log.
-                assumptions_line = render_autonomous_assumptions(
-                    self._project_state_root(), chinese=chinese,
-                )
+            # What this task decided in the operator's place belongs in its
+            # completion message, not only in the event log.
+            assumptions_line = render_autonomous_assumptions(
+                self._project_state_root(), item_id=item_id, chinese=chinese,
+            )
             publish_operator_message(
                 life_dir,
                 text="\n".join(
                     part
                     for part in (
                         headline,
-                        # A Reviewer's summary is told in full on its review row;
-                        # here only its first sentence, the one it writes for the operator.
-                        first_sentence(summary) if reviewed else summary,
+                        summary,
                         delivery_line,
                         continuation,
                         assumptions_line,

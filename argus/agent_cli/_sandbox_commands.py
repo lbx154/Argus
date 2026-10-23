@@ -576,9 +576,10 @@ class CommandBuilderMixin:
                 "--permission-mode",
                 "accept_edits" if is_qoder else "acceptEdits",
             ])
-        # Argus's own call-bound tools, which no permission mode pre-approves.
+        # Argus's own call-bound tools, which no permission mode pre-approves
+        # and a tool-free call keeps.
         trusted = getattr(options, "trusted_tool_names", None) or []
-        if trusted and not options.disable_tools:
+        if trusted:
             command.extend(["--allowedTools", ",".join(trusted)])
         # --add-dir
         if options.add_dirs:
@@ -658,25 +659,26 @@ class CommandBuilderMixin:
             command.append(f"--excluded-tools={','.join(excluded)}")
             for server in getattr(options, "disabled_mcp_servers", ()) or ():
                 command.extend(["--disable-mcp-server", server])
+        trusted = getattr(options, "trusted_tool_names", None) or []
         if options.disable_tools:
-            command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
+            # A tool-free call keeps only Argus's own call-bound tools.
+            command.append(f"--available-tools={','.join(trusted) or _COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
-            tools = ",".join(["view", "rg", "glob", *(getattr(options, "trusted_tool_names", None) or [])])
             command.extend([
-                "--available-tools", tools,
+                "--available-tools", ",".join(["view", "rg", "glob", *trusted]),
                 "--allow-tool", "view,rg,glob",
             ])
-            if getattr(options, "trusted_tool_names", None):
-                permissions = []
-                for name in options.trusted_tool_names:
-                    server, separator, tool = name.partition("-")
-                    permissions.append(f"{server}({tool})" if separator else name)
-                command.extend(["--allow-tool", ",".join(permissions)])
         elif options.dangerous_yolo:
             command.append("--yolo")
         else:
             # Copilot prompt mode requires automatic tool approval in non-interactive runs.
             command.append("--allow-all-tools")
+        if trusted and (options.disable_tools or options.sandbox_mode == "read-only"):
+            permissions = []
+            for name in trusted:
+                server, separator, tool = name.partition("-")
+                permissions.append(f"{server}({tool})" if separator else name)
+            command.extend(["--allow-tool", ",".join(permissions)])
         if options.add_dirs:
             for dir_path in options.add_dirs:
                 command.extend(["--add-dir", dir_path])
@@ -819,9 +821,8 @@ class CommandBuilderMixin:
         ])
         for path in options.skill_paths or []:
             command.extend(["--skill", path])
-        if not options.disable_tools:
-            for path in getattr(options, "trusted_extensions", None) or []:
-                command.extend(["--extension", path])
+        for path in getattr(options, "trusted_extensions", None) or []:
+            command.extend(["--extension", path])
         if getattr(options, "output_schema", None) is not None:
             from ._structured_output import PI_OUTPUT_SCHEMA_EXTENSION, output_schema_json
 
@@ -838,7 +839,9 @@ class CommandBuilderMixin:
         if options.reasoning_effort:
             command.extend(["--thinking", options.reasoning_effort])
         if options.disable_tools:
-            command.append("--no-tools")
+            # A tool-free call keeps only Argus's own call-bound tools.
+            trusted = getattr(options, "trusted_tool_names", None) or []
+            command.extend(["--tools", ",".join(trusted)] if trusted else ["--no-tools"])
         elif options.sandbox_mode == "read-only":
             command.extend(["--tools", ",".join(["read", "grep", "find", "ls", *(getattr(options, "trusted_tool_names", None) or [])])])
         merged_extra_args = [*self.default_extra_args]

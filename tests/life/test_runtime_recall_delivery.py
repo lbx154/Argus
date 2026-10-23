@@ -23,6 +23,7 @@ from argus.life.experience_tools import ExperienceToolService
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager.supervision import shutdown_supervision
+from tests.hand_off import hand_off
 
 
 class OfflineBackend(MemoryBackend):
@@ -41,7 +42,6 @@ class OfflineBackend(MemoryBackend):
 class RuntimeRunner(SkillLoopExecuteMixin):
     """Keep execute/context/loop construction real; omit unrelated deployment setup."""
     _SkillLoop = SkillLoop
-    _allow_chat_fast_path = False
     _next_seed_thread_id = None
     manager = None
 
@@ -98,7 +98,7 @@ class RuntimeRunner(SkillLoopExecuteMixin):
 
 def verdict(status="done"):
     return CannedResponse(
-        review_action=("submit_review", {'review': 'Synthetic bounded check.\n\n' + ('Check the next bounded observation.\n→ engineer' if status == 'continue' else '→ done')}),
+        action=hand_off(*(("engineer", "Synthetic bounded check.", "Check the next bounded observation.") if status == "continue" else ("done", "Synthetic bounded check."))),
         thread_id="offline-reviewer",
     )
 

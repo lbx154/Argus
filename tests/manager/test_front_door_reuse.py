@@ -18,7 +18,7 @@ class _Manager:
         reply: str = "",
         failure: str = "",
         control: str | None = None,
-        operator_question_policy: str = "unchanged",
+        operator_question_policy: str | None = None,
     ) -> None:
         self.route = route
         self.lifetime = lifetime
@@ -54,7 +54,7 @@ class _Manager:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
             name_sink("test")
-        if operator_question_policy_sink is not None:
+        if self.operator_question_policy and operator_question_policy_sink is not None:
             operator_question_policy_sink(self.operator_question_policy)
         return None, self.control, self.route
 
@@ -103,22 +103,6 @@ def test_front_door_wrapper_caches_bounded_lifetime_for_dispatch() -> None:
         state,
         ensure_runner=lambda *_args: SimpleNamespace(
             manager=_Manager(route="complex", lifetime="bounded")
-        ),
-    )
-
-    assert decision == (None, None, "complex")
-    assert state["_frontdoor_lifetime"] == "bounded"
-
-
-def test_front_door_wrapper_reads_a_legacy_bounded_increment_as_bounded() -> None:
-    state: dict = {}
-
-    decision = _front_door_classify(
-        object(),
-        "only complete research and stop",
-        state,
-        ensure_runner=lambda *_args: SimpleNamespace(
-            manager=_Manager(route="complex", lifetime="bounded_increment")
         ),
     )
 
@@ -436,8 +420,7 @@ def test_mixed_message_records_only_the_lasting_rule(tmp_path) -> None:
     assert "以后回答都简短一点" in block and "1+1" not in block
 
 
-def test_front_door_prompt_asks_for_the_lasting_rule_alone() -> None:
-    from argus.roles.prompts.manager import build_front_door_prompt
+def test_front_door_form_asks_for_the_lasting_rule_alone() -> None:
+    from argus.core.handoff import form_tool
 
-    prompt = build_front_door_prompt("以后回答都简短一点，先告诉我1+1等于几")
-    assert "lasting rule" in prompt
+    assert "the lasting rule only" in str(form_tool("front_door"))

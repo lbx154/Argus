@@ -105,16 +105,14 @@ def test_manager_owned_precise_parameter_can_change_without_confirmation() -> No
     assert updated.clauses[0].text == "inspect the latest 30 records"
 
 
-def test_recording_an_ambiguity_needs_nobody() -> None:
+def test_recording_an_assumption_needs_nobody() -> None:
     updated, _ = revise_contract(
         current=_contract(),
-        ambiguities=["operator did not say which sequence length matters"],
+        assumptions=["sequence length 4096 (rather than every length)"],
         by="manager",
     )
 
-    assert updated.ambiguities == (
-        "operator did not say which sequence length matters",
-    )
+    assert updated.assumptions == ("sequence length 4096 (rather than every length)",)
 
 
 # -- what it may not --------------------------------------------------------
@@ -296,13 +294,13 @@ def test_the_revision_history_is_append_only(tmp_path: Path) -> None:
     save_contract(tmp_path, contract=current)
     updated, revision = revise_contract(
         current=current,
-        ambiguities=["which sequence length?"],
+        assumptions=["sequence length 4096"],
         by="manager",
     )
     save_contract(tmp_path, contract=updated, revision=revision)
     updated2, revision2 = revise_contract(
         current=updated,
-        ambiguities=["and which dtype?"],
+        assumptions=["dtype bf16"],
         by="manager",
     )
     save_contract(tmp_path, contract=updated2, revision=revision2)
@@ -424,7 +422,7 @@ def test_manager_commit_records_constraints_from_the_decision_not_division(
         research_target_level="",
         target_venue="",
         precise_constraints=("at least 1.5x over PyTorch on B200",),
-        ambiguities=("which sequence length matters?",),
+        assumptions=({"chose": "sequence length 4096", "instead_of": "every length"},),
     )
     division = SimpleNamespace(
         execution_task="make the attention kernel faster",
@@ -445,7 +443,7 @@ def test_manager_commit_records_constraints_from_the_decision_not_division(
     assert [c.text for c in contract.precise()] == [
         "at least 1.5x over PyTorch on B200"
     ]
-    assert contract.ambiguities == ("which sequence length matters?",)
+    assert contract.assumptions == ("sequence length 4096 (rather than every length)",)
 
 
 def test_operator_handoff_revises_an_existing_contract_objective(
@@ -575,21 +573,21 @@ def test_an_objective_only_contract_still_names_the_committed_goal(
     assert "do a thing" in briefing
 
 
-def test_open_questions_are_shown_as_questions_not_as_answers(
+def test_assumptions_are_shown_as_readings_chosen_without_asking(
     tmp_path: Path,
 ) -> None:
-    """The Manager records what it could not know; it must not fill it in."""
+    """Every role sees which readings were the Manager's, not the operator's."""
     from argus.core.project_contract import contract_briefing
 
     contract = new_contract(
         objective="make it faster",
-        ambiguities=["how much faster is fast enough?"],
+        assumptions=["1.5x over PyTorch (rather than any speedup)"],
     )
 
     briefing = contract_briefing(contract)
 
-    assert "how much faster is fast enough?" in briefing
-    assert "Do not invent an answer" in briefing
+    assert "1.5x over PyTorch (rather than any speedup)" in briefing
+    assert "the Manager chose without asking" in briefing
 
 
 def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> None:
@@ -604,7 +602,7 @@ def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> Non
         research_target_level="",
         target_venue="",
         precise_constraints=("at least 1.5x over PyTorch on B200",),
-        ambiguities=("which sequence length matters?",),
+        assumptions=({"chose": "sequence length 4096", "instead_of": "every length"},),
     )
     PreparedManagerHandoff(
         mem=SimpleNamespace(root=tmp_path),
@@ -620,7 +618,7 @@ def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> Non
     assert [c.text for c in contract.precise()] == [
         "at least 1.5x over PyTorch on B200"
     ]
-    assert contract.ambiguities == ("which sequence length matters?",)
+    assert contract.assumptions == ("sequence length 4096 (rather than every length)",)
 
 
 def test_contract_recording_failure_is_visible(tmp_path: Path, monkeypatch) -> None:

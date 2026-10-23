@@ -108,27 +108,6 @@ describe("task submap evidence", () => {
     );
     expect(rows.flatMap((r) => r.eventIds)).toEqual(["e1"]);
   });
-  it("distinguishes requested revisions from executed work and preserves association strength", () => {
-    const rows = buildSubmap(
-      task,
-      [
-        event("e1", "round.review.completed", {
-          round_index: 1,
-          status: "continue",
-          next_action: "Check the boundary",
-          association: "single_active_window",
-        }),
-      ],
-      true,
-    );
-    const revision = rows.find((r) => r.kind === "revision");
-    expect(revision).toMatchObject({
-      status: "requested",
-      source: "interval",
-      detail: "Check the boundary",
-    });
-    expect(rows.some((r) => r.kind === "execution")).toBe(false);
-  });
   it("folds round observations but does not merge different mission episodes", () => {
     const rows = buildSubmap(
       task,
@@ -220,13 +199,12 @@ describe("connected maps with stable bounds", () => {
     event("e3", "round.start", { round_index: 2 }),
     event("e4", "life.mission.completed", { success: true }),
   ];
-  it("connects every observed step, distinguishing review, revision and next round", () => {
+  it("connects every observed step, distinguishing review and next round", () => {
     const layout = layoutSubmap(task, observations, true);
     expect(layout.links).toHaveLength(layout.steps.length - 1);
     expect(layout.links.map((e) => e.relation)).toEqual([
       "assignment",
       "review",
-      "revision",
       "next_attempt",
       "outcome",
     ]);

@@ -204,7 +204,7 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
 
     # The handoff line routes the round; a plan challenge still names its alternative.
     assert "forward_progress" not in prompt
-    assert "`→ planner`" in prompt
+    assert "`to=planner`" in prompt
     assert "alternative" in prompt
 
 
@@ -357,9 +357,9 @@ def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch)
     prompt = _prompt(monkeypatch=monkeypatch)
 
     assert "ARGUS_ROLE_DECISION=" not in prompt
-    assert "review naturally" in prompt
-    assert "submit_review" in prompt
-    assert "`→ operator: <one question>`" in prompt
+    assert "End your turn with hand_off" in prompt
+    assert "hand_off" in prompt
+    assert "`to=operator`" in prompt
     assert "STATUS=" not in prompt
     assert "REASON=" not in prompt
     assert "JSON Schema" not in prompt
@@ -373,7 +373,7 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 
     assert 'Use primary sources for external claims' in prompt
     assert 'community code may ground implementation details' in prompt
-    assert "`→ planner` for a wrong target" in prompt
+    assert "`to=planner` for a wrong target" in prompt
     assert 'Stay within this profile; require no future-proofing' in prompt
     assert 'require experimental or research feedback' in prompt
 

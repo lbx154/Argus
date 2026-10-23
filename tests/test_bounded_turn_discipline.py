@@ -10,6 +10,7 @@ present in the engineer prompt, for both paper and non-paper missions.
 
 import pytest
 
+from argus.core.handoff import form_tool
 from argus.loop import SkillLoop
 
 
@@ -64,7 +65,8 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
         next_action=None,
     )
 
-    assert "does the independent review; do not start one yourself or through a subagent" in out
+    assert "End your turn with hand_off" in out
+    assert "do not start one yourself or through a subagent" in form_tool("engineer")["description"]
     assert "yield" in out.lower()
 
 
@@ -107,10 +109,9 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
     )
 
     for out in (full, compact, team):
-        assert "→ operator: <question>" in out
+        assert "End your turn with hand_off" in out
         assert "OPERATOR_OPTIONS" not in out
-        assert "→ done" in out
-        assert "parks the task" in out or "Never keep opening fresh rounds" in out
+    assert {"operator", "done"} <= set(form_tool("engineer")["inputSchema"]["properties"]["to"]["enum"])
 
 
 def test_engineer_fixed_prompt_stays_token_efficient():

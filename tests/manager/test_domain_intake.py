@@ -89,18 +89,18 @@ def test_pending_context_and_domain_decision_share_the_existing_classifier_call(
     turn(tmp_path, "Original task", "offer")
     prompts, decisions = [], []
 
-    def run(prompt):
+    def run(prompt, actions):
         prompts.append(prompt)
-        return SimpleNamespace(exit_code=0, last_agent_message=(
-            "ROUTE=SELF\nSELF_MODE=REPLY\nDOMAIN_ACTION=ASK\n"
-            "DOMAIN_NAME=\nDOMAIN_QUESTION=What output should it produce?"
-        ))
+        actions.dispatch("hand_off", {"to": "manager", "intake": {"type": "ephemeral", "scope": "project"},
+                                      "self_mode": "reply", "domain": {"action": "ask"}})
+        return SimpleNamespace(exit_code=0)
 
     result = classify_front_door("Yes", run_exec=run, domain_sink=decisions.append,
                                 domain_prompt=intake_prompt({"research": "Scientific inquiry"}, read_intake(tmp_path)))
     assert len(prompts) == 1 and result[2] == "simple"
     assert "Original task" in prompts[0] and "Scientific inquiry" in prompts[0]
     assert decisions == [{"action": "ask"}]
+    assert "domain.action=offer" in prompts[0]
 
 
 def test_approved_domain_reuses_the_normal_dispatch_without_another_classifier(tmp_path):

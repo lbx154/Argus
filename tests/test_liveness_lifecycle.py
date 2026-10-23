@@ -25,7 +25,6 @@ from argus.life.runtime_failure_circuit import (
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import (
     MANAGER_FEEDBACK_REPLAN_LIMIT,
-    PLAN_AWAITING,
     PLAN_RETRY,
 )
 from argus.planner import PlannerConfig, parse_planner_text
@@ -633,41 +632,6 @@ def test_structured_planner_decision_carries_retirements() -> None:
 
 
 # I2/I1: a Manager WAIT holds only the evidence it judged.
-
-
-def test_a_manager_wait_is_no_planner_input_until_its_evidence_moves(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    """2026-10-20: the Manager answered a blocked task with WAIT and the Planner
-    was called 25 seconds later only to say it was waiting too. The WAIT is the
-    Manager's answer to the state it judged; once that state moves, the WAIT no
-    longer holds and the Planner plans the work that does not need the answer."""
-    project = _project(tmp_path, monkeypatch)
-    waiting = {"now": True}
-    monkeypatch.setattr(
-        "argus.manager.supervision.waiting_for_evidence",
-        lambda *_a, **_k: waiting["now"],
-    )
-    planner = _PlannerBackend(["\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Benchmark the solver while the operator decides the venue.",
-        "TASK_KEY=bench",
-        "TASK_TITLE=Benchmark the solver",
-        "TASK_OBJECTIVE=Run the benchmark suite.",
-    ])])
-    supervisor = _supervisor(project, tmp_path / "life", planner)
-    backlog = supervisor.memory.backlog
-    question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
-    backlog.update(question.id, park_reason="operator_pause", pending_question="Venue?")
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert _supervisor(project, tmp_path / "life", planner)._plan_next_work() == PLAN_AWAITING
-    assert planner.calls == []
-
-    waiting["now"] = False
-    assert supervisor._plan_next_work() is True
-    assert len(planner.calls) == 1
-    assert [item.title for item in backlog.pending()] == ["Benchmark the solver"]
 
 
 # I2/I3: a Planner that hands the stage to the Manager is answered once.

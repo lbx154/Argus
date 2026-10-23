@@ -5,6 +5,7 @@ from pathlib import Path
 from argus.core.models import RunnerResult
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 
 class _Backend:
@@ -17,13 +18,14 @@ class _Backend:
     def run_exec(self, **kwargs) -> RunnerResult:
         self.prompt = kwargs["prompt"]
         self.options = kwargs["options"]
+        from argus.core.role_actions import PREFIX
         from argus.core.role_tool_bridge import bridge_request
 
         holder = "done" if self.status == "done" else "planner"
-        payload = {"review": f"Independent judgment from the inspected evidence.\n→ {holder}"}
+        payload = hand_off(holder, "Independent judgment from the inspected evidence.")[1]
         if self.venue_review:
             payload["recommendation"] = self.venue_review["recommendation"]
-        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=self.options.extension_env)
+        bridge_request(PREFIX, "hand_off", payload, env=self.options.extension_env)
         return RunnerResult(exit_code=0)
 
 

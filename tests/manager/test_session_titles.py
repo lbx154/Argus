@@ -1,11 +1,10 @@
-import json
 from types import SimpleNamespace
 
 import pytest
 
 from argus.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus.manager import config_intent
-from argus.manager.domain_author import parse_fast_vertical_decision, parse_vertical_decision
+from argus.manager.domain_author import RouteContext
 from argus.manager.front_door import _maybe_name_session
 from argus.webapi.project_crud import update_project
 
@@ -81,25 +80,13 @@ def test_manual_rename_wins_over_an_inflight_agent_and_survives_replacement(tmp_
 
 
 @pytest.mark.parametrize("fast", [False, True])
-@pytest.mark.parametrize("structured", [False, True])
-def test_existing_handoff_carries_an_agent_title_without_an_extra_call(fast, structured):
-    fields = dict(choice="existing", vertical="software", workflow_mode="direct",
-                  confidence=0.9, rationale="A small repository change",
-                  session_title="Refund calculation", execution_task="Fix the refund formula")
-    raw = json.dumps(fields) if structured else "\n".join(f"{key.upper()}={value}" for key, value in fields.items())
-    parser = parse_fast_vertical_decision if fast else parse_vertical_decision
-    decision = parser(raw, known_verticals=("software",))
-    assert decision is not None
-    assert decision.session_title == "Refund calculation"
-    assert decision.vertical == "software"
-
-
-@pytest.mark.parametrize("placeholder", ["none", "KEEP", "42"])
-def test_a_placeholder_topic_titles_nothing(placeholder):
+@pytest.mark.parametrize(("title", "named"), [("Refund calculation", "Refund calculation"),
+                                              ("none", ""), ("KEEP", ""), ("42", "")])
+def test_a_route_carries_an_agent_title_without_an_extra_call(fast, title, named):
     """The Manager's session_title names the session and the task; a
     placeholder in its place is no title for either."""
-    fields = dict(choice="existing", vertical="software", workflow_mode="direct", confidence=0.9,
-                  rationale="A small change", session_title=placeholder, execution_task="Fix the formula")
-    raw = "\n".join(f"{key.upper()}={value}" for key, value in fields.items())
-    decision = parse_vertical_decision(raw, known_verticals=("software",))
-    assert decision is not None and decision.session_title == ""
+    context = RouteContext(known_verticals=("software",), fast=fast)
+    decision = context.decide({"to": "team", "summary": "A small repository change", "assumptions": [],
+                               "choice": "existing", "vertical": "software", "workflow_mode": "direct",
+                               "session_title": title, "execution_task": "Fix the refund formula"})
+    assert (decision.vertical, decision.session_title) == ("software", named)

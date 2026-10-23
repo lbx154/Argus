@@ -166,7 +166,7 @@ def render_previous_findings(
         if action_text and action_text != reason_text and not reason_text.startswith(
             action_text[:200]
         ):
-            lines.append("What you asked for:\n" + action_text)
+            lines.append("Your note:\n" + action_text)
         lines += _earlier(reviewed[:-1])
     facts = _host_facts(rounds, latest)
     if facts:

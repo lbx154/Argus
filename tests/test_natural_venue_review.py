@@ -8,6 +8,7 @@ import pytest
 
 from argus.core.models import RunnerResult
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus.core.role_actions import PREFIX
 from argus.core.role_tool_bridge import bridge_request
 from argus.core.venue_review import current_venue_acceptance_issue
 from argus.life.context_packet import (
@@ -17,6 +18,7 @@ from argus.life.context_packet import (
 )
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off
 
 ACCEPTANCE = "作为 ICLR 审稿人，我对当前版本的明确建议是 weak accept。"
 FEEDBACK = ACCEPTANCE + "修改后再审。" + "比较残差分布并保留原始种子结果。" * 250
@@ -48,10 +50,13 @@ class ProseRunner:
         self.calls.append(kwargs)
         assert kwargs["run_label"] == "reviewer", "No JSON translation call is allowed"
         if self.holder:
-            payload = {"review": f"{self.prose}\n→ {self.holder}", **self.arguments}
-            if self.holder in {"done", "engineer"} and self.recommendation:
+            to, _, question = self.holder.partition(": ")
+            payload = hand_off(to, "审阅意见已提交。", self.prose, **self.arguments)[1]
+            if question:
+                payload["ask"] = {"question": question, "options": []}
+            if to in {"done", "engineer"} and self.recommendation:
                 payload["recommendation"] = self.recommendation
-            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=kwargs["options"].extension_env)
+            bridge_request(PREFIX, "hand_off", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0, agent_messages=["审查意见已提交。"], input_tokens=100, output_tokens=50)
 
 
@@ -72,7 +77,7 @@ def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
     review = evaluate(paper, runner)
     assert review.status == "continue" and not review.backend_unavailable
     assert not review.final_submission_certified
-    assert review.reason == review.next_action == FEEDBACK
+    assert review.next_action == FEEDBACK
     assert review.input_tokens == 100 and review.output_tokens == 50
     assert len(runner.calls) == 1
     assert "improvements" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
@@ -94,8 +99,7 @@ def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
 def test_explicit_approval_can_finish_and_is_bound_to_current_paper(paper):
     prose = ACCEPTANCE + "必要修改已完成；扩大模型家族留作后续工作。"
     review = evaluate(paper, ProseRunner(prose, "done"))
-    assert review.final_submission_certified and review.reason == prose
-    assert review.next_action == ""
+    assert review.final_submission_certified and review.next_action == prose
     (paper / "paper/main.pdf").write_bytes(b"Changed after review")
     assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
 
@@ -109,7 +113,7 @@ def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
     assert result.status == "done" and not result.final_submission_certified
     assert result.interventions[0]["action"] == "kept_open"
     assert result.venue_review["recommendation"] == "weak_accept"
-    assert result.reason == prose
+    assert result.next_action == prose
     result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "done", "strong_accept"))
     assert result.final_submission_certified
 
@@ -211,7 +215,7 @@ def test_questions_and_scientific_repairs_are_not_backend_failure(paper, holder,
     result = evaluate(paper, ProseRunner(feedback, holder))
     assert result.status == status and not result.backend_unavailable
     assert not result.final_submission_certified
-    assert result.reason == feedback
+    assert result.next_action == feedback
     assert read_pipeline_state(paper)["current_stage"] == "review"
 
 

@@ -1,105 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
-
-from argus.life.router import (
+from argus.roles.prompts.manager import (
     _IDENTITY_GUARD,
-    build_route_prompt,
+    build_quick_reply_prompt,
     build_simple_prompt,
-    classify_route,
 )
-from argus.roles.prompts.manager import build_quick_reply_prompt
-
-
-class _FakeResult:
-    def __init__(
-        self,
-        *,
-        message: str = "",
-        messages: list[str] | None = None,
-        exit_code: int = 0,
-    ) -> None:
-        self.last_agent_message = message
-        if messages is not None:
-            self.agent_messages = messages
-        self.exit_code = exit_code
-
-
-def _runner(result_or_exc: Any):
-    calls: list[str] = []
-
-    def _run_exec(prompt: str) -> Any:
-        calls.append(prompt)
-        if isinstance(result_or_exc, Exception):
-            raise result_or_exc
-        return result_or_exc
-
-    _run_exec.calls = calls  # type: ignore[attr-defined]
-    return _run_exec
-
-
-# ---- classify_route: SELF (simple) vs TEAM (complex) -----------------------
-
-
-@pytest.mark.parametrize(
-    ("answer", "expected"),
-    [
-        ("SELF", "simple"),
-        ("self", "simple"),
-        (" SELF ", "simple"),
-        ("TEAM", "complex"),
-        ("team", "complex"),
-        ("TEAM.", "complex"),
-    ],
-)
-def test_classify_route_two_way(answer: str, expected: str) -> None:
-    assert classify_route("x", run_exec=_runner(_FakeResult(message=answer))) == expected
-
-
-@pytest.mark.parametrize("answer", ["", "maybe", "yes"])
-def test_classify_route_unknown_falls_back_to_team(answer: str) -> None:
-    assert classify_route("x", run_exec=_runner(_FakeResult(message=answer))) == "complex"
-
-
-def test_classify_route_empty_is_complex_without_calling_model() -> None:
-    run = _runner(_FakeResult(message="SELF"))
-    assert classify_route("   ", run_exec=run) == "complex"
-    assert run.calls == []  # type: ignore[attr-defined]
-
-
-def test_route_prompt_has_two_labels_and_safe_default() -> None:
-    p = build_route_prompt("do a thing")
-    assert "SELF" in p and "TEAM" in p
-    assert "do a thing" in p
-    assert "Default SELF" in p
-    assert "one agent can verify" in p
-    assert "Simple work uses SELF+vertical" in p
-    assert "stages/reviewer defaults never force TEAM" in p
-    assert "required independent review or high-impact operations" in p
-
-
-def test_backend_exception_is_safe_default() -> None:
-    assert classify_route("x", run_exec=_runner(RuntimeError("boom"))) == "complex"
-
-
-def test_nonzero_exit_is_safe_default() -> None:
-    assert (
-        classify_route("x", run_exec=_runner(_FakeResult(message="SELF", exit_code=1))) == "complex"
-    )
-
-
-def test_reads_last_of_agent_messages_when_no_last_message() -> None:
-    assert (
-        classify_route(
-            "hello", run_exec=_runner(_FakeResult(message="", messages=["thinking...", "SELF"]))
-        )
-        == "simple"
-    )
-
-
-# ---- chat / simple answer prompts ------------------------------------------
 
 
 def test_build_quick_reply_prompt_names_the_worker_and_guards_identity() -> None:

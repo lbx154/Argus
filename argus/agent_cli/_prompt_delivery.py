@@ -348,7 +348,7 @@ class PromptDeliveryMixin:
         if self.backend == BACKEND_COPILOT and env is not None:
             env.setdefault(COPILOT_TASK_WAIT_ENV, COPILOT_MAX_TASK_WAIT_SECONDS)
         plugin_env = getattr(options, "extension_env", None)
-        if plugin_env and not options.disable_tools:
+        if plugin_env:
             env = dict(os.environ) if env is None else env
             for key, value in plugin_env.items():
                 if not key.startswith("ARGUS_PLUGIN_"):

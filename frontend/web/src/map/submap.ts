@@ -538,23 +538,6 @@ export function buildSubmap(
       source: e.association === "single_active_window" ? "interval" : "event",
       eventIds: [e.id],
     });
-    if (
-      !reviewSkipped && !interrupted && e.next_action &&
-      ["continue", "blocked", "replan", "replan_requested"].includes(status)
-    ) {
-      rows.push({
-        id: `${e.id}:next`,
-        kind: "revision",
-        title: zh ? "建议的修改" : "Changes asked for",
-        detail: nextNote.summary || e.next_action,
-        status: "requested",
-        ts: e.ts,
-        round,
-        episode,
-        source: e.association === "single_active_window" ? "interval" : "event",
-        eventIds: [e.id],
-      });
-    }
   }
   if (task.turn_kind === 'qa' && !rows.some(r => r.kind === 'result')) {
     rows.push({ id: `${task.id}:answer`, kind: 'result',

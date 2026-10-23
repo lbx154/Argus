@@ -118,7 +118,6 @@ class _ProductionRunnerProbe(_SkillLoopRunner):
         self._manager_session_root = artifact_root
         self.manager = manager
         self._SkillLoopConfig = SkillLoopConfig
-        self._allow_chat_fast_path = False
         self._role_memory_maintenance_enabled = False
         self._active_usage_mission_id = None
         self.config = None

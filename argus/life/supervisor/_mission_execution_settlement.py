@@ -892,24 +892,15 @@ class MissionExecutionSettlementMixin:
         campaign_continues = bool(status == "stage_continues" or (success and not overall_complete))
 
         plan_challenge = dict(getattr(outcome, "plan_challenge", {}) or {})
-        # Work an independent Reviewer accepted is reported in the Reviewer's
-        # words: the Engineer's handoff predates that review.
-        accepted_review = (
-            getattr(outcome, "final_review_reason", "")
-            if success and getattr(outcome, "final_review_source", "") == "reviewer"
-            else ""
-        )
+        # The summary of the hand_off that ended the work: the Reviewer's verdict
+        # or the Engineer's own handoff, else what the host recorded.
         raw_mission_summary = str(
-            accepted_review
+            getattr(outcome, "final_review_reason", "")
             or getattr(outcome, "summary", "")
-            or getattr(outcome, "final_review_reason", "")
             or getattr(outcome, "final_message", "")
             or getattr(outcome, "reason", "")
             or ""
         )
-        from ...core.role_handoff import strip_handoff
-
-        raw_mission_summary = strip_handoff(raw_mission_summary)
         mission_summary = " ".join(raw_mission_summary.split())[:1200]
         residual_risk = (
             " ".join(str(getattr(outcome, "final_residual_risk", "") or "").split())[:600]

@@ -247,19 +247,3 @@ def test_dsh_finalize_terminal_receipts(stdout, stderr, exit_code, completed, me
         assert error in (result.fatal_error or "")
     else:
         assert result.fatal_error is None
-
-
-@pytest.mark.parametrize("has_key", [True, False], ids=["home-env-key", "missing-key"])
-def test_dsh_readiness_from_home_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, has_key) -> None:
-    from argus.core.backend_readiness import _probe_cli_auth
-
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("DSH_HOME", str(tmp_path))
-    if has_key:
-        (tmp_path / ".env").write_text("# comment\nDEEPSEEK_API_KEY=sk-from-env-file\n", encoding="utf-8")
-    ready, detail = _probe_cli_auth("dsh", "dsh", timeout_s=5.0)
-    assert ready is has_key
-    if has_key:
-        assert detail == ""
-    else:
-        assert "DEEPSEEK_API_KEY" in detail

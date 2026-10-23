@@ -48,14 +48,12 @@ class _FakeBackend:
     exit_code: int = 0
     fatal_error: str | None = None
     thread_id: str | None = "tid-chat-1"
-    classify_answer: str = "SELF"
     stream_message: str | None = None
     backend: str = "pi"
     started_at: float = 0.0
     call_id: str = ""
     tool_activity_observed: bool | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
-    classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
     def run_exec(
         self,
@@ -65,25 +63,6 @@ class _FakeBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        if run_label in ("router-classify", "router-classify-persistence"):
-            # The chat/task classifier call (and the sibling BOUNDED/STANDING
-            # persistence classifier). Kept in a SEPARATE list so the
-            # existing assertions about chat/pipeline ``calls`` still hold.
-            # Always exit 0 (the classifier itself succeeds; only the chat
-            # reply may fail) and answer with the configured verdict.
-            self.classify_calls.append({
-                "prompt": prompt,
-                "options": options,
-                "run_label": run_label,
-                "resume_thread_id": resume_thread_id,
-            })
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=[self.classify_answer],
-                input_tokens=1,
-                output_tokens=1,
-                thread_id=None,
-            )
         self.calls.append({
             "prompt": prompt,
             "options": options,
@@ -149,11 +128,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     )
     runner._next_seed_thread_id = None
     runner.last_thread_id = None
-    # Operator-REPL free text is chat-eligible in these unit tests.
-    runner._allow_chat_fast_path = True
-    # The runner now holds the single Manager instance; ``_maybe_chat_outcome``
-    # routes the chat-vs-task classification through it. Wire it to the fake
-    # backend so the real classifier path is exercised end-to-end.
+    # The runner holds the single Manager instance, wired to the fake backend.
     from argus.manager import Manager
 
     runner.manager = Manager(project_root=Path.cwd(), runner=backend)
@@ -176,7 +151,7 @@ def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, mode):
     finally:
         close()
     assert outcome.success and outcome.chat_mode and outcome.rounds == 0
-    assert backend.calls == [] and backend.classify_calls == []
+    assert backend.calls == []
     reply = next(row["last_message"] for row in sink.events if row["type"] == "round.main.completed")
     assert "网页服务正在运行" in reply and "Incorrect invented status" not in reply
     assert not (root / "backlog.jsonl").exists()
@@ -318,7 +293,7 @@ def test_a_sandboxed_engineer_may_read_its_own_handoff_directory(tmp_path) -> No
 
 # ---------- Manager SELF fast-path: runner unit tests ----------------------
 
-def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> None:
+def test_self_route_answers_a_greeting_in_one_manager_turn(monkeypatch) -> None:
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
@@ -329,7 +304,7 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    out = runner.execute(objective="hello", sink=sink)
+    out = runner._maybe_chat_outcome(objective="hello", sink=sink, route="simple")
 
     assert out.chat_mode is False
     assert out.success is True
@@ -433,7 +408,7 @@ def test_every_single_worker_mode_receives_selected_vertical(tmp_path, mode):
     outcome = runner._maybe_chat_outcome(objective="Check this function", sink=_RecordingSink(),
                                         route="simple", self_mode=mode, skill_vertical="software")
     assert outcome.success
-    assert len(backend.calls) == 1 and not backend.classify_calls
+    assert len(backend.calls) == 1
     call = backend.calls[0]
     assert "SOFTWARE VERTICAL" in call["prompt"]
     assert "Check this function" in call["prompt"]
@@ -447,6 +422,8 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
 
     from fastapi.testclient import TestClient
 
+    from argus.core.role_actions import PREFIX
+    from argus.core.role_tool_bridge import bridge_request
     from argus.core.session import SessionMeta, write_session_meta
     from argus.manager import Manager, config_intent, front_door
     from argus.skills.layered import LayeredSkillStore
@@ -455,16 +432,18 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     # Learning stays on: the SELF turn keeps what it learned itself, so the
     # turn is the only model call after classification.
     monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
+    classify_calls: list[dict] = []
 
     class Backend(_FakeBackend):
         def run_exec(self, **kwargs):
             if kwargs["run_label"] == "manager-frontdoor-classify":
-                self.classify_calls.append(kwargs)
-                return RunnerResult(exit_code=0, agent_messages=[
-                    "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: IMPLEMENT\n"
-                    "INTAKE_TYPE: OBJECTIVE_AMENDMENT\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: software\n"
-                    "NAME: Correct a function\n",
-                ])
+                classify_calls.append(kwargs)
+                bridge_request(PREFIX, "hand_off", {
+                    "to": "manager", "self_mode": "implement", "name": "Correct a function",
+                    "intake": {"type": "objective_amendment", "scope": "mission"},
+                    "domain": {"vertical": "software"},
+                }, env=kwargs["options"].extension_env)
+                return RunnerResult(exit_code=0)
             # The runner's stream relay, as the real backend's event callback drives it.
             runner._stream_progress_relay(runner._current_sink, None, f"{kwargs['run_label']}.stdout", json.dumps({
                 "type": "tool.execution_start",
@@ -501,7 +480,7 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     for thread in set(threading.enumerate()) - before:
         if thread.name.startswith("argus-"):
             thread.join(timeout=5)
-    assert len(backend.classify_calls) == 1 and len(backend.calls) == 1
+    assert len(classify_calls) == 1 and len(backend.calls) == 1
     assert "single-agent task: software" in backend.calls[0]["prompt"]
     assert f"`{workspace / '.agents' / 'skills'}/<name>/SKILL.md`" in backend.calls[0]["prompt"]
     # The self-implement turn's tool call is on record as a step of its turn.
@@ -710,21 +689,20 @@ def test_status_like_self_turn_uses_manager_model(tmp_path: Path) -> None:
     assert out is not None and out.success is True and out.rounds == 1
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
+def test_self_route_runs_one_turn_without_reviewer(tmp_path: Path) -> None:
     """A SELF route answer runs one bounded Manager turn with no reviewer."""
-    backend = _FakeBackend(response_message="17*23 = 391.", classify_answer="SELF")
+    backend = _FakeBackend(response_message="17*23 = 391.")
     runner = _make_runner(backend)
     runner._args.skills_dir = str(tmp_path)  # empty store → no skill match call
     sink = _RecordingSink()
 
-    out = runner.execute(objective="算 17*23", sink=sink)
+    out = runner._maybe_chat_outcome(objective="算 17*23", sink=sink, route="simple")
 
     assert out.success is True and out.status == "done" and out.rounds == 1
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
     # The operator can cancel an interactive turn; no timer stops it.
-    assert not backend.classify_calls[0]["options"].watchdog_hard_idle_seconds
     assert not backend.calls[0]["options"].watchdog_hard_idle_seconds
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
@@ -745,7 +723,6 @@ def test_manager_self_progress_blocks_redacted_before_live_sink(redact_secrets_o
     backend = _FakeBackend(
         response_message=f"final token {secret}",
         stream_message=f"streamed token {secret}",
-        classify_answer="SELF",
     )
     runner = _make_runner(backend)
     sink = _RecordingSink()
@@ -1019,24 +996,23 @@ def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
     assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="prompt timed out after 300s")) is False
     assert _self_stalled_model_turn(RunnerResult(exit_code=0)) is False
 
-def test_execute_team_answer_uses_full_pipeline() -> None:
+def test_team_route_takes_no_self_turn() -> None:
     """A TEAM route answer must not short-circuit."""
     backend = _FakeBackend(
-        classify_answer="TEAM",
         response_message='{"steps":[{"title":"Check the premise","detail":"decide whether it is true"},{"title":"Build the argument"},{"title":"Verify the conclusion"}]}',
     )
     runner = _make_runner(backend)
     runner.planner_backend = backend
-    out = runner._maybe_chat_outcome(objective="optimize the kernel", sink=_RecordingSink())
-    assert out is None
+    out = runner._maybe_chat_outcome(objective="optimize the kernel", sink=_RecordingSink(), route="complex")
+    assert out is None and not backend.calls
 
 
-def test_execute_dispatches_to_self_path_on_chinese_capability_question() -> None:
+def test_self_route_answers_a_chinese_capability_question() -> None:
     backend = _FakeBackend(response_message="我可以帮你读代码、改文件、跑测试。")
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    out = runner.execute(objective="你有什么能力？", sink=sink)
+    out = runner._maybe_chat_outcome(objective="你有什么能力？", sink=sink, route="simple")
 
     assert out.chat_mode is False
     assert len(backend.calls) == 1
@@ -1053,13 +1029,8 @@ def test_execute_dispatches_to_self_path_on_chinese_capability_question() -> Non
 def test_execute_uses_full_pipeline_on_real_task(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    """A clear engineering task must NOT short-circuit. The model
-    classifier answers TEAM, so the runner falls through to the
-    SkillLoop path. We assert ``_simple_quick_reply`` is NOT invoked by
-    setting a sentinel that would raise if called.
-    """
+    """A mission runs the SkillLoop path with the session's configuration."""
     backend = _FakeBackend(
-        classify_answer="TEAM",
         response_message=(
             '{"steps":['
             '{"title":"Check the premise","detail":"decide whether it is true"},'
@@ -1073,16 +1044,6 @@ def test_execute_uses_full_pipeline_on_real_task(
     runner._args.project_state_dir = str(tmp_path / "project-state")
     runner.planner_backend = backend
     sink = _RecordingSink()
-
-    # Replace the chat path with a sentinel — if the runner mistakenly
-    # routes a real task into chat mode, this test fails loudly.
-    sentinel_calls: list[str] = []
-    def _sentinel(*, objective: str, sink: Any, seed_thread_id: Any = None):
-        sentinel_calls.append(objective)
-        raise AssertionError(
-            f"chat fast-path was triggered for what should be a task: {objective!r}"
-        )
-    runner._simple_quick_reply = _sentinel
 
     # Build a minimal SkillLoop / SkillLoopConfig stub so the fall-through
     # path doesn't try to construct a real one. We replace ``_SkillLoop``
@@ -1138,7 +1099,6 @@ def test_execute_uses_full_pipeline_on_real_task(
         mission_id="mission-tree",
     )
 
-    assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
     # The campaign's Planner plans; a mission drafts no outline of its own.
     assert planned_tasks and "Closest analogue: src/ordered_tree.py" in planned_tasks[0]
@@ -1225,7 +1185,7 @@ def test_chat_path_emits_minimum_event_sequence() -> None:
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    runner.execute(objective="hi", sink=sink)
+    runner._maybe_chat_outcome(objective="hi", sink=sink, route="simple")
 
     types = [e.get("type") for e in sink.events]
     # Required: loop.start at the beginning, round.main.completed in the
@@ -1252,7 +1212,7 @@ def test_chat_path_propagates_token_counts() -> None:
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    runner.execute(objective="hello", sink=sink)
+    runner._maybe_chat_outcome(objective="hello", sink=sink, route="simple")
 
     main = next(e for e in sink.events if e.get("type") == "round.main.completed")
     assert main["input_tokens"] == 412
@@ -1264,13 +1224,13 @@ def test_chat_path_chains_thread_id_for_session_continuity() -> None:
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    out = runner.execute(objective="hello", sink=sink)
+    out = runner._maybe_chat_outcome(objective="hello", sink=sink, route="simple")
 
     assert out.last_thread_id == "tid-from-codex"
     assert runner.last_thread_id == "tid-from-codex"
     # Next call must resume from the previous thread by default.
     backend.calls.clear()
-    runner.execute(objective="hi again", sink=sink)
+    runner._maybe_chat_outcome(objective="hi again", sink=sink, route="simple")
     assert backend.calls[0]["resume_thread_id"] == "tid-from-codex"
 
 
@@ -1279,7 +1239,7 @@ def test_chat_path_marks_status_error_on_codex_failure() -> None:
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
-    out = runner.execute(objective="hi", sink=sink)
+    out = runner._maybe_chat_outcome(objective="hi", sink=sink, route="simple")
 
     assert out.success is False
     assert out.status == "error"

@@ -15,6 +15,7 @@ from argus.manager.domain_author import VerticalDecision, VerticalDecisionError
 from argus.skills import stage_machine as sc
 from argus.skills import vertical_select as vs
 from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
+from tests.hand_off import route, submit
 
 
 class _FakeResult:
@@ -26,7 +27,7 @@ class _FakeResult:
 
 
 class _FakeRunner:
-    """Returns the same vertical-decision JSON for every call."""
+    """Hands over the same routing decision on every call."""
 
     def __init__(self, decision: dict) -> None:
         self._decision = decision
@@ -34,31 +35,29 @@ class _FakeRunner:
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.calls.append({"prompt": prompt, "options": options, "run_label": run_label})
-        return _FakeResult(json.dumps(self._decision))
+        submit(options, route(**self._decision))
+        return _FakeResult("")
 
 
 _NEW_DOMAIN_DECISION = {
     "choice": "new",
-    "name": "robotics_sim",
-    "rationale": "novel",
-    "confidence": 0.8,
+    "vertical": "robotics_sim",
+    "summary": "novel",
     "workflow_mode": "staged",
     "execution_task": "Build and evaluate the MuJoCo controller.",
 }
 _EXISTING_RESEARCH_DECISION = {
     "choice": "existing",
     "vertical": "research",
-    "confidence": 0.95,
     "workflow_mode": "staged",
-    "rationale": "the task is a paper with a literature review and submission",
+    "summary": "the task is a paper with a literature review and submission",
     "execution_task": "Write the paper and prepare it for submission.",
     "research_target_level": "publishable",
 }
 _NEW_MATH_DOMAIN_DECISION = {
     "choice": "new",
     "vertical": "math_conjecture",
-    "rationale": "task-specific mathematical route",
-    "confidence": 0.9,
+    "summary": "task-specific mathematical route",
     "workflow_mode": "staged",
     "research_target_level": "doctoral",
 }
@@ -66,26 +65,23 @@ _NEW_MATH_DOMAIN_DECISION = {
 _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
 
 
-def test_restaurant_stages_line_is_ignored_on_exact_empty_snapshot(
+def test_a_new_domain_on_an_exact_empty_snapshot_needs_no_tool_evidence(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
     execution_task = "在30天内完成餐厅筹备、开业执行与首周运营复盘。"
-    reply = (
-        "CHOICE=new\n"
-        "VERTICAL=restaurant_operations\n"
-        "DOMAIN=\n"
-        "WORKFLOW_MODE=staged\n"
-        "REQUIRE_INDEPENDENT_REVIEW=true\n"
-        "CONFIDENCE=0.93\n"
-        "RATIONALE=现有能力不覆盖餐厅筹备与持续运营。\n"
-        f"EXECUTION_TASK={execution_task}\n"
-        "PRECISE_CONSTRAINTS=总预算不超过50万元；30天内完成开业\n"
-        "EXCLUSIONS=不得降低食品安全标准\n"
-        "AMBIGUITIES=目标城市和餐厅规模尚未明确\n"
-        "STAGES=1.明确经营目标；2.制定采购排班方案；3.执行开业准备；4.复盘优化\n"
-    )
+    decision = {
+        "choice": "new",
+        "vertical": "restaurant_operations",
+        "workflow_mode": "staged",
+        "require_independent_review": True,
+        "summary": "现有能力不覆盖餐厅筹备与持续运营。",
+        "execution_task": execution_task,
+        "precise_constraints": ["总预算不超过50万元；30天内完成开业"],
+        "exclusions": ["不得降低食品安全标准"],
+        "assumptions": [{"chose": "中等规模的城市餐厅", "instead_of": "目标城市和规模由你定"}],
+    }
 
     class _NoToolRunner:
         def __init__(self) -> None:
@@ -93,13 +89,14 @@ def test_restaurant_stages_line_is_ignored_on_exact_empty_snapshot(
 
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
             self.calls.append({"prompt": prompt, "run_label": run_label})
-            result = _FakeResult(reply)
+            submit(options, route(**decision))
+            result = _FakeResult("")
             result.tool_activity_observed = False
             return result
 
     runner = _NoToolRunner()
     manager = Manager(project_root=tmp_path, runner=runner)
-    decision = manager.decide_vertical("制定并执行一家新餐厅的开业运营方案。")
+    routed = manager.decide_vertical("制定并执行一家新餐厅的开业运营方案。")
 
     assert [call["run_label"] for call in runner.calls] == [
         "manager-classify-grounded",
@@ -107,16 +104,15 @@ def test_restaurant_stages_line_is_ignored_on_exact_empty_snapshot(
     assert "workspace_empty=true" in runner.calls[0]["prompt"]
     assert "project_markers=none" in runner.calls[0]["prompt"]
     assert "top_level_entries=none" in runner.calls[0]["prompt"]
-    assert "STAGES" not in runner.calls[0]["prompt"]
-    assert decision.execution_task == execution_task
-    assert decision.precise_constraints == ("总预算不超过50万元；30天内完成开业",)
-    assert decision.exclusions == ("不得降低食品安全标准",)
-    assert decision.ambiguities == ("目标城市和餐厅规模尚未明确",)
-    assert decision.require_independent_review is True
+    assert routed.execution_task == execution_task
+    assert routed.precise_constraints == ("总预算不超过50万元；30天内完成开业",)
+    assert routed.exclusions == ("不得降低食品安全标准",)
+    assert routed.assumptions == ({"chose": "中等规模的城市餐厅", "instead_of": "目标城市和规模由你定"},)
+    assert routed.require_independent_review is True
 
     division = manager.commit_vertical_decision(
         "制定并执行一家新餐厅的开业运营方案。",
-        decision,
+        routed,
     )
     payload = json.loads(
         (
@@ -195,11 +191,10 @@ def test_video_research_harness_is_grounded_before_authoring_domain(
             "Reproduce Video4CaP, integrate a VLM, map RoboTwin tasks, and "
             "run paired tier evaluations with oracle separation."
         ),
-        "rationale": (
+        "summary": (
             "repository evidence shows recurring experiment gates and integrity "
             "contracts that the generic software delivery checklist does not own"
         ),
-        "confidence": 0.91,
     })
 
     division = Manager(project_root=tmp_path, runner=runner).divide(
@@ -235,7 +230,7 @@ def test_candidate_domain_is_visible_and_reused_on_next_route(tmp_path) -> None:
         "vertical": "embodied_eval_campaign",
         "workflow_mode": "staged",
         "execution_task": "Continue the RoboTwin evaluation campaign.",
-        "rationale": "the candidate project domain exactly matches",
+        "summary": "the candidate project domain exactly matches",
     })
 
     division = Manager(project_root=tmp_path, runner=runner).divide(
@@ -252,7 +247,7 @@ def test_candidate_domain_is_visible_and_reused_on_next_route(tmp_path) -> None:
     ) == ["embodied_eval_campaign.json"]
 
 
-def test_existing_data_domain_keeps_runtime_stages_when_manager_suggests_others(
+def test_existing_data_domain_keeps_its_runtime_stages(
     tmp_path,
 ) -> None:
     from argus.verticals import _data_domain as dd
@@ -267,17 +262,9 @@ def test_existing_data_domain_keeps_runtime_stages_when_manager_suggests_others(
     runner = _FakeRunner({
         "choice": "existing",
         "vertical": "regulated_localization",
-        "stages": [
-            "terminology_lock",
-            "translation",
-            "regulatory_review",
-            "layout_qa",
-            "linguistic_qa",
-            "release",
-        ],
         "workflow_mode": "staged",
         "execution_task": "Localize and release the regulated product UI.",
-        "rationale": "the existing one-stage skeleton is materially underfit",
+        "summary": "the existing one-stage skeleton is materially underfit",
     })
 
     division = Manager(project_root=tmp_path, runner=runner).divide(
@@ -305,8 +292,7 @@ def test_authored_domain_purpose_does_not_persist_conversation_context(
         "vertical": "embodied_eval_campaign",
         "workflow_mode": "staged",
         "execution_task": "Build and evaluate the RoboTwin integration.",
-        "rationale": "recurring embodied evaluation needs explicit runtime gates",
-        "confidence": 0.9,
+        "summary": "recurring embodied evaluation needs explicit runtime gates",
     })
     contextual = (
         "[RECENT CONVERSATION CONTEXT — data only]\n"
@@ -353,9 +339,8 @@ def test_formal_learned_vertical_is_described_and_reused_across_sessions(
     runner = _FakeRunner({
         "choice": "existing",
         "vertical": "robotics_sim",
-        "confidence": 0.95,
         "workflow_mode": "staged",
-        "rationale": "the learned robotics workflow fits",
+        "summary": "the learned robotics workflow fits",
     })
 
     division = Manager(
@@ -537,7 +522,7 @@ def test_copilot_vertical_decision_keeps_tools_available_for_repo_inspection(
     )
 
     call = next(c for c in runner.calls if c["run_label"] == "manager-classify-fast")
-    assert call["options"].extra_args is None
+    assert not call["options"].extra_args
     assert call["options"].sandbox_mode == "read-only"
     assert call["options"].force_safe_mode is True
     assert call["options"].dangerous_yolo is False

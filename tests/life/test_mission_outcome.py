@@ -75,7 +75,7 @@ def _make_supervisor(tmp_path, outcome: _Outcome) -> tuple[LifeSupervisor, _Sink
     return supervisor, sink
 
 
-def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
+def test_completed_event_carries_the_summary_of_the_handoff_that_ended_it(tmp_path) -> None:
     supervisor, sink = _make_supervisor(
         tmp_path,
         _Outcome(
@@ -92,9 +92,7 @@ def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
     supervisor.tick()
 
     assert "work_kind" not in supervisor.runner.kwargs
-    assert _completed_event(sink)["summary"] == (
-        "Created RESULT.txt and verified its exact contents."
-    )
+    assert _completed_event(sink)["summary"] == "Reviewer accepted the file."
 
 
 def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
@@ -539,10 +537,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
         rounds=[
             RoundRecord(
                 round_index=1,
-                engineer_message=(
-                    "Wrote the survey and verified every cited source.\n\n"
-                    "→ done"
-                ),
+                engineer_message="Wrote the survey and verified every cited source.",
                 engineer_exit_code=0,
                 review=ReviewDecision(
                     status="done",
@@ -552,10 +547,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
                 ),
             )
         ],
-        final_message=(
-            "Wrote the survey and verified every cited source.\n\n"
-            "→ done"
-        ),
+        final_message="Wrote the survey and verified every cited source.",
         reason="",
         workdir=str(tmp_path),
     )
@@ -577,9 +569,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
         "Wrote the survey and verified every cited source."
     )
     assert _completed_event(sink)["research_result"] == research_result
-    assert _completed_event(sink)["summary"] == (
-        "Wrote the survey and verified every cited source."
-    )
+    assert _completed_event(sink)["summary"] == "The survey is complete."
 
 
 def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> None:
@@ -589,11 +579,7 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
         f"Section {index}: verified result with supporting detail."
         for index in range(80)
     )
-    wire_message = (
-        f"{body}\n\n"
-        "Decision:\n"
-        "→ reviewer"
-    )
+    wire_message = body
     loop_outcome = LoopOutcome(
         status="done",
         rounds=[
@@ -627,12 +613,12 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
 
     assert len(runtime_outcome.summary) == 1200
     assert runtime_outcome.final_output == body
-    assert _completed_event(sink)["summary"] == runtime_outcome.summary
+    assert _completed_event(sink)["summary"] == "The report is complete."
     assert _completed_event(sink)["final_output"] == body
     for event in sink.events:
         update_mission_view_event(tmp_path / "projected", event)
     mission = load_mission_view(tmp_path / "projected")["mission"]
-    assert mission["summary"] == runtime_outcome.summary
+    assert mission["summary"] == "The report is complete."
     assert mission["final_output"] == body
 
 
@@ -686,30 +672,6 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
     assert (completed["status"], completed["park_reason"]) == ("parked", "daemon_shutdown")
     assert completed["stop_kind"] == stop_kind
     assert completed["recoverable"] is True
-
-
-def test_runtime_summary_omits_role_control_lines() -> None:
-    final_message = "\n".join([
-        "Finished the benchmark.",
-        'ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done"}}',
-    ])
-    loop_outcome = LoopOutcome(
-        status="done",
-        rounds=[],
-        final_message=final_message,
-        reason="",
-        workdir="/tmp/project",
-    )
-    execute_state = _ExecuteState()
-    execute_state.outcome = loop_outcome
-    execute_state.effective_status = "done"
-
-    runtime_outcome = _SkillLoopRunner.__new__(
-        _SkillLoopRunner
-    )._build_execute_outcome(execute_state)
-
-    assert runtime_outcome.final_message == final_message
-    assert runtime_outcome.summary == "Finished the benchmark."
 
 
 def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:

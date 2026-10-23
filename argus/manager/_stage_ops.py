@@ -11,7 +11,6 @@ byte-for-byte.
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import asdict
@@ -19,7 +18,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
 
-from ..core.role_decision import latest_role_decision
 from ._helpers import (
     _manager_model,
     _manager_reasoning_effort,
@@ -52,19 +50,6 @@ def fallback_project_report(
 
 
 _MISSING_REVIEW_FIELD = object()
-_NEUTRAL_REVIEW_TEXT = {
-    "",
-    "-",
-    "n/a",
-    "na",
-    "no action",
-    "no further action",
-    "no further work",
-    "none",
-    "not applicable",
-    "nothing further",
-    "null",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -147,8 +132,9 @@ class _StageDecisionMixin:
     def _is_clean_reviewer_acceptance(review: Any) -> bool:
         """Whether ``review`` can be committed without another semantic vote.
 
+        An accepting verdict's note is its record, not a request for more work.
         Missing or malformed control fields are deliberately not normalized here:
-        ``submit_review`` normally supplies every one, so an incomplete object
+        ``hand_off`` normally supplies every one, so an incomplete object
         is ambiguous evidence and must fall through to the Manager model.
         """
 
@@ -157,7 +143,6 @@ class _StageDecisionMixin:
 
         status = field("status")
         reason = field("reason")
-        next_action = field("next_action")
         operator_question = field("operator_question")
         operator_options = field("operator_options")
         review_source = field("review_source")
@@ -170,8 +155,6 @@ class _StageDecisionMixin:
             and status.strip().lower() == "done"
             and isinstance(reason, str)
             and bool(reason.strip())
-            and isinstance(next_action, str)
-            and next_action.strip().casefold() in _NEUTRAL_REVIEW_TEXT
             and isinstance(operator_question, str)
             and not operator_question.strip()
             and isinstance(operator_options, (list, tuple))
@@ -366,9 +349,6 @@ class _StageDecisionMixin:
         """Wrap extract_answer so it never raises; returns '' on any failure."""
         from .stage_decider import extract_answer
         try:
-            process_decision = latest_role_decision(result, "manager")
-            if process_decision is not None:
-                return json.dumps(process_decision, ensure_ascii=True)
             return extract_answer(result) or ""
         except Exception:  # noqa: BLE001
             return ""

@@ -22,6 +22,7 @@ from argus.engineer.round_stop_signals import (
 )
 from argus.life.context_packet import render_mission_brief
 from argus.reviewer import Reviewer
+from tests.hand_off import hand_off
 
 _FINDINGS = "## Your previous findings"
 # Longer than the old 600-character cut, with a distinctive tail.
@@ -66,11 +67,11 @@ def _run(
 
     backend.queue("engineer-r1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
     backend.queue("reviewer", CannedResponse(
-        review_action=("submit_review", {"review": (_FINDING) + "\n→ engineer"}), thread_id="v1",
+        action=hand_off("engineer", "A finding remains.", _FINDING), thread_id="v1",
     ))
     backend.queue("engineer-r2", writes("ERROR,20\n", "Recounted all rows.", engineer_threads[1]))
     backend.queue("reviewer", CannedResponse(
-        review_action=("submit_review", {"review": "All rows match.\n→ done"}),
+        action=hand_off("done", "All rows match."),
         thread_id="v1",
     ))
     events: list[dict] = []
@@ -252,6 +253,7 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
 ) -> None:
     from argus.core.models import RunnerResult
     from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.core.role_actions import PREFIX
     from argus.core.role_tool_bridge import bridge_request
     from argus.reviewer import ReviewerConfig
     from argus.skills.vertical_select import persist_vertical
@@ -271,8 +273,8 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
 
         def run_exec(self, **kwargs):
             bridge_request(
-                "ARGUS_PLUGIN_REVIEW", "submit_review",
-                {"review": (prose) + "\n→ done", "recommendation": "weak_accept"},
+                PREFIX, "hand_off",
+                hand_off("done", "Accepted.", prose, recommendation="weak_accept")[1],
                 env=kwargs["options"].extension_env,
             )
             return RunnerResult(exit_code=0, agent_messages=["submitted"])
@@ -287,11 +289,11 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
     )
     # The verdict stays the Reviewer's; the operator's bar is the host's fact beside it.
     assert review.status == "done"
-    assert review.next_action == ""
+    assert review.next_action == prose
     review.reviewer_authored = True
     text = render_previous_findings([_record(1, review)], round_index=2).text
     findings, host = text.split("## Host facts since then (not your words)\n", 1)
-    assert f"Your judgment in round 1 (`done`):\n{prose}" in findings
+    assert f"Your judgment in round 1 (`done`):\nAccepted.\nYour note:\n{prose}" in findings
     assert "strong accept or better" not in findings
     assert "the operator's bar (strong accept or better) is not met" in host
 

@@ -16,7 +16,8 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.event_catalog import validate_event_envelope
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer.tools import ReviewActions
+from argus.reviewer.tools import review_actions
+from tests.hand_off import hand_off
 
 _OBSTACLE = (
     "The Authorization line is masked in my view; a rerunnable local fixture "
@@ -35,26 +36,25 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 
 def _queue(backend: MemoryBackend, round_index: int, payload: dict) -> None:
     backend.queue(f"engineer-r{round_index}", CannedResponse(message=f"round {round_index} fixed it"))
-    backend.queue("reviewer", CannedResponse(review_action=("submit_review", payload)))
+    backend.queue("reviewer", CannedResponse(action=("hand_off", payload)))
 
 
 def test_the_obstacle_rides_any_handoff_but_an_acceptance() -> None:
     # A Reviewer stopped by a check impossible here may replan over it; the
     # obstacle has to ride that verdict too, or a replan erases it.
-    for line in ("→ engineer", "→ planner", "→ manager"):
-        actions = ReviewActions()
-        actions.dispatch("submit_review", {"review": f"Header unverified.\n{line}", "unverifiable": _OBSTACLE})
-        assert actions.decision.verification_obstacle == _OBSTACLE
-    actions = ReviewActions()
+    for to in ("engineer", "planner", "manager"):
+        actions = review_actions()
+        actions.dispatch(*hand_off(to, "Header unverified.", unverifiable=_OBSTACLE))
+        assert actions.handoff.value.verification_obstacle == _OBSTACLE
+    actions = review_actions()
     with pytest.raises(ValueError, match="residual_risk"):
-        actions.dispatch("submit_review", {"review": "Holds.\n→ done", "unverifiable": _OBSTACLE})
+        actions.dispatch(*hand_off("done", "Holds.", unverifiable=_OBSTACLE))
 
 
 def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
     backend = MemoryBackend()
-    _queue(backend, 1, {"review": "Header still unverified.\n→ engineer",
-                        "unverifiable": _OBSTACLE})
-    _queue(backend, 2, {"review": "Header still unverified.\n→ engineer"})
+    _queue(backend, 1, hand_off("engineer", "Header still unverified.", unverifiable=_OBSTACLE)[1])
+    _queue(backend, 2, hand_off("engineer", "Header still unverified.")[1])
     events: list[dict] = []
 
     status, rounds, _final, _reason, _thread = _engineer(backend).run(
@@ -77,7 +77,7 @@ def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
 
 
 def test_manager_supervision_failure_codes_validate() -> None:
-    for code in ("decision_incomplete", "evidence_uncited", "superseded"):
+    for code in ("handoff_missing", "decision_invalid", "superseded"):
         event = {"type": "life.manager.supervision.failed", "error_code": code}
         assert not any("error_code" in error for error in validate_event_envelope(event).errors)
 

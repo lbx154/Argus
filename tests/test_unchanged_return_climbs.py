@@ -19,6 +19,7 @@ from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEn
 from argus.life.context_packet import create_mission_context, render_mission_brief
 from argus.life.memory import Backlog, BacklogItem
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off
 
 
 def _write(workdir: Path, text: str) -> CannedResponse:
@@ -26,13 +27,13 @@ def _write(workdir: Path, text: str) -> CannedResponse:
 
     def turn(_prompt, _options) -> str:
         (workdir / "parser.py").write_text(text, encoding="utf-8")
-        return "Changed the parser.\n→ reviewer"
+        return ""
 
-    return CannedResponse(message_factory=turn)
+    return CannedResponse(message_factory=turn, action=hand_off("reviewer", "Changed the parser."))
 
 
-def _review(line: str) -> CannedResponse:
-    return CannedResponse(review_action=("submit_review", {"review": f"Judged the parser.\n{line}"}))
+def _review(to: str, note: str = "") -> CannedResponse:
+    return CannedResponse(action=hand_off(to, "Judged the parser.", note))
 
 
 def _run(
@@ -70,8 +71,8 @@ def _state(tmp_path: Path) -> Path:
 def test_a_turn_that_changed_nothing_goes_to_the_reviewer_not_the_engineer(tmp_path: Path) -> None:
     _state(tmp_path)
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Thinking it over.\n→ engineer"))
-    backend.queue("reviewer", _review("→ done"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("engineer", "Thinking it over.")))
+    backend.queue("reviewer", _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend)
 
@@ -83,8 +84,8 @@ def test_an_unchanged_candidate_is_not_reviewed_again(tmp_path: Path) -> None:
     _state(tmp_path)
     backend = MemoryBackend()
     backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    backend.queue("reviewer", _review("→ engineer"))
-    backend.queue("engineer-r2", CannedResponse(message="Looked again; it holds.\n→ reviewer"))
+    backend.queue("reviewer", _review("engineer"))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "Looked again; it holds.")))
 
     status, rounds, labels = _run(tmp_path, backend)
 
@@ -98,9 +99,9 @@ def test_an_unchanged_candidate_is_not_reviewed_again(tmp_path: Path) -> None:
 def test_a_review_the_engineer_has_not_read_is_new_input(tmp_path: Path) -> None:
     _state(tmp_path)
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Read the parser; nothing to change.\n→ reviewer"))
-    backend.queue("reviewer", _review("The empty-date case still fails.\n→ engineer"))
-    backend.queue("engineer-r2", CannedResponse(message="Looked again; it holds.\n→ reviewer"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Read the parser; nothing to change.")))
+    backend.queue("reviewer", _review("engineer", "The empty-date case still fails."))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "Looked again; it holds.")))
 
     status, rounds, labels = _run(tmp_path, backend)
 
@@ -117,7 +118,7 @@ def test_a_changed_candidate_is_new_work(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
     backend.queue("engineer-r2", _write(tmp_path / "work", "v2"))
-    backend.queue("reviewer", _review("→ engineer"), _review("→ done"))
+    backend.queue("reviewer", _review("engineer"), _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend)
 
@@ -136,10 +137,10 @@ def test_new_operator_input_is_new_work(tmp_path: Path, arrives) -> None:
 
     def operator_writes(_prompt, _options) -> str:
         arrives(state)
-        return "Nothing to change for that.\n→ reviewer"
+        return "Nothing to change for that."
 
     backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes))
-    backend.queue("reviewer", _review("→ engineer"), _review("→ done"))
+    backend.queue("reviewer", _review("engineer"), _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend)
 
@@ -153,7 +154,7 @@ def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path)
     straight to a Reviewer, who judged an implementation that did not exist."""
     _state(tmp_path)
     first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(message="Two rounding rules conflict.\n→ planner"))
+    first.queue("engineer-r1", CannedResponse(action=hand_off("planner", "Two rounding rules conflict.")))
     assert _run(tmp_path, first)[0] == "replan_requested"
 
     # The work comes back unchanged: the Engineer's line still names the
@@ -173,26 +174,26 @@ def test_the_brief_says_where_the_engineer_handed_the_work(tmp_path: Path) -> No
     state = _state(tmp_path)
     packet = create_mission_context(life_dir=state, mission_id="parser-1", stage="", objective="repair the parser")
     first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(message="Two rounding rules conflict.\n→ planner"))
+    first.queue("engineer-r1", CannedResponse(action=hand_off("planner", "Two rounding rules conflict.")))
     _run(tmp_path, first, packet=packet)
 
     brief = render_mission_brief(packet)
 
     assert "awaiting review" not in brief and "Unreviewed" not in brief
-    assert "- Latest Engineer work (→ planner): `" in brief
-    assert "- Engineer work (→ planner): Two rounding rules conflict." in brief
+    assert "- Latest Engineer work (to=planner): `" in brief
+    assert "- Engineer work (to=planner): Two rounding rules conflict." in brief
 
 
 def test_only_a_handoff_to_the_reviewer_resumes_at_review(tmp_path: Path) -> None:
     _state(tmp_path)
     first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(message="It already holds.\n→ reviewer"))
+    first.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "It already holds.")))
     # The daemon stops before the Reviewer reads it.
     first.queue("reviewer", CannedResponse(exit_code=1, fatal_error="daemon stop requested"))
     assert _run(tmp_path, first)[0] == "parked"
 
     second = MemoryBackend()
-    second.queue("reviewer", _review("→ done"))
+    second.queue("reviewer", _review("done"))
     status, _rounds, labels = _run(tmp_path, second)
 
     assert labels == ["reviewer"]
@@ -203,7 +204,7 @@ def test_an_unchanged_rerun_of_accepted_work_keeps_its_acceptance(tmp_path: Path
     _state(tmp_path)
     first = MemoryBackend()
     first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    first.queue("reviewer", _review("→ done"))
+    first.queue("reviewer", _review("done"))
     assert _run(tmp_path, first)[0] == "done"
 
     status, rounds, labels = _run(tmp_path, MemoryBackend())
@@ -234,12 +235,12 @@ def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) ->
     )
     first = MemoryBackend()
     first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    first.queue("reviewer", _review("→ done"))
+    first.queue("reviewer", _review("done"))
     assert _run(tmp_path, first, packet=packet)[0] == "done"
     refuse(backlog)
 
     second = MemoryBackend()
-    second.queue("engineer-r1", CannedResponse(message="Nothing to change.\n→ reviewer"))
+    second.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
     status, rounds, labels = _run(tmp_path, second, packet=packet)
 
     # The host did not take the acceptance, so it does not stand again; the
@@ -255,10 +256,10 @@ def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
     _state(tmp_path)
     first = MemoryBackend()
     first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    first.queue("reviewer", _review("→ planner"))
+    first.queue("reviewer", _review("planner"))
     _run(tmp_path, first)
     second = MemoryBackend()
-    second.queue("engineer-r1", CannedResponse(message="Nothing to change.\n→ reviewer"))
+    second.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
     _run(tmp_path, second)
 
     # Every holder below the operator has held this work as it is.
@@ -272,9 +273,9 @@ def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
 
 def test_without_snapshots_nothing_climbs(tmp_path: Path) -> None:
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Thinking.\n→ engineer"))
-    backend.queue("engineer-r2", CannedResponse(message="Done thinking.\n→ reviewer"))
-    backend.queue("reviewer", _review("→ done"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("engineer", "Thinking.")))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "Done thinking.")))
+    backend.queue("reviewer", _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend, snapshots=False)
 

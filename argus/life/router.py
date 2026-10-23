@@ -1,25 +1,15 @@
-"""Manager front-door parsers, runtime calls, and active prompt imports."""
+"""The Manager's front door: one classify call that fills the ``front_door`` form."""
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, cast
+from functools import partial
+from typing import Any, Callable, Literal
 
-from ..core.role_decision import latest_role_decision
-from ..roles.prompts.manager import (
-    _IDENTITY_GUARD as _PROMPT_IDENTITY_GUARD,
-)
-from ..roles.prompts.manager import (
-    build_front_door_prompt,
-    build_route_prompt,
-    build_simple_prompt,
-    build_steer_confirmation_prompt,
-)
+from ..core.handoff import HandOffActions
+from ..roles.prompts.manager import build_front_door_prompt
 
-_IDENTITY_GUARD = _PROMPT_IDENTITY_GUARD
 log = logging.getLogger(__name__)
 
 
@@ -30,64 +20,6 @@ def _routing_diagnostic(
     log.warning("Manager front-door diagnostic: %s", message)
     if callable(failure_sink):
         failure_sink(message)
-
-
-def _route_from_token(token: str) -> str:
-    """``SELF``/``SIMPLE`` → ``"simple"``; anything else (TEAM / COMPLEX /
-    unrecognized) → ``"complex"`` (the safe default that never routes work
-    needing review to a lone worker). Shared by ``classify_route`` and
-    ``classify_front_door`` so the two paths can never drift."""
-    return "simple" if str(token or "").upper() in {"SELF", "SIMPLE"} else "complex"
-
-
-def classify_route(
-    text: str,
-    *,
-    run_exec: Callable[[str], Any],
-) -> str:
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return "complex"
-    try:
-        result = run_exec(build_route_prompt(cleaned))
-    except Exception:  # noqa: BLE001
-        return "complex"
-    if int(getattr(result, "exit_code", 0) or 0) != 0:
-        return "complex"
-    return _route_from_token(_one_word_answer(result, "route"))
-
-
-#: The front-door decision fields, in the order the Manager contract lists them.
-_FRONT_DOOR_FIELDS = (
-    "intake_type",
-    "intake_scope",
-    "intake_roles",
-    "preference_kind",
-    "preference_value",
-    "revoke_revision",
-    "config",
-    "control",
-    "authorization",
-    "steer_directive",
-    "operator_question_policy",
-    "route",
-    "self_mode",
-    "reply",
-    "lifetime",
-    "greeting",
-    "name",
-    "domain_action",
-    "skill_vertical",
-)
-
-
-def _answer_text(result: Any) -> str:
-    """The model's last plain message."""
-    message = getattr(result, "last_agent_message", None)
-    if not message:
-        messages = getattr(result, "agent_messages", None) or []
-        message = messages[-1] if messages else ""
-    return str(message or "")
 
 
 def _classifier_failure_detail(result: Any) -> str:
@@ -145,90 +77,14 @@ def _classifier_failure_detail(result: Any) -> str:
     )
 
 
-def _front_door_fields(result: Any) -> dict[str, str]:
-    """Read the front-door fields, preferring the structured decision.
-
-    A structured decision is used as it stands. This module used to render one
-    back into ``KEY: VALUE`` lines and re-read them, which handed every field
-    the power to forge the fields below it: a two-line ``steer_directive`` could
-    publish its own ``CONTROL: ABORT``, and the reader takes the first match.
-    A model that answered in plain prose is still read line by line, because
-    there the lines are all there is.
-    """
-    decision = latest_role_decision(result, "manager")
-    if isinstance(decision, dict):
-        return {
-            name: str(decision.get(name, "") or "").strip()
-            for name in _FRONT_DOOR_FIELDS
-        }
-    from ..core.role_reply import read_key_values
-
-    values = read_key_values(
-        _answer_text(result),
-        (name.upper() for name in _FRONT_DOOR_FIELDS),
-    )
-    return {
-        name: str(values.get(name.upper()) or "").strip()
-        for name in _FRONT_DOOR_FIELDS
-    }
-
-
-def _one_word_answer(result: Any, *names: str) -> str:
-    """Read a one-word verdict from the named fields, else from the message.
-
-    The route and steer gates ask for a bare word and define no decision
-    schema, so the message is the normal channel; the named field is read first
-    for a model that answers those gates structurally anyway.
-    """
-    fields = _front_door_fields(result)
-    for name in names:
-        if token := _first_alpha_token(fields.get(name, "")):
-            return token
-    return _first_alpha_token(_answer_text(result))
-
-
-def _first_alpha_token(text: str) -> str:
-    token = ""
-    for ch in str(text or "").strip():
-        if ch.isalpha():
-            token += ch
-        elif token:
-            break
-    return token
-
-
-# ── config-intent: LLM-decides "change one of my own runtime knobs" ───────────
-#
-# Argus's cockpit-editable surface, phrased for the operator. Role-scoped knobs
-# take a role list; global knobs do not. This is the ONE place natural-language
-# config changes are recognized — no keyword/regex handlers (an LLM decides
-# intent from any wording, and a bare mention of a model/backend is NOT a
-# switch). The merged front-door call is biased hard toward None so real work
-# is never swallowed as a config change.
-
 _CONFIG_ROLE_KNOBS = frozenset({"model", "effort"})
-_CONFIG_GLOBAL_KNOBS = frozenset(
-    {
-        "backend",
-        "global_daily_cap",
-        "max_daemons",
-        "codex_daily_requests",
-        "copilot_daily_requests",
-        "copilot_daily_premium",
-        "safe_mode",
-        "show_reasoning",
-        "telegram",
-    }
-)
-_CONFIG_KNOBS = _CONFIG_ROLE_KNOBS | _CONFIG_GLOBAL_KNOBS
-_CONFIG_ROLES = frozenset({"manager", "planner", "engineer", "reviewer"})
 
 
 @dataclass(frozen=True)
 class ConfigIntent:
-    """A parsed "change one of Argus's own runtime knobs" request."""
+    """A "change one of my own runtime knobs" request from the front-door form."""
 
-    knob: str  # see _CONFIG_KNOBS
+    knob: str
     roles: tuple[str, ...]  # role-scoped knobs only; () = ALL roles / the shared default
     value: str  # target value, verbatim (backend / model id / effort / $amount / on|off)
 
@@ -255,158 +111,59 @@ AuthorizationAction = Literal[
     "artifact_refresh",
     "resume_blocked_work",
 ]
-OperatorQuestionPolicy = Literal["allow", "forbid", "unchanged"]
-_AUTHORIZATION_ACTIONS = {
-    "validator_repair",
-    "acceptance_retry",
-    "provenance_repair",
-    "artifact_refresh",
-    "resume_blocked_work",
-}
-
-def _parse_config_line(line: str) -> "ConfigIntent | None":
-    """Parse ONE ``SET <knob> <roles> <value>`` line into a ``ConfigIntent``.
-
-    Returns ``None`` for ``NONE`` / empty / malformed."""
-    line = (line or "").strip()
-    if not line or line.upper() == "NONE":
-        return None
-    parts = line.split(maxsplit=3)
-    if len(parts) < 4 or parts[0].upper() != "SET":
-        return None
-    knob = parts[1].strip().lower()
-    if knob not in _CONFIG_KNOBS:
-        return None
-    roles_raw = parts[2].strip().lower()
-    if knob in _CONFIG_ROLE_KNOBS:
-        if roles_raw == "all":
-            roles: tuple[str, ...] = ()
-        else:
-            roles = tuple(
-                r for r in (tok.strip() for tok in roles_raw.split(",")) if r in _CONFIG_ROLES
-            )
-            if not roles:
-                return None
-    else:
-        roles = ()  # global knob — roles field ("-") is ignored
-    value = parts[3].strip().strip("`\"'")
-    if not value:
-        return None
-    return ConfigIntent(knob=knob, roles=roles, value=value)
+OperatorQuestionPolicy = Literal["allow", "forbid"]
 
 
-_CONFIG_FILLER = frozenset({"role", "roles", "for", "to", "of", "=", "-", "->", ":"})
+def _folded(text: str) -> str:
+    return " ".join(str(text).casefold().split())
 
 
-def _parse_config_line_lenient(line: str) -> "ConfigIntent | None":
-    """Normalize the near-miss spellings classifiers actually emit.
+def _front_door_check(payload: dict[str, Any], *, message: str, active_mission: bool) -> None:
+    """The front door's own rules: a control or a grant is the operator's explicit word, answered here."""
+    control = payload.get("control")
+    if (control or payload.get("authorization")) and payload["to"] == "team":
+        raise ValueError("A control or a grant is answered by you: hand it to=manager.")
+    settings = [(row["knob"], tuple(sorted(row.get("roles", ())))) for row in payload.get("config", ())]
+    if len(set(settings)) < len(settings):
+        raise ValueError("config: one entry per setting.")
+    if settings and payload["intake"]["type"] == "standing_directive":
+        raise ValueError("A setting change is intake.type=preference; config stores the setting itself.")
+    if not control:
+        return
+    if _folded(control["quote"]) not in _folded(message):
+        raise ValueError("control.quote must be the operator's own words giving the command, copied from the message.")
+    if control["kind"] == "steer" and not active_mission:
+        raise ValueError("No mission is running, so there is nothing to steer: leave control out.")
+    if control["kind"] == "steer" and not control.get("directive"):
+        raise ValueError("A steer needs its new direction in control.directive.")
 
-    ``SET role model=X for ALL``, ``SET model=X``, ``SET model ALL=X``,
-    ``SET model for ALL to X`` all mean ``SET model ALL X``. Accepted only when
-    BOTH the knob and a single value token are recognized; anything vaguer stays
-    unparsed so a fuzzy sentence is never swallowed as a setting change.
-    """
-    text = (line or "").strip()
-    head, _, rest = text.partition(" ")
-    if head.upper() != "SET" or not rest.strip():
-        return None
-    tokens: list[str] = []
-    for raw in re.split(r"\s+", rest.strip()):
-        tokens.extend(part for part in re.split(r"(=)", raw) if part)
-    knob = ""
-    roles: list[str] = []
-    all_roles = False
-    values: list[str] = []
-    for token in tokens:
-        low = token.strip().strip("`\"'").lower()
-        if not low or low in _CONFIG_FILLER:
-            continue
-        if not knob and low in _CONFIG_KNOBS:
-            knob = low
-            continue
-        if low == "all":
-            all_roles = True
-            continue
-        role_tokens = [r for r in low.split(",") if r]
-        if role_tokens and all(r in _CONFIG_ROLES for r in role_tokens):
-            roles.extend(r for r in role_tokens if r not in roles)
-            continue
-        values.append(token.strip().strip("`\"'"))
-    if not knob or len(values) != 1 or not values[0]:
-        return None
-    if knob not in _CONFIG_ROLE_KNOBS:
-        return ConfigIntent(knob=knob, roles=(), value=values[0])
-    return ConfigIntent(
-        knob=knob,
-        roles=() if all_roles or not roles else tuple(roles),
-        value=values[0],
+
+def _config(rows: list[dict[str, Any]]) -> ConfigDecision:
+    intents = tuple(
+        ConfigIntent(
+            knob=row["knob"],
+            roles=tuple(dict.fromkeys(row.get("roles", ()))) if row["knob"] in _CONFIG_ROLE_KNOBS else (),
+            value=row["value"],
+        )
+        for row in rows
     )
+    return intents[0] if len(intents) == 1 else intents or None
 
 
-def _parse_config_decision(line: str | None) -> ConfigDecision:
-    """Parse one or more ``SET`` clauses separated by semicolons.
-
-    Multi-knob requests are one operator transaction. Any malformed clause
-    rejects the whole decision instead of concatenating trailing SET text into
-    the first value (which previously turned ``pi; SET model ...`` into an
-    unknown backend that silently fell back to Codex).
-    """
-    raw = str(line or "").strip()
-    if not raw or raw.upper() == "NONE":
-        return None
-    clauses = [clause.strip() for clause in raw.split(";") if clause.strip()]
-    if not clauses or len(clauses) > 8:
-        return None
-    intents: list[ConfigIntent] = []
-    seen: set[tuple[str, tuple[str, ...]]] = set()
-    for clause in clauses:
-        intent = _parse_config_line(clause)
-        if intent is None or " " in intent.value:
-            # "SET model ALL to X" / "SET telegram - on for ALL" keep the filler
-            # in the strict value; a multi-word value the lenient pass cannot
-            # pin to one token (e.g. "50 USD") stays as the strict parse had it.
-            intent = _parse_config_line_lenient(clause) or intent
-        if intent is None:
-            return None
-        identity = (intent.knob, intent.roles)
-        if identity in seen:
-            return None
-        seen.add(identity)
-        intents.append(intent)
-    return intents[0] if len(intents) == 1 else tuple(intents)
-
-
-def _plain_reply(value: str) -> str:
-    """Unwrap a reply that arrived as the JSON string the old renderer wrote."""
-    if len(value) > 1 and value.startswith('"') and value.endswith('"'):
-        try:
-            decoded = json.loads(value)
-        except (TypeError, ValueError):
-            return value
-        if isinstance(decoded, str):
-            return decoded.strip()
-    return value
-
-
-def _parse_authorization_line(line: str | None) -> tuple[str, ...]:
-    value = str(line or "").strip()
-    if not value or value.upper() == "NONE":
-        return ()
-    parts = value.split(maxsplit=1)
-    if len(parts) != 2 or parts[0].upper() != "AUTHORIZE":
-        return ()
-    actions = tuple(dict.fromkeys(
-        token.strip().lower()
-        for token in parts[1].split(",")
-        if token.strip().lower() in _AUTHORIZATION_ACTIONS
-    ))
-    return actions
+def _sink(sink: Callable[[Any], None] | None, value: Any, failure_sink: Callable[[str], None] | None) -> None:
+    """Hand ``value`` to an optional consumer; metadata never owns routing."""
+    if not callable(sink):
+        return
+    try:
+        sink(value)
+    except Exception as exc:  # noqa: BLE001 - advisory metadata never owns routing
+        _routing_diagnostic(f"front-door sink failed ({type(exc).__name__}: {exc})", failure_sink)
 
 
 def classify_front_door(
     text: str,
     *,
-    run_exec: Callable[[str], Any],
+    run_exec: Callable[[str, HandOffActions], Any],
     name_sink: Callable[[str], None] | None = None,
     lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
     self_mode_sink: Callable[[SelfModeIntent], None] | None = None,
@@ -417,263 +174,79 @@ def classify_front_door(
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
     intake_sink: Callable[[dict[str, Any]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
-    config_failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
     domain_sink: Callable[[dict[str, str]], None] | None = None,
     domain_prompt: str = "",
 ) -> "tuple[ConfigDecision, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
 
-    The return shape stays backward-compatible; optional sinks expose reusable
-    routing metadata. The classifier never writes an operator-facing reply.
+    ``run_exec(prompt, actions)`` runs the call with ``actions`` bound. Only
+    the form it filled is read; without one nothing is applied and the work
+    takes the team route. The classifier writes an operator-facing reply only
+    where ``reply_sink`` allows one.
     """
     cleaned = (text or "").strip()
     if not cleaned:
         return None, None, "complex"
+    actions = HandOffActions(
+        "front_door", check=partial(_front_door_check, message=cleaned, active_mission=active_mission),
+    )
+    prompt = build_front_door_prompt(
+        cleaned, active_mission=active_mission, allow_reply=callable(reply_sink),
+    ) + domain_prompt
     try:
-        result = run_exec(
-            build_front_door_prompt(cleaned, active_mission=active_mission,
-                                    allow_reply=callable(reply_sink)) + domain_prompt
-        )
+        result = run_exec(prompt, actions)
     except Exception as exc:  # noqa: BLE001
-        if callable(failure_sink):
-            failure_sink(f"{type(exc).__name__}: {exc}")
+        _routing_diagnostic(f"{type(exc).__name__}: {exc}", failure_sink)
         return None, None, "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
-        if callable(failure_sink):
-            failure_sink(_classifier_failure_detail(result))
+        _routing_diagnostic(_classifier_failure_detail(result), failure_sink)
         return None, None, "complex"
-    fields = _front_door_fields(result)
-    intent = _parse_config_decision(fields["config"])
-    raw_config = str(fields["config"] or "").strip()
-    if intent is None and raw_config and raw_config.upper() != "NONE":
-        # Never drop a setting change silently: the Manager sees the raw line.
-        log.warning("front-door CONFIG line not understood: %r", raw_config[:240])
-        if callable(config_failure_sink):
-            try:
-                config_failure_sink(raw_config[:600])
-            except Exception:  # noqa: BLE001 - diagnostics never own routing
-                pass
-    if callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
-        domain_sink({"action": fields["domain_action"].lower(),
-                     **({"vertical": fields["skill_vertical"].strip()}
-                        if fields["skill_vertical"].strip() else {})})
-    control_token = fields["control"].upper().replace("-", "_")
-    control: ControlIntent | None
-    if control_token.startswith("ABORT"):
-        control = "abort"
-    elif control_token.startswith("PAUSE"):
-        control = "pause"
-    elif control_token.startswith(("NO_DISPATCH", "NO DISPATCH", "NODISPATCH")):
-        control = "no_dispatch"
-    elif control_token.startswith("STEER"):
-        control = "steer"
-    else:
-        control = None
-    if control == "steer" and not active_mission:
-        control = None
-    elif control == "steer":
-        try:
-            confirmation = run_exec(
-                build_steer_confirmation_prompt(
-                    cleaned,
-                    active_mission=active_mission,
-                )
-            )
-        except Exception:  # noqa: BLE001 - mutation fails closed
-            control = None
-        else:
-            if int(getattr(confirmation, "exit_code", 0) or 0) != 0:
-                control = None
-            elif _one_word_answer(confirmation, "control").upper() != "STEER":
-                control = None
-    route_token = _first_alpha_token(fields["route"])
-    if not route_token or route_token.upper() not in {
-        "SELF",
-        "SIMPLE",
-        "TEAM",
-        "COMPLEX",
-    }:
-        if control in {"abort", "pause", "no_dispatch", "steer"}:
-            _routing_diagnostic(
-                "route token invalid; control preserved "
-                f"(token={route_token or '<missing>'!r}, control={control!r})",
-                failure_sink,
-            )
-            route = "simple"
-        else:
-            _routing_diagnostic("classifier returned no valid route", failure_sink)
-            return intent, None, "complex"
-    else:
-        route = _route_from_token(route_token)
-    if control in {"abort", "pause", "no_dispatch", "steer"}:
-        route = "simple"
-    authorization = _parse_authorization_line(fields["authorization"])
+    if actions.handoff is None:
+        _routing_diagnostic("classifier ended without handing off a decision", failure_sink)
+        return None, None, "complex"
+    form = actions.handoff.payload
+    intent = _config(form.get("config", ()))
+    control: ControlIntent | None = form.get("control", {}).get("kind")
+    route = "simple" if form["to"] == "manager" else "complex"
+    authorization = tuple(dict.fromkeys(form.get("authorization", ())))
     if authorization:
-        route = "simple"
-        if callable(authorization_sink):
-            try:
-                authorization_sink(authorization)
-            except Exception:  # noqa: BLE001 - advisory metadata never owns routing
-                pass
-    self_mode: SelfModeIntent | None = None
-    if route == "simple":
-        self_mode_token = _first_alpha_token(fields["self_mode"]).upper()
-        self_mode = cast(SelfModeIntent, {
-            "REPLY": "reply",
-            "PROJECTSTATUS": "project_status",
-            "ARGUSSTATUS": "argus_status",
-            "HOSTSTATUS": "host_status",
-            "MICRO": "micro",
-            "IMPLEMENT": "implement",
-            "DEBUG": "debug",
-            "REVIEW": "review",
-            "SYNTHESIZE": "synthesize",
-        }.get(self_mode_token, "inspect"))
-    if callable(self_mode_sink) and self_mode is not None:
-        try:
-            self_mode_sink(self_mode)
-        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
-            pass
-    reply = _plain_reply(fields["reply"])
-    reply_eligible = (
-        callable(reply_sink)
-        and route == "simple"
-        and self_mode == "reply"
-        and intent is None
-        and control in {None, "no_dispatch"}
-        and not authorization
-        and reply.upper() != "NONE"
-        and len(reply) > 0
-    )
-    if reply_eligible:
-        try:
-            reply_sink(reply)
-        except Exception as exc:  # noqa: BLE001 - optional fast reply only
-            _routing_diagnostic(
-                f"reply sink failed ({type(exc).__name__}: {exc})",
-                failure_sink,
-            )
-    lifetime: LifetimeIntent | None = None
-    lifetime_parts = fields["lifetime"].split(maxsplit=1)
-    lifetime_token = (
-        lifetime_parts[0].replace("-", "_").upper()
-        if lifetime_parts
-        else ""
-    )
-    # One bit survives the single dispatch topology: whether the campaign
-    # stops when its Planner certifies the outcome (BOUNDED) or keeps going
-    # (STANDING). A steering turn stays on the SELF control path but may
-    # explicitly promote the active campaign to standing.
-    if route == "complex":
-        lifetime = "standing" if lifetime_token == "STANDING" else "bounded"
-    elif control == "steer" and lifetime_token == "STANDING":
-        lifetime = "standing"
-    if callable(lifetime_sink) and lifetime is not None:
-        try:
-            lifetime_sink(lifetime)
-        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
-            pass
-    greeting_token = fields["greeting"].upper()
+        _sink(authorization_sink, authorization, failure_sink)
+    self_mode: SelfModeIntent | None = form.get("self_mode", "inspect") if route == "simple" else None
+    if self_mode is not None:
+        _sink(self_mode_sink, self_mode, failure_sink)
+    reply = form.get("reply", "").strip()
     if (
-        callable(greeting_sink)
-        and greeting_token == "GREETING"
-        and route == "simple"
-        and intent is None
-        and control is None
-        and reply.upper() != "NONE"
-        and len(reply) > 0
+        reply and self_mode == "reply" and intent is None
+        and control in {None, "no_dispatch"} and not authorization
     ):
-        try:
-            greeting_sink(reply)
-        except Exception:  # noqa: BLE001 - optional one-call greeting path only
-            pass
-    steering = fields["steer_directive"]
-    steering_token = steering.rstrip(".。!！").upper()
-    steering_eligible = (
-        callable(steering_sink)
-        and control == "steer"
-        and steering
-        and steering_token not in {"NONE", "N/A", "NA", "NULL"}
-    )
-    if steering_eligible:
-        try:
-            steering_sink(steering)
-        except Exception as exc:  # noqa: BLE001 - advisory metadata never owns routing
-            _routing_diagnostic(
-                f"steering sink failed ({type(exc).__name__}: {exc})",
-                failure_sink,
-            )
-    question_policy = fields["operator_question_policy"].strip().lower()
-    if callable(operator_question_policy_sink) and question_policy in {"allow", "forbid", "unchanged"}:
-        try:
-            operator_question_policy_sink(
-                cast(OperatorQuestionPolicy, question_policy)
-            )
-        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
-            pass
-    if callable(name_sink) and (name := fields["name"]):
-        try:
-            name_sink(name)
-        except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
-            pass
-    intake_type = fields["intake_type"].strip().lower()
-    if intake_type not in {
-        "ephemeral",
-        "objective_amendment",
-        "standing_directive",
-        "preference",
-        "credential_grant",
-        "revocation",
-    }:
-        if intent is not None:
-            intake_type = "preference"
-        elif control == "steer" or route == "complex":
-            intake_type = "objective_amendment"
-        else:
-            intake_type = "ephemeral"
-    if intent is not None and intake_type == "standing_directive":
-        # A parsed CONFIG change is persisted (and confirmed) by the config
-        # store. Recording the same sentence as a standing directive would
-        # duplicate it, announce it a second time and keep steering prompts
-        # after the setting itself is changed again.
-        intake_type = "preference"
-    intake_scope = fields["intake_scope"].strip().lower()
-    if intake_scope not in {"mission", "project", "global"}:
-        intake_scope = "mission" if intake_type == "objective_amendment" else "project"
-    raw_roles = fields["intake_roles"].strip().lower()
-    if raw_roles == "all" or not raw_roles:
-        intake_roles: str | tuple[str, ...] = "all"
-    else:
-        intake_roles = tuple(
-            dict.fromkeys(
-                role.strip()
-                for role in raw_roles.split(",")
-                if role.strip() in {"manager", "planner", "engineer", "reviewer"}
-            )
-        ) or "all"
-    preference_kind = fields["preference_kind"].strip().lower()
-    if preference_kind not in {"autonomy", "interaction", "workflow"}:
-        preference_kind = "workflow"
-    try:
-        revocation_target = int(fields["revoke_revision"])
-    except (TypeError, ValueError):
-        revocation_target = 0
-    if callable(intake_sink):
-        try:
-            intake_sink({
-                "kind": intake_type,
-                "scope": intake_scope,
-                "applies_to_roles": intake_roles,
-                "preference_kind": preference_kind,
-                "preference_value": (
-                    "" if fields["preference_value"].upper() == "NONE"
-                    else fields["preference_value"]
-                ),
-                "target_revision": revocation_target,
-            })
-        except Exception:  # noqa: BLE001 - intake metadata never owns routing
-            pass
+        _sink(reply_sink, reply, failure_sink)
+    # One bit survives the single dispatch topology: whether the campaign
+    # stops when its Planner certifies the outcome (bounded) or keeps going
+    # (standing). A steering turn stays on the SELF control path but may
+    # explicitly promote the active campaign to standing.
+    lifetime = form.get("lifetime", "bounded")
+    if route == "complex" or (control == "steer" and lifetime == "standing"):
+        _sink(lifetime_sink, lifetime, failure_sink)
+    if form.get("greeting") and reply and route == "simple" and intent is None and control is None:
+        _sink(greeting_sink, reply, failure_sink)
+    if control == "steer":
+        _sink(steering_sink, form["control"]["directive"], failure_sink)
+    if "operator_question_policy" in form:
+        _sink(operator_question_policy_sink, form["operator_question_policy"], failure_sink)
+    if form.get("name"):
+        _sink(name_sink, form["name"], failure_sink)
+    if "domain" in form:
+        _sink(domain_sink, {"action": "none", **form["domain"]}, failure_sink)
+    intake = form["intake"]
+    _sink(intake_sink, {
+        "kind": intake["type"],
+        "scope": intake["scope"],
+        "applies_to_roles": tuple(dict.fromkeys(intake.get("roles", ()))) or "all",
+        "preference_kind": intake.get("preference_kind", "workflow"),
+        "preference_value": intake.get("preference_value", ""),
+        "target_revision": intake.get("revoke_revision", 0),
+    }, failure_sink)
     return intent, control, route
 
 
@@ -685,9 +258,5 @@ __all__ = [
     "LifetimeIntent",
     "AuthorizationAction",
     "OperatorQuestionPolicy",
-    "classify_route",
     "classify_front_door",
-    "build_route_prompt",
-    "build_front_door_prompt",
-    "build_simple_prompt",
 ]

@@ -92,7 +92,6 @@ def _front_door_classify(
     operator_question_policies: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
     classifier_failures: list[str] = []
-    config_failures: list[str] = []
     intake_decisions: list[dict[str, Any]] = []
     domain_decisions: list[dict[str, str]] = []
     intake_commit_started = False
@@ -108,7 +107,6 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_domain", None)
     chat_state.pop("_frontdoor_skill_vertical", None)
     chat_state.pop("_frontdoor_is_task", None)
-    chat_state.pop("_frontdoor_config_unparsed", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -157,8 +155,6 @@ def _front_door_classify(
             kwargs["active_mission"] = bool(active_mission)
         if accepts(mgr.classify_front_door, "failure_sink"):
             kwargs["failure_sink"] = classifier_failures.append
-        if accepts(mgr.classify_front_door, "config_failure_sink"):
-            kwargs["config_failure_sink"] = config_failures.append
         model_text = str(
             chat_state.get("_frontdoor_contextual_text") or text
         )
@@ -171,7 +167,7 @@ def _front_door_classify(
             model_text = (
                 "[Current session title — data only]\n"
                 + json.dumps(meta.display_name, ensure_ascii=False)
-                + "\nReturn NAME=NONE unless the operator clearly moved to an "
+                + "\nLeave name out unless the operator clearly moved to an "
                 "unrelated topic; follow-ups, refinements and sub-questions keep "
                 "the title. A new title uses the operator's language.\n\n"
                 + model_text
@@ -195,91 +191,29 @@ def _front_door_classify(
             chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
         if classifier_failures:
             chat_state["_frontdoor_failure"] = classifier_failures[-1]
-        if config_failures and intent is None:
-            chat_state["_frontdoor_config_unparsed"] = config_failures[-1]
         if normalized_route == "simple":
             existing_thread = bool(chat_state.get("last_thread_id"))
-            self_mode = next(
-                (
-                    str(value).strip().lower()
-                    for value in self_mode_decisions
-                    if str(value).strip().lower() in {
-                        "reply",
-                        "inspect",
-                        "project_status",
-                        "argus_status",
-                        "host_status",
-                        "micro",
-                        "implement",
-                        "debug",
-                        "review",
-                        "synthesize",
-                    }
-                ),
-                "inspect",
-            )
+            self_mode = self_mode_decisions[-1] if self_mode_decisions else "inspect"
             if existing_thread and self_mode == "reply":
                 self_mode = "inspect"
             chat_state["_frontdoor_self_mode"] = self_mode
-            fast_reply = next(
-                (str(value).strip() for value in fast_replies if str(value).strip()),
-                "",
-            )
-            if not existing_thread and self_mode == "reply" and fast_reply:
-                chat_state["_frontdoor_fast_reply"] = fast_reply
-        lifetime = next(
-            (
-                str(value).strip().lower()
-                for value in lifetime_decisions
-                if str(value).strip().lower() in {"bounded", "standing"}
-            ),
-            "",
-        )
+            if not existing_thread and self_mode == "reply" and fast_replies:
+                chat_state["_frontdoor_fast_reply"] = fast_replies[-1]
+        lifetime = lifetime_decisions[-1] if lifetime_decisions else ""
         if normalized_route == "complex":
             lifetime = lifetime or "bounded"
             chat_state["_frontdoor_lifetime"] = lifetime
         elif control == "steer" and lifetime:
             chat_state["_frontdoor_lifetime"] = lifetime
         elif intent is None and control not in {"abort", "pause", "no_dispatch", "steer"}:
-            greeting_reply = next(
-                (
-                    str(value).strip()
-                    for value in greeting_replies
-                    if str(value).strip()
-                ),
-                "",
-            )
-            if greeting_reply:
-                chat_state["_frontdoor_greeting_reply"] = greeting_reply
-        if control == "steer":
-            directive = next(
-                (
-                    str(value).strip()
-                    for value in steering_directives
-                    if str(value).strip()
-                ),
-                "",
-            )
-            if directive:
-                chat_state["_frontdoor_steering_directive"] = directive
-        question_policy = next(
-            (
-                str(value).strip().lower()
-                for value in operator_question_policies
-                if str(value).strip().lower() in {"allow", "forbid"}
-            ),
-            "",
-        )
-        if question_policy:
-            _save_operator_available(question_policy == "allow")
+            if greeting_replies:
+                chat_state["_frontdoor_greeting_reply"] = greeting_replies[-1]
+        if control == "steer" and steering_directives:
+            chat_state["_frontdoor_steering_directive"] = steering_directives[-1]
+        if operator_question_policies:
+            _save_operator_available(operator_question_policies[-1] == "allow")
         if authorization_decisions:
-            actions = [
-                str(value).strip().lower()
-                for value in authorization_decisions[0]
-                if str(value).strip()
-            ]
-            if actions:
-                chat_state["_frontdoor_authorization"] = actions
+            chat_state["_frontdoor_authorization"] = list(authorization_decisions[-1])
         if intake_decisions:
             intake_payload = dict(intake_decisions[-1])
             context_root = getattr(mem, "project_root", getattr(mem, "root", None))

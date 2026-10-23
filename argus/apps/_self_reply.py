@@ -27,7 +27,7 @@ _PHASE_META_KEYS = ("tool_name", "call_id", "tool_kind", "status", "exit_code", 
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
-from ._env import env_flag, env_int
+from ._env import env_int
 from ._runtime_backends import _Outcome
 
 if TYPE_CHECKING:
@@ -156,23 +156,6 @@ class SelfReplyMixin:
             if getattr(self._args, "workdir", None)
             else Path.cwd()
         )
-        safe_mode = env_flag("ARGUS_SKILL_SAFE_MODE", False)
-
-        def _classify_run_exec(prompt: str) -> Any:
-            return gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self._args.engineer_model,
-                    reasoning_effort="low",
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                ),
-                run_label="router-classify",
-                resume_thread_id=None,
-            )
 
         def _phase(
             label: str,
@@ -250,15 +233,6 @@ class SelfReplyMixin:
         # Plain words for the operator: the backend's name is a detail of how
         # Argus works, not something a reader has to know.
         _phase("正在理解你的要求…")
-        if route not in ("simple", "complex"):
-            if root_task_id is None:
-                route = self.manager.route(objective, run_exec=_classify_run_exec)
-            else:
-                route = self.manager.route(
-                    objective,
-                    run_exec=_classify_run_exec,
-                    root_task_id=root_task_id,
-                )
         if route == "simple":
             mode = str(self_mode or "inspect").strip().lower()
             from ..daemon.runtime_status import (

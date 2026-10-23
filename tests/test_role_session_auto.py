@@ -7,10 +7,11 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core import role_session as role_session_module
 from argus.core.role_session import _checkpoint_open_items
 from argus.planner import Planner, PlannerConfig
+from tests.hand_off import hand_off
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return "submit_review", {'review': f'review-{status}\n\n' + ('finish\n→ done' if status == 'done' else 'continue\n→ engineer')}
+    return hand_off("done" if status == "done" else "engineer", f"review-{status}")
 
 
 def test_default_auto_policy_resumes_pi_role_threads_without_machine_configuration(
@@ -23,9 +24,9 @@ def test_default_auto_policy_resumes_pi_role_threads_without_machine_configurati
     # Argus, not through a local Pi settings file or environment override.
     backend.backend = "pi"  # type: ignore[attr-defined]
     backend.queue("engineer-r1", CannedResponse(message="first", thread_id="pi-engineer"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="pi-reviewer"))
+    backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="pi-reviewer"))
     backend.queue("engineer-r2", CannedResponse(message="second", thread_id="pi-engineer"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="pi-reviewer"))
+    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="pi-reviewer"))
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -65,7 +66,7 @@ def test_auto_pi_turn_succeeds_when_optional_checkpoint_was_never_created(
     )
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=_review("done"), thread_id="pi-reviewer"),
+        CannedResponse(action=_review("done"), thread_id="pi-reviewer"),
     )
     context = tmp_path / "handoffs" / "mission-1" / "mission.json"
     checkpoint = context.parent / "CHECKPOINT.md"
@@ -127,7 +128,7 @@ def test_capsule_write_failure_cannot_override_engineer_or_reviewer_success(
     )
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=_review("done"), thread_id="pi-reviewer"),
+        CannedResponse(action=_review("done"), thread_id="pi-reviewer"),
     )
     context = tmp_path / "handoffs" / "mission-2" / "mission.json"
     events: list[dict] = []

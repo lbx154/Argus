@@ -10,6 +10,8 @@ import pytest
 from argus.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
+from argus.core.role_actions import PREFIX
+from argus.core.role_tool_bridge import bridge_request
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager, supervision
@@ -24,17 +26,29 @@ BODY_MARKER = "PRIVATE_PROVIDER_BODY_MUST_NOT_ESCAPE"
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Supervision regression tests must not open network connections")
+    """Only the call's own loopback action bridge may be reached."""
+    connect = socket.socket.connect
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    def loopback_only(self, address):
+        if address[0] != "127.0.0.1":
+            raise AssertionError("Supervision regression tests must not open network connections")
+        return connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", loopback_only)
 
 
 class Backend:
-    def __init__(self, outcome, before_return=None):
+    """An offline Manager: hands off ``payload`` if given, then ends with ``outcome``.
+
+    A refused handoff is the model giving up after the tool's error.
+    """
+
+    def __init__(self, outcome, before_return=None, payload=None):
         self.outcome = outcome
         self.before_return = before_return
+        self.payload = payload
         self.calls = []
+        self.refusals = []
 
     def fork(self):
         return self
@@ -43,6 +57,11 @@ class Backend:
         assert run_label == "manager-supervision"
         assert options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
         self.calls.append((run_label, resume_thread_id))
+        if self.payload:
+            try:
+                bridge_request(PREFIX, "hand_off", self.payload, env=options.extension_env)
+            except ValueError as refusal:
+                self.refusals.append(str(refusal))
         if self.before_return:
             self.before_return()
         if isinstance(self.outcome, Exception):
@@ -62,12 +81,16 @@ def controls(root):
     return control_identity(root), (root / "backlog.jsonl").read_bytes()
 
 
-def reply(*, action="continue", reason="The observed grouping checks passed; continue the planned validation.", refs=None):
-    return RunnerResult(exit_code=0, call_id=CALL_ID, thread_id="offline-persistent-manager", agent_messages=[json.dumps({
-        "action": action, "reason": reason,
-        "directive": "Repair grouping while preserving the missing-value acceptance check." if action == "steer" else "",
-        "evidence_refs": ["backlog.jsonl"] if refs is None else refs,
-    })])
+def ok():
+    return RunnerResult(exit_code=0, call_id=CALL_ID, thread_id="offline-persistent-manager", agent_messages=["Judged."])
+
+
+def reply(*, steer=False, summary="The observed grouping checks passed; continue the planned validation.", refs=None):
+    return {
+        "to": "team", "summary": summary,
+        "note": "Repair grouping while preserving the missing-value acceptance check." if steer else "",
+        "evidence_refs": ["backlog.jsonl"] if refs is None else refs, "assumptions": [],
+    }
 
 
 def failed_event(root, record):
@@ -161,7 +184,7 @@ def test_a_slow_decision_is_waited_for_and_applied(tmp_path, monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(supervision, "_apply", slow_apply)
-    backend = Backend(reply(action="steer"), before_return=lambda: now.__setitem__(0, now[0] + 3600.0))
+    backend = Backend(ok(), before_return=lambda: now.__setitem__(0, now[0] + 3600.0), payload=reply(steer=True))
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied" and record["effects"]["directive_delivered"]
     assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
@@ -177,8 +200,9 @@ def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_
     kind = "operator_abort" if origin == "external-prefix" else origin
     fatal = "External interrupt: operator abort requested: " if origin == "external-prefix" else "Trusted runner cancellation: "
     outcome = RunnerResult(exit_code=130, fatal_error=fatal + PROMPT_MARKER,
-                           stop_kind=None if origin == "external-prefix" else kind, call_id=CALL_ID) if canonical else reply()
-    backend = Backend(outcome, before_return=None if canonical else lambda: cancelled.__setitem__(0, True))
+                           stop_kind=None if origin == "external-prefix" else kind, call_id=CALL_ID) if canonical else ok()
+    backend = Backend(outcome, before_return=None if canonical else lambda: cancelled.__setitem__(0, True),
+                      payload=None if canonical else reply())
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event,
                                    cancelled=lambda: origin == "callback" and cancelled[0])
     assert record["status"] == ("failed" if canonical else "superseded")
@@ -197,7 +221,7 @@ def test_goal_supersession_is_distinct_from_provider_failure_and_keeps_the_new_g
         write_continuous_config(tmp_path, enabled=True, objective="New operator objective")
         updated.append(controls(tmp_path))
 
-    backend = Backend(reply(action="steer"), before_return=replace_goal)
+    backend = Backend(ok(), before_return=replace_goal, payload=reply(steer=True))
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "superseded" and not record.get("decision")
     assert_failure(tmp_path, record, stage="provider", code="superseded", exit_code=0, call_id=CALL_ID)
@@ -219,31 +243,21 @@ def test_unclassified_provider_failure_does_not_invent_a_stop_kind_or_code(tmp_p
     assert controls(tmp_path) == before and len(backend.calls) == 1
 
 
-@pytest.mark.parametrize("invalid", ["action", "unobserved-reference"])
-def test_invalid_decisions_have_decision_stage_and_no_control_effects(tmp_path, invalid):
+@pytest.mark.parametrize("invalid", [{"to": "erase-project"}, {"evidence_refs": ["unobserved/private.json"]}, None])
+def test_a_turn_without_an_accepted_handoff_has_decision_stage_and_no_control_effects(tmp_path, invalid):
+    """A refused call goes back to the model; a turn that ends without a good one decides nothing."""
     event = project(tmp_path)
     before = controls(tmp_path)
-    outcome = reply(action="erase-project") if invalid == "action" else reply(action="steer", refs=["unobserved/private.json"])
-    backend = Backend(outcome)
+    backend = Backend(ok(), payload=invalid and {**reply(steer=True), **invalid})
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "failed" and not record.get("decision") and not record.get("effects") and not record["cited_refs"]
-    code = "decision_incomplete" if invalid == "action" else "evidence_outside_snapshot"
-    emitted = assert_failure(tmp_path, record, stage="decision", code=code, exit_code=0, call_id=CALL_ID)
+    emitted = assert_failure(tmp_path, record, stage="decision", code="handoff_missing", exit_code=0, call_id=CALL_ID)
     assert emitted["error_message"] and emitted["error_message"] == record["error_message"]
+    assert len(backend.refusals) == (invalid is not None)
     # Only our own check text is persisted, never text the model wrote.
     assert "unobserved/private.json" not in emitted["error_message"]
-    if invalid == "unobserved-reference":
-        assert "1 of" in emitted["error_message"]
     assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
     assert len(backend.calls) == 1
-
-
-def test_unreadable_decision_event_names_the_code_and_the_refusing_check(tmp_path):
-    event = project(tmp_path)
-    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=["I think things look fine overall."])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
-    emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
-    assert "action=missing" in emitted["error_message"]
 
 
 def test_provider_failure_event_carries_a_message_without_raw_provider_text(tmp_path):
@@ -254,65 +268,12 @@ def test_provider_failure_event_carries_a_message_without_raw_provider_text(tmp_
     assert emitted["error_message"] == "RuntimeError"
 
 
-@pytest.mark.parametrize("decorate", ["", "**"])
-def test_named_lines_without_a_colon_are_read_as_the_decision(tmp_path, decorate):
-    """Replies like ``ACTION CONTINUE`` are a clear answer that only omitted the separator."""
-    event = project(tmp_path)
-    text = (
-        f"{decorate}ACTION{decorate} CONTINUE\n\n"
-        f"{decorate}REASON{decorate} The grouping mission has acceptance criteria and has just started; let it run.\n\n"
-        f"{decorate}EVIDENCE_REFS{decorate} backlog.jsonl"
-    )
-    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
-    assert record["status"] == "applied", record.get("failure_reason")
-    assert record["decision"]["action"] == "continue"
-    assert [ref["path"] for ref in record["cited_refs"]] == ["backlog.jsonl"]
-
-
-def test_model_written_action_value_is_not_persisted_in_the_failure(tmp_path):
-    event = project(tmp_path)
-    text = "ACTION: escalate-to-secret-channel\nREASON: odd\nEVIDENCE_REFS: backlog.jsonl"
-    outcome = RunnerResult(exit_code=0, call_id=CALL_ID, agent_messages=[text])
-    record = supervision.supervise(Manager(tmp_path, runner=Backend(outcome)), tmp_path, event)
-    emitted = assert_failure(tmp_path, record, stage="decision", code="decision_incomplete", exit_code=0, call_id=CALL_ID)
-    assert "escalate" not in emitted["error_message"] and "action=unrecognized" in emitted["error_message"]
-
-
-@pytest.mark.parametrize("final_colon", [False, True])
-def test_colon_less_reply_uses_the_final_block_not_the_draft(final_colon):
-    sep = ": " if final_colon else " "
-    text = (
-        "ACTION STEER\nREASON draft thought\nDIRECTIVE redo everything\nEVIDENCE_REFS draft.json\n\n"
-        f"ACTION{sep}CONTINUE\nREASON{sep}final answer\nEVIDENCE_REFS{sep}backlog.jsonl"
-    )
-    decision = supervision._decision(text)
-    assert decision["action"] == "continue" and decision["reason"] == "final answer"
-    assert decision["cited_refs"] == ["backlog.jsonl"]
-
-
-@pytest.mark.parametrize("prefix", ["> ", "1. ", "- "])
-def test_colon_less_draft_then_decorated_final_block_uses_the_final_block(prefix):
-    text = (
-        "ACTION CONTINUE\nREASON draft\nEVIDENCE_REFS a\n\n"
-        f"{prefix}ACTION: steer\n{prefix}REASON: final\n{prefix}DIRECTIVE: redo the table\n"
-        f"{prefix}EVIDENCE_REFS: backlog.jsonl"
-    )
-    decision = supervision._decision(text)
-    assert decision["action"] == "steer" and decision["reason"] == "final"
-
-
-def test_prose_starting_with_a_key_word_is_not_read_as_a_field():
-    with pytest.raises(ValueError):
-        supervision._decision("Action items remain open.\nReason unclear.\nEvidence_refs none")
-
-
 @pytest.mark.parametrize("failure_class", [OSError, CancelledError])
 def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_model_call(tmp_path, monkeypatch, failure_class):
     from argus.manager import directive
 
     event = project(tmp_path)
-    backend = Backend(reply(action="steer"))
+    backend = Backend(ok(), payload=reply(steer=True))
     manager = Manager(tmp_path, runner=backend)
     original = directive.set_active_manager_directive
 
@@ -342,9 +303,9 @@ def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_mo
 def test_successful_model_prose_with_error_literals_is_not_provider_failure_metadata(tmp_path):
     event = project(tmp_path)
     reason = "The observed checks include HTTP 402, trial_quota_exceeded, timeout and cancelled examples; all checks passed."
-    outcome = reply(reason=reason)
+    outcome = ok()
     outcome.stderr_lines = ["Recovered warning: HTTP 402 trial_quota_exceeded timeout cancelled", SECRET, PROMPT_MARKER]
-    backend = Backend(outcome)
+    backend = Backend(outcome, payload=reply(summary=reason))
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     assert record["status"] == "applied" and record["decision"]["reason"] == reason
     assert all(not record.get(field) for field in ("failure_stage", "stop_kind", "error_code", "error", "error_type"))

@@ -468,7 +468,9 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     "assumed_by_manager": ("the Manager decided for you", "经理替你定了"),
     "assumed_by_me": ("I went with", "我按这个理解做的"),
-    "assumed_choice": ("{conflict} → {verb}: {reading}", "{conflict} → {verb}：{reading}"),
+    "assumed_choice": ("{verb}: {reading} (rather than {conflict})", "{verb}：{reading}（而不是{conflict}）"),
+    # The Manager's answer to a question it decided in the operator's place.
+    "assumed_answer": ("{conflict} {verb}: {reading}", "{conflict} {verb}：{reading}"),
     "assumed_reading": ("{verb}: {reading}", "{verb}：{reading}"),
     # A finished task, told in the operator's conversation.
     "final_submission_ready": (

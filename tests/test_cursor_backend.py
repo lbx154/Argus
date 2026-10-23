@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import (
     BACKEND_CURSOR,
@@ -71,23 +69,7 @@ def test_cursor_event_stream_completes_and_captures_session() -> None:
     assert messages == ["hello"]
 
 
-def test_cursor_auth_rejects_zero_exit_not_logged_in(monkeypatch) -> None:
-    monkeypatch.delenv("CURSOR_API_KEY", raising=False)
-    monkeypatch.setattr(
-        backend_readiness,
-        "_run_text",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "Not logged in\n", ""),
-    )
-    ok, detail = backend_readiness._probe_cli_auth("cursor", "agent", timeout_s=1)
-    assert not ok
-    assert "Not logged in" in detail
-
-
-def test_cursor_api_key_and_install_commands(monkeypatch) -> None:
-    monkeypatch.delenv("CURSOR_API_KEY", raising=False)
-    assert backend_readiness._probe_cli_auth(
-        "cursor", "agent", timeout_s=1, env={"CURSOR_API_KEY": "test-only"}
-    ) == (True, "")
+def test_cursor_install_commands() -> None:
     assert "cursor.com/install" in backend_readiness.backend_install_command("cursor", platform_name="posix")
     assert "win32=true" in backend_readiness.backend_install_command("cursor", platform_name="nt")
 

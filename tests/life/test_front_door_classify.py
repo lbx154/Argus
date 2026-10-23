@@ -1,933 +1,250 @@
 """The merged cockpit front-door classifier (life.router.classify_front_door).
 
-ONE model call decides config intent, operator control, and SELF/TEAM routing.
-It never chooses a vertical; every formal task goes to Manager classification.
+ONE model call fills the ``front_door`` form: config intent, operator control
+and the manager/team route. Only the form it handed off is read.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 
-from argus.life.router import (
-    ConfigIntent,
-    build_front_door_prompt,
-    classify_front_door,
-)
-from argus.roles.prompts.planner import build_continuous_prompt
+from argus.core.handoff import form_tool
+from argus.life.router import ConfigIntent, classify_front_door
+from argus.roles.prompts.manager import build_front_door_prompt
 from argus.roles.prompts.voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
 
-class _FakeResult:
-    def __init__(
-        self,
-        msg: str,
-        exit_code: int = 0,
-        role_decisions: list[dict] | None = None,
-        fatal_error: str | None = None,
-    ) -> None:
-        self.exit_code = exit_code
-        self.last_agent_message = msg
-        self.role_decisions = list(role_decisions or [])
-        self.fatal_error = fatal_error
+def _form(**fields: Any) -> dict[str, Any]:
+    return {"to": "manager", "intake": {"type": "ephemeral", "scope": "project"}, **fields}
 
 
-def _exec(answer: str, exit_code: int = 0, fatal_error: str | None = None):
-    def run_exec(prompt: str):
-        assert all(
-            field in prompt
-            for field in (
-                "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-                "OPERATOR_QUESTION_POLICY:", "ROUTE:", "SELF_MODE:", "REPLY:",
-                "LIFETIME:", "GREETING:", "NAME:",
-            )
-        )
-        return _FakeResult(answer, exit_code, fatal_error=fatal_error)
+def _classify(text: str, payload: dict[str, Any] | None, **kwargs: Any) -> tuple[Any, dict[str, str]]:
+    """Classify ``text`` with a model that hands off ``payload`` (None: hands off nothing)."""
+    seen: dict[str, str] = {}
 
-    return run_exec
+    def run_exec(prompt: str, actions: Any) -> Any:
+        seen["prompt"] = prompt
+        if payload is not None:
+            try:
+                actions.dispatch("hand_off", payload)
+            except ValueError as exc:
+                seen["refused"] = str(exc)
+        return SimpleNamespace(exit_code=0)
 
-
-def _exec_sequence(*answers: str):
-    remaining = list(answers)
-
-    def run_exec(_prompt: str):
-        return _FakeResult(remaining.pop(0), 0)
-
-    return run_exec
+    return classify_front_door(text, run_exec=run_exec, **kwargs), seen
 
 
-def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> None:
+def test_front_door_prompt_leaves_the_fields_to_the_form() -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
-    standing = " ".join(
-        build_continuous_prompt(
-            continuous_objective="Keep improving the project.",
-            journal_tail="The prior round is materially complete.",
-            planning_cycle=1,
-            open_ended=True,
-            project_root=tmp_path,
-            state_root=tmp_path,
-        ).split()
-    )
+    schema = str(form_tool("front_door"))
 
-    # Cost budget for the highest-frequency model call: ~750 input tokens per
-    # classify call. The classifier reads one message and emits labels plus at
-    # most a line or two of prose, so it carries RESEARCHER_VOICE_BRIEF (one
-    # sentence) rather than the full RESEARCHER_VOICE paragraph; the REPLY
-    # definition itself bans protocol labels in prose. Trim the prompt before
-    # raising this.
-    assert len(prompt) <= 3_000
-    assert "live research" in prompt
-    assert all(
-        field in prompt
-        for field in (
-            "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-            "OPERATOR_QUESTION_POLICY:", "ROUTE:", "SELF_MODE:", "REPLY:",
-            "LIFETIME:", "GREETING:", "NAME:",
-        )
-    )
-    assert "ARGUS_ROLE_DECISION=" not in prompt
-    assert "Reason naturally" in prompt
-    assert "VERTICAL:" not in prompt
-    assert "TARGET:" not in prompt
-    assert "Explicit continue/resume after pause: TEAM, not control." in prompt
-    assert "WORKFLOW:" not in prompt
-    assert "FAST_REPLY:" not in prompt
+    # The highest-frequency model call: the prompt carries the message and
+    # the run's facts; every field is defined once, in the form.
+    assert len(prompt) <= 800
+    assert RESEARCHER_VOICE_BRIEF in prompt and RESEARCHER_VOICE not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
-    assert "Questions/explanations/criticism/suggestions: NONE" in prompt
-    assert "Ambiguity: NONE" in prompt
-    assert all(mode in prompt for mode in ("PROJECTSTATUS", "ARGUSSTATUS", "HOSTSTATUS"))
-    assert "FORBID only for an explicit command" in prompt
-    assert "ALLOW only when explicitly re-enabled" in prompt
-    assert "conversation, status, a quick inspection" in prompt
-    assert "finite local task" in prompt
-    assert "IMPLEMENT" in prompt
-    assert "DEBUG" in prompt
-    assert "REVIEW" in prompt
-    assert "SYNTHESIZE" in prompt
-    assert "BOUNDED_INCREMENT" not in prompt
-    assert "BOUNDED" in prompt
-    assert "STANDING" in prompt
-    assert "default BOUNDED" in prompt
-    assert all(
-        phrase in policy
-        for phrase, policy in (
-            ("casual unscoped work absent ongoing intent", prompt),
-            ('completed rounds', standing),
-            ("Justify a new round's value in one sentence", standing),
-            ("behavior reachable through a real entry point", standing),
-        )
-    )
+    assert "Decision:" not in prompt and "CONFIG" not in prompt
+    for phrase in (
+        "conversation, status, a quick inspection", "however big", "以后都用中文",
+        "explicit continue or resume after a pause is to=team", "forbid only for an explicit command",
+    ):
+        assert phrase in schema
 
 
-def test_front_door_prompt_carries_the_brief_voice_not_the_full_paragraph() -> None:
-    # The classifier's only person-facing prose is REPLY, STEER_DIRECTIVE, and
-    # NAME, so it carries the one-sentence writing standard; the full paragraph
-    # stays with the roles that write whole documents. The ban on protocol
-    # labels in prose lives in the REPLY definition and must survive the swap.
-    prompt = build_front_door_prompt("项目现在进展如何？", active_mission=False)
-
-    assert RESEARCHER_VOICE not in prompt
-    assert RESEARCHER_VOICE_BRIEF in prompt
-    assert "complete human-facing answer" in prompt
-    assert "never expose route, control, lifetime, or role-protocol labels" in prompt
-    assert "ACTIVE_MISSION: NO" in prompt
+def test_front_door_prompt_says_whether_it_may_answer() -> None:
+    assert "reply is the complete answer" in build_front_door_prompt("x")
+    closed = build_front_door_prompt("x", allow_reply=False)
+    assert "Do not answer here except a greeting" in closed
+    assert "ACTIVE_MISSION: NO" in closed
 
 
-def test_front_door_uses_process_decision_without_final_message() -> None:
-    result = _FakeResult(
-        "",
-        role_decisions=[{
-            "role": "manager",
-            "payload": {
-                "config": "NONE",
-                "control": "NONE",
-                "authorization": "NONE",
-                "steer_directive": "NONE",
-                "route": "SELF",
-                "self_mode": "REPLY",
-                "reply": "hello",
-                "lifetime": "NONE",
-                "greeting": "NONE",
-                "name": "Reply",
-            },
-        }],
-    )
-    replies: list[str] = []
-
-    decision = classify_front_door(
-        "say hello",
-        run_exec=lambda _prompt: result,
-        reply_sink=replies.append,
-    )
-
+def test_classifier_without_reply_consumer_never_delivers_a_reply() -> None:
+    (decision, seen) = _classify("Explain SFT data.", _form(self_mode="reply", reply="It is..."))
+    assert "Do not answer here" in seen["prompt"]
     assert decision == (None, None, "simple")
-    assert replies == ["hello"]
 
 
-def test_classifier_without_reply_consumer_requests_only_routing():
-    def run(prompt):
-        assert "REPLY must be NONE" in prompt
-        assert "REPLY: NONE" in prompt
-        assert "REPLY: the full answer" not in prompt
-        return _FakeResult("ROUTE=SELF\nSELF_MODE=REPLY\nREPLY=NONE\nGREETING=NONE")
-
-    assert classify_front_door("Explain how SFT data is constructed.", run_exec=run) == (None, None, "simple")
-
-
-def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
-    names: list[str] = []
-    decision = classify_front_door(
-        "帮我简单证明勾股定理",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nNAME: 勾股定理简证"
-        ),
-        name_sink=names.append,
-    )
-
-    assert decision == (None, None, "simple")
-    assert names == ["勾股定理简证"]
-
-
-def test_front_door_selects_tool_free_reply_for_message_only_self_turn() -> None:
+def test_reply_and_mode_reach_their_consumers() -> None:
     modes: list[str] = []
     replies: list[str] = []
-    decision = classify_front_door(
-        "只回复 hello",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NO_DISPATCH\nROUTE: SELF\n"
-            'SELF_MODE: REPLY\nREPLY: "hello"\nLIFETIME: NONE\n'
-            "GREETING: NONE\nNAME: Reply"
-        ),
-        self_mode_sink=modes.append,
-        reply_sink=replies.append,
+    decision, _ = _classify(
+        "只回复 hello", _form(self_mode="reply", reply="hello", control={"kind": "no_dispatch", "quote": "只回复"}),
+        self_mode_sink=modes.append, reply_sink=replies.append,
     )
-
     assert decision == (None, "no_dispatch", "simple")
-    assert modes == ["reply"]
-    assert replies == ["hello"]
+    assert modes == ["reply"] and replies == ["hello"]
 
 
-def test_front_door_defaults_self_turn_to_inspection() -> None:
+def test_self_turn_defaults_to_inspection() -> None:
     modes: list[str] = []
-    decision = classify_front_door(
-        "inspect current files",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nNAME: Inspect"),
-        self_mode_sink=modes.append,
-    )
-
-    assert decision == (None, None, "simple")
+    _classify("这个文件在做什么？", _form(), self_mode_sink=modes.append)
     assert modes == ["inspect"]
 
 
-@pytest.mark.parametrize(
-    ("token", "mode"),
-    [
-        ("MICRO", "micro"),
-        ("IMPLEMENT", "implement"),
-        ("DEBUG", "debug"),
-        ("REVIEW", "review"),
-        ("SYNTHESIZE", "synthesize"),
-        ("PROJECTSTATUS", "project_status"),
-        ("ARGUSSTATUS", "argus_status"),
-        ("HOSTSTATUS", "host_status"),
-    ],
-)
-def test_front_door_selects_local_worker_mode(token: str, mode: str) -> None:
+def test_team_route_takes_its_lifetime_from_the_same_call() -> None:
+    lifetimes: list[str] = []
     modes: list[str] = []
-    decision = classify_front_door(
-        "complete one finite local task",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            f"SELF_MODE: {token}\nREPLY: NONE\nLIFETIME: NONE\n"
-            "GREETING: NONE\nNAME: Local task"
-        ),
-        self_mode_sink=modes.append,
-    )
-
-    assert decision == (None, None, "simple")
-    assert modes == [mode]
-
-
-def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
-    lifetimes: list[str] = []
-    decision = classify_front_door(
-        "持续优化尽可能多的 kernel",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
-            "LIFETIME: STANDING\nNAME: Kernel 持续优化"
-        ),
-        lifetime_sink=lifetimes.append,
-    )
-
+    decision, _ = _classify("持续改进这个项目", _form(to="team", lifetime="standing"),
+                            lifetime_sink=lifetimes.append, self_mode_sink=modes.append)
     assert decision == (None, None, "complex")
-    assert lifetimes == ["standing"]
-
-
-def test_front_door_preserves_bounded_lifetime_for_team() -> None:
-    lifetimes: list[str] = []
-    decision = classify_front_door(
-        "完成一份报告",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
-            "LIFETIME: BOUNDED\nNAME: 报告"
-        ),
-        lifetime_sink=lifetimes.append,
-    )
-
-    assert decision == (None, None, "complex")
+    assert lifetimes == ["standing"] and modes == []
+    lifetimes.clear()
+    _classify("帮我调研一下", _form(to="team"), lifetime_sink=lifetimes.append)
     assert lifetimes == ["bounded"]
 
 
-def test_front_door_reads_a_legacy_bounded_increment_as_bounded() -> None:
-    lifetimes: list[str] = []
-    decision = classify_front_door(
-        "只完成 research 阶段，不要进入后续阶段",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
-            "LIFETIME: BOUNDED_INCREMENT\nNAME: Research 阶段"
-        ),
-        lifetime_sink=lifetimes.append,
-    )
+def test_greeting_finishes_from_one_call_only_with_its_reply() -> None:
+    greetings: list[str] = []
+    _classify("你好", _form(self_mode="reply", greeting=True, reply="你好！"), greeting_sink=greetings.append)
+    _classify("你好", _form(self_mode="reply", greeting=True), greeting_sink=greetings.append)
+    assert greetings == ["你好！"]
 
+
+def test_name_axis_reports_the_title() -> None:
+    names: list[str] = []
+    _classify("帮我简单证明勾股定理", _form(name="勾股定理简证"), name_sink=names.append)
+    _classify("你好", _form(), name_sink=names.append)
+    assert names == ["勾股定理简证"]
+
+
+def test_config_entries_are_one_transaction() -> None:
+    decision, _ = _classify("换模型并打开安全模式", _form(config=[
+        {"knob": "model", "roles": ["planner", "engineer"], "value": "gpt-x"},
+        {"knob": "safe_mode", "roles": ["planner"], "value": "on"},
+    ]))
+    assert decision[0] == (
+        ConfigIntent(knob="model", roles=("planner", "engineer"), value="gpt-x"),
+        ConfigIntent(knob="safe_mode", roles=(), value="on"),
+    )
+    single, _ = _classify("模型都用 gpt-x", _form(config=[{"knob": "model", "value": "gpt-x"}]))
+    assert single == (ConfigIntent(knob="model", roles=(), value="gpt-x"), None, "simple")
+
+
+@pytest.mark.parametrize(("payload", "refusal"), [
+    (_form(config=[{"knob": "model", "value": "a"}, {"knob": "model", "value": "b"}]), "one entry per setting"),
+    (_form(config=[{"knob": "model", "value": "a"}], intake={"type": "standing_directive", "scope": "project"}),
+     "intake.type=preference"),
+    (_form(config=[{"knob": "colour", "value": "blue"}]), "config.0.knob"),
+    (_form(to="team", control={"kind": "pause", "quote": "停一下"}), "to=manager"),
+    (_form(to="team", authorization=["acceptance_retry"]), "to=manager"),
+    (_form(control={"kind": "abort", "quote": "please abort"}), "control.quote"),
+    (_form(control={"kind": "steer", "quote": "停一下", "directive": "x"}), "nothing to steer"),
+])
+def test_front_door_refuses_a_form_against_its_rules(payload: dict, refusal: str) -> None:
+    decision, seen = _classify("停一下", payload)
+    assert refusal in seen["refused"]
     assert decision == (None, None, "complex")
-    assert lifetimes == ["bounded"]
 
 
-def test_front_door_missing_lifetime_defaults_team_to_bounded() -> None:
-    lifetimes: list[str] = []
-    decision = classify_front_door(
-        "continue useful work",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\nNAME: Work"),
-        lifetime_sink=lifetimes.append,
-    )
-
-    assert decision == (None, None, "complex")
-    assert lifetimes == ["bounded"]
-
-
-def test_front_door_pure_greeting_can_finish_from_one_model_call() -> None:
-    replies: list[str] = []
-    decision = classify_front_door(
-        "你好",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "SELF_MODE: REPLY\nLIFETIME: NONE\nGREETING: GREETING\n"
-            "REPLY: 你好！可以直接让我调研一个方向，或者帮你看看一段代码。\n"
-            "NAME: NONE"
-        ),
-        greeting_sink=replies.append,
-    )
-
-    assert decision == (None, None, "simple")
-    assert replies == ["你好！可以直接让我调研一个方向，或者帮你看看一段代码。"]
-
-
-def test_front_door_greeting_without_model_reply_takes_normal_path() -> None:
-    replies: list[str] = []
-    classify_front_door(
-        "你好",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "LIFETIME: NONE\nGREETING: GREETING\nNAME: NONE"
-        ),
-        greeting_sink=replies.append,
-    )
-
-    assert replies == []
-
-
-def test_front_door_contextual_greeting_does_not_take_one_call_path() -> None:
-    replies: list[str] = []
-    decision = classify_front_door(
-        "你好，项目现在进展怎么样？",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "LIFETIME: NONE\nGREETING: NONE\n"
-            "NAME: 项目进展"
-        ),
-        greeting_sink=replies.append,
-    )
-
-    assert decision == (None, None, "simple")
-    assert replies == []
-
-
-def test_front_door_parses_multiple_config_sets_as_one_transaction() -> None:
-    intent, control, route = classify_front_door(
-        "请把所有模型的 backend 换成 pi，模型用 gpt5.6sol",
-        run_exec=_exec(
-            "CONFIG: SET backend ALL pi; SET model ALL gpt5.6sol\n"
-            "CONTROL: NONE\nROUTE: SELF"
-        ),
-    )
-
-    assert intent == (
-        ConfigIntent(knob="backend", roles=(), value="pi"),
-        ConfigIntent(knob="model", roles=(), value="gpt5.6sol"),
-    )
-    assert control is None
-    assert route == "simple"
-
-
-def test_front_door_rejects_whole_config_batch_when_one_clause_is_malformed() -> None:
-    intent, _, _ = classify_front_door(
-        "change two settings",
-        run_exec=_exec(
-            "CONFIG: SET backend ALL pi; malformed model clause\n"
-            "CONTROL: NONE\nROUTE: SELF"
-        ),
-    )
-
-    assert intent is None
-
-
-def test_both_axes_config_and_self() -> None:
-    intent, control, route = classify_front_door(
-        "用 copilot",
-        run_exec=_exec(
-            "CONFIG: SET backend ALL copilot\nCONTROL: NONE\nROUTE: SELF"
-        ),
-    )
-    assert intent == ConfigIntent(knob="backend", roles=(), value="copilot")
-    assert control is None
-    assert route == "simple"
-
-
-def test_none_config_and_team() -> None:
-    intent, control, route = classify_front_door(
-        "优化 kernel",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM"),
-    )
-    assert intent is None
-    assert control is None
-    assert route == "complex"
-
-
-def test_role_scoped_config_with_route() -> None:
-    intent, control, route = classify_front_door(
-        "x",
-        run_exec=_exec(
-            "CONFIG: SET effort engineer,reviewer high\n"
-            "CONTROL: NONE\nROUTE: SELF"
-        ),
-    )
-    assert intent == ConfigIntent(knob="effort", roles=("engineer", "reviewer"), value="high")
-    assert control is None
-    assert route == "simple"
-
-
-def test_malformed_config_does_not_corrupt_route() -> None:
-    # A garbled CONFIG line → None, but ROUTE still parses independently.
-    intent, control, route = classify_front_door(
-        "hi",
-        run_exec=_exec("CONFIG: total garbage words\nCONTROL: NONE\nROUTE: SELF"),
-    )
-    assert intent is None
-    assert control is None
-    assert route == "simple"
-
-
-def test_missing_route_line_defaults_complex_config_still_parses() -> None:
-    intent, control, route = classify_front_door(
-        "x", run_exec=_exec("CONFIG: SET model engineer claude-sonnet-5")
-    )
-    assert intent == ConfigIntent(knob="model", roles=("engineer",), value="claude-sonnet-5")
-    assert control is None
-    assert route == "complex"  # no ROUTE line → safe default
-
-
-def test_unrecognized_route_token_is_complex() -> None:
-    _, control, route = classify_front_door(
-        "x",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: banana"),
-    )
-    assert control is None
-    assert route == "complex"
-
-
-def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
-    intent, control, route = classify_front_door(
-        "停止现在的任务",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: ABORT\nROUTE: TEAM"),
-    )
-    assert intent is None
-    assert control == "abort"
-    assert route == "simple"
-
-
-def test_pause_control_clocks_out_whole_session() -> None:
-    intent, control, route = classify_front_door(
-        "请暂停整个会话",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: PAUSE\nROUTE: TEAM"),
-    )
-    assert intent is None
-    assert control == "pause"
-    assert route == "simple"
-
-
-def test_bare_pause_is_decided_by_front_door_model_call() -> None:
-    called = False
-
-    def run_exec(prompt: str):
-        nonlocal called
-        called = True
-        assert "停一下，你在干什么？" in prompt
-        return _FakeResult("CONFIG: NONE\nCONTROL: PAUSE\nROUTE: TEAM")
-
-    decision = classify_front_door(
-        "停一下，你在干什么？",
-        run_exec=run_exec,
-        active_mission=True,
-    )
-
-    assert decision == (None, "pause", "simple")
-    assert called is True
-
-
-def test_explicit_authorization_uses_structured_action_enum_and_forces_self() -> None:
-    authorizations: list[tuple[str, ...]] = []
-    intent, control, route = classify_front_door(
-        "授权修复 validator 并重试一次验收",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\n"
-            "AUTHORIZATION: AUTHORIZE validator_repair,acceptance_retry,unknown\n"
-            "ROUTE: TEAM"
-        ),
-        authorization_sink=authorizations.append,
-    )
-
-    assert intent is None
-    assert control is None
-    assert route == "simple"
-    assert authorizations == [("validator_repair", "acceptance_retry")]
-
-
-def test_authorization_question_does_not_create_authority() -> None:
-    authorizations: list[tuple[str, ...]] = []
-    _, _, route = classify_front_door(
-        "我应该授权修复吗？",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nAUTHORIZATION: NONE\nROUTE: SELF"
-        ),
-        authorization_sink=authorizations.append,
-    )
-
-    assert route == "simple"
-    assert authorizations == []
-
-
-def test_steer_control_routes_running_mission_direction_inline() -> None:
+def test_steer_needs_the_operators_words_and_a_direction() -> None:
     directives: list[str] = []
-    lifetimes: list[str] = []
-    intent, control, route = classify_front_door(
-        "停止当前自创路线，改为先上网查别人怎么解决这个问题",
-        run_exec=_exec_sequence(
-            "CONFIG: NONE\nCONTROL: STEER\n"
-            "STEER_DIRECTIVE: 暂停当前自创路线；检索最接近的前人方法和基础理论，形成来源审计后由 Planner 决定下一证明节点。\n"
-            "ROUTE: TEAM\n"
-            "LIFETIME: STANDING\nNAME: 调整数学方向",
-            "STEER",
-        ),
-        steering_sink=directives.append,
-        lifetime_sink=lifetimes.append,
-        active_mission=True,
+    message = "把当前任务改成完整前向 profiling"
+    _, seen = _classify(message, _form(control={"kind": "steer", "quote": "改成完整前向 profiling"}),
+                        steering_sink=directives.append, active_mission=True)
+    assert "control.directive" in seen["refused"]
+    decision, _ = _classify(
+        message, _form(control={"kind": "steer", "quote": "改成完整前向  Profiling", "directive": "完整前向 profiling"}),
+        steering_sink=directives.append, active_mission=True,
     )
-    assert intent is None
-    assert control == "steer"
-    assert route == "simple"
-    assert directives == [
-        "暂停当前自创路线；检索最接近的前人方法和基础理论，形成来源审计后由 Planner 决定下一证明节点。"
-    ]
-    assert lifetimes == ["standing"]
-
-
-@pytest.mark.parametrize(
-    ("message", "policy"),
-    [
-        ("Do not ask further questions; continue autonomously.", "forbid"),
-        ("Questions are allowed again.", "allow"),
-    ],
-)
-def test_structured_steer_records_explicit_operator_question_policy(
-    message: str,
-    policy: str,
-) -> None:
-    policies: list[str] = []
-    responses = [
-        _FakeResult(
-            "",
-            role_decisions=[{
-                "role": "manager",
-                "payload": {
-                    "config": "NONE",
-                    "control": "STEER",
-                    "authorization": "NONE",
-                    "steer_directive": "Continue autonomously without questions.",
-                    "operator_question_policy": policy,
-                    "route": "SELF",
-                    "self_mode": "INSPECT",
-                    "reply": "NONE",
-                    "lifetime": "NONE",
-                    "greeting": "NONE",
-                    "name": "Autonomous continuation",
-                },
-            }],
-        ),
-        _FakeResult("STEER"),
-    ]
-
-    decision = classify_front_door(
-        message,
-        run_exec=lambda _prompt: responses.pop(0),
-        operator_question_policy_sink=policies.append,
-        active_mission=True,
-    )
-
     assert decision == (None, "steer", "simple")
-    assert policies == [policy]
+    assert directives == ["完整前向 profiling"]
 
 
-def test_question_about_profiling_cannot_mutate_active_mission() -> None:
-    directives: list[str] = []
-    intent, control, route = classify_front_door(
-        "有没有完整 Profile 测一下前向耗时？macOS 有 quant activation 吗？",
-        run_exec=_exec_sequence(
-            "CONFIG: NONE\nCONTROL: STEER\n"
-            "STEER_DIRECTIVE: 改成完整前向 profiling。\n"
-            "ROUTE: SELF\nSELF_MODE: INSPECT\nREPLY: NONE\n"
-            "LIFETIME: NONE\nGREETING: NONE\nNAME: 前向性能问题",
-            "SELF",
-        ),
-        steering_sink=directives.append,
-        active_mission=True,
+def test_steer_may_make_the_mission_standing_and_set_question_policy() -> None:
+    lifetimes: list[str] = []
+    policies: list[str] = []
+    _classify(
+        "Do not ask further questions; keep going on this indefinitely.",
+        _form(control={"kind": "steer", "quote": "keep going on this indefinitely", "directive": "Continue."},
+              lifetime="standing", operator_question_policy="forbid"),
+        lifetime_sink=lifetimes.append, operator_question_policy_sink=policies.append, active_mission=True,
     )
-
-    assert intent is None
-    assert control is None
-    assert route == "simple"
-    assert directives == []
+    assert lifetimes == ["standing"] and policies == ["forbid"]
 
 
-def test_steer_is_structurally_impossible_without_active_mission() -> None:
-    directives: list[str] = []
-    intent, control, route = classify_front_door(
-        "把当前任务改成完整前向 profiling",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: STEER\n"
-            "STEER_DIRECTIVE: 改成完整前向 profiling。\n"
-            "ROUTE: SELF\nSELF_MODE: INSPECT\nREPLY: NONE\n"
-            "LIFETIME: NONE\nGREETING: NONE\nNAME: 前向性能任务"
-        ),
-        steering_sink=directives.append,
-        active_mission=False,
+@pytest.mark.parametrize("kind", ["abort", "pause", "no_dispatch"])
+def test_controls_are_answered_by_the_manager(kind: str) -> None:
+    decision, _ = _classify("停一下", _form(control={"kind": kind, "quote": "停一下"}))
+    assert decision == (None, kind, "simple")
+
+
+def test_explicit_authorization_reaches_its_consumer() -> None:
+    grants: list[tuple[str, ...]] = []
+    replies: list[str] = []
+    decision, _ = _classify(
+        "允许重试验收", _form(authorization=["acceptance_retry", "acceptance_retry"], self_mode="reply", reply="好"),
+        authorization_sink=grants.append, reply_sink=replies.append,
     )
-
-    assert intent is None
-    assert control is None
-    assert route == "simple"
-    assert directives == []
+    assert decision == (None, None, "simple")
+    assert grants == [("acceptance_retry",)] and replies == []
 
 
-@pytest.mark.parametrize(
-    "token",
-    ["NO_DISPATCH", "NO-DISPATCH", "NO DISPATCH", "NODISPATCH"],
-)
-def test_no_dispatch_control_forces_self_and_never_becomes_team_work(
-    token: str,
-) -> None:
-    intent, control, route = classify_front_door(
-        "只读检查源码，不要派发任务",
-        run_exec=_exec(
-            f"CONFIG: NONE\nCONTROL: {token}\nROUTE: TEAM"
-        ),
+def test_intake_and_domain_reach_their_consumers() -> None:
+    intakes: list[dict] = []
+    domains: list[dict] = []
+    _classify(
+        "以后都用中文回答", _form(intake={"type": "standing_directive", "scope": "global", "roles": ["manager"],
+                                       "preference_value": "用中文回答"}, domain={"vertical": "software"}),
+        intake_sink=intakes.append, domain_sink=domains.append,
     )
-    assert intent is None
-    assert control == "no_dispatch"
-    assert route == "simple"
+    assert intakes == [{
+        "kind": "standing_directive", "scope": "global", "applies_to_roles": ("manager",),
+        "preference_kind": "workflow", "preference_value": "用中文回答", "target_revision": 0,
+    }]
+    assert domains == [{"action": "none", "vertical": "software"}]
 
 
-def test_question_about_stopping_is_not_a_control() -> None:
-    _, control, route = classify_front_door(
-        "怎么实现停止功能",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM"),
-    )
-    assert control is None
-    assert route == "complex"
+def test_no_handoff_takes_the_team_route_and_applies_nothing() -> None:
+    failures: list[str] = []
+    intakes: list[dict] = []
+    decision, _ = _classify("hello", None, failure_sink=failures.append, intake_sink=intakes.append)
+    assert decision == (None, None, "complex")
+    assert intakes == [] and failures == ["classifier ended without handing off a decision"]
 
 
-def test_empty_text_no_model_call() -> None:
-    called = [0]
+def test_empty_text_makes_no_model_call() -> None:
+    def run_exec(_prompt: str, _actions: Any) -> Any:
+        raise AssertionError("no call")
 
-    def _spy(prompt: str):
-        called[0] += 1
-        return _FakeResult("CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF")
-
-    intent, control, route = classify_front_door("   ", run_exec=_spy)
-    assert (intent, control, route) == (None, None, "complex")
-    assert called[0] == 0  # never calls the model on empty input
+    assert classify_front_door("   ", run_exec=run_exec) == (None, None, "complex")
 
 
 def test_exec_error_is_safe_default() -> None:
-    def _boom(prompt: str):
-        raise RuntimeError("backend down")
-
-    assert classify_front_door("y", run_exec=_boom) == (None, None, "complex")
-
-
-def test_nonzero_exit_is_safe_default() -> None:
     failures: list[str] = []
-    intent, control, route = classify_front_door(
-        "y",
-        run_exec=_exec(
-            "CONFIG: SET backend ALL codex\nCONTROL: NONE\nROUTE: SELF",
-            exit_code=1,
-            fatal_error="Forced restart after hard idle timeout (120s)",
-        ),
-        failure_sink=failures.append,
-    )
-    assert (intent, control, route) == (None, None, "complex")
-    assert failures == ["Forced restart after hard idle timeout (120s)"]
 
+    def run_exec(_prompt: str, _actions: Any) -> Any:
+        raise RuntimeError("boom")
 
-def test_oversized_fast_reply_is_delivered() -> None:
-    replies: list[str] = []
-    diagnostics: list[str] = []
-    oversized = "x" * 1601
-
-    intent, control, route = classify_front_door(
-        "answer briefly",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            f"SELF_MODE: REPLY\nREPLY: {oversized}"
-        ),
-        reply_sink=replies.append,
-        failure_sink=diagnostics.append,
-    )
-
-    assert (intent, control, route) == (None, None, "simple")
-    assert replies == [oversized]
-    assert diagnostics == []
-
-
-def test_oversized_steer_directive_is_delivered() -> None:
-    directives: list[str] = []
-    diagnostics: list[str] = []
-    oversized = "x" * 1601
-
-    intent, control, route = classify_front_door(
-        "change the active mission",
-        run_exec=_exec_sequence(
-            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
-            f"STEER_DIRECTIVE: {oversized}",
-            "STEER",
-        ),
-        steering_sink=directives.append,
-        failure_sink=diagnostics.append,
-        active_mission=True,
-    )
-
-    assert (intent, control, route) == (None, "steer", "simple")
-    assert directives == [oversized]
-    assert diagnostics == []
+    assert classify_front_door("x", run_exec=run_exec, failure_sink=failures.append) == (None, None, "complex")
+    assert failures == ["RuntimeError: boom"]
 
 
 def test_sink_exception_records_routing_diagnostic() -> None:
-    diagnostics: list[str] = []
+    failures: list[str] = []
 
-    def _boom_reply(_reply: str) -> None:
+    def boom(_value: Any) -> None:
         raise RuntimeError("reply pipe closed")
 
-    def _boom_steer(_directive: str) -> None:
-        raise RuntimeError("steer pipe closed")
-
-    intent, control, route = classify_front_door(
-        "say hello",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "SELF_MODE: REPLY\nREPLY: hello"
-        ),
-        reply_sink=_boom_reply,
-        failure_sink=diagnostics.append,
-    )
-    assert (intent, control, route) == (None, None, "simple")
-    assert any(
-        "reply sink failed" in entry and "reply pipe closed" in entry
-        for entry in diagnostics
-    )
-
-    diagnostics.clear()
-    intent, control, route = classify_front_door(
-        "change the active mission",
-        run_exec=_exec_sequence(
-            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
-            "STEER_DIRECTIVE: focus on the docs",
-            "STEER",
-        ),
-        steering_sink=_boom_steer,
-        failure_sink=diagnostics.append,
-        active_mission=True,
-    )
-    assert (intent, control, route) == (None, "steer", "simple")
-    assert any(
-        "steering sink failed" in entry and "steer pipe closed" in entry
-        for entry in diagnostics
-    )
-
-
-def test_invalid_route_token_preserves_parsed_control() -> None:
-    diagnostics: list[str] = []
-
-    intent, control, route = classify_front_door(
-        "stop the active task",
-        run_exec=_exec("CONFIG: NONE\nCONTROL: ABORT\nROUTE: BANANA"),
-        failure_sink=diagnostics.append,
-        active_mission=True,
-    )
-
-    assert (intent, control, route) == (None, "abort", "simple")
-    assert diagnostics and diagnostics[0].startswith(
-        "route token invalid; control preserved"
-    )
+    decision, _ = _classify("say hello", _form(self_mode="reply", reply="hello"),
+                            reply_sink=boom, failure_sink=failures.append)
+    assert decision == (None, None, "simple")
+    assert any("sink failed" in entry and "reply pipe closed" in entry for entry in failures)
 
 
 def test_nonzero_exit_preserves_redacted_runner_diagnostic(redact_secrets_on, monkeypatch) -> None:
-    result = _FakeResult("", exit_code=1)
-    result.fatal_error = ""
-    result.stderr_lines = [
+    result = SimpleNamespace(exit_code=1, fatal_error="", stderr_lines=[
         '"node" is not recognized as an internal or external command.',
         "OPENAI_API_KEY=super-secret-value",
-    ]
+    ])
     failures: list[str] = []
     monkeypatch.setenv("OPENAI_API_KEY", "super-secret-value")
 
-    decision = classify_front_door(
-        "hello",
-        run_exec=lambda _prompt: result,
-        failure_sink=failures.append,
-    )
+    decision = classify_front_door("hello", run_exec=lambda _prompt, _actions: result, failure_sink=failures.append)
 
     assert decision == (None, None, "complex")
     assert len(failures) == 1
-    assert "exit 1" in failures[0]
-    assert "node" in failures[0]
+    assert "exit 1" in failures[0] and "node" in failures[0]
     assert "super-secret-value" not in failures[0]
     assert "<REDACTED" in failures[0]
-
-
-def test_prefixes_are_case_insensitive() -> None:
-    intent, control, route = classify_front_door(
-        "x",
-        run_exec=_exec(
-            "config: SET safe_mode - on\ncontrol: none\nroute: self"
-        ),
-    )
-    assert intent == ConfigIntent(knob="safe_mode", roles=(), value="on")
-    assert control is None
-    assert route == "simple"
-
-
-@pytest.mark.parametrize(
-    ("text", "answer", "kind", "name"),
-    [
-        (
-            "帮我调研一下扩散模型的最新进展",
-            "ROUTE: TEAM\nLIFETIME: BOUNDED\nINTAKE_TYPE: EPHEMERAL\n"
-            "NAME: 扩散模型进展调研",
-            "ephemeral",
-            "扩散模型进展调研",
-        ),
-        (
-            "解释一下这篇论文的主要贡献",
-            "ROUTE: SELF\nSELF_MODE: SYNTHESIZE\nINTAKE_TYPE: EPHEMERAL\n"
-            "NAME: 论文贡献解读",
-            "ephemeral",
-            "论文贡献解读",
-        ),
-        (
-            "给登录页加一个记住我选项",
-            "ROUTE: SELF\nSELF_MODE: IMPLEMENT\nINTAKE_TYPE: EPHEMERAL\n"
-            "NAME: 登录页记住我",
-            "ephemeral",
-            "登录页记住我",
-        ),
-        (
-            "以后都用中文回答",
-            "ROUTE: SELF\nSELF_MODE: INSPECT\nINTAKE_TYPE: STANDING_DIRECTIVE\nNAME: NONE",
-            "standing_directive",
-            "",
-        ),
-        (
-            # A long-term instruction acknowledged in place is still long-term.
-            "以后都用中文回答",
-            "ROUTE: SELF\nSELF_MODE: REPLY\nINTAKE_TYPE: STANDING_DIRECTIVE\n"
-            "REPLY: 好的，以后都用中文回答。\nNAME: NONE",
-            "standing_directive",
-            "",
-        ),
-        (
-            "你好",
-            "ROUTE: SELF\nSELF_MODE: REPLY\nINTAKE_TYPE: EPHEMERAL\n"
-            "GREETING: GREETING\nREPLY: 你好！\nNAME: NONE",
-            "ephemeral",
-            "",
-        ),
-    ],
-)
-def test_front_door_intake_replay(text, answer, kind, name) -> None:
-    intakes: list[dict] = []
-    names: list[str] = []
-    classify_front_door(
-        text,
-        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\n" + answer),
-        intake_sink=intakes.append,
-        name_sink=names.append,
-    )
-
-    assert intakes[0]["kind"] == kind
-    assert [n for n in names if n.upper() != "NONE"] == ([name] if name else [])
-
-
-def test_front_door_standing_reply_turn_keeps_the_model_judgement() -> None:
-    intakes: list[dict] = []
-    classify_front_door(
-        "从现在起回答都先给结论",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nSELF_MODE: REPLY\n"
-            "INTAKE_TYPE: STANDING_DIRECTIVE\nREPLY: 好的\nNAME: NONE"
-        ),
-        intake_sink=intakes.append,
-    )
-
-    assert intakes[0]["kind"] == "standing_directive"
-
-
-def test_front_door_applied_config_change_is_not_a_standing_directive() -> None:
-    # The config store owns a setting change; it must not also become a
-    # standing instruction that is announced and steers every later turn.
-    intakes: list[dict] = []
-    intent, _control, _route = classify_front_door(
-        "把默认模型改成 x-model",
-        run_exec=_exec(
-            "CONFIG: SET model ALL x-model\nCONTROL: NONE\nROUTE: SELF\n"
-            "SELF_MODE: REPLY\nINTAKE_TYPE: STANDING_DIRECTIVE\nREPLY: NONE\nNAME: NONE"
-        ),
-        intake_sink=intakes.append,
-    )
-
-    assert intent is not None
-    assert intakes[0]["kind"] == "preference"
-
-
-def test_front_door_prompt_lets_greeting_reply_when_replies_are_off() -> None:
-    prompt = build_front_door_prompt("你好", allow_reply=False)
-    assert "REPLY must be NONE except for a GREETING" in prompt
-    assert "REPLY greets + 2-3 starter asks" in prompt
-
-
-def test_front_door_prompt_grounds_intake_in_ongoing_intent() -> None:
-    prompt = build_front_door_prompt("帮我调研一下")
-    assert "Unsure: EPHEMERAL" in prompt
-    assert "however big" in prompt
-    assert "govern later turns" in prompt
-    assert "以后都用中文" in prompt
-    assert "message's language" in prompt
-    # A greeting has no topic; titling it yields an untranslated label.
-    assert "greeting/chat/settings NONE" in prompt

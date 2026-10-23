@@ -1,64 +1,63 @@
-"""Tests for Manager domain authoring parser (``manager/domain_author``)."""
+"""The route form's check (``RouteContext``), domain proposals and the routing prompts."""
 from __future__ import annotations
-
-import json
 
 import pytest
 
+from argus.core.handoff import HandOffActions
 from argus.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
 from argus.manager.domain_author import (
     DomainProposal,
+    RouteContext,
     build_vertical_decision_prompt,
     parse_domain_proposal,
-    parse_fast_vertical_decision,
-    parse_vertical_decision,
 )
 from argus.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
+RESEARCH = RouteContext(
+    known_verticals=VERTICALS, known_domains=BUILTIN_DOMAINS, research_target_verticals=("research",),
+)
+PERSISTED = RouteContext(
+    known_verticals=VERTICALS, known_domains=(*BUILTIN_DOMAINS, "physics"), research_target_verticals=("research",),
+    persisted_vertical="research", persisted_workflow_mode="staged", persisted_domain="chemistry",
+    persisted_research_target_level="publishable", persisted_research_direction_mode="broad",
+)
+
+
+def _route(context: RouteContext = RouteContext(known_verticals=VERTICALS), **fields):
+    """What the route form records for a hand_off call with ``fields``."""
+    actions = HandOffActions("route", check=context.decide, operator_available=True)
+    actions.dispatch("hand_off", {
+        "to": "team", "summary": "why this route", "assumptions": [], "choice": "existing",
+        "execution_task": "do the task", **fields,
+    })
+    return actions.handoff.value
+
+
+def _refused(context: RouteContext = RouteContext(known_verticals=VERTICALS), **fields) -> str:
+    with pytest.raises(ValueError) as refusal:
+        _route(context, **fields)
+    return str(refusal.value)
+
 
 def test_parse_domain_proposal_uses_runtime_owned_stages():
-    raw = json.dumps({
-        "name": "robotics_sim",
-        "rationale": "novel control domain",
-        "confidence": 0.8,
-    })
-    p = parse_domain_proposal(raw, known_verticals=VERTICALS)
+    p = parse_domain_proposal(
+        {"name": "robotics_sim", "stages": ["scope", "simulate"], "rationale": "novel control domain"},
+        known_verticals=VERTICALS,
+    )
     assert isinstance(p, DomainProposal)
     assert p.name == "robotics_sim"
     assert p.stages == list(CANDIDATE_DOMAIN_STAGES)
 
 
-def test_parse_ignores_legacy_stages_in_structured_manager_payload():
-    proposal = parse_domain_proposal(
-        {
-            "name": "robotics_sim",
-            "stages": ["scope", "simulate", "review"],
-            "rationale": "structured process decision",
-        },
-        known_verticals=VERTICALS,
-    )
-
-    assert proposal is not None
-    assert proposal.name == "robotics_sim"
-    assert proposal.stages == list(CANDIDATE_DOMAIN_STAGES)
-
-
-def test_parse_sluggifies_name():
-    raw = json.dumps({"name": "Robotics Sim!"})
-    p = parse_domain_proposal(raw, known_verticals=VERTICALS)
-    assert p.name == "robotics_sim"
-
-
-def test_parse_fail_closed_on_bad_json():
-    assert parse_domain_proposal("not json", known_verticals=VERTICALS) is None
-    assert parse_domain_proposal("{}", known_verticals=VERTICALS) is None
+def test_parse_sluggifies_name_and_needs_one():
+    assert parse_domain_proposal({"name": "Robotics Sim!"}, known_verticals=VERTICALS).name == "robotics_sim"
+    assert parse_domain_proposal({}, known_verticals=VERTICALS) is None
 
 
 def test_parse_dedupes_name_against_known_and_existing():
     # Collision with a preset vertical → suffixed, not rejected.
-    raw = json.dumps({"name": "research"})
-    p = parse_domain_proposal(raw, known_verticals=VERTICALS, existing_data_domains=["research_2"])
+    p = parse_domain_proposal({"name": "research"}, known_verticals=VERTICALS, existing_data_domains=["research_2"])
     assert p is not None and p.name not in ("research", "research_2")
 
 
@@ -70,13 +69,10 @@ def test_vertical_prompt_stays_compact():
 
     assert "stable reusable staged capability" in prompt
     assert "Pick the closest existing capability" in prompt
-    # A ratchet, not a model limit. 56a02152 simplified this prompt and pinned a
-    # ceiling so it would not quietly regrow; the number is "a little above
-    # whatever it costs today", and it should be raised only for content that
-    # earns its space. It moved 7_500 -> 8_100 for the three requirement lines
-    # (PRECISE_CONSTRAINTS / EXCLUSIONS / AMBIGUITIES, 544 chars), which carry
-    # the operator's own words into the contract. Keep the headroom small.
-    assert len(prompt) <= 8_200
+    # A ratchet, not a model limit: "a little above whatever it costs today",
+    # raised only for content that earns its space. The field documentation
+    # lives in the route form, not here.
+    assert len(prompt) <= 5_300
 
 
 def test_vertical_prompts_do_not_treat_one_paper_reading_as_research_pipeline():
@@ -118,44 +114,8 @@ def test_research_routing_distinguishes_idea_only_from_paper_production() -> Non
     assert 'Research figures, plots, diagrams, Figure 1' in prompt
     assert 'manuscript revisions are `research`' in prompt
     assert 'produce that part without adding a manuscript, experiments, or literature review' in prompt
-    assert "START_STAGE=<stage name or empty>" in prompt
+    assert "Optional start_stage applies only to workflow_mode=direct" in prompt
     assert '`paper` for figures, drafts, sections, or revisions' in prompt
-
-
-@pytest.mark.parametrize("parse", [parse_fast_vertical_decision, parse_vertical_decision])
-@pytest.mark.parametrize(
-    ("vertical", "workflow_mode", "start_stage", "expected"),
-    [
-        ("research", "direct", "paper", "paper"),
-        ("research", "staged", "paper", ""),
-        ("research", "direct", "  DrAfT  ", "paper"),
-        ("research", "direct", "not_a_stage", ""),
-        ("research", "direct", "", ""),
-        ("research", "direct", None, ""),
-        ("research", "direct", "idea", "idea"),
-        ("research", "direct", "experiment", "experiment"),
-        ("software", "direct", "paper", ""),
-    ],
-)
-def test_vertical_parsers_accept_start_stage_only_in_direct_vertical(
-    parse, vertical, workflow_mode, start_stage, expected,
-) -> None:
-    lines = [
-        "CHOICE=existing",
-        f"VERTICAL={vertical}",
-        f"WORKFLOW_MODE={workflow_mode}",
-        "CONFIDENCE=0.99",
-        "RESEARCH_TARGET_LEVEL=exploratory",
-        "RESEARCH_DIRECTION_MODE=locked",
-        "EXECUTION_TASK=Produce only the requested deliverable.",
-    ]
-    if start_stage is not None:
-        lines.append(f"  start_Stage = {start_stage}  ")
-
-    decision = parse("\n".join(lines), known_verticals=VERTICALS)
-
-    assert decision is not None
-    assert decision.start_stage == expected
 
 
 def test_vertical_prompt_composes_chemistry_with_research() -> None:
@@ -167,7 +127,7 @@ def test_vertical_prompt_composes_chemistry_with_research() -> None:
 
     assert "`chemistry`" in prompt
     assert "`domain`" in prompt
-    assert "CHOICE=existing" in prompt
+    assert "End with hand_off" in prompt
 
 
 def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> None:
@@ -177,49 +137,9 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
     )
 
     assert 'Choose VERTICAL' in prompt
-    assert "WORKFLOW_MODE=direct" in prompt
-    assert "REQUIRE_INDEPENDENT_REVIEW=true" in prompt
+    assert "`direct` for one coherent Engineer task" in prompt
     assert 'Independent review defaults on' in prompt
     assert "software" in prompt
-
-
-def test_vertical_parser_preserves_explicit_independent_review() -> None:
-    decision = parse_vertical_decision(
-        "\n".join([
-            "CHOICE=existing",
-            "VERTICAL=software",
-            "DOMAIN=",
-            "WORKFLOW_MODE=direct",
-            "REQUIRE_INDEPENDENT_REVIEW=true",
-            "RATIONALE=the operator explicitly requested an independent Reviewer",
-        ]),
-        known_verticals=("software",),
-        default_execution_task="Implement and review the cache.",
-    )
-
-    assert decision is not None
-    assert decision.require_independent_review is True
-
-
-def test_vertical_parser_keeps_the_operator_question_and_its_options() -> None:
-    decision = parse_vertical_decision(
-        "\n".join([
-            "CHOICE=existing",
-            "VERTICAL=software",
-            "WORKFLOW_MODE=direct",
-            "RATIONALE=the two requirements contradict each other",
-            "→ operator: Which requirement wins?",
-            "- Keep the v1 API",
-            "- Ship the v2 schema",
-        ]),
-        known_verticals=("software",),
-        default_execution_task="Implement the cache.",
-    )
-
-    assert decision is not None
-    assert (decision.operator_question, decision.operator_options) == (
-        "Which requirement wins?", ("Keep the v1 API", "Ship the v2 schema"),
-    )
 
 
 def test_new_domain_starts_with_real_work_not_process_ceremony() -> None:
@@ -244,419 +164,129 @@ def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
     assert "Repository work is usually `software`" in prompt
     # 2026-10-20: "经独立审阅后交付" in the Engineer's task had it run its own
     # review before the Reviewer ran the formal one.
-    assert "leave review out, since `REQUIRE_INDEPENDENT_REVIEW` carries it" in prompt
+    assert "leave review out, since `require_independent_review` carries it" in prompt
 
 
-def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
-    route = parse_fast_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "software",
-            "workflow_mode": "direct",
-            "confidence": 0.94,
-            "research_target_level": None,
-            "rationale": "bounded repair",
-        }),
-        known_verticals=VERTICALS,
+@pytest.mark.parametrize("fast", [True, False])
+@pytest.mark.parametrize(
+    ("vertical", "workflow_mode", "start_stage", "expected"),
+    [
+        ("research", "direct", "paper", "paper"),
+        ("research", "staged", "paper", ""),
+        ("research", "direct", "  DrAfT  ", "paper"),
+        ("research", "direct", "not_a_stage", ""),
+        ("research", "direct", "", ""),
+        ("research", "direct", "idea", "idea"),
+        ("software", "direct", "paper", ""),
+    ],
+)
+def test_start_stage_counts_only_in_a_direct_vertical(fast, vertical, workflow_mode, start_stage, expected) -> None:
+    context = RouteContext(known_verticals=VERTICALS, research_target_verticals=("research",), fast=fast)
+    decision = _route(
+        context, vertical=vertical, workflow_mode=workflow_mode, start_stage=start_stage,
+        research_target_level="exploratory", research_direction_mode="locked",
+    )
+    assert decision.start_stage == expected
+
+
+def test_a_route_carries_the_operator_s_words_and_the_readings_chosen() -> None:
+    decision = _route(
+        vertical="software", workflow_mode="direct", require_independent_review=False,
+        precise_constraints=["pytest -q exits zero", " pytest -q  exits zero"],
+        exclusions=["do not change the public API"],
+        assumptions=[{"chose": "the stdlib backend", "instead_of": "the optional C backend"}],
+        session_title="Cache repair",
+    )
+    assert (decision.vertical, decision.workflow_mode, decision.adaptation_reason) == (
+        "software", "direct", "why this route",
+    )
+    assert decision.require_independent_review is False
+    assert decision.precise_constraints == ("pytest -q exits zero",)
+    assert decision.exclusions == ("do not change the public API",)
+    assert decision.assumptions == ({"chose": "the stdlib backend", "instead_of": "the optional C backend"},)
+
+
+def test_a_route_to_the_operator_keeps_the_question_and_its_answers() -> None:
+    options = [{"label": "Keep the v1 API"}, {"label": "Ship the v2 schema"}]
+    decision = _route(
+        to="operator", vertical="software", workflow_mode="direct",
+        ask={"question": "Which requirement wins?", "options": options},
+    )
+    assert (decision.operator_question, decision.operator_options) == ("Which requirement wins?", tuple(options))
+
+
+@pytest.mark.parametrize("choice", ["grounded", "new"])
+def test_the_fast_pass_commits_only_an_existing_route(choice) -> None:
+    assert _route(RouteContext(known_verticals=VERTICALS, fast=True), choice=choice, vertical="x_y") is None
+    assert "fast pass" in _refused(choice="grounded")
+
+
+def test_a_contextual_task_needs_its_own_execution_task() -> None:
+    assert "execution_task" in _refused(vertical="software", execution_task="")
+    assert _route(RouteContext(known_verticals=VERTICALS, default_execution_task="repair"),
+                  vertical="software", execution_task="").execution_task == "repair"
+
+
+def test_a_vertical_must_be_on_the_menu() -> None:
+    assert "vertical must be one of" in _refused(vertical="astrology")
+
+
+def test_research_takes_a_listed_domain_and_nothing_else_does() -> None:
+    decision = _route(RESEARCH, vertical="research", domain="chemistry", research_target_level="publishable")
+    assert (decision.domain, decision.research_direction_mode) == ("chemistry", "broad")
+    assert "optional research domain" in _refused(RESEARCH, vertical="software", domain="chemistry")
+    assert "domain must be empty or one of" in _refused(
+        RESEARCH, vertical="research", domain="astrology", research_target_level="publishable",
     )
 
-    assert route is not None
-    assert route.needs_grounding is False
-    assert route.vertical == "software"
-    assert route.workflow_mode == "direct"
-    assert route.confidence == 0.94
-    assert route.require_independent_review is True
+
+def test_the_legacy_direct_alias_is_software_run_directly() -> None:
+    decision = _route(vertical="direct")
+    assert (decision.vertical, decision.workflow_mode) == ("software", "direct")
+    assert "workflow_mode=direct" in _refused(vertical="direct", workflow_mode="staged")
+    recovered = _route(RouteContext(known_verticals=VERTICALS, persisted_vertical="direct"), vertical="software")
+    assert recovered.workflow_mode == "direct"
 
 
-def test_fast_vertical_parser_preserves_manager_contract_details() -> None:
-    route = parse_fast_vertical_decision(
-        {
-            "choice": "existing",
-            "vertical": "software",
-            "workflow_mode": "direct",
-            "confidence": 0.96,
-            "require_independent_review": False,
-            "precise_constraints": ["pytest -q exits zero"],
-            "exclusions": ["do not change the public API"],
-            "ambiguities": ["which optional backend is available"],
-        },
-        known_verticals=VERTICALS,
+def test_a_research_target_is_required_or_inherited() -> None:
+    assert "research_target_level is required" in _refused(RESEARCH, vertical="research")
+    decision = _route(PERSISTED, vertical="research", workflow_mode="staged")
+    assert (decision.domain, decision.research_target_level, decision.research_direction_mode) == (
+        "chemistry", "publishable", "broad",
+    )
+    fresh = _route(RESEARCH, vertical="research", research_target_level="publishable", research_direction_mode="locked")
+    assert fresh.research_direction_mode == "locked"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"workflow_mode": "direct"},
+        {"domain": "physics"},
+        {"research_target_level": "exploratory"},
+        {"research_direction_mode": "locked"},
+    ],
+)
+def test_supplemental_work_keeps_the_persisted_route_contract(fields) -> None:
+    refusal = _refused(PERSISTED, vertical="research", **fields)
+    assert "the active route contract fixes it" in refusal
+    reopened = RouteContext(**{**PERSISTED.__dict__, "allow_persisted_change": True})
+    decision = _route(reopened, vertical="research", **fields)
+    assert all(getattr(decision, key) == value for key, value in fields.items())
+
+
+def test_a_direction_mode_outside_the_form_is_refused() -> None:
+    assert "research_direction_mode" in _refused(
+        RESEARCH, vertical="research", research_target_level="exploratory",
+        research_direction_mode="experimental_validation",
     )
 
-    assert route is not None
-    assert route.require_independent_review is False
-    assert route.precise_constraints == ("pytest -q exits zero",)
-    assert route.exclusions == ("do not change the public API",)
-    assert route.ambiguities == ("which optional backend is available",)
 
-
-def test_fast_vertical_parser_rejects_legacy_direct_alias_with_staged_workflow() -> None:
-    route = parse_fast_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "direct",
-            "workflow_mode": "staged",
-            "confidence": 0.94,
-            "rationale": "conflicting alias",
-        }),
-        known_verticals=VERTICALS,
-    )
-
-    assert route is None
-
-
-def test_fast_vertical_parser_accepts_research_with_chemistry_domain() -> None:
-    route = parse_fast_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "research",
-            "domain": "chemistry",
-            "workflow_mode": "staged",
-            "confidence": 0.97,
-            "research_target_level": "publishable",
-            "rationale": "chemistry paper",
-        }),
-        known_verticals=VERTICALS,
-        known_domains=BUILTIN_DOMAINS,
-        research_target_verticals=("research",),
-    )
-
-    assert route is not None
-    assert route.vertical == "research"
-    assert route.domain == "chemistry"
-
-
-def test_vertical_parser_rejects_domain_on_non_research_workflow() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "software",
-            "domain": "chemistry",
-            "workflow_mode": "staged",
-            "execution_task": "repair chemistry package",
-        }),
-        known_verticals=VERTICALS,
-        known_domains=BUILTIN_DOMAINS,
-        default_execution_task="repair chemistry package",
-    )
-
-    assert decision is None
-
-
-def test_vertical_parser_defaults_legacy_direct_alias_to_direct_workflow() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "direct",
-            "execution_task": "repair the repository",
-        }),
-        known_verticals=VERTICALS,
-    )
-
-    assert decision is not None
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
-
-
-def test_vertical_parser_rejects_legacy_direct_alias_with_staged_workflow() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "direct",
-            "workflow_mode": "staged",
-            "execution_task": "repair the repository",
-        }),
-        known_verticals=VERTICALS,
-    )
-
-    assert decision is None
-
-
-def test_vertical_parser_rejects_direct_alias_conflicting_with_persisted_staged() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "direct",
-            "execution_task": "repair the repository",
-        }),
-        known_verticals=VERTICALS,
-        persisted_vertical="software",
-        persisted_workflow_mode="staged",
-    )
-
-    assert decision is None
-
-
-def test_vertical_parser_recovers_direct_mode_from_legacy_persisted_alias() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "software",
-            "execution_task": "repair the repository",
-        }),
-        known_verticals=VERTICALS,
-        persisted_vertical="direct",
-    )
-
-    assert decision is not None
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "direct"
-
-
-def test_new_operator_handoff_can_raise_same_research_route_contract() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "broad",
-            "execution_task": "Run real experiments for a submission-grade result.",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="direct",
-        persisted_research_target_level="exploratory",
-        persisted_research_direction_mode="locked",
-        allow_persisted_change=True,
-    )
-
-    assert decision is not None
-    assert decision.workflow_mode == "staged"
-    assert decision.research_target_level == "publishable"
-    assert decision.research_direction_mode == "broad"
-
-
-def test_new_handoff_recovers_prior_direction_from_noncontract_model_label() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "exploratory",
-            "research_direction_mode": "experimental_validation",
-            "execution_task": "Run a bounded real-model smoke test.",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="direct",
-        persisted_research_target_level="exploratory",
-        persisted_research_direction_mode="locked",
-        allow_persisted_change=True,
-    )
-
-    assert decision is not None
-    assert decision.workflow_mode == "staged"
-    assert decision.research_direction_mode == "locked"
-
-
-def test_vertical_parser_recovers_required_persisted_research_target() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "execution_task": "continue the paper",
-        }),
-        known_verticals=VERTICALS,
-        known_domains=BUILTIN_DOMAINS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_domain="chemistry",
-        persisted_research_target_level="publishable",
-    )
-
-    assert decision is not None
-    assert decision.domain == "chemistry"
-    assert decision.research_target_level == "publishable"
-    assert decision.research_direction_mode == "broad"
-
-
-def test_vertical_parser_preserves_operator_locked_research_hypothesis() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "locked",
-            "execution_task": "test the operator's fixed hypothesis",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_research_target_level="publishable",
-        persisted_research_direction_mode="locked",
-    )
-
-    assert decision is not None
-    assert decision.research_direction_mode == "locked"
-
-
-def test_vertical_parser_preserves_fresh_locked_paper_direction() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "locked",
-            "execution_task": "find a paper idea",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-    )
-
-    assert decision is not None
-    assert decision.research_direction_mode == "locked"
-
-
-def test_vertical_parser_rejects_downgrading_persisted_broad_research() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "locked",
-            "execution_task": "continue the paper",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_research_target_level="publishable",
-        persisted_research_direction_mode="broad",
-    )
-
-    assert decision is None
-
-
-def test_new_operator_intent_can_lock_a_prior_broad_direction() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "locked",
-            "execution_task": "write a paper from the operator's supplied idea",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_research_target_level="publishable",
-        persisted_research_direction_mode="broad",
-        allow_persisted_change=True,
-    )
-
-    assert decision is not None
-    assert decision.research_direction_mode == "locked"
-
-
-def test_supplemental_task_cannot_broaden_a_locked_direction() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "workflow_mode": "staged",
-            "research_target_level": "publishable",
-            "research_direction_mode": "broad",
-            "execution_task": "continue the supplied paper idea",
-        }),
-        known_verticals=VERTICALS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_research_target_level="publishable",
-        persisted_research_direction_mode="locked",
-    )
-
-    assert decision is None
-
-
-def test_vertical_parser_rejects_changed_persisted_research_domain() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "research",
-            "domain": "physics",
-            "workflow_mode": "staged",
-            "execution_task": "continue the paper",
-        }),
-        known_verticals=VERTICALS,
-        known_domains=BUILTIN_DOMAINS,
-        research_target_verticals=("research",),
-        persisted_vertical="research",
-        persisted_workflow_mode="staged",
-        persisted_domain="chemistry",
-        persisted_research_target_level="publishable",
-    )
-
-    assert decision is None
-
-
-def test_fast_vertical_parser_rejects_explicit_workflow_conflict_with_persisted() -> None:
-    route = parse_fast_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "name": "software",
-            "workflow_mode": "direct",
-            "confidence": 0.94,
-            "rationale": "conflicting persisted identity",
-        }),
-        known_verticals=VERTICALS,
-        persisted_vertical="software",
-        persisted_workflow_mode="staged",
-    )
-
-    assert route is None
-
-
-def test_vertical_parser_ignores_existing_domain_stage_adaptation() -> None:
-    decision = parse_vertical_decision(
-        json.dumps({
-            "choice": "existing",
-            "vertical": "regulated_localization",
-            "stages": [
-                "terminology_lock",
-                "translation",
-                "regulatory_review",
-                "layout_qa",
-                "linguistic_qa",
-                "release",
-            ],
-            "workflow_mode": "staged",
-            "execution_task": "Localize and release the regulated product UI.",
-            "rationale": "the matching one-stage domain is materially underfit",
-        }),
-        known_verticals=VERTICALS,
-        existing_data_domains=["regulated_localization"],
-    )
-
-    assert decision is not None
-    assert decision.choice == "existing"
-    assert decision.vertical == "regulated_localization"
-    assert decision.adapted_stages == ()
-
-
-def test_fast_vertical_parser_sends_new_or_uncertain_work_to_grounding() -> None:
-    route = parse_fast_vertical_decision(
-        json.dumps({
-            "choice": "grounded",
-            "confidence": 0.4,
-            "rationale": "repository structure matters",
-        }),
-        known_verticals=VERTICALS,
-    )
-
-    assert route is not None
-    assert route.needs_grounding is True
+def test_a_new_domain_takes_no_profile_and_needs_a_slug() -> None:
+    decision = _route(choice="new", vertical="Robotics Sim", workflow_mode="direct", start_stage="frame")
+    assert (decision.vertical, decision.proposal.rationale) == ("robotics_sim", "why this route")
+    assert "no workflow profiles" in _refused(choice="new", vertical="robotics_sim", workflow_profile="full")
+    assert "slug" in _refused(choice="new", vertical="!!")
 
 
 def test_grounded_vertical_prompt_preserves_manager_agency_and_planner_boundary() -> None:

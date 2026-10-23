@@ -10,7 +10,6 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.paths import NATIVE_SKILLS_DIR
-from ...core.role_handoff import OPERATOR_CHOICES_RULE
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     EXPERIMENT_EVIDENCE_CONTRACT,
@@ -44,45 +43,27 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "need the result, then wait for it on `until [ -e <run>/exit_code ]; do "
     "sleep 30; done`" + _WAIT_BY_BACKEND
 )
-# The baton line of docs/role-handoff-design.md: prose for the next holder,
-# then one line naming it. The host routes the work by that line alone.
+# The Engineer ends its turn with the one action every role ends with
+# (core.handoff); what each holder means is in the action's own description.
 _HANDOFF_RULE = (
     "## Handing off\n"
-    "End with a short handoff in the operator's language: changes with output "
-    "paths, the decisive check, what is open, why the next holder. Its first "
-    "sentence is what the operator reads: what was done and found, in plain words. "
-    "The operator reads all of it, so call the roles the Manager, Planner and "
-    "Reviewer, and leave Argus' own files such as CHECKPOINT.md out of it. "
-    "Then one line naming that holder:\n"
-    "→ reviewer\n"
-    "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
-    "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-    "`→ operator: <one question>`. " + OPERATOR_CHOICES_RULE + " The Reviewer you "
-    "hand to with `→ reviewer` does the independent review; do not start one "
-    "yourself or through a subagent."
+    "End your turn with hand_off. Its summary is the one sentence the operator reads: "
+    "what was done and found, in their language and plain words. Its note is for the "
+    "next holder: changes with output paths, the decisive check, what is open, and why "
+    "it goes to them."
 )
 
 
-# The Engineer, not a word list, decides whether its question needs a person.
-def engineer_operator_handoff_rule() -> str:
-    """How the Engineer hands a decision to the operator in this run."""
+def engineer_handoff_rule() -> str:
+    """How the Engineer ends its turn, and who decides where the operator cannot be asked."""
     from ...core.autonomy import operator_available
 
-    if not operator_available():
-        return (
-            "No operator is available in this run; the Manager decides in their "
-            "place. Settle what a requirement means yourself, on the most "
-            "defensible reading, and record it in CHECKPOINT.md. Never assume facts "
-            "or results, or fake credentials or services; if a required input is "
-            "missing, say what and hand off with `→ manager`. Use `→ operator: "
-            "<question>` only for an action only the operator could approve "
-            "(credentials, spending, or an irreversible or external step); the "
-            "Manager decides it."
-        )
-    return (
-        "Use `→ operator: <question>` only for a real operator decision, such as "
-        "a choice between requirements of theirs that conflict; that parks the "
-        "task until they answer."
+    return _HANDOFF_RULE if operator_available() else _HANDOFF_RULE + (
+        " No operator is available in this run; the Manager decides in their place. "
+        "Settle what a requirement means yourself, on the most defensible reading, and "
+        "write it in assumptions. Never assume facts or results, or fake credentials or "
+        "services: a missing input, or an action only the operator could approve "
+        "(credentials, spending, or an irreversible or external step), goes to=manager."
     )
 
 
@@ -307,7 +288,7 @@ def build_mission_prompt(
             RESEARCHER_VOICE + "\n\n"
             "## Engineer summary\n"
             "Return the material result and decisive check; Reviewer judges whether the work holds.\n\n"
-            + _HANDOFF_RULE + " " + engineer_operator_handoff_rule()
+            + engineer_handoff_rule()
         )
         if skill_text:
             sections.append(skill_text)
@@ -340,11 +321,9 @@ def build_mission_prompt(
         sections.append(learning_block)
     sections.append(
         "## Carrying context between rounds\n"
-        "CHECKPOINT.md carries your state from one round to the next. "
-        + engineer_operator_handoff_rule()
-        + "\n\n"
+        "CHECKPOINT.md carries your state from one round to the next.\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + _HANDOFF_RULE
+        + engineer_handoff_rule()
     )
     if skill_text:
         sections.append(skill_text)
@@ -410,11 +389,8 @@ def build_mission_prompt(
         + "\n"
         + _long_experiment_rule()
         + "\n\n"
-        "## Carrying context between rounds\n"
-        + engineer_operator_handoff_rule()
-        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + _HANDOFF_RULE
+        + engineer_handoff_rule()
     )
     if shell_contract:
         compact = shell_contract + "\n\n" + compact

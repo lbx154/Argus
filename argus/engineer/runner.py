@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import itertools
 import logging
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
+from ..core.handoff import HandOffActions
 from ..core.models import (
     LoopOutcome,
     LoopStatus,
@@ -15,6 +17,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from ..core.role_actions import role_actions
 from ..core.role_session import (
     RoleSessionCapsule,
     objective_revision,
@@ -433,7 +436,9 @@ class SupervisedEngineer(
         reasoning_effort: str | None = None,
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
+        actions: HandOffActions | None = None,
     ) -> tuple[RunnerResult, int]:
+        """One Engineer call; with ``actions``, the turn ends with that form's ``hand_off``."""
         stalled_idle_seconds: int | None = None
         stall_watch: TurnStallWatch | None = None
         if supervised_config is not None:
@@ -446,53 +451,52 @@ class SupervisedEngineer(
                     on_event=on_event,
                 )
         try:
-            result = gateway_run_exec(
-                self.engineer_runner,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self.engineer_config.model,
-                    reasoning_effort=(
-                        reasoning_effort
-                        if reasoning_effort is not None
-                        else self.engineer_config.reasoning_effort
-                    ),
-                    extra_args=self.engineer_config.extra_args,
-                    add_dirs=self.engineer_config.add_dirs,
-                    skill_paths=self.engineer_config.skill_paths,
-                    full_auto=self.engineer_config.full_auto,
-                    skip_git_repo_check=self.engineer_config.skip_git_repo_check,
-                    dangerous_yolo=self.engineer_config.dangerous_yolo,
-                    sandbox_mode=self.engineer_config.sandbox_mode,
-                    isolate_workdir=self.engineer_config.isolate_workdir,
-                    # The Engineer keeps its state in CHECKPOINT.md, so the
-                    # agent CLI's own tools it never uses stay out of requests.
-                    lean_tool_surface=True,
-                    working_dir=str(workdir),
-                    live_search=_engineer_live_search(
-                        self.engineer_config.vertical_state_root or workdir,
-                        self.engineer_config.live_search_stages,
-                    ),
-                    # Provider/process liveness belongs to the backend's stream
-                    # watchdog. Do not infer semantic progress from project
-                    # mtimes or provider-private session files.
-                    external_interrupt_reason_provider=None,
-                    inactivity_callback=stall_watch,
-                    watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
-                    watchdog_stalled_idle_seconds=stalled_idle_seconds,
-                    extension_env=(
-                        {
-                            "ARGUS_PLUGIN_PARENT_MISSION_ID": str(
-                                supervised_config.session_id
-                            )
-                        }
-                        if supervised_config is not None
-                        and supervised_config.session_id
-                        else None
-                    ),
+            options = RunnerOptions(
+                model=self.engineer_config.model,
+                reasoning_effort=(
+                    reasoning_effort
+                    if reasoning_effort is not None
+                    else self.engineer_config.reasoning_effort
                 ),
-                run_label=run_label,
-                resume_thread_id=resume_thread_id,
+                extra_args=self.engineer_config.extra_args,
+                add_dirs=self.engineer_config.add_dirs,
+                skill_paths=self.engineer_config.skill_paths,
+                full_auto=self.engineer_config.full_auto,
+                skip_git_repo_check=self.engineer_config.skip_git_repo_check,
+                dangerous_yolo=self.engineer_config.dangerous_yolo,
+                sandbox_mode=self.engineer_config.sandbox_mode,
+                isolate_workdir=self.engineer_config.isolate_workdir,
+                # The Engineer keeps its state in CHECKPOINT.md, so the
+                # agent CLI's own tools it never uses stay out of requests.
+                lean_tool_surface=True,
+                working_dir=str(workdir),
+                live_search=_engineer_live_search(
+                    self.engineer_config.vertical_state_root or workdir,
+                    self.engineer_config.live_search_stages,
+                ),
+                # Provider/process liveness belongs to the backend's stream
+                # watchdog. Do not infer semantic progress from project
+                # mtimes or provider-private session files.
+                external_interrupt_reason_provider=None,
+                inactivity_callback=stall_watch,
+                watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
+                watchdog_stalled_idle_seconds=stalled_idle_seconds,
+                extension_env=(
+                    {
+                        "ARGUS_PLUGIN_PARENT_MISSION_ID": str(
+                            supervised_config.session_id
+                        )
+                    }
+                    if supervised_config is not None
+                    and supervised_config.session_id
+                    else None
+                ),
             )
+            with role_actions(self.engineer_runner, options, actions) if actions else nullcontext(options) as options:
+                result = gateway_run_exec(
+                    self.engineer_runner, prompt=prompt, options=options,
+                    run_label=run_label, resume_thread_id=resume_thread_id,
+                )
             return result, 0
         except Exception as exc:  # noqa: BLE001
             msg = f"engineer runner raised {type(exc).__name__}: {exc}"
