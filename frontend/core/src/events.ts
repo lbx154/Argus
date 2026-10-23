@@ -1,5 +1,4 @@
 import type { EventMsg } from './types.js';
-import { BATON_HOLDER_NAMES } from './batonHolders.generated.js';
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
 
 function stableJson(value: unknown): string {
@@ -55,13 +54,8 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
   return role === 'reviewer' || role === 'planner';
 }
 
-// The Decision: marker and the baton line that names the next holder
-// (argus/core/role_handoff.py).
-const AGENT_HANDOFF_LINE = new RegExp(
-  '^(?:final\\s+)?decision\\s*:'
-  + `|^[>*\\s-]*(?:→|->|=>)\\s*[\`*]*(?:${BATON_HOLDER_NAMES.join('|')})[\`*]*\\s*(?:$|[:：])`,
-  'i',
-);
+// A one-line Decision: marker is control text (argus/core/role_reply.py).
+const DECISION_LINE = /^(?:final\s+)?decision\s*:/i;
 // Under the last Decision: marker the host reads its actions (ACTION=hold, …);
 // only a RESULT= sentence there was written for a person.
 const DECISION_MARKER = /^\s*(?:final\s+)?decision\s*:\s*$/i;
@@ -72,7 +66,7 @@ export function visibleAgentText(value: unknown): string {
   const footer = lines.map((line) => DECISION_MARKER.test(line)).lastIndexOf(true);
   return lines
     .filter((line, index) => (footer < 0 || index < footer || RESULT_LINE.test(line))
-      && !AGENT_HANDOFF_LINE.test(line.trim()))
+      && !DECISION_LINE.test(line.trim()))
     .join('\n')
     .trim();
 }

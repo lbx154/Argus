@@ -8,7 +8,9 @@ assumption.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -151,15 +153,25 @@ def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
 
 
 class _ProxyManager:
-    """A Manager that answers every card it is asked to decide with ``fields``."""
+    """A Manager whose session answers every card it is asked to decide with ``fields``."""
 
     def __init__(self, **fields: str) -> None:
         self.fields = fields
         self.prompts: list[str] = []
+        self.execution_workdir = Path(".")
+        self._session = self
 
-    def run_turn(self, prompt: str, **_kwargs: Any) -> str:
+    def run_exec(self, *, prompt: str, options: Any, run_label: str, **_kwargs: Any) -> Any:
+        from argus.core.models import RunnerResult
+        from tests.hand_off import manager_settles, submit
+
         self.prompts.append(prompt)
-        return "\n".join(f"{key}: {value}" for key, value in self.fields.items())
+        answer = {"item": re.search(r"- task (\S+), ", prompt)[1],
+                  "decision": self.fields.get("NOTE") or self.fields.get("REASON", "Decided.")}
+        if self.fields.get("OPTION", "custom") != "custom":
+            answer["option"] = self.fields["OPTION"]
+        submit(options, manager_settles(self.fields.get("REASON", "Decided."), answer=answer))
+        return RunnerResult(exit_code=0, agent_messages=["Decided."])
 
 
 def _planner_question():
@@ -231,22 +243,29 @@ def test_manager_decides_a_planner_question_in_the_operators_place(
     assert supervisor._decide_parked_questions() is True
     row = read_autonomous_assumptions(supervisor._project_state_root())[-1]
     assert row["source"] == "manager_decision"
-    assert row["evidence_refs"] == ["spec.md"]
     assert "The release rule wins." in row["reading"]
 
 
-def test_a_planner_question_the_manager_names_no_decision_for_stays_open(
-    tmp_path, monkeypatch
-) -> None:
+class _SilentManager(_ProxyManager):
+    """A Manager whose session replies without answering the card."""
+
+    def run_exec(self, *, prompt: str, options: Any, run_label: str, **_kwargs: Any) -> Any:
+        from argus.core.models import RunnerResult
+
+        self.prompts.append(prompt)
+        return RunnerResult(exit_code=0, agent_messages=["I am not sure yet."])
+
+
+def test_a_planner_question_the_manager_does_not_answer_stays_open(tmp_path, monkeypatch) -> None:
     from argus.core.autonomy import read_autonomous_assumptions
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor = _proxy_supervisor(tmp_path, _ProxyManager(
-        DECISION_ID="decision-other", OPTION="custom", NOTE="x", REASON="y",
-    ))
+    manager = _SilentManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
 
     supervisor._record_planner_handoff(_planner_question())
     assert supervisor._decide_parked_questions() is False
+    assert "Which release rule wins?" in manager.prompts[0]
     assert _card(supervisor).pending_question == "Which release rule wins?"
     assert read_autonomous_assumptions(supervisor._project_state_root()) == []
 

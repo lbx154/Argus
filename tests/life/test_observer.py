@@ -21,12 +21,13 @@ from argus.core.models import RunnerResult
 from argus.life import observer
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
-from argus.life.observer import remarks
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager import supervision
+from tests.hand_off import submit
 
-QUIET = "The flow is fine: the Engineer handed over and the Reviewer took it."
-SPIN = "→ manager: the Planner woke 14 times in 70 min only to keep waiting (events.jsonl ts 1760000000)"
+QUIET: dict = {}
+SAID = "the Planner woke 14 times in 70 min only to keep waiting"
+SPIN = {"remark": SAID, "seen_at": [1760000000]}
 
 
 class _Backend:
@@ -50,7 +51,8 @@ class _Backend:
             raise reply
         if reply is None:
             return RunnerResult(exit_code=1, fatal_error="provider unavailable")
-        return RunnerResult(exit_code=0, agent_messages=[str(reply)], thread_id=f"thread-{len(self.calls)}")
+        submit(options, ("hand_off", reply))
+        return RunnerResult(exit_code=0, agent_messages=["Looked."], thread_id=f"thread-{len(self.calls)}")
 
 
 class _Feed:
@@ -219,15 +221,12 @@ def test_a_smooth_flow_leaves_no_event_and_asks_nobody(team):
 
 
 def test_a_remark_goes_to_the_manager_s_supervision(team):
-    team.backend.replies = [f"The Planner spins.\n{SPIN}"]
+    team.backend.replies = [SPIN]
     _turn(team, "planner")
     (note,) = team.feed.notes()
-    said = SPIN.split(": ", 1)[1]
-    assert (note["to"], note["agent_layer"], note["evidence"]) == ("manager", "observer", said)
-    # Readers see the remark; the Manager also gets where it was seen.
-    assert note["text"] == "the Planner woke 14 times in 70 min only to keep waiting"
+    assert (note["to"], note["agent_layer"], note["text"], note["seen_at"]) == ("manager", "observer", SAID, [1760000000])
     assert "operator_alert" not in note and "item_id" not in note
-    assert _asked(team).endswith("says: " + said)
+    assert _asked(team).endswith("says: " + SAID)
 
 
 def test_a_remark_names_the_task_it_was_about(team):
@@ -251,14 +250,13 @@ def test_with_no_manager_or_once_delivered_the_operator_is_alerted(team, deliver
 
 
 def test_the_same_remark_is_not_made_twice(team):
-    team.backend.replies = [SPIN, SPIN, SPIN.replace("14 times", "20 times")]
+    again = SAID.replace("14 times", "20 times")
+    team.backend.replies = [SPIN, SPIN, {**SPIN, "remark": again}]
     for _ in range(3):
         _turn(team, "planner")
     assert len(team.backend.calls) == 3
-    assert [note["evidence"] for note in team.feed.notes()] == [
-        SPIN.split(": ", 1)[1], SPIN.replace("14 times", "20 times").split(": ", 1)[1],
-    ]
-    assert SPIN in team.backend.calls[1]["prompt"]
+    assert [note["text"] for note in team.feed.notes()] == [SAID, again]
+    assert SAID in team.backend.calls[1]["prompt"]
 
 
 @pytest.mark.parametrize("failure", [None, RuntimeError("provider down")])
@@ -315,13 +313,8 @@ def test_the_process_waits_for_the_last_look_unless_stopped(team):
     assert len(team.backend.calls) == 1
 
 
-def test_a_remark_is_the_last_line_for_the_manager():
-    reply = (
-        "The Planner spins.\n"
-        "- → **manager**: pause planning until job 7 ends (events.jsonl)\n"
-        "→ planner: wait on job 7 instead\n"
-        "→ manager:\n"
-        "see → manager: inline arrows are prose\n"
-    )
-    assert remarks(reply) == ["pause planning until job 7 ends (events.jsonl)"]
-    assert remarks("The flow is fine.") == []
+def test_a_remark_says_where_it_was_seen_and_only_a_remark_does(team):
+    team.backend.replies = [{"remark": SAID}, {"seen_at": [1760000000]}]
+    _turn(team, "planner")
+    _turn(team, "planner")
+    assert team.feed.notes() == []

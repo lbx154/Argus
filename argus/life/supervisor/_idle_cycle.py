@@ -473,13 +473,7 @@ class IdleCycleMixin:
                 continue
             choice = result = None
             try:
-                choice = decide_for_operator(
-                    self._bound_manager(),
-                    card,
-                    why=why,
-                    context=f"Task: {item.title}\n{item.objective[:2000]}",
-                    on_event=getattr(self.sink, "handle_event", None),
-                )
+                choice = decide_for_operator(self._bound_manager(), item, why=why)
                 if choice is not None:
                     result = resolver(item, choice)
             except Exception:  # noqa: BLE001 - the card stays parked and is asked again
@@ -512,7 +506,6 @@ class IdleCycleMixin:
                 ),
                 source="manager_decision",
                 key=key,
-                evidence_refs=choice.evidence_refs,
             )
             resolved = True
         if resolved:

@@ -85,7 +85,8 @@ MANAGER_RULES = Path(__file__).resolve().parents[2] / "builtin_skills" / "manage
 #: Each rule file, and when the Manager reads it.
 _RULES = (
     ("team-handoff", "before deciding to hand work to the team, and when reporting the team's result"),
-    ("asking-the-operator", "before asking the operator anything"),
+    ("asking-the-operator", "before asking the operator anything, and when a paused task's question is listed with the message"),
+    ("workflow-setup", "when the operator chooses to set up a reusable workflow, and until that setup is settled"),
     ("settings-and-control", "when the operator changes a setting, pauses, aborts or steers work, grants something or sets a lasting rule"),
     ("replying", "before your first substantive reply, and before delivering a web page"),
     ("research-and-sources", "when learning, surveying, analysing data, writing, or saving a report"),
@@ -115,46 +116,6 @@ def build_manager_prompt(message: str, *, workspace: Path | str, state_root: Pat
         f"## Rules: read {MANAGER_RULES}/<topic>/SKILL.md before doing what it covers\n"
         f"{rules}\n\n"
         f"Message:\n{message.strip()}"
-    )
-
-
-def build_pending_question_prompt(item: Any, answer: str) -> str:
-    question = str(getattr(item, "pending_question", "") or "").strip()
-    # The answers the card offers, numbered as the operator was shown them.
-    card = getattr(item, "operator_decision", None) or {}
-    offered = "".join(
-        f"\n{number}. {option.get('label')}"
-        for number, option in enumerate(card.get("options") or (), 1)
-    )
-    return (
-        "You are the Manager resolving a question that only the operator can answer "
-        "for an existing mission. Interpret the response in the context of why work paused. "
-        f"\n\n{RESEARCHER_VOICE}\n\n"
-        "REPLY must use the operator's language and plain language: one question, "
-        "why it is needed, and what happens next; never return a bare internal status. "
-        "End your reply with these lines; DECISION and REPLY may run over "
-        "several lines:\n"
-        "IS_ANSWER=true|false\n"
-        "RESOLVED=true|false\n"
-        "DECISION=<explicit role-clean instruction for Planner/Engineer>\n"
-        "REPLY=<one concise clarification question, when not resolved>\n"
-        "Set IS_ANSWER=false when the message is unrelated "
-        "chat, status, configuration, or control rather than an attempted answer; "
-        "in that case also set RESOLVED=false and leave DECISION and REPLY empty. "
-        "Set RESOLVED=true only when the response supplies enough authority or "
-        "information for the team to continue. DECISION must then be an explicit, "
-        "role-clean instruction for Planner/Engineer. The latest operator response "
-        "is binding wherever it conflicts with inherited mission details. When it "
-        "changes a method, scope, tool, or requirement for completion, explicitly name "
-        "the inherited constraint that is superseded instead of trying to satisfy "
-        "both. If it is unrelated or insufficient, set resolved=false, keep "
-        "decision empty, and use reply to ask one concise clarification question.\n\n"
-        f"Blocked item id: {item.id}\n"
-        f"Blocked mission title: {item.title}\n"
-        f"Blocked mission objective:\n{item.objective}\n\n"
-        f"Reviewer question:\n{question}\n\n"
-        + (f"Answers offered, by number:{offered}\n\n" if offered else "")
-        + f"Operator response:\n{answer.strip()}"
     )
 
 
@@ -596,7 +557,6 @@ __all__ = [
     "STAGE_DECISION",
     "assemble_manager_prompt",
     "build_manager_prompt",
-    "build_pending_question_prompt",
     "build_plan_prompt",
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",

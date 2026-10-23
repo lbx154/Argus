@@ -32,7 +32,14 @@
     "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处；阶段决定默认由经理自己定，操作者要求参与时才带选项问。",
     "originalName": "Asking the operator",
     "source": "argus/builtin_skills/manager/asking-the-operator/SKILL.md",
-    "sourceBytes": 1779
+    "sourceBytes": 2759
+  },
+  "global/manager/workflow-setup/SKILL.md": {
+    "title": "和用户商定可复用流程",
+    "summary": "先和用户商定可复用流程的范围、输入输出和检查标准，再交给团队建立。",
+    "originalName": "Setting up a reusable workflow",
+    "source": "argus/builtin_skills/manager/workflow-setup/SKILL.md",
+    "sourceBytes": 2079
   },
   "global/manager/evidence-based-stage-decision.md": {
     "title": "经理的职责与阶段决定",

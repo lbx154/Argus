@@ -62,6 +62,13 @@ def decision_footer_text(text: str) -> str:
     return source[matches[-1].end() :] if matches else source
 
 
+def visible_text(text: str) -> str:
+    """The prose of a reply as a person reads it: the ``Decision:`` footer the host reads goes."""
+    source = str(text or "")
+    matches = tuple(_DECISION_FOOTER.finditer(source))
+    return (source[: matches[-1].start()] if matches else source).strip()
+
+
 def _split_glued_keys(text: str, keys: Iterable[str]) -> str:
     """Give a key welded to the end of a sentence its own line.
 

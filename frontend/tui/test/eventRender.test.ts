@@ -159,20 +159,6 @@ test('Manager routing failures lead with structured facts and retain raw error',
   assert.equal(rendered?.expand, true);
 });
 
-test('agent speech hides the baton line', () => {
-  const speech = renderEvent({
-    type: 'engineer.progress',
-    kind: 'agent_message',
-    agent_layer: 'engineer',
-    text: (
-      'Waiting for the operator choice.\n'
-      + '→ operator: Which format?'
-    ),
-  } as EventMsg);
-
-  assert.equal(speech?.text, 'Waiting for the operator choice.');
-});
-
 test('commands and tools show their real details instead of generic summaries', () => {
   const command = renderEvent({
     type: 'engineer.progress',

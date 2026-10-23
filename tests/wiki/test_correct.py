@@ -276,23 +276,20 @@ def test_a_retired_page_leaves_recall_and_the_index_and_says_who_retired_it_and_
     assert not recall.recall("roofline regime classification from the control file").hits
 
 
-def test_only_retire_lines_naming_a_page_of_the_given_libraries_with_a_reason_are_carried_out(tmp_path):
+def test_only_named_pages_of_the_given_libraries_are_retired(tmp_path):
     first = library(tmp_path / "first")
     second = library(tmp_path / "second", relative="facts/venv.md")
     stray = tmp_path / "stray.md"
     stray.write_text("# Not in a library\n", encoding="utf-8")
-    reply = (
-        "Two pages no longer hold.\n"
-        f"- `RETIRE: {first / 'pages' / 'lessons' / 'regime.md'} — the evaluator was rewritten`\n"
-        "RETIRE: pages/facts/venv.md: the venv moved\n"
-        f"RETIRE: {stray} — not a page\n"
-        "RETIRE: pages/lessons/missing.md — gone already\n"
-        "RETIRE: pages/facts/venv.md\n"
-        "WROTE: nothing\n"
-    )
+    rows = [
+        {"page": str(first / "pages" / "lessons" / "regime.md"), "why": "the evaluator was rewritten"},
+        {"page": "pages/facts/venv.md", "why": "the venv moved"},
+        {"page": str(stray), "why": "not a page"},
+        {"page": "pages/lessons/missing.md", "why": "gone already"},
+    ]
 
     retired = retire_named(
-        reply, {first: ("vertical", "research"), second: ("project", "")},
+        rows, {first: ("vertical", "research"), second: ("project", "")},
         retired_by="consolidation", global_root=tmp_path / "home",
     )
 

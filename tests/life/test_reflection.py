@@ -28,6 +28,7 @@ from argus.wiki.context import (
     render_project_principles,
 )
 from argus.wiki.journal import read_knowledge_events
+from tests.hand_off import submit
 
 SID = "s-proj"
 MISSION = "m-1"
@@ -231,7 +232,7 @@ def test_lesson_page_is_indexed_journaled_announced_and_receipted(roots: _Roots)
         str(lesson_path.parent),
         "Judge novelty against the saved libraries",
         "at most 300 words per page",
-        "WROTE: nothing",
+        "End with hand_off.",
     ):
         assert expected in prompt, expected
 
@@ -314,11 +315,10 @@ def test_a_saved_page_the_mission_showed_outdated_is_retired_with_who_and_why(ro
     )
     outside = roots.workspace / "notes.md"
     outside.write_text("# Not a library page\n", encoding="utf-8")
-    backend = _ReplyBackend(replies=[
-        f"RETIRE: {stale} — PYTHONSAFEPATH is no longer set; the CLI tests pass without PYTHONPATH.\n"
-        f"RETIRE: {outside} — not a page\n"
-        "WROTE: nothing"
-    ])
+    backend = _ReplyBackend(replies=[{"retire": [
+        {"page": str(stale), "why": "PYTHONSAFEPATH is no longer set; the CLI tests pass without PYTHONPATH."},
+        {"page": str(outside), "why": "not a page"},
+    ]}])
 
     result = roots.reflect(
         backend, run_reality="All tests pass without PYTHONPATH; the recalled lesson "
@@ -329,7 +329,7 @@ def test_a_saved_page_the_mission_showed_outdated_is_retired_with_who_and_why(ro
     # Listed by file name under a heading that names their directory, so a full path can be written.
     assert f"## Lessons this vertical already has, in `{lessons}`" in prompt
     assert "- Set PYTHONPATH under PYTHONSAFEPATH (`20260901-safe-path.md`)" in prompt
-    assert "`RETIRE: <full path> — <why>`" in prompt
+    assert "name it in retire of your hand_off" in prompt
     assert "names it in its description" in prompt
     assert result["retired"] == [str(stale)]
     assert not stale.exists() and outside.exists()
@@ -720,17 +720,22 @@ def test_the_prompt_keeps_the_operator_s_own_affairs_out_of_shared_pages(tmp_pat
 
 @dataclass
 class _ReplyBackend(_Backend):
-    """A stand-in model whose messages are given; the last one is its final message."""
+    """A stand-in model that files the given ``reflect`` forms in turn; the last one that passes counts."""
 
-    replies: list[str] = field(default_factory=lambda: ["WROTE: nothing"])
+    replies: list[dict] = field(default_factory=lambda: [{"retire": []}])
 
     def run_exec(self, *, prompt: str, options: Any, run_label: str, resume_thread_id=None):
         result = super().run_exec(prompt=prompt, options=options, run_label=run_label)
         if run_label == "manager.reviewed_facts":
             result.agent_messages = [json.dumps({"append": False})]
-        else:
-            result.agent_messages = list(self.replies)
+        elif not self.exit_code:
+            for form in self.replies:
+                submit(options, ("hand_off", form))
         return result
+
+
+def _fact(fact: str, *refs: str) -> dict:
+    return {"retire": [], "reviewed_fact": {"keep": True, "fact": fact, "evidence_refs": list(refs)}}
 
 
 def _fact_candidate(**extra: Any) -> dict[str, Any]:
@@ -776,13 +781,9 @@ def test_reflection_runs_when_asked_unanswered_corrected_or_not_accepted(
 
 
 def test_the_reviewed_fact_rides_in_the_reflection_call_from_its_final_message(roots: _Roots) -> None:
-    draft = 'REVIEWED_FACT: {"fact": "A draft claim.", "evidence_refs": ["result.json"]}'
-    final = (
-        "WROTE: nothing\n"
-        'REVIEWED_FACT: {"fact": "The held-out effect survives a new seed.", '
-        '"evidence_refs": ["result.json", "made-up.json"]}'
-    )
-    backend = _ReplyBackend(replies=[draft, final])
+    backend = _ReplyBackend(replies=[
+        _fact("A draft claim.", "result.json"), _fact("The held-out effect survives a new seed.", "result.json"),
+    ])
 
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
@@ -790,13 +791,14 @@ def test_the_reviewed_fact_rides_in_the_reflection_call_from_its_final_message(r
     assert result["reviewed_fact_recorded"] is True
     digest = (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
     assert "The held-out effect survives a new seed." in digest and "A draft claim." not in digest
-    assert "`result.json`" in digest and "made-up.json" not in digest
+    assert "`result.json`" in digest
     assert not list(roots.home.glob("reviewed-fact-source-*.json"))
 
 
 def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
-    draft = 'REVIEWED_FACT: {"fact": "A draft claim.", "evidence_refs": ["result.json"]}'
-    backend = _ReplyBackend(replies=[draft, "WROTE: nothing\nREVIEWED_FACT: none"])
+    backend = _ReplyBackend(replies=[
+        _fact("A draft claim.", "result.json"), {"retire": [], "reviewed_fact": {"keep": False}},
+    ])
 
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
@@ -807,7 +809,7 @@ def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
 
 
 def test_a_final_message_without_a_fact_answer_falls_back_to_the_separate_judgment(roots: _Roots) -> None:
-    backend = _ReplyBackend(replies=["WROTE: nothing"])
+    backend = _ReplyBackend(replies=[{"retire": []}])
 
     roots.reflect(backend, reviewed_fact=_fact_candidate())
 
@@ -836,8 +838,7 @@ def test_unwritable_knowledge_directories_still_judge_the_fact(
 def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
     roots: _Roots, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A kept fact.", "evidence_refs": ["log.txt"]}'
-    backend = _ReplyBackend(replies=[final])
+    backend = _ReplyBackend(replies=[_fact("A kept fact.", "log.txt")])
 
     def explode(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("receipt store broke")
@@ -858,8 +859,7 @@ def test_the_fact_section_closes_the_prompt_after_the_writing_rules(roots: _Root
     roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     prompt = backend.calls[0]["prompt"]
-    assert prompt.index("WROTE: nothing") < prompt.index("Cross-campaign reviewed-facts digest")
-    assert "then the reviewed-fact line described below" in prompt
+    assert prompt.index("End with hand_off.") < prompt.index("Cross-campaign reviewed-facts digest")
     assert prompt.rstrip().endswith("- log.txt")
 
 
@@ -873,9 +873,7 @@ def test_a_failed_reflection_still_judges_the_fact_on_its_own(roots: _Roots) -> 
 
 def test_the_digest_path_is_the_host_s_not_the_candidate_s(roots: _Roots, tmp_path: Path) -> None:
     elsewhere = tmp_path / "elsewhere" / "digest.md"
-    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A kept fact.", "evidence_refs": ["log.txt"]}'
-
-    roots.reflect(_ReplyBackend(replies=[final]), reviewed_fact=_fact_candidate(digest_path=str(elsewhere)))
+    roots.reflect(_ReplyBackend(replies=[_fact("A kept fact.", "log.txt")]), reviewed_fact=_fact_candidate(digest_path=str(elsewhere)))
 
     assert not elsewhere.exists()
     assert "A kept fact." in (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
@@ -896,9 +894,8 @@ def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
     assert "verified_new_result" in prompt
 
 
-def test_a_chosen_fact_with_only_invalid_refs_falls_back_to_the_separate_judgment(roots: _Roots) -> None:
-    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A claim.", "evidence_refs": ["made-up.json"]}'
-    backend = _ReplyBackend(replies=[final])
+def test_a_fact_resting_on_a_ref_not_allowed_is_refused_and_judged_separately(roots: _Roots) -> None:
+    backend = _ReplyBackend(replies=[_fact("A claim.", "made-up.json")])
 
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 

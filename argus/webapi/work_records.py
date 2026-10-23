@@ -8,7 +8,7 @@ from typing import Iterator
 
 from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
 from ..core.mission_view import work_record_event_id
-from ..core.role_handoff import strip_handoff
+from ..core.role_reply import visible_text
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..life.event_log import event_log_paths
 
@@ -52,7 +52,7 @@ def _public_text(event: dict) -> str:
         value = value.strip()
         if value.startswith('{') or (role in {'planner', 'reviewer'} and value.startswith('```json')):
             continue
-        return strip_handoff(value).strip()
+        return visible_text(value).strip()
     return ''
 
 

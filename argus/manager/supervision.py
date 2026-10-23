@@ -768,8 +768,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
             "and a note stops it and restarts the Engineer with your instruction"
         )
     elif event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager":
-        said = event.get("evidence") or event.get("text")
-        reason = f"the Observer, who watches how the team works, says: {said}"
+        reason = f"the Observer, who watches how the team works, says: {event.get('text')}"
         event = {**event, "stall_reason": "observer"}
     if reason == "":
         # Nothing is put to the Manager; a boundary only delivers its issued decision.

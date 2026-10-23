@@ -9,6 +9,7 @@ import pytest
 
 import argus.life.consolidation as consolidation
 from argus.core.file_lock import exclusive_file_lock
+from argus.core.handoff import HandOffActions
 from argus.life.consolidation import (
     Receipt,
     build_prompt,
@@ -19,7 +20,6 @@ from argus.life.consolidation import (
     read_receipt,
     rebuild_index,
     render_index,
-    validate_principles,
     write_receipt,
 )
 from argus.wiki.journal import read_knowledge_events
@@ -76,15 +76,30 @@ def _principles_doc(
     return "\n".join(lines) + "\n"
 
 
+def _form(links: list[list[str]], *, retire: tuple[dict, ...] = ()) -> dict:
+    """A ``consolidate`` form: one principle per list of lesson paths."""
+    return {
+        "description": "What repeated lessons taught us.",
+        "principles": [{"rule": f"Do the thing number {index} before starting", "evidence": hrefs}
+                       for index, hrefs in enumerate(links, start=1)],
+        "retire": list(retire),
+    }
+
+
 def _stub_model(monkeypatch: pytest.MonkeyPatch, reply):
-    """Stand in for the model call; records prompts and returns ``reply``."""
+    """Stand in for the model call: records prompts and files ``reply`` (a form, or ``None`` for no call)."""
     calls: list[dict] = []
 
-    def fake(runner, *, prompt, vertical_root):
+    def fake(runner, *, prompt, vertical_root, actions):
         calls.append({"runner": runner, "prompt": prompt, "root": vertical_root})
         if isinstance(reply, Exception):
             raise reply
-        return reply(vertical_root) if callable(reply) else reply
+        if reply is not None:
+            try:
+                actions.dispatch("hand_off", reply)
+            except ValueError as refusal:
+                calls[-1]["refused"] = str(refusal)
+        return actions.handoff.value if actions.handoff else None
 
     monkeypatch.setattr(consolidation, "_run_principles_model", fake)
     return calls
@@ -225,10 +240,9 @@ def test_no_shared_root_or_vertical_skips_without_writing(tmp_path: Path, monkey
 def test_unchanged_lessons_skip_the_model_until_a_lesson_changes(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
-    doc = _principles_doc([
+    calls = _stub_model(monkeypatch, _form([
         ["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"],
-    ])
-    calls = _stub_model(monkeypatch, doc)
+    ]))
 
     assert _run(home)["outcome"] == "compiled"
     assert len(calls) == 1
@@ -260,55 +274,28 @@ def test_a_concurrent_pass_holding_the_lock_makes_this_one_skip(tmp_path: Path, 
 # --------------------------------------------------------------------------- validation
 
 
-def test_validation_rules(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _three_lessons(root)
-    a, b, c = (
-        "pages/lessons/20260915-pin-versions.md",
-        "pages/lessons/20260916-smoke-first.md",
-        "pages/lessons/20260917-read-logs.md",
-    )
-    good = validate_principles(_principles_doc([[a, b], [b, c]], history=["2026-09-10: 1 principles from 3 lessons"]), root=root)
-    assert good.ok and len(good.principles) == 2
-    assert good.principles[0].links == (a, b)
-    assert good.history == ["2026-09-10: 1 principles from 3 lessons"]
-
-    assert "front matter" in validate_principles("no front matter\n1. x\n", root=root).reason
-    assert "no numbered" in validate_principles(_principles_doc([]), root=root).reason
-    too_many = validate_principles(_principles_doc([[a, b]] * 13), root=root)
-    assert not too_many.ok and "at most 12" in too_many.reason
-    missing = validate_principles(_principles_doc([[a, "pages/lessons/never-written.md"]]), root=root)
-    assert not missing.ok and "do not exist" in missing.reason
-    outside = validate_principles(_principles_doc([[a, "../../../etc/passwd"]]), root=root)
-    assert not outside.ok and "do not exist" in outside.reason
-    one_link = validate_principles(_principles_doc([[a]]), root=root)
-    assert not one_link.ok and "at least 2" in one_link.reason
-
-
-def test_wrapped_evidence_lines_belong_to_their_principle(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _three_lessons(root)
-    text = (
-        "---\ntitle: Principles for research\ndescription: d\nkind: principles\n---\n\n"
-        "1. Pin versions first —\n   evidence: [A](pages/lessons/20260915-pin-versions.md),\n"
-        "   [B](pages/lessons/20260916-smoke-first.md)\n\n"
-        "Some closing prose that is not a principle.\n"
-    )
-    check = validate_principles(text, root=root)
-    assert check.ok and len(check.principles) == 1 and len(check.principles[0].links) == 2
-
-
-# --------------------------------------------------------------------------- the pass
+def test_the_form_cites_and_retires_only_listed_lessons(tmp_path: Path, monkeypatch) -> None:
+    a, b = "pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"
+    for case, (form, refusal) in enumerate((
+        (_form([[a, "pages/lessons/never-written.md"]]), "not a listed lesson"),
+        (_form([[a, a]]), "each lesson once"),
+        (_form([[a, b]], retire=({"page": a, "why": "fixed since"},)), "retired lesson supports nothing"),
+        (_form([], retire=({"page": "../../../etc/passwd", "why": "gone"},)), "not a listed lesson"),
+    )):
+        home, root = _home(tmp_path / str(case))
+        _three_lessons(root)
+        calls = _stub_model(monkeypatch, form)
+        assert _run(home)["outcome"] == "failed"
+        assert refusal in calls[0]["refused"]
 
 
 def test_stubbed_model_produces_principles_event_and_journal(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
-    doc = _principles_doc([
+    calls = _stub_model(monkeypatch, _form([
         ["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"],
         ["pages/lessons/20260916-smoke-first.md", "pages/lessons/20260917-read-logs.md"],
-    ])
-    calls = _stub_model(monkeypatch, doc)
+    ]))
     events: list[dict] = []
 
     result = _run(home, emit=events.append, life_dir=home / "projects" / "s-fb4716b7")
@@ -318,7 +305,8 @@ def test_stubbed_model_produces_principles_event_and_journal(tmp_path: Path, mon
     text = (root / "principles.md").read_text(encoding="utf-8")
     assert text.startswith("---\ntitle: Principles for research\n")
     assert "kind: principles\n" in text
-    assert "1. Do the thing number 1 before starting — evidence: [L1](pages/lessons/20260915-pin-versions.md)" in text
+    assert ("1. Do the thing number 1 before starting — evidence: [Pin versions](pages/lessons/20260915-pin-versions.md), "
+            "[Smoke test first](pages/lessons/20260916-smoke-first.md).") in text
     assert text.rstrip().endswith(f"## History\n\n- {TODAY}: 2 principles from 3 lessons")
 
     assert events == [{
@@ -354,21 +342,18 @@ def test_a_lesson_the_model_retires_leaves_the_principles_the_count_and_the_inde
     home, root = _home(tmp_path)
     _three_lessons(root)
     stale = _lesson(root, "20260910-set-pythonpath", "Set PYTHONPATH under safe-path mode")
-    doc = _principles_doc([
+    calls = _stub_model(monkeypatch, _form([
         ["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"],
         ["pages/lessons/20260916-smoke-first.md", "pages/lessons/20260917-read-logs.md"],
-    ])
-    # The RETIRE line follows the list directly; it must not join the last principle.
-    calls = _stub_model(monkeypatch, doc + "RETIRE: pages/lessons/20260910-set-pythonpath.md — "
-                        "the host no longer sets PYTHONSAFEPATH\n")
+    ], retire=({"page": "pages/lessons/20260910-set-pythonpath.md",
+                "why": "the host no longer sets PYTHONSAFEPATH"},)))
 
     result = _run(home)
 
-    assert "`RETIRE: <its path> — <why>`" in calls[0]["prompt"]
     assert result["outcome"] == "compiled" and result["lessons"] == 3
     assert not stale.exists()
     text = (root / "principles.md").read_text(encoding="utf-8")
-    assert "RETIRE" not in text and text.rstrip().endswith(f"- {TODAY}: 2 principles from 3 lessons")
+    assert "set-pythonpath" not in text and text.rstrip().endswith(f"- {TODAY}: 2 principles from 3 lessons")
     assert "set-pythonpath" not in (root / "INDEX.md").read_text(encoding="utf-8")
     [record] = read_knowledge_events(home, kinds=["retired"])
     assert (record["role"], record["scope"], record["vertical"], record["path"]) == (
@@ -379,7 +364,7 @@ def test_a_lesson_the_model_retires_leaves_the_principles_the_count_and_the_inde
     assert _run(home, now=NOW + HOUR)["outcome"] == "skipped_unchanged" and len(calls) == 1
 
 
-def test_a_bad_reply_restores_the_previous_principles_and_records_the_failure(tmp_path: Path, monkeypatch) -> None:
+def test_a_refused_form_keeps_the_previous_principles_and_records_the_failure(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
     previous = _principles_doc(
@@ -387,23 +372,16 @@ def test_a_bad_reply_restores_the_previous_principles_and_records_the_failure(tm
         history=["2026-09-10: 1 principles from 3 lessons"],
     )
     (root / "principles.md").write_text(previous, encoding="utf-8")
-
-    def reply_and_clobber(vertical_root: Path) -> str:
-        # The model may write the file itself; a bad write must not survive.
-        bad = _principles_doc([["pages/lessons/20260915-pin-versions.md", "pages/lessons/gone.md"]])
-        (vertical_root / "principles.md").write_text(bad, encoding="utf-8")
-        return bad
-
-    _stub_model(monkeypatch, reply_and_clobber)
+    _stub_model(monkeypatch, _form([["pages/lessons/20260915-pin-versions.md", "pages/lessons/gone.md"]]))
     events: list[dict] = []
 
     result = _run(home, emit=events.append)
 
-    assert result["outcome"] == "failed" and "do not exist" in result["failure"]
+    assert result["outcome"] == "failed" and "no consolidate form" in result["failure"]
     assert (root / "principles.md").read_text(encoding="utf-8") == previous
     assert events == [] and read_knowledge_events(home) == []
     receipt = read_receipt(root)
-    assert receipt.outcome == "failed" and "do not exist" in receipt.failure
+    assert receipt.outcome == "failed" and "no consolidate form" in receipt.failure
     assert receipt.lessons_compiled == [], "a failed pass does not count the lessons as compiled"
     assert receipt.last_ts == NOW
     assert (root / "INDEX.md").exists(), "the index is still rebuilt"
@@ -430,7 +408,7 @@ def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
 ) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
-    calls = _stub_model(monkeypatch, _principles_doc([]))
+    calls = _stub_model(monkeypatch, _form([]))
 
     result = _run(home)
     assert result["outcome"] == "no_principles"
@@ -439,33 +417,15 @@ def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
     assert len(calls) == 1
 
 
-def test_a_reply_without_a_document_fails_cleanly(tmp_path: Path, monkeypatch) -> None:
+def test_a_call_that_files_no_form_fails_cleanly(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
-    _stub_model(monkeypatch, "I could not decide on any principles.")
+    _stub_model(monkeypatch, None)
     result = _run(home)
-    assert result["outcome"] == "failed" and "no principles.md document" in result["failure"]
+    assert result["outcome"] == "failed" and "no consolidate form" in result["failure"]
 
 
-def test_the_model_may_write_the_file_directly_and_fences_are_tolerated(tmp_path: Path, monkeypatch) -> None:
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    doc = _principles_doc([["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260917-read-logs.md"]])
-
-    def write_then_reply(vertical_root: Path) -> str:
-        (vertical_root / "principles.md").write_text(doc, encoding="utf-8")
-        return "Wrote principles.md."
-
-    _stub_model(monkeypatch, write_then_reply)
-    assert _run(home)["outcome"] == "compiled"
-    assert "kind: principles" in (root / "principles.md").read_text(encoding="utf-8")
-
-    _lesson(root, "20260918-more", "More")
-    _stub_model(monkeypatch, "```markdown\n" + doc + "```\n")
-    assert _run(home, now=NOW + HOUR + 1)["outcome"] == "compiled"
-
-
-def test_history_survives_a_reply_that_dropped_it_and_the_kind_is_added(tmp_path: Path, monkeypatch) -> None:
+def test_history_is_kept_and_the_kind_is_added(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)
     (root / "principles.md").write_text(
@@ -475,9 +435,7 @@ def test_history_survives_a_reply_that_dropped_it_and_the_kind_is_added(tmp_path
         ),
         encoding="utf-8",
     )
-    _stub_model(monkeypatch, _principles_doc(
-        [["pages/lessons/20260916-smoke-first.md", "pages/lessons/20260917-read-logs.md"]], kind=None,
-    ))
+    _stub_model(monkeypatch, _form([["pages/lessons/20260916-smoke-first.md", "pages/lessons/20260917-read-logs.md"]]))
 
     assert _run(home)["outcome"] == "compiled"
     text = (root / "principles.md").read_text(encoding="utf-8")
@@ -495,20 +453,20 @@ def test_prompt_lists_newest_lessons_first_with_bounded_bodies(tmp_path: Path) -
     _lesson(root, "20260915-old", "Old lesson", body="old " * 10)
     _lesson(root, "20260917-new", "New lesson", body="x" * 2000)
     lessons = lesson_pages(list_pages(root))
-    prompt = build_prompt(vertical=VERTICAL, lessons=lessons, current_principles="", today=TODAY)
+    prompt = build_prompt(vertical=VERTICAL, lessons=lessons, current_principles="")
     assert prompt.index("New lesson") < prompt.index("Old lesson")
     assert "x" * 600 in prompt and "x" * 601 not in prompt
-    assert "(none yet)" in prompt and f"{TODAY}: <n> principles from 2 lessons" in prompt
+    assert "(none yet)" in prompt and "hand_off" in prompt
     for page in lessons:
-        assert f"]({page.relative})" in prompt
+        assert f"### {page.relative}: " in prompt
 
 
 def test_prompt_shows_at_most_forty_lessons(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
     for index in range(45):
         _lesson(root, f"202609{(index % 28) + 1:02d}-l{index:02d}", f"Lesson {index:02d}")
-    prompt = build_prompt(vertical=VERTICAL, lessons=lesson_pages(list_pages(root)), current_principles="x", today=TODAY)
-    assert prompt.count("\n### [") == 40 and "(40 of 45)" in prompt
+    prompt = build_prompt(vertical=VERTICAL, lessons=lesson_pages(list_pages(root)), current_principles="x")
+    assert prompt.count("\n### pages/") == 40 and "(40 of 45)" in prompt
 
 
 def test_the_model_call_uses_the_light_model(monkeypatch, tmp_path: Path) -> None:
@@ -516,25 +474,28 @@ def test_the_model_call_uses_the_light_model(monkeypatch, tmp_path: Path) -> Non
 
     def fake_exec(backend, *, prompt, run_label, options=None, **_kw):
         seen.append({"backend": backend, "prompt": prompt, "run_label": run_label, "options": options})
-        return SimpleNamespace(exit_code=0, fatal_error=None, last_agent_message="reply text")
+        return SimpleNamespace(exit_code=0, fatal_error=None)
 
     monkeypatch.setattr(consolidation, "gateway_run_exec", fake_exec)
     monkeypatch.setattr(consolidation, "resolve_light_model", lambda **_kw: "light-model")
-    backend = SimpleNamespace(backend="fake")
+    backend = SimpleNamespace(backend="memory")
     runner = SimpleNamespace(_backend=backend)
 
     monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
-    assert consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path) == "reply text"
+    def actions() -> HandOffActions:
+        return HandOffActions("consolidate", operator_available=False)
+
+    assert consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path, actions=actions()) is None
     options = seen[-1]["options"]
     assert seen[-1]["backend"] is backend and seen[-1]["run_label"] == "knowledge-consolidation"
     assert options.model == "light-model" and options.reasoning_effort == "low"
-    assert options.sandbox_mode == "workspace-write" and options.working_dir == str(tmp_path)
+    assert options.sandbox_mode == "read-only" and options.working_dir == str(tmp_path)
 
     monkeypatch.setattr(
         consolidation, "gateway_run_exec",
         lambda *a, **k: SimpleNamespace(exit_code=1, fatal_error="boom", last_agent_message=""),
     )
     with pytest.raises(RuntimeError, match="boom"):
-        consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path)
+        consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path, actions=actions())
     with pytest.raises(RuntimeError, match="no model backend"):
-        consolidation._run_principles_model(object(), prompt="p", vertical_root=tmp_path)
+        consolidation._run_principles_model(object(), prompt="p", vertical_root=tmp_path, actions=actions())

@@ -224,7 +224,28 @@
           "enum": ["allow", "forbid"],
           "description": "forbid only for an explicit command against questions; allow only when they are explicitly re-enabled."
         },
-        "name": {"type": "string", "maxLength": 80, "description": "A new topic for this conversation, in the operator's language; left out while the topic holds."}
+        "name": {"type": "string", "maxLength": 80, "description": "A new topic for this conversation, in the operator's language; left out while the topic holds."},
+        "answer": {
+          "type": "object", "additionalProperties": false, "required": ["item", "decision"],
+          "description": "With to=manager, when the message answers a question a paused task waits on (listed with the message): item, that task's id; option, the id of the offered answer it picks, if it picks one; decision, the explicit instruction for the Planner and Engineer the answer gives, naming any earlier constraint it supersedes. Leave it out when the message does not answer it, or not enough to go on; then ask back in your reply.",
+          "properties": {
+            "item": {"type": "string", "minLength": 1},
+            "option": {"type": "string", "minLength": 1},
+            "decision": {"type": "string", "minLength": 1, "maxLength": 4000}
+          }
+        },
+        "workflow_setup": {
+          "type": "object", "additionalProperties": false, "required": ["action"],
+          "description": "Only while you set up a reusable workflow with the operator (the workflow-setup rules), with to=manager: prepare, once its scope is agreed, with name, purpose, brief, title and summary; skip to handle the request directly instead; cancel to drop the setup. A question about it goes to=operator with ask; a plain answer needs no call.",
+          "properties": {
+            "action": {"enum": ["prepare", "skip", "cancel"]},
+            "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,62}$", "description": "The workflow's reusable ASCII slug."},
+            "purpose": {"type": "string", "minLength": 1, "maxLength": 600, "description": "Its capability scope, for matching future tasks."},
+            "brief": {"type": "string", "minLength": 1, "maxLength": 6000, "description": "Its reusable definition: scope and exclusions, parameterized inputs and missing-data handling, outputs, method and reference plan, limitations and validation cases. No personal facts, one-off answers or project paths."},
+            "title": {"type": "string", "minLength": 1, "maxLength": 96, "description": "The agreed task's short name, as the operator reads it."},
+            "summary": {"type": "string", "minLength": 1, "maxLength": 1200, "description": "The agreed task in two to four sentences: the deliverable, its essential inputs and limits."}
+          }
+        }
       }
     },
     "stage": {
@@ -238,7 +259,7 @@
       }
     },
     "supervise": {
-      "description": "Record your judgment of the team's course; the call ends your turn. to: team, the course is right, and with a note your corrected instruction, read by whoever holds the work at their next boundary; planner, your note needs new planning (tasks to add, retire or replace); operator, work handed to you waits on a choice only the operator can make, and the task waits on their answer; stop parks this mission, when changing direction will not help. summary: the decisive observed condition and what happens next, naming no task ids.",
+      "description": "Record your judgment of the team's course; the call ends your turn. to: team, the course is right, and with a note your corrected instruction, read by whoever holds the work at their next boundary; planner, your note needs new planning (tasks to add, retire or replace), never for an Observer's remark, which goes to=team with your instruction in note; operator, work handed to you waits on a choice only the operator can make, and the task waits on their answer; stop parks this mission, when changing direction will not help. summary: the decisive observed condition and what happens next, naming no task ids.",
       "core": ["to", "summary", "note", "ask", "assumptions"],
       "to": ["team", "planner", "operator", "stop"],
       "required": ["to", "summary", "evidence_refs", "assumptions"],
@@ -258,6 +279,69 @@
               "properties": {"check": {"type": "string", "minLength": 3, "maxLength": 240}, "risk": {"type": "string", "minLength": 3, "maxLength": 1000}}
             },
             "revoke": {"type": "string", "pattern": "^risk-[0-9a-f]{10}$"}
+          }
+        }
+      }
+    },
+    "observe": {
+      "description": "Your look at how the team's work flows; the call ends the look. Leave remark out when the flow is fine.",
+      "core": [],
+      "to": [],
+      "required": [],
+      "properties": {
+        "remark": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\n]*$", "description": "When the flow is off: one sentence for the Manager, in the operator's language, saying what you saw and why it matters. Plain words: no file names, event types or timestamps; where you saw it goes in seen_at."},
+        "seen_at": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "number"}, "description": "With remark: the ts of the events.jsonl lines it rests on."}
+      }
+    },
+    "reflect": {
+      "description": "What your reflection leaves for the host; the call ends your turn. The pages you wrote are read from disk.",
+      "core": [],
+      "to": [],
+      "required": ["retire"],
+      "properties": {
+        "retire": {
+          "type": "array", "maxItems": 10,
+          "description": "Saved pages this task showed wrong for the current facts, or whose problem has since been fixed: the host takes each out of the library and records why. [] when there is none.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["page", "why"],
+            "properties": {"page": {"type": "string", "minLength": 1, "description": "Its full path."}, "why": {"type": "string", "minLength": 3, "maxLength": 300}}
+          }
+        },
+        "reviewed_fact": {
+          "type": "object", "additionalProperties": false, "required": ["keep"],
+          "description": "Only when asked to judge a Reviewer-confirmed result for the reviewed-facts digest: keep it or not; to keep it, the fact and the refs it rests on, copied from the allowed refs.",
+          "properties": {
+            "keep": {"type": "boolean"},
+            "fact": {"type": "string", "minLength": 1, "maxLength": 1200},
+            "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    },
+    "consolidate": {
+      "description": "The vertical's principles.md, as fields; the host writes the file from them.",
+      "core": [],
+      "to": [],
+      "required": ["principles", "retire"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\n]*$", "description": "One sentence saying what the principles cover."},
+        "principles": {
+          "type": "array", "maxItems": 12,
+          "description": "The working rules the listed lessons teach, merged where they say the same thing; [] when they share none yet. Keep a current principle only while two listed lessons still support it.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["rule", "evidence"],
+            "properties": {
+              "rule": {"type": "string", "minLength": 3, "maxLength": 400, "pattern": "^[^\\n]*$", "description": "One plain imperative sentence a colleague could follow."},
+              "evidence": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}, "description": "The lesson pages that support it, as their listed paths (pages/lessons/<file>.md)."}
+            }
+          }
+        },
+        "retire": {
+          "type": "array",
+          "description": "Listed lessons a later one shows wrong, or whose problem has since been fixed: they support nothing, and the host retires them. [] when there is none.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["page", "why"],
+            "properties": {"page": {"type": "string", "minLength": 1}, "why": {"type": "string", "minLength": 3, "maxLength": 300}}
           }
         }
       }

@@ -105,7 +105,7 @@ def replying(answer):
         params = {}
     takes_all = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
-    def manager_turn(mem, body, chat_state, *, on_fragment=None, root_task_id=None, team_allowed=True):
+    def manager_turn(mem, body, chat_state, *, on_fragment=None, root_task_id=None, team_allowed=True, setup=""):
         offered = {"on_fragment": on_fragment, "root_task_id": root_task_id}
         kwargs = {k: v for k, v in offered.items() if takes_all or k in params}
         try:

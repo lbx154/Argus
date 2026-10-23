@@ -36,7 +36,7 @@ def test_private_reasoning_and_provider_data_are_never_exported(tmp_path):
     write_events(tmp_path / 'events.jsonl', [
         {'type': 'engineer.progress', 'kind': 'reasoning', 'event_id': 'private', 'text': 'PRIVATE SCRATCHPAD'},
         {'type': 'agent.io.complete', 'event_id': 'provider', 'text': 'PRIVATE TRANSPORT'},
-        {'type': 'engineer.progress', 'kind': 'agent_message', 'event_id': 'public', 'agent_layer': 'engineer', 'text': 'Public result.\n→ reviewer'},
+        {'type': 'engineer.progress', 'kind': 'agent_message', 'event_id': 'public', 'agent_layer': 'engineer', 'text': 'Public result.\nDecision:\nACTION=hold'},
     ])
     assert full_work_record(tmp_path, 'engineer', 'private') is None
     assert full_work_record(tmp_path, 'engineer', 'provider') is None

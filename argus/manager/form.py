@@ -2,13 +2,14 @@
 
 The Manager answers the operator in its own session. It files the ``manager``
 form only when Argus must act: hand a ticket to the team, ask the operator,
-change a setting, control the running mission, record a grant or a lasting rule.
+change a setting, control the running mission, record a grant or a lasting rule,
+apply the answer to a paused task's question, or settle a workflow setup.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Sequence
 
 from ..core.handoff import HandOffActions
 
@@ -55,11 +56,41 @@ def _route(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _check_answer(payload: dict[str, Any], waiting: Mapping[str, Sequence[str]]) -> None:
+    """``answer`` names a waiting task and, where its question offers answers, one of them."""
+    answer = payload["answer"]
+    if payload["to"] != "manager":
+        raise ValueError("An answer is applied by Argus: file it with to=manager.")
+    if answer["item"] not in waiting:
+        raise ValueError("answer.item: name a task listed as waiting on the operator.")
+    offered = waiting[answer["item"]]
+    if "option" in answer and answer["option"] not in offered:
+        raise ValueError(f"answer.option: one of {', '.join(offered) or 'none'}; leave it out for an answer of their own.")
+
+
+def _check_setup(payload: dict[str, Any], setting_up: bool) -> None:
+    """While a workflow is set up, a question offers two to four answers and a prepared setup is whole."""
+    setup = payload.get("workflow_setup")
+    if setup and not setting_up:
+        raise ValueError("No workflow setup is under way: leave workflow_setup out.")
+    if setup and payload["to"] != "manager":
+        raise ValueError("workflow_setup is applied by Argus: file it with to=manager.")
+    if setup and setup["action"] == "prepare" and not all(
+            key in setup for key in ("name", "purpose", "brief", "title", "summary")):
+        raise ValueError("workflow_setup: prepare goes with name, purpose, brief, title and summary.")
+    if setting_up and payload["to"] == "operator" and not 2 <= len(payload["ask"]["options"]) <= 4:
+        raise ValueError("ask: offer two to four answers to the setup question, your recommendation first.")
+
+
 def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_allowed: bool,
            route: Callable[[dict[str, Any]], Any] | None,
-           stage: Callable[[dict[str, Any]], Any] | None) -> Any:
+           stage: Callable[[dict[str, Any]], Any] | None, waiting: Mapping[str, Sequence[str]],
+           setting_up: bool) -> Any:
     """The rules Argus enforces on the Manager's call; each refusal is one sentence the model can act on."""
     to = payload["to"]
+    if "answer" in payload:
+        _check_answer(payload, waiting)
+    _check_setup(payload, setting_up)
     if to == "team" and not team_allowed:
         raise ValueError("The operator asked you to answer this yourself: do not hand it to the team.")
     if (to == "team") != all(key in payload for key in ("goal", "acceptance", "vertical")):
@@ -92,18 +123,35 @@ def manager_actions(
     message: str, *, active_mission: bool, team_allowed: bool = True, operator_available: bool | None = None,
     route: Callable[[dict[str, Any]], Any] | None = None,
     stage: Callable[[dict[str, Any]], Any] | None = None,
+    waiting: Mapping[str, Sequence[str]] | None = None, setting_up: bool = False,
 ) -> HandOffActions:
     """The ``hand_off`` tool bound to one Manager turn on ``message``.
 
     ``route`` checks a ticket's routing decision (``Manager.adopt_route``); what
     it returns is the handoff's value, the decision the team is dispatched with.
     ``stage`` checks a stage ruling (``Manager.stage_ruling``).
+    ``waiting`` maps each task paused on a question to the ids of the answers it
+    offers; ``setting_up`` is a workflow setup under way with the operator.
     """
     return HandOffActions(
-        "manager", operator_available=operator_available,
+        "manager", operator_available=True if setting_up else operator_available,
         check=partial(_check, message=message, active_mission=active_mission, team_allowed=team_allowed,
-                      route=route, stage=stage),
+                      route=route, stage=stage, waiting=waiting or {}, setting_up=setting_up),
     )
+
+
+def waiting_questions(items: Sequence[Any]) -> tuple[dict[str, list[str]], str]:
+    """The tasks paused on a question for the operator: their offered answer ids, and how the Manager is told."""
+    waiting: dict[str, list[str]] = {}
+    lines: list[str] = []
+    for item in items:
+        options = [option for option in item.operator_decision.get("options") or () if isinstance(option, dict)]
+        waiting[item.id] = [str(option.get("id") or "") for option in options]
+        lines.append(f"- task {item.id}, {item.title}: {item.pending_question.strip()}")
+        lines.extend(f"  - answer {option.get('id')}: {option.get('label')}" for option in options)
+    if not lines:
+        return waiting, ""
+    return waiting, "Paused tasks waiting on the operator (asking-the-operator rules):\n" + "\n".join(lines)
 
 
 def ticket(payload: Any) -> str:
@@ -119,4 +167,4 @@ def ticket(payload: Any) -> str:
     return "\n\n".join(sections)
 
 
-__all__ = ["ConfigIntent", "config_intents", "manager_actions", "ticket"]
+__all__ = ["ConfigIntent", "config_intents", "manager_actions", "ticket", "waiting_questions"]
