@@ -51,7 +51,7 @@ def copilot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: object(),
+        lambda **_: object(),
     )
     lookups: list[str | None] = []
 

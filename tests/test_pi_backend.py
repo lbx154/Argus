@@ -143,20 +143,12 @@ def test_pi_read_only_allows_only_builtin_read_tools_and_strips_overrides(
     assert child_env["PI_TELEMETRY"] == "0"
 
 
-def test_isolated_pi_call_is_ephemeral_and_cannot_resume() -> None:
-    runner = _runner()
-    command = runner._build_pi_command(
-        resume_thread_id=None,
-        options=RunnerOptions(isolate_workdir=True),
+def test_an_isolated_pi_call_keeps_and_resumes_its_session() -> None:
+    # Its sessions are private to the workdir's sandbox, so resuming is safe.
+    command = _runner()._build_pi_command(
+        resume_thread_id="old-session", options=RunnerOptions(isolate_workdir=True),
     )
-    assert "--no-session" in command
-    assert "--session-dir" not in command
-
-    with pytest.raises(ValueError, match="cannot resume"):
-        runner._build_pi_command(
-            resume_thread_id="old-session",
-            options=RunnerOptions(isolate_workdir=True),
-        )
+    assert "--session-dir" in command and command[-2:] == ["--session", "old-session"]
 
 
 def test_pi_event_consumer_tracks_session_text_usage_model_and_completion() -> None:

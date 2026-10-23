@@ -187,11 +187,10 @@ def _cwd_as_workspace() -> Path:
 
     The cwd is not a safe default here. ``spawn_detached_daemon`` runs
     ``os.chdir("/")`` (``daemon/process.py``), so a daemonized front door would
-    hand the Manager runner a workspace rooted at the filesystem root — the very
-    hazard ``core.sandbox.fail_closed_workdir`` exists to prevent for spawned
-    roles, reintroduced one layer up. The gate brain (``~/.argus-skill``), the
-    package source and the active venv are equally off-limits, for the reasons
-    ``core.sandbox.forbidden_write_roots`` sets out.
+    hand the Manager runner a workspace rooted at the filesystem root. The gate
+    brain (``~/.argus-skill``), the package source and the active venv are
+    equally off-limits, for the reasons ``core.sandbox.forbidden_write_roots``
+    sets out.
     """
     from ..core.sandbox import forbidden_write_roots
 
@@ -210,8 +209,8 @@ def _cwd_as_workspace() -> Path:
             f"workspace looks like, not a project. Pass an explicit session root "
             f"(mem.project_root / life_dir) from the caller."
         )
-    # Same containment test as ``core.sandbox._is_forbidden``, applied to the
-    # workspace we are about to hand the Manager runner.
+    # Containment by real path, applied to the workspace we are about to hand
+    # the Manager runner.
     for root in forbidden_write_roots():
         real = os.path.realpath(root)
         if str(cwd) == real or str(cwd).startswith(real.rstrip("/") + os.sep):

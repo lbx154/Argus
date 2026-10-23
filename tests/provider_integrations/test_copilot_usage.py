@@ -105,13 +105,19 @@ def test_dedicated_account_usage_never_reads_ambient_or_personal_stores(
     assert usage is not None and usage.total_nano_aiu == 7
 
 
-def test_dedicated_sandbox_cursor_uses_private_runtime(tmp_path: Path, monkeypatch) -> None:
-    from argus.core.sandbox import isolated_copilot_home
+def test_a_sandboxed_call_s_usage_is_read_from_its_workdir_s_store(tmp_path: Path, monkeypatch, host_sandbox) -> None:
+    from argus.core.sandbox import private_path
 
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOME", str(tmp_path / "dedicated"))
-    cursor = capture_copilot_usage_cursor(isolated_workdir=tmp_path / "worktree")
-    assert cursor.db_path == isolated_copilot_home(tmp_path / "worktree") / "session-store.db"
-    assert cursor.fallback is None
+    dedicated = tmp_path / "dedicated"
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOME", str(dedicated))
+    store = private_path(dedicated / "session-store.db", tmp_path / "worktree")
+    _db(store.parent)
+    cursor = capture_copilot_usage_cursor(working_dir=tmp_path / "worktree")
+    assert cursor.db_path == store and cursor.fallback is None
+    _insert(store, session="sandboxed", model="gpt-5.5", created_at="2026-07-11T10:00:00Z", total_nano_aiu=7)
+    assert read_copilot_usage_since(cursor, session_id="sandboxed").total_nano_aiu == 7
+    # Reconciliation finds every workdir's store, not only the shared one.
+    assert store in copilot_usage.copilot_usage_db_candidates()
 
 
 def test_reads_exact_rows_added_after_cursor(tmp_path: Path, monkeypatch) -> None:

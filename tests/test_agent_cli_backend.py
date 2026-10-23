@@ -622,7 +622,7 @@ def test_missing_copilot_resume_target_is_not_billed(
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: None,
+        lambda **_: None,
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
@@ -941,7 +941,7 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: object(),
+        lambda **_: object(),
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
@@ -993,7 +993,7 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: object(),
+        lambda **_: object(),
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
@@ -1075,7 +1075,7 @@ def test_copilot_stream_model_overrides_mislabeled_usage_row(
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: object(),
+        lambda **_: object(),
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
@@ -1916,7 +1916,7 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
-        lambda: None,
+        lambda **_: None,
     )
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",

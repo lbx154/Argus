@@ -998,7 +998,7 @@ class RoundExecutionMixin:
         checkpoint_path = supervised_config.checkpoint_path
         wind_down_summary = ""
         wind_down_usage: dict[str, int] = {}
-        if outcome.round_thread_id and not self.engineer_config.isolate_workdir:
+        if outcome.round_thread_id:
             wind_down_result = self._run_provider_turn_cap_wind_down(
                 round_index=round_index,
                 thread_id=str(outcome.round_thread_id),
