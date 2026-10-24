@@ -1226,6 +1226,12 @@ export const api = {
     getJson<{ notes: import('./map/notes').MapNote[] }>(P(sid, '/map-notes'), signal),
   addMapNote: (sid: string, body: { node_id: string; text: string; author?: string }) =>
     postJson<{ note: import('./map/notes').MapNote }>(P(sid, '/map-notes'), body),
+  mapCanvas: (sid: string, signal?: AbortSignal) =>
+    getJson<import('./map/canvas').CanvasRecord>(P(sid, '/canvas'), signal),
+  /** One canvas write; the body carries the revision it was based on. */
+  writeMapCanvas: <T extends { canvas: import('./map/canvas').CanvasRecord }>(
+    sid: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: Record<string, unknown>,
+  ) => uploadRequest<T>(method, P(sid, `/canvas${path}`), body),
   answerPending: (sid: string, itemId: string, text: string) =>
     postJson<{
       answered_item_id: string;

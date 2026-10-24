@@ -422,7 +422,7 @@ export function useSemanticCamera(
     const el = root.current;
     if (el) delete el.dataset.reading;
     const nodes = flow.getNodes().filter((n) =>
-      !n.hidden && (!taskIds || taskIds.has(n.data.task.id)));
+      !n.hidden && (!taskIds || taskIds.has((n.data as { task?: { id: string } }).task?.id ?? n.id)));
     if (!el || !nodes.length) return;
     const view = overviewViewport(
       { width: el.clientWidth, height: el.clientHeight },

@@ -37,6 +37,8 @@ import { arrivalDelay } from "./alive";
 
 export type MacroData = MapCard & {
   zh: boolean;
+  /** A person may draw a link from this card (the canvas's connect dot). */
+  connectable?: boolean;
   layout: SubmapLayout;
   frame: { width: number; height: number; scale: number };
   canvasSize?: { width: number; height: number };
@@ -380,6 +382,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             />
           ),
         ),
+      )}
+      {data.connectable && !data.detailed && (
+        <Handle id="connect" type="source" position={Position.Right} className="canvas-connect"
+          isConnectableEnd={false} title={data.zh ? "拖到另一张卡上连线" : "Drag onto another card to link"} />
       )}
       <div
         className="macro-summary"

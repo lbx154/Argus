@@ -458,6 +458,9 @@ def create_app(
     from .routes.map_notes import register_map_note_routes
 
     register_map_note_routes(app, ctx)
+    from .routes.canvas import register_canvas_routes
+
+    register_canvas_routes(app, ctx)
     from .routes.plugins import register_plugin_routes
     register_plugin_routes(app, ctx)
     from .routes.verticals import register_vertical_routes

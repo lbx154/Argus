@@ -28,7 +28,11 @@ import {
   ReactFlowProvider,
   useNodesState,
   useNodesInitialized,
+  ConnectionMode,
+  type ReactFlowInstance,
   type Edge,
+  type FinalConnectionState,
+  type NodeChange,
 } from "@xyflow/react";
 import {
   ArrowLeft,
@@ -74,6 +78,8 @@ import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
+import { humanFrame, isHumanCardId, LINK_KINDS, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point } from "./canvas";
+import { HumanCardView, HumanLinkView, type HumanCardNode, type HumanLinkEdge } from "./CanvasNodes";
 
 interface MapWorkspaceActions {
   conversationEvents: EventMsg[];
@@ -86,8 +92,13 @@ interface MapWorkspaceActions {
   onAnswer: () => void;
 }
 
-const NODE_TYPES = { task: MacroTaskNode };
-const EDGE_TYPES = { relation: MapRelationEdge };
+const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
+const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
+type CanvasMenu =
+  | { type: "card"; id: string; x: number; y: number }
+  | { type: "link"; id: string; x: number; y: number }
+  | { type: "connect"; source: string; target: string; x: number; y: number };
+const isCanvasNodeId = (id: string) => isHumanCardId(id) || id.startsWith("draft-");
 // Minimap fills echo the card state palette a step lighter, so the overview
 // inset reads as a status heatmap instead of undifferentiated confetti.
 const MINIMAP_STATUS: Record<string, string> = {
@@ -236,8 +247,32 @@ export function MapCanvas({
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
   }, [graph, data.events, zh, links, expandedMissions, narrow]);
+  // The canvas: what a person placed, linked and moved. Moved cards keep
+  // their place; Argus's own cards are laid out around people's cards.
+  const editable = data.kind === "live" && !readOnly;
+  const canvasApi = useCanvas(sessionId, data.kind === "live");
+  const canvasRecord = canvasApi.canvas;
+  const peopleBoxes = useMemo(() => canvasRecord.cards.flatMap((card) => {
+    const at = canvasRecord.positions[card.id];
+    return at ? [{ ...at, ...humanFrame(card) }] : [];
+  }), [canvasRecord]);
+  const pinnedTasks = useMemo(() => {
+    const pinned: Record<string, Point> = {};
+    for (const [id, at] of Object.entries(canvasRecord.positions))
+      if (!isHumanCardId(id) && scene.frames[id]) pinned[id] = at;
+    return pinned;
+  }, [canvasRecord.positions, scene.frames]);
+  const clearOfPeople = useMemo(
+    () => placeAroundPeople(scene.positions, scene.frames, pinnedTasks, peopleBoxes),
+    [scene.positions, scene.frames, pinnedTasks, peopleBoxes],
+  );
   // Cards glide to a re-laid-out place; relations follow through the store.
-  const positions = useSettledPositions(scene.positions, camera.reducedMotion);
+  // A card a person moved stands where it was dropped, without a glide.
+  const settled = useSettledPositions(clearOfPeople, camera.reducedMotion);
+  const positions = useMemo(
+    () => Object.keys(pinnedTasks).length ? { ...settled, ...pinnedTasks } : settled,
+    [settled, pinnedTasks],
+  );
   const [hoverId, setHoverId] = useState<string | null>(null);
   const lit = useMemo(() => spotlight(scene.links, hoverId), [scene.links, hoverId]);
   // A first opening composes the map in reading order; a replay walks a live
@@ -505,6 +540,7 @@ export function MapCanvas({
           quote,
           source: data.id,
           readOnly,
+          connectable: editable,
           live: data.kind === "live",
           paused,
           seenCards,
@@ -531,6 +567,7 @@ export function MapCanvas({
     data.id,
     data.kind,
     readOnly,
+    editable,
     paused,
     seenCards,
   ]);
@@ -575,6 +612,8 @@ export function MapCanvas({
       const next = nodes.map<MacroNode>((n) => ({
         ...n,
         hidden: !visibleIds.has(n.id),
+        // A card opened for reading scrolls and selects; it is not dragged.
+        draggable: editable && !(camera.detailed && n.id === camera.focusId),
         data: {
           ...n.data,
           copy: copy ? { version: copy.version, cards: Object.fromEntries(
@@ -618,6 +657,7 @@ export function MapCanvas({
     [
       nodes,
       visibleIds,
+      editable,
       camera.focusId,
       camera.detailed,
       camera.canvasSize,
@@ -769,6 +809,175 @@ export function MapCanvas({
       ordinalOf,
     ],
   );
+  // Set by ReactFlow's onInit; screen points map to the canvas through it.
+  const flowInstance = useRef<Pick<ReactFlowInstance, "screenToFlowPosition"> | null>(null);
+  const toFlow = useCallback((point: Point) => flowInstance.current?.screenToFlowPosition(point) ?? point, []);
+  const [draft, setDraft] = useState<{ id: string; position: Point } | null>(null);
+  const [humanDrag, setHumanDrag] = useState<Record<string, Point>>({});
+  const [editingCard, setEditingCard] = useState<string | null>(null);
+  const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
+  const [canvasNotice, setCanvasNotice] = useState("");
+  const [dropping, setDropping] = useState(false);
+  const failed = useCallback((error: unknown) => {
+    setCanvasNotice((zh ? "画布没有保存：" : "The canvas was not saved: ") +
+      (error instanceof Error ? error.message : String(error)));
+  }, [zh]);
+  const commitCard = useCallback((id: string, text: string) => {
+    setEditingCard(null);
+    if (draft && id === draft.id) {
+      setDraft(null);
+      canvasApi.addCard({ kind: "idea", text, position: draft.position }).catch(failed);
+    } else canvasApi.editCard(id, text).catch(failed);
+  }, [draft, canvasApi.addCard, canvasApi.editCard, failed]);
+  const cancelCard = useCallback((id: string) => {
+    setEditingCard(null);
+    if (draft && id === draft.id) setDraft(null);
+  }, [draft]);
+  const cardMenu = useCallback((id: string, point: { x: number; y: number }) =>
+    setCanvasMenu({ type: "card", id, x: Math.min(window.innerWidth - 180, point.x), y: Math.min(window.innerHeight - 140, point.y) }), []);
+  const linkMenu = useCallback((id: string, point: { x: number; y: number }) =>
+    setCanvasMenu({ type: "link", id, x: Math.min(window.innerWidth - 180, point.x), y: Math.min(window.innerHeight - 220, point.y) }), []);
+  const humanNodes = useMemo<HumanCardNode[]>(() => {
+    const cards: Array<[HumanCard, boolean]> = canvasRecord.cards.map((card) => [card, false]);
+    if (draft) cards.push([{ id: draft.id, kind: "idea", text: "", attachment: null, created_ts: 0, updated_ts: 0 }, true]);
+    return cards.map(([card, isDraft]) => {
+      const frame = humanFrame(card);
+      return {
+        id: card.id,
+        type: "human" as const,
+        position: humanDrag[card.id] ?? (isDraft ? draft!.position : canvasRecord.positions[card.id]) ?? { x: 0, y: 0 },
+        width: frame.width,
+        height: frame.height,
+        style: { width: frame.width, height: frame.height },
+        draggable: editable && !isDraft,
+        selectable: false,
+        zIndex: 2,
+        data: {
+          card, zh, draft: isDraft, readOnly: !editable, commit: commitCard, cancel: cancelCard,
+          openFile: actions.onOpenArtifact, menu: cardMenu, editing: editingCard === card.id,
+        },
+      };
+    });
+  }, [canvasRecord, draft, humanDrag, editable, zh, commitCard, cancelCard, actions.onOpenArtifact, cardMenu, editingCard]);
+  const flowNodes = useMemo(() => humanNodes.length ? [...displayNodes, ...humanNodes] : displayNodes,
+    [displayNodes, humanNodes]);
+  const humanEdges = useMemo<HumanLinkEdge[]>(() => {
+    const humanBoxes = new Map(humanNodes.map((n) => [n.id, { ...n.position, width: n.width!, height: n.height! }]));
+    const box = (id: string) => humanBoxes.get(id) ??
+      (visibleIds.has(id) && positions[id] && scene.frames[id] ? { ...positions[id], ...scene.frames[id] } : undefined);
+    return canvasRecord.links.flatMap((link) => {
+      const a = box(link.source);
+      const b = box(link.target);
+      if (!a || !b) return [];
+      return [{
+        id: link.id,
+        source: link.source,
+        target: link.target,
+        ...relationPorts(a, b),
+        type: "human" as const,
+        zIndex: 1,
+        data: { kind: link.kind, zh, menu: editable ? linkMenu : undefined },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#b8862b", width: 26, height: 26 },
+        ariaLabel: `${link.kind}: ${link.source} → ${link.target}`,
+      }];
+    });
+  }, [canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, zh, editable, linkMenu]);
+  const flowEdges = useMemo<Edge[]>(() => humanEdges.length ? [...edges, ...humanEdges] : edges, [edges, humanEdges]);
+  const onFlowNodesChange = useCallback((changes: NodeChange[]) => {
+    const theirs: NodeChange<MacroNode>[] = [];
+    const moved: Record<string, Point> = {};
+    for (const change of changes) {
+      if ("id" in change && isCanvasNodeId(change.id)) {
+        if (change.type === "position" && change.position) moved[change.id] = change.position;
+      } else theirs.push(change as NodeChange<MacroNode>);
+    }
+    if (Object.keys(moved).length) setHumanDrag((current) => ({ ...current, ...moved }));
+    if (theirs.length) onNodesChange(theirs);
+  }, [onNodesChange]);
+  const onNodeDragStop = useCallback((_: unknown, _node: unknown, dragged: Array<{ id: string; position: Point }>) => {
+    const placed: Record<string, Point> = {};
+    for (const node of dragged)
+      if (!node.id.startsWith("draft-")) placed[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) };
+    if (!Object.keys(placed).length) return;
+    canvasApi.move(placed).catch(failed);
+    setHumanDrag((current) => {
+      const next = { ...current };
+      for (const id of Object.keys(placed)) delete next[id];
+      return next;
+    });
+  }, [canvasApi.move, failed]);
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    const source = state.fromNode?.id;
+    const target = state.toNode?.id ?? document.elementFromPoint(point.clientX, point.clientY)
+      ?.closest(".react-flow__node")?.getAttribute("data-id") ?? undefined;
+    if (!source || !target || source === target || target.startsWith("draft-")) return;
+    setCanvasMenu({ type: "connect", source, target,
+      x: Math.min(window.innerWidth - 180, point.clientX), y: Math.min(window.innerHeight - 220, point.clientY) });
+  }, []);
+  const addIdeaAt = useCallback((event: React.MouseEvent) => {
+    if (!editable || draft || !(event.target as Element).closest(".react-flow__pane")) return;
+    const at = toFlow({ x: event.clientX, y: event.clientY });
+    const frame = humanFrame({ kind: "idea" });
+    setDraft({ id: `draft-${Date.now()}`, position: { x: Math.round(at.x - frame.width / 2), y: Math.round(at.y - frame.height / 2) } });
+  }, [editable, draft, toFlow]);
+  const fileDrag = (event: React.DragEvent) => editable && event.dataTransfer.types.includes("Files") &&
+    !!(event.target as Element).closest(".react-flow");
+  const dropFiles = useCallback(async (files: File[], at: Point, onto?: string) => {
+    if (!files.length) return;
+    setCanvasNotice(zh ? `正在上传 ${files.map((f) => f.name).join("、")}…` : `Uploading ${files.map((f) => f.name).join(", ")}…`);
+    try {
+      const { attachments } = await api.uploadAttachments(sessionId, files);
+      const anchor = onto ? flowNodes.find((n) => n.id === onto) : undefined;
+      const frame = humanFrame({ kind: "file" });
+      for (const [index, file] of attachments.entries()) {
+        const position = anchor
+          ? { x: Math.round(anchor.position.x + (anchor.width ?? 0) + 160), y: Math.round(anchor.position.y + index * (frame.height + 60)) }
+          : { x: Math.round(at.x - frame.width / 2 + index * 60), y: Math.round(at.y - frame.height / 2 + index * (frame.height + 60)) };
+        const { card } = await canvasApi.addCard({ kind: "file", position, attachment: {
+          attachment_id: file.attachment_id, name: file.original_name, relative_path: file.relative_path,
+          mime: file.mime, size_bytes: file.size_bytes,
+        } });
+        if (onto) await canvasApi.addLink(card.id, onto, "basis");
+      }
+      setCanvasNotice("");
+    } catch (error) {
+      failed(error);
+    }
+  }, [zh, sessionId, flowNodes, canvasApi.addCard, canvasApi.addLink, failed]);
+  const onFileDrop = useCallback((event: React.DragEvent) => {
+    setDropping(false);
+    if (!fileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const onto = (event.target as Element).closest(".react-flow__node")?.getAttribute("data-id") ?? undefined;
+    const at = toFlow({ x: event.clientX, y: event.clientY });
+    void dropFiles([...event.dataTransfer.files], at, onto?.startsWith("draft-") ? undefined : onto);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toFlow, dropFiles, editable]);
+  useEffect(() => {
+    if (!canvasMenu) return;
+    const dismiss = (e: PointerEvent) => {
+      if (!(e.target as Element).closest(".canvas-menu")) setCanvasMenu(null);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); setCanvasMenu(null); }
+    };
+    window.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [canvasMenu]);
+  const menuLink = canvasMenu?.type === "link" ? canvasRecord.links.find((l) => l.id === canvasMenu.id) : undefined;
+  const menuCard = canvasMenu?.type === "card" ? canvasRecord.cards.find((c) => c.id === canvasMenu.id) : undefined;
+  const chooseKind = (kind: LinkKind) => {
+    const current = canvasMenu;
+    setCanvasMenu(null);
+    if (current?.type === "connect") canvasApi.addLink(current.source, current.target, kind).catch(failed);
+    else if (current?.type === "link") canvasApi.setLinkKind(current.id, kind).catch(failed);
+  };
   const replacementCount = graph.links.filter(
     (e) => e.kind === "replacement",
   ).length;
@@ -1058,7 +1267,22 @@ export function MapCanvas({
           data-detailed={camera.detailed}
           data-fitted={fitted}
           data-hovering={!!hoverId && !camera.detailed}
+          onDoubleClick={addIdeaAt}
+          onDragOver={(e) => {
+            if (!fileDrag(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setDropping(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDropping(false);
+          }}
+          onDrop={onFileDrop}
         >
+          {dropping && <div className="canvas-drop-hint" aria-hidden />}
+          {canvasNotice && (
+            <div className="canvas-upload-status" role="status" onClick={() => setCanvasNotice("")}>{canvasNotice}</div>
+          )}
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
             <AgentActivity sid={snapshot.session.id} view={snapshot.mission_view} roles={snapshot.roles} events={events}
@@ -1248,21 +1472,26 @@ export function MapCanvas({
               ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
-            <ReactFlow<MacroNode>
-              nodes={displayNodes}
-              edges={edges}
+            <ReactFlow<MacroNode | HumanCardNode>
+              nodes={flowNodes}
+              edges={flowEdges}
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
-              onNodesChange={onNodesChange}
+              onNodesChange={onFlowNodesChange}
+              onNodeDragStop={onNodeDragStop}
+              onInit={(instance) => { flowInstance.current = instance; }}
+              onConnectEnd={onConnectEnd}
+              connectionMode={ConnectionMode.Loose}
+              nodeDragThreshold={4}
               onNodeMouseEnter={(_, node) => setHoverId(node.id)}
               onNodeMouseLeave={() => setHoverId(null)}
               onMove={camera.onMove}
               defaultViewport={INITIAL_VIEWPORT}
               minZoom={0.01}
               maxZoom={3.5}
-              nodesDraggable={false}
+              nodesDraggable={editable}
               nodesFocusable={false}
-              nodesConnectable={false}
+              nodesConnectable={editable}
               edgesReconnectable={false}
               zoomOnScroll={false}
               zoomOnPinch
@@ -1289,9 +1518,10 @@ export function MapCanvas({
                   duration: camera.reducedMotion ? 0 : 320,
                 }}
               />
-              <MiniMap<MacroNode>
+              <MiniMap<MacroNode | HumanCardNode>
                 nodeColor={(n) =>
-                  MINIMAP_STATUS[statusKey(n.data.task)] ?? "#c6c8cb"
+                  n.type === "human" ? "#d9b443" :
+                  MINIMAP_STATUS[statusKey((n as MacroNode).data.task)] ?? "#c6c8cb"
                 }
                 maskColor="var(--map-minimap-mask)"
                 maskStrokeColor="#6d737a"
@@ -1345,6 +1575,38 @@ export function MapCanvas({
             <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
               onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} />
+          )}
+          {canvasMenu && editable && (
+            <div className="map-context-menu canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }}>
+              {canvasMenu.type === "card" && menuCard && (
+                <>
+                  {menuCard.kind === "idea" && (
+                    <button role="menuitem" onClick={() => { setEditingCard(menuCard.id); setCanvasMenu(null); }}>
+                      {zh ? "编辑文字" : "Edit text"}
+                    </button>
+                  )}
+                  <button role="menuitem" onClick={() => { setCanvasMenu(null); canvasApi.deleteCard(menuCard.id).catch(failed); }}>
+                    {zh ? "删除卡片" : "Delete card"}
+                  </button>
+                </>
+              )}
+              {(canvasMenu.type === "connect" || (canvasMenu.type === "link" && menuLink)) && (
+                <>
+                  <span className="canvas-menu-title">{zh ? "选一种关系" : "Choose a relation"}</span>
+                  {LINK_KINDS.map(([kind, labelZh, labelEn]) => (
+                    <button key={kind} role="menuitemradio" aria-checked={menuLink?.kind === kind}
+                      onClick={() => chooseKind(kind)}>
+                      {menuLink?.kind === kind ? "✓ " : ""}{zh ? labelZh : labelEn}
+                    </button>
+                  ))}
+                  {canvasMenu.type === "link" && menuLink && (
+                    <button role="menuitem" onClick={() => { setCanvasMenu(null); canvasApi.deleteLink(menuLink.id).catch(failed); }}>
+                      {zh ? "删除连线" : "Delete link"}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           )}
           {menu && !readOnly && (
             <div

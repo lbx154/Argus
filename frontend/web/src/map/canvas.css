@@ -1,0 +1,61 @@
+/* Cards and links a person put on the map. Sizes are in flow units: task
+   cards are ~1440 wide, so type here is large and reads at overview zoom. */
+.canvas-card {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 34px 40px;
+  border-radius: 28px;
+  background: #fff7d6;
+  border: 4px solid #d9b443;
+  color: var(--ink, #1f2328);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.10);
+  font-size: 60px;
+  line-height: 1.25;
+  overflow: hidden;
+}
+.canvas-card-file { background: #eef4fb; border-color: #7a9cc4; }
+.canvas-card.is-editing { border-style: dashed; }
+.canvas-card header { display: flex; align-items: center; gap: 16px; font-size: 40px; color: var(--ink-dim, #5c636b); }
+.canvas-card header svg { width: 48px; height: 48px; flex: none; }
+.canvas-card header span { flex: 1; }
+.canvas-card-more { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 6px; border-radius: 12px; }
+.canvas-card-more:hover { background: rgb(0 0 0 / 0.08); }
+.canvas-card p { margin: 0; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.canvas-card textarea { flex: 1; font: inherit; color: inherit; background: rgb(255 255 255 / 0.7);
+  border: 2px solid rgb(0 0 0 / 0.18); border-radius: 16px; padding: 14px 18px; resize: none; }
+.canvas-file { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left;
+  font: inherit; color: var(--blue, #2f6fb3); background: none; border: 0; padding: 0; cursor: pointer; min-width: 0; }
+.canvas-file strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; }
+.canvas-file small { font-size: 40px; color: var(--ink-dim, #5c636b); }
+
+/* The dot a person drags from to draw a link, on human and task cards. */
+.react-flow__handle.canvas-connect {
+  width: 44px; height: 44px; right: -22px; border-radius: 50%;
+  background: #fff; border: 6px solid #b8862b; opacity: 0.35; cursor: crosshair;
+}
+.react-flow__node:hover .react-flow__handle.canvas-connect { opacity: 1; }
+
+.react-flow__edge-path.canvas-link { stroke: #b8862b; stroke-dasharray: none; }
+.canvas-link-label {
+  position: absolute; pointer-events: all; cursor: pointer;
+  font-size: 14px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  background: #fff7d6; color: #6b4e12; border: 1.5px solid #b8862b;
+}
+.react-flow__connectionline path { stroke: #b8862b; stroke-width: 6; }
+.canvas-drop-hint { position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  outline: 3px dashed #b8862b; outline-offset: -8px; border-radius: 12px; background: rgb(255 247 214 / 0.18); }
+.canvas-upload-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
+  background: var(--panel, #fff); border: 1px solid var(--line, #d0d4d9); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .canvas-card { background: #3a3320; border-color: #a6862e; color: #f1ead6; }
+  :root:not([data-theme="light"]) .canvas-card-file { background: #1f2a36; border-color: #5d7ea6; color: #dde7f2; }
+}
+:root[data-theme="dark"] .canvas-card { background: #3a3320; border-color: #a6862e; color: #f1ead6; }
+:root[data-theme="dark"] .canvas-card-file { background: #1f2a36; border-color: #5d7ea6; color: #dde7f2; }
+.canvas-menu-title { display: block; padding: 4px 10px; font-size: 12px; color: var(--ink-dim, #5c636b); }
