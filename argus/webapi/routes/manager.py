@@ -725,8 +725,6 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                     if view == "ui" and not server._event_visible_in_web_ui(ev):
                         continue
                     await ws.send_json(ev)
-        except asyncio.CancelledError:
-            return
         except WebSocketDisconnect:
             return
         except Exception:  # noqa: BLE001 — a stream error must not crash the server
@@ -735,11 +733,22 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             except Exception:  # noqa: BLE001
                 pass
         finally:
-            for task in (event_task, receive_task):
+            # A cancelled stream (client gone, server shutting down) must stay
+            # cancelled with the server's own cancellation. ``asyncio.gather``
+            # over the helper tasks cancelled here would re-raise *their*
+            # anonymous CancelledError when the server cancels this handler
+            # meanwhile; the server's cancel scope does not recognise it and
+            # reports the connection as cancelled, not closed (the flaky
+            # test_ws_requires_token_when_configured). ``asyncio.wait`` never
+            # raises a helper's error.
+            helpers = {event_task, receive_task}
+            for task in helpers:
                 task.cancel()
-            await asyncio.gather(event_task, receive_task, return_exceptions=True)
-            # ``asyncio.CancelledError`` is a BaseException on supported
-            # Python versions, so ``suppress(Exception)`` does not cover the
-            # normal TestClient/server-shutdown cancellation path.
-            with suppress(asyncio.CancelledError, Exception):
-                await iterator.aclose()
+            try:
+                await asyncio.wait(helpers)
+                for task in helpers:
+                    if not task.cancelled():
+                        task.exception()
+            finally:
+                with suppress(Exception):
+                    await iterator.aclose()
