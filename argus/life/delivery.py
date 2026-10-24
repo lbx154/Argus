@@ -504,6 +504,97 @@ def delivery_snapshot_diff(
     )
 
 
+def delivery_is_current(
+    workspace: Path | str, state_root: Path | str, snapshots: Iterable[object],
+) -> bool:
+    """Whether every file a delivery recorded still holds the version it delivered.
+
+    A kept text copy is compared byte for byte, a large or binary file by its
+    file facts. A missing, pruned or unreadable version counts as a change, so
+    nothing leans on a review of files it can no longer show are unchanged.
+    """
+    rows = [row for row in snapshots or () if isinstance(row, dict)]
+    try:
+        root = Path(workspace).expanduser().resolve(strict=True)
+        store = _snapshot_dir(Path(state_root).expanduser().resolve(strict=True))
+    except (OSError, RuntimeError, TypeError):
+        return False
+    for row in rows:
+        path = _safe_existing_path(root, row.get("path"))
+        version = str(row.get("version") or "")
+        if path is None:
+            return False
+        try:
+            if row.get("stored"):
+                if not _SNAPSHOT_VERSION.fullmatch(version) or (
+                    (store / version).read_bytes() != (root / path).read_bytes()
+                ):
+                    return False
+            elif ":".join(map(str, file_facts(root / path))) != version:
+                return False
+        except OSError:
+            return False
+    return bool(rows)
+
+
+_DOC_SUFFIXES = _PRESENTATION_SUFFIXES | {".rst", ".txt"}
+_TEST_FILE_RE = re.compile(r"^test_|_test\.[^.]+$|\.(?:test|spec)\.[^.]+$", re.IGNORECASE)
+
+
+def _is_test_path(path: str) -> bool:
+    parts = Path(path).parts
+    return bool(parts) and (
+        any(part.casefold() in {"test", "tests", "__tests__", "spec"} for part in parts[:-1])
+        or bool(_TEST_FILE_RE.search(parts[-1]))
+    )
+
+
+def changed_workspace_paths(
+    workspace: Path | str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    named: Iterable[str] = (),
+) -> list[str] | None:
+    """Files that differ between two ``workspace_facts`` of ``workspace``, deliverables first.
+
+    ``named`` files, which the caller knows changed (an ignored output the
+    facts leave out, say), join them and lead; then docs and other outputs,
+    then tests. Removed files are not deliverables and drop out. ``None`` when
+    either side is unknown, which is never evidence that nothing changed.
+    """
+    if before.get("unavailable") or after.get("unavailable"):
+        return None
+
+    def rows(facts: dict[str, Any]) -> dict[str, str]:
+        if "files" in facts:
+            return {str(row[0]): json.dumps(row[1:]) for row in facts["files"]}
+        return {str(row[1]): json.dumps(row) for row in facts.get("changes") or ()}
+
+    old, new = rows(before), rows(after)
+    first = set(named)
+    paths = first | {path for path in {*old, *new} if old.get(path) != new.get(path)}
+    if before.get("tree") != after.get("tree"):
+        # The turn committed: what the commits changed left ``git status``.
+        import subprocess
+
+        try:
+            paths.update(subprocess.run(
+                ["git", "diff", "--name-only", "-z", str(before.get("tree")), str(after.get("tree"))],
+                cwd=workspace, check=True, capture_output=True, timeout=10,
+            ).stdout.decode("utf-8", "replace").split("\0"))
+        except (OSError, subprocess.SubprocessError):
+            return None
+    root = Path(workspace)
+    return sorted(
+        (path for path in paths if path and (root / path).is_file()),
+        key=lambda path: (
+            _is_test_path(path), path not in first,
+            Path(path).suffix.lower() not in _DOC_SUFFIXES, path,
+        ),
+    )
+
+
 def build_delivery_receipt(
     *,
     item_id: str,
@@ -526,9 +617,10 @@ def build_delivery_receipt(
     """Build a receipt only for a real, openable deliverable.
 
     A terminal receipt needs the whole goal complete. A ``stage_package`` task
-    (a reviewed interim research package) gets a non-terminal receipt once its
-    own Reviewer accepted it; the campaign and ``overall_complete`` stay as they
-    are, so it cannot stand in for the final result.
+    (a reviewed interim research package, or the operator's own request while
+    the campaign goes on) gets a non-terminal receipt once its own Reviewer
+    accepted it; the campaign and ``overall_complete`` stay as they are, so it
+    cannot stand in for the final result.
     """
     interim = (
         stage_package and not overall_complete
@@ -620,6 +712,8 @@ __all__ = [
     "DELIVERY_SCHEMA_VERSION",
     "MAX_DELIVERY_TARGETS",
     "build_delivery_receipt",
+    "changed_workspace_paths",
+    "delivery_is_current",
     "delivery_snapshot_diff",
     "read_delivery_snapshot",
     "snapshot_delivery_targets",

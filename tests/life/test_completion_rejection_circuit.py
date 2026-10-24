@@ -76,6 +76,9 @@ class _RejectionHarness(PlanningCycleCompletionMixin):
     def _project_workdir(self):
         return self.root
 
+    def _project_state_root(self):
+        return self.root
+
     def _current_pipeline_stage(self) -> str:
         return "submission"
 

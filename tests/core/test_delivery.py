@@ -445,3 +445,71 @@ def test_receipt_records_who_settled_the_review(
     assert receipt is not None
     # ``done`` alone cannot tell an independent review from the worker's own check.
     assert receipt["review_source"] == expected
+
+
+def test_a_delivery_is_current_until_a_delivered_file_changes(tmp_path: Path) -> None:
+    from argus.life.delivery import delivery_is_current
+
+    receipt = _stage_package_receipt(tmp_path)
+    workspace, state = tmp_path / "workspace", tmp_path / "state"
+
+    assert delivery_is_current(workspace, state, receipt["snapshots"])
+    (workspace / "package.md").write_text("# Round 1 results, edited\n", encoding="utf-8")
+    assert not delivery_is_current(workspace, state, receipt["snapshots"])
+    # No recorded version proves nothing unchanged.
+    assert not delivery_is_current(workspace, state, [])
+
+
+def test_changed_files_list_docs_and_outputs_before_tests(tmp_path: Path) -> None:
+    from argus.core.workspace_facts import workspace_facts
+    from argus.life.delivery import changed_workspace_paths
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "old.txt").write_text("gone\n", encoding="utf-8")
+    (tmp_path / "same.md").write_text("unchanged\n", encoding="utf-8")
+    before = workspace_facts(tmp_path)
+    (tmp_path / "tests" / "test_pkg.py").write_text("def test(): pass\n", encoding="utf-8")
+    (tmp_path / "pkg" / "__init__.py").write_text("x = 22\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Pkg\n", encoding="utf-8")
+    (tmp_path / "old.txt").unlink()
+    after = workspace_facts(tmp_path)
+
+    assert changed_workspace_paths(tmp_path, before, after) == [
+        "README.md", "pkg/__init__.py", "tests/test_pkg.py",
+    ]
+    assert changed_workspace_paths(tmp_path, before, before) == []
+    assert changed_workspace_paths(tmp_path, {"unavailable": True}, after) is None
+
+
+def test_a_manager_turn_delivers_every_file_it_changed(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from argus.apps._self_reply import SelfReplyMixin
+    from argus.life.delivery import MAX_DELIVERY_TARGETS
+
+    workspace, state = tmp_path / "workspace", tmp_path / "state"
+    (workspace / "tests").mkdir(parents=True)
+    state.mkdir()
+    (workspace / "moneyfmt.py").write_text("def fmt(v): ...\n", encoding="utf-8")
+    result = SimpleNamespace(started_at=1.0, call_id="")
+    before = SelfReplyMixin._workspace_facts(workspace, state)
+
+    # A reply turn that changed nothing delivers nothing.
+    assert SelfReplyMixin._delivery(result, "Here is how it works.", workspace, state, "t-0", before) is None
+
+    for index in range(MAX_DELIVERY_TARGETS):
+        (workspace / "tests" / f"test_case_{index}.py").write_text("def test(): pass\n", encoding="utf-8")
+    (workspace / "moneyfmt.py").write_text("def format_amount_cn(v): ...\n", encoding="utf-8")
+    # The reply names no file, as Manager replies often do.
+    receipt = SelfReplyMixin._delivery(
+        result, "已添加 `format_amount_cn(value)`，已补充测试。", workspace, state, "t-1", before,
+    )
+
+    assert receipt is not None
+    paths = [target["path"] for target in receipt["targets"]]
+    assert len(paths) == MAX_DELIVERY_TARGETS
+    assert paths[0] == "moneyfmt.py"
+    assert all(path.startswith("tests/") for path in paths[1:])
+    assert receipt["review_source"] == "solo_output"

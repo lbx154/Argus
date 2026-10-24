@@ -963,7 +963,11 @@ class MissionExecutionSettlementMixin:
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,
-                stage_package="stage_package" in item.tags,
+                # The operator's own request is a deliverable once its
+                # Reviewer accepted it, even while the campaign goes on.
+                stage_package=bool(
+                    {"stage_package", "operator", "manager_direct"} & set(item.tags)
+                ),
             )
             if delivery is not None and final_submission_manuscript_snapshot is not None:
                 delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot
@@ -978,6 +982,10 @@ class MissionExecutionSettlementMixin:
             "independent_review_required": (
                 self._item_requires_independent_review(item)
             ),
+            # The Reviewer judged the operator's whole request, not one node of
+            # a plan: the research gate may reuse that review (see
+            # ``_research_project_done_issue``).
+            "operator_request": bool({"operator", "manager_direct"} & set(item.tags)),
             "success": success,
             "status": status,
             **({"park_reason": state.park_reason} if status == "parked" else {}),

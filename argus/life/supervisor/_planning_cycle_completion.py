@@ -89,6 +89,7 @@ class PlanningCycleCompletionMixin:
                 self.memory.journal.all(),
                 current_signature=self._final_submission_signature(),
                 evidence_root=self._project_workdir(),
+                delivery_state_root=self._project_state_root(),
             )
             if resolve_workflow_mode(artifact_root) != "direct"
             else ""
@@ -561,6 +562,7 @@ class PlanningCycleCompletionMixin:
                 self.memory.journal.all(),
                 current_signature=self._final_submission_signature(),
                 evidence_root=self._project_workdir(),
+                delivery_state_root=self._project_state_root(),
             )
             if research_done_issue:
                 return reject_completion(
