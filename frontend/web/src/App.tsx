@@ -1342,6 +1342,7 @@ export default function App() {
                   if (selection) openDelivery(selection.receipt, selection.path);
                 }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
+                deliveries={deliveryHistory} onStartLaunch={snap.launch_hold ? startHeldLaunch : undefined}
               /></Suspense>}
               {workspaceView === 'map' && !kiosk && (missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                 <span className="text-warn">{draftStorageError

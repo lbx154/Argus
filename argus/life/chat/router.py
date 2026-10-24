@@ -321,7 +321,11 @@ class CommandRouter:
             return
 
         text = self._redact_credentials(text.strip())
-        reply, handoff = manager_turn(manager_mem, text, self._state)
+        from ...webapi.manager_bridge import manager_canvas_context
+
+        # What a person placed on the canvas, as in the web chat: context for this turn only.
+        canvas = manager_canvas_context(self.life_dir)
+        reply, handoff = manager_turn(manager_mem, f"{text}\n\n{canvas}" if canvas else text, self._state)
         if ruling := self._state.pop("_stage_ruling", None):
             from ...apps._inbox import queue_inbox_message
 

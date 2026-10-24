@@ -289,3 +289,18 @@ def _no_new_task(monkeypatch) -> list[str]:
         lambda _mem, text, _state, persist, **_k: persist(text, None),
     )
     return triaged
+
+
+def test_free_text_manager_turn_reads_the_canvas_like_the_web_chat(tmp_path, monkeypatch) -> None:
+    from argus.webapi import canvas as store
+
+    router, life_dir, _replies = _router(tmp_path)
+    seen: list[str] = []
+    monkeypatch.setattr(front_door, "manager_turn", replying(lambda _m, text, _s, **_k: seen.append(text) or "好的。"))
+    router.dispatch("普通问题")
+    store.add_card(life_dir, 0, kind="idea", text="基线要用 3 个种子")
+    router.dispatch("接下来做什么？")
+
+    assert seen[0] == "普通问题"
+    assert seen[1].startswith("接下来做什么？") and store.CONTEXT_HEADER in seen[1]
+    assert "基线要用 3 个种子" in seen[1]

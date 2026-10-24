@@ -184,3 +184,17 @@ export function LaunchHoldCard({
     </section>
   );
 }
+
+/** The "开始执行" of the chat's confirm card, for places outside it (the map's
+ * overview and the held task's card): the same action, the same words. */
+export function LaunchStartButton({ onStart, zh, className = '' }: { onStart: () => Promise<void>; zh: boolean; className?: string }) {
+  const [busy, setBusy] = useState(false);
+  return <button type="button" disabled={busy} data-testid="launch-start" className={className}
+    onClick={async (event) => {
+      event.stopPropagation();
+      setBusy(true);
+      try { await onStart(); } finally { setBusy(false); }
+    }}>
+    {busy ? (zh ? '正在启动…' : 'Starting…') : (zh ? '开始执行' : 'Start')}
+  </button>;
+}

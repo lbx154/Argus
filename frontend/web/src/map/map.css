@@ -447,6 +447,10 @@
 .map-legend .dashed {
   border-top: 1.5px dashed #a0afbf;
 }
+/* Lines to the cards a person placed: solid where the person drew them,
+ * dashed where the records state them (来自, 关于). */
+.argus-map .map-legend b.human-link { border-top: 2.5px solid #b8862b !important; }
+.argus-map .map-legend b.human-link.is-recorded { border-top-style: dashed !important; }
 .map-legend .is-muted {
   opacity: 0.45;
 }
@@ -903,10 +907,30 @@
 }
 
 /* Three-line project brief: goal, conclusion so far, next step. */
-.map-brief { flex-shrink: 0; margin: 0; padding: 10px 28px 8px; font-size: 13px; line-height: 1.6; color: rgb(var(--ink)); display: grid; gap: 4px; }
-.map-brief > div { display: flex; gap: 10px; min-width: 0; }
-.map-brief dt { flex: 0 0 4em; color: rgb(var(--ink-dim)); font-weight: 550; }
-.map-brief dd { margin: 0; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+/* The overview: the team line, then 目标 / 主要成果 / 已验证 / 等你决定. */
+.map-overview { flex-shrink: 0; font-size: 13px; line-height: 1.55; color: rgb(var(--ink)); }
+.map-overview dl { margin: 0; padding: 8px 28px 8px; display: grid; gap: 4px; }
+.map-overview dl > div { display: flex; gap: 10px; min-width: 0; align-items: baseline; }
+.map-overview dt { flex: 0 0 5em; color: rgb(var(--ink-dim)); font-weight: 550; }
+.map-overview dd { margin: 0; min-width: 0; flex: 1; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.map-overview-goal { display: block !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-overview-empty { color: rgb(var(--ink-faint)); }
+.map-overview-item { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; padding: 1px 8px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--panel)); color: rgb(var(--ink)); text-align: left; cursor: pointer; }
+button.map-overview-item:hover, .map-overview-link:hover { border-color: rgb(var(--blue)); color: rgb(var(--blue)); }
+.map-overview-item small { font-size: 11px; }
+.map-overview-item small.is-ok { color: rgb(var(--ok)); }
+.map-overview-item.is-check { max-width: min(100%, 46em); }
+.map-overview-item.is-check span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-dim)); }
+.map-overview-item.is-check b { font-weight: 550; flex-shrink: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-overview .is-attention dt { color: rgb(var(--warn)); }
+.map-overview-item.is-launch { cursor: default; border-color: rgb(var(--gold) / 0.5); }
+.map-overview-link { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-align: left; }
+.map-overview-start, .map-card-launch button { padding: 0 8px; border: 1px solid rgb(var(--ok) / 0.5); border-radius: 5px; background: rgb(var(--ok) / 0.1); color: rgb(var(--ok)); font-size: 12px; font-weight: 550; cursor: pointer; }
+.map-overview-start:disabled, .map-card-launch button:disabled { opacity: 0.6; }
+.map-overview-more { background: none; border: 0; padding: 0; color: rgb(var(--blue)); font-size: 12px; cursor: pointer; }
+.map-card-launch { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; padding: 6px 10px; border: 1px solid rgb(var(--gold) / 0.45); border-radius: 8px; background: rgb(var(--panel)); font-size: 12px; color: rgb(var(--ink-dim)); }
+.map-card-launch button { padding: 2px 10px; }
+@media (max-width: 640px) { .map-overview dl { padding: 6px 16px; } .map-overview dt { flex-basis: 4.5em; } }
 .map-attention-detail > div { max-height: 7em; overflow-y: auto; white-space: pre-line; }
 .map-attention-detail > div > p { margin: 0 0 2px; }
 .map-attention-detail details { color: rgb(var(--ink-dim)); }

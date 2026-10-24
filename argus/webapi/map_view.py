@@ -345,6 +345,12 @@ def normalize_events(
                 e["attempt"] = row["attempt"]
             if isinstance(row.get("review_source"), str):
                 e["review_source"] = text(row["review_source"], 120)
+            if accepted and isinstance(row.get("delivery_candidates"), list):
+                # The files a reviewed task produced: a result even when its
+                # receipt was held back for later work that never finished.
+                e["delivery_candidates"] = [
+                    text(path, 300) for path in row["delivery_candidates"] if isinstance(path, str) and path
+                ][:8]
             if row.get("park_reason"):
                 e["park_reason"] = text(row["park_reason"], 80)
             if row.get("operator_question"):

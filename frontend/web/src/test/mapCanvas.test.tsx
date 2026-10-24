@@ -239,3 +239,18 @@ it("draws the recorded link from an idea card to the task that came from it", as
   const edge = flow().edges.find((e) => e.type === "human" && e.data?.recorded);
   expect(edge).toMatchObject({ source: "hc-1", target: "child", data: { recorded: true, label: "来自" } });
 });
+
+it("puts the team line and the held plan's 开始执行 on the canvas overview", async () => {
+  const onStartLaunch = vi.fn(() => Promise.resolve());
+  const next = {
+    ...props,
+    snapshot: { ...props.snapshot, launch_hold: { created_at: 1, item_id: "child", title: "Route algorithm", request: "", continuous: false, settings: {} } },
+    actions: { ...props.actions, onStartLaunch, teamStatus: <div data-testid="team-line">运行中 <button data-testid="team-pause">暂停团队</button></div> },
+  };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...next} /></QueryClientProvider>));
+  const overview = renderer.root.findByProps({ "data-testid": "map-overview" });
+  expect(overview.findAllByProps({ "data-testid": "team-pause" })).toHaveLength(1);
+  const start = overview.findByProps({ "data-testid": "launch-start" });
+  await act(async () => { await start.props.onClick({ stopPropagation: () => {} }); });
+  expect(onStartLaunch).toHaveBeenCalledTimes(1);
+});

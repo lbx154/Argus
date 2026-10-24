@@ -362,7 +362,7 @@ def _manager_message(
             turn_input = f"{startup_handoff}\n\n{body}" if startup_handoff else body
             # What a person placed on the canvas: context for this turn only,
             # never part of a ticket the team receives.
-            if canvas_context := _canvas_context(life_dir):
+            if canvas_context := manager_canvas_context(life_dir):
                 turn_input = f"{turn_input}\n\n{canvas_context}"
             reply, handoff = manager_turn(
                 mem, turn_input, chat_state,
@@ -490,7 +490,8 @@ def _manager_message(
     return result
 
 
-def _canvas_context(life_dir: Path) -> str:
+def manager_canvas_context(life_dir: Path) -> str:
+    """What a person placed on the canvas, as context for one Manager turn (web chat and chat router)."""
     from .canvas import canvas_context_block
     from .map_references import _backlog_by_id
 

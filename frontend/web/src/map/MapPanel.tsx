@@ -10,13 +10,17 @@ import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
-import { attentionSummary, projectBrief, splitDraft } from './presentation';
+import { attentionSummary, splitDraft } from './presentation';
+import { projectOverview } from './overview';
+import { MapOverview } from './MapOverview';
+import { MapLaunchContext } from './launchContext';
+import { operatorDecisionCards } from '../../../core/src/decisions';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
 import './alive.css';
 import { ARRIVAL_WINDOW_MS, arrivalEdgeDelay, attention as spotlight, useSettledPositions } from './alive';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background,
@@ -87,11 +91,27 @@ interface MapWorkspaceActions {
   artifacts: ArtifactInfo[];
   deliveryCount: number;
   onOpenDelivery: () => void;
-  onOpenReceipt: (receipt: DeliveryReceipt) => void;
+  onOpenReceipt: (receipt: DeliveryReceipt, path?: string) => void;
   onOpenArtifact: (path: string) => void;
   onAnswer: () => void;
+  /** Delivery receipts, newest first: the overview's 主要成果. */
+  deliveries?: DeliveryReceipt[];
+  /** The chat confirm card's "开始执行", for a plan waiting on the person. */
+  onStartLaunch?: () => Promise<void>;
+  /** The team status line with 暂停团队 / 继续, the same one the chat shows. */
+  teamStatus?: ReactNode;
 }
 
+const NO_RECEIPTS: DeliveryReceipt[] = [];
+/** What each recorded relation means, for the legend's hover text. */
+const RELATION_HINTS: Partial<Record<string, [string, string]>> = {
+  carries_out: ["这项任务在执行你的某条请求", "This task carries out one of your requests"],
+  from: ["来自：这项任务由那张卡交给团队后生成", "Came from: the task was made from that card when it was handed to the team"],
+  about: ["关于：针对那张卡的提问或回答", "About: a question or answer about that card"],
+  checks: ["检查：这项工作在核查那项工作", "Checks: this work checks that work"],
+  follows: ["接续：在那项工作之后接着做", "Follows: continues after that work"],
+  replaces: ["替代：新的计划替代了旧的", "Replaces: a newer plan replaced the older one"],
+};
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
 type CanvasMenu =
@@ -1056,9 +1076,14 @@ export function MapCanvas({
   const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
   const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
     currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
-  const live = status.state === 'running' || status.state === 'waiting' || status.reason === 'operator_input' ? currentWork : '';
-  const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
-    ? projectBrief(data.tasks, data.events, zh, writtenOutcome, live) : null, [data.tasks, data.events, zh, writtenOutcome, live]);
+  const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
+    snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
+  const launchScope = useMemo(() => ({ itemId: data.kind === "live" ? snapshot.launch_hold?.item_id : undefined,
+    start: actions.onStartLaunch }), [data.kind, snapshot.launch_hold?.item_id, actions.onStartLaunch]);
+  const overview = useMemo(() => projectOverview({
+    goal: snapshot.goal, tasks: data.tasks, events: data.events, receipts: actions.deliveries ?? NO_RECEIPTS,
+    decisions: decisionCards, launchHold: snapshot.launch_hold, zh,
+  }), [snapshot.goal, data.tasks, data.events, actions.deliveries, decisionCards, snapshot.launch_hold, zh]);
   const statusSentence = mapStatusSentence({
     total: counted.length,
     qa: counted.filter(task => task.turn_kind === 'qa').length,
@@ -1212,12 +1237,15 @@ export function MapCanvas({
     <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
-      {data.kind === "live" && !replaying && brief && (
-        <dl className="map-brief" aria-label={zh ? "任务进展" : "Task progress"}>
-          <div><dt>{zh ? "正在做" : "Now"}</dt><dd title={brief.goal}>{brief.current}</dd></div>
-          <div><dt>{zh ? "已有结果" : "Results"}</dt><dd>{brief.conclusion}</dd></div>
-          <div><dt>{zh ? "接下来" : "Next"}</dt><dd>{brief.next}</dd></div>
-        </dl>
+    <MapLaunchContext.Provider value={launchScope}>
+      {data.kind === "live" && !replaying && (overview.goal || data.tasks.length > 0 || actions.teamStatus) && (
+        <MapOverview overview={overview} zh={zh} team={actions.teamStatus} readOnly={readOnly}
+          onOpenReceipt={actions.onOpenReceipt} onOpenArtifact={actions.onOpenArtifact} onAnswer={actions.onAnswer} onStartLaunch={actions.onStartLaunch}
+          onFocusTask={(taskId) => {
+            const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
+            if (card) focus(card.id);
+            return !!card;
+          }} />
       )}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
@@ -1597,11 +1625,25 @@ export function MapCanvas({
               {zh ? "内容关联" : "Related work"}
             </span>
             {RELATION_KINDS.filter(([kind]) => relationKinds.has(kind)).map(([kind, zhName, enName]) => (
-              <span key={kind} title={zh ? "记录里写明的关系" : "A relation the records state"}>
+              <span key={kind} title={RELATION_HINTS[kind]?.[zh ? 0 : 1] ?? (zh ? "记录里写明的关系" : "A relation the records state")}>
                 <b className={`relation relation-${kind}`} />
                 {zh ? zhName : enName}
               </span>
             ))}
+            {humanEdges.some((edge) => !edge.data?.recorded) && (
+              <span title={zh ? "你在画布上拉的线，Argus 不会改动" : "Lines you drew on the canvas; Argus never changes them"}>
+                <b className="human-link" />
+                {zh ? "你画的线" : "Your links"}
+              </span>
+            )}
+            {humanEdges.some((edge) => edge.data?.recorded) && (
+              <span data-testid="legend-recorded-human"
+                title={zh ? "虚线连到你放的卡片，是记录里写明的关系：来自 = 这项任务由这张卡交给团队后生成；关于 = 对这张卡的提问和回答"
+                  : "Dashed lines to your cards are relations the records state: Came from = the task was made from this card when handed to the team; About = a question about this card"}>
+                <b className="human-link is-recorded" />
+                {zh ? "来自 / 关于你的卡片" : "From / about your cards"}
+              </span>
+            )}
             <span title={zh ? "没有记录关系的卡片按时间先后相连" : "Cards with no recorded relation are joined in time order"}>
               <b className="order" />
               {zh ? "先后" : "Order"}
@@ -1793,6 +1835,7 @@ export function MapCanvas({
           </div>
         </> : null}
       </Modal>
+    </MapLaunchContext.Provider>
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
     </ZoomStepContext.Provider>
@@ -1826,6 +1869,8 @@ export const MapPanel = memo(function MapPanel({
   onOpenReceipt,
   onOpenArtifact,
   onAnswer,
+  deliveries,
+  onStartLaunch,
   onPauseTeam,
   onResumeTeam,
   teamBusy,
@@ -2021,17 +2066,21 @@ export const MapPanel = memo(function MapPanel({
   );
   // Stable object identities: fresh actions/composer objects on every render
   // would invalidate the node-data memos in every mounted MapCanvas card.
+  // The team line lives at the top of the canvas, beside the overview, so it
+  // stays in view when the composer is folded away.
+  const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
+    onPauseTeam={readOnly ? undefined : onPauseTeam} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
+  [snapshot, events, connected, readOnly, onPauseTeam, onResumeTeam, teamBusy]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, connected, artifacts, deliveryCount,
-             onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer }),
+             onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
+             onStartLaunch: readOnly ? undefined : onStartLaunch, teamStatus }),
     [conversationEvents, connected, artifacts, deliveryCount,
-     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer],
+     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries, onStartLaunch, readOnly, teamStatus],
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
-      footer: <><WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
-        onPauseTeam={readOnly ? undefined : onPauseTeam} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />
-        <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} /></>,
+      footer: <><ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} /></>,
       routeOverride,
       onRouteOverrideChange,
       value: draft,

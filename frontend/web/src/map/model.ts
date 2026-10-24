@@ -75,6 +75,9 @@ export interface MapEvent {
   status?: string;
   /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
   park_reason?: string;
+  /** life.mission.completed the Reviewer accepted: the files the task produced. */
+  delivery_candidates?: string[];
+  review_source?: string;
   /** What a review or task handed to the operator asks them. */
   operator_question?: string;
   /** Who or what stopped this work short of a failure, as the record names it. */
