@@ -135,3 +135,58 @@ def test_the_operator_who_asked_to_take_part_is_asked_and_their_answer_is_carrie
 
     [message] = _team_reads(root)
     assert "Floor, as the operator chose." in message
+
+
+SPLIT_QUESTION = (
+    "split_cents 尚不能交付：项目没有金额拆分约定，请确定超过两位小数时的处理，以及负金额应如何拆分？"
+)
+SPLIT_ANSWER = "② 负数直接报 ValueError。③ 超过两位小数直接报 ValueError，不舍入也不截断。"
+
+
+def test_a_question_on_how_to_read_the_operators_requirement_is_theirs_and_binds_the_task(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """k1-split-cents (run 20261024-110351): the Engineer handed a rounding and
+    sign question to the Manager; the stage call put it to the Manager's own
+    session as one it was authorized to read for the operator, so the Manager
+    picked rounding and same-sign negatives itself, did the work and told the
+    operator it was done before they answered. Now the reading stays theirs:
+    the Manager's ask parks the task on its card, and the answer becomes the
+    task's acceptance, which the Reviewer checks."""
+    manager, root = _project(tmp_path)
+    backlog = LifeMemory.open(root).backlog
+    backlog.add(BacklogItem(id="t-split", ts=0.0, title="split_cents", objective="Add split_cents(amount).",
+                            acceptance_check="split_cents is importable from moneyfmt; tests and README cover it."))
+    backlog.mark_running("t-split")
+    manager.decide_stage_transition(
+        review=ReviewDecision(status="blocked", reason="No rule for sub-cent or negative amounts.", next_action=""),
+        project_root=root,
+        run_exec=stage(to="manager", summary=SPLIT_QUESTION, note="等待操作员明确验收语义"),
+    )
+    # The Engineer handed it to the Manager: the task parks where a Manager stop leaves work.
+    backlog.update("t-split", park_reason="research_open", last_error="needs the amount rules")
+    asked = _question(root)
+    assert "readings of their request" not in asked and "it stays theirs" in asked
+
+    ask = ("hand_off", {"to": "operator", "summary": "The amount rules are the operator's call.", "assumptions": [],
+                        "ask": {"question": "split_cents 的超两位小数和负数按哪种规则？", "options": [
+                            {"label": "四舍五入到分，负数同号"}, {"label": "超两位小数和负数都报 ValueError"}]}})
+    answer = manager_settles("按你的规则继续。", answer={"item": "t-split", "decision": f"操作员答复：{SPLIT_ANSWER}"})
+    _rules(manager, monkeypatch, lambda message: ask if message.startswith("Team report") else answer)
+
+    _team_report(root)
+
+    [parked] = [row for row in LifeMemory.open(root).backlog.active() if row.id == "t-split"]
+    assert parked.pending_question == "split_cents 的超两位小数和负数按哪种规则？"
+    assert [option["label"] for option in parked.operator_decision["options"]] == [
+        "四舍五入到分，负数同号", "超两位小数和负数都报 ValueError"]
+    assert not _question(root)  # no longer the Manager's to rule on
+    assert _team_reads(root) == []  # nothing told to the team before the operator answers
+
+    manager_bridge.manager_message("s-stage", SPLIT_ANSWER, global_root=root.parent.parent)
+
+    [resumed] = [row for row in LifeMemory.open(root).backlog.active() if row.id == "t-split"]
+    assert not resumed.pending_question and resumed.status == "pending"
+    assert resumed.objective.startswith("Authoritative Manager operator-answer decision:")
+    assert resumed.acceptance_check.startswith("split_cents is importable")
+    assert f"The result follows the operator's answer: 操作员答复：{SPLIT_ANSWER}" in resumed.acceptance_check
