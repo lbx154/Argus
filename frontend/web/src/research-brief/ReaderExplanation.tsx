@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { ArtifactInfo } from '../api';
 import type { CardCopy, ReaderBrief, ReaderLearningPath } from '../map/presentation';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Button, RawDisclosure, Spinner } from '../components/primitives';
 import { useI18n } from '../i18n';
-import { dateOf } from '../lib/format';
 import { DirectionExample, offersDirectionExample } from './DirectionExample';
 import { LearningPath } from './LearningPath';
 import { explanationProgressLabel } from './progress';
@@ -32,30 +31,14 @@ export function ShortText({ value, expandLabel, clamp = true }: { value: string;
   </div>;
 }
 
-/** A retained explanation and its freshness describe the same card. */
-export function ReaderExplanationStatus({ generatedAt, pending = false, generating = false, phase, hasExplanation = false, error, unavailable = false, retry, retryDisabled = false }: {
-  generatedAt?: number; pending?: boolean; generating?: boolean; hasExplanation?: boolean;
-  phase?: import('../api').ExplanationPhase;
-  error?: unknown; unavailable?: boolean; retry?: () => Promise<unknown>; retryDisabled?: boolean;
+/** Shown while an explanation the reader asked for is being written. */
+export function ReaderExplanationStatus({ generating = false, phase }: {
+  generating?: boolean; phase?: import('../api').ExplanationPhase;
 }) {
-  const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
-  const date = dateOf({ ts: generatedAt });
-  const stamp = date?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
-  const hasProblem = !!error || unavailable;
-  if (!(hasExplanation && (stamp || pending)) && !generating && !hasProblem) return null;
+  const zh = useI18n().locale === 'zh-CN';
+  if (!generating) return null;
   return <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="research-brief-status">
-    {hasExplanation && (stamp || pending) ? <span className="text-[11px] text-ink-faint">
-      {pending ? `${zh ? '上次说明' : 'Previous explanation'}${stamp || !hasProblem ? ' · ' : ''}` : ''}
-      {stamp ? <time dateTime={date?.toISOString()} title={date?.toLocaleString(locale)}>{stamp}</time> : null}
-      {pending && !hasProblem ? `${stamp ? ' · ' : ''}${zh ? '待更新' : 'update pending'}` : ''}
-    </span> : null}
-    {hasProblem ? <>
-      <span role="status" className="text-xs text-ink-faint">{error
-        ? zh ? '说明生成未完成；不会自动重复请求。' : 'The explanation could not be prepared. This request will not be repeated automatically.'
-        : zh ? '说明暂未更新；可以手动重试。' : 'The explanation has not been updated yet. You can retry manually.'}</span>
-      {retry ? <Button className="inline-flex items-center gap-1 text-xs" disabled={generating || retryDisabled} onClick={() => void retry()}><RefreshCw size={12} />{zh ? '重试' : 'Retry'}</Button> : null}
-    </> : generating ? <span role="status" data-explanation-phase={phase ?? 'pending'} className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{explanationProgressLabel(phase, zh)}</span> : null}
+    <span role="status" data-explanation-phase={phase ?? 'pending'} className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{explanationProgressLabel(phase, zh)}</span>
   </div>;
 }
 
