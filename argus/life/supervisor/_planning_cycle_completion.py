@@ -20,6 +20,7 @@ from typing import Any
 from ...core.event_catalog import EventType
 from ...core.mission_view import say
 from ...core.planner_verdict import PlannerVerdictStatus
+from ...core.transcript import read_turns
 from ...core.workspace_facts import fact_text
 from ..memory import BacklogItem
 from ._constants import (
@@ -353,16 +354,24 @@ class PlanningCycleCompletionMixin:
             "reason": completion_reason,
             "context": context,
         })
+        root = self._manager_project_report_root()
+        delivery_id = str(delivery.get("delivery_id") or "") if isinstance(delivery, dict) else ""
+        # The task that finished the project may already have put this card in
+        # the chat; the Manager then follows up rather than telling it again
+        # (s-fcf4b146 showed both, eight seconds apart, 10-24).
+        shown = bool(delivery_id) and any(
+            turn.get("delivery_id") == delivery_id for turn in read_turns(root)
+        )
         self._report_to_manager(
-            self._manager_project_report_root(),
+            root,
             text=facts,
             message_id=f"manager-project-report-{hashlib.sha256(facts.encode()).hexdigest()[:16]}",
             event_fields={
                 "manager_project_report": True,
                 "current_stage": str(self._current_pipeline_stage() or ""),
                 # The project's delivery card rides on its one completion message.
-                **({"delivery": delivery, "delivery_id": str(delivery.get("delivery_id") or "")}
-                   if isinstance(delivery, dict) else {}),
+                **({"shown": True} if shown else
+                   {"delivery": delivery, "delivery_id": delivery_id} if isinstance(delivery, dict) else {}),
             },
         )
         self._clear_manager_planner_feedback()

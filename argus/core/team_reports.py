@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from .transcript import read_turns
+
 
 def write_record(path: Path, record: dict[str, Any]) -> None:
     """Keep the queue's disk format private and replace only complete records."""
@@ -35,6 +37,13 @@ def _team_report_path(life_dir: Path, message_id: str) -> Path:
 def team_report_left(life_dir: Path, message_id: str) -> bool:
     """Whether the team report ``message_id`` was left for the Manager (answered or not)."""
     return _team_report_path(life_dir, message_id).exists()
+
+
+def team_result_told(life_dir: Path, message_id: str) -> bool:
+    """Whether ``message_id`` is in the chat or was left for the Manager."""
+    return team_report_left(life_dir, message_id) or any(
+        turn.get("message_id") == message_id for turn in read_turns(life_dir)
+    )
 
 
 def post_team_report(life_dir: Path, *, message_id: str, text: str, event_fields: dict[str, Any]) -> None:

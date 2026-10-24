@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
 import portalocker
@@ -78,6 +78,29 @@ class DeferredMessages:
                                           name=f"argus-deferred-{life_dir.name}", daemon=True)
                 self._workers[life_dir] = worker
                 worker.start()
+
+    def watch(self, roots: Callable[[], Iterable[Path]], *, interval: float = 1.0) -> None:
+        """Answer what a project process leaves in an inbox nobody is viewing.
+
+        Only an open project page used to notice a new team report, so
+        s-ec08e4a5's waited 3.2 minutes and s-fcf4b146's question 14 (10-24).
+        A record landing in the directory moves its mtime: one stat per
+        project per tick finds it.
+        """
+        def _watch() -> None:
+            seen: dict[Path, int] = {}
+            while not self.stop.wait(interval):
+                for root in roots():
+                    for directory in (root / "projects").glob("*/manager-deferred"):
+                        try:
+                            stamp = directory.stat().st_mtime_ns
+                        except OSError:
+                            continue
+                        if seen.get(directory) != stamp:
+                            seen[directory] = stamp
+                            self.resume(directory.parent)
+
+        threading.Thread(target=_watch, name="argus-deferred-watch", daemon=True).start()
 
     def close(self) -> None:
         self.stop.set()

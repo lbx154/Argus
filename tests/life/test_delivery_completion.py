@@ -4,6 +4,7 @@ import json
 
 from argus.core.launch_settings import launch_note
 from argus.core.planner_verdict import PlannerVerdictStatus
+from argus.core.transcript import read_turns
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
@@ -67,14 +68,65 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
     assert transcript[-1]["delivery"] == delivery
     assert transcript[-1]["delivery_id"] == delivery["delivery_id"]
     assert "The result is in results/final.md." in transcript[-1]["text"]
-    # The daemon leaves the report for the Manager; the web owner shows the
-    # Manager's reply, so the daemon emits only the inbox notice.
+    # The chat shows the team's message at once; the Manager's report says so,
+    # and the web owner shows the Manager's reply only as a follow-up.
+    [shown] = [turn for turn in read_turns(tmp_path) if turn.get("delivery_id")]
+    assert shown["message_id"] == transcript[-1]["message_id"]
+    assert shown["text"] == transcript[-1]["text"] and shown["delivery"] == delivery
+    assert transcript[-1]["shown"] is True
     inbox = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
         if '"type":"life.manager.inbox"' in line
     ]
     assert [event["message_id"] for event in inbox] == [transcript[-1]["message_id"]]
+
+    # s-fcf4b146 (10-24): the project report then carried the same card, and
+    # the chat showed the completion twice. Its card is already there.
+    supervisor._manager_publish_project_report("All planned work is done.", delivery=delivery)
+    report = team_reports(tmp_path)[-1]
+    assert report["manager_project_report"] is True and report["shown"] is True
+    assert "delivery" not in report and "delivery_id" not in report
+
+
+def test_a_finished_one_task_project_is_in_the_chat_when_the_task_completes(tmp_path) -> None:
+    """s-ec08e4a5 (10-24): the task's report was held for the project report,
+    written after learning, reflection and the Planner (57 s), which the
+    Manager then answered: 4.7 minutes in all."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    memory = LifeMemory.open(tmp_path / "state")
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            continuous=True, continuous_objective="Write the report", open_ended=False,
+            project_worktree=workspace,
+        ),
+    )
+    delivery = {
+        "delivery_id": "delivery:task-1:task_completed:1", "kind": "task_completed", "item_id": "task-1",
+        "summary": "Wrote and reviewed the report.", "status": "done", "review_status": "done",
+        "primary_target": {"path": "report.md", "label": "report.md"},
+    }
+    completed = {
+        "type": "life.mission.completed", "item_id": "task-1", "title": "Write the report",
+        "success": True, "status": "done", "summary": "Wrote and reviewed the report.",
+        "campaign_continues": False, "overall_complete": True,
+        "mission_delivery_id": "md-1", "outcome": {"review_status": "done"},
+        "delivery": delivery, "delivery_id": delivery["delivery_id"],
+    }
+    # The completion's durable receipt is acknowledged once the chat shows it.
+    assert supervisor._confirm_mission_completion_receipt(completed)
+    assert supervisor._confirm_mission_completion_receipt(completed)
+
+    [turn] = read_turns(memory.root)
+    assert turn["message_id"] == "mission-result-md-1"
+    assert "Wrote and reviewed the report." in turn["text"]
+    assert turn["delivery"] == delivery
+    # The project's report follows; the Manager gets one turn, on that.
+    assert not team_reports(memory.root)
 
 
 def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:

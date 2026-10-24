@@ -1498,12 +1498,12 @@ class LifeSupervisor(
             return False
 
     def _project_report_tells(self, event: dict[str, Any]) -> bool:
-        """Whether this finished task is the whole project, told by its report.
+        """Whether this finished task is the whole project, followed by its report.
 
         A finite project of one task ends with that task, and the Manager's
-        project report then says the same thing under the same delivery card.
-        Other live work or unread operator input can keep the project open,
-        so the task then speaks for itself.
+        project report then follows the task's message about the same
+        delivery. Other live work or unread operator input can keep the
+        project open, so the Manager then reads the task's own report.
         """
         if not (
             event.get("success") is True
@@ -1530,8 +1530,6 @@ class LifeSupervisor(
 
     def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
         """Tell the operator a Team mission ended without another model call."""
-        if self._project_report_tells(event):
-            return
         try:
             from ...core.operator_messages import (
                 brief_title,
@@ -1766,8 +1764,10 @@ class LifeSupervisor(
             assumptions_line = render_autonomous_assumptions(
                 self._project_state_root(), item_id=item_id, chinese=chinese,
             )
-            self._report_to_manager(
+            self._show_team_result(
                 life_dir,
+                # A finished project gets one Manager turn, on its report.
+                tell_manager=not self._project_report_tells(event),
                 text="\n".join(
                     part
                     for part in (
@@ -1806,22 +1806,22 @@ class LifeSupervisor(
             log.exception("life supervisor: failed to publish mission completion")
 
     def _confirm_mission_completion_receipt(self, event: dict[str, Any]) -> bool:
-        """Leave the team report for the Manager before acknowledging completion.
+        """Tell the result (chat or Manager) before acknowledging completion.
 
         The report's message id makes retry safe even when the process died
         after leaving it. External letters/notifications remain separate.
         """
-        from ...core.team_reports import team_report_left
+        from ...core.team_reports import team_result_told as _told
 
         delivery_id = str(event.get("mission_delivery_id") or "")
-        if not delivery_id or self._project_report_tells(event):
+        if not delivery_id:
             return True
         project = getattr(self.memory, "project", None)
         root = Path(getattr(project, "root", None) or self.memory.root)
         message_id = f"mission-result-{delivery_id}"
-        if not team_report_left(root, message_id):
+        if not _told(root, message_id):
             self._publish_mission_completion_message(event)
-        return team_report_left(root, message_id)
+        return _told(root, message_id)
 
     def _plan_alongside_running_work(self, running_items: list[Any]) -> None:
         """Let the Planner fill an idle mission slot while other work runs.
@@ -1932,6 +1932,25 @@ class LifeSupervisor(
 
         post_team_report(Path(life_dir), message_id=message_id, text=text, event_fields=event_fields)
         self._emit({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
+
+    def _show_team_result(
+        self, life_dir: Path | str, *, text: str, message_id: str,
+        event_fields: dict[str, Any], tell_manager: bool,
+    ) -> None:
+        """Show a finished task in the team's words now; the Manager may follow up.
+
+        The Manager's turn waits for the web server to pick up its report and
+        for a model call: s-ec08e4a5's result reached the chat 4.7 minutes
+        after the task finished (10-24). Its report says it was shown, so it
+        answers only with what the team's message leaves out.
+        """
+        from ...core.operator_messages import publish_operator_message
+
+        publish_operator_message(Path(life_dir), text=text, message_id=message_id, event_fields=event_fields)
+        if tell_manager:
+            self._report_to_manager(
+                life_dir, text=text, message_id=message_id, event_fields={**event_fields, "shown": True},
+            )
 
     def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None:
         """Post the sentence for ``kind`` to the operator's conversation, once per ``notice_id``."""

@@ -132,6 +132,38 @@ def test_the_operator_reads_the_team_report_when_the_manager_cannot_answer(proje
     assert turn["text"] == "Task done; result in out.txt"
 
 
+def test_a_result_the_chat_shows_gets_the_manager_s_words_only_when_they_add_to_it(
+    project: Path, monkeypatch,
+) -> None:
+    """s-fcf4b146 (10-24): the chat showed the team's completion and, eight
+    seconds later, the Manager saying the same thing again."""
+    shown = {"mission_result": True, "item_id": "x", "delivery_id": "delivery:x", "shown": True}
+    runner = _runner(monkeypatch, project, [], reply=manager_bridge.NOTHING_TO_ADD)
+    manager_bridge.manager_team_report(
+        "s-owner", "Task done; result in out.txt", message_id="mission-result-x",
+        event_fields=shown, global_root=project.parent.parent,
+    )
+    assert "already read this result" in runner.turns[0]
+    assert manager_bridge.NOTHING_TO_ADD in runner.turns[0]
+    _runner(monkeypatch, project, [], failure="provider broke")
+    manager_bridge.manager_team_report(
+        "s-owner", "Task done; result in out.txt", message_id="mission-result-y",
+        event_fields=shown, global_root=project.parent.parent,
+    )
+    assert read_turns(project) == []
+
+    _runner(monkeypatch, project, [], reply="Run it with `python -m out`.")
+    manager_bridge.manager_team_report(
+        "s-owner", '{"reason": "done"}', message_id="manager-project-report-x",
+        event_fields={"manager_project_report": True, "shown": True}, global_root=project.parent.parent,
+    )
+    [turn] = read_turns(project)
+    assert turn["message_id"] == "manager-project-report-x-manager"
+    assert turn["text"] == "Run it with `python -m out`."
+    # The card stays on the team's message.
+    assert not {"delivery_id", "mission_result", "manager_project_report"} & set(turn)
+
+
 def test_the_owner_drains_team_reports_as_turns(project: Path) -> None:
     post_team_report(project, message_id="mission-result-x", text="Task done", event_fields={})
     ran: list = []

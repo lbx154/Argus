@@ -480,29 +480,47 @@ def _manager_message(
     return result
 
 
+# The Manager's whole reply when the team's message already says it all.
+NOTHING_TO_ADD = "NOTHING TO ADD"
+
+
 def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: dict[str, Any],
                         global_root: Path | str) -> dict[str, Any]:
     """Answer a team report as a turn of the Manager's own session.
 
     The operator reads the Manager's words under the report's message id and
     card fields; if the Manager cannot answer, they read the team's report.
+    A report the chat already shows in the team's words gets the Manager's
+    reply as a follow-up, only when it has something to add.
     """
     from ..core.mission_view import uses_cjk
     from ..core.operator_messages import publish_operator_message
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_turn
 
+    shown = bool(event_fields.get("shown"))
+    turn = f"Team report:\n{text}" + (
+        "\n\nThe operator has already read this result in the chat. Reply with only what "
+        f"they still need from you that it does not say; if it says it all, reply exactly {NOTHING_TO_ADD}."
+        if shown else ""
+    )
     mem = MemoryBundle.for_cwd(fingerprint=sid, global_root=Path(global_root))
     with _lock_for(sid):
         chat_state = _chat_state_for(sid)
         chat_state.update(session_id=sid, global_root=str(mem.global_root))
-        reply, handoff = manager_turn(mem, f"Team report:\n{text}", chat_state, team_allowed=False)
+        reply, handoff = manager_turn(mem, turn, chat_state, team_allowed=False)
         tell_team_stage_ruling(mem.project_root, chat_state)
         if reply is None or chat_state.pop("_self_failure", None):
-            reply = text
+            reply = "" if shown else text
         elif handoff is not None and handoff.to == "operator":
             reply = ask_text(handoff, uses_cjk(reply))
-        publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
+        elif shown and " ".join(reply.split()).strip(" .。").upper() == NOTHING_TO_ADD:
+            reply = ""
+        if not shown:
+            publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
+        elif reply:
+            # The card stays on the team's message; this one adds to it.
+            publish_operator_message(mem.project_root, text=reply, message_id=f"{message_id}-manager")
     return {"kind": "chat", "reply": reply}
 
 

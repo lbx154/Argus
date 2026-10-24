@@ -199,6 +199,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         for root in ctx.roots:
             for directory in (root / "projects").glob("*/manager-deferred"):
                 deferred.resume(directory.parent)
+        deferred.watch(lambda: ctx.roots)
 
     @app.on_event("shutdown")
     def _close_deferred_messages():
