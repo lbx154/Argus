@@ -142,7 +142,7 @@ def test_what_the_team_said_costs_no_turn_and_goes_with_the_next_one(project: Pa
 def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(project: Path, monkeypatch) -> None:
     """The team waits on a stage ruling: the web server that owns the Manager's
     session runs the turn when the project process asks, with no inbox to poll."""
-    import threading
+    import time
     from contextlib import nullcontext
     from urllib.parse import urlsplit
 
@@ -155,17 +155,22 @@ def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(projec
     global_root = project.parent.parent
     write_session_meta(global_root, SessionMeta(id="s-owner", workdir=str(global_root)))
     ran: list = []
-    done = threading.Event()
     monkeypatch.setattr(manager_bridge, "manager_team_report",
-                        lambda sid, text, **kwargs: ran.append((sid, text, kwargs["message_id"])) or done.set())
+                        lambda sid, text, **kwargs: ran.append((sid, text, kwargs["message_id"])))
     # No server has said where it is: the question waits for the next turn.
     assert not team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
 
     with TestClient(server.create_app(global_root=global_root, auth_token="secret")) as client:
         client.get("/api/projects")  # any request tells project processes where the owner is
         endpoint = global_root / "manager-endpoint.json"
-        assert json.loads(endpoint.read_text()) == {"url": "http://testserver:80", "token": "secret"}
+        published = json.loads(endpoint.read_text())
+        assert published["url"] == "http://testserver:80" and published["token"] not in {"", "secret"}
         assert endpoint.stat().st_mode & 0o777 == 0o600
+        # The file's secret pushes a turn and opens nothing else.
+        push = {"Authorization": f"Bearer {published['token']}"}
+        assert client.get("/api/projects", headers=push).status_code == 401
+        assert client.post("/api/projects/s-owner/manager/team-turn", headers={"Authorization": "Bearer secret"},
+                           json={"message_id": "stage-question-0", "text": "Earlier question"}).status_code == 202
 
         def urlopen(request, timeout):
             response = client.post(urlsplit(request.full_url).path, content=request.data,
@@ -175,7 +180,10 @@ def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(projec
         monkeypatch.setattr(team_reports.urllib.request, "urlopen", urlopen)
         for _ in range(2):
             assert team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
-        assert done.wait(5)
+        wait_until = time.monotonic() + 5
+        while len(ran) < 2 and time.monotonic() < wait_until:
+            time.sleep(0.02)
         assert client.post("/api/projects/s-owner/manager/team-turn",
                            json={"message_id": "stage-question-2", "text": "x"}).status_code == 401
-    assert ran == [("s-owner", "Stage question", "stage-question-1")]
+    assert sorted(ran) == [("s-owner", "Earlier question", "stage-question-0"),
+                           ("s-owner", "Stage question", "stage-question-1")]
