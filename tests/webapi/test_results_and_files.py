@@ -90,4 +90,7 @@ def test_snapshot_reports_disk_space_and_compact_tasks_carry_time_and_reason(tmp
     assert storage["total_bytes"] > 0 and 0 <= storage["used_fraction"] <= 1
     row = compact_backlog_item(item)
     assert row["ts"] == item.ts and row["last_error"] == ""
+    # The status line tells an Argus-records step from the person's work by it.
+    owned = BacklogItem.new(title="Repair", objective="Repair", owns_paths=[".argus/maintenance/repair"])
+    assert compact_backlog_item(owned)["owns_paths"] == [".argus/maintenance/repair"]
 

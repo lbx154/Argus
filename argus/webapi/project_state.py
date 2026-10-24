@@ -445,6 +445,9 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         # The first line of why a task stopped, for status summaries.
         "last_error": " ".join(str(item.last_error or "").split())[:300],
         "deps": [str(dep) for dep in item.deps],
+        # What the task may write: a step that touches only Argus's own
+        # records (.argus/...) failing does not mean the person's work failed.
+        "owns_paths": [str(path) for path in item.owns_paths][:50],
         "iteration_max_cycles": item.iteration_max_cycles,
         "iteration_cycles_done": item.iteration_cycles_done,
         "outcome": dict(item.outcome),

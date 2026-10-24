@@ -24,7 +24,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
     : status.reason === 'operator_input'
     ? zh ? '需要你的决定。查看下方问题，确认后继续。' : 'Your decision is needed. Review the question below to continue.'
     : status.reason === 'task_failed'
-      ? zh ? '这次工作未完成。已有记录和文件仍保留，可在对话中调整要求或请求继续。' : 'This work did not finish. Existing records and files are retained; adjust the request or ask to continue in the conversation.'
+      ? zh ? '这一步未完成。已有记录、文件和已交付的成果仍保留，可在对话中调整要求或请求继续。' : 'This step did not finish. Existing records, files and delivered results are retained; adjust the request or ask to continue in the conversation.'
       : status.state === 'paused'
         ? zh ? '当前没有继续执行。你可以调整要求，或在运行控制中查看恢复方式。' : 'Work is not continuing. Adjust the request or check runtime controls before resuming.'
         : status.state === 'step_finished'

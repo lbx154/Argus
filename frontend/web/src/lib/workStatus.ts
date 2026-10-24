@@ -22,6 +22,18 @@ const FINISHED = new Set(['complete', 'completed', 'done', 'success', 'ended']);
 const PAUSED = new Set(['paused', 'stopped', 'cancelled', 'aborted', 'incomplete', 'blocked', 'stalled']);
 const timestamp = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
+/** Work that writes only Argus's own records (``.argus/…``): its failure is
+ * Argus's housekeeping, not the person's work, and never undoes a result that
+ * was delivered and reviewed (ux-principles rules 6 and 7). */
+export function internalRecordsOnly(item: unknown): boolean {
+  const owned = (item as { owns_paths?: unknown } | undefined)?.owns_paths;
+  if (!Array.isArray(owned) || owned.length === 0) return false;
+  return owned.every((path) => {
+    const flat = String(path).replace(/\\/g, '/').replace(/^\.\//, '');
+    return flat === '.argus' || flat.startsWith('.argus/');
+  });
+}
+
 export function eventTaskId(event: EventMsg): string {
   return String(event.item_id || event.mission_id || '').split(':attempt:')[0];
 }
@@ -140,7 +152,12 @@ export function currentWorkStatus(
   if (PAUSED.has(missionState) || parkReason(missionState) !== null) {
     return asked ?? { ...result, state: 'paused', role: '', reason: 'not_running' };
   }
-  if (['failed', 'error'].includes(missionState)) return { ...result, state: 'step_finished', role: '', reason: 'task_failed' };
+  if (['failed', 'error'].includes(missionState)) {
+    // A housekeeping step on Argus's own records stopping is not the person's
+    // work failing: the step ended, and what was delivered stands.
+    if (internalRecordsOnly(task)) return asked ?? { ...result, state: 'step_finished', role: '' };
+    return { ...result, state: 'step_finished', role: '', reason: 'task_failed' };
+  }
   if (FINISHED.has(missionState)) {
     // Between steps a live Planner is choosing the next one. Post-step
     // housekeeping is not a new step, so no other role counts here.

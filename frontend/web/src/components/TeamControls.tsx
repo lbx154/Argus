@@ -3,13 +3,16 @@ import type { Locale } from '../i18n';
 import type { WorkStatus } from '../lib/workStatus';
 
 /** The four states a person asks about: is the team working, waiting on me, paused, or done? */
-export type TeamPhase = 'running' | 'waiting_you' | 'paused' | 'done' | 'unknown';
+export type TeamPhase = 'running' | 'waiting_you' | 'paused' | 'stopped' | 'done' | 'unknown';
 
 export function teamPhase(status: WorkStatus, snapshot?: Snapshot): TeamPhase {
   if (status.reason === 'operator_input' || status.reason === 'launch_confirm') return 'waiting_you';
   if (snapshot?.daemon.alive && snapshot.daemon.draining) return 'running';
   if (status.state === 'running' || status.state === 'waiting') return 'running';
   if (status.state === 'paused') return 'paused';
+  // A step that did not finish is not "done": the phase and the sentence
+  // beside it must say the same thing (rule 6).
+  if (status.reason === 'task_failed') return 'stopped';
   if (status.state === 'step_finished' || status.state === 'idle') return 'done';
   return 'unknown';
 }
@@ -20,6 +23,7 @@ export function teamPhaseLabel(phase: TeamPhase, locale: Locale): string {
     running: ['运行中', 'Running'],
     waiting_you: ['等你回复', 'Waiting for you'],
     paused: ['已暂停', 'Paused'],
+    stopped: ['已停止', 'Stopped'],
     done: ['已完成', 'Done'],
     unknown: ['状态未知', 'Status unknown'],
   };

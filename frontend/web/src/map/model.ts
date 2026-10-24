@@ -1,5 +1,6 @@
 import { parkReason } from "../../../core/src/missionOutcome";
 import type { BacklogItem } from "../../../core/src/types";
+import { internalRecordsOnly } from "../lib/workStatus";
 
 export interface MapTask
   extends Pick<
@@ -27,6 +28,8 @@ export interface MapTask
   plan_hypothesis?: string;
   non_goals?: string[];
   outcome?: Partial<NonNullable<BacklogItem['outcome']>>;
+  /** Files the task may write, as the backlog records them. */
+  owns_paths?: string[];
   /** 'turn': a single-agent answer or action, shown as a card. */
   kind?: string;
   turn_kind?: 'qa';
@@ -200,9 +203,14 @@ export function attentionTasks(tasks: MapTask[]): MapTask[] {
   // has already routed around it (the trial's first card was archived as
   // failed after a restart and stayed "needs attention" for the whole run
   // while three later tasks completed, 2026-09-16).
+  // Nor does a step the operator aborted, one a newer plan replaced, or a
+  // housekeeping step on Argus's own records (.argus/…): none of these is
+  // something the reader has to act on (rule 6, s-7d7b7d22 2026-10-24).
   return tasks
     .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&
-      (task.pending_question || (task.status === "failed" && !supersededByLaterWork(task, tasks))))
+      (task.pending_question || (task.status === "failed" && !supersededByLaterWork(task, tasks)
+        && !task.superseded_by_plan_id && task.outcome?.interruption_kind !== "operator_abort"
+        && !internalRecordsOnly(task))))
     .sort((a, b) => Number(!!b.pending_question) - Number(!!a.pending_question));
 }
 

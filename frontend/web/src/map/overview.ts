@@ -82,13 +82,24 @@ export function projectOverview({ goal, tasks, events, receipts, decisions, laun
       reviewed: receipt.review_status === "done" && receipt.review_source === "reviewer",
     };
   });
+  // The latest independent review of each task decides whether it stands.
+  const lastReview = new Map<string, MapEvent>();
+  for (const event of [...events].sort((a, b) => a.ts - b.ts)) {
+    if (event.type !== "round.review.completed" || event.role !== "reviewer") continue;
+    if (event.backend_unavailable || event.review_skipped) continue;
+    lastReview.set(event.item_id, event);
+  }
   // A task the Reviewer accepted produced its files even when the receipt was
   // held back for later work (rule 6: a reviewed result shows as a result,
   // whatever happened to the work after it).
   const delivered = new Set(results.flatMap((result) => [result.taskId, result.path]));
   const accepted = new Map<string, MapEvent>();
   for (const event of events) {
-    if (event.type === "life.mission.completed" && event.role === "reviewer" && event.delivery_candidates?.length
+    // Older records attribute the completion to the engineer layer even when
+    // the independent reviewer passed the work: the reviewer's verdict on the
+    // task is the more reliable source, so it decides.
+    const passed = event.role === "reviewer" || PASSED.has(String(lastReview.get(event.item_id)?.status || "").toLowerCase());
+    if (event.type === "life.mission.completed" && passed && event.delivery_candidates?.length
       && (accepted.get(event.item_id)?.ts ?? -Infinity) <= event.ts) accepted.set(event.item_id, event);
   }
   for (const [taskId, event] of accepted) {
@@ -101,13 +112,6 @@ export function projectOverview({ goal, tasks, events, receipts, decisions, laun
   }
   results.sort((a, b) => b.ts - a.ts);
 
-  // The latest independent review of each task decides whether it stands.
-  const lastReview = new Map<string, MapEvent>();
-  for (const event of [...events].sort((a, b) => a.ts - b.ts)) {
-    if (event.type !== "round.review.completed" || event.role !== "reviewer") continue;
-    if (event.backend_unavailable || event.review_skipped) continue;
-    lastReview.set(event.item_id, event);
-  }
   const checks: OverviewCheck[] = [];
   for (const [taskId, event] of lastReview) {
     if (!PASSED.has(String(event.status || "").toLowerCase())) continue;

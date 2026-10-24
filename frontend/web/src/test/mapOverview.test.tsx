@@ -9,7 +9,10 @@ import { MapLaunchContext } from "../map/launchContext";
 import { MapOverview } from "../map/MapOverview";
 import { projectOverview } from "../map/overview";
 import { layoutSubmap } from "../map/submap";
-import type { MapEvent, MapTask } from "../map/model";
+import { attentionTasks, type MapEvent, type MapTask } from "../map/model";
+import { emptyMissionView } from "../../../core/src/missionView";
+import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
+import { teamPhase, teamPhaseLabel } from "../components/TeamControls";
 import { TeamPauseButton } from "../components/TeamControls";
 
 vi.mock("@xyflow/react", async (original) => ({
@@ -88,6 +91,56 @@ describe("projectOverview", () => {
       events: [], receipts: [], decisions: [question], launchHold: hold,
     });
     expect(view.decisions.map((d) => [d.kind, d.taskId])).toEqual([["launch", "plan"], ["question", "extra"]]);
+  });
+});
+
+// s-7d7b7d22 (2026-10-24): the survey was delivered and passed independent
+// review; three closing steps were then replaced by newer plans, one aborted by
+// the operator, and the last, a repair of Argus's own records, failed on a
+// supervisor error. The map said 已完成 · 这一步执行未完成 · 这次工作未完成 and
+// "1 项需要你处理" beside a reviewed result.
+describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
+  const closing = (id: string, patch: Partial<MapTask>): MapTask =>
+    ({ id, title: id, objective: "", status: "superseded", deps: ["survey"], ts: 6, finished_ts: 7,
+      owns_paths: ["reward-hacking-survey-zh.md", ".argus/evidence/final-certification.md"], ...patch });
+  const tasks = [survey,
+    closing("9e5992dac968", { superseded_by_plan_id: "plan-2" }),
+    closing("67c874f26b5e", { status: "failed", superseded_by_plan_id: "plan-3" }),
+    closing("12dedb2805cb", { status: "aborted", outcome: { interruption_kind: "operator_abort" } }),
+    closing("x-aborted-failed", { status: "failed", outcome: { interruption_kind: "operator_abort" } }),
+    closing("681aae2979d7", { status: "failed", ts: 9, owns_paths: [".argus/maintenance/review-progress-repair"] })];
+
+  it("does not ask the reader about aborted, replaced, or Argus-housekeeping steps", () => {
+    expect(attentionTasks(tasks)).toEqual([]);
+    // A failed step on the person's own files still needs them.
+    expect(attentionTasks([...tasks, closing("real", { status: "failed", ts: 10, owns_paths: ["experiments/run.py"] })])
+      .map((task) => task.id)).toEqual(["real"]);
+  });
+
+  it("shows the survey as a reviewed result when the completion was recorded under the engineer", () => {
+    const completed: MapEvent = { id: "c1", item_id: "survey", type: "life.mission.completed", ts: 5, text: "",
+      role: "engineer", status: "done", success: true, delivery_candidates: ["reward-hacking-survey-zh.md"] };
+    const view = projectOverview({ goal: "", zh: true, tasks, receipts: [], decisions: [],
+      events: [review("r1", "survey", "done", 4, "三大主题、出处均已核查"), completed,
+        { ...completed, id: "c2", item_id: "67c874f26b5e", ts: 8, status: "parked" }] });
+    expect(view.results).toEqual([expect.objectContaining({ path: "reward-hacking-survey-zh.md", taskId: "survey", reviewed: true })]);
+    expect(view.checks.map((check) => check.taskId)).toEqual(["survey"]);
+    expect(view.decisions).toEqual([]);
+  });
+
+  it("keeps the header from saying 已完成 beside a step that did not finish", () => {
+    const snapshot = (owns: string[]): Snapshot => ({
+      session: { id: "s-7d7b7d22", display_name: "", objective: "", cwd: "/w", last_active: 1 },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null }, roles: [], recent_events: [],
+      backlog: [{ id: "last", title: "收尾", objective: "", status: "failed", priority: 1, owns_paths: owns } as Snapshot["backlog"][number]],
+    }) as Snapshot;
+    const view = emptyMissionView();
+    Object.assign(view.mission, { id: "last", status: "failed" });
+    const housekeeping = currentWorkStatus(snapshot([".argus/maintenance/review-progress-repair"]), view, [], 10);
+    expect(housekeeping.reason).toBe("");
+    expect([teamPhaseLabel(teamPhase(housekeeping), "zh-CN"), workStatusLabel(housekeeping, "zh-CN")]).toEqual(["已完成", "这一步已结束"]);
+    const failed = currentWorkStatus(snapshot(["report.md"]), view, [], 10);
+    expect([teamPhaseLabel(teamPhase(failed), "zh-CN"), workStatusLabel(failed, "zh-CN")]).toEqual(["已停止", "这一步执行未完成"]);
   });
 });
 
