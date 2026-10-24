@@ -88,7 +88,16 @@ export function artifactPathFromHref(
   return null;
 }
 
-function MarkdownImage({ src, alt, sid, path }: { src?: string; alt?: string; sid?: string | null; path?: string | null }) {
+/** A workspace image shown inline; clicking it opens the file viewer when one is wired. */
+export function WorkspaceImage({ src, alt, sid, path, onOpen, className = 'my-2 h-auto max-w-full rounded-lg' }: {
+  src?: string; alt?: string; sid?: string | null; path?: string | null; onOpen?: () => void; className?: string;
+}) {
+  const image = <MarkdownImage src={src} alt={alt} sid={sid} path={path} className={className} />;
+  return onOpen ? <button type="button" onClick={onOpen} title={alt || path || undefined}
+    className="block max-w-full cursor-zoom-in rounded-lg text-left">{image}</button> : image;
+}
+
+function MarkdownImage({ src, alt, sid, path, className = 'my-2 h-auto max-w-full rounded-lg' }: { src?: string; alt?: string; sid?: string | null; path?: string | null; className?: string }) {
   const [failed, setFailed] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   useEffect(() => {
@@ -118,7 +127,7 @@ function MarkdownImage({ src, alt, sid, path }: { src?: string; alt?: string; si
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
-      className="my-2 h-auto max-w-full rounded-lg"
+      className={className}
     />
   );
 }
@@ -204,22 +213,36 @@ export function MarkdownContent({
             </code>
           );
         },
-        pre: ({ children: value }) => (
-          <pre className="group/code relative my-2 max-w-full overflow-x-hidden whitespace-pre-wrap break-words rounded-lg border border-line/50 bg-bg px-3 pb-3 pt-10">
-            <CopyButton
-              text={Children.toArray(value).map(nodeText).join('')}
-              label={t('copy.code')}
-              copiedLabel={t('copy.copied')}
-              className="absolute right-2 top-2"
-            />
-            {value}
-          </pre>
-        ),
+        pre: ({ children: value }) => {
+          const block = (
+            <pre className="group/code relative my-2 max-w-full overflow-x-hidden whitespace-pre-wrap break-words rounded-lg border border-line/50 bg-bg px-3 pb-3 pt-10">
+              <CopyButton
+                text={Children.toArray(value).map(nodeText).join('')}
+                label={t('copy.code')}
+                copiedLabel={t('copy.copied')}
+                className="absolute right-2 top-2"
+              />
+              {value}
+            </pre>
+          );
+          // A ```run block is how to do it yourself: folded, so the reply leads
+          // with the offer to run it rather than with a command.
+          const first = Children.toArray(value)[0];
+          const language = isValidElement<{ className?: string }>(first) ? first.props.className ?? '' : '';
+          if (!/\blanguage-run\b/.test(language)) return block;
+          return <details className="my-2 text-ink-dim">
+            <summary className="cursor-pointer select-none text-xs">{locale === 'zh-CN' ? '自己运行' : 'Run it yourself'}</summary>
+            {block}
+          </details>;
+        },
         table: ({ children: value }) => <table className="my-2 w-full table-fixed border-collapse text-left text-xs">{value}</table>,
         th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
         td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
         strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
-        img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} sid={sid} path={artifactPathFromHref(src, artifacts, basePath)} />,
+        img: ({ src, alt }) => {
+          const path = artifactPathFromHref(src, artifacts, basePath);
+          return <WorkspaceImage src={src} alt={alt} sid={sid} path={path} onOpen={path && onOpenArtifact ? () => onOpenArtifact(path) : undefined} />;
+        },
       }}
     >
       {children}

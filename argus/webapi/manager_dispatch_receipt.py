@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
-from ..core.mission_view import conversation_is_chinese, say
+from ..core.mission_view import conversation_is_chinese, say, written_language
 
 
 def _dispatch_ack_text(
@@ -53,12 +53,29 @@ def _dispatch_ack_text(
             status = "saved"
         return say("ack_already_asked", zh, state=say(f"asked_{status}", zh))
     if dispatch_state == "queued_after_current" and daemon_alive:
-        return say("ack_after_current", zh)
+        return _with_task_line(say("ack_after_current", zh), item, operator_text, zh)
     if dispatch_state == "running" and daemon_alive:
-        return say("ack_picked_up", zh)
+        return _with_task_line(say("ack_picked_up", zh), item, operator_text, zh)
     if dispatch_state == "planner_pending":
         return say("ack_goal_updated", zh)
-    return say("ack_starting", zh)
+    return _with_task_line(say("ack_starting", zh), item, operator_text, zh)
+
+
+def _with_task_line(ack: str, item: dict[str, Any], operator_text: str, zh: bool) -> str:
+    """A generic ack names the task the Manager made, when it says more than the request.
+
+    "收到，马上开始。" alone replaced the Manager's informative first line; the
+    ticket's one-line title keeps what will be done in view. A title that only
+    repeats what the person typed is left out (no echo), and so is the task
+    behind a bare pick such as "2", which answers a question already asked.
+    """
+    title = " ".join(str(item.get("title") or "").split())
+    said = " ".join(str(operator_text or "").split())
+    if not title or not written_language(said) or title in said or len(title) > 80:
+        return ack
+    base = ack.rstrip("。.!！")
+    return f"{base}：{title}。" if zh else f"{base}: {title}."
+
 
 
 def record_task_dispatch_ack(

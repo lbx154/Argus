@@ -40,7 +40,7 @@ export function LaunchSettingsBar({
       ? '只有这个项目的第一个任务先给你看计划；之后的任务直接开始。'
       : 'Only this project’s first task waits for your go-ahead; later tasks start directly.',
     beyond_authority: zh
-      ? '任务直接开始，阶段性的判断由 Manager 来做；只有超出你授权的事才会问你。'
+      ? '任务直接开始，阶段性的判断由经理来做；只有超出你授权的事才会问你。'
       : 'Tasks start directly and the Manager makes stage calls; you are asked only about things beyond what you authorised.',
   }[ask];
   const askSelect = <label className="flex items-center gap-1">
@@ -86,8 +86,8 @@ export function LaunchSettingsBar({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="font-medium text-ink">{zh ? '开工设置' : 'Launch settings'}</span>
         {askSelect}
-        <label className="flex items-center gap-1">
-          <span>{zh ? '首个结果' : 'First result'}</span>
+        <label className="flex items-center gap-1" title={zh ? '希望多久内先看到一个能打开的结果。选了时间，团队会先交一个早期版本，再继续完善。' : 'How soon you want a first result you can open. With a time set, the team delivers an early version first and keeps improving it.'}>
+          <span>{zh ? '多久先看到结果' : 'First result within'}</span>
           <select className={selectClass} disabled={disabled} value={value.first_result_hours ?? ''}
             onChange={(event) => onChange({ ...value, first_result_hours: event.target.value ? Number(event.target.value) : null })}>
             {HOUR_CHOICES.map((hours) => <option key={String(hours)} value={hours ?? ''}>{hourLabel(hours)}</option>)}

@@ -4,6 +4,7 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { TeamPauseButton, teamPhase, teamPhaseLabel } from './TeamControls';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
+import { isFreshProject } from '../lib/launch';
 
 /** Shared, factual status for the conversation and its progress panel. */
 export function WorkStatusBar({ snapshot, view, events = [], connected, compact = false, onPauseTeam, onResumeTeam, teamBusy }: {
@@ -32,16 +33,23 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
           : status.state === 'running'
             ? zh ? '你可以继续阅读记录或补充要求，不必停留在这个页面。' : 'You can read the history or add context while work continues.'
             : '';
+  // A project nobody has written to yet has finished nothing: say it waits
+  // for the person instead of "已完成 · 可以开始新任务" (rule 6).
+  const untouched = isFreshProject(snapshot) && status.state === 'idle' && status.activityAgeSeconds === null
+    && !status.title && !events.length;
   const seconds = status.activityAgeSeconds;
-  const age = seconds === null ? (zh ? '暂无本次运行的进展记录' : 'No progress recorded for this run yet')
+  const age = untouched ? '' : seconds === null ? (zh ? '暂无本次运行的进展记录' : 'No progress recorded for this run yet')
     : seconds < 60 ? (zh ? '刚刚有进展' : 'Progress in the last minute')
       : seconds < 3600 ? (zh ? `${Math.floor(seconds / 60)} 分钟前有进展` : `Progress ${Math.floor(seconds / 60)} min ago`)
         : (zh ? `${Math.floor(seconds / 3600)} 小时前有进展` : `Progress ${Math.floor(seconds / 3600)} hr ago`);
+  const label = workStatusLabel(status, locale, connected);
+  // The label may already name the task ("正在处理：X"); do not say it twice.
+  const shortTitle = status.title.replace(/\s+/g, ' ').trim().slice(0, 20);
   return <div className="shrink-0 border-b border-line/60 bg-panel px-4 py-2.5 text-xs" data-testid="work-status" data-state={status.state}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${!connected ? 'bg-warn' : status.state === 'running' ? 'bg-blue animate-pulse motion-reduce:animate-none' : status.state === 'waiting' ? 'bg-warn' : 'bg-ink-faint'}`} aria-hidden="true" />
-      <span className="font-semibold text-ink" data-testid="team-phase" data-phase={phase}>{teamPhaseLabel(phase, locale)}</span>
-      <span className="min-w-0 truncate text-ink-dim" title={status.title || undefined}>{workStatusLabel(status, locale, connected)}{compact && status.title && phase === 'running' ? ` · ${status.title}` : ''}</span>
+      <span className="font-semibold text-ink" data-testid="team-phase" data-phase={untouched ? 'new' : phase}>{untouched ? (zh ? '等你开始' : 'Waiting for you to start') : teamPhaseLabel(phase, locale)}</span>
+      {untouched ? null : <span className="min-w-0 truncate text-ink-dim" title={status.title || undefined}>{label}{compact && status.title && phase === 'running' && !label.includes(shortTitle) ? ` · ${status.title}` : ''}</span>}
       {age ? <time className="text-ink-faint" dateTime={status.activityAt ? new Date(status.activityAt * 1000).toISOString() : undefined}>{age}</time> : null}
       {snapshot && (onPauseTeam || onResumeTeam) ? <TeamPauseButton snapshot={snapshot} locale={locale} onPause={onPauseTeam} onResume={onResumeTeam} busy={teamBusy}
         className="ml-auto rounded border border-line px-2 py-0.5 text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-50" /> : null}

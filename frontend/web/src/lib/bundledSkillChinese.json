@@ -53,7 +53,7 @@
     "summary": "用操作者的语言直接回答，说清结论、依据和不确定之处。",
     "originalName": "Replying to the operator",
     "source": "argus/builtin_skills/manager/replying/SKILL.md",
-    "sourceBytes": 2295
+    "sourceBytes": 2932
   },
   "global/manager/research-and-sources/SKILL.md": {
     "title": "调研与引用来源",

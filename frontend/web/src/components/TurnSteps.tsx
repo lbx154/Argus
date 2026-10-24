@@ -35,8 +35,10 @@ export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: s
  * The work behind one Argus reply: which tools ran, on what, and how each
  * ended. One compact line sits below the reply; details are opt-in.
  */
-export function TurnSteps({ steps, live, startedTs, status = '' }: {
+export function TurnSteps({ steps, live, startedTs, status = '', replyShown = false }: {
   steps: TurnStep[]; live: boolean; startedTs?: number; status?: string;
+  /** The reply text is already on screen; the turn is only wrapping up. */
+  replyShown?: boolean;
 }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
@@ -53,12 +55,15 @@ export function TurnSteps({ steps, live, startedTs, status = '' }: {
   const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
   const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
   const active = [...steps].reverse().find(step => step.status === 'running');
-  const summary = live
+  // Once the answer is visible a spinning "preparing a reply" would contradict it.
+  const finishing = live && replyShown;
+  const summary = finishing ? (locale === 'zh-CN' ? '收尾中' : 'Wrapping up')
+    : live
     ? `${active ? stepText(active, locale).primary : locale === 'zh-CN' ? '正在准备回复' : 'Preparing a reply'} · ${seconds}`
     : failed ? `${locale === 'zh-CN' ? '过程出现问题，请查看详情' : 'An issue occurred; see details'} · ${seconds}`
       : stopped ? `${locale === 'zh-CN' ? '已停止' : 'Stopped'} · ${seconds}`
         : t('chat.stepsDone', { count: steps.length, seconds });
-  const StatusIcon = live ? LoaderCircle : failed ? CircleAlert : stopped ? Square : Check;
+  const StatusIcon = finishing ? LoaderCircle : live ? LoaderCircle : failed ? CircleAlert : stopped ? Square : Check;
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <div className="turn-steps mt-3 rounded-lg border border-line/50 bg-surface/50 text-xs" data-live={live || undefined}>
@@ -69,7 +74,7 @@ export function TurnSteps({ steps, live, startedTs, status = '' }: {
         aria-label={locale === 'zh-CN' ? '查看工作过程' : 'View work progress'}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-dim hover:text-ink"
       >
-        <StatusIcon size={14} aria-hidden="true" className={`shrink-0 ${live ? 'animate-spin text-manager motion-reduce:animate-none' : failed ? 'text-err' : stopped ? 'text-ink-faint' : 'text-ok'}`} />
+        <StatusIcon size={14} aria-hidden="true" className={`shrink-0 ${finishing ? 'text-ink-faint' : live ? 'animate-spin text-manager motion-reduce:animate-none' : failed ? 'text-err' : stopped ? 'text-ink-faint' : 'text-ok'}`} />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
         <Chevron size={14} aria-hidden="true" className="shrink-0 text-ink-faint" />
       </button>

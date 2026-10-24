@@ -19,7 +19,10 @@ import {
 import { theme, toneColor } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
 import { PanelHeader, EmptyHint, RawDisclosure } from './primitives';
-import { MarkdownContent } from './MarkdownContent';
+import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
+import { deliveryFiles } from './deliveryPresentation';
+
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
 import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { ArgusMark } from './Wordmark';
 import { useI18n, type Locale } from '../i18n';
@@ -61,6 +64,8 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
 const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
+/** The project whose files the conversation shows, for inline images. */
+const SessionIdContext = createContext<string | null>(null);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
 
@@ -298,6 +303,7 @@ function ConversationRow({
   revision?: ConversationRevision;
 }) {
   const { t, locale } = useI18n();
+  const sessionId = useContext(SessionIdContext);
   const roots = useContext(WorkspaceRootsContext);
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
@@ -391,8 +397,8 @@ function ConversationRow({
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
               }) : clockOf(ev)}{responseLatency}</time></>}
             </div>
-            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
-            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)}
+            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replyShown={Boolean(reportText)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
@@ -636,8 +642,11 @@ function DeliveryCard({
   delivery: DeliveryReceipt;
   onOpen?: (delivery: DeliveryReceipt) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const sid = useContext(SessionIdContext);
   const stage = isStagePackage(delivery);
+  // Result first: a delivered chart or picture shows itself, not just a button.
+  const image = deliveryFiles(delivery).find((file) => IMAGE_FILE.test(file.path));
   return (
     <aside
       data-delivery-kind={delivery.kind}
@@ -649,6 +658,12 @@ function DeliveryCard({
           {t(deliveryHeadingKey(delivery))}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
+        {image && sid ? <div className="mt-2" data-delivery-thumbnail={image.path}>
+          <WorkspaceImage sid={sid} path={image.path} src={image.path} alt={image.label || image.path}
+            className="max-h-48 w-auto max-w-full rounded border border-line/60 bg-bg object-contain"
+            onOpen={onOpen ? () => onOpen(delivery) : undefined} />
+          <span className="sr-only">{locale === 'zh-CN' ? '点击查看大图' : 'Click to view full size'}</span>
+        </div> : null}
         {onOpen ? (
           <button
             type="button"
@@ -1218,7 +1233,7 @@ export function EventStream({
   return (
     <ConversationActionContext.Provider value={onConversationAction}>
     <StepProcessContext.Provider value={stepProcess}>
-    <WorkspaceContext.Provider value={workspace}>
+    <WorkspaceContext.Provider value={workspace}><SessionIdContext.Provider value={snapshot?.session.id ?? null}>
     <TaskTitleContext.Provider value={taskTitle}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
@@ -1324,7 +1339,7 @@ export function EventStream({
       </aside> : null}
     </section>
     </TaskTitleContext.Provider>
-    </WorkspaceContext.Provider>
+    </SessionIdContext.Provider></WorkspaceContext.Provider>
     </StepProcessContext.Provider>
     </ConversationActionContext.Provider>
   );

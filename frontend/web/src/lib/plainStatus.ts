@@ -425,7 +425,7 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
   [/^Retry in a fresh \w+ session; do not resume the failed thread\.(?:\s*If this repeats, pause the daemon and reduce concurrent \w+ load\.)?/i,
     ['接下来会在新的会话里重试这一轮。', 'The round will be retried in a fresh session.']],
   [/^inspecting project state$/i, ['正在查看项目状态', 'Looking at the project state']],
-  [/^running project command$/i, ['正在运行项目命令', 'Running a project command']],
+  [/^running project command$/i, ['正在项目里执行操作', 'Working in the project']],
   [/^using a tool$/i, ['正在使用工具', 'Using a tool']],
 ];
 
