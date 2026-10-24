@@ -115,7 +115,6 @@ dev = [
 ]
 
 [project.scripts]
-pr-gate = "argus.release_tools.pr_gate.regression.cli:main"
 argus-trial-server = "argus.trial.admin:main"
 argus-compute = "argus.trial.compute_client:main"
 argus = "argus.apps.tui_launcher:main"
@@ -168,6 +167,8 @@ extend-exclude = [
   "build",
   "dist",
   ".venv",
+  # Optional argus-hosting submodule; linted by its own repository.
+  "hosting",
 ]
 
 [tool.ruff.lint]
@@ -187,6 +188,7 @@ known-first-party = ["argus", "argus_skill"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+norecursedirs = ["hosting", ".*", "build", "dist", "node_modules"]
 markers = [
   "integration: crosses local process, thread, filesystem, or API boundaries",
   "e2e: exercises a complete workflow through a real entry point or toolchain",
@@ -197,7 +199,7 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
-exclude = '''^(?:build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
+exclude = '''^(?:build|dist|hosting|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
 # Type-check stable shared contracts (the argus_skill alias package is not
 # type-checked: it is an import-time shim).
 files = [

@@ -17,15 +17,20 @@ jobs:
     name: PR description consistency
     runs-on: ubuntu-latest
     steps:
+      # The gate lives in the public argus-hosting submodule at hosting/
+      # (package argus_hosting); no token is needed to fetch it.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Check PR description against patch
+        env:
+          PYTHONPATH: hosting
         run: |
-          python argus/release_tools/pr_gate/__main__.py \
+          python -m argus_hosting.pr_gate \
             --event "$GITHUB_EVENT_PATH" \
             --output pr-gate-result.json

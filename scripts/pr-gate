@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""Source-checkout entry point; leaves the existing description gate unchanged."""
+"""Source-checkout entry point for the local PR regression gate.
+
+The gate lives in the argus-hosting submodule at ``hosting/`` (package
+``argus_hosting``). Fetch it with ``git submodule update --init hosting``.
+"""
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+HOSTING = ROOT / "hosting"
 
-from argus.release_tools.pr_gate.regression.cli import main
+if not (HOSTING / "argus_hosting" / "pr_gate").is_dir():
+    sys.exit("pr-gate: hosting/ is empty; run `git submodule update --init hosting` first.")
+
+sys.path[:0] = [str(HOSTING), str(ROOT)]
+
+from argus_hosting.pr_gate.regression.cli import main
 
 raise SystemExit(main())

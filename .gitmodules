@@ -1,0 +1,4 @@
+[submodule "hosting"]
+	path = hosting
+	url = https://github.com/lbx154/argus-hosting.git
+	branch = main
