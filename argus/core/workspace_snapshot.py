@@ -145,7 +145,10 @@ class WorkspaceSnapshots:
             return False
 
     def _large(self, label: str) -> dict[str, list[int]]:
-        commit = self._git("cat-file", "commit", self._ref(label)).decode("utf-8", "replace")
+        return self._facts(self._ref(label))
+
+    def _facts(self, ref: str) -> dict[str, list[int]]:
+        commit = self._git("cat-file", "commit", ref).decode("utf-8", "replace")
         return json.loads(commit.split("\n\n", 1)[1])
 
     @property
@@ -184,6 +187,34 @@ class WorkspaceSnapshots:
         """The verdict ``holder`` left when it last held this line, if any."""
         verdict = self._holders().get(holder, {}).get("verdict")
         return verdict if isinstance(verdict, dict) else None
+
+    def held_elsewhere(self, holder: str, label: str, inputs: object) -> list[dict]:
+        """What ``holder`` left on each other line that held the workspace as snapshot ``label`` is, given ``inputs``.
+
+        The lines share this store, so the same files are the same tree and
+        the same large-file facts whichever line recorded them. A line held
+        under other ``inputs`` (something new arrived since) does not count.
+        """
+        if inputs is None:
+            return []
+        try:
+            out = self._git("for-each-ref", "--format=%(refname) %(tree)", "refs/argus/").decode()
+            trees = dict(row.split(" ", 1) for row in out.splitlines() if " " in row)
+            mine = trees.get(self._ref(label))
+            if mine is None:
+                return []
+            facts, found = self._facts(self._ref(label)), []
+            for path in (self.store / "holders").glob("*.json"):
+                held = json.loads(path.read_text(encoding="utf-8")).get(holder)
+                ref = f"refs/argus/{path.stem}/held-{holder}"
+                if (
+                    path.stem != self._name and isinstance(held, dict) and held.get("inputs") == inputs
+                    and trees.get(ref) == mine and self._facts(ref) == facts
+                ):
+                    found.append(held)
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError, AttributeError):
+            return []
+        return found
 
     def changes(self, base: str, head: str) -> list[Change] | None:
         """Every path that differs from ``base`` to ``head``, by path; ``None`` if unknown."""

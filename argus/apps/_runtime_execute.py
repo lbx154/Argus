@@ -1157,11 +1157,16 @@ class SkillLoopExecuteMixin:
             ):
                 final_submission_certified = True
                 completion_evidence = getattr(final_review, "reason", "")
-                from ..core.venue_review import current_venue_acceptance_issue
+                from ..core.venue_review import (
+                    current_venue_acceptance_issue,
+                    has_submission_candidate,
+                )
                 from ..skills.vertical_select import resolve_vertical_if_decided
 
                 state_root = Path(getattr(self, "_artifact_root", ex_state.workdir))
-                if resolve_vertical_if_decided(state_root) == "research":
+                if resolve_vertical_if_decided(state_root) == "research" and has_submission_candidate(
+                    ex_state.workdir,
+                ):
                     acceptance_issue = current_venue_acceptance_issue(
                         final_review, state_root=state_root, artifact_root=ex_state.workdir,
                     )

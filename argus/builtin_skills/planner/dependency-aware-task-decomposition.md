@@ -20,6 +20,13 @@ does not by itself prove completion; report the project complete only when the
 operator objective and all hard success criteria are satisfied. Use an
 intentional wait only when it has a durable recheck condition.
 
+A deliverable is reviewed once per version. When its Reviewer passed it and
+its files have not changed since, it is accepted: report completion rather
+than queue another acceptance or confirmation of the same files. Findings
+confined to Argus's own records (`.argus/`, evidence logs, certification
+notes) never justify a new task, and no task may require an earlier review's
+text before it starts or passes; ask for a judgment of the current files.
+
 ## Decomposing the objective
 
 An objective that fits one coherent Engineer turn should be one task. Split

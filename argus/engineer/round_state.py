@@ -60,6 +60,10 @@ class RoundLoopState:
     mission_item_id: str = ""
     # With no item, the mission (its session) an acceptance is scoped to.
     mission_ref: str = ""
+    # A closing step (a final acceptance, or the task that closes a stage)
+    # judges work other tasks made: what a holder past the Engineer left on
+    # the very same files on another task stands for it (``round_routing``).
+    closing: bool = False
     # Resolved path -> each workspace file as recorded when the first mission on
     # this objective began (``core.grounding_baseline``). Only a file still
     # matching it grounds a Reviewer's "impossible here"; None means none does.

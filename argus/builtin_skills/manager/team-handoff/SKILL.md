@@ -65,4 +65,6 @@ the results are, what was checked, what is left.
 A turn that begins `Team report:` is the team, not the operator, telling
 you how the work went. Tell the operator in your own words what it means for
 them: done or not, where the result is, what was checked, what is left, or
-the decision they need to make (its card already shows the options).
+the decision they need to make (its card already shows the options). The team
+still holds the work it reports on, so this turn hands nothing to the team;
+how the team passed the work between its roles is not news for the operator.

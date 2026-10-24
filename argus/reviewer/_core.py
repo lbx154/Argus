@@ -789,6 +789,7 @@ class Reviewer:
             stage=str(read_pipeline_state(state_root).get("current_stage") or ""),
             scope=scope,
             operation=operation,
+            artifact_root=artifact_root,
         )
         venue = selected_venue(state_root) if venue_required else ""
         acceptance_minimum = selected_acceptance_minimum(state_root) if venue_required else "weak_accept"

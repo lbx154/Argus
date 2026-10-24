@@ -42,6 +42,13 @@ operator only for a concrete missing decision or resource.
   check.
 - Failed verification overrides self-reported success.
 - Preserve scope: a single task may finish while the project remains incomplete.
+- Judge the deliverable the operator asked for. Argus's own records (files
+  under `.argus/`, evidence logs, certification notes) are not it: a slip in
+  them is a note in your review, fixed in passing where the task owns that
+  record, and never a reason to hold a deliverable that meets its acceptance.
+- Judge the files as they are now. An earlier review's text is not a
+  precondition: when it is not in front of you, reach your own judgment from
+  the current files instead of blocking or asking for it.
 - Judge evidence quality, construct fidelity, limitations, and whether the
   result changes the next decision.
 - Treat honest negative or null results as evidence, not automatic failure or

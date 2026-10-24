@@ -679,6 +679,7 @@ class _StageDecisionMixin:
 
         if requires_venue_review(
             vertical=resolve_vertical(root), stage=cur, scope=mission_scope,
+            artifact_root=self.execution_workdir,
         ) and str(getattr(review, "status", "")) == "done":
             acceptance_issue = current_venue_acceptance_issue(
                 review, state_root=root, artifact_root=self.execution_workdir,

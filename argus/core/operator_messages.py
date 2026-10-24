@@ -11,6 +11,12 @@ from .residual_risk import sanitize_text
 from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
+# The host's record that unchanged work climbed (``round_routing.climb_record``).
+_CLIMB_RE = re.compile(
+    r"Nothing changed since the (?P<who>.+?) last held this work, and nothing new arrived "
+    r"from outside, so it went one rung up, to the (?P<holder>\w+)\."
+)
+_ROLE_ZH = {"engineer": "工程师", "reviewer": "审阅者", "planner": "规划者", "manager": "经理"}
 _TIMEOUT_RE = re.compile(
     r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
     flags=re.IGNORECASE,
@@ -45,6 +51,12 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
     if "process exited with code" in lowered or "before turn completion" in lowered:
         return ("模型运行中断，未能完成请求。请重试；如果仍然失败，请联系管理员。" if zh else
                 "The model stopped before completing the request. Retry, or contact the administrator if it keeps failing.")
+    climbed = _CLIMB_RE.match(raw)
+    if climbed and zh:
+        who = "和".join(_ROLE_ZH.get(role, role) for role in climbed["who"].split(" and the "))
+        holder = climbed["holder"]
+        then = "需要你决定怎么继续" if holder == "operator" else f"交给{_ROLE_ZH.get(holder, holder)}决定怎么继续"
+        return f"自{who}上次处理以来，交付的文件没有变化，也没有新的要求，所以{then}。"
     timeout = _TIMEOUT_RE.search(raw)
     if timeout:
         seconds = timeout.group(1)

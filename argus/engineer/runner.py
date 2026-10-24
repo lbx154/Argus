@@ -173,10 +173,16 @@ class SupervisedEngineer(
             on_event = _redacted_on_event
         state = RoundLoopState()
         from ..core.grounding_baseline import objective_baseline
-        from .round_reviewer import mission_item_id, mission_lineage, mission_state_root
+        from .round_reviewer import (
+            mission_closes,
+            mission_item_id,
+            mission_lineage,
+            mission_state_root,
+        )
 
         state.state_root = mission_state_root(supervised_config)
         state.mission_item_id = mission_item_id(supervised_config)
+        state.closing = mission_closes(supervised_config, scope)
         state.mission_ref = str(getattr(supervised_config, "session_id", "") or "")
         # Before this mission's Engineer writes anything: what the workspace held
         # when the first mission on this objective began.

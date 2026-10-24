@@ -92,6 +92,13 @@ def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_
         _check_answer(payload, waiting)
     _check_setup(payload, setting_up)
     if to == "team" and not team_allowed:
+        if message.startswith("Team report:"):
+            # The team holds the work it reports on: the Planner, not a second
+            # ticket, takes up whatever it left.
+            raise ValueError(
+                "This is the team's report and the team still holds that work: tell the operator "
+                "what it means for them; do not hand it to the team, and do not retry."
+            )
         raise ValueError("The operator asked you to answer this yourself: do not hand it to the team.")
     if (to == "team") != all(key in payload for key in ("goal", "acceptance", "vertical")):
         raise ValueError("to=team goes with goal, acceptance and vertical, and they only with to=team.")

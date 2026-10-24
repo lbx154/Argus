@@ -424,7 +424,7 @@ def render_reviewer_prompt(
 
     prose_final_review = requires_venue_review(
         vertical=routed_vertical or "", stage=stage,
-        scope=scope_normalized, operation=operation,
+        scope=scope_normalized, operation=operation, artifact_root=working_dir or None,
     )
     research_context_block = prompt_context.role_context
     direct_workflow = (

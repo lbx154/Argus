@@ -269,6 +269,29 @@ def test_unclassified_nonpaper_review_does_not_invent_a_venue_requirement(tmp_pa
     assert not review.venue_review_required
 
 
+def test_a_final_acceptance_of_a_survey_is_its_ordinary_review(tmp_path):
+    # The survey run of 2026-10-24: a research final acceptance with no paper
+    # in the workspace. No venue recommendation could ever bind to it, so the
+    # Reviewer's pass, with a note on Argus's own records, certifies it.
+    (tmp_path / "reward-hacking-survey-zh.md").write_text("# 综述\n", encoding="utf-8")
+    assert not requires_venue_review(
+        vertical="research", stage="idea", scope="final_submission", artifact_root=tmp_path,
+    )
+    runner = _Runner(None)
+    review = Reviewer(runner).evaluate(
+        objective="Final acceptance of reward-hacking-survey-zh.md", round_index=1, session_id=None,
+        main_summary="source-verification.md line 55 misattributes a wording", main_error=None,
+        scope="final_submission",
+        config=ReviewerConfig(
+            model="gpt-5.6-sol", active_vertical="research", working_dir=str(tmp_path),
+            artifact_root=str(tmp_path), vertical_state_root=str(tmp_path),
+        ),
+    )
+    assert review.status == "done"
+    assert not review.venue_review_required
+    assert review.final_submission_certified
+
+
 def test_gate_applies_to_final_papers_only():
     assert requires_venue_review(vertical="research", stage="review")
     assert requires_venue_review(vertical="research", stage="paper", scope="final_submission")
