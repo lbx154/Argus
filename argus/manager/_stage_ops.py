@@ -893,22 +893,21 @@ class _StageDecisionMixin:
     def _put_stage_question(
         self, root: Path, cur: str, order: list[str], question: str, on_event: Any, root_task_id: str | None,
     ) -> None:
-        """Leave the stage call's question in the Manager session's inbox; the stage holds meanwhile.
+        """Put the stage call's question to the Manager session now; the stage holds meanwhile.
 
         The task the question came from is kept in PIPELINE_STATE, so the
         ruling's choices are that task's even when it ends before the ruling.
+        The question waits there too, for the Manager's next turn, when no
+        web server owns its session (CLI-only use).
         """
         from hashlib import sha256
 
-        from ..core.event_catalog import EventType
         from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
-        from ..core.team_reports import post_team_report
+        from ..core.team_reports import push_to_manager
         from ..life.memory import LifeMemory
 
         running = [item.id for item in LifeMemory.open(root).backlog.active() if item.status == "running"]
-        with self.pipeline_lock():
-            state = read_pipeline_state(root)
-            write_pipeline_state(root, {**state, "stage_question_task": running[0] if running else root_task_id or ""})
+        state = read_pipeline_state(root)
         at = order.index(cur) if cur in order else len(order)
         text = "\n\n".join((
             f"Stage question at `{cur}` (later stages: {', '.join(order[at + 1:]) or 'none'}; "
@@ -919,10 +918,14 @@ class _StageDecisionMixin:
             else "The operator did not ask to take part in stage decisions: you are the authorized role "
             "for this one, including the readings of their request it turns on.",
         ))
+        with self.pipeline_lock():
+            write_pipeline_state(root, {
+                **read_pipeline_state(root), "stage_question": text,
+                "stage_question_task": running[0] if running else root_task_id or "",
+            })
         message_id = f"stage-question-{sha256(text.encode()).hexdigest()[:12]}"
-        post_team_report(root, message_id=message_id, text=text, event_fields={})
-        if callable(on_event):
-            on_event({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
+        if not push_to_manager(root, message_id=message_id, text=text) and callable(on_event):
+            on_event({"type": "life.status", "text": "stage question waits for the Manager's next turn"})
 
     def stage_ruling(self, payload: dict[str, Any]) -> Any:
         """The Manager session's ruling on a stage question, checked against the stage as it is now."""
@@ -955,6 +958,7 @@ class _StageDecisionMixin:
             )
             state = read_pipeline_state(root)
             state.pop("stage_question_task", None)
+            state.pop("stage_question", None)
             write_pipeline_state(root, state)
         record_assumptions(root, payload["assumptions"], item_id=task_id, source="stage")
         return "\n".join((

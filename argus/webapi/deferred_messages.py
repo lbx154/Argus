@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -18,9 +20,21 @@ import portalocker
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, AUTOMATIC_RETRY_WINDOW_SECONDS
 from ..core.mission_view import uses_cjk
 from ..core.operator_messages import publish_operator_message
-from ..core.team_reports import write_record as _write_record
 
 log = logging.getLogger(__name__)
+
+
+def _write_record(path: Path, record: dict[str, Any]) -> None:
+    """Keep the queue's disk format private and replace only complete records."""
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".message-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def _read_record(path: Path) -> dict[str, Any]:

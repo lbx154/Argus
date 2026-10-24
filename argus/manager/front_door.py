@@ -1148,7 +1148,8 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     """Hand one operator message to the Manager's session: its reply, and what it handed off.
 
     The tasks paused on a question for the operator go with the message, so the
-    Manager can apply its answer. ``setup`` is the state of a workflow setup
+    Manager can apply its answer, and so do what the team told the operator
+    since its last turn and a stage question still waiting for its ruling. ``setup`` is the state of a workflow setup
     under way with the operator, which the message continues.
 
     The reply is ``None`` only when no Manager is available. A failed turn
@@ -1160,6 +1161,8 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     """
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
+    from ..core.pipeline_state import read_pipeline_state
+    from ..core.team_reports import mark_team_messages_read, unread_team_messages
     from ..provider_integrations.authorization_retry import BackendLoginRequired
     from ._session_ops import reset_manager_session
     from .form import manager_actions, waiting_questions
@@ -1248,6 +1251,10 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     waiting, waiting_text = waiting_questions(
         [item for item in mem.backlog.active() if item.pending_question.strip()],
     )
+    told, told_through = unread_team_messages(mem.project_root)
+    # A stage question no web server took to the Manager at once is ruled on now.
+    stage_question = str(read_pipeline_state(mem.project_root).get("stage_question") or "")
+    stage_question = f"Team report:\n{stage_question}" if stage_question and stage_question not in body else ""
     actions = manager_actions(
         body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,
         waiting=waiting, setting_up=bool(setup),
@@ -1257,7 +1264,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     )
     try:
         outcome = runner.manager_turn(
-            message="\n\n".join(part for part in (setup, body, waiting_text) if part),
+            message="\n\n".join(part for part in (told, setup, body, stage_question, waiting_text) if part),
             sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
             phase_cb=_phase, root_task_id=root_task_id,
         )
@@ -1269,6 +1276,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         return _failure_reply(f"{type(exc).__name__}: {exc}"), None
     if not outcome.success or round_failure:
         return _failure_reply(outcome.stop_reason or round_failure), None
+    mark_team_messages_read(mem.project_root, told_through)
     if isinstance(outcome.delivery, dict):
         chat_state["_self_delivery"] = outcome.delivery
     handoff = actions.handoff
