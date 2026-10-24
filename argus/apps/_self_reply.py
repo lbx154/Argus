@@ -119,6 +119,8 @@ class SelfReplyMixin:
         )
         prompt = append_operator_context(prompt, operator_context)
         write_dirs = [str(state_root)] if state_root != workdir else []
+        # The workspace before the turn: its receipt lists what the turn changed.
+        before = self._workspace_facts(workdir, state_root)
         memory = getattr(args, "manager_memory", None)
         reply_message_id = f"manager-reply-{id(sink):x}"
 
@@ -197,7 +199,9 @@ class SelfReplyMixin:
                       if result.exit_code == 0 else f"exit={result.exit_code}")
         )
         auth_failure = self._consume_auth_failure()
-        delivery = self._delivery(result, last_msg, workdir, state_root, root_task_id or reply_message_id) if success else None
+        delivery = self._delivery(
+            result, last_msg, workdir, state_root, root_task_id or reply_message_id, before,
+        ) if success else None
         sink.handle_event({"type": "loop.done", "status": status, "rounds": 1})
         return _Outcome(
             success=success, status=status, stop_reason=stop_reason, rounds=1,
@@ -205,17 +209,46 @@ class SelfReplyMixin:
         )
 
     @staticmethod
-    def _delivery(result: Any, reply: str, workdir: Path, state_root: Path, item_id: str) -> dict[str, Any] | None:
-        """The files this turn created and named in its reply, as one delivery; None when it named none."""
+    def _workspace_facts(workdir: Path, state_root: Path) -> dict[str, Any]:
+        """The workspace as ``workspace_facts``, leaving out the state kept inside it."""
+        from ..core.workspace_facts import workspace_facts
+
+        try:
+            own = state_root.resolve().relative_to(workdir.resolve()).as_posix()
+        except (OSError, ValueError):
+            own = ""
+        if own == ".":
+            # The state is the workspace: its own writes would read as the work.
+            return {"unavailable": True}
+        return workspace_facts(workdir, ignore=[own] if own else [])
+
+    @staticmethod
+    def _delivery(
+        result: Any, reply: str, workdir: Path, state_root: Path, item_id: str,
+        before: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """The files this turn changed, as one delivery; None when it changed none.
+
+        With the workspace unknown before or after the turn, only the files
+        its reply names and the turn wrote count.
+        """
         from ..core.secret_guard import redact_secrets_text
-        from ..life.delivery import build_delivery_receipt, referenced_delivery_paths
+        from ..life.delivery import (
+            build_delivery_receipt,
+            changed_workspace_paths,
+            referenced_delivery_paths,
+        )
 
         safe_reply = redact_secrets_text(reply, known_values=known_secret_values())
         started_at = float(getattr(result, "started_at", 0.0) or 0.0)
-        paths = [
+        named = [
             path for path in referenced_delivery_paths(workdir, [safe_reply])
             if started_at > 0 and (workdir / path).stat().st_mtime >= started_at
         ]
+        changed = None if before is None else changed_workspace_paths(
+            workdir, before, SelfReplyMixin._workspace_facts(workdir, state_root), named=named,
+        )
+        paths = named if changed is None else changed
         if not paths:
             return None
         return build_delivery_receipt(

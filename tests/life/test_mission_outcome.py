@@ -819,3 +819,41 @@ def test_an_old_background_job_pause_resumes_without_being_watched(tmp_path) -> 
     assert [row.id for row in supervisor._resume_automatic_pauses()] == [item.id]
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "pending"
+
+
+@pytest.mark.parametrize(
+    ("tags", "delivered"),
+    [
+        (["manager", "scope:bounded", "review:required", "operator", "operator_priority"], True),
+        (["planner", "scope:bounded", "review:required"], False),
+    ],
+)
+def test_a_reviewed_operator_request_is_delivered_while_the_campaign_goes_on(
+    tmp_path, tags: list[str], delivered: bool,
+) -> None:
+    supervisor, sink = _make_supervisor(tmp_path, _Outcome(
+        success=True,
+        status="done",
+        final_review_status="done",
+        final_review_source="reviewer",
+        final_review_reason="中文综述 survey-zh.md 已交付并通过独立复核。",
+    ))
+    supervisor.config.continuous = True
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "survey-zh.md").write_text("# 综述\n", encoding="utf-8")
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="调研综述", objective="交付中文综述 survey-zh.md", tags=tags)
+    )
+
+    supervisor.tick()
+
+    event = _completed_event(sink)
+    assert event["overall_complete"] is False
+    assert event["operator_request"] is delivered
+    if delivered:
+        # Shown under 交付成果 as a stage result; the goal itself stays open.
+        assert event["delivery"]["kind"] == "stage_package"
+        assert event["delivery"]["primary_target"]["path"] == "survey-zh.md"
+    else:
+        assert event["delivery"] is None

@@ -81,11 +81,13 @@ def _research_project_done_issue(
     *,
     current_signature: str = "",
     evidence_root: object | None = None,
+    delivery_state_root: object | None = None,
 ) -> str:
     """Require final review for the state's target and current execution files.
 
     ``project_root`` owns the target contract; a daemon's manuscript may live
-    separately under ``evidence_root``.
+    separately under ``evidence_root``, and delivered file versions under
+    ``delivery_state_root`` (default ``project_root``).
     """
     from ...core.research_contract import (
         research_target_contract,
@@ -183,6 +185,27 @@ def _research_project_done_issue(
                 ):
                     continue
             return ""
+        delivery = extra.get("delivery")
+        if (
+            not submission_candidate_exists
+            and extra.get("operator_request") is True
+            and extra.get("success") is True
+            and extra.get("review_source") == "reviewer"
+            and isinstance(delivery, dict)
+            and delivery.get("review_source") == "reviewer"
+        ):
+            # The operator's whole request, accepted by its own independent
+            # Reviewer, with every delivered file unchanged since: that review
+            # is the final one, and a second full review of the same files
+            # would only repeat it. A paper keeps its venue-bound certification.
+            from ..delivery import delivery_is_current
+
+            if delivery_is_current(
+                str(extra.get("execution_workdir") or candidate_root),
+                delivery_state_root if delivery_state_root is not None else project_root,
+                delivery.get("snapshots") or (),
+            ):
+                return ""
     if target_level is None:
         return ""
     return f"missing_{target_level}_reviewer_certification"
