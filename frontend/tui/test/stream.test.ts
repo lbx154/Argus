@@ -612,3 +612,27 @@ test('Ink Manager stream preserves heartbeat metadata for phrase rotation', asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test('a Manager turn\'s first words are replaced by its reply, by message id', () => {
+  const op = { type: 'ui.operator', text: 'format_ratio 是干嘛的？', message_id: 'web-1-operator' } as EventMsg;
+  const draft = { type: 'ui.argus', text: '我先看一下 core.py', message_id: 'web-1-argus', in_progress: true, live: true } as EventMsg;
+  const final = { type: 'ui.argus', text: '`format_ratio` 把比例格式化成百分比。', message_id: 'web-1-argus' } as EventMsg;
+  const texts = (events: EventMsg[]) => buildEventLines(events).map((line) => line.r.text);
+
+  assert.deepEqual(texts([op, draft]), [op.text, draft.text]);
+  const lines = buildEventLines([op, draft, final]);
+  assert.deepEqual(lines.map((line) => line.r.text), [op.text, final.text]);
+  assert.equal(lines[1].ev.in_progress, false);
+  // The draft read back after the reply adds nothing.
+  assert.deepEqual(texts([op, final, draft]), [op.text, final.text]);
+});
+
+test('a turn cancelled before its reply leaves no early line in the terminal', () => {
+  const op = { type: 'ui.operator', text: '看一下', message_id: 'web-2-operator' } as EventMsg;
+  const draft = { type: 'ui.argus', text: '我先看一下 core.py', message_id: 'web-2-argus', in_progress: true, live: true } as EventMsg;
+  const closed = { type: 'ui.argus', text: '', message_id: 'web-2-argus', in_progress: true, draft_closed: true } as EventMsg;
+  const final = { type: 'ui.argus', text: '看完了。', message_id: 'web-2-argus' } as EventMsg;
+  assert.deepEqual(buildEventLines([op, draft, closed]).map((line) => line.r.text), [op.text]);
+  // A closer never removes a reply.
+  assert.deepEqual(buildEventLines([op, draft, final, closed]).map((line) => line.r.text), [op.text, final.text]);
+});

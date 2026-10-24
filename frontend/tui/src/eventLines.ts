@@ -1,6 +1,6 @@
 import type { EventMsg } from './api.js';
 import { renderEvent, messageId, mergeFragment, type Rendered } from './eventRender.js';
-import { eventKey, fragmentMode } from '../../core/src/events.js';
+import { eventKey, fragmentMode, isDraftCloser, isDraftReply } from '../../core/src/events.js';
 
 export interface EventLine {
   ev: EventMsg;
@@ -25,7 +25,21 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
       ))
       .filter(Boolean),
   );
+  const removeAt = (index: number) => {
+    const [removed] = list.splice(index, 1);
+    if (removed.mid) idx.delete(removed.mid);
+    for (const [knownMid, position] of idx) {
+      if (position > index) idx.set(knownMid, position - 1);
+    }
+  };
   events.forEach((ev) => {
+    // A Manager turn's first words show until its reply, which replaces them
+    // (same message id); a turn that ended without a reply closes them.
+    if (isDraftCloser(ev)) {
+      const index = idx.get(messageId(ev));
+      if (index !== undefined && isDraftReply(list[index].ev)) removeAt(index);
+      return;
+    }
     // Repairs are append-only so the audit log stays intact. In the rendered
     // conversation, hide the truncated row superseded by a recovered delivery.
     if (
@@ -37,23 +51,24 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
     const mid = messageId(ev);
     if (mid && idx.has(mid)) {
       const index = idx.get(mid)!;
+      const prior = list[index].ev;
+      // First words arriving after the reply (or its stream) add nothing.
+      if (isDraftReply(ev) && !isDraftReply(prior)) return;
+      const replacesDraft = isDraftReply(prior) && ev.type === 'ui.argus';
       const updated = {
         ...list[index],
-        ev: { ...list[index].ev, ...ev },
+        ev: { ...prior, ...ev, ...(replacesDraft && !isDraftReply(ev) ? { in_progress: false, live: ev.live === true } : {}) },
         r: {
           ...list[index].r,
           ...r,
-          text: mergeFragment(list[index].r.text, r.text, fragmentMode(ev)),
+          text: mergeFragment(list[index].r.text, r.text, replacesDraft ? 'snapshot' : fragmentMode(ev)),
         },
       };
       if (index === list.length - 1) {
         list[index] = updated;
         return;
       }
-      list.splice(index, 1);
-      for (const [knownMid, position] of idx) {
-        if (position > index) idx.set(knownMid, position - 1);
-      }
+      removeAt(index);
       list.push(updated);
       idx.set(mid, list.length - 1);
       return;

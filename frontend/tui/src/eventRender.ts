@@ -8,6 +8,7 @@ import {
 } from '../../core/src/events.js';
 import { formatMissionRouting } from '../../core/src/missionView.js';
 import { missionOutcomePresentation } from '../../core/src/missionOutcome.js';
+import { plainInternalReason, plainRoleMessage } from '../../core/src/plainWords.js';
 import {
   renderLine,
   type RenderContext,
@@ -99,6 +100,26 @@ const roundNo = (ev: EventMsg): string | number => {
 /** Render one event to a clean line, or null to HIDE (default for anything not
  *  whitelisted — including agent.io.* raw framing). */
 export function renderEvent(ev: EventMsg): Rendered | null {
+  const t = S(ev, 'type');
+  // The conversation stays as written; everything else is said plainly, before
+  // any line is shortened: the status word a role ends its message with, and
+  // the host's English routing reasons (the web feed reads the same helpers).
+  if (t === 'ui.operator' || t === 'ui.argus') return renderWhitelisted(ev);
+  const plain: Record<string, unknown> = { ...ev };
+  for (const field of PLAIN_FIELDS) {
+    const value = plain[field];
+    if (typeof value !== 'string' || !value) continue;
+    plain[field] = field === 'text' && t === 'engineer.progress' && ROLE_MESSAGE_KINDS.has(S(ev, 'kind'))
+      ? plainRoleMessage(value, 'en')
+      : plainInternalReason(value, 'en');
+  }
+  return renderWhitelisted(plain as EventMsg);
+}
+
+const PLAIN_FIELDS = ['text', 'reason', 'summary', 'error', 'next_step'] as const;
+const ROLE_MESSAGE_KINDS = new Set(['assistant_message', 'agent_message', 'message']);
+
+function renderWhitelisted(ev: EventMsg): Rendered | null {
   const t = S(ev, 'type');
 
   if (t === 'engineer.progress') {

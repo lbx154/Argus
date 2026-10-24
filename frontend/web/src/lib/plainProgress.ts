@@ -4,6 +4,9 @@ import type { Locale } from '../i18n';
 import { readableRecord } from '../map/submap';
 import { plainToolLabel } from './feedSteps';
 import { plainDetail, type PlainDetail } from './plainStatus';
+import { plainInternalReason, STATUS_TAIL } from '../../../core/src/plainWords';
+
+export { plainInternalReason };
 
 /**
  * The project work progress feed in the words of the person who asked for the
@@ -23,15 +26,7 @@ const CALL_KINDS = new Set(['command_execution', 'tool_use', 'tool_result', 'fil
 const MESSAGE_KINDS = new Set(['agent_message', 'assistant_message', 'message']);
 /** Round bookkeeping: a step of the loop, not something a role said. */
 const ROUND_MARKERS = new Set(['round.start', 'round.main.completed', 'round.review.started']);
-/** A verdict's status as the agent wrote it on its last line ("…\n\ncontinue"). */
-const STATUS_TAIL = /(?:^|\n)[ \t]*`?(?:continue|done|blocked|replan_requested|question|no_progress)`?[ \t.]*$/i;
-
 const zh = (locale: Locale) => locale === 'zh-CN';
-const ROLE_WORDS: Record<string, [string, string]> = {
-  planner: ['规划者', 'Planner'], manager: ['经理', 'Manager'], reviewer: ['审阅者', 'Reviewer'],
-  engineer: ['工程师', 'Engineer'], operator: ['你', 'you'],
-};
-const roleWord = (role: string, locale: Locale) => (ROLE_WORDS[role.trim().toLowerCase()] ?? [role, role])[zh(locale) ? 0 : 1];
 
 export function isCallRow(ev: EventMsg): boolean {
   return ev.type === 'engineer.progress' && CALL_KINDS.has(String(ev.kind || ''));
@@ -40,25 +35,6 @@ export function isCallRow(ev: EventMsg): boolean {
 /** Text in English where the reader reads Chinese: the host's record, not words for them. */
 function foreignText(text: string, locale: Locale): boolean {
   return zh(locale) && !/[㐀-鿿]/.test(text) && /[A-Za-z]{2,}(?:\s+[A-Za-z'’,]+){3,}/.test(text);
-}
-
-/**
- * The host's own reasons for where work went (argus/engineer/round_routing.py),
- * said in the reader's language. Words a role wrote stay as written.
- */
-export function plainInternalReason(text: string, locale: Locale): string {
-  return text.replace(
-    /Nothing changed since the ([a-z]+(?: and the [a-z]+)*) last held this work, and nothing new arrived from outside, so it went one rung up, to the ([a-z]+)\.(?: The Reviewer had handed it to the [a-z]+: )?/gi,
-    (_match, passed: string, holder: string) => {
-      const who = passed.split(' and the ').map(role => roleWord(role, locale)).join(zh(locale) ? '和' : ' and the ');
-      if (holder.toLowerCase() === 'operator') {
-        return zh(locale) ? `自${who}上次处理以来没有新变化，需要你来决定怎么继续。` : `Nothing changed since the ${who} last looked at it, so it needs your decision. `;
-      }
-      return zh(locale)
-        ? `自${who}上次处理以来没有新变化，交给${roleWord(holder, locale)}重新安排。`
-        : `Nothing changed since the ${who} last looked at it, so the ${roleWord(holder, locale)} takes it over. `;
-    },
-  ).trim();
 }
 
 /** The first line of a text, as a header shows it. */

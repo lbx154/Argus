@@ -68,14 +68,38 @@ def manager_message(
         except Exception:  # noqa: BLE001 - retain the existing cancellation callback contract
             return False
 
-    with run_interrupt_scope(lambda: "operator interrupted Manager request" if is_cancelled() else None):
-        return _manager_message(
-            sid, text, global_root=global_root, attachments=attachments,
-            on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
-            source_message_id=source_message_id, route_override=route_override,
-            defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
-            turn_id=turn_id, launch=launch,
-        )
+    turn_id = turn_id or f"web-{time.time_ns()}"
+    draft: dict[str, Any] = {}
+    replied = False
+    try:
+        with run_interrupt_scope(lambda: "operator interrupted Manager request" if is_cancelled() else None):
+            result = _manager_message(
+                sid, text, global_root=global_root, attachments=attachments,
+                on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
+                source_message_id=source_message_id, route_override=route_override,
+                defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
+                turn_id=turn_id, launch=launch, draft=draft,
+            )
+        # An error reply replaces the draft like any reply; a cancelled,
+        # deferred or crashed turn has none.
+        replied = str(result.get("kind") or "") in {"chat", "task", "error"}
+        return result
+    finally:
+        if draft and not replied:
+            _close_draft(draft["life_dir"], turn_id)
+
+
+def _close_draft(life_dir: Path, turn_id: str) -> None:
+    """Retire the turn's first words when it ends without a reply (cancelled or failed).
+
+    The closing row shares the draft's message id and, like the draft, is marked
+    in progress, so every reader that skips drafts skips it too; clients drop
+    the draft it follows instead of leaving it as the last line of the chat.
+    """
+    _emit_ui_turn(
+        life_dir, "argus", "", message_id=f"{turn_id}-argus",
+        metadata={"in_progress": True, "draft_closed": True},
+    )
 
 
 def _manager_message(
@@ -93,6 +117,7 @@ def _manager_message(
     domain_answer: dict[str, Any] | None = None,
     turn_id: str = "",
     launch: dict[str, Any] | None = None,
+    draft: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -142,7 +167,7 @@ def _manager_message(
             return False
 
     turn_steps: list[dict[str, Any]] = []
-    draft_shown: list[bool] = [False]
+    draft_shown: dict[str, Any] = draft if draft is not None else {}
 
     def _show_draft(payload: dict[str, Any]) -> None:
         # Early words (ux rule 3): the Manager's first message of the turn
@@ -150,12 +175,13 @@ def _manager_message(
         # marked in progress. Every client shows it as the start of the reply;
         # the final reply carries the same message id and replaces it. It is
         # never journaled: the transcript keeps only the final reply.
-        if draft_shown[0] or not payload.get("live"):
+        # A turn that ends without a reply closes it (``_close_draft``).
+        if draft_shown or not payload.get("live"):
             return
         text = str(payload.get("text") or "").strip()
         if not text:
             return
-        draft_shown[0] = True
+        draft_shown["life_dir"] = life_dir
         _emit_ui_turn(
             life_dir, "argus", text, message_id=f"{turn_id}-argus",
             metadata={"in_progress": True, "live": True},

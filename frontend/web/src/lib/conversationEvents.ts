@@ -1,5 +1,5 @@
 import type { EventMsg } from '../api';
-import { mergeFragment, type FragmentMode } from '../../../core/src/events';
+import { isDraftCloser, isDraftReply, mergeFragment, type FragmentMode } from '../../../core/src/events';
 
 interface TranscriptTurn {
   ts: number;
@@ -174,7 +174,8 @@ const isChatRow = (event: EventMsg) => event.type === 'ui.operator' || event.typ
  * A Manager reply in progress (its first words, shown at once) stays only
  * while it is the newest word of the conversation: the final reply with the
  * same message id, a later in-progress row of that reply, or any later
- * message replaces it.
+ * message replaces it. A turn that ended without a reply closes it, and the
+ * closing row itself shows nothing.
  */
 export function dropSupersededDrafts(
   streamedEvents: EventMsg[],
@@ -194,7 +195,8 @@ export function dropSupersededDrafts(
     ...transcript.map((turn) => ({ id: String(turn.message_id ?? ''), ts: Number(turn.ts ?? 0) })),
   ];
   return streamedEvents.filter((event, index) => {
-    if (event.type !== 'ui.argus' || event.in_progress !== true) return true;
+    if (isDraftCloser(event)) return false;
+    if (!isDraftReply(event)) return true;
     const id = String(event.message_id ?? '');
     if (id && finals.has(id)) return false;
     const ts = Number(event.ts ?? 0);

@@ -73,6 +73,22 @@ export function visibleAgentText(value: unknown): string {
 
 export type FragmentMode = 'append' | 'snapshot' | 'auto';
 
+/**
+ * A Manager reply in progress: the turn's first words, shown at once (ux rule
+ * 3) until the final reply with the same message id replaces them.
+ */
+export function isDraftReply(event: EventMsg): boolean {
+  return event.type === 'ui.argus' && event.in_progress === true && event.draft_closed !== true;
+}
+
+/**
+ * A turn that ended without a reply (cancelled or crashed) closes its first
+ * words with an empty row of the same message id; nothing shows in its place.
+ */
+export function isDraftCloser(event: EventMsg): boolean {
+  return event.type === 'ui.argus' && event.draft_closed === true;
+}
+
 export function fragmentMode(event: EventMsg): FragmentMode {
   const explicit = String(event.fragment_mode ?? '');
   if (explicit === 'append' || explicit === 'snapshot') return explicit;

@@ -236,4 +236,14 @@ describe('Manager reply in progress', () => {
     const next = { type: 'ui.operator', text: '算了', ts: 130, message_id: 'web-2-operator' };
     expect(dropSupersededDrafts([op, draft, next]).map((event) => event.text)).toEqual([op.text, next.text]);
   });
+
+  it('a turn cancelled or crashed before its reply leaves no early line after reload', () => {
+    const closed = { type: 'ui.argus', text: '', ts: 104, message_id: 'web-1-argus', in_progress: true, draft_closed: true };
+    expect(mergeConversationEvents([op, draft, closed], [], []).map((event) => event.text)).toEqual([op.text]);
+    // A retried turn may speak again under the same id: its new first words show.
+    const retry = { ...draft, text: '再看一次 core.py', ts: 110 };
+    expect(mergeConversationEvents([op, draft, closed, retry], [], []).map((event) => event.text)).toEqual([op.text, retry.text]);
+    // The closer never removes a final reply.
+    expect(mergeConversationEvents([op, draft, final, closed], [], []).map((event) => event.text)).toEqual([op.text, final.text]);
+  });
 });

@@ -107,3 +107,79 @@ def test_first_words_reach_the_activity_stream_before_the_reply(tmp_path, monkey
     assert not replies[-1].get("in_progress")
     # Only the final reply is journaled.
     assert [t["text"] for t in read_turns(life) if t["role"] == "argus"] == [body["reply"]]
+
+
+def _early_words_project(tmp_path, sid):
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
+    return life
+
+
+def _argus_rows(life):
+    path = life / "events.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [row for row in rows if row.get("type") == "ui.argus"]
+
+
+@pytest.mark.parametrize("ending", ["cancelled", "crashed"])
+def test_first_words_are_closed_when_the_turn_ends_without_a_reply(tmp_path, monkeypatch, ending):
+    """A cancelled or crashed turn leaves no early line at the end of the chat after reload."""
+    from argus.webapi import manager_bridge
+
+    life = _early_words_project(tmp_path, f"s-early-{ending}")
+    stop = [False]
+
+    def turn(_mem, _body, _state, *, on_fragment):
+        on_fragment("delta", {"text": "我先看一下 core.py", "live": True})
+        stop[0] = ending == "cancelled"
+        return "too late"
+
+    def crash(*_args, **_kwargs):
+        raise RuntimeError("lost the project lock")
+
+    monkeypatch.setattr(front_door, "manager_turn", replying(turn))
+    if ending == "crashed":
+        monkeypatch.setattr(manager_bridge, "tell_team_stage_ruling", crash)
+        with pytest.raises(RuntimeError):
+            manager_bridge.manager_message(life.name, "format_ratio 是干嘛的？", global_root=tmp_path, turn_id="web-7")
+    else:
+        result = manager_bridge.manager_message(life.name, "format_ratio 是干嘛的？", global_root=tmp_path,
+                                                cancelled=lambda: stop[0], turn_id="web-7")
+        assert result["kind"] == "cancelled"
+
+    rows = _argus_rows(life)
+    assert [(row["text"], row.get("draft_closed")) for row in rows] == [("我先看一下 core.py", None), ("", True)]
+    assert {row["message_id"] for row in rows} == {"web-7-argus"}
+    # Like the draft, the closing row is in progress: readers that skip drafts skip it.
+    assert all(row.get("in_progress") for row in rows)
+
+
+def test_a_failed_turn_replaces_its_first_words_with_the_error(tmp_path, monkeypatch):
+    from argus.webapi.manager_bridge import manager_message
+
+    life = _early_words_project(tmp_path, "s-early-failed")
+
+    def turn(_mem, _body, _state, *, on_fragment):
+        on_fragment("delta", {"text": "我先看一下 core.py", "live": True})
+        raise RuntimeError("model service went away")
+
+    monkeypatch.setattr(front_door, "manager_turn", replying(turn))
+    assert manager_message(life.name, "看一下", global_root=tmp_path, turn_id="web-9")["kind"] == "error"
+    rows = _argus_rows(life)
+    assert len(rows) == 2 and rows[-1]["message_id"] == "web-9-argus" and not rows[-1].get("in_progress")
+    assert not any(row.get("draft_closed") for row in rows)
+
+
+def test_a_replied_turn_writes_no_closing_row(tmp_path, monkeypatch):
+    from argus.webapi.manager_bridge import manager_message
+
+    life = _early_words_project(tmp_path, "s-early-replied")
+
+    def turn(_mem, _body, _state, *, on_fragment):
+        on_fragment("delta", {"text": "我先看一下 core.py", "live": True})
+        return "看完了。"
+
+    monkeypatch.setattr(front_door, "manager_turn", replying(turn))
+    assert manager_message(life.name, "看一下", global_root=tmp_path, turn_id="web-8")["kind"] == "chat"
+    assert not any(row.get("draft_closed") for row in _argus_rows(life))
