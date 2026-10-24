@@ -206,6 +206,7 @@ def _manager_message(
     # send_body / TEAM routing body) receive it — never the journal.
     reference_context = ""
     reference_deps: list[str] = []
+    reference_ids: list[str] = []
     from .map_references import REFERENCE_MARKER_PREFIX, expand_operator_references
 
     if REFERENCE_MARKER_PREFIX in operator_text:
@@ -219,6 +220,9 @@ def _manager_message(
             body = compose_message_body(operator_text, resolved_attachments).strip()
             reference_context = expansion.context_block
             reference_deps = list(expansion.dep_task_ids)
+            # The cards the operator asked about: the map links this turn,
+            # and any task it hands to the team, back to them.
+            reference_ids = list(dict.fromkeys(ref.task_id for ref in expansion.references))
 
     from ..core.operator_context import import_deterministic_credential
 
@@ -295,7 +299,8 @@ def _manager_message(
             append_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
         except Exception:  # noqa: BLE001
             pass
-        _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
+        _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator",
+                      metadata={"refs": reference_ids} if reference_ids else None)
 
         if _cancelled():
             return _cancelled_result()
@@ -354,8 +359,13 @@ def _manager_message(
             emitter.solo = True
             emitter.start_task()
             emitter.phase(say("working_out_reply", uses_cjk(operator_text)))
+            turn_input = f"{startup_handoff}\n\n{body}" if startup_handoff else body
+            # What a person placed on the canvas: context for this turn only,
+            # never part of a ticket the team receives.
+            if canvas_context := _canvas_context(life_dir):
+                turn_input = f"{turn_input}\n\n{canvas_context}"
             reply, handoff = manager_turn(
-                mem, f"{startup_handoff}\n\n{body}" if startup_handoff else body, chat_state,
+                mem, turn_input, chat_state,
                 on_fragment=emitter.fragment, root_task_id=root_task_id, team_allowed=not explicit_chat,
             )
             tell_team_stage_ruling(life_dir, chat_state)
@@ -478,6 +488,16 @@ def _manager_message(
     else:
         emitter.emit_only(f"Queued · {title}")
     return result
+
+
+def _canvas_context(life_dir: Path) -> str:
+    from .canvas import canvas_context_block
+    from .map_references import _backlog_by_id
+
+    def titles() -> dict[str, str]:
+        return {task_id: str(getattr(item, "title", "") or "") for task_id, item in _backlog_by_id(life_dir).items()}
+
+    return canvas_context_block(life_dir, titles=titles)
 
 
 def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: dict[str, Any],

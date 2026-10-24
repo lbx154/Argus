@@ -473,6 +473,7 @@ def turn_records(
                 "events": [] if qa else [{"id": f"{card_id}:work", "item_id": card_id, "type": "work.segment",
                             "ts": _timestamp(row.get("ts")), "association": "explicit", "role": "manager",
                             "status": "running", "text": "", "steps": [], "tool_details_recorded": False}],
+                **({"refs": ask["refs"]} if ask.get("refs") else {}),
             }
             ask["active_turn"] = turns[card_id]
             continue
@@ -513,6 +514,9 @@ def turn_records(
         if row.get("type") == "ui.operator" and message_id.endswith("-operator"):
             asks[message_id[: -len("-operator")]] = {
                 "ts": row.get("ts"), "text": text(row.get("text"), 4000),
+                # The cards the operator quoted or asked about.
+                **({"refs": [text(ref, 160) for ref in row["refs"][:6] if isinstance(ref, str)]}
+                   if isinstance(row.get("refs"), list) else {}),
             }
             while len(asks) > 50:
                 asks.pop(next(iter(asks)))
@@ -581,8 +585,10 @@ def turn_records(
         card_id = f"turn:{turn_id}"
         title = ask_title(asked) if asked else (reply.splitlines()[0] if reply else turn_id)
         dispatched = (turns.get(card_id) or {}).get("dispatched")
+        refs = ask.get("refs") or (turns.get(card_id) or {}).get("refs")
         turns[card_id] = {
             **({"dispatched": dispatched} if dispatched else {}),
+            **({"refs": refs} if refs else {}),
             # The files the reply links or names: what this turn is about.
             "paths": reply_paths(reply, workspace),
             "card": {

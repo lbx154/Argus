@@ -275,6 +275,27 @@ def _context_entry(
     return "\n".join(lines)
 
 
+def _human_cards(life_dir: Path) -> dict[str, dict[str, Any]]:
+    from .canvas import read_canvas
+
+    try:
+        return {card["id"]: card for card in read_canvas(life_dir).get("cards") or []}
+    except Exception:  # noqa: BLE001 - a quoted card must never block the turn
+        log.exception("canvas read failed")
+        return {}
+
+
+def _human_entry(card: dict[str, Any], lang: str) -> str:
+    """A card a person placed on the canvas, as the operator wrote it."""
+    text = _clip(redact_secrets_text(str(card.get("text") or "")), OBJECTIVE_CLIP)
+    if card.get("kind") == "file":
+        path = str((card.get("attachment") or {}).get("relative_path") or "")
+        if lang == "en":
+            return f"- File card {card['id']}: {path}" + (f" — {text}" if text else "")
+        return f"- 资料卡 {card['id']}: {path}" + (f"——{text}" if text else "")
+    return f"- Idea card {card['id']}: {text}" if lang == "en" else f"- 想法卡 {card['id']}: {text}"
+
+
 def expand_operator_references(text: str, life_dir: Path | str) -> ReferenceExpansion:
     """Expand every ``[[Argus引用 {...}]]`` line in *text*.
 
@@ -328,11 +349,17 @@ def expand_operator_references(text: str, life_dir: Path | str) -> ReferenceExpa
     entries: list[str] = []
     entry_tasks: set[str] = set()
     used = len(header) + 1
+    human = _human_cards(life_dir) if any(ref.task_id.startswith("hc-") for ref in capped) else {}
     for ref in capped:
         item = by_id.get(ref.task_id)
-        if item is None or ref.task_id in entry_tasks:
+        if ref.task_id in entry_tasks:
             continue
-        entry = _context_entry(ref, item, event_texts)
+        if item is not None:
+            entry = _context_entry(ref, item, event_texts)
+        elif ref.task_id in human:
+            entry = _human_entry(human[ref.task_id], ref.lang)
+        else:
+            continue
         if used + len(entry) + 1 > CONTEXT_BLOCK_MAX_CHARS:
             break
         entries.append(entry)

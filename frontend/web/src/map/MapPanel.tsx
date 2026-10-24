@@ -865,7 +865,27 @@ export function MapCanvas({
     const humanBoxes = new Map(humanNodes.map((n) => [n.id, { ...n.position, width: n.width!, height: n.height! }]));
     const box = (id: string) => humanBoxes.get(id) ??
       (visibleIds.has(id) && positions[id] && scene.frames[id] ? { ...positions[id], ...scene.frames[id] } : undefined);
-    return canvasRecord.links.flatMap((link) => {
+    // What the records state between an Argus card and a card a person
+    // placed: a task that came from an idea card, a question about one.
+    const recorded = data.tasks.flatMap((task) => (task.relations ?? []).flatMap((relation) => {
+      if (!isHumanCardId(relation.target)) return [];
+      const a = box(relation.target);
+      const b = box(task.id);
+      if (!a || !b) return [];
+      const name = RELATION_KINDS.find(([kind]) => kind === relation.kind);
+      return [{
+        id: JSON.stringify(["recorded", relation.kind, relation.target, task.id]),
+        source: relation.target,
+        target: task.id,
+        ...relationPorts(a, b),
+        type: "human" as const,
+        zIndex: 1,
+        data: { kind: "related" as LinkKind, zh, recorded: true, label: name ? (zh ? name[1] : name[2]) : relation.kind },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#8a7a5a", width: 26, height: 26 },
+        ariaLabel: `${relation.kind}: ${relation.target} → ${task.id}`,
+      }];
+    }));
+    return [...recorded, ...canvasRecord.links.flatMap((link) => {
       const a = box(link.source);
       const b = box(link.target);
       if (!a || !b) return [];
@@ -880,8 +900,8 @@ export function MapCanvas({
         markerEnd: { type: MarkerType.ArrowClosed, color: "#b8862b", width: 26, height: 26 },
         ariaLabel: `${link.kind}: ${link.source} → ${link.target}`,
       }];
-    });
-  }, [canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, zh, editable, linkMenu]);
+    })];
+  }, [data.tasks, canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, zh, editable, linkMenu]);
   const flowEdges = useMemo<Edge[]>(() => humanEdges.length ? [...edges, ...humanEdges] : edges, [edges, humanEdges]);
   const onFlowNodesChange = useCallback((changes: NodeChange[]) => {
     const theirs: NodeChange<MacroNode>[] = [];
@@ -972,6 +992,37 @@ export function MapCanvas({
   }, [canvasMenu]);
   const menuLink = canvasMenu?.type === "link" ? canvasRecord.links.find((l) => l.id === canvasMenu.id) : undefined;
   const menuCard = canvasMenu?.type === "card" ? canvasRecord.cards.find((c) => c.id === canvasMenu.id) : undefined;
+  // A card a person placed, quoted like any map card: the server reads it
+  // from the canvas and links the turn (and a task it starts) back to it.
+  const humanReference = (card: HumanCard): CardReference => ({
+    source: data.id,
+    task_id: card.id,
+    task_title: (card.kind === "file" ? card.attachment?.name || card.text : card.text).replace(/\s+/g, " ").slice(0, 80),
+    lang: zh ? "zh" : "en",
+    event_ids: [],
+  });
+  const askAboutCard = (card: HumanCard) => {
+    setCanvasMenu(null);
+    quote(humanReference(card));
+  };
+  // "交给团队" is a message to the Manager, who judges it as usual. It goes
+  // at once unless the composer holds the person's own draft or keeps the
+  // answer in chat; then it waits in the composer for them to send.
+  const handToTeam = (card: HumanCard) => {
+    setCanvasMenu(null);
+    const what = card.kind === "file"
+      ? [card.attachment?.name, card.text].filter(Boolean).join(zh ? "——" : " — ")
+      : card.text;
+    const message = referenceText(humanReference(card)) + (zh ? "把这张卡做成任务：" : "Make this card a task: ") + what;
+    const c = composerRef.current;
+    if (c.value.trim() || c.attachments.length || c.pending || c.routeOverride === "chat") {
+      if (c.routeOverride === "chat") c.onRouteOverrideChange?.("auto");
+      c.onChange(c.value.trim() ? `${message}\n${c.value}` : message);
+      window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".map-composer textarea")?.focus(), 0);
+      return;
+    }
+    void submitFromMap(message).catch(() => setCanvasNotice(zh ? "没有发出去，请再试一次。" : "It was not sent; try again."));
+  };
   const chooseKind = (kind: LinkKind) => {
     const current = canvasMenu;
     setCanvasMenu(null);
@@ -1580,6 +1631,14 @@ export function MapCanvas({
             <div className="map-context-menu canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }}>
               {canvasMenu.type === "card" && menuCard && (
                 <>
+                  {(menuCard.kind === "file" || menuCard.text.trim()) && (
+                    <button role="menuitem" onClick={() => handToTeam(menuCard)}>
+                      {zh ? "交给团队" : "Hand to the team"}
+                    </button>
+                  )}
+                  <button role="menuitem" onClick={() => askAboutCard(menuCard)}>
+                    {zh ? "问这张卡" : "Ask about this card"}
+                  </button>
                   {menuCard.kind === "idea" && (
                     <button role="menuitem" onClick={() => { setEditingCard(menuCard.id); setCanvasMenu(null); }}>
                       {zh ? "编辑文字" : "Edit text"}
@@ -1621,7 +1680,7 @@ export function MapCanvas({
                   setMenu(null);
                 }}
               >
-                {zh ? "引用" : "Reference"}
+                {zh ? "问这张卡" : "Ask about this card"}
               </button>
               {data.kind === "live" && (
                 <>

@@ -4,8 +4,11 @@ A card's ``relations`` name the card it is about: ``{"kind", "target"}``. The
 kinds are only the ones a record states, found without a model call:
 
 - ``carries_out``: a team task the Manager dispatched for an operator's turn;
-- ``about``: a Manager reply that links or names files a task delivered (or,
-  when no task delivered them, a file a live task owns);
+- ``from``: that task, when the turn quoted a card a person placed on the
+  canvas (its "交给团队"): the task came from that card;
+- ``about``: a turn that quoted a card (its "问这张卡"); or a Manager reply
+  that links or names files a task delivered (or, when no task delivered
+  them, a file a live task owns);
 - ``checks`` / ``follows``: an item the Planner added right after another
   finished: a check when it works on the files that item delivered;
 - ``replaces``: the first item of the plan that superseded an item.
@@ -81,7 +84,8 @@ def project_relations(tasks: list[dict], turns: dict, facts: dict) -> list[dict]
     found: dict[str, list[dict]] = {task_id: [] for task_id in by_id}
 
     def add(source: str, kind: str, target: str):
-        if source == target or source not in found or target not in by_id:
+        # A card a person placed ("hc-…") lives on the canvas, not in ``tasks``.
+        if source == target or source not in found or (target not in by_id and not target.startswith("hc-")):
             return
         if not any(r["target"] == target for r in found[source]) and len(found[source]) < RELATION_LIMIT:
             found[source].append({"kind": kind, "target": target})
@@ -98,8 +102,14 @@ def project_relations(tasks: list[dict], turns: dict, facts: dict) -> list[dict]
         owned = set(by_id.get(item, {}).get("owns_paths") or [])
         add(item, "checks" if owned & set(delivered.get(after, [])) else "follows", after)
     for turn_id, turn in (turns or {}).items():
+        refs = [ref for ref in turn.get("refs") or [] if isinstance(ref, str)]
         if dispatched := turn.get("dispatched"):
+            for ref in refs:
+                if ref.startswith("hc-"):
+                    add(dispatched, "from", ref)
             add(dispatched, "carries_out", turn_id)
+        for ref in refs:
+            add(turn_id, "about", ref)
         paths = set(turn.get("paths") or [])
         if not paths or turn_id not in by_id:
             continue

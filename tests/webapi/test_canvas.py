@@ -125,6 +125,6 @@ def test_digest_lists_linked_cards_first(tmp_path: Path) -> None:
     canvas, first = store.add_card(tmp_path, 0, kind="idea", text="早的想法")
     canvas, second = store.add_card(tmp_path, 1, kind="idea", text="晚的想法")
     canvas, _ = store.add_link(tmp_path, 2, source=first["id"], target="task-x", kind="check")
-    lines = store.human_canvas_digest(canvas)
+    lines = store.human_canvas_digest(canvas, titles={"task-x": "跑基线"})
     assert lines[0].endswith("早的想法") and lines[1].endswith("晚的想法")
-    assert lines[-1] == f"{first['id']} -[check]-> task-x"
+    assert lines[-1] == "- 连线（检查）: 想法卡《早的想法》 → 任务《跑基线》"

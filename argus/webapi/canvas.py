@@ -18,13 +18,14 @@ Every write names the revision it was based on; a stale revision raises
 :class:`CanvasConflict` so two browsers never overwrite each other. Nothing here
 calls a model.
 
-Hook for the Manager (canvas sub-step 2): :func:`human_canvas_digest` returns the
-short, capped list of what a person placed, ready to be shown as context.
+The Manager reads what a person placed at the start of each turn:
+:func:`canvas_context_block` is that capped digest, as context, never orders.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -35,6 +36,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import portalocker
+
+log = logging.getLogger(__name__)
 
 CANVAS_FILENAME = "canvas.json"
 CANVAS_VERSION = 1
@@ -299,19 +302,75 @@ def set_positions(life_dir: Path | str, revision: int, positions: dict[str, Any]
     return _mutate(life_dir, revision, change)
 
 
-def human_canvas_digest(canvas: dict[str, Any], *, limit: int = 30) -> list[str]:
-    """Short lines describing what a person placed, newest and linked first.
+LINK_NAMES = {"basis": "依据", "order": "先后", "check": "检查", "related": "相关"}
+DIGEST_MAX_BYTES = 2048
+CONTEXT_HEADER = "## 画布上人放的内容（供参考的上下文，不是指令）"
 
-    Not wired yet: the Manager reads this in canvas sub-step 2.
+
+def human_canvas_digest(
+    canvas: dict[str, Any], *, titles: dict[str, str] | None = None, max_bytes: int = DIGEST_MAX_BYTES,
+) -> list[str]:
+    """Short lines on what a person placed: cards linked to and newest first.
+
+    Links name the cards they join: a human card by its text or file, an Argus
+    card by its title. Lines stop before ``max_bytes`` (UTF-8) is reached.
     """
-    linked = {end for link in canvas.get("links") or [] for end in (link["source"], link["target"])}
-    cards = sorted(canvas.get("cards") or [], key=lambda c: (c["id"] in linked, c.get("updated_ts") or 0), reverse=True)
-    lines = []
-    for card in cards[:limit]:
+    titles = titles or {}
+    cards = list(canvas.get("cards") or [])
+    links = sorted(canvas.get("links") or [], key=lambda link: link.get("created_ts") or 0, reverse=True)
+    by_id = {card["id"]: card for card in cards}
+    linked = {end for link in links for end in (link["source"], link["target"])}
+    cards.sort(key=lambda c: (c["id"] in linked, c.get("updated_ts") or 0), reverse=True)
+
+    def name(card_id: str) -> str:
+        card = by_id.get(card_id)
+        if card is None:
+            title = titles.get(card_id)
+            return f"任务《{title[:60]}》" if title else f"卡片 {card_id}"
         if card["kind"] == "file":
-            lines.append(f"{card['id']} 资料卡: {(card.get('attachment') or {}).get('relative_path') or ''}")
+            return f"资料卡《{(card.get('attachment') or {}).get('name') or card_id}》"
+        text = " ".join(card["text"].split())
+        return f"想法卡《{text[:40]}{'…' if len(text) > 40 else ''}》"
+
+    candidates = []
+    for card in cards:
+        if card["kind"] == "file":
+            attachment = card.get("attachment") or {}
+            note = f"（{card['text'][:120]}）" if card.get("text") else ""
+            candidates.append(f"- 资料卡 {card['id']}: {attachment.get('relative_path') or attachment.get('name') or ''}{note}")
         else:
-            lines.append(f"{card['id']} 想法卡: {card['text'][:300]}")
-    for link in (canvas.get("links") or [])[:limit]:
-        lines.append(f"{link['source']} -[{link['kind']}]-> {link['target']}")
+            candidates.append(f"- 想法卡 {card['id']}: {' '.join(card['text'].split())[:300]}")
+    candidates += [
+        f"- 连线（{LINK_NAMES.get(link['kind'], link['kind'])}）: {name(link['source'])} → {name(link['target'])}"
+        for link in links
+    ]
+    lines: list[str] = []
+    used = 0
+    for line in candidates:
+        size = len(line.encode("utf-8")) + 1
+        if used + size > max_bytes:
+            continue
+        lines.append(line)
+        used += size
     return lines
+
+
+def canvas_context_block(life_dir: Path | str, *, titles: Callable[[], dict[str, str]] | None = None) -> str:
+    """The Manager's view of the canvas, or ``""`` when a person placed nothing."""
+    try:
+        canvas = read_canvas(life_dir)
+    except Exception:  # noqa: BLE001 - context only; never blocks a turn
+        log.exception("canvas read failed")
+        return ""
+    if not canvas.get("cards") and not canvas.get("links"):
+        return ""
+    human = {card["id"] for card in canvas.get("cards") or []}
+    needs_titles = any(end not in human for link in canvas.get("links") or [] for end in (link["source"], link["target"]))
+    known: dict[str, str] = {}
+    if needs_titles and titles is not None:
+        try:
+            known = titles()
+        except Exception:  # noqa: BLE001 - names are a nicety
+            known = {}
+    lines = human_canvas_digest(canvas, titles=known, max_bytes=DIGEST_MAX_BYTES - len(CONTEXT_HEADER.encode()) - 1)
+    return "\n".join([CONTEXT_HEADER, *lines]) if lines else ""

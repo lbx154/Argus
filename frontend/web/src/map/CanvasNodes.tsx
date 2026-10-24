@@ -137,7 +137,15 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
   );
 }
 
-export type HumanLinkEdge = Edge<{ kind: LinkKind; zh: boolean; menu?: (id: string, point: { x: number; y: number }) => void }, "human">;
+export type HumanLinkEdge = Edge<{
+  kind: LinkKind;
+  zh: boolean;
+  menu?: (id: string, point: { x: number; y: number }) => void;
+  /** A relation the records state between an Argus card and a card a person
+   * placed ("来自", "关于"): dashed, named by ``label``, not editable. */
+  recorded?: boolean;
+  label?: string;
+}, "human">;
 
 /** A link a person drew: a solid line with its kind written on it, unlike
  * Argus's recorded relations. */
@@ -147,7 +155,8 @@ export function HumanLinkView({ id, sourceX, sourceY, targetX, targetY, data, ma
   const scale = Math.min(12, 1 / Math.max(zoom, 0.02));
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} className="canvas-link" style={{ strokeWidth: 3, vectorEffect: "non-scaling-stroke" }} />
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} className={data?.recorded ? "canvas-link is-recorded" : "canvas-link"}
+        style={{ strokeWidth: 3, vectorEffect: "non-scaling-stroke", ...(data?.recorded ? { strokeDasharray: "10 8" } : {}) }} />
       <EdgeLabelRenderer>
         <button
           type="button"
@@ -156,7 +165,7 @@ export function HumanLinkView({ id, sourceX, sourceY, targetX, targetY, data, ma
           style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${scale})` }}
           onClick={(e) => { e.stopPropagation(); data?.menu?.(id, { x: e.clientX, y: e.clientY }); }}
         >
-          {data ? linkKindLabel(data.kind, data.zh) : ""}
+          {data ? data.label ?? linkKindLabel(data.kind, data.zh) : ""}
         </button>
       </EdgeLabelRenderer>
     </>

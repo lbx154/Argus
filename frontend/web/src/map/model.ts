@@ -39,10 +39,11 @@ export interface TaskRelation {
   kind: RelationKind;
   target: string;
 }
-export type RelationKind = "about" | "checks" | "follows" | "replaces" | "carries_out";
+export type RelationKind = "about" | "checks" | "follows" | "replaces" | "carries_out" | "from";
 /** The kinds in the order the legend lists them, with their names. */
 export const RELATION_KINDS: Array<[RelationKind, string, string]> = [
   ["carries_out", "执行请求", "Carries out"],
+  ["from", "来自", "Came from"],
   ["about", "关于", "About"],
   ["checks", "检查", "Checks"],
   ["follows", "接续", "Follows"],

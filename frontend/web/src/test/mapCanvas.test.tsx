@@ -181,3 +181,61 @@ it("lays Argus cards out around people's cards and never moves a pinned card", (
   expect(placeAroundPeople(laid, frames, { a: { x: 30, y: 30 } }, [{ x: 20, y: 20, width: 50, height: 50 }]).a).toEqual({ x: 30, y: 30 });
   expect(placeAroundPeople(laid, frames, {}, [])).toBe(laid);
 });
+
+function remount(next: Partial<ComponentProps<typeof MapCanvas>>) {
+  Object.assign(window, { setTimeout: vi.fn() });
+  vi.stubGlobal("innerHeight", 960);
+  act(() => renderer.unmount());
+  act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} {...next} /></QueryClientProvider>, {
+    createNodeMock: () => ({ clientWidth: 1440, querySelector: () => null }),
+  }); });
+}
+const menuItem = (label: string) => renderer.root.find((n) => n.props.role === "menuitem" && n.children.includes(label));
+const openCardMenu = (id: string) =>
+  act(() => (human().find((n) => n.id === id)!.data.menu as (id: string, p: { x: number; y: number }) => void)(id, { x: 5, y: 5 }));
+
+it("hands an idea card to the team as a message to the Manager that quotes the card", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  const onSend = vi.fn(async () => true);
+  remount({ composer: { ...props.composer, onSend } });
+  openCardMenu("hc-1");
+  act(() => menuItem("交给团队").props.onClick());
+  await flush();
+  expect(onSend).toHaveBeenCalledTimes(1);
+  const [text] = onSend.mock.calls[0] as unknown as [string];
+  const [marker, ask] = text.split("\n");
+  expect(JSON.parse(marker.slice("[[Argus引用 ".length, -2))).toMatchObject({ task_id: "hc-1", task_title: "写一个导出", event_ids: [] });
+  expect(ask).toBe("把这张卡做成任务：写一个导出");
+});
+
+it("keeps the person's draft: a hand-off then waits in the composer", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  const onSend = vi.fn(async () => true);
+  const onChange = vi.fn();
+  remount({ composer: { ...props.composer, value: "我的草稿", onSend, onChange } });
+  openCardMenu("hc-1");
+  act(() => menuItem("交给团队").props.onClick());
+  await flush();
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange.mock.calls[0][0]).toMatch(/^\[\[Argus引用 .*\]\]\n把这张卡做成任务：写一个导出\n我的草稿$/);
+});
+
+it("asks about a card by quoting it in the composer", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "这个假设成立吗", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  const onChange = vi.fn();
+  remount({ composer: { ...props.composer, onChange } });
+  openCardMenu("hc-1");
+  act(() => menuItem("问这张卡").props.onClick());
+  expect(onChange.mock.calls[0][0]).toMatch(/^\[\[Argus引用 \{.*"task_id":"hc-1".*\}\]\]\n$/);
+});
+
+it("draws the recorded link from an idea card to the task that came from it", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  remount({ data: { ...data, tasks: data.tasks.map((t) => t.id === "child" ? { ...t, relations: [{ kind: "from", target: "hc-1" }] } : t) } });
+  const edge = flow().edges.find((e) => e.type === "human" && e.data?.recorded);
+  expect(edge).toMatchObject({ source: "hc-1", target: "child", data: { recorded: true, label: "来自" } });
+});
