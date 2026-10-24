@@ -11,6 +11,7 @@ import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import { RELEASE_ID } from '../../core/src/release.generated';
+import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
@@ -38,9 +39,17 @@ document.documentElement.dataset.argusEmbedded = String(embeddedDesktop);
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 3_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
+    // Keep a project's views while the operator works elsewhere, so coming
+    // back draws the last known content at once and refreshes it behind.
+    queries: { staleTime: 3_000, gcTime: 30 * 60_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
   },
 });
+// A reload in this tab starts from the views it last showed.
+if (!isAdminData) {
+  const storage = () => window.sessionStorage;
+  restoreQueryCache(queryClient, storage, RELEASE_ID);
+  persistQueryCache(queryClient, storage, RELEASE_ID);
+}
 
 function WorkbenchEntry() {
   const meta = useQuery({ queryKey: ['api-meta'], queryFn: api.meta });

@@ -56,3 +56,21 @@ it('rejects unavailable or malformed identity instead of claiming default succes
   expect(() => parseApplicationBrand({ ...custom, assets: { ...assets, mark: 'https://elsewhere/icon' } })).toThrow();
   expect(() => parseApplicationBrand({ ...custom, assets: {} })).toThrow();
 });
+
+it('draws a reload with the identity this tab last fetched while it refreshes', async () => {
+  const values = new Map<string, string>();
+  const storage = () => ({
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+  }) as unknown as Storage;
+  vi.stubGlobal('document', { title: '', querySelector: () => null, querySelectorAll: () => [] });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => custom }));
+  await loadApplicationBrand(storage);
+  // The server is slow or down on the next load: the kept identity shows at once.
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => undefined)));
+  await loadApplicationBrand(storage);
+  expect(applicationBrand().name).toBe('Example');
+  values.set('argus.application-brand.v1', '{broken');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+  await expect(loadApplicationBrand(storage)).rejects.toThrow('503');
+});

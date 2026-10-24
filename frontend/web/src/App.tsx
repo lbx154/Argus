@@ -77,7 +77,6 @@ import { isStagePackage } from './lib/deliveryKind';
 import { projectAttention } from './lib/attention';
 import { progressHealth } from './lib/progressHealth';
 import { ProgressHealthBanner } from './components/ProgressHealthBanner';
-import { LiveWorkCard } from './components/LiveWorkCard';
 import { useAttentionSignals } from './useAttentionSignals';
 import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
 import { canOpenDesktopSettings } from './lib/desktopBridge';
@@ -471,7 +470,7 @@ export default function App() {
   }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
+  const { events, connected, restored: eventsRestored } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
   useEffect(() => {
@@ -500,6 +499,11 @@ export default function App() {
   const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
     loadedSid, true, events, localConversationEvents, localConversationSid.current,
+  );
+  // Content kept from an earlier visit shows at once; until its first refresh
+  // lands it is marked as updating rather than presented as live.
+  const refreshingKept = eventsRestored || [snapQ, transcriptQ].some(
+    (query) => query.data !== undefined && query.isFetching && !query.isFetchedAfterMount,
   );
   const activeManagerRequestId = loadedSid
     ? snap?.manager_requests?.filter(request => request.status === 'running').at(-1)?.request_id || ''
@@ -1365,6 +1369,8 @@ export default function App() {
                     onToggleReasoning={() => setShowReasoning((value) => !value)}
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
+                    refreshingKept={refreshingKept}
+                    onPauseWork={snap.daemon.alive && !kiosk ? requestPauseDaemon : undefined}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     filter={eventFilter}
@@ -1388,8 +1394,6 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
-                    <LiveWorkCard snapshot={snap} view={missionView} events={events}
-                      onPause={snap.daemon.alive ? requestPauseDaemon : undefined} />
                     {freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} disabled={messagePending} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}

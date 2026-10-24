@@ -184,22 +184,25 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
 
 const MAX_EVENTS = 2_000;
 
-type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string> };
+// `restored` counts the leading events kept from this project's previous visit;
+// the fresh seed replaces them.
+type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string>; restored?: number };
 type StreamAction =
   | { kind: 'seed'; sid: string; events: EventMsg[] }
   | { kind: 'push'; sid: string; ev: EventMsg }
   | { kind: 'push-many'; sid: string; events: EventMsg[] }
-  | { kind: 'reset'; sid: string | null };
+  | { kind: 'reset'; sid: string | null; events?: EventMsg[] };
 
 export function streamReducer(state: StreamState, action: StreamAction): StreamState {
   if (action.kind === 'reset') {
-    return { sid: action.sid, events: [], seen: new Set() };
+    const events = action.events ?? [];
+    return { sid: action.sid, events, seen: new Set(events.map((ev) => eventKey(ev))), ...(events.length ? { restored: events.length } : {}) };
   }
   if (action.sid !== state.sid) return state;
   if (action.kind === 'seed') {
     const seen = new Set<string>();
     const events: EventMsg[] = [];
-    [...action.events, ...state.events].forEach((ev) => {
+    [...action.events, ...state.events.slice(state.restored ?? 0)].forEach((ev) => {
       const k = eventKey(ev);
       if (!seen.has(k)) {
         seen.add(k);
@@ -231,16 +234,20 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
     events.push(ev);
   }
   if (!events || !seen) return state;
+  let restored = state.restored;
   if (events.length > MAX_EVENTS) {
     const removed = events.splice(0, events.length - MAX_EVENTS);
     removed.forEach((ev) => seen.delete(eventKey(ev)));
+    if (restored) restored = Math.max(0, restored - removed.length);
   }
-  return { sid: state.sid, events, seen };
+  return { sid: state.sid, events, seen, ...(restored ? { restored } : {}) };
 }
 
 export interface StreamHandle {
   events: EventMsg[];
   connected: boolean;
+  /** The events are the previous visit's window until the fresh seed lands. */
+  restored?: boolean;
 }
 
 // Twenty-five visual updates per second is ample for a readable event stream
@@ -314,9 +321,11 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
   });
   const sidRef = useRef(sid);
   sidRef.current = sid;
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    dispatch({ kind: 'reset', sid });
+    // Re-entry starts from the window this tab last saw for the project.
+    dispatch({ kind: 'reset', sid, events: sid ? queryClient.getQueryData<EventMsg[]>(['events', sid]) : undefined });
     setConnection({ sid, connected: false });
     if (!sid) return;
     let cancelled = false;
@@ -340,6 +349,7 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
       .then((evs) => {
         if (!cancelled && sidRef.current === sid) {
           dispatch({ kind: 'seed', sid, events: evs });
+          queryClient.setQueryData(['events', sid], evs);
         }
       })
       .catch(() => {});
@@ -377,5 +387,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
   return {
     events: state.sid === sid ? state.events : [],
     connected: browserOnline && connection.sid === sid && connection.connected,
+    restored: state.sid === sid && Boolean(state.restored),
   };
 }

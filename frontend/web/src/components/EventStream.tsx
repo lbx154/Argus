@@ -1,4 +1,4 @@
-import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -35,7 +35,7 @@ import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { earlierRoleWork } from './agentActivityModel';
-import { liveLines, type LiveLine } from '../lib/liveActivity';
+import { liveActivity, liveLines, type LiveLine } from '../lib/liveActivity';
 import { ProjectOverviewStrip, type NotificationControl } from './ProjectOverviewStrip';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
@@ -44,7 +44,11 @@ import { StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
-type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
+// A thread that project work interrupted continues without its operator row.
+type ConversationGroup = { key: string; operator?: ActivityRow; rows: ActivityRow[] };
+// One card per task, where its work started; '' collects work that names no task.
+type TaskBlock = { key: string; taskId: string; rows: ActivityRow[]; deliveries: DeliveryReceipt[] };
+export type TimelineBlock = ({ kind: 'thread' } & ConversationGroup) | ({ kind: 'task' } & TaskBlock);
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
 /** The project root the agents work in; a command's path in it reads from there. */
@@ -643,6 +647,182 @@ export function foldedContinuationRuns(rows: Array<{ key: string; ev: EventMsg }
   return folded;
 }
 
+/**
+ * The conversation view as one stream in time order, newest last: dialogue
+ * threads, and one compact card per task placed where its work started, so a
+ * message sent while work runs lands at the bottom, not under a work log.
+ * Work stays out of the threads (task A's work is no answer to question B).
+ * A chat reply stays directly under the message it answers, so a task that
+ * started while it was being written follows it; a task report is that work's
+ * outcome, so the card comes first and the thread continues after it.
+ */
+export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
+  const blocks: TimelineBlock[] = [];
+  const tasks = new Map<string, Extract<TimelineBlock, { kind: 'task' }>>();
+  let latestTask = '';
+  let held: ActivityRow[] = [];
+  let awaitingReply = false;
+  const addWork = (row: ActivityRow) => {
+    // A note that names no task belongs to the task in hand.
+    const taskId = eventTaskId(row.ev) || latestTask;
+    // A Manager reply's own steps already show on that reply.
+    if (taskId.startsWith('turn:')) return;
+    let task = tasks.get(taskId);
+    if (!task) {
+      task = { kind: 'task', key: `task-${row.key}`, taskId, rows: [], deliveries: [] };
+      tasks.set(taskId, task);
+      blocks.push(task);
+    }
+    task.rows.push(row);
+    if (taskId) latestTask = taskId;
+  };
+  const release = () => {
+    held.forEach(addWork);
+    held = [];
+  };
+  rows.forEach((row) => {
+    if (row.ev.type === 'ui.operator') {
+      release();
+      blocks.push({ kind: 'thread', key: row.key, operator: row, rows: [] });
+      awaitingReply = true;
+    } else if (row.ev.type === 'ui.argus') {
+      if (row.ev.mission_result === true || deliveryFromEvent(row.ev)) release();
+      const last = blocks.at(-1);
+      if (last?.kind === 'thread') last.rows.push(row);
+      else blocks.push({ kind: 'thread', key: `thread-${row.key}`, rows: [row] });
+      awaitingReply = false;
+      release();
+    } else if (awaitingReply) {
+      held.push(row);
+    } else {
+      addWork(row);
+    }
+  });
+  release();
+  // A receipt a reply already shows is not repeated under the work.
+  const seen = new Set(rows.filter(row => row.ev.type === 'ui.argus')
+    .map(row => deliveryFromEvent(row.ev)?.delivery_id).filter(Boolean));
+  blocks.forEach((block) => {
+    if (block.kind !== 'task') return;
+    block.deliveries = block.rows.flatMap((row) => {
+      const delivery = deliveryFromEvent(row.ev);
+      if (!delivery || seen.has(delivery.delivery_id)) return [];
+      seen.add(delivery.delivery_id);
+      return [delivery];
+    });
+  });
+  return blocks;
+}
+
+const CALL_KINDS = new Set(['tool_use', 'command_execution', 'file_change', 'tool_result']);
+
+/** The latest thing a role said about the task, as one plain line (never a command). */
+function latestNarrative(rows: ActivityRow[], locale: Locale, workspace: string) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]) || CALL_KINDS.has(String(row.ev.kind || ''))) continue;
+    const line = rowText(row.ev, row.r, locale, workspace).text.split('\n')
+      .map(part => part.replace(/[*#`>_]/g, '').trim()).find(Boolean);
+    if (line) return { role: row.r.role, text: line };
+  }
+  return null;
+}
+
+type TaskCardState = 'running' | 'done' | 'failed' | 'skipped' | 'paused' | 'idle';
+
+const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [string, string]> = {
+  done: ['已完成', 'Done'],
+  failed: ['没有完成', 'Not finished'],
+  skipped: ['已跳过', 'Skipped'],
+  paused: ['已暂停', 'Paused'],
+};
+
+/**
+ * A task in the conversation: while it runs, one plain line on what is
+ * happening now and a way to the full progress; once settled, its result in
+ * one line with the process folded underneath.
+ */
+function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenWork, onOpenDelivery, onPause }: {
+  block: Extract<TimelineBlock, { kind: 'task' }>;
+  state: TaskCardState;
+  title: string;
+  snapshot?: Snapshot;
+  view?: MissionView | null;
+  events: EventMsg[];
+  onOpenWork: () => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onPause?: () => void;
+}) {
+  const { locale, t } = useI18n();
+  const zh = locale === 'zh-CN';
+  const workspace = useContext(WorkspaceContext);
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now() / 1_000);
+  const running = state === 'running';
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now() / 1_000), 5_000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const activity = useMemo(() => running && snapshot ? liveActivity(snapshot, view, events, now, locale) : null,
+    [events, locale, now, running, snapshot, view]);
+  const said = useMemo(() => latestNarrative(block.rows, locale, workspace), [block.rows, locale, workspace]);
+  const saidLine = said ? `${roleLabel(said.role, t)}：${said.text}` : '';
+  const label = state === 'running' || state === 'idle' ? '' : TASK_STATE_LABEL[state][zh ? 0 : 1];
+  return (
+    <section data-task-work={block.taskId || 'project'} data-state={state}
+      className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[61.8vw]">
+      <div className="rounded-lg border border-line/60 bg-bg/30 px-3 py-2 text-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          {running
+            ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-blue-sky" aria-hidden="true" />
+            : <span className={`shrink-0 text-xs ${state === 'done' ? 'text-ok' : 'text-ink-faint'}`} aria-hidden="true">{state === 'done' ? '✓' : '·'}</span>}
+          <span className="min-w-0 flex-1 truncate" role={running ? 'status' : undefined}>
+            {running
+              ? <>
+                <span className="text-ink">{activity?.headline || (zh ? `正在进行：${title}` : `Working on: ${title}`)}</span>
+                {saidLine ? <span className="text-ink-faint"> · {saidLine}</span> : null}
+              </>
+              : <>
+                <span className="text-ink">{label ? `${label}：${title}` : title}</span>
+                {!label && saidLine ? <span className="text-ink-faint"> · {zh ? '最近：' : 'Latest: '}{saidLine}</span> : null}
+              </>}
+          </span>
+          {running
+            ? <button type="button" onClick={onOpenWork} className="shrink-0 rounded px-1.5 py-0.5 text-xs text-blue-sky hover:bg-bg">
+              {zh ? '查看工作进展' : 'View work progress'}
+            </button>
+            : <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
+              className="shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
+              {zh ? `${open ? '收起' : '查看'}过程（${block.rows.length}）` : `${open ? 'Hide' : 'Show'} the process (${block.rows.length})`}
+            </button>}
+        </div>
+        {activity?.note ? <p className="mt-1 text-xs text-ink-faint">
+          {activity.note}
+          {activity.tone === 'stalled' && onPause ? <button type="button" onClick={onPause} className="ml-2 text-blue-sky">{zh ? '暂停' : 'Pause'}</button> : null}
+        </p> : null}
+      </div>
+      {open && !running ? <div className="mt-1 overflow-hidden rounded-lg border border-line/40">
+        <RoleLogCollection rows={block.rows} live={false} followLatest={false} />
+      </div> : null}
+      {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
+    </section>
+  );
+}
+
+/** Insert the mission view's older role work at its place in time. */
+function withEarlierWork(earlier: EventMsg[], events: EventMsg[]): EventMsg[] {
+  if (!earlier.length) return events;
+  const merged: EventMsg[] = [];
+  let next = 0;
+  events.forEach((event) => {
+    const ts = Number(event.ts);
+    while (next < earlier.length && Number(earlier[next].ts) < ts) merged.push(earlier[next++]);
+    merged.push(event);
+  });
+  return [...merged, ...earlier.slice(next)];
+}
+
 function ConversationThread({
   group,
   artifacts,
@@ -656,16 +836,17 @@ function ConversationThread({
 }) {
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
-  const replyParts = group.rows
-    .filter((row) => row.ev.type === 'ui.argus')
+  const argusRows = group.rows.filter((row) => row.ev.type === 'ui.argus');
+  const replyParts = argusRows
     .map((row) => {
       // Historical reports keep their complete event text for the original view
       // and copy action, including whitespace and any embedded runtime notice.
-      if (row.ev.mission_result === true) return { reply: row, messages: [] };
+      if (row.ev.mission_result === true) return { key: row.key, reply: row, messages: [] };
       const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
       const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
       const working = row.ev.live === true || (Array.isArray(row.ev.steps) && row.ev.steps.length > 0);
       return {
+        key: row.key,
         reply: (text || working) && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
         messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
       };
@@ -674,54 +855,62 @@ function ConversationThread({
   const folded = foldedContinuationRuns(replies);
   const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
   const { locale } = useI18n();
-  const systemMessages = replyParts.flatMap((part) => part.messages);
-  const deliveries = (() => {
-    const seen = new Set<string>();
-    return group.rows.flatMap((row) => {
-      const delivery = deliveryFromEvent(row.ev);
-      if (!delivery || seen.has(delivery.delivery_id)) return [];
-      seen.add(delivery.delivery_id);
-      return [delivery];
-    });
-  })();
+  // Notices and receipts follow the reply that carried them, in time order.
+  const seenDeliveries = new Set<string>();
+  const after = new Map(replyParts.map((part, index) => {
+    const delivery = deliveryFromEvent(argusRows[index].ev);
+    const fresh = delivery && !seenDeliveries.has(delivery.delivery_id) ? delivery : null;
+    if (fresh) seenDeliveries.add(fresh.delivery_id);
+    return [part.key, { messages: part.messages, delivery: fresh }];
+  }));
+  const trailing = (key: string) => {
+    const extra = after.get(key);
+    if (!extra) return null;
+    return <>
+      {extra.messages.map((message, index) => (
+        <div key={`${key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
+          {message}
+        </div>
+      ))}
+      {extra.delivery ? <DeliveryCard delivery={extra.delivery} onOpen={onOpenDelivery} /> : null}
+    </>;
+  };
 
   return (
     <section className="conversation-thread border-b border-line/60">
-      <ConversationRow
+      {group.operator ? <ConversationRow
         ev={group.operator.ev}
         r={group.operator.r}
         artifacts={artifacts}
         onOpenArtifact={onOpenArtifact}
-      />
-      {replies.map((row) => {
+      /> : null}
+      {replyParts.map(({ key, reply: row }) => {
+        if (!row) return <Fragment key={key}>{trailing(key)}</Fragment>;
         const run = folded.get(row.key);
         if (run && !openRuns.has(run.id)) {
-          return run.keys[0] === row.key ? (
-            <button key={`fold-${run.id}`} type="button" data-folded-steps={run.keys.length}
-              onClick={() => setOpenRuns((current) => new Set(current).add(run.id))}
-              className="mx-auto my-1 block w-full max-w-full rounded-md border border-dashed border-line px-4 py-1.5 text-center text-xs text-ink-faint hover:border-ink-faint hover:text-ink-dim lg:max-w-[61.8vw]">
-              {locale === 'zh-CN' ? `较早的 ${run.keys.length} 步进展已折叠 · 展开` : `${run.keys.length} earlier step updates folded · Show`}
-            </button>
-          ) : null;
+          return <Fragment key={key}>
+            {run.keys[0] === row.key ? (
+              <button type="button" data-folded-steps={run.keys.length}
+                onClick={() => setOpenRuns((current) => new Set(current).add(run.id))}
+                className="mx-auto my-1 block w-full max-w-full rounded-md border border-dashed border-line px-4 py-1.5 text-center text-xs text-ink-faint hover:border-ink-faint hover:text-ink-dim lg:max-w-[61.8vw]">
+                {locale === 'zh-CN' ? `较早的 ${run.keys.length} 步进展已折叠 · 展开` : `${run.keys.length} earlier step updates folded · Show`}
+              </button>
+            ) : null}
+            {trailing(key)}
+          </Fragment>;
         }
         return (
-          <ConversationRow
-            key={row.key}
-            ev={row.ev}
-            r={row.r}
-            artifacts={artifacts}
-            onOpenArtifact={onOpenArtifact}
-          />
+          <Fragment key={key}>
+            <ConversationRow
+              ev={row.ev}
+              r={row.r}
+              artifacts={artifacts}
+              onOpenArtifact={onOpenArtifact}
+            />
+            {trailing(key)}
+          </Fragment>
         );
       })}
-      {systemMessages.map((message, index) => (
-        <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
-          {message}
-        </div>
-      ))}
-      {deliveries.map((delivery) => (
-        <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />
-      ))}
     </section>
   );
 }
@@ -750,6 +939,8 @@ export function EventStream({
   missionView,
   historyStatus = 'ready',
   historyRefreshing = false,
+  refreshingKept = false,
+  onPauseWork,
   onRetryHistory,
   onCompose,
   notifications,
@@ -772,6 +963,10 @@ export function EventStream({
   missionView?: MissionView | null;
   historyStatus?: ConversationHistoryStatus;
   historyRefreshing?: boolean;
+  /** Showing content kept from an earlier visit while it refreshes. */
+  refreshingKept?: boolean;
+  /** Offered on a running task's card when it looks stuck. */
+  onPauseWork?: () => void;
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
@@ -831,39 +1026,37 @@ export function EventStream({
   const baseRows = useMemo(() => {
     const displayEvents = skipFirst > 0
       ? deferredEvents.slice(skipFirst)
-      : [...earlierRoleWork(deferredView, deferredEvents, locale), ...deferredEvents];
+      : withEarlierWork(earlierRoleWork(deferredView, deferredEvents, locale), deferredEvents);
     return renderFeedRows(displayEvents, { locale, showReasoning, filter, query, workspace });
   }, [deferredEvents, deferredView, showReasoning, filter, query, skipFirst, locale, workspace]);
 
   const rows = baseRows;
-  const conversations = useMemo(() => {
-    const groups: ConversationGroup[] = [];
-    const earlierReplies: ActivityRow[] = [];
-    const projectWork: ActivityRow[] = [];
-    let current: ConversationGroup | null = null;
-    rows.list.forEach((row) => {
-      if (row.ev.type === 'ui.operator') {
-        current = { key: row.key, operator: row, rows: [] };
-        groups.push(current);
-      } else if (row.ev.type === 'ui.argus') {
-        if (current) current.rows.push(row);
-        else earlierReplies.push(row);
-      } else {
-        // Autonomous work keeps its own history when another user message
-        // arrives. Chronology alone cannot attach task A's work to question B.
-        projectWork.push(row);
-      }
-    });
-    const seenDeliveries = new Set(rows.list.filter(row => row.ev.type === 'ui.argus')
-      .map(row => deliveryFromEvent(row.ev)?.delivery_id).filter(Boolean));
-    const projectDeliveries = projectWork.flatMap(row => {
-      const delivery = deliveryFromEvent(row.ev);
-      if (!delivery || seenDeliveries.has(delivery.delivery_id)) return [];
-      seenDeliveries.add(delivery.delivery_id);
-      return [delivery];
-    });
-    return { groups, earlierReplies, projectWork, projectDeliveries };
+  const timeline = useMemo(() => {
+    const blocks = conversationTimeline(rows.list);
+    const tasks = blocks.filter((block) => block.kind === 'task');
+    const latest = [...tasks].sort((left, right) => Number(left.rows.at(-1)?.ev.ts ?? 0) - Number(right.rows.at(-1)?.ev.ts ?? 0)).at(-1);
+    const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
+    return { blocks, latestTask: latest?.key, workRows };
   }, [rows.list]);
+  // The full progress feed opens beside the conversation instead of above it.
+  const [workOpen, setWorkOpen] = useState(false);
+  const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
+    const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
+    const completed = [...block.rows].reverse().find(row => row.ev.type === 'life.mission.completed');
+    const status = String(item?.status || completed?.ev.status || '');
+    if (status === 'done') return 'done';
+    if (status === 'failed' || status === 'blocked') return 'failed';
+    if (status === 'skipped') return 'skipped';
+    if (live && (work?.taskId ? work.taskId === block.taskId : block.key === timeline.latestTask)) return 'running';
+    return status === 'running' || status === 'pending' ? 'paused' : 'idle';
+  };
+  const taskTitle = (block: Extract<TimelineBlock, { kind: 'task' }>) => {
+    const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
+    const named = item?.title || block.rows.map(row => row.ev.mission_title || row.ev.task_title).find(Boolean);
+    return String(named || (block.taskId
+      ? locale === 'zh-CN' ? '这项工作' : 'This work'
+      : locale === 'zh-CN' ? '项目工作' : 'Project work'));
+  };
 
   const reasoningTotal = useMemo(
     () => deferredEvents.filter(isReasoning).length,
@@ -952,12 +1145,6 @@ export function EventStream({
       lastScrollTop.current = scroller.current.scrollTop;
     }
   };
-  const viewProjectWork = () => {
-    followingRef.current = false;
-    setFollowing(false);
-    // Project work is the first section; scroll only this feed, not the page.
-    scroller.current?.scrollTo({ top: 0, behavior: 'auto' });
-  };
 
   return (
     <StepProcessContext.Provider value={stepProcess}>
@@ -969,7 +1156,8 @@ export function EventStream({
         title={t('panel.activity')}
         right={
           <div className="flex items-center gap-3">
-            {conversations.projectWork.length > 0 ? <button type="button" onClick={viewProjectWork} className="rounded px-1.5 py-0.5 text-xs text-blue-sky hover:bg-bg">
+            {timeline.workRows.length > 0 ? <button type="button" onClick={() => setWorkOpen(value => !value)} aria-expanded={workOpen}
+              className="rounded px-1.5 py-0.5 text-xs text-blue-sky hover:bg-bg">
               {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
             </button> : null}
             <button
@@ -981,9 +1169,11 @@ export function EventStream({
             >
               {t('stream.reasoning')}{reasoningTotal ? ` ·${reasoningTotal}` : ''}
             </button>
-            <span className={`text-xs ${connected ? 'text-ok' : 'text-ink-faint'}`}>
+            {refreshingKept ? <span role="status" data-refreshing-kept className="text-xs text-ink-faint">
+              {t('stream.refreshingKept')}
+            </span> : <span className={`text-xs ${connected ? 'text-ok' : 'text-ink-faint'}`}>
               {connected ? `● ${t('common.live')}` : `○ ${t('common.reconnecting')}`}
-            </span>
+            </span>}
           </div>
         }
       />}
@@ -1008,7 +1198,7 @@ export function EventStream({
           </button> : null}
       </div> : null}
       {readingError && <p role="status" className="px-4 py-1 text-xs text-warn">{locale === 'zh-CN' ? '浏览器无法恢复或保存阅读位置；对话记录不受影响。' : 'This browser could not restore or save the reading position. Conversation records are unaffected.'}</p>}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading'}>
+      <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading' || refreshingKept}>
         <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
           historyStatus === 'ready' ? onCompose ? <div className="mx-auto max-w-2xl px-5 py-8">
@@ -1019,26 +1209,18 @@ export function EventStream({
           </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
-            {conversations.projectWork.length > 0 ? (
-              <section key="project-work" data-project-work className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
-                <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                  {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
-                  <span className="font-mono font-normal tracking-normal">{conversations.projectWork.length}</span>
-                </div>
-                <RoleLogCollection rows={conversations.projectWork} live={live} followLatest activeRole={work?.role} activeTaskId={work?.taskId} />
-                {conversations.projectDeliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
-              </section>
-            ) : null}
-            {conversations.earlierReplies.map(row => <ConversationRow key={row.key} ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />)}
-            {conversations.groups.map((group) => (
-              <ConversationThread
-                key={group.key}
-                group={group}
+            {timeline.blocks.map((block) => {
+              if (block.kind === 'thread') return <ConversationThread
+                key={block.key}
+                group={block}
                 artifacts={artifacts}
                 onOpenArtifact={onOpenArtifact}
                 onOpenDelivery={onOpenDelivery}
-              />
-            ))}
+              />;
+              return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={taskTitle(block)}
+                snapshot={snapshot} view={missionView} events={deferredEvents} onOpenWork={() => setWorkOpen(true)}
+                onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
+            })}
           </>
         )}
         </div>
@@ -1053,6 +1235,22 @@ export function EventStream({
           ↓
         </button>
       )}
+      {/* Kept mounted while closed so each role log keeps its reading place. */}
+      {timeline.workRows.length > 0 ? <aside data-work-drawer data-open={workOpen}
+        aria-label={locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
+        className={`${workOpen ? 'flex' : 'hidden'} absolute inset-y-0 right-0 z-30 w-full max-w-md flex-col border-l border-line/80 bg-panel shadow-glow`}>
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+          {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
+          <span className="font-mono font-normal tracking-normal">{timeline.workRows.length}</span>
+          <button type="button" onClick={() => setWorkOpen(false)}
+            className="ml-auto rounded px-1.5 py-0.5 text-xs font-normal normal-case tracking-normal text-ink-dim hover:bg-bg hover:text-ink">
+            {locale === 'zh-CN' ? '关闭' : 'Close'}
+          </button>
+        </div>
+        <section data-project-work className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+          <RoleLogCollection rows={timeline.workRows} live={live} followLatest activeRole={work?.role} activeTaskId={work?.taskId} />
+        </section>
+      </aside> : null}
     </section>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
