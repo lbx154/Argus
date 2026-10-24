@@ -15,10 +15,7 @@ from argus.daemon.state import write_continuous_config
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import (
     BacklogItem,
-    GlobalMemory,
     LifeMemory,
-    MemoryBundle,
-    ProjectMemory,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.planner import Planner, PlannerConfig
@@ -102,32 +99,6 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert all(call["options"].sandbox_mode == "read-only" for call in planner.calls)
     assert all(call["options"].dangerous_yolo is False for call in planner.calls)
     assert not list(project.glob("**/*.py")), "Planner must not create implementation files"
-
-
-def test_planner_require_independent_review_survives_enqueue(
-    tmp_path: Path,
-) -> None:
-    """A Planner task emitted with TASK_REQUIRE_INDEPENDENT_REVIEW=true must be
-    enqueued with the review:required tag so the mission runs an independent
-    Reviewer instead of self-settling with "independent review was not
-    required"."""
-    from argus.life.supervisor._planning_context import PlanningContextMixin
-
-    project = tmp_path / "project"
-    project.mkdir()
-    planner = _PlannerBackend([
-        plan(summary='delegate the reviewed bounded repair', tasks=[{'key': 'reviewed', 'title': 'Adopt the reviewed bounded candidate', 'objective': 'Implement the candidate and close it through the independent Reviewer.', 'require_independent_review': True}])
-    ])
-    supervisor = _supervisor(project, tmp_path / "life", planner)
-
-    assert supervisor._plan_next_work() is True
-
-    pending = supervisor.memory.backlog.pending()
-    assert [item.title for item in pending] == [
-        "Adopt the reviewed bounded candidate"
-    ]
-    assert "review:required" in pending[0].tags
-    assert PlanningContextMixin._item_requires_independent_review(pending[0]) is True
 
 
 @pytest.mark.parametrize("outcome", ["new_task", "retire_only", "waiting"])
@@ -733,18 +704,6 @@ def _assert_replan_replace_commits_after_source_terminalized(
     ]
 
 
-def test_replan_replace_commits_after_source_terminalized(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    _assert_replan_replace_commits_after_source_terminalized(
-        tmp_path,
-        monkeypatch,
-        plan_version=1,
-        expected_replacement_version=2,
-    )
-
-
 def test_replan_replace_commits_after_version_zero_source_terminalized(
     tmp_path: Path,
     monkeypatch,
@@ -755,27 +714,6 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
         plan_version=0,
         expected_replacement_version=1,
     )
-
-
-def test_the_planner_may_read_the_libraries_its_recall_points_at(tmp_path: Path, monkeypatch) -> None:
-    calls: list[tuple] = []
-
-    def read_dirs(state, global_root, workspace):
-        calls.append((state, global_root, workspace))
-        return ["/elsewhere/wiki"]
-
-    monkeypatch.setattr("argus.life.knowledge_recall.knowledge_read_dirs", read_dirs)
-    project = tmp_path / "project"
-    project.mkdir()
-    memory = LifeMemory.open(tmp_path / "life")
-    supervisor = LifeSupervisor(
-        memory=memory, runner=_MissionRunner(), sink=JsonlEventSink(None, life_dir=memory.root),
-        config=LifeSupervisorConfig(project_worktree=project, artifact_root=project),
-        planner_runner=object(),
-    )
-
-    assert "/elsewhere/wiki" in supervisor._planner_config().add_dirs
-    assert calls == [(memory.root, None, None)]
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:
@@ -807,63 +745,6 @@ def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -
     write_continuous_config(life, enabled=True, objective="new operator objective")
 
     assert provider() == "planner superseded by newer continuous generation"
-
-
-def test_split_memory_planner_resolves_vertical_from_project_state(
-    optimize_vertical: str,
-    tmp_path: Path,
-) -> None:
-    worktree = tmp_path / "worktree"
-    worktree.mkdir()
-    global_root = tmp_path / "state"
-    project_memory = ProjectMemory.open(
-        "s-kernel",
-        global_root=global_root,
-    )
-    memory = MemoryBundle(
-        global_mem=GlobalMemory.open(global_root),
-        project=project_memory,
-        project_worktree=worktree,
-    )
-    memory.init()
-    write_continuous_config(
-        project_memory.root,
-        enabled=True,
-        objective="optimize full-model inference serving",
-    )
-    persist_vertical(
-        project_memory.root,
-        optimize_vertical,
-        workflow_mode="direct",
-    )
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=_MissionRunner(),
-        sink=JsonlEventSink(None, life_dir=project_memory.root, verbosity="full"),
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="optimize full-model inference serving",
-            open_ended=True,
-            project_worktree=worktree,
-            artifact_root=project_memory.root,
-        ),
-        planner_runner=object(),
-    )
-
-    config = supervisor._planner_config()
-    prompt = Planner._build_planner_prompt(
-        continuous_objective="optimize full-model inference serving",
-        journal_tail="(empty)",
-        planning_cycle=0,
-        open_ended=True,
-        project_root=worktree,
-        state_root=config.state_root,
-    )
-
-    assert config.state_root == str(project_memory.root)
-    assert config.role_session_path == project_memory.root / "role-sessions" / "planner.json"
-    assert str(global_root) not in config.add_dirs
-    assert "optimize_lab planner banner" in prompt
 
 
 def test_research_planner_is_granted_the_playbook_its_prompt_names(

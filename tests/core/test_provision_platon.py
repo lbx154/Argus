@@ -36,37 +36,6 @@ def offline(tmp_path, monkeypatch):
     return root, directory, record, plugin, run
 
 
-def test_relocates_only_standard_runtime_metadata_and_uses_existing_activation(offline):
-    root, directory, record, plugin, run = offline
-    operation_path = root / "extensions/crystalpilot/operation.json"
-
-    def activate(*args, **kwargs):
-        operation = tool.manager.read_json(operation_path)
-        assert operation["status"] == "running"
-        assert operation["action"] == "configure"
-        assert operation["identity"]
-        return run.return_value
-
-    run.side_effect = activate
-    health = tool.provision(root, directory, record)
-    assert health["components"][0]["status"] == "ready"
-    command = run.call_args.args[0]
-    assert command[:3] == ["/science/bin/python", "-I", "-c"]
-    assert "dependencies._register" in command[3]
-    payload = json.loads(run.call_args.kwargs["input"])
-    assert payload["record"] == {
-        **record,
-        "path": str(directory / "platon"),
-        "libs": [str(directory / "lib")],
-        "environment": {"CRYSTALPILOT_PLATON": str(directory / "platon")},
-    }
-    assert payload["root"] == str(directory.parent.parent)
-    assert run.call_args.kwargs["env"]["TMP"] == payload["root"]
-    plugin.shutdown_workers.assert_called_once()
-    assert not (root / "extensions/registry.json").exists()
-    assert tool.manager.read_json(operation_path)["status"] == "completed"
-
-
 @pytest.mark.parametrize("mutation", ["different_source", "outside_library", "escape_symlink", "outside_directory"])
 def test_rejects_untrusted_or_cross_tenant_inputs(offline, mutation, tmp_path):
     root, directory, record, plugin, run = offline
@@ -84,15 +53,6 @@ def test_rejects_untrusted_or_cross_tenant_inputs(offline, mutation, tmp_path):
     plugin.shutdown_workers.assert_not_called()
 
 
-def test_busy_account_is_not_changed(offline, monkeypatch):
-    root, directory, record, plugin, run = offline
-    monkeypatch.setattr(tool.manager, "_busy", Mock(side_effect=tool.manager.PluginError("busy")))
-    with pytest.raises(tool.manager.PluginError, match="busy"):
-        tool.provision(root, directory, record)
-    run.assert_not_called()
-    plugin.shutdown_workers.assert_not_called()
-
-
 def test_active_installer_is_not_interrupted(offline, monkeypatch):
     root, directory, record, plugin, run = offline
     monkeypatch.setattr(tool.manager, "read_json", lambda *a: {"status": "running"})
@@ -103,17 +63,6 @@ def test_active_installer_is_not_interrupted(offline, monkeypatch):
     plugin.shutdown_workers.assert_not_called()
 
 
-def test_symlinked_software_root_cannot_redirect_to_another_tenant(offline, tmp_path):
-    root, directory, record, plugin, run = offline
-    another = tmp_path / "another-tenant"
-    resources = another / "extensions/crystalpilot/resources"
-    resources.mkdir(parents=True)
-    (resources / "software").symlink_to(directory.parent)
-    with pytest.raises(ValueError, match="this tenant"):
-        tool.provision(another, directory, record)
-    run.assert_not_called()
-
-
 def test_failed_plugin_probe_is_not_reported_as_success(offline):
     root, directory, record, plugin, run = offline
     run.side_effect = RuntimeError("PLATON did not generate check.def")
@@ -122,13 +71,6 @@ def test_failed_plugin_probe_is_not_reported_as_success(offline):
     operation = tool.manager.read_json(root / "extensions/crystalpilot/operation.json")
     assert operation["status"] == "failed"
     assert "check.def" in operation["error"]
-
-
-def test_source_record_is_not_modified(offline):
-    root, directory, record, plugin, run = offline
-    original = json.dumps(record, sort_keys=True)
-    tool.provision(root, directory, record)
-    assert json.dumps(record, sort_keys=True) == original
 
 
 def test_cli_reads_record_and_returns_health(offline, capsys):

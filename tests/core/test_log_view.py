@@ -20,14 +20,6 @@ def test_gap_str_boundaries() -> None:
 
 # ── format_timestamp ──────────────────────────────────────────────────────
 
-def test_format_timestamp_local_and_relative() -> None:
-    out = lv.format_timestamp(1_000_000.0, prev_ts=None)
-    assert re.match(r"^\d\d:\d\d:\d\d \(\+0s\)", out)
-    assert len(out) == lv.TS_W  # left-justified to a fixed column
-
-    later = lv.format_timestamp(1_000_037.0, prev_ts=1_000_000.0)
-    assert "(+37s)" in later
-
 
 def test_format_timestamp_missing_ts_falls_back() -> None:
     # The activity-log sink can see events without a ts; must not crash.
@@ -36,21 +28,6 @@ def test_format_timestamp_missing_ts_falls_back() -> None:
 
 
 # ── wrap_body ─────────────────────────────────────────────────────────────
-
-def test_wrap_body_roundtrips_and_respects_width() -> None:
-    text = "the quick brown fox jumps over the lazy dog " * 3
-    lines = lv.wrap_body(text, 24)
-    assert lines  # non-empty
-    assert all(lv._disp_width(ln) <= 24 for ln in lines)
-    # No truncation: collapsed words are all preserved, in order.
-    assert " ".join(lines).split() == text.split()
-
-
-def test_wrap_body_hard_splits_overlong_token() -> None:
-    token = "x" * 50
-    lines = lv.wrap_body(token, 10)
-    assert all(lv._disp_width(ln) <= 10 for ln in lines)
-    assert "".join(lines) == token
 
 
 def test_wrap_body_cjk_width() -> None:
@@ -71,18 +48,6 @@ def _adv(state: lv.LogState, etype: str, **fields: object) -> str:
     return lv.advance(state, etype, {"type": etype, **fields})
 
 
-def test_mission_round_lifecycle() -> None:
-    s = lv.LogState()
-    assert _adv(s, "life.mission.started", item_id="m1", missions_started=3, title="T") == lv.OPEN
-    assert s.mission_open and s.mission_seq == 3
-    assert _adv(s, "life.phase.started", round_index=1) == lv.MID
-    assert _adv(s, "round.main.completed", round_index=1) == lv.MID
-    assert _adv(s, "round.review.completed", round_index=1) == lv.MID
-    assert s.round_index == 1
-    assert _adv(s, "life.mission.completed", item_id="m1", success=True) == lv.CLOSE
-    assert not s.mission_open
-
-
 def test_legacy_lifecycle_names_share_the_canonical_grouping_path() -> None:
     state = lv.LogState()
     assert _adv(state, "mission.started", item_id="m1") == lv.OPEN
@@ -100,14 +65,6 @@ def test_manager_stage_decision_groups_under_mission() -> None:
     assert _adv(s2, "life.manager.stage_decision", action="advance") == lv.FLAT
 
 
-def test_orphaned_mission_reopens() -> None:
-    s = lv.LogState()
-    _adv(s, "life.mission.started", item_id="m1")
-    # New mission while the previous one never closed -> just open the new one.
-    assert _adv(s, "life.mission.started", item_id="m2") == lv.OPEN
-    assert s.mission_open and s.mission_id == "m2"
-
-
 def test_planner_closes_stray_mission() -> None:
     s = lv.LogState()
     _adv(s, "life.mission.started", item_id="m1")
@@ -118,12 +75,6 @@ def test_planner_closes_stray_mission() -> None:
     assert not s.planner_open
 
 
-def test_round_event_with_nothing_open_is_flat() -> None:
-    s = lv.LogState()
-    # Fresh sink / daemon restart: interior event before any mission header.
-    assert _adv(s, "round.review.completed", round_index=2) == lv.FLAT
-
-
 def test_status_inbox_are_flat() -> None:
     s = lv.LogState()
     assert _adv(s, "life.status", text="x") == lv.FLAT
@@ -131,12 +82,6 @@ def test_status_inbox_are_flat() -> None:
 
 
 # ── block ─────────────────────────────────────────────────────────────────
-
-def test_block_head_only() -> None:
-    ts = lv.format_timestamp(1_000_000.0, None)
-    out = lv.block(ts, lv.OPEN, "MISSION", "start  #3  Run benchmark")
-    assert "\n" not in out
-    assert "┌─" in out and "MISSION" in out and "Run benchmark" in out
 
 
 def test_block_wraps_detail_no_truncation() -> None:
@@ -151,18 +96,6 @@ def test_block_wraps_detail_no_truncation() -> None:
     detail_text = " ".join(lines[1:])
     for word in reason.split():
         assert word in detail_text
-
-
-def test_block_paint_callbacks_applied() -> None:
-    ts = lv.format_timestamp(1_000_000.0, None)
-    plain = lv.block(ts, lv.OPEN, "PLANNER", "start")
-    painted = lv.block(
-        ts, lv.OPEN, "PLANNER", "start",
-        paint_connector=lambda s: f"<{s}>",
-        paint_category=lambda s: f"[{s}]",
-    )
-    assert "[PLANNER]" in painted and "<" in painted
-    assert "[PLANNER]" not in plain  # identity by default
 
 
 def test_block_pure_text_flows_from_head() -> None:

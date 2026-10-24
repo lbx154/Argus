@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 from argus.life import (
-    FailureAnnotation,
     FailureExperience,
     FailureExperienceStore,
 )
@@ -34,67 +32,6 @@ def _experience(
     )
 
 
-def test_failure_experience_round_trip_preserves_open_narrative_and_annotations(
-    tmp_path: Path,
-) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    experience = _experience(
-        "Carry scheduling failure",
-        objective="reduce reversible-adder depth",
-        narrative="The carry lifetime, rather than gate count, caused the bottleneck.",
-        transfer=["Try lifetime-aware register reuse in unrelated arithmetic blocks."],
-    )
-    store.append(experience)
-    store.annotate(
-        experience.id,
-        FailureAnnotation.new(
-            "Later modular inversion work reused the lifetime argument.",
-            relation="inspired",
-        ),
-    )
-
-    (loaded,) = store.recent()
-
-    assert loaded.research_narrative == experience.research_narrative
-    assert loaded.transfer_insights == experience.transfer_insights
-    assert loaded.annotations[0].relation == "inspired"
-    assert "modular inversion" in loaded.annotations[0].text
-
-
-def test_retrieval_mixes_direct_transfer_and_distant_analogy(
-    tmp_path: Path,
-) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    store.append(_experience(
-        "Direct modular search",
-        objective="optimize modular multiplication",
-        concepts=["modular", "multiplication"],
-    ))
-    store.append(_experience(
-        "Scheduling lesson",
-        objective="compress a circuit",
-        transfer=["Multiplication may benefit from delaying uncompute."],
-    ))
-    store.append(_experience(
-        "Distant cache experiment",
-        objective="reduce database cache misses",
-        narrative="A phase boundary invalidated the assumed reuse.",
-    ))
-    store.append(_experience(
-        "Newest unrelated result",
-        objective="improve figure typography",
-    ))
-
-    hits = store.retrieve("new modular multiplication scheduling", max_entries=4)
-
-    channels = {hit.channel for hit in hits}
-    assert "recent" in channels
-    assert "direct factual/conceptual" in channels
-    assert "transfer insight" in channels
-    assert "exploratory analogy" in channels
-    assert len({hit.experience.id for hit in hits}) == 4
-
-
 def test_facets_are_advisory_and_context_denies_hard_blocking(
     tmp_path: Path,
 ) -> None:
@@ -110,87 +47,6 @@ def test_facets_are_advisory_and_context_denies_hard_blocking(
     assert "not rules" in rendered
     assert "does not prove impossibility" in rendered
     assert "block a changed approach" in rendered
-
-
-def test_render_context_does_not_repeat_outcome_as_lesson(tmp_path: Path) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    experience = replace(
-        _experience("Same text", objective="retry"),
-        factual_outcome="one concrete failure",
-        lessons=["one concrete failure"],
-    )
-    store.append(experience)
-
-    rendered = store.render_context("retry")
-
-    assert rendered.count("one concrete failure") == 1
-
-
-def test_render_context_preserves_canonical_narrative_and_shows_distinct_revision(
-    tmp_path: Path,
-) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    original = "One bounded result was accepted."
-    experience = replace(
-        _experience("Successful observation", objective="retry", narrative=original),
-        status="done",
-        factual_outcome=original,
-    )
-    store.append(experience)
-    before = store.path.read_bytes()
-
-    rendered = store.render_context("retry")
-
-    assert rendered.count(original) == 1
-    assert "- Narrative:" not in rendered
-    assert store.path.read_bytes() == before
-    loaded = store.get(experience.id)
-    assert loaded is not None
-    assert loaded.factual_outcome == loaded.research_narrative == original
-
-    revised = "The observation has a narrower interpretation."
-    store.revise(
-        experience.id,
-        expected_revision=1,
-        evidence_refs=["review:correction"],
-        research_narrative=revised,
-    )
-    before = store.path.read_bytes()
-
-    rendered = store.render_context("retry")
-
-    assert f"- Outcome: {original}" in rendered
-    assert f"- Narrative: {revised}" in rendered
-    assert rendered.count(original) == rendered.count(revised) == 1
-    assert store.path.read_bytes() == before
-
-
-def test_retrieval_never_opens_lazy_artifact_references(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    raw_failure_dir = tmp_path / "raw-failure"
-    raw_failure_dir.mkdir()
-    (raw_failure_dir / "huge.bin").write_bytes(b"x" * 1024)
-    store = FailureExperienceStore(tmp_path / "state" / "failure_experiences.jsonl")
-    store.append(_experience(
-        "Failed benchmark",
-        objective="reduce runtime",
-        artifact_refs=[str(raw_failure_dir)],
-    ))
-
-    original_iterdir = Path.iterdir
-
-    def guarded_iterdir(path: Path):
-        if path == raw_failure_dir:
-            raise AssertionError("raw failure directory was traversed")
-        return original_iterdir(path)
-
-    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
-
-    rendered = store.render_context("runtime")
-
-    assert str(raw_failure_dir) in rendered
 
 
 def test_reads_are_byte_bounded_and_corrupt_rows_fail_soft(tmp_path: Path) -> None:

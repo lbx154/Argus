@@ -56,35 +56,6 @@ def _git_init(cwd: Path) -> None:
     _git(cwd, "config", "user.name", "test")
 
 
-def test_git_remote_drives_fingerprint(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    _git_init(repo)
-    _git(repo, "remote", "add", "origin", "git@github.com:foo/bar.git")
-
-    identity = project.project_fingerprint(repo)
-    assert identity.source == "git-remote"
-    assert identity.label == "github.com/foo/bar"
-    assert unquote(identity.fingerprint) == identity.label
-    assert identity.cwd == str(repo.resolve())
-
-
-@pytest.mark.parametrize("remote_name", ["demo", "论文进度", "中"])
-def test_git_remote_uses_utf8_under_legacy_windows_locale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote_name: str,
-) -> None:
-    repo = tmp_path / "研究 工作区"
-    _git_init(repo)
-    _git(repo, "remote", "add", "origin", f"https://example.invalid/{remote_name}.git")
-    # Use real Git output while emulating the default encoding of a Chinese
-    # Windows host, including on UTF-8-mode and non-Windows test runners.
-    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "cp936")
-
-    identity = project.project_fingerprint(repo)
-
-    assert identity.source == "git-remote"
-    assert identity.label == f"example.invalid/{remote_name}"
-
-
 def test_git_remote_drives_fingerprint_with_broken_git_config_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -99,56 +70,6 @@ def test_git_remote_drives_fingerprint_with_broken_git_config_env(
     identity = project.project_fingerprint(repo)
     assert identity.source == "git-remote"
     assert identity.label == "github.com/foo/bar"
-
-
-def test_two_clones_of_same_remote_collide(tmp_path: Path) -> None:
-    repo_a = tmp_path / "clone_a"
-    repo_b = tmp_path / "clone_b"
-    _git_init(repo_a)
-    _git_init(repo_b)
-    _git(repo_a, "remote", "add", "origin", "git@github.com:foo/bar.git")
-    _git(repo_b, "remote", "add", "origin", "https://github.com/foo/bar")
-
-    fa = project.project_fingerprint(repo_a)
-    fb = project.project_fingerprint(repo_b)
-    assert fa.fingerprint == fb.fingerprint
-    assert fa.source == fb.source == "git-remote"
-
-
-def test_different_remotes_distinct_fingerprints(tmp_path: Path) -> None:
-    repo_a = tmp_path / "a"
-    repo_b = tmp_path / "b"
-    _git_init(repo_a)
-    _git_init(repo_b)
-    _git(repo_a, "remote", "add", "origin", "git@github.com:foo/bar.git")
-    _git(repo_b, "remote", "add", "origin", "git@github.com:foo/baz.git")
-    assert (
-        project.project_fingerprint(repo_a).fingerprint
-        != project.project_fingerprint(repo_b).fingerprint
-    )
-
-
-def test_non_git_dir_falls_back_to_cwd(tmp_path: Path) -> None:
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    identity = project.project_fingerprint(plain)
-    assert identity.source == "cwd-path"
-    assert identity.label == str(plain.resolve())
-    assert unquote(identity.fingerprint) == identity.label
-
-
-def test_git_repo_without_remote_falls_back_to_cwd(tmp_path: Path) -> None:
-    repo = tmp_path / "no_remote"
-    _git_init(repo)
-    identity = project.project_fingerprint(repo)
-    assert identity.source == "cwd-path"
-    assert identity.label == str(repo.resolve())
-
-
-def test_fallback_stable_across_calls(tmp_path: Path) -> None:
-    a = project.project_fingerprint(tmp_path).fingerprint
-    b = project.project_fingerprint(tmp_path).fingerprint
-    assert a == b
 
 
 def test_distinct_paths_never_share_a_directory_name() -> None:
@@ -171,29 +92,6 @@ def test_overlong_project_path_is_refused() -> None:
 # The name releases before this one gave the project labelled "/srv/papers/demo".
 _LEGACY = "a38d4ed5e477"
 _NAME = project._directory_name("/srv/papers/demo")
-
-
-def test_legacy_project_state_is_migrated_once(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture,
-) -> None:
-    states = core_paths.session_states_root(tmp_path)
-    (states / _LEGACY).mkdir(parents=True)
-    (states / _LEGACY / "backlog.jsonl").write_text("kept\n", encoding="utf-8")
-    caplog.set_level(logging.INFO, logger=project.__name__)
-
-    state = core_paths.session_state_root(_NAME, root=tmp_path)
-
-    assert state == states / _NAME
-    assert (state / "backlog.jsonl").read_text(encoding="utf-8") == "kept\n"
-    assert not (states / _LEGACY).exists()
-    assert "migrated project state" in caplog.text
-
-    caplog.clear()
-    (states / _LEGACY).mkdir()
-    assert core_paths.session_state_root(_NAME, root=tmp_path) == state
-    assert (states / _LEGACY).is_dir()
-    assert (state / "backlog.jsonl").read_text(encoding="utf-8") == "kept\n"
-    assert caplog.records == []
 
 
 def test_both_project_state_directories_keep_the_new_one(

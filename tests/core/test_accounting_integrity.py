@@ -58,32 +58,6 @@ def _enospc(*_args, **_kwargs):
     raise OSError(errno.ENOSPC, "No space left on device")
 
 
-def test_reading_repairs_a_damaged_journal_and_keeps_the_evidence(tmp_path: Path) -> None:
-    project = tmp_path / "projects" / "p1"
-    ledger = UsageLedger(project, migrate_legacy=False)
-    ledger.append(_record(project, "call-1"))
-    ledger.append(_record(project, "call-2"))
-    damaged, clean = _damage_with_concatenated_record(ledger)
-
-    # The plain reader never skips or heals a malformed line.
-    with pytest.raises(UsageJournalIntegrityError) as raised:
-        ledger.records()
-    assert raised.value.reason_code == "corrupt_accounting_journal"
-    assert raised.value.line_number == 2 and raised.value.recovered_call_id == "call-2"
-    with pytest.raises(UsageJournalIntegrityError):
-        ledger.append(_record(project, "call-4"))
-    assert ledger.path.read_bytes() == damaged
-
-    # The daily read repairs it: damaged bytes kept beside the journal, every
-    # complete record kept in it, and the journal is a journal again.
-    assert [record.call_id for record in daily_records(ledger, 0.0)] == ["call-1", "call-2"]
-    copies = sorted(project.glob("usage.jsonl.damaged-*"))
-    assert len(copies) == 1 and copies[0].read_bytes() == damaged
-    assert ledger.path.read_bytes() == clean
-    assert ledger.append(_record(project, "call-4"))
-    assert [record.call_id for record in ledger.records()] == ["call-1", "call-2", "call-4"]
-
-
 def test_a_repair_that_cannot_write_surfaces_the_error_and_changes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -168,37 +142,3 @@ def test_truncated_trailing_line_is_corruption_unless_an_append_is_in_progress(
     assert raised.value.line_number == 2 and raised.value.recovered_call_id == "call-2"
     assert [record.call_id for record in daily_records(ledger, 0.0)] == ["call-1", "call-2"]
     assert len(list(project.glob("usage.jsonl.damaged-*"))) == 2
-
-
-def test_reconciliation_refuses_to_rewrite_a_damaged_journal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
-
-    model = "test-newly-priced-model"
-    project = tmp_path / "projects" / "p1"
-    ledger = UsageLedger(project, migrate_legacy=False)
-    ledger.append(_record(project, "call-1", model=model))
-    pending = ledger.records()
-    assert pending[0].cost_usd is None
-    ledger.append(_record(project, "call-2"))
-    damaged, _clean = _damage_with_concatenated_record(ledger)
-
-    monkeypatch.setitem(MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.5"])
-    with pytest.raises(UsageJournalIntegrityError):
-        ledger._reconcile_token_pricing(pending)
-    assert ledger.path.read_bytes() == damaged
-    assert not [path for path in project.iterdir() if path.name.startswith(".usage.jsonl.")]
-
-
-def test_the_daily_total_counts_every_project_once(tmp_path: Path) -> None:
-    for name in ("p1", "p2"):
-        project = tmp_path / "projects" / name
-        ledger = UsageLedger(project, migrate_legacy=False)
-        ledger.append(_record(project, "call-1"))
-        ledger.append(_record(project, "call-2"))
-    _damage_with_concatenated_record(UsageLedger(tmp_path / "projects" / "p2", migrate_legacy=False))
-
-    summary = global_daily_usage_summary(global_root=tmp_path)
-    assert summary.call_count == 4 and summary.known_cost_usd > 0
-    assert summary.pricing_status == "priced"

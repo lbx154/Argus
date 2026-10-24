@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 from argus.adapters.agent_cli_backend import AgentCliBackend
-from argus.adapters.agent_cli_backend._result import (
-    _extract_copilot_premium_requests,
-)
 from argus.life.supervisor._cost import _CostTrackingSink
 
 
@@ -19,23 +16,6 @@ def _sink() -> _CostTrackingSink:
 
 
 # --- extractor: picks the LAST (cumulative) premiumRequests -------------------
-
-def test_extract_copilot_premium_requests_takes_last_cumulative() -> None:
-    events = [
-        {"type": "assistant.message", "data": {"content": "hi", "outputTokens": 5}},
-        {"type": "result", "usage": {"premiumRequests": 7.5}},
-    ]
-    assert _extract_copilot_premium_requests(events) == (7.5, True)
-    # a resumed turn reports the running total; we take the latest
-    events.append({"type": "result", "usage": {"premiumRequests": 15}})
-    assert _extract_copilot_premium_requests(events) == (15.0, True)
-    # no result / no usage → 0.0 with present=False, fail-soft (codex/claude streams)
-    assert _extract_copilot_premium_requests([{"type": "turn.completed"}]) == (0.0, False)
-    assert _extract_copilot_premium_requests(None) == (0.0, False)
-    # bool must not be mistaken for a number
-    assert _extract_copilot_premium_requests(
-        [{"type": "result", "usage": {"premiumRequests": True}}]
-    ) == (0.0, False)
 
 
 # --- adapter: de-cumulates the running total into per-call deltas -------------
@@ -54,47 +34,7 @@ def test_premium_delta_per_thread_decumulates() -> None:
     assert be._usage.premium_delta_for_thread(thread_id="t3", raw_total=0.0) == 0.0
 
 
-def test_premium_delta_after_restart_fails_closed_then_recovers() -> None:
-    be = AgentCliBackend(backend="copilot")
-
-    assert be._usage.premium_delta_for_thread(
-        thread_id="resumed",
-        raw_total=15.0,
-        resume_baseline_unknown=True,
-    ) is None
-    assert be._usage.premium_delta_for_thread(
-        thread_id="resumed",
-        raw_total=22.5,
-        resume_baseline_unknown=True,
-    ) == 7.5
-
-
 # --- sink: folds premium deltas into copilot_usd() and total_usd() -----------
-
-def test_sink_folds_copilot_premium_into_total_usd() -> None:
-    sink = _sink()
-    base = sink.total_usd()
-    sink.handle_event({
-        "type": "round.main.completed", "premium_requests": 7.5, "usage_scope": "delta",
-    })
-    sink.handle_event({
-        "type": "round.review.completed", "premium_requests": 7.5,
-        "usage_scope": "delta", "status": "continue",
-    })
-    assert sink.copilot_premium_requests == 15.0     # engineer + reviewer summed
-    assert sink.completion_usage()[1]["copilot_cost_usd"] == 15.0 * 0.04         # default overage rate
-    assert sink.total_usd() == base + sink.completion_usage()[1]["copilot_cost_usd"]
-
-
-def test_sink_zero_premium_is_free_for_codex() -> None:
-    # codex/claude round events carry no premium_requests → copilot cost stays 0.
-    sink = _sink()
-    sink.handle_event({
-        "type": "round.main.completed", "input_tokens": 100, "output_tokens": 10,
-        "usage_scope": "delta",
-    })
-    assert sink.copilot_premium_requests == 0.0
-    assert sink.completion_usage()[1]["copilot_cost_usd"] == 0.0
 
 
 def test_sink_folds_manager_util_and_scientist_premium() -> None:

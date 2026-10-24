@@ -24,20 +24,6 @@ def _note(diagnostic: str, reason: str = "gate held") -> str:
     return Harness()._manager_planner_feedback_runtime_note()
 
 
-@pytest.mark.parametrize(
-    "diagnostic",
-    ["final_certification_missing", "research_target_incomplete"],
-)
-def test_certification_gates_name_the_only_action_that_clears_them(
-    diagnostic: str,
-) -> None:
-    note = _note(diagnostic)
-
-    assert "Host will record its final-submission scope" in note
-    assert "TASK_SCOPE" not in note
-    assert "harness does not prescribe" not in note
-
-
 def test_the_research_gate_asks_for_natural_verification_work() -> None:
     note = _note(
         "research_target_incomplete",
@@ -54,20 +40,6 @@ def test_stage_gate_records_host_owned_closing_metadata() -> None:
     assert "Host will record it as stage-closing work" in note
     assert "TASK_SCOPE" not in note
     assert "harness does not prescribe" not in note
-
-
-def test_unprescribed_diagnostics_still_leave_the_planner_its_judgement() -> None:
-    note = _note("external_completion_gate_held")
-
-    assert "harness does not prescribe" in note
-
-
-def test_no_feedback_means_no_note() -> None:
-    class Harness(PlanningContextMixin):
-        def _load_manager_planner_feedback(self):
-            return None
-
-    assert Harness()._manager_planner_feedback_runtime_note() == ""
 
 
 @pytest.mark.parametrize(

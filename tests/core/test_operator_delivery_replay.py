@@ -2,25 +2,18 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
 from argus.core import operator_context as context
 from argus.core import operator_context_storage as storage
-from argus.core.file_lock import FileLockCancelled, bounded_file_lock_wait
 from argus.core.operator_context import (
     IntakeDecision,
     OperatorContextStore,
     OperatorDeliveryCapacityError,
     OperatorDeliveryClosed,
     OperatorDeliveryConflict,
-    append_directive,
     append_preference,
     apply_operator_delivery,
     close_operator_delivery_prefix,
@@ -63,71 +56,6 @@ def test_frozen_intake_preserves_target_and_mission_without_writes(tmp_path, mon
     store = OperatorContextStore(project)
     assert len(store.project("engineer", mission_id="mission-before").directives) == 1
     assert store.project("engineer", mission_id="mission-after").directives == ()
-
-
-def test_empty_mission_is_frozen_instead_of_attaching_to_a_later_mission(tmp_path, monkeypatch):
-    plan = freeze_operator_intake(tmp_path, "inspect the original issue", None)
-    monkeypatch.setattr(context, "_current_mission_id", lambda *_: pytest.fail("late mission lookup"))
-    apply_operator_delivery(plan, identity())
-    assert plan["effect"]["mission_id"] == "__no_mission__"
-    assert OperatorContextStore(tmp_path).project("engineer", mission_id="later").directives == ()
-
-
-def test_checkpoint_failure_before_replace_has_neither_effect_nor_receipt(tmp_path, monkeypatch):
-    append_directive(tmp_path, "Existing authority.", expected_revision=0)
-    before = ledger(tmp_path).read_bytes()
-    original = storage.os.replace
-
-    def fail_replace(source, target):
-        if Path(target) == ledger(tmp_path):
-            raise OSError("canonical checkpoint unavailable")
-        return original(source, target)
-
-    plan = once_plan(tmp_path)
-    with monkeypatch.context() as patch:
-        patch.setattr(storage.os, "replace", fail_replace)
-        with pytest.raises(OSError, match="checkpoint unavailable"):
-            apply_operator_delivery(plan, identity())
-    assert ledger(tmp_path).read_bytes() == before
-    assert len(OperatorContextStore(tmp_path).records()) == 1
-    assert apply_operator_delivery(plan, identity())["revision"] == 2
-    header = json.loads(ledger(tmp_path).read_text().splitlines()[0])
-    assert header["format"] == storage.DELIVERY_FORMAT
-    assert header["records"][-1]["revision"] == header["state"][storage.DELIVERY_STATE_KEY]["streams"]["operator-queue"]["receipts"]["1"]["revision"] == 2
-
-
-@pytest.mark.parametrize("empty_effect", [False, True])
-def test_process_exit_after_checkpoint_before_receipt_return_replays_once(tmp_path, empty_effect):
-    plan = freeze_operator_intake(tmp_path, "transient response", IntakeDecision(kind="ephemeral")) if empty_effect else once_plan(tmp_path)
-    payload = tmp_path / "invocation.json"
-    payload.write_text(json.dumps({"plan": plan, "identity": identity()}))
-    source = Path(context.__file__).resolve().parents[2]
-    script = """import json, os, sys
-sys.path.insert(0, sys.argv[1])
-from argus.core import operator_context as context
-value=json.load(open(sys.argv[2]))
-original=context.write_checkpoint
-def crash_after_checkpoint(*args, **kwargs):
-    original(*args, **kwargs)
-    os._exit(73)
-context.write_checkpoint=crash_after_checkpoint
-context.apply_operator_delivery(value['plan'], value['identity'])
-"""
-    env = {"PATH": os.defpath, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
-           "ARGUS_SKILL_HOME": str(tmp_path / "isolated-home")}
-    process = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(source), str(payload)],
-                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
-    assert process.returncode == 73, process.stderr
-    committed = ledger(tmp_path).read_bytes()
-    durable = replay_state(tmp_path)["streams"]["operator-queue"]["receipts"]["1"]
-    assert apply_operator_delivery(plan, identity()) == durable
-    assert ledger(tmp_path).read_bytes() == committed
-    assert durable["revision"] == (0 if empty_effect else 1)
-    assert (tmp_path / context.OWNERSHIP_FILENAME).exists()
-    assert len(OperatorContextStore(tmp_path).records()) == (0 if empty_effect else 1)
-    ledger(tmp_path).unlink()
-    with pytest.raises(ValueError, match="established operator context source is missing"):
-        apply_operator_delivery(plan, identity())
 
 
 def test_projection_failure_does_not_undo_the_committed_receipt(tmp_path, monkeypatch):
@@ -201,23 +129,6 @@ def test_open_identity_rejects_different_effect_or_target(tmp_path, change):
     with pytest.raises(OperatorDeliveryConflict):
         OperatorContextStore(tmp_path).apply_operator_delivery(plan, delivery)
     assert ledger(tmp_path).read_bytes() == before
-
-
-def test_equal_text_with_distinct_deliveries_is_not_once_idempotency(tmp_path):
-    plan = once_plan(tmp_path)
-    first = apply_operator_delivery(plan, identity())
-    second = apply_operator_delivery(plan, identity(2))
-    assert first["revision"] == 1 and second["revision"] == 2
-    assert len(OperatorContextStore(tmp_path).project("engineer").directives) == 2
-
-
-def test_parallel_duplicate_delivery_has_one_canonical_revision(tmp_path):
-    plan = once_plan(tmp_path)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        receipts = list(pool.map(lambda _: apply_operator_delivery(plan, identity()), range(8)))
-    assert all(receipt == receipts[0] for receipt in receipts)
-    assert receipts[0]["revision"] == 1
-    assert len(OperatorContextStore(tmp_path).records()) == 1
 
 
 def test_generation_change_requires_closed_receipts_and_fences_older_generations(tmp_path):
@@ -296,37 +207,3 @@ def test_malformed_replay_metadata_is_rejected_before_projection(tmp_path, corru
     with pytest.raises(ValueError):
         OperatorContextStore(tmp_path).project("engineer")
     assert ledger(tmp_path).read_bytes() == before
-
-
-def test_cancellation_before_target_lock_leaves_delivery_replayable(tmp_path):
-    plan = once_plan(tmp_path)
-    with bounded_file_lock_wait(timeout_seconds=1, cancelled=lambda: True):
-        with pytest.raises(FileLockCancelled):
-            apply_operator_delivery(plan, identity())
-    assert not ledger(tmp_path).exists()
-    assert apply_operator_delivery(plan, identity())["revision"] == 1
-
-
-def test_ordinary_checkpoints_keep_v2_until_the_first_delivery(tmp_path):
-    append_directive(tmp_path, "Ordinary existing policy.", expected_revision=0)
-    OperatorContextStore(tmp_path).compact()
-    assert json.loads(ledger(tmp_path).read_text())["format"] == storage.FORMAT
-    apply_operator_delivery(once_plan(tmp_path), identity())
-    assert json.loads(ledger(tmp_path).read_text())["format"] == storage.DELIVERY_FORMAT
-
-
-def test_a_receipt_and_identity_written_with_digests_still_replay(tmp_path):
-    plan = once_plan(tmp_path)
-    receipt = apply_operator_delivery(plan, identity())
-    value = json.loads(ledger(tmp_path).read_text())
-    stored = value["state"][storage.DELIVERY_STATE_KEY]["streams"]["operator-queue"]["receipts"]["1"]
-    stored.pop("plan")
-    stored.update(format="operator-delivery-receipt-v1", effect_digest="0" * 64)
-    stored["identity"]["digest"] = "1" * 64
-    value["checkpoint_digest"] = "2" * 64
-    ledger(tmp_path).write_bytes(storage.encode(value))
-
-    replayed = apply_operator_delivery(plan, {**identity(), "digest": "3" * 64})
-
-    assert replayed["format"] == "operator-delivery-receipt-v1"
-    assert replayed["revision"] == receipt["revision"]

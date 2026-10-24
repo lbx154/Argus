@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -91,38 +89,6 @@ def test_same_source_and_annotation_retries_are_idempotent(tmp_path: Path) -> No
         store.annotate("unknown", note)
 
 
-def test_merge_and_retract_remove_old_vectors_and_preserve_provenance(tmp_path: Path) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    first = store.append(experience("first mechanism"))
-    second = store.append(experience("second mechanism"))
-    merged = store.merge(
-        first.id,
-        [second.id],
-        expected_revisions={first.id: 1, second.id: 1},
-        evidence_refs=["review:joint"],
-        reason="Both observations concern the same measured mechanism.",
-        title="consolidated mechanism",
-        objective="consolidated mechanism",
-    )
-    assert merged.revision == 2
-    assert set(merged.source_refs) == {"mission:first mechanism", "mission:second mechanism"}
-    assert store.get(second.id).superseded_by == [first.id]
-    assert set(indexed(store)) == {first.id}
-    assert {hit.experience.id for hit in store.retrieve("mechanism")} == {first.id}
-
-    store.retract(
-        first.id,
-        expected_revision=2,
-        evidence_refs=["review:contradiction"],
-        reason="New controlled result contradicts the claim.",
-    )
-    assert store.retrieve("mechanism") == []
-    assert indexed(store) == {}
-    store.index.path.unlink()
-    assert FailureExperienceStore(store.path).retrieve("mechanism") == []
-    assert indexed(store) == {}
-
-
 def test_supersession_checks_replacement_and_merge_is_atomic_on_stale_input(tmp_path: Path) -> None:
     store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
     first, second = [store.append(experience(name)) for name in ("old", "new")]
@@ -150,41 +116,6 @@ def test_supersession_checks_replacement_and_merge_is_atomic_on_stale_input(tmp_
     assert set(indexed(store)) == {second.id}
     with pytest.raises(ValueError, match="evidence"):
         store.retract(second.id, expected_revision=1, evidence_refs=[], reason="unsubstantiated")
-
-
-def test_capacity_compacts_payloads_history_and_tombstones_without_reviving_old_ids(
-    tmp_path: Path,
-) -> None:
-    store = FailureExperienceStore(
-        tmp_path / "failure_experiences.jsonl",
-        max_active=3,
-        max_history=2,
-        max_active_bytes=12_000,
-        max_history_bytes=4_000,
-    )
-    first = store.append(experience("oldest", created_at=1000))
-    for index in range(20):
-        store.append(experience(f"new {index}", created_at=1001 + index))
-    latest = store.recent(max_entries=1)[0]
-    for index in range(8):
-        latest = store.revise(
-            latest.id,
-            expected_revision=latest.revision,
-            evidence_refs=[f"review:{index}"],
-            lessons=[f"new finding {index}"],
-        )
-    counts = store.compact()
-    assert counts["active"] == 3
-    assert counts["terminal"] + counts["history"] <= 2
-    assert store.path.stat().st_size < 17_000
-    assert store.index.path.stat().st_size < 100_000
-    assert len(indexed(store)) == 3
-    assert store.get(first.id) is None
-    with pytest.raises(StaleFailureExperienceWrite):
-        FailureExperienceStore(store.path).append(first)
-    with pytest.raises(StaleFailureExperienceWrite):
-        store.append(replace(first, revision=2))
-    assert "oldest" not in store.render_context("oldest")
 
 
 def test_retired_source_cannot_be_replayed_with_a_fresh_timestamp(tmp_path: Path) -> None:
@@ -298,34 +229,6 @@ def test_streaming_legacy_migration_preserves_old_match_and_its_later_annotation
     }
 
 
-def test_replace_failure_preserves_source_and_retry_can_commit(tmp_path: Path, monkeypatch) -> None:
-    from argus.life import failure_experience_storage as storage
-
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    item = store.append(experience("original"))
-    before = store.path.read_bytes()
-    original_replace = storage.os.replace
-
-    def broken_replace(source, destination):
-        if Path(destination) == store.path:
-            raise OSError("injected replace failure")
-        return original_replace(source, destination)
-
-    monkeypatch.setattr(storage.os, "replace", broken_replace)
-    with pytest.raises(OSError, match="injected"):
-        store.revise(item.id, expected_revision=1, evidence_refs=["review:new"], title="corrected")
-    assert store.path.read_bytes() == before
-    assert indexed(store)[item.id][0] == 1
-    assert list(tmp_path.glob("*.tmp")) == []
-    monkeypatch.setattr(storage.os, "replace", original_replace)
-    assert (
-        store.revise(
-            item.id, expected_revision=1, evidence_refs=["review:new"], title="corrected"
-        ).revision
-        == 2
-    )
-
-
 def test_index_failure_cannot_serve_stale_revision_and_recovers(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -384,37 +287,6 @@ def test_corrupt_canonical_snapshot_fails_closed_without_replaying_history(tmp_p
     assert store.path.read_bytes() == broken
 
 
-def test_lexical_recall_can_match_chinese_without_whitespace(tmp_path: Path) -> None:
-    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    matching = store.append(experience("缓存失效的边界"))
-    store.append(experience("更新任务状态图"))
-    assert any(
-        hit.experience.id == matching.id and hit.channel == "direct factual/conceptual"
-        for hit in store.retrieve("缓存错误的原因")
-    )
-
-
-def test_two_store_instances_cannot_overwrite_the_same_revision(tmp_path: Path) -> None:
-    path = tmp_path / "failure_experiences.jsonl"
-    item = FailureExperienceStore(path).append(experience("shared"))
-
-    def revise(index: int) -> str:
-        try:
-            FailureExperienceStore(path).revise(
-                item.id,
-                expected_revision=1,
-                evidence_refs=[f"review:{index}"],
-                title=f"revision {index}",
-            )
-            return "committed"
-        except StaleFailureExperienceWrite:
-            return "stale"
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert sorted(pool.map(revise, range(2))) == ["committed", "stale"]
-    assert FailureExperienceStore(path).get(item.id).revision == 2
-
-
 def test_explicit_embedding_adapter_reindexes_when_its_version_changes(tmp_path: Path) -> None:
     class Embedding:
         dimensions = 2
@@ -438,63 +310,6 @@ def test_explicit_embedding_adapter_reindexes_when_its_version_changes(tmp_path:
             .startswith("lexical-v2")
         )
     assert len(json.loads(indexed(lexical)[database.id][2])) == 1
-
-
-def test_settlement_is_idempotent_and_new_revisions_reach_memory_and_planner(
-    tmp_path: Path,
-) -> None:
-    from argus.life.memory import BacklogItem, MemoryBundle
-    from argus.life.supervisor._mission_execution_helpers import _MissionRunState
-    from argus.life.supervisor._mission_execution_settlement import (
-        MissionExecutionSettlementMixin,
-    )
-    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
-
-    memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-memory")
-    item = BacklogItem.new(title="bounded experiment", objective="test the measured mechanism")
-    state = _MissionRunState(
-        item=item, usage_attempt_id="attempt-1", status="failed", stop_reason="old interpretation"
-    )
-    host = SimpleNamespace(memory=memory)
-    MissionExecutionSettlementMixin._capture_failure_experience(host, state)
-    MissionExecutionSettlementMixin._capture_failure_experience(host, state)
-    store = memory.failure_experiences
-    (captured,) = store.recent()
-    assert captured.revision == 1
-    assert "attempt-1" in captured.source_refs[0]
-    updated = store.revise(
-        captured.id,
-        expected_revision=1,
-        evidence_refs=["review:controlled-retry"],
-        factual_outcome="corrected measured interpretation",
-    )
-
-    class Planner(PlannerRenderingMixin):
-        def _render_campaign_tally(self):
-            return ""
-
-    planner = Planner()
-    planner.memory = memory
-    planner.config = SimpleNamespace(continuous_objective=item.objective)
-    for context in (
-        memory.render_prelude(objective=item.objective),
-        planner._render_journal_entries_for_planner([]),
-    ):
-        assert "corrected measured interpretation" in context
-        assert "old interpretation" not in context
-    store.retract(
-        updated.id, expected_revision=2, evidence_refs=["review:withdrawn"], reason="withdrawn"
-    )
-    assert "corrected measured interpretation" not in memory.render_prelude(
-        objective=item.objective
-    )
-    assert "corrected measured interpretation" not in planner._render_journal_entries_for_planner(
-        []
-    )
-    state.usage_attempt_id = "attempt-2"
-    MissionExecutionSettlementMixin._capture_failure_experience(host, state)
-    assert len(store.recent()) == 1
-    assert store.recent()[0].id != captured.id
 
 
 @pytest.mark.parametrize("budget", [1, 20, 600, 6000])

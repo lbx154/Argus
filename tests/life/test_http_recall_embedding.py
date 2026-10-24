@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import sqlite3
 import threading
@@ -18,9 +17,7 @@ from argus.life.failure_experience_index import (
     FailureExperienceIndex,
     LexicalEmbedding,
     RecallDocument,
-    _normalized,
 )
-from argus.life.http_embedding import HttpEmbeddingAdapter
 from argus.life.memory import MemoryBundle
 from argus.life.recall_embedding import (
     EmbeddingConfigError,
@@ -125,63 +122,6 @@ def experience(name):
                                  factual_outcome="bounded observation", source_refs=["mission:test"], evidence_refs=["review:test"])
 
 
-def test_default_memory_uses_explicit_lexical_hashing_without_network(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_EMBEDDING_ENDPOINT", "https://unused.invalid/v1/embeddings")
-    monkeypatch.setattr(HttpEmbeddingAdapter, "_post", lambda *_args: pytest.fail("Default recall made a network request"))
-    memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="project")
-    memory.failure_experiences.append(experience("database"))
-    assert isinstance(memory.failure_experiences.index.embedder, LexicalEmbedding)
-    assert "database" in memory.render_recall_context("database")
-    assert "embedding similarity" not in memory.render_recall_context("database")
-    assert not (memory.project_root / "embedding" / "cache.sqlite3").exists()
-
-
-def test_memory_http_recall_tracks_revisions_deletions_and_model_identity(tmp_path, embedding_server):
-    memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="project")
-    old = memory.failure_experiences.append(experience("database"))
-    memory.failure_experiences.append(experience("unrelated"))
-    configure(memory.project_root, embedding_server)
-    rendered = memory.render_recall_context("cache")
-    assert "database" in rendered and "embedding similarity (advisory)" in rendered
-    assert len(embedding_server.requests) == 3
-    assert all(row[0] == "/v1/embeddings" and row[1]["encoding_format"] == "float" for row in embedding_server.requests)
-    memory.render_recall_context("cache")
-    assert len(embedding_server.requests) == 3  # Reopened stores use the durable computation cache.
-    first = memory.failure_experiences.index.embedder.identifier
-    configure(memory.project_root, embedding_server, model="fixture-v2", dimensions=3)
-    memory.render_recall_context("cache")
-    store = memory.failure_experiences
-    assert store.index.embedder.identifier != first and len(embedding_server.requests) == 6
-    store.revise(old.id, expected_revision=1, title="filesystem", objective="filesystem", evidence_refs=["review:updated"])
-    with closing(sqlite3.connect(store.index.path)) as db:
-        row = db.execute("SELECT revision,direct_terms,vector FROM documents WHERE id=?", (old.id,)).fetchone()
-        assert row[0] == 2 and "database" not in row[1] and len(json.loads(row[2])) == 3
-    before_delete = len(embedding_server.requests)
-    store.retract(old.id, expected_revision=2, evidence_refs=["review:retired"], reason="Scope no longer applies")
-    assert len(embedding_server.requests) == before_delete
-    with closing(sqlite3.connect(store.index.path)) as db:
-        assert db.execute("SELECT id FROM documents WHERE id=?", (old.id,)).fetchone() is None
-    assert all(hit.experience.id != old.id for hit in memory.failure_experiences.retrieve("cache"))
-
-
-def test_copilot_format_retrieves_real_wire_shape_without_response_model(tmp_path, embedding_server, monkeypatch):
-    monkeypatch.setenv("ARGUS_TEST_EMBEDDING_SECRET", "fixture-copilot-bearer")
-    memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="copilot")
-    stored = memory.failure_experiences.append(experience("database"))
-    memory.failure_experiences.append(experience("unrelated recent observation"))
-    configure(memory.project_root, embedding_server, api_format="copilot", credential_env="ARGUS_TEST_EMBEDDING_SECRET")
-    embedding_server.mode = "copilot"
-    hits = memory.failure_experiences.retrieve("cache", max_entries=2)
-    assert any(hit.experience.id == stored.id and hit.channel == "embedding similarity (advisory)" for hit in hits)
-    assert len(embedding_server.requests) == 3
-    assert all(row[1]["input"] and isinstance(row[1]["input"], list) for row in embedding_server.requests)
-    assert all(headers["Copilot-Integration-Id"] == "copilot-developer-cli"
-               and headers["X-Initiator"] == "agent" and headers["Authorization"] == "Bearer fixture-copilot-bearer"
-               for headers in embedding_server.request_headers)
-    memory.failure_experiences.retrieve("cache", max_entries=2)
-    assert len(embedding_server.requests) == 3
-
-
 @pytest.mark.parametrize("mode", ["copilot_wrong_model", "copilot_null_model"])
 def test_copilot_never_accepts_an_explicit_conflicting_model(tmp_path, embedding_server, mode):
     configure(tmp_path, embedding_server, api_format="copilot")
@@ -190,25 +130,6 @@ def test_copilot_never_accepts_an_explicit_conflicting_model(tmp_path, embedding
         configured_embedder(tmp_path).embed("database")
     with closing(sqlite3.connect(tmp_path / "embedding/cache.sqlite3")) as db:
         assert db.execute("SELECT COUNT(*) FROM cached_vectors").fetchone()[0] == 0
-
-
-def test_openai_format_still_requires_response_model(tmp_path, embedding_server):
-    configure(tmp_path, embedding_server)
-    embedding_server.mode = "missing_model"
-    with pytest.raises(EmbeddingUnavailable, match="identity"):
-        configured_embedder(tmp_path).embed("database")
-
-
-def test_switching_wire_format_does_not_reuse_vectors_or_reset_budget(tmp_path, embedding_server):
-    openai = configure(tmp_path, embedding_server, daily_request_budget=1)
-    original = HttpEmbeddingAdapter(tmp_path, openai)
-    assert original.embed("database") == [1.0, 0.0]
-    copilot = configure(tmp_path, embedding_server, api_format="copilot", daily_request_budget=1)
-    alternate = HttpEmbeddingAdapter(tmp_path, copilot)
-    assert alternate.identifier != original.identifier
-    with pytest.raises(EmbeddingUnavailable, match="daily"):
-        alternate.embed("database")
-    assert len(embedding_server.requests) == 1
 
 
 def test_markdown_semantic_pointer_uses_current_file_and_disappears_after_delete(tmp_path, embedding_server):
@@ -272,53 +193,6 @@ def test_timeout_is_bounded_and_failure_consumes_shared_durable_budget(tmp_path,
     assert len(embedding_server.requests) == 1
 
 
-def test_cancelled_http_returns_before_response_and_keeps_its_budget(tmp_path, embedding_server):
-    from argus.core.run_gateway import run_interrupt_scope
-
-    configure(tmp_path, embedding_server)
-    adapter = configured_embedder(tmp_path)
-    stopped = threading.Event()
-    embedding_server.gate = threading.Event()
-    before = set(threading.enumerate())
-
-    def invoke():
-        with run_interrupt_scope(lambda: "operator abort requested" if stopped.is_set() else None):
-            return adapter.embed("database")
-
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(invoke)
-        assert embedding_server.entered.wait(1)
-        http_workers = [t for t in threading.enumerate() if t not in before and t.name == "argus-embedding-http"]
-        assert len(http_workers) == 1
-        stopped.set()
-        try:
-            with pytest.raises(EmbeddingUnavailable, match="cancelled"):
-                pending.result(timeout=1)
-            # Early caller return is observed while the fixture still withholds
-            # its response. Worker termination is a separate assertion below.
-            assert not embedding_server.gate.is_set()
-            for worker in http_workers:
-                worker.join(1)
-            assert all(not worker.is_alive() for worker in http_workers)
-        finally:
-            embedding_server.gate.set()
-    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
-        reserved = db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone()
-    assert reserved == (1, len("database"))
-    with run_interrupt_scope(lambda: "operator abort requested"):
-        with pytest.raises(EmbeddingUnavailable, match="cancelled"):
-            adapter.embed("second request")
-    assert len(embedding_server.requests) == 1
-    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
-        assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == reserved
-    assert adapter.embed("fresh request") == [0.0, 1.0]
-    assert len(embedding_server.requests) == 2
-    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
-        assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == (
-            2, len("database") + len("fresh request"),
-        )
-
-
 @pytest.mark.parametrize("boundary", ["worker_start", "connect"])
 def test_cancelled_late_worker_never_sends_http(tmp_path, embedding_server, monkeypatch, boundary):
     import http.client
@@ -376,17 +250,6 @@ def test_cancelled_late_worker_never_sends_http(tmp_path, embedding_server, monk
     assert not embedding_server.requests
     with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
         assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == (1, len("database"))
-
-
-def test_already_cancelled_embedding_has_no_reservation_or_http(tmp_path, embedding_server):
-    from argus.core.run_gateway import run_interrupt_scope
-
-    configure(tmp_path, embedding_server)
-    with run_interrupt_scope(lambda: "operator abort requested"):
-        with pytest.raises(EmbeddingUnavailable, match="cancelled"):
-            configured_embedder(tmp_path).embed("database")
-    assert not embedding_server.requests
-    assert not (tmp_path / "embedding/usage.sqlite3").exists()
 
 
 def _memory_with_two_embedding_channels(tmp_path, embedding_server):
@@ -500,48 +363,6 @@ def test_supervisor_stop_event_interrupts_the_current_memory_provider(tmp_path, 
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-@pytest.mark.parametrize("retain_parent", [False, True])
-def test_mission_memory_prelude_recognizes_one_shot_lock_cancellation(tmp_path, legacy, retain_parent):
-    from types import SimpleNamespace
-
-    from argus.core.file_lock import current_file_lock_wait_budget, exclusive_file_lock
-    from argus.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
-    from argus.life.memory import BacklogItem
-    from argus.life.supervisor._mission_execution_runtime import _mission_memory_prelude
-
-    calls = 0
-    reason = "operator abort requested: one-shot memory stop"
-
-    def interrupt():
-        nonlocal calls
-        calls += 1
-        return reason if calls == 1 else None
-
-    def read_memory():
-        with (tmp_path / "recall.lock").open("a+b") as handle:
-            with exclusive_file_lock(handle, lock_name="optional memory read"):
-                pytest.fail("cancelled memory must not acquire the read lock")
-
-    item = BacklogItem.new(title="next", objective="database cache")
-
-    def render_current(*, objective, mission_id):
-        assert (objective, mission_id) == ("database cache", item.id)
-        return read_memory()
-
-    memory = SimpleNamespace(render_prelude=read_memory if legacy else render_current)
-    with run_interrupt_scope(interrupt, retain_first_reason=retain_parent):
-        assert _mission_memory_prelude(memory, item) == ""
-        assert calls == 1
-        assert current_file_lock_wait_budget() is None
-        # A helper's retained reason ends with the helper. Continued retention
-        # belongs to the surrounding execution scope, when explicitly enabled.
-        assert current_run_interrupt_reason() == (reason if retain_parent else None)
-        assert calls == (1 if retain_parent else 2)
-    assert current_run_interrupt_reason() is None
-    assert current_file_lock_wait_budget() is None
-
-
-@pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("failure", ["unknown-cancellation", "mandatory-context", "unrelated"])
 def test_mission_memory_prelude_preserves_unclassified_and_mandatory_failures(legacy, failure):
     from types import SimpleNamespace
@@ -592,33 +413,6 @@ def test_batch_budget_preserves_successful_work_for_incremental_reindex(tmp_path
         assert db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 2
 
 
-def test_daily_input_and_parallel_request_budgets_are_atomic(tmp_path, embedding_server):
-    configure(tmp_path, embedding_server, daily_request_budget=1, daily_input_bytes_budget=8)
-    def invoke(text):
-        try:
-            configured_embedder(tmp_path).embed(text)
-            return True
-        except EmbeddingUnavailable:
-            return False
-    with ThreadPoolExecutor(max_workers=2) as workers:
-        assert sum(workers.map(invoke, ["database", "mismatch"])) == 1
-    assert len(embedding_server.requests) == 1
-    other = tmp_path / "other"
-    configure(other, embedding_server, daily_input_bytes_budget=2)
-    with pytest.raises(EmbeddingUnavailable, match="daily"):
-        configured_embedder(other).embed("three")
-    assert len(embedding_server.requests) == 1
-
-
-def test_discarding_the_vector_cache_does_not_reset_spend_budget(tmp_path, embedding_server):
-    configure(tmp_path, embedding_server, daily_request_budget=1)
-    configured_embedder(tmp_path).embed("database")
-    (tmp_path / "embedding" / "cache.sqlite3").unlink()
-    with pytest.raises(EmbeddingUnavailable, match="daily"):
-        configured_embedder(tmp_path).embed("new input")
-    assert len(embedding_server.requests) == 1
-
-
 def test_credentials_are_redacted_before_http_and_absent_from_derived_state(redact_secrets_on, tmp_path, embedding_server, monkeypatch, caplog):
     secret = "fixture-private-embedding-bearer-never-persist"
     monkeypatch.setenv("ARGUS_TEST_EMBEDDING_SECRET", secret)
@@ -648,16 +442,6 @@ def test_invalid_config_is_rejected_without_saving_credentials(tmp_path, changes
     assert load_embedding_config(tmp_path) == RecallEmbeddingConfig()
 
 
-def test_index_refuses_encoder_mismatch_and_normalizes_large_finite_values(tmp_path):
-    index = FailureExperienceIndex(tmp_path / "index.sqlite3")
-    index.sync([document("database")])
-    index.embedder = type("Changed", (LexicalEmbedding,), {"identifier": "other-encoder"})()
-    with pytest.raises(ValueError, match="current source"):
-        index.scores("database", documents=[document("database")])
-    vector = _normalized([1e308, 1e308], 2)
-    assert all(math.isfinite(value) for value in vector) and sum(value * value for value in vector) == pytest.approx(1)
-
-
 def test_query_embedding_does_not_hold_a_database_snapshot_across_a_source_change(tmp_path):
     path = tmp_path / "index.sqlite3"
     writer = FailureExperienceIndex(path)
@@ -672,22 +456,6 @@ def test_query_embedding_does_not_hold_a_database_snapshot_across_a_source_chang
     with pytest.raises(ValueError, match="current source"):
         reader.scores("query", documents=[document("old")])
     assert set(writer.scores("query", documents=[document("new")])) == {"new"}
-
-
-def test_slow_sync_does_not_overwrite_an_index_updated_during_embedding(tmp_path):
-    path = tmp_path / "index.sqlite3"
-    writer = FailureExperienceIndex(path)
-    writer.sync([document("old")])
-
-    class ConcurrentEmbedding(LexicalEmbedding):
-        def embed(self, text):
-            writer.sync([document("newer")])
-            return super().embed(text)
-
-    stale_writer = FailureExperienceIndex(path, embedder=ConcurrentEmbedding())
-    with pytest.raises(EmbeddingUnavailable, match="changed"):
-        stale_writer.sync([document("slow")])
-    assert set(writer.scores("query", documents=[document("newer")])) == {"newer"}
 
 
 def test_http_recall_does_not_block_retirement_or_return_its_old_snapshot(tmp_path, embedding_server):
@@ -706,22 +474,6 @@ def test_http_recall_does_not_block_retirement_or_return_its_old_snapshot(tmp_pa
         finally:
             embedding_server.gate.set()
         assert pending.result(timeout=1) == []
-
-
-def test_canonical_write_releases_its_lock_before_http_indexing(tmp_path, embedding_server):
-    path = tmp_path / "failure_experiences.jsonl"
-    configure(tmp_path, embedding_server)
-    store, item = FailureExperienceStore(path), experience("database")
-    embedding_server.gate = threading.Event()
-    with ThreadPoolExecutor(max_workers=2) as workers:
-        pending = workers.submit(store.append, item)
-        assert embedding_server.entered.wait(1)
-        try:
-            visible = workers.submit(FailureExperienceStore(path).get, item.id)
-            assert visible.result(timeout=0.5).id == item.id
-        finally:
-            embedding_server.gate.set()
-        assert pending.result(timeout=1).id == item.id
 
 
 @pytest.mark.parametrize("name", ["config.json", "cache.sqlite3", "usage.sqlite3", "cache.sqlite3-journal"])

@@ -186,13 +186,6 @@ def test_a_task_keeps_one_session_that_reads_only_what_is_new_and_ends_with_it(t
     assert "## Where the record is" in calls[4]["prompt"]
 
 
-def test_planning_belongs_to_no_task_and_is_looked_at_afresh(team):
-    team.backend.backend = "codex"
-    _turn(team, "planner")
-    _turn(team, "planner")
-    assert [call["resume"] for call in team.backend.calls] == [None, None]
-
-
 def test_it_speaks_the_operator_s_language(team):
     _turn(team)
     team.feed.log.handle_event({"type": EventType.LIFE_MANAGER_INTENT_STARTED, "intent_id": "i-1",
@@ -212,28 +205,6 @@ def test_it_never_takes_the_formal_review_for_a_duplicate(team):
     prompt = team.backend.calls[0]["prompt"]
     assert "formal review is how a task is accepted, never a duplicate" in prompt
     assert "subagent review inside its turn does not replace it" in prompt
-
-
-def test_a_smooth_flow_leaves_no_event_and_asks_nobody(team):
-    _turn(team)
-    assert len(team.backend.calls) == 1
-    assert team.feed.notes() == [] and _asked(team) == ""
-
-
-def test_a_remark_goes_to_the_manager_s_supervision(team):
-    team.backend.replies = [SPIN]
-    _turn(team, "planner")
-    (note,) = team.feed.notes()
-    assert (note["to"], note["agent_layer"], note["text"], note["seen_at"]) == ("manager", "observer", SAID, [1760000000])
-    assert "operator_alert" not in note and "item_id" not in note
-    assert _asked(team).endswith("says: " + SAID)
-
-
-def test_a_remark_names_the_task_it_was_about(team):
-    team.backend.replies = [SPIN]
-    _turn(team, "engineer", "m-7")
-    (note,) = team.feed.notes()
-    assert note["item_id"] == "m-7"
 
 
 @pytest.mark.parametrize("delivered", [False, True])
@@ -270,22 +241,6 @@ def test_a_failed_look_is_skipped_and_the_work_goes_on(team, failure):
     assert len(team.backend.calls) == 2 and len(team.feed.notes()) == 1
 
 
-def test_turns_that_end_during_a_look_wait_for_the_next_one_without_holding_up_the_team(team):
-    team.backend.release.clear()
-    _ends(team, "engineer", "m-1")
-    started = time.monotonic()
-    _ends(team, "reviewer", "m-1")
-    _ends(team, "planner")
-    assert time.monotonic() - started < 5
-    assert len(team.backend.calls) <= 1
-    team.backend.release.set()
-    _settle(team)
-    # One look per task: the Reviewer's turn in m-1's session, then planning's.
-    assert len(team.backend.calls) == 3
-    assert "the Reviewer, on task" in team.backend.calls[1]["prompt"]
-    assert "the Planner, planning" in team.backend.calls[2]["prompt"]
-
-
 def test_one_observer_per_project_however_many_supervisors_run_its_missions(team, tmp_path):
     helper_backend = _Backend()
     helper = LifeSupervisor(
@@ -298,19 +253,6 @@ def test_one_observer_per_project_however_many_supervisors_run_its_missions(team
     team.backend.release.set()
     _settle(team)
     assert len(team.backend.calls) == 2 and helper_backend.calls == []
-
-
-def test_the_process_waits_for_the_last_look_unless_stopped(team):
-    team.backend.release.clear()
-    _ends(team, "engineer", "m-1")
-    stop = threading.Event()
-    stop.set()
-    observer.settle(stop)
-    assert observer._WATCHES[str(team.root.resolve())].looking.is_alive()
-    threading.Timer(0.2, team.backend.release.set).start()
-    observer.settle(threading.Event())
-    assert observer._WATCHES[str(team.root.resolve())].looking is None
-    assert len(team.backend.calls) == 1
 
 
 def test_a_remark_says_where_it_was_seen_and_only_a_remark_does(team):

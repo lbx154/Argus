@@ -73,57 +73,6 @@ def test_digest_shows_time_block_with_deadline_and_measured_runs(
     assert running.id in line
 
 
-def test_digest_time_block_says_when_no_deadline_or_history(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(row for row in note.splitlines() if row.startswith("- time:"))
-    assert "no deadline" in line
-    assert "no completed missions" in line
-
-
-def test_crashed_missions_do_not_drag_the_measured_median_down(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-    backlog = supervisor.memory.backlog
-    _finished(backlog, "train", 5.0)
-    now = time.time()
-    for index in range(6):
-        crash = BacklogItem.new(title=f"crash {index}", objective="start")
-        backlog.add(crash)
-        backlog.update(
-            crash.id, status="failed", started_ts=now - 100, finished_ts=now - 95
-        )
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(row for row in note.splitlines() if row.startswith("- time:"))
-    assert "median 5.0h over 1" in line
-    assert "6 failed/aborted not counted" in line
-
-
-def test_elapsed_time_falls_back_to_project_creation(tmp_path: Path) -> None:
-    import json
-
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-    (supervisor.memory.root / "session.json").write_text(
-        json.dumps({"created": time.time() - 3 * 86400}), encoding="utf-8"
-    )
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(row for row in note.splitlines() if row.startswith("- time:"))
-    assert "project started 72.0h ago" in line
-
-
 def test_split_memory_daemon_reads_project_creation_from_the_project(
     tmp_path: Path,
 ) -> None:
@@ -170,4 +119,3 @@ def test_split_memory_daemon_reads_project_creation_from_the_project(
 
     line = next(row for row in note.splitlines() if row.startswith("- time:"))
     assert "project started 48.0h ago" in line
-

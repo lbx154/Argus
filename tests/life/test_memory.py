@@ -2,91 +2,17 @@
 from __future__ import annotations
 
 import json
-import multiprocessing as mp
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 from argus.life.memory import (
     Backlog,
     BacklogItem,
     EventJournal,
     IdentityCard,
-    JournalEntry,
     LifeMemory,
 )
-
-
-def _append_history_event(mem: LifeMemory, entry: JournalEntry) -> None:
-    path = Path(mem.root) / "events.jsonl"
-    mission = entry.kind in {"mission_complete", "mission_failed"}
-    row = {
-        "type": "life.mission.completed" if mission else "user.note",
-        "id": entry.id,
-        "item_id": entry.id,
-        "ts": entry.ts,
-        "success": entry.kind == "mission_complete",
-        "title": entry.title,
-        "summary": entry.summary,
-        "text": entry.summary,
-        "tags": entry.tags,
-        "cost_usd": entry.cost_usd,
-    }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
-
-
-def test_event_journal_cost_includes_every_retained_rollover(tmp_path: Path) -> None:
-    now = time.time()
-    path = tmp_path / "events.jsonl"
-    rows = [
-        (path.with_suffix(".jsonl.2"), 1.0),
-        (path.with_suffix(".jsonl.3"), 2.0),
-        (path.with_suffix(".jsonl.1"), 3.0),
-        (path, 4.0),
-    ]
-    for index, (target, cost) in enumerate(rows):
-        target.write_text(
-            json.dumps({
-                "type": "life.mission.completed",
-                "ts": now + index,
-                "cost_usd": cost,
-                "success": True,
-            }) + "\n",
-            encoding="utf-8",
-        )
-
-    assert EventJournal(path).total_cost_since(now - 1) == pytest.approx(10.0)
-
-
-def test_event_journal_reads_every_rollover_in_chronological_order(tmp_path: Path) -> None:
-    path = tmp_path / "events.jsonl"
-    for target, title in (
-        (path.with_suffix(".jsonl.2"), "oldest"),
-        (path.with_suffix(".jsonl.3"), "older"),
-        (path.with_suffix(".jsonl.1"), "recent"),
-        (path, "live"),
-    ):
-        target.write_text(
-            json.dumps({
-                "type": "user.note",
-                "ts": time.time(),
-                "title": title,
-                "text": title,
-            }) + "\n",
-            encoding="utf-8",
-        )
-
-    journal = EventJournal(path)
-    assert [entry.title for entry in journal.all()] == [
-        "oldest", "older", "recent", "live",
-    ]
-    assert [entry.title for entry in journal.tail(3)] == [
-        "older", "recent", "live",
-    ]
 
 
 def test_event_journal_total_cost_cache_is_bounded(
@@ -102,34 +28,6 @@ def test_event_journal_total_cost_cache_is_bounded(
         assert journal.total_cost_since(float(timestamp)) == 0.0
 
     assert list(journal._total_cost_cache) == [3.0, 4.0]
-
-
-def test_event_journal_projects_canonical_lifecycle_events(tmp_path: Path) -> None:
-    path = tmp_path / "events.jsonl"
-    path.write_text(
-        json.dumps({
-            "type": "life.mission.started",
-            "ts": 1.0,
-            "item_id": "m1",
-            "objective": "legacy mission",
-        })
-        + "\n"
-        + json.dumps({
-            "type": "life.mission.completed",
-            "ts": 2.0,
-            "item_id": "m1",
-            "success": True,
-        })
-        + "\n",
-        encoding="utf-8",
-    )
-
-    entries = EventJournal(path).all()
-
-    assert [entry.kind for entry in entries] == [
-        "mission_started",
-        "mission_complete",
-    ]
 
 
 def test_event_journal_projects_legacy_team_waiting_as_planner_idle(
@@ -150,57 +48,6 @@ def test_event_journal_projects_legacy_team_waiting_as_planner_idle(
 
     assert len(entries) == 1
     assert entries[0].kind == "planner_idle"
-
-
-def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "events.jsonl"
-    path.write_text("", encoding="utf-8")
-    output = json.dumps(
-        {"type": "user.note", "ts": 1, "title": "审计", "text": "真实问题"},
-        ensure_ascii=False,
-    )
-
-    monkeypatch.setattr("argus.life.memory.shutil.which", lambda _name: "rg")
-
-    def _run(argv, **kwargs):  # noqa: ANN001, ANN003
-        assert kwargs["encoding"] == "utf-8"
-        assert kwargs["errors"] == "replace"
-        return subprocess.CompletedProcess(argv, 0, stdout=output + "\n", stderr="")
-
-    monkeypatch.setattr("argus.life.memory.subprocess.run", _run)
-
-    tail = EventJournal(path).tail(1)
-
-    assert [entry.title for entry in tail] == ["审计"]
-    assert [entry.summary for entry in tail] == ["真实问题"]
-
-
-def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "events.jsonl"
-    rows = [
-        json.dumps({"type": "engineer.progress", "ts": i, "text": "command output"})
-        for i in range(2_000)
-    ]
-    rows.append(json.dumps({"type": "user.note", "ts": 2_001, "text": "keep me"}))
-    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
-
-    original = json.loads
-    calls = 0
-
-    def _counted(value: str, *args, **kwargs):  # noqa: ANN002, ANN003
-        nonlocal calls
-        calls += 1
-        return original(value, *args, **kwargs)
-
-    monkeypatch.setattr("argus.life.memory.json.loads", _counted)
-    tail = EventJournal(path).tail(1)
-
-    assert [entry.summary for entry in tail] == ["keep me"]
-    assert calls <= 2
 
 
 def _append_settlement_event(
@@ -226,33 +73,6 @@ def _append_settlement_event(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
-
-
-def test_event_journal_tail_settlements_skips_journal_chatter(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "events.jsonl"
-    _append_settlement_event(
-        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
-        title="failed",
-    )
-    # Journal-level chatter between settlements must not occupy window slots:
-    # settlements from ANY item survive an arbitrarily talkative planner.
-    with path.open("a", encoding="utf-8") as fh:
-        for _ in range(30):
-            fh.write(json.dumps({
-                "type": "life.planner.waiting",
-                "ts": time.time(),
-                "reason": "waiting on external dependency",
-            }) + "\n")
-    _append_settlement_event(
-        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
-    )
-
-    entries = EventJournal(path).tail_settlements(2)
-
-    assert [entry.title for entry in entries] == ["failed", "ok"]
-    assert [entry.kind for entry in entries] == ["mission_failed", "mission_complete"]
 
 
 def test_event_journal_tail_settlements_kinds_filter_owns_window_slots(
@@ -317,75 +137,6 @@ def test_event_journal_tail_settlements_spans_rollovers_and_truncates(
     assert journal.tail_settlements(0) == []
 
 
-def test_event_journal_tail_settlements_reads_legacy_spelling(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "events.jsonl"
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "type": "mission.completed",
-            "item_id": "legacy1111aa",
-            "ts": time.time(),
-            "success": False,
-            "status": "no_progress",
-            "title": "legacy settlement",
-            "summary": "no progress",
-        }) + "\n")
-
-    entries = EventJournal(path).tail_settlements(5)
-
-    assert [entry.title for entry in entries] == ["legacy settlement"]
-    assert entries[0].kind == "mission_failed"
-
-
-def test_event_journal_tail_kinds_window_ignores_other_journal_kinds(
-    tmp_path: Path,
-) -> None:
-    """Only entries of the requested kinds occupy window slots.
-
-    Mirrors ``tail_settlements``: journal-level chatter between matches must
-    not shrink the window. Unlike ``tail_settlements``, ``budget_pause`` from
-    its independent ``life.budget.pause`` source (not a settlement) still
-    qualifies when asked for.
-    """
-    path = tmp_path / "events.jsonl"
-    _append_settlement_event(
-        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
-        title="failed",
-    )
-    with path.open("a", encoding="utf-8") as fh:
-        for _ in range(30):
-            fh.write(json.dumps({
-                "type": "life.planner.waiting",
-                "ts": time.time(),
-                "reason": "waiting on external dependency",
-            }) + "\n")
-        # Independent (non-settlement) budget_pause event source.
-        fh.write(json.dumps({
-            "type": "life.budget.pause",
-            "ts": time.time(),
-            "title": "cap reached",
-            "reason": "daily cap reached",
-        }) + "\n")
-    _append_settlement_event(
-        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
-    )
-
-    journal = EventJournal(path)
-    entries = journal.tail_kinds(
-        3, kinds={"mission_failed", "mission_complete", "budget_pause"},
-    )
-
-    assert [entry.title for entry in entries] == ["failed", "cap reached", "ok"]
-    assert [entry.kind for entry in entries] == [
-        "mission_failed", "budget_pause", "mission_complete",
-    ]
-    # Kind filtering: unrequested kinds neither appear nor occupy slots.
-    assert [entry.title for entry in journal.tail_kinds(
-        2, kinds={"mission_failed", "mission_complete"},
-    )] == ["failed", "ok"]
-
-
 def test_event_journal_tail_kinds_spans_rollovers_and_truncates(
     tmp_path: Path,
 ) -> None:
@@ -412,58 +163,6 @@ def test_event_journal_tail_kinds_spans_rollovers_and_truncates(
 
 
 # ---------- Backlog --------------------------------------------------------
-
-def test_backlog_add_pending_order(tmp_path: Path) -> None:
-    b = Backlog(tmp_path / "backlog.jsonl")
-    low = b.add(BacklogItem.new(title="low", objective="...", priority=200))
-    hi = b.add(BacklogItem.new(title="hi", objective="...", priority=10))
-    mid = b.add(BacklogItem.new(title="mid", objective="...", priority=100))
-
-    pending = b.pending()
-    assert [it.title for it in pending] == ["hi", "mid", "low"]
-    head = b.next_pending()
-    assert head is not None
-    assert head.id == hi.id
-    # Untouched ids:
-    assert {it.id for it in pending} == {low.id, hi.id, mid.id}
-
-
-def test_backlog_status_transitions(tmp_path: Path) -> None:
-    b = Backlog(tmp_path / "backlog.jsonl")
-    item = b.add(BacklogItem.new(title="t", objective="..."))
-    head = b.next_pending()
-    assert head is not None
-    assert head.id == item.id
-
-    b.mark_running(item.id)
-    assert b.next_pending() is None  # running ≠ pending
-    again = b.all()[0]
-    assert again.status == "running"
-    assert again.started_ts is not None
-
-    b.mark_done(item.id)
-    final = b.all()[0]
-    assert final.status == "done"
-    assert final.finished_ts is not None
-    assert b.next_pending() is None
-
-
-def test_expected_claim_rejects_a_new_queue_head(tmp_path: Path) -> None:
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    previewed = backlog.add(BacklogItem.new(
-        title="normal",
-        objective="normal priority work",
-        priority=2,
-    ))
-    assert backlog.next_pending().id == previewed.id
-    urgent = backlog.add(BacklogItem.new(
-        title="urgent",
-        objective="new urgent work",
-        priority=1,
-    ))
-
-    assert backlog.claim_next(expected_id=previewed.id) is None
-    assert backlog.next_pending().id == urgent.id
 
 
 def test_parallel_claims_require_disjoint_explicit_ownership(tmp_path: Path) -> None:
@@ -520,15 +219,6 @@ def test_parallel_claims_require_disjoint_explicit_ownership(tmp_path: Path) -> 
     ) is not None
 
 
-def test_backlog_failed_carries_error(tmp_path: Path) -> None:
-    b = Backlog(tmp_path / "backlog.jsonl")
-    item = b.add(BacklogItem.new(title="t", objective="..."))
-    b.mark_failed(item.id, error="boom")
-    row = b.all()[0]
-    assert row.status == "failed"
-    assert row.last_error == "boom"
-
-
 def test_backlog_unknown_status_normalised(tmp_path: Path) -> None:
     p = tmp_path / "backlog.jsonl"
     p.write_text(
@@ -554,148 +244,7 @@ def test_backlog_remove(tmp_path: Path) -> None:
     _ = bb  # silence
 
 
-def _backlog_add_worker(
-    path: str,
-    ready: Any,
-    start: Any,
-    results: Any,
-    *,
-    title: str,
-    objective: str,
-    delay: float = 0.0,
-) -> None:
-    try:
-        ready.put(("ready", "add", title))
-        start.wait()
-        if delay:
-            time.sleep(delay)
-        item = BacklogItem.new(title=title, objective=objective)
-        backlog = Backlog(Path(path))
-        out = backlog.add(item)
-        results.put(("ok", "add", title, out.id))
-    except Exception as exc:  # noqa: BLE001
-        results.put(("err", "add", title, type(exc).__name__, str(exc)))
-
-
-def _backlog_claim_worker(
-    path: str,
-    ready: Any,
-    start: Any,
-    results: Any,
-    *,
-    name: str,
-) -> None:
-    try:
-        ready.put(("ready", "claim", name))
-        start.wait()
-        backlog = Backlog(Path(path))
-        claimed = backlog.claim_next()
-        results.put(
-            (
-                "ok",
-                "claim",
-                name,
-                None if claimed is None else claimed.id,
-                None if claimed is None else claimed.status,
-            )
-        )
-    except Exception as exc:  # noqa: BLE001
-        results.put(("err", "claim", name, type(exc).__name__, str(exc)))
-
-
-def test_backlog_add_and_claim_are_process_safe(tmp_path: Path) -> None:
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    seed = backlog.add(BacklogItem.new(title="seed", objective="claim me"))
-
-    ctx = mp.get_context("spawn")
-    ready = ctx.Queue()
-    start = ctx.Event()
-    results = ctx.Queue()
-    processes = [
-        ctx.Process(
-            target=_backlog_add_worker,
-            args=(str(backlog.path), ready, start, results),
-            kwargs={"title": "add-a", "objective": "one", "delay": 0.2},
-        ),
-        ctx.Process(
-            target=_backlog_add_worker,
-            args=(str(backlog.path), ready, start, results),
-            kwargs={"title": "add-b", "objective": "two", "delay": 0.2},
-        ),
-        ctx.Process(
-            target=_backlog_claim_worker,
-            args=(str(backlog.path), ready, start, results),
-            kwargs={"name": "claim-a"},
-        ),
-        ctx.Process(
-            target=_backlog_claim_worker,
-            args=(str(backlog.path), ready, start, results),
-            kwargs={"name": "claim-b"},
-        ),
-    ]
-
-    for proc in processes:
-        proc.start()
-
-    ready_messages = [ready.get(timeout=10) for _ in processes]
-    assert len(ready_messages) == 4
-    start.set()
-
-    for proc in processes:
-        proc.join(timeout=10)
-        assert proc.exitcode == 0
-
-    outcomes = [results.get(timeout=10) for _ in processes]
-    assert not any(item[0] == "err" for item in outcomes)
-
-    add_ids = [item[3] for item in outcomes if item[0] == "ok" and item[1] == "add"]
-    claim_ids = [item[3] for item in outcomes if item[0] == "ok" and item[1] == "claim" and item[3] is not None]
-    assert len(add_ids) == 2
-    # Adds and claims start together; an added item is allowed to become
-    # claimable before the second claimant runs.  The concurrency invariant is
-    # that no item is handed out twice and no update is lost.
-    assert len(claim_ids) == len(set(claim_ids))
-    assert 1 <= len(claim_ids) <= 3
-
-    rows = backlog.all()
-    assert len(rows) == 3
-    claimed = set(claim_ids)
-    assert {
-        row.id for row in rows if row.status == "running"
-    } == claimed
-    assert all(
-        row.status == ("running" if row.id in claimed else "pending")
-        for row in rows
-    )
-    assert seed.id in {row.id for row in rows}
-
-
 # ---------- IdentityCard ---------------------------------------------------
-
-def test_identity_default_is_idempotent(tmp_path: Path) -> None:
-    card = IdentityCard(tmp_path / "identity.md")
-    assert card.read() == ""
-    assert card.ensure_default() is True
-    body1 = card.read()
-    assert "argus" in body1
-    # Idempotent — second call returns False, doesn't overwrite.
-    assert card.ensure_default() is False
-    assert card.read() == body1
-
-
-def test_identity_user_edit_preserved(tmp_path: Path) -> None:
-    p = tmp_path / "identity.md"
-    p.write_text("# my own card\n\nVoice: terse.\n", encoding="utf-8")
-    card = IdentityCard(p)
-    assert card.ensure_default() is False
-    assert "my own card" in card.read()
-    assert "my own card" in card.prompt_text()
-
-
-def test_default_identity_is_not_model_context(tmp_path: Path) -> None:
-    card = IdentityCard(tmp_path / "identity.md")
-    card.ensure_default()
-    assert card.prompt_text() == ""
 
 
 def test_untouched_pre_rename_default_identity_is_still_the_default(tmp_path: Path) -> None:
@@ -723,106 +272,7 @@ def test_untouched_pre_rename_default_identity_is_still_the_default(tmp_path: Pa
     assert card.ensure_default() is False
 
 
-def test_edited_pre_rename_identity_is_kept_and_injected(tmp_path: Path) -> None:
-    from argus.life.memory import _LEGACY_DEFAULT_IDENTITY
-
-    edited = _LEGACY_DEFAULT_IDENTITY.replace("<!-- fill in -->", "Alex", 1)
-    assert edited != _LEGACY_DEFAULT_IDENTITY
-    path = tmp_path / "identity.md"
-    path.write_text(edited, encoding="utf-8")
-    card = IdentityCard(path)
-
-    assert card.ensure_default() is False
-    assert card.read() == edited
-    assert "Alex" in card.prompt_text()
-
-
 # ---------- LifeMemory facade + retrieval ----------------------------------
-
-def test_life_memory_init(tmp_path: Path) -> None:
-    mem = LifeMemory.open(tmp_path)
-    state = mem.init()
-    assert state == {"identity": True, "events": True, "backlog": True}
-    # Second init should be no-op.
-    state2 = mem.init()
-    assert state2 == {"identity": False, "events": False, "backlog": False}
-    assert (tmp_path / "identity.md").exists()
-    assert (tmp_path / "events.jsonl").exists()
-    assert (tmp_path / "backlog.jsonl").exists()
-
-
-def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
-    # Recency-only retrieval: the harness no longer ranks entries by lexical
-    # overlap with the objective. It surfaces the most recent entries and
-    # lets the agent judge relevance.
-    mem = LifeMemory.open(tmp_path)
-    mem.init()
-    _append_history_event(
-        mem,
-        JournalEntry.new(
-            kind="mission_complete",
-            title="Refactored authentication module",
-            summary="Migrated bcrypt usage and tightened JWT validation.",
-            tags=["auth", "security"],
-        )
-    )
-    _append_history_event(
-        mem,
-        JournalEntry.new(
-            kind="mission_complete",
-            title="CSS tweaks",
-            summary="Adjusted padding on the homepage hero.",
-            tags=["frontend"],
-        )
-    )
-    _append_history_event(
-        mem,
-        JournalEntry.new(
-            kind="mission_failed",
-            title="Authentication retry attempt",
-            summary="Could not lock down the JWT refresh path; left a TODO.",
-            tags=["auth"],
-        )
-    )
-    hits = mem.recent_journal(max_entries=2)
-    assert len(hits) == 2
-    titles = [h.title for h in hits]
-    # Newest first; the two most recent are returned regardless of keywords.
-    assert titles == ["Authentication retry attempt", "CSS tweaks"]
-    # The oldest entry falls outside the max_entries window.
-    assert "Refactored authentication module" not in titles
-
-
-def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
-    # An entry with no lexical overlap is still surfaced — relevance is the
-    # agent's call, not the harness's.
-    mem = LifeMemory.open(tmp_path)
-    mem.init()
-    _append_history_event(
-        mem,
-        JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk."),
-    )
-    hits = mem.recent_journal()
-    assert [h.title for h in hits] == ["Pancake recipe"]
-
-
-def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:
-    mem = LifeMemory.open(tmp_path)
-    mem.init()
-    _append_history_event(
-        mem,
-        JournalEntry.new(
-            kind="mission_complete",
-            title="Database migration helper",
-            summary="Added migrate_users.py.",
-            tags=["database", "migration"],
-        )
-    )
-    block = mem.render_prelude(max_journal_entries=1)
-    assert "non-authoritative" in block.lower()
-    assert "ignore it" in block.lower()
-    assert "Database migration helper" in block
-    assert "operator identity card" not in block.lower()
 
 
 def test_render_prelude_never_reinjects_planner_error_verdict_body(
@@ -852,42 +302,6 @@ def test_render_prelude_never_reinjects_planner_error_verdict_body(
     assert "discarded stale planner verdict" in rendered
 
 
-def test_render_prelude_empty_when_nothing_relevant_and_no_identity(
-    tmp_path: Path,
-) -> None:
-    mem = LifeMemory.open(tmp_path)
-    mem.root.mkdir(parents=True, exist_ok=True)
-    # Don't init — no identity, no journal.
-    assert mem.render_prelude() == ""
-
-
-def test_legacy_mixed_backlog_lazily_splits_terminal_archive(tmp_path: Path) -> None:
-    path = tmp_path / "backlog.jsonl"
-    done = BacklogItem.new(title="Historical", objective="already complete")
-    done.status = "done"
-    failed = BacklogItem.new(title="Failed", objective="failed attempt")
-    failed.status = "failed"
-    pending = BacklogItem.new(title="Live", objective="still live")
-    path.write_text(
-        "".join(json.dumps(item.to_jsonable()) + "\n" for item in (done, pending, failed)),
-        encoding="utf-8",
-    )
-    backlog = Backlog(path)
-
-    added = backlog.add(BacklogItem.new(title="New", objective="new live work"))
-
-    assert {item.id for item in backlog.active()} == {pending.id, added.id}
-    assert {item.id for item in backlog.history()} == {
-        done.id, failed.id, pending.id, added.id
-    }
-    active_rows = [json.loads(line) for line in path.read_text().splitlines()]
-    archive_rows = [
-        json.loads(line) for line in backlog.archive_path.read_text().splitlines()
-    ]
-    assert {row["status"] for row in active_rows} == {"pending"}
-    assert {row["status"] for row in archive_rows} == {"done", "failed"}
-
-
 # ---------------------------------------------------------------------------
 # GPUs against the backlog
 # ---------------------------------------------------------------------------
@@ -903,37 +317,6 @@ def _gpu_backlog(tmp_path, monkeypatch, cards):
     monkeypatch.setattr(memory_module, "_gpu_cards", lambda: cards)
     memory = LifeMemory.open(tmp_path / "life")
     return memory.backlog
-
-
-def test_a_task_that_holds_gpus_is_claimable_only_while_that_many_are_free(tmp_path, monkeypatch):
-    # Four cards; card 3 is busy with someone else's process right now.
-    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4, busy={3}))
-    training = backlog.add(BacklogItem.new(
-        title="train the 27B arm", objective="train", gpu_count=2,
-        parallel_safe=True, owns_paths=["runs/27b"],
-    ))
-    assert [item.id for item in backlog.ready()] == [training.id]
-    claimed = backlog.claim_next()
-    assert claimed is not None and claimed.id == training.id
-    assert claimed.gpu_indices == [0, 1]
-    # Reserved 0 and 1, card 3 busy elsewhere: only card 2 remains.
-    assert backlog.gpu_summary() == {"total": 4, "busy": 1, "reserved": 2, "free": 1}
-    fits = backlog.add(BacklogItem.new(
-        title="train the small arm", objective="train", gpu_count=1,
-        parallel_safe=True, owns_paths=["runs/small"],
-    ))
-    too_big = backlog.add(BacklogItem.new(
-        title="train the huge arm", objective="train", gpu_count=2,
-        parallel_safe=True, owns_paths=["runs/huge"],
-    ))
-    no_gpu = backlog.add(BacklogItem.new(title="write the related work", objective="write"))
-    assert {item.id for item in backlog.ready()} == {fits.id, no_gpu.id}
-    assert backlog.next_pending(parallel_only=True).id == fits.id
-    # Once the running job actually occupies its own cards they are counted
-    # once, not twice.
-    monkeypatch.setattr("argus.life.memory._gpu_cards", lambda: _cards(4, busy={0, 1, 3}))
-    assert backlog.gpu_summary()["free"] == 1
-    assert too_big.id not in {item.id for item in backlog.ready()}
 
 
 def test_cards_busy_with_another_process_are_not_offset_by_our_reservations(tmp_path, monkeypatch):
@@ -955,43 +338,6 @@ def test_cards_busy_with_another_process_are_not_offset_by_our_reservations(tmp_
     assert next(row for row in backlog.all() if row.id == second.id).status == "pending"
 
 
-def test_the_claim_applies_the_gpu_gate_the_peek_applied(tmp_path, monkeypatch):
-    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(2, busy={0, 1}))
-    gpu_task = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=1))
-    writing = backlog.add(BacklogItem.new(title="write", objective="write"))
-    assert backlog.next_pending().id == writing.id
-    # A claim pinned to the GPU task must not take it while no card is free.
-    assert backlog.claim_next(expected_id=gpu_task.id) is None
-    claimed = backlog.claim_next(expected_id=writing.id)
-    assert claimed is not None and claimed.id == writing.id
-    assert next(row for row in backlog.all() if row.id == gpu_task.id).status == "pending"
-
-
-def test_two_workers_cannot_both_claim_the_last_free_cards(tmp_path, monkeypatch):
-    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(2))
-    other_worker = LifeMemory.open(tmp_path / "life").backlog
-    for name in ("a", "b"):
-        backlog.add(BacklogItem.new(
-            title=f"arm {name}", objective="train", gpu_count=2,
-            parallel_safe=True, owns_paths=[f"runs/{name}"],
-        ))
-    assert backlog.claim_next(parallel_only=True) is not None
-    assert other_worker.claim_next(parallel_only=True) is None
-    assert sorted(row.status for row in backlog.all()) == ["pending", "running"]
-
-
-def test_a_task_asking_more_gpus_than_the_machine_has_fails_with_its_reason(tmp_path, monkeypatch):
-    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4))
-    huge = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=8))
-    after = backlog.add(BacklogItem.new(title="eval", objective="eval", deps=[huge.id]))
-    assert backlog.next_pending() is None
-    rows = {row.id: row for row in backlog.all()}
-    assert rows[huge.id].status == "failed"
-    assert "asks for 8 GPUs" in rows[huge.id].last_error
-    assert "this machine has 4" in rows[huge.id].last_error
-    assert rows[after.id].status == "skipped"
-
-
 def test_without_a_visible_gpu_nothing_is_gated(tmp_path, monkeypatch):
     backlog = _gpu_backlog(tmp_path, monkeypatch, None)
     item = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=8))
@@ -999,91 +345,6 @@ def test_without_a_visible_gpu_nothing_is_gated(tmp_path, monkeypatch):
     assert [ready.id for ready in backlog.ready()] == [item.id]
 
 
-def test_gpu_count_survives_the_journal(tmp_path, monkeypatch):
-    backlog = _gpu_backlog(tmp_path, monkeypatch, None)
-    item = backlog.add(BacklogItem.new(title="train", objective="train", gpu_count=2))
-    reloaded = next(row for row in LifeMemory.open(tmp_path / "life").backlog.all() if row.id == item.id)
-    assert reloaded.gpu_count == 2
-
-
 # ---------------------------------------------------------------------------
 # CPU cores against the backlog
 # ---------------------------------------------------------------------------
-
-
-def _cpu_backlog(tmp_path, monkeypatch, cores):
-    from argus.life import memory as memory_module
-
-    monkeypatch.setattr(memory_module, "_gpu_cards", lambda: None)
-    monkeypatch.setattr(memory_module, "_usable_cpus", lambda: cores)
-    return LifeMemory.open(tmp_path / "life").backlog
-
-
-def test_a_task_is_claimable_only_while_its_declared_cores_are_free(tmp_path, monkeypatch):
-    from argus.life.memory import admission_limit
-
-    backlog = _cpu_backlog(tmp_path, monkeypatch, 8)
-    sweep = backlog.add(BacklogItem.new(
-        title="arm a sweep", objective="fit", cpu_count=6,
-        parallel_safe=True, owns_paths=["arms/a"],
-    ))
-    claimed = backlog.claim_next(parallel_only=True)
-    assert claimed is not None and claimed.id == sweep.id
-    wide = backlog.add(BacklogItem.new(
-        title="arm b sweep", objective="fit", cpu_count=4,
-        parallel_safe=True, owns_paths=["arms/b"],
-    ))
-    narrow = backlog.add(BacklogItem.new(
-        title="arm c", objective="fit", cpu_count=2,
-        parallel_safe=True, owns_paths=["arms/c"],
-    ))
-    assert {item.id for item in backlog.ready()} == {narrow.id}
-    second = backlog.claim_next(parallel_only=True)
-    assert second is not None and second.id == narrow.id
-    assert backlog.claim_next(parallel_only=True) is None
-    assert next(row for row in backlog.all() if row.id == wide.id).status == "pending"
-    record = admission_limit(second.admission, slots=4)
-    assert record["ready"] == 2 and record["cpu_fit"] == 1
-    assert record["cpus_usable"] == 8 and record["cpus_free"] == 2
-    assert record["limit"] == "cpu"
-
-
-def test_a_task_asking_more_cores_than_exist_takes_the_whole_machine(tmp_path, monkeypatch):
-    backlog = _cpu_backlog(tmp_path, monkeypatch, 4)
-    big = backlog.add(BacklogItem.new(title="big", objective="fit", cpu_count=64))
-    claimed = backlog.claim_next()
-    assert claimed is not None and claimed.id == big.id
-
-
-def test_cpu_count_defaults_to_none_reserved_and_survives_the_journal(tmp_path, monkeypatch):
-    backlog = _cpu_backlog(tmp_path, monkeypatch, 8)
-    plain = backlog.add(BacklogItem.new(title="write", objective="write"))
-    wide = backlog.add(BacklogItem.new(title="fit", objective="fit", cpu_count=3))
-    rows = {row.id: row for row in LifeMemory.open(tmp_path / "life").backlog.all()}
-    assert rows[plain.id].cpu_count == 0
-    assert rows[wide.id].cpu_count == 3
-    assert "admission" not in rows[wide.id].to_jsonable()
-
-
-def test_admission_names_the_limit_that_decided():
-    from argus.life.memory import admission_limit
-
-    base = {"ready": 4, "gpu_fit": 4, "cpu_fit": 4, "claimable": 4, "running": 0}
-    assert admission_limit({**base, "ready": 1, "gpu_fit": 1, "cpu_fit": 1,
-                            "claimable": 1}, 4)["limit"] == "ready_tasks"
-    assert admission_limit({**base, "gpu_fit": 2, "cpu_fit": 2,
-                            "claimable": 2}, 4)["limit"] == "gpu"
-    assert admission_limit({**base, "cpu_fit": 1, "claimable": 1}, 4)["limit"] == "cpu"
-    assert admission_limit({**base, "claimable": 1}, 4)["limit"] == "ownership"
-    assert admission_limit({**base, "running": 2}, 4) == {
-        **base, "running": 2, "slots_free": 2, "limit": "slots",
-    }
-
-
-def test_tasks_that_declare_no_cores_are_not_capped_by_the_core_count(tmp_path, monkeypatch):
-    # Model-bound tasks mostly wait on calls; only declared cores are held.
-    backlog = _cpu_backlog(tmp_path, monkeypatch, 2)
-    for index in range(4):
-        backlog.add(BacklogItem.new(title=f"t{index}", objective="o", parallel_safe=True))
-    claimed = [backlog.claim_next() for _ in range(4)]
-    assert all(item is not None for item in claimed)

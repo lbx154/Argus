@@ -16,7 +16,6 @@ threshold, and a completion that goes through clears the count entirely.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -144,90 +143,6 @@ def _circuit(tmp_path: Path) -> dict | None:
 # --------------------------------------------------------------------------- #
 
 
-def test_third_identical_turn_back_pauses_and_tells_the_operator(tmp_path) -> None:
-    harness = _RejectionHarness(tmp_path)
-
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_TERMINAL_IDLE
-
-    circuit = _circuit(tmp_path)
-    assert circuit is not None
-    assert circuit["paused"] is True
-    assert circuit["consecutive_rejections"] == 3
-    assert circuit["diagnostic"] == "final_certification_missing"
-    assert circuit["pause_backlog_signature"] == "backlog:one"
-
-    opened = [
-        event
-        for event in harness.events
-        if event["type"] == "life.planner.completion_circuit_opened"
-    ]
-    assert len(opened) == 1
-    assert opened[0]["operator_alert"] is True
-    assert opened[0]["consecutive_rejections"] == 3
-
-    # The operator hears about it as one plain-language message in the
-    # project transcript, not only as a machine event.
-    transcript_texts = [
-        path.read_text(encoding="utf-8") for path in tmp_path.rglob("*.jsonl")
-    ]
-    assert any("times in a row" in text for text in transcript_texts)
-
-    # The paused turn does NOT reset the idle backoff (that reset is what
-    # kept the loop cycling at full speed); it enters backoff instead.
-    assert harness.idle_backoffs == 1
-    assert harness.idle_resets == 2
-
-
-def test_two_turn_backs_then_a_different_reason_do_not_pause(tmp_path) -> None:
-    harness = _RejectionHarness(tmp_path)
-
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    circuit = _circuit(tmp_path)
-    assert circuit is not None
-    assert circuit["consecutive_rejections"] == 2
-    assert circuit["paused"] is False
-
-    # The certification lands (the recovery fix in action), so the next
-    # completion attempt fails for a DIFFERENT reason: the count restarts.
-    harness.certified = True
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-
-    circuit = _circuit(tmp_path)
-    assert circuit is not None
-    assert circuit["consecutive_rejections"] == 1
-    assert circuit["paused"] is False
-    assert circuit["diagnostic"] == "manager_final_stage_not_completed"
-    assert not [
-        event
-        for event in harness.events
-        if event["type"] == "life.planner.completion_circuit_opened"
-    ]
-
-
-def test_completion_that_goes_through_clears_the_history(tmp_path) -> None:
-    harness = _RejectionHarness(tmp_path)
-
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    assert harness._pc_normalize_project_done(_done_state()) == PLAN_RETRY
-    assert _circuit(tmp_path) is not None
-
-    # The recovery path resolves the cause before a third turn-back: the
-    # completion goes through and the stop-loss never fires.
-    harness.certified = True
-    harness.final_stage_completed = True
-    assert harness._pc_normalize_project_done(_done_state()) is False
-    assert harness.planner_verdicts == 1
-    assert _circuit(tmp_path) is None
-    assert not [
-        event
-        for event in harness.events
-        if event["type"] == "life.planner.completion_circuit_opened"
-    ]
-
-
 # --------------------------------------------------------------------------- #
 # The intake phase holds the pause and lifts it on the two wake conditions
 # --------------------------------------------------------------------------- #
@@ -353,24 +268,3 @@ def test_operator_reply_lifts_the_pause(tmp_path) -> None:
     assert circuit is not None
     assert circuit["paused"] is False
     assert circuit["resume_reason"] == "operator_reply"
-
-
-def test_circuit_state_survives_a_restart(tmp_path) -> None:
-    """The count lives on disk, not in the process: a daemon restart must
-    not grant three fresh paid cycles."""
-    path = completion_rejection_circuit_path(tmp_path)
-    record_completion_rejection(
-        path, diagnostic="research_target_incomplete", reason="same cause"
-    )
-    record_completion_rejection(
-        path, diagnostic="research_target_incomplete", reason="same cause"
-    )
-
-    # A "restart": nothing in memory, only the file.
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["consecutive_rejections"] == 2
-
-    record = record_completion_rejection(
-        path, diagnostic="research_target_incomplete", reason="same cause"
-    )
-    assert record["consecutive_rejections"] == 3

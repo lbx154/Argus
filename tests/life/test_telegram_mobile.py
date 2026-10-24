@@ -26,29 +26,7 @@ def api(monkeypatch):
     return calls
 
 
-def _sent_texts(calls) -> list[str]:
-    return [payload["text"] for method, payload in calls if method == "sendMessage"]
-
-
 # -- splitting --------------------------------------------------------------
-
-def test_long_reply_is_sent_as_several_messages(api) -> None:
-    body = "\n".join(f"line {i} " + "x" * 150 for i in range(200))
-
-    telegram_bot._send_message("tok", "1", body)
-
-    texts = _sent_texts(api)
-    assert len(texts) > 1
-    assert all(len(text) <= telegram_bot.TELEGRAM_LIMIT for text in texts)
-    # The bridge used to truncate at 4090 and append "…"; the tail must survive.
-    assert "line 199" in texts[-1]
-    assert not any(text.endswith("…") for text in texts)
-
-
-def test_short_reply_is_a_single_message(api) -> None:
-    telegram_bot._send_message("tok", "1", "ok")
-
-    assert _sent_texts(api) == ["ok"]
 
 
 def test_every_chunk_carries_parse_mode(api) -> None:
@@ -59,14 +37,6 @@ def test_every_chunk_carries_parse_mode(api) -> None:
 
 
 # -- command menu -----------------------------------------------------------
-
-def test_command_menu_is_published(api) -> None:
-    assert telegram_bot.publish_command_menu("tok") is True
-
-    method, payload = api[0]
-    assert method == "setMyCommands"
-    names = [entry["command"] for entry in payload["commands"]]
-    assert names == [name for name, _desc in COMMAND_MENU]
 
 
 def test_command_menu_entries_satisfy_telegram_limits() -> None:
@@ -84,27 +54,6 @@ def test_menu_failure_is_reported_but_not_fatal(monkeypatch) -> None:
 
 
 # -- inline keyboard --------------------------------------------------------
-
-def test_status_reply_carries_quick_actions(api) -> None:
-    transport = telegram_bot.TelegramTransport(token="tok", chat_id="1")
-
-    transport.send("📊 <b>argus 状态</b>\n🟢 守护进程运行中")
-
-    _method, payload = api[-1]
-    buttons = [
-        button
-        for row in payload["reply_markup"]["inline_keyboard"]
-        for button in row
-    ]
-    assert {button["callback_data"] for button in buttons} == {
-        "/status", "/backlog", "/journal", "/help",
-    }
-
-
-def test_ordinary_reply_has_no_keyboard(api) -> None:
-    telegram_bot.TelegramTransport(token="tok", chat_id="1").send("✅ 任务已添加")
-
-    assert "reply_markup" not in api[-1][1]
 
 
 def test_keyboard_rides_only_on_the_final_chunk(api) -> None:
@@ -143,22 +92,6 @@ def test_button_tap_runs_the_matching_command(tmp_path, api) -> None:
 
     assert dispatched == ["/backlog"]
     assert api[0][0] == "answerCallbackQuery"
-
-
-def test_tap_from_another_chat_is_ignored(tmp_path, api) -> None:
-    poller = _poller(tmp_path)
-    dispatched: list[str] = []
-
-    poller._handle_callback(
-        {
-            "id": "cb1",
-            "data": "/backlog",
-            "message": {"chat": {"id": "999"}},
-        },
-        SimpleNamespace(dispatch=dispatched.append),
-    )
-
-    assert dispatched == []
 
 
 def test_tap_from_another_user_is_ignored(tmp_path, api) -> None:

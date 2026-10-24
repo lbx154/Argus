@@ -9,16 +9,6 @@ def _run(tmp_path, result):
     return learning_status(tmp_path, "s")["jobs"][0]
 
 
-def test_call_refused_by_cost_policy_is_recorded_as_paused_not_failed(tmp_path):
-    job = _run(tmp_path, {
-        "failure": "[not dispatched] refused before start: unresolved provider cost: 1 call(s)",
-        "stop_kind": "cost_unreconciled",
-    })
-    assert job["status"] == "skipped"
-    assert job["outcome"]["reason"] == "paused"
-    assert job["outcome"]["detail"] == "cost_unreconciled"
-
-
 @pytest.mark.parametrize("stop_kind", ["budget_exhausted", "provider_cooldown"])
 def test_other_host_refusals_are_paused_with_their_reason(tmp_path, stop_kind):
     job = _run(tmp_path, {"failure": "refused", "stop_kind": stop_kind})

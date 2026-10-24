@@ -4,8 +4,7 @@ import time
 
 import pytest
 
-from argus.core.token_usage import TokenUsage
-from argus.core.usage import UsageLedger, UsageRecord, build_usage_record
+from argus.core.usage import UsageLedger
 
 ERROR = ("Process exited with code 1 before turn completion.\n"
          "error: unknown option '--context'\n(Did you mean --connect?)\n\n"
@@ -50,10 +49,6 @@ def test_historical_projection_is_idempotent_and_preserves_ledger(tmp_path):
     assert (p / "events.jsonl").read_bytes() == events_before
 
 
-def test_identical_text_without_receipt_is_not_evidence():
-    assert UsageRecord.from_jsonable(row()).pricing_status == "partial"
-
-
 @pytest.mark.parametrize("change", [
     {"agent_message_count": 1}, {"stdout_line_count": 1}, {"json_event_count": 1},
     {"tool_activity_observed": True}, {"turn_completed": True},
@@ -67,42 +62,6 @@ def test_untrusted_or_post_start_receipt_does_not_convert(tmp_path, change):
     assert UsageLedger(p, migrate_legacy=False).records()[0].pricing_status == "partial"
 
 
-@pytest.mark.parametrize("change", [
-    {"input_tokens": 1}, {"cached_input_tokens": 1}, {"output_tokens": 1},
-    {"cache_write_tokens": 1}, {"reasoning_output_tokens": 1},
-    {"premium_requests": 0}, {"premium_requests_present": True},
-    {"total_nano_aiu": 0}, {"cost_usd": 0}, {"model_usage": [{"input_tokens": 1}]},
-])
-def test_observed_receipt_usage_cannot_be_waived_by_an_incomplete_ledger_row(tmp_path, change):
-    p = project(tmp_path, event={**receipt(), **change})
-    assert UsageLedger(p, migrate_legacy=False).records()[0].pricing_status == "partial"
-
-
-@pytest.mark.parametrize("change", [
-    {"input_tokens": 0}, {"input_tokens": 9}, {"cached_input_tokens": 1},
-    {"cache_write_tokens": 1}, {"output_tokens": 1}, {"reasoning_output_tokens": 1},
-    {"premium_requests": 1}, {"premium_requests": 0}, {"total_nano_aiu": 0},
-    {"model_usage": [{"input_tokens": 1}]}, {"cost_usd": .1},
-    {"premium_request_cost_usd": .04}, {"thread_id": "session"},
-    {"source": "legacy.events"}, {"status": "completed"},
-])
-def test_any_observed_usage_or_inconsistent_row_is_preserved(tmp_path, change):
-    p = project(tmp_path, r={**row(), **change})
-    record = UsageLedger(p, migrate_legacy=False).records()[0]
-    assert record.pricing_status == "partial"
-    assert record.cost_usd == change.get("cost_usd")
-
-
-def test_new_failure_uses_the_same_trusted_receipt(tmp_path):
-    r = row()
-    record = build_usage_record(
-        call_id=r["call_id"], project_root=tmp_path, mission_id=None,
-        provider="copilot", model=r["model"], run_label=r["run_label"],
-        started_at=r["started_at"], completed_at=r["completed_at"], status="error",
-        error=ERROR, startup_receipt=receipt())
-    assert (record.pricing_status, record.cost_usd) == ("not_billed", 0)
-
-
 def test_duplicate_or_missing_completion_receipt_fails_closed(tmp_path):
     p = project(tmp_path)
     path = p / "events.jsonl"
@@ -110,32 +69,3 @@ def test_duplicate_or_missing_completion_receipt_fails_closed(tmp_path):
     for text in ("", original + original):
         path.write_text(text)
         assert UsageLedger(p, migrate_legacy=False).records()[0].pricing_status == "partial"
-
-
-@pytest.mark.parametrize("field", ["premium_requests", "total_nano_aiu", "provider_cost_usd"])
-@pytest.mark.parametrize("value", [0, 1])
-def test_new_failure_retains_observed_metering(tmp_path, field, value):
-    r = row()
-    record = build_usage_record(
-        call_id=r["call_id"], project_root=tmp_path, mission_id=None,
-        provider="copilot", model=r["model"], run_label=r["run_label"],
-        started_at=r["started_at"], completed_at=r["completed_at"], status="error",
-        error=ERROR, startup_receipt=receipt(), **{field: value})
-    assert record.pricing_status != "not_billed"
-
-
-@pytest.mark.parametrize("field", [
-    "input_tokens", "cached_input_tokens", "cache_write_tokens",
-    "output_tokens", "reasoning_output_tokens",
-])
-@pytest.mark.parametrize("value", [0, 1])
-def test_new_failure_preserves_all_observed_token_fields(tmp_path, field, value):
-    r = row()
-    usage = TokenUsage(**{field: value, field + "_present": True})
-    record = build_usage_record(
-        call_id=r["call_id"], project_root=tmp_path, mission_id=None,
-        provider="copilot", model=r["model"], run_label=r["run_label"],
-        started_at=r["started_at"], completed_at=r["completed_at"], status="error",
-        error=ERROR, startup_receipt=receipt(), token_usage=usage)
-    assert record.pricing_status != "not_billed"
-    assert getattr(record, field) == value

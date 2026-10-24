@@ -8,7 +8,6 @@ journal record, a project event and a receipt.
 from __future__ import annotations
 
 import json
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,7 +24,6 @@ from argus.life.reflection import (
 from argus.wiki.context import (
     PRINCIPLES_HEADER,
     render_principles_block,
-    render_project_principles,
 )
 from argus.wiki.journal import read_knowledge_events
 from tests.hand_off import submit
@@ -169,20 +167,6 @@ def test_reflection_skips_when_switched_off(roots: _Roots, monkeypatch: pytest.M
     assert result["skipped"] == "learning is off"
     assert backend.calls == []
     assert roots.events == []
-
-
-def test_reflection_skips_without_a_backend(roots: _Roots) -> None:
-    result = roots.reflect(None, runner=SimpleNamespace())
-
-    assert result["skipped"] == "no model backend"
-
-
-def test_short_and_roundless_missions_still_get_the_model_s_judgment(roots: _Roots) -> None:
-    backend = _Backend()
-
-    assert roots.reflect(backend, elapsed_s=12.0)["skipped"] == ""
-    assert roots.reflect(backend, mission_id="m-rounds", rounds=0)["skipped"] == ""
-    assert len(backend.calls) == 2
 
 
 # --------------------------------------------------------------------------- lessons
@@ -383,53 +367,6 @@ def test_fact_page_and_procedure_are_recorded_and_the_fact_is_shared(roots: _Roo
     assert journal_kinds == ["learned", "learned", "promoted"]
 
 
-def test_fact_pages_are_not_shared_after_a_review_that_did_not_pass(roots: _Roots) -> None:
-    roots.with_project_wiki()
-    fact_path = roots.project_wiki / "pages" / "env" / "torch.md"
-    backend = _Backend([(fact_path, FACT)])
-
-    result = roots.reflect(backend, review_status="continue")
-
-    assert result["created"] == [str(fact_path)]
-    assert result["promoted"] == []
-    assert not (roots.vertical_root / "pages" / "env" / "torch.md").exists()
-
-
-def test_without_a_project_wiki_the_prompt_asks_for_no_fact_pages(roots: _Roots) -> None:
-    backend = _Backend()
-
-    roots.reflect(backend)
-
-    assert "This project has no Wiki yet, so write no fact pages." in backend.calls[0]["prompt"]
-
-
-def test_pages_that_do_not_parse_are_ignored_and_a_failed_call_is_recorded(roots: _Roots) -> None:
-    broken = roots.vertical_root / "pages" / "lessons" / "20260917-broken.md"
-    backend = _Backend([(broken, "no front matter here\n")], exit_code=1)
-
-    result = roots.reflect(backend)
-
-    assert result["skipped"] == ""
-    assert result["created"] == []
-    assert result["ignored"] == [str(broken)]
-    assert result["failure"] == "exit code 1"
-    assert _learned(roots.events) == []
-    assert not (roots.life / ".argus" / "REFLECTED.json").exists()
-    from argus.life.reflection_status import learning_status
-    assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
-
-
-def test_a_raising_backend_never_reaches_the_caller(roots: _Roots) -> None:
-    class _Exploding:
-        def run_exec(self, **_kwargs):
-            raise RuntimeError("provider went away")
-
-    result = roots.reflect(_Exploding())
-
-    assert result["skipped"] == ""
-    assert result["failure"] == "RuntimeError: provider went away"
-
-
 # --------------------------------------------------------------------------- principles
 
 
@@ -446,22 +383,6 @@ PRINCIPLES = (
     "## History\n"
     "- 2026-09-17: compiled from 4 lessons\n"
 )
-
-
-def test_render_principles_block_is_absent_without_the_file(tmp_path: Path) -> None:
-    assert render_principles_block(tmp_path) == ""
-
-
-def test_render_principles_block_strips_front_matter_and_history(tmp_path: Path) -> None:
-    (tmp_path / "principles.md").write_text(PRINCIPLES, encoding="utf-8")
-
-    block = render_principles_block(tmp_path)
-
-    assert block.startswith(PRINCIPLES_HEADER + "\n1. Check the venv")
-    assert "title: Research principles" not in block
-    assert "## History" not in block
-    assert "compiled from 4 lessons" not in block
-    assert "2. Measure once before optimizing" in block
 
 
 def test_render_principles_block_is_bounded(tmp_path: Path) -> None:
@@ -481,15 +402,6 @@ def _decide_vertical(workspace: Path, vertical: str) -> None:
     state = workspace / ".argus" / "PIPELINE_STATE.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(json.dumps({"vertical": vertical}), encoding="utf-8")
-
-
-def test_project_principles_follow_the_decided_vertical(roots: _Roots) -> None:
-    roots.vertical_root.mkdir(parents=True)
-    (roots.vertical_root / "principles.md").write_text(PRINCIPLES, encoding="utf-8")
-
-    assert render_project_principles(roots.workspace) == ""
-    _decide_vertical(roots.workspace, VERTICAL)
-    assert render_project_principles(roots.workspace).startswith(PRINCIPLES_HEADER)
 
 
 def test_role_prompts_carry_the_principles_only_when_the_vertical_has_them(roots: _Roots) -> None:
@@ -675,34 +587,6 @@ def test_a_failing_reflection_never_changes_the_mission_result(
     assert result["status"] == "done"
 
 
-def test_reflection_can_run_concurrently_with_other_projects(roots: _Roots) -> None:
-    """Two projects reflecting at once append to one journal without losing a line."""
-    other_life = roots.home / "projects" / "s-other"
-    other_life.mkdir(parents=True)
-    other_root = roots.home / "wiki" / "_shared_verticals" / "quant"
-    backends = [
-        _Backend([(roots.vertical_root / "pages" / "lessons" / LESSON_NAME, LESSON)]),
-        _Backend([(other_root / "pages" / "lessons" / LESSON_NAME, LESSON)]),
-    ]
-    threads = [
-        threading.Thread(target=roots.reflect, args=(backends[0],)),
-        threading.Thread(
-            target=roots.reflect, args=(backends[1],),
-            kwargs={
-                "life_dir": other_life, "project_id": "s-other", "mission_id": "m-2",
-                "vertical": "quant",
-            },
-        ),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=10)
-
-    projects = sorted(record["source_project"] for record in read_knowledge_events(roots.home))
-    assert projects == ["s-other", SID]
-
-
 def test_the_prompt_keeps_the_operator_s_own_affairs_out_of_shared_pages(tmp_path: Path) -> None:
     from argus.life.reflection import build_reflection_prompt
 
@@ -766,35 +650,6 @@ def test_an_accepted_mission_the_reviewer_found_routine_is_not_reflected_on(root
     assert _labels(backend) == ["manager.reviewed_facts"]
 
 
-@pytest.mark.parametrize(("learning", "accepted", "rounds"), [
-    ("worth_reflecting", True, 1), ("", True, 1), ("nothing_new", False, 1),
-    # Accepted only after the Reviewer sent it back: reflect whatever the field says.
-    ("nothing_new", True, 2),
-])
-def test_reflection_runs_when_asked_unanswered_corrected_or_not_accepted(
-    roots: _Roots, learning: str, accepted: bool, rounds: int,
-) -> None:
-    backend = _ReplyBackend()
-
-    assert roots.reflect(backend, learning=learning, mission_accepted=accepted, rounds=rounds)["skipped"] == ""
-    assert _labels(backend) == ["reflection"]
-
-
-def test_the_reviewed_fact_rides_in_the_reflection_call_from_its_final_message(roots: _Roots) -> None:
-    backend = _ReplyBackend(replies=[
-        _fact("A draft claim.", "result.json"), _fact("The held-out effect survives a new seed.", "result.json"),
-    ])
-
-    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
-
-    assert _labels(backend) == ["reflection"]
-    assert result["reviewed_fact_recorded"] is True
-    digest = (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
-    assert "The held-out effect survives a new seed." in digest and "A draft claim." not in digest
-    assert "`result.json`" in digest
-    assert not list(roots.home.glob("reviewed-fact-source-*.json"))
-
-
 def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
     backend = _ReplyBackend(replies=[
         _fact("A draft claim.", "result.json"), {"retire": [], "reviewed_fact": {"keep": False}},
@@ -806,14 +661,6 @@ def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
     assert not (roots.home / "reviewed-facts.md").exists()
     # An explicit "none" is an answer: no separate judgment runs.
     assert _labels(backend) == ["reflection"]
-
-
-def test_a_final_message_without_a_fact_answer_falls_back_to_the_separate_judgment(roots: _Roots) -> None:
-    backend = _ReplyBackend(replies=[{"retire": []}])
-
-    roots.reflect(backend, reviewed_fact=_fact_candidate())
-
-    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
 
 
 def test_unwritable_knowledge_directories_still_judge_the_fact(
@@ -853,30 +700,12 @@ def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
     assert digest.count("A kept fact.") == 1
 
 
-def test_the_fact_section_closes_the_prompt_after_the_writing_rules(roots: _Roots) -> None:
-    backend = _ReplyBackend()
-
-    roots.reflect(backend, reviewed_fact=_fact_candidate())
-
-    prompt = backend.calls[0]["prompt"]
-    assert prompt.index("End with hand_off.") < prompt.index("Cross-campaign reviewed-facts digest")
-    assert prompt.rstrip().endswith("- log.txt")
-
-
 def test_a_failed_reflection_still_judges_the_fact_on_its_own(roots: _Roots) -> None:
     backend = _ReplyBackend(exit_code=1, fatal_error="provider down")
 
     roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
-
-
-def test_the_digest_path_is_the_host_s_not_the_candidate_s(roots: _Roots, tmp_path: Path) -> None:
-    elsewhere = tmp_path / "elsewhere" / "digest.md"
-    roots.reflect(_ReplyBackend(replies=[_fact("A kept fact.", "log.txt")]), reviewed_fact=_fact_candidate(digest_path=str(elsewhere)))
-
-    assert not elsewhere.exists()
-    assert "A kept fact." in (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
 
 
 def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:

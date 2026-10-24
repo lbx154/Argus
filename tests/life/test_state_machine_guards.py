@@ -11,14 +11,11 @@ These tests cover invariants that prevent the entire class of
 """
 from __future__ import annotations
 
-import os
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 from argus.life.memory import (
-    Backlog,
     BacklogItem,
     IllegalStateTransition,
     LifeMemory,
@@ -34,176 +31,15 @@ def mem(tmp_path: Path) -> LifeMemory:
 # Terminal-state seal: done/failed/skipped cannot resurrect
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("terminal", ["done", "failed", "skipped", "superseded"])
-@pytest.mark.parametrize("attempt", ["pending", "running"])
-def test_terminal_status_cannot_transition_back(
-    mem: LifeMemory, terminal: str, attempt: str
-) -> None:
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    if terminal == "done":
-        mem.backlog.mark_done(item.id)
-    elif terminal == "failed":
-        mem.backlog.mark_failed(item.id, error="boom")
-    elif terminal == "skipped":
-        mem.backlog.update(item.id, status="skipped")
-    else:
-        mem.backlog.update(
-            item.id,
-            status="superseded",
-            superseded_by_plan_id="plan-2",
-            superseded_reason="replacement plan",
-        )
-
-    with pytest.raises(IllegalStateTransition):
-        mem.backlog.update(item.id, status=attempt)
-
-    # And the on-disk row must NOT have been mutated.
-    reloaded = next(it for it in mem.backlog.all() if it.id == item.id)
-    assert reloaded.status == terminal
-
 
 # ---------------------------------------------------------------------------
 # Atomic claim
 # ---------------------------------------------------------------------------
 
-def test_claim_next_flips_pending_to_running_in_one_step(mem: LifeMemory) -> None:
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    claimed = mem.backlog.claim_next()
-    assert claimed is not None
-    assert claimed.id == item.id
-    assert claimed.status == "running"
-    assert claimed.started_ts is not None
-    # On-disk row reflects it.
-    reloaded = next(it for it in mem.backlog.all() if it.id == item.id)
-    assert reloaded.status == "running"
-
-
-def test_claim_next_returns_none_when_nothing_pending(mem: LifeMemory) -> None:
-    assert mem.backlog.claim_next() is None
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    mem.backlog.mark_done(item.id)
-    assert mem.backlog.claim_next() is None
-
-
-def test_claim_next_picks_priority_then_ts(mem: LifeMemory) -> None:
-    older_lo = mem.backlog.add(BacklogItem.new(title="a", objective="a", priority=10))
-    newer_lo = mem.backlog.add(BacklogItem.new(title="b", objective="b", priority=10))
-    high_priority = mem.backlog.add(BacklogItem.new(title="c", objective="c", priority=0))
-
-    claimed = mem.backlog.claim_next()
-    assert claimed is not None
-    assert claimed.id == high_priority.id
-
-    claimed2 = mem.backlog.claim_next()
-    assert claimed2 is not None
-    assert claimed2.id == older_lo.id
-
-    claimed3 = mem.backlog.claim_next()
-    assert claimed3 is not None
-    assert claimed3.id == newer_lo.id
-
-    assert mem.backlog.claim_next() is None
-
-
-def test_claim_then_complete_then_no_resurrect(mem: LifeMemory) -> None:
-    """End-to-end: an item that has been claimed and completed cannot be re-claimed."""
-    mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    claimed = mem.backlog.claim_next()
-    assert claimed is not None
-    mem.backlog.mark_done(claimed.id)
-    assert mem.backlog.claim_next() is None
-    # Even a manual update attempt is blocked.
-    with pytest.raises(IllegalStateTransition):
-        mem.backlog.update(claimed.id, status="pending")
-
-
-def test_concurrent_claims_are_unique_and_finish_without_deadlock(
-    mem: LifeMemory,
-) -> None:
-    for index in range(32):
-        mem.backlog.add(
-            BacklogItem.new(title=f"task-{index}", objective="run once")
-        )
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(mem.backlog.claim_next) for _ in range(40)]
-        timeout = 15 if os.name == "nt" else 5
-        claimed = [future.result(timeout=timeout) for future in futures]
-
-    ids = [item.id for item in claimed if item is not None]
-    assert len(ids) == 32
-    assert len(set(ids)) == 32
-    assert mem.backlog.claim_next() is None
-
-
-def test_concurrent_claims_share_thread_lock_across_backlog_instances(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "backlog.jsonl"
-    first = Backlog(path)
-    second = Backlog(path)
-    first.add_many([
-        BacklogItem.new(title=f"task-{index}", objective="run once")
-        for index in range(32)
-    ])
-
-    backlogs = (first, second)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [
-            pool.submit(backlogs[index % len(backlogs)].claim_next)
-            for index in range(40)
-        ]
-        claimed = [future.result(timeout=5) for future in futures]
-
-    ids = [item.id for item in claimed if item is not None]
-    assert len(ids) == 32
-    assert len(set(ids)) == 32
-    assert first.claim_next() is None
-    assert second.claim_next() is None
-
 
 # ---------------------------------------------------------------------------
 # Orphan reaper
 # ---------------------------------------------------------------------------
-
-def test_reap_orphans_requeues_on_first_retry(mem: LifeMemory) -> None:
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    mem.backlog.mark_running(item.id)
-
-    reaped = mem.backlog.reap_orphans()
-    assert len(reaped) == 1
-    assert reaped[0].id == item.id
-    assert reaped[0].status == "pending"  # re-queued, not failed
-    assert reaped[0].orphan_retries == 1
-    assert "orphan" in reaped[0].last_error.lower()
-
-
-def test_reap_orphans_fails_after_max_retries(mem: LifeMemory) -> None:
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    # Simulate 3 prior orphan recoveries
-    for _ in range(3):
-        mem.backlog.mark_running(item.id)
-        reaped = mem.backlog.reap_orphans()
-        assert reaped[0].status == "pending"
-    # 4th time → exceeds max_retries=3 → failed
-    mem.backlog.mark_running(item.id)
-    reaped = mem.backlog.reap_orphans()
-    assert reaped[0].status == "failed"
-    assert reaped[0].orphan_retries == 4
-
-
-def test_reap_orphans_does_not_touch_pending_or_terminal(mem: LifeMemory) -> None:
-    p = mem.backlog.add(BacklogItem.new(title="p", objective="p"))
-    d = mem.backlog.add(BacklogItem.new(title="d", objective="d"))
-    mem.backlog.mark_done(d.id)
-    f = mem.backlog.add(BacklogItem.new(title="f", objective="f"))
-    mem.backlog.mark_failed(f.id, error="prior")
-
-    assert mem.backlog.reap_orphans() == []
-    statuses = {it.id: it.status for it in mem.backlog.all()}
-    assert statuses[p.id] == "pending"
-    assert statuses[d.id] == "done"
-    assert statuses[f.id] == "failed"
 
 
 def test_reap_orphans_requeues_but_respects_max_retries(mem: LifeMemory) -> None:

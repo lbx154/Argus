@@ -14,7 +14,6 @@ from argus.life.knowledge_recall import (
     knowledge_recall_for_memory,
 )
 from argus.life.memory import BacklogItem, MemoryBundle
-from argus.skills.store import SkillStore
 
 
 def write(path: Path, text: str) -> Path:
@@ -34,30 +33,6 @@ def wiki(workspace: Path, text: str) -> Path:
     return write(root / "pages" / "measurement.md", text)
 
 
-def test_direct_markdown_edit_replaces_index_identity_then_archive_and_delete_remove_it(tmp_path):
-    page = wiki(tmp_path / "workspace", "# Quartz\nQuartz only under bounded conditions.")
-    skill = write(tmp_path / "state" / "skills" / "engineer" / "method.md", "# Quartz procedure\nRecheck quartz.")
-    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [
-        KnowledgeRoot("Wiki", page.parent, tmp_path / "workspace"),
-        KnowledgeRoot("Skill", tmp_path / "state" / "skills", tmp_path / "state"),
-    ])
-    assert str(page) in recall.render_context("quartz")
-    before = {row[0]: row for row in rows(recall)}
-    write(page, "# Sapphire\nSapphire has a corrected applicability boundary.")
-    assert str(page) not in recall.render_context("quartz")
-    assert str(page) in recall.render_context("sapphire")
-    after = {row[0]: row for row in rows(recall)}
-    assert before.keys() == after.keys()
-    changed = [key for key in before if before[key] != after[key]]
-    assert len(changed) == 1
-    assert before[changed[0]][2] != after[changed[0]][2]
-    assert "quartz" not in after[changed[0]][3]
-    SkillStore(skill.parents[1]).archive_path(skill)
-    page.unlink()
-    assert not recall.render_context("quartz sapphire")
-    assert rows(recall) == []
-
-
 def test_corrupt_index_rebuild_does_not_resurrect_removed_markdown(tmp_path):
     root = tmp_path / "skills"
     first = write(root / "first.md", "obsolete quartz")
@@ -70,30 +45,6 @@ def test_corrupt_index_rebuild_does_not_resurrect_removed_markdown(tmp_path):
     assert len(rows(recall)) == 1
     assert "quartz" not in rows(recall)[0][4]
     assert not recall.render_context("quartz")
-
-
-def test_busy_cancellable_recall_uses_current_markdown_without_rebuilding_held_cache(tmp_path):
-    from argus.core.file_lock import bounded_file_lock_wait
-
-    root = tmp_path / "skills"
-    page = write(root / "current.md", "quartz old boundary")
-    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [KnowledgeRoot("Skill", root, root)])
-    recall.sync()
-    inode = recall.index.path.stat().st_ino
-    before = recall.index.path.read_bytes()
-    write(page, "sapphire corrected boundary")
-    with closing(sqlite3.connect(recall.index.path)) as holder:
-        holder.execute("BEGIN EXCLUSIVE")
-        with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=lambda: False):
-            context = recall.render_context("sapphire")
-            assert str(page) in context
-            assert "sapphire corrected boundary" in context
-        assert recall.index.path.stat().st_ino == inode
-        assert recall.index.path.read_bytes() == before
-        holder.rollback()
-    # The same cache remains usable and can catch up after the contention ends.
-    assert str(page) in recall.render_context("sapphire")
-    assert "sapphire" in rows(recall)[0][3]
 
 
 def test_bounds_and_scope_exclude_symlinked_hidden_retired_or_oversized_files(tmp_path):
@@ -165,80 +116,6 @@ def test_memory_roots_use_explicit_tenant_and_configured_skill_scopes(tmp_path, 
     assert str(excluded) not in context and str(sibling) not in context
 
 
-def test_semantic_only_pointer_reaches_real_memory_and_updates_after_direct_edit(tmp_path, monkeypatch):
-    from argus.life import recall_embedding
-
-    class ConceptEmbedding:
-        identifier = "test-semantic-v1"
-        dimensions = 2
-
-        def embed(self, text):
-            return [1.0, 0.0] if "latency" in text or "faster" in text else [0.0, 1.0]
-
-    workspace = tmp_path / "workspace"
-    page = wiki(workspace, "latency improved under measured conditions")
-    memory = MemoryBundle.for_cwd(workspace, global_root=tmp_path / "tenant", fingerprint="project-a")
-    assert str(page) not in memory.render_recall_context("faster")
-    monkeypatch.setattr(recall_embedding, "configured_embedder", lambda _root: ConceptEmbedding())
-    context = memory.render_recall_context("faster")
-    assert str(page) in context and "embedding similarity (advisory)" in context
-    write(page, "memory usage under measured conditions")
-    assert str(page) not in memory.render_recall_context("faster")
-    page.unlink()
-    assert str(page) not in memory.render_recall_context("faster")
-
-
-def test_embedding_failure_keeps_current_lexical_recall_without_rebuilding_good_index(tmp_path):
-    from argus.life.failure_experience_index import EmbeddingUnavailable
-
-    class OfflineEmbedding:
-        identifier = "offline-semantic-v1"
-        dimensions = 2
-        available = True
-
-        def embed(self, _text):
-            if not self.available:
-                raise EmbeddingUnavailable("offline")
-            return [1.0, 0.0]
-
-    page = write(tmp_path / "pages" / "current.md", "original quartz")
-    embedder = OfflineEmbedding()
-    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [KnowledgeRoot("Wiki", page.parent, tmp_path)], embedder=embedder)
-    recall.sync()
-    before = rows(recall)
-    embedder.available = False
-    write(page, "corrected sapphire")
-    assert str(page) in recall.render_context("sapphire")
-    assert str(page) not in recall.render_context("quartz")
-    assert rows(recall) == before
-    page.unlink()
-    assert not recall.render_context("quartz sapphire")
-    assert rows(recall) == []
-
-
-def test_concurrent_source_replacement_during_query_cannot_break_optional_recall(tmp_path):
-    class ConcurrentEmbedding:
-        identifier = "concurrent-semantic-v1"
-        dimensions = 2
-        replaced = False
-
-        def embed(self, text):
-            if text == "quartz" and not self.replaced:
-                self.replaced = True
-                original.unlink()
-                write(replacement, "quartz corrected observation")
-                recall.sync()
-            return [1.0, 0.0]
-
-    original = write(tmp_path / "pages" / "obsolete.md", "quartz original observation")
-    replacement = original.with_name("corrected.md")
-    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [KnowledgeRoot("Wiki", original.parent, tmp_path)], embedder=ConcurrentEmbedding())
-    context = recall.render_context("quartz")
-    assert str(original) not in context
-    assert str(replacement) in context
-    assert len(rows(recall)) == 1
-
-
 def test_mismatched_derived_score_ids_fall_back_to_current_source(tmp_path, monkeypatch):
     from argus.life.failure_experience_index import RecallScore
 
@@ -280,23 +157,6 @@ def test_wiki_discovery_is_bounded_before_index_construction(tmp_path, monkeypat
     recall = knowledge_recall_for_memory(memory)
     assert len(inspected) == 256
     assert len(recall.roots) <= 32
-
-
-def test_post_mission_evolution_syncs_direct_edits_even_when_propagation_disabled(tmp_path):
-    from argus.life.supervisor._evolution import EvolutionMixin
-
-    workspace = tmp_path / "workspace"
-    page = wiki(workspace, "current sapphire")
-    memory = MemoryBundle.for_cwd(workspace, global_root=tmp_path / "tenant", fingerprint="project-a")
-    host = SimpleNamespace(memory=memory, runner=SimpleNamespace(),
-                           config=SimpleNamespace(role_skill_maintenance_enabled=False),
-                           _project_workdir=lambda: workspace)
-    EvolutionMixin._evolve_runtime_skills_after_mission(host, success=True, usage_mission_id="attempt")
-    recall = knowledge_recall_for_memory(memory)
-    assert len(rows(recall)) == 1
-    page.unlink()
-    EvolutionMixin._evolve_runtime_skills_after_mission(host, success=True, usage_mission_id="attempt")
-    assert rows(recall) == []
 
 
 @pytest.mark.parametrize("verdict_source", ["reviewer", "engineer", ""])

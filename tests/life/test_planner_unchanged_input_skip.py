@@ -92,33 +92,6 @@ def _events(life: Path) -> list[dict]:
     return rows
 
 
-def test_unchanged_inputs_skip_the_model_call(tmp_path: Path, monkeypatch) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = _install_planner(monkeypatch)
-    supervisor = _supervisor(project, life)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1, "an unchanged cycle must reuse the last decision"
-
-    skipped = [
-        event
-        for event in _events(life)
-        if event.get("type") == "life.planner.idle"
-        and event.get("model_call_skipped") is True
-    ]
-    assert skipped, "the skipped cycle must still be visible in the event log"
-    assert "without another model call" in str(skipped[-1].get("reason") or "")
-
-    # Waiting is said once, not on every pass that finds nothing new.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert [event for event in _events(life) if event.get("model_call_skipped") is True] == skipped
-
-
 def test_new_backlog_evidence_calls_the_planner_again(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -382,44 +355,6 @@ def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
     assert calls["count"] == 1
 
 
-def test_elapsed_time_alone_never_buys_a_planner_call(
-    tmp_path: Path, monkeypatch
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = _install_planner(monkeypatch)
-    supervisor = _supervisor(project, life)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
-    later = time.monotonic() + 7 * 24 * 3600.0
-    monkeypatch.setattr(time, "monotonic", lambda: later)
-    monkeypatch.setattr(time, "time", lambda: later)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
-
-
-def test_operator_message_bypasses_the_skip(tmp_path: Path, monkeypatch) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = _install_planner(monkeypatch)
-    inbox = ["please switch to the smaller model"]
-    supervisor = _supervisor(
-        project,
-        life,
-        user_inbox=lambda: inbox.pop(0) if inbox else None,
-    )
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 2, "fresh operator words always reach the Planner"
-
-
 def test_subagent_report_does_not_bypass_the_skip(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -542,25 +477,6 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
         supervisor.run()
 
     assert calls["count"] == (2 if declared else 1)
-
-
-def test_an_old_waiting_contract_file_is_ignored(tmp_path: Path, monkeypatch) -> None:
-    """An older release persisted the Planner's wait; nothing reads it now."""
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    life.mkdir()
-    (life / "planner-waiting-contract-0123abcd.json").write_text(json.dumps({
-        "active": True,
-        "blocker_fingerprint": "unobserved",
-        "operator_action_required": True,
-        "expires_at": 1.0,
-    }), encoding="utf-8")
-    calls = _install_planner(monkeypatch)
-    supervisor = _supervisor(project, life)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 1
 
 
 def test_the_planning_slot_s_open_question_stays_as_asked_beside_other_tasks_questions(

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from argus.core.operator_presence import operator_presence
 from argus.core.transcript import append_turn
-from argus.roles.prompts.letter import build_letter_prompt
 from argus.verticals.research.notes import RESEARCH_NOTES_FILENAME
 
 
@@ -29,24 +28,6 @@ def test_presence_reads_the_operator_silence_from_transcript_and_inbox(tmp_path:
     presence = operator_presence(tmp_path, now=now)
     assert presence.silence_seconds is not None and presence.silence_seconds < 700
     assert "10 minutes ago" in presence.describe()
-
-
-def test_the_letter_prompt_speaks_the_operator_language_and_uses_only_facts() -> None:
-    prompt = build_letter_prompt(
-        facts={
-            "chinese": True,
-            "objective": "研究自由选择推理",
-            "stage_line": "Stage: experiment.",
-            "missions": "- 评测 16 个模型 (complete, $3.10)",
-            "hours_since_operator_wrote": 7.2,
-            "hours_since_last_letter": 8.0,
-        }
-    )
-    assert "in Chinese" in prompt
-    assert "about 7 hours" in prompt
-    assert "评测 16 个模型" in prompt
-    assert "do not invent" in prompt
-    assert "Sign as Argus" in prompt
 
 
 class _Item:

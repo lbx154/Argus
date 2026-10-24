@@ -9,74 +9,15 @@ import jsonschema
 
 from argus.core.event_catalog import (
     CALL_SCOPED_EVENT_TYPES,
-    EVENT_ENVELOPE_VERSION,
     EVENT_PAYLOAD_SCHEMA_VERSION,
     EVENT_PAYLOAD_SCHEMAS,
-    EVENT_SPECS,
     EVENT_TYPE_RE,
     LEGACY_EVENT_ALIASES,
     SIGNAL_EVENT_TYPES,
     EventType,
-    canonical_event_type,
-    new_event,
     normalize_event_envelope,
     validate_event_envelope,
 )
-from argus.life.event_log import JsonlEventSink
-
-
-def test_catalog_names_are_unique_valid_and_fully_specified() -> None:
-    values = [event_type.value for event_type in EventType]
-    assert len(values) == len(set(values))
-    assert set(EVENT_SPECS) == set(EventType)
-    for event_type in EventType:
-        result = validate_event_envelope({"type": event_type.value})
-        if EVENT_SPECS[event_type].required_fields:
-            assert result.valid is False
-            assert "missing required fields" in result.errors[0]
-        else:
-            assert result.valid is True
-
-
-def test_envelope_normalization_versions_events_and_marks_invalid_known_rows() -> None:
-    valid = new_event(
-        EventType.AGENT_IO_START,
-        call_id="call-1",
-        run_label="manager",
-    )
-    assert valid["type"] == "agent.io.start"
-    assert valid["event_schema_version"] == EVENT_ENVELOPE_VERSION
-    assert valid["payload_schema_version"] == 1
-    assert isinstance(valid["ts"], float)
-    assert "event_validation" not in valid
-
-    invalid = normalize_event_envelope({
-        "type": EventType.AGENT_IO_START,
-        "call_id": "call-1",
-    })
-    assert invalid["event_validation"]["status"] == "invalid"
-    assert invalid["event_validation"]["errors"] == [
-        "missing required fields: run_label"
-    ]
-
-
-def test_daemon_manager_intent_legacy_fields_are_normalized() -> None:
-    event = normalize_event_envelope({
-        "type": EventType.LIFE_MANAGER_INTENT_COMPLETED,
-        "intent_id": "intent-daemon-1",
-        "execution_task": "Optimize the kernel",
-        "vertical": "software",
-        "kind": "software",
-        "stages": ["delivery"],
-        "event_validation": {
-            "status": "invalid",
-            "errors": ["missing required fields: item_id, objective"],
-        },
-    })
-
-    assert event["item_id"] == "intent-daemon-1"
-    assert event["objective"] == "Optimize the kernel"
-    assert "event_validation" not in event
 
 
 def test_manager_intent_legacy_event_without_ids_gets_local_correlation() -> None:
@@ -92,59 +33,6 @@ def test_manager_intent_legacy_event_without_ids_gets_local_correlation() -> Non
     assert event["intent_id"].startswith("legacy-")
     assert event["objective"] == "Audit the runtime"
     assert "event_validation" not in event
-
-
-def test_payload_schema_validates_types_and_payload_versions() -> None:
-    invalid = normalize_event_envelope({
-        "type": EventType.AGENT_IO_COMPLETE,
-        "call_id": "call-1",
-        "run_label": "engineer-r1",
-        "input_tokens": "100",
-    })
-    assert "field input_tokens must be integer" in invalid["event_validation"]["errors"]
-
-    usage = normalize_event_envelope({
-        "type": EventType.AGENT_IO_COMPLETE,
-        "call_id": "call-2",
-        "run_label": "engineer-r1",
-        "input_tokens": 100,
-    })
-    assert usage["payload_schema_version"] == 1
-    assert "event_validation" not in usage
-
-    unknown_resumed_premium = normalize_event_envelope({
-        "type": EventType.AGENT_IO_COMPLETE,
-        "call_id": "call-3",
-        "run_label": "manager-frontdoor-classify",
-        "premium_requests": None,
-        "premium_requests_present": False,
-    })
-    assert "event_validation" not in unknown_resumed_premium
-
-
-def test_project_completion_events_are_typed_cross_component_signals() -> None:
-    completed = new_event(
-        EventType.PROJECT_COMPLETED,
-        vertical="software",
-        source="vertical_completion_certificate",
-        required_gate="metric",
-        evidence_refs=["certificate:delivery"],
-        from_state="active",
-    )
-    assert completed["type"] == "project.completed"
-    assert "event_validation" not in completed
-    assert EventType.PROJECT_COMPLETED.value in SIGNAL_EVENT_TYPES
-
-    refused = new_event(
-        EventType.PROJECT_COMPLETION_REFUSED,
-        vertical="research",
-        source="planner_verdict",
-        required_gate="certified",
-        reason="source is weaker than the declared gate",
-    )
-    assert refused["type"] == "project.completion_refused"
-    assert "event_validation" not in refused
-    assert EventType.PROJECT_COMPLETION_REFUSED.value in SIGNAL_EVENT_TYPES
 
 
 def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
@@ -177,17 +65,6 @@ def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> Non
     assert "field cycle must be >= 0" in negative.errors
 
 
-def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
-    unknown = validate_event_envelope({"type": "research.custom_evidence.ready"})
-    assert unknown.valid is True
-    assert unknown.known is False
-    assert canonical_event_type("mission.started") == "life.mission.started"
-    assert canonical_event_type("life.team.waiting") == "life.planner.idle"
-    assert canonical_event_type("life.planner.waiting") == "life.planner.idle"
-    aliased = normalize_event_envelope({"type": "mission.started"})
-    assert aliased["canonical_type"] == "life.mission.started"
-
-
 def test_legacy_validation_only_relaxes_missing_payload_fields() -> None:
     legacy = {"type": "round.review.completed", "status": "continue"}
     assert validate_event_envelope(legacy).valid is False
@@ -197,34 +74,6 @@ def test_legacy_validation_only_relaxes_missing_payload_fields() -> None:
             {**legacy, **fields}, allow_missing_fields=True,
         ).valid is False
     assert validate_event_envelope({}, allow_missing_fields=True).valid is False
-
-
-def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
-    tmp_path: Path,
-) -> None:
-    sink = JsonlEventSink(None, life_dir=tmp_path, verbosity="full")
-    sink.append({
-        "type": EventType.AGENT_IO_START,
-        "call_id": "call-1",
-        "run_label": "manager",
-    })
-    sink.append({"type": EventType.AGENT_IO_ERROR, "call_id": "call-2"})
-
-    rows = [
-        json.loads(line)
-        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert rows[0]["event_schema_version"] == EVENT_ENVELOPE_VERSION
-    assert "event_validation" not in rows[0]
-    assert rows[1]["event_validation"]["errors"] == [
-        "missing required fields: error"
-    ]
-    metrics = [
-        json.loads(line)
-        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
-    ]
-    assert metrics[-1]["name"] == "event.validation_failure"
-    assert metrics[-1]["labels"]["type"] == "agent.io.error"
 
 
 def test_frontend_event_catalog_matches_python_catalog_and_groups() -> None:

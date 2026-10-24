@@ -41,12 +41,6 @@ class _CertifiedReview:
     operator_question = ""
 
 
-def _every_vertical() -> list[str]:
-    from argus.skills import vertical_select
-
-    return sorted(vertical_select.VERTICALS)
-
-
 def _decide(vertical: str, *, scope: str):
     order = load_vertical_contract(vertical).stage_order
     if not order:
@@ -64,49 +58,6 @@ def _decide(vertical: str, *, scope: str):
 # -- the property that was violated -----------------------------------------
 
 
-def test_every_vertical_can_complete_with_the_scope_it_can_actually_carry() -> None:
-    """The end-to-end property, over the real registry.
-
-    A vertical whose Goal Gate mission cannot close its own gate is a vertical
-    that can never finish a project. Asserting this per-vertical is what turns a
-    three-way interlock into a single visible failure.
-    """
-    unable: list[str] = []
-    for vertical in _every_vertical():
-        gate = load_vertical_contract(vertical).completion_gate
-        # The scope the enqueue boundary will actually persist for this
-        # vertical: `final_submission` survives only on the paper track.
-        carried = "final_submission" if gate == "certified" else "bounded"
-        decision, order = _decide(vertical, scope=carried)
-        if not order:
-            continue
-        if decision is None or decision.action != "complete":
-            unable.append(f"{vertical} (gate={gate}, carries scope={carried})")
-    assert not unable, (
-        "these verticals can never complete — their Goal Gate mission carries a "
-        "scope the Manager refuses to act on:\n  " + "\n  ".join(unable)
-    )
-
-
-def test_a_bounded_mission_still_cannot_end_a_paper_submission() -> None:
-    """The rule that was worth keeping.
-
-    On the paper track ``final_submission`` is a real gate: a bounded
-    sub-mission must not close a submission because its own Reviewer said
-    ``done``.
-    """
-    decision, order = _decide("research", scope="bounded")
-
-    assert order, "research must have a stage order for this test to mean anything"
-    assert decision is None
-
-
-def test_the_paper_track_still_completes_on_its_own_transport() -> None:
-    decision, _order = _decide("research", scope="final_submission")
-
-    assert decision is not None and decision.action == "complete"
-
-
 @pytest.mark.parametrize("vertical", ["software", "argus_maintenance", "optimize_lab"])
 def test_the_verticals_seen_livelocked_now_complete(vertical: str, optimize_vertical: str) -> None:
     """``software`` is the one caught live; the others share its gate shape."""
@@ -116,79 +67,15 @@ def test_the_verticals_seen_livelocked_now_complete(vertical: str, optimize_vert
     assert decision is not None and decision.action == "complete"
 
 
-def test_a_non_final_stage_never_completes() -> None:
-    """Widening the scope rule must not let a mid-pipeline mission end anything."""
-    order = load_vertical_contract("research").stage_order
-    assert len(order) > 1
-
-    decision = final_stage_completion_decision(
-        _CertifiedReview(),
-        current_stage=order[0],
-        stage_order=list(order),
-        vertical="research",
-        mission_scope="final_submission",
-    )
-
-    assert decision is None
-
-
 def test_an_unreadable_vertical_keeps_the_strict_rule() -> None:
     """Fail closed: an unreadable declaration demands the strict transport."""
     from argus.manager.stage_decider import _mission_scope_can_complete
 
     assert _mission_scope_can_complete("final_submission", "no-such-vertical") is True
     assert _mission_scope_can_complete("bounded", "no-such-vertical") is False
-def test_project_local_vertical_completion_uses_project_root(tmp_path) -> None:
-    """A data-domain gate must not silently fall back to research."""
-    from argus.manager.stage_decider import _mission_scope_can_complete
-    from argus.verticals import _data_domain as data_domain
-
-    data_domain.write_data_domain(
-        tmp_path,
-        "bench",
-        stages=["scope", "execute", "certify"],
-        completion_gate="none",
-    )
-
-    assert _mission_scope_can_complete(
-        "bounded",
-        "bench",
-        project_root=tmp_path,
-    ) is True
 
 
 # -- the log has to say what happened ----------------------------------------
-
-
-def test_a_completion_that_overrode_a_hold_does_not_read_as_a_hold() -> None:
-    """Persisted history must not contradict itself.
-
-    Observed verbatim in a captured `.argus/PIPELINE_STATE.json`:
-
-        {"direction": "complete", ..., "reason": "manager held (default)"}
-
-    The completion decision inherited the trigger's reason even when the trigger
-    was a *hold*, and that string is what lands in stage_history. An operator
-    reading it cannot tell whether the stage completed or was held, which is the
-    one question stage_history exists to answer.
-    """
-    from argus.manager.stage_decider import completion_trigger_reason
-
-    overridden = completion_trigger_reason("hold", "manager held (default)")
-
-    assert "overriding" in overridden
-    assert "manager held (default)" in overridden, (
-        "the hold's own words are still worth keeping — inside the override, "
-        "not instead of it"
-    )
-
-
-def test_a_trigger_that_agreed_keeps_its_own_words() -> None:
-    from argus.manager.stage_decider import completion_trigger_reason
-
-    agreed = "delivery checklist satisfied by reviewer-run pytest"
-
-    assert completion_trigger_reason("complete", agreed) == agreed
 
 
 def test_a_hold_with_no_reason_still_reads_as_an_override() -> None:

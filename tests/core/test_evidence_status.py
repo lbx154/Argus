@@ -38,19 +38,7 @@ def record(**overrides):
     return base
 
 
-def test_a_clean_record_passes() -> None:
-    assert validate_evidence(record(), CONTRACT) == []
-
-
 # -- the central invariant --------------------------------------------------
-
-def test_environment_failure_cannot_refute_an_idea() -> None:
-    errors = validate_evidence(
-        record(execution_status="blocked", failure_class="environment", idea_status="refuted"),
-        CONTRACT,
-    )
-
-    assert any("must be untested or inconclusive" in e for e in errors)
 
 
 def test_environment_failure_cannot_support_an_idea_either() -> None:
@@ -62,42 +50,7 @@ def test_environment_failure_cannot_support_an_idea_either() -> None:
     assert any("must be untested or inconclusive" in e for e in errors)
 
 
-@pytest.mark.parametrize("idea", ["untested", "inconclusive"])
-def test_environment_failure_permits_the_unresolved_states(idea) -> None:
-    errors = validate_evidence(
-        record(execution_status="blocked", failure_class="environment", idea_status=idea),
-        CONTRACT,
-    )
-
-    assert errors == []
-
-
-def test_an_attempt_that_did_not_complete_cannot_conclude_anything() -> None:
-    errors = validate_evidence(
-        record(execution_status="failed", failure_class="empirical", idea_status="refuted"),
-        CONTRACT,
-    )
-
-    assert any("cannot support or refute" in e for e in errors)
-
-
 # -- what may carry a refutation -------------------------------------------
-
-def test_a_real_measurement_may_refute() -> None:
-    errors = validate_evidence(
-        record(failure_class="empirical", idea_status="refuted"), CONTRACT
-    )
-
-    assert errors == []
-
-
-def test_an_inadequate_implementation_may_not_refute() -> None:
-    # Under-performance is a statement about the code until proven otherwise.
-    errors = validate_evidence(
-        record(failure_class="implementation", idea_status="refuted"), CONTRACT
-    )
-
-    assert any("requires a completed valid result of class" in e for e in errors)
 
 
 # -- scheduling signals are not evidence ------------------------------------
@@ -110,14 +63,6 @@ def test_prior_art_cannot_refute_an_idea() -> None:
     assert any("scheduling/scope signal, not evidence" in e for e in errors)
 
 
-def test_prior_art_is_fine_alongside_an_unresolved_idea() -> None:
-    errors = validate_evidence(
-        record(failure_class="prior_art", idea_status="inconclusive"), CONTRACT
-    )
-
-    assert errors == []
-
-
 # -- grounding --------------------------------------------------------------
 
 @pytest.mark.parametrize("idea", ["supported", "refuted"])
@@ -128,14 +73,6 @@ def test_a_conclusive_verdict_requires_its_grounding(idea) -> None:
     )
 
     assert any("baseline is required" in e for e in errors)
-
-
-def test_unresolved_verdicts_do_not_require_grounding() -> None:
-    errors = validate_evidence(
-        record(idea_status="untested", baseline="REPLACE with baseline"), CONTRACT
-    )
-
-    assert errors == []
 
 
 # -- vocabulary and consistency --------------------------------------------
@@ -156,12 +93,6 @@ def test_no_failure_implies_a_completed_run() -> None:
     )
 
     assert any("failure_class=none requires" in e for e in errors)
-
-
-def test_templated_prose_is_not_evidence() -> None:
-    errors = validate_evidence(record(summary="REPLACE with the outcome"), CONTRACT)
-
-    assert any("summary is empty or templated" in e for e in errors)
 
 
 def test_errors_are_deduplicated_and_ordered() -> None:

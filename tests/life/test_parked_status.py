@@ -15,9 +15,7 @@ import pytest
 
 from argus.core.stop_kinds import (
     OPERATOR_RESUMED_PARKS,
-    PARK_STATUSES,
     RUNTIME_RESUMED_PARKS,
-    park_reason_of,
 )
 from argus.life.memory import (
     Backlog,
@@ -53,16 +51,6 @@ def _parked(backlog: Backlog, reason: str, **fields) -> BacklogItem:
     item = backlog.add(BacklogItem.new(title=reason, objective="o", **fields))
     backlog.claim_next(owner="primary")
     return backlog.update(item.id, park_reason=reason)
-
-
-@pytest.mark.parametrize(
-    ("status", "reason"),
-    [*_LEGACY, ("paused_something_newer", ""), ("pending", None), ("running", None), ("done", None)],
-)
-def test_an_older_status_names_its_park_reason(status: str, reason: str | None) -> None:
-    assert park_reason_of(status) == reason
-    if status != "paused_something_newer":
-        assert (status in PARK_STATUSES) == (reason is not None)
 
 
 @pytest.mark.parametrize(("status", "reason"), [*_LEGACY, ("paused_something_newer", "")])

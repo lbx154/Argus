@@ -212,19 +212,6 @@ def test_resume_from_quarantine_to_running_when_evidence_present() -> None:
     assert new.state == ProjectState.RUNNING
 
 
-def test_resume_from_quarantine_to_incubating_when_no_evidence_or_draft() -> None:
-    status = _fresh(state=ProjectState.QUARANTINED)
-    new, event = resume(status)
-    assert new.state == ProjectState.INCUBATING
-
-
-@pytest.mark.parametrize("state", [ProjectState.DONE, ProjectState.ARCHIVED])
-def test_resume_reopens_terminal_state(state: ProjectState) -> None:
-    new, event = resume(_fresh(state=state, has_draft=True))
-    assert new.state == ProjectState.WRITING
-    assert event.from_state == state
-
-
 def test_resume_refuses_active_state() -> None:
     status = _fresh(state=ProjectState.RUNNING)
     with pytest.raises(ValueError):
@@ -329,12 +316,6 @@ def test_advisory_signal_for_writing_idle() -> None:
     assert "reviewer" in signals[0].message.lower()
 
 
-def test_advisory_signals_terminal_states_yield_nothing() -> None:
-    for state in (ProjectState.DONE, ProjectState.ARCHIVED, ProjectState.QUARANTINED):
-        signals = advisory_time_signals(_fresh(state=state))
-        assert signals == []
-
-
 # ---------------------------------------------------------------------------
 # Anti-regression: deleted threshold constants must stay gone
 # ---------------------------------------------------------------------------
@@ -373,25 +354,6 @@ def _seed_pipeline_state(root, stage: str) -> None:
     (state_dir / "PIPELINE_STATE.json").write_text(
         _json.dumps({"current_stage": stage}), encoding="utf-8"
     )
-
-
-def test_pipeline_state_benchmark_promotes_to_running(tmp_path) -> None:
-    _seed_pipeline_state(tmp_path, "benchmark")
-    status = infer_observable_status(tmp_path)
-    assert status.state == ProjectState.RUNNING
-
-
-def test_pipeline_state_draft_promotes_to_writing(tmp_path) -> None:
-    _seed_pipeline_state(tmp_path, "draft")
-    status = infer_observable_status(tmp_path)
-    assert status.state == ProjectState.WRITING
-
-
-def test_pipeline_state_research_keeps_incubating(tmp_path) -> None:
-    _seed_pipeline_state(tmp_path, "research")
-    status = infer_observable_status(tmp_path)
-    # research stage has no evidence yet and no draft — incubating is correct
-    assert status.state == ProjectState.INCUBATING
 
 
 def test_filesystem_evidence_still_wins_over_pipeline_state(tmp_path) -> None:

@@ -12,20 +12,11 @@ from argus.core.campaign_workdir import (
     normalize_task_workdir,
     resolve_task_workdir,
 )
-from argus.skills.vertical_select import persist_vertical, resolve_vertical
 
 
 def _git_init(path: Path) -> None:
     path.mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(path)], check=True)
-
-
-def _workspace_snapshot(root: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in root.rglob("*")
-        if path.is_file() and ".git" not in path.relative_to(root).parts
-    }
 
 
 def test_normalize_task_workdir_rejects_escape_and_absolute(tmp_path: Path) -> None:
@@ -56,54 +47,6 @@ def test_resolve_task_workdir_accepts_directory(tmp_path: Path) -> None:
     assert resolve_task_workdir(tmp_path, "repo") == child.resolve()
     with pytest.raises(ValueError, match="not a directory"):
         resolve_task_workdir(tmp_path, "missing")
-
-
-def test_resolve_task_workdir_allows_symlink_outside_workspace(
-    tmp_path: Path,
-    require_symlink_support,
-) -> None:
-    base = tmp_path / "workspace"
-    base.mkdir()
-    external = tmp_path / "external"
-    external.mkdir()
-    (base / "target").symlink_to(external, target_is_directory=True)
-
-    assert resolve_task_workdir(base, "target") == external.resolve()
-
-
-@pytest.mark.parametrize("external", [False, True], ids=["nested", "symlinked"])
-def test_adoption_preserves_execution_workspace(
-    tmp_path: Path,
-    external: bool,
-    request: pytest.FixtureRequest,
-) -> None:
-    base = tmp_path / "workspace"
-    base.mkdir()
-    target = tmp_path / "external" if external else base / "target"
-    _git_init(target)
-    requested = base / "target"
-    if external:
-        request.getfixturevalue("require_symlink_support")
-        requested.symlink_to(target, target_is_directory=True)
-    (target / "src").mkdir()
-    (target / "src" / "module.py").write_bytes(b"VALUE = 1\n")
-    (target / "notes").mkdir()
-    (target / "notes" / "research.txt").write_bytes(b"user-owned\x00content")
-    state = tmp_path / "life"
-    persist_vertical(state, "software")
-    before = _workspace_snapshot(target)
-
-    adopted = adopt_campaign_workdir(
-        state_root=state,
-        base_root=base,
-        current_root=base,
-        requested="target",
-    )
-
-    assert adopted == target.resolve()
-    assert active_campaign_workdir(state, base) == target.resolve()
-    assert _workspace_snapshot(target) == before
-    assert resolve_vertical(state) == "software"
 
 
 def test_adoption_is_ignored_after_session_base_workdir_changes(

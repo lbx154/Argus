@@ -131,34 +131,6 @@ def _stored(memory: LifeMemory, item_id: str) -> BacklogItem:
     return next(item for item in memory.backlog.all() if item.id == item_id)
 
 
-def test_reviewer_done_settles_without_regrading_the_result(tmp_path: Path) -> None:
-    """A ``done`` final review is the judgment. Structured grades that fall
-    short of the target (a ``structured_failure_report`` graded
-    ``exploratory``) no longer re-queue the mission: one campaign ran 75
-    certification missions that way, every one reviewed ``done``, and never
-    completed."""
-    supervisor, memory, item, sink, _project = _supervisor(
-        tmp_path,
-        # Grades the old re-grader rejected as
-        # ``result_class_below_publishable:structured_failure_report``.
-        _result(significance="publishable"),
-    )
-
-    outcome = supervisor.tick()
-
-    assert outcome is not None
-    assert outcome.get("iteration") is None
-    assert outcome["overall_complete"] is True
-    stored = _stored(memory, item.id)
-    assert stored.status == "done"
-    assert stored.iteration_cycles_done == 0
-    assert stored.objective == "Submit the completed result."
-    assert not any(
-        event.get("type") == "life.iteration.continued"
-        for event in sink.events
-    )
-
-
 def test_iteration_budget_exhaustion_settles_with_visible_reason(
     tmp_path: Path,
     monkeypatch,

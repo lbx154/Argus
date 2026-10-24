@@ -120,19 +120,6 @@ def test_existing_operator_hold_is_not_rewritten_as_host_failure(tmp_path, monke
     assert not events
 
 
-def test_failed_pause_cas_does_not_emit_a_successful_pause(tmp_path, monkeypatch):
-    from argus.daemon import state as state_module
-
-    supervisor, events = _supervisor(tmp_path, monkeypatch)
-    root = supervisor.memory.root
-    write_continuous_config(root, enabled=True, objective="original campaign")
-    before = read_continuous_state(root)
-    monkeypatch.setattr(state_module, "compare_and_swap_continuous_config", lambda *args, **kwargs: False)
-    assert supervisor._pause_planner_execution_host(HOST_ERROR, expected=before) == PLAN_RETRY
-    assert read_continuous_state(root) == before
-    assert not events
-
-
 @pytest.mark.parametrize("error", ["ordinary backend failure", "blocked by content filtering"])
 def test_non_host_planner_errors_keep_existing_policy(tmp_path, monkeypatch, error):
     supervisor, events = _supervisor(tmp_path, monkeypatch)

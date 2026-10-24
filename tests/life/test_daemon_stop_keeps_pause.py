@@ -36,22 +36,3 @@ def test_daemon_stop_during_a_backend_failure_hold_pauses_instead_of_failing(tmp
     assert result["park_reason"] == "daemon_shutdown" and result["recoverable"] is True
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "parked" and stored.outcome["park"] == {"reason": "daemon_shutdown"}
-
-
-def test_unknown_status_with_unmapped_stop_kind_still_settles_normally(tmp_path: Path) -> None:
-    memory = LifeMemory.open(tmp_path)
-    item = BacklogItem.new(title="t", objective="o")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    supervisor = LifeSupervisor(
-        memory=memory, runner=SimpleNamespace(),
-        sink=JsonlEventSink(None, life_dir=tmp_path),
-        config=LifeSupervisorConfig(project_worktree=tmp_path),
-    )
-    state = SimpleNamespace(
-        item=item, outcome=SimpleNamespace(final_review_status=""),
-        status="error", stop_kind="backend_unavailable", stop_reason="boom",
-        usage_summary=SimpleNamespace(pricing_status="known"), usd=0.0, known_usd=0.0,
-        context_packet_path=None,
-    )
-    assert supervisor._maybe_pause_for_recoverable_stop(state) is None

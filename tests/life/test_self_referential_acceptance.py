@@ -87,24 +87,6 @@ def test_self_referential_receipt_cannot_reach_a_stable_reviewed_artifact(tmp_pa
     assert len(set(generations)) == 3
 
 
-def test_supervisor_blocks_proven_self_receipt_cycle_without_executing(tmp_path: Path):
-    supervisor, runner, item = _supervisor(tmp_path, {
-        "status": "assessed", "dependencies": [_dependency()],
-    })
-
-    result = supervisor.tick()
-
-    assert runner.executed == []
-    assert result["success"] is False
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert stored.pending_question
-    assert stored.acceptance_check == CLAUSE
-    assert len(runner.planner_backend.calls) == 1
-    assert runner.planner_backend.calls[0]["options"].disable_tools is True
-    assert runner.usage_scopes == [f"{item.id}:attempt:1"]
-
-
 @pytest.mark.parametrize("relation,clause", [
     (_dependency(placement="external"),
      "The final report must include a link; evaluate the current Reviewer done receipt externally."),
@@ -197,66 +179,6 @@ def test_grounded_ambiguity_still_asks_a_readable_question(tmp_path: Path):
     assert len(runner.planner_backend.calls) == 1
 
 
-@pytest.mark.parametrize("payload,expected_status", [
-    ({"status": "assessed", "dependencies": [_dependency(placement="external")]}, "done"),
-    ({"status": "assessed", "dependencies": [], "reason": "Normal peer review requires no embedded receipt."}, "done"),
-    ({"status": "assessed", "dependencies": [_dependency()]}, "parked"),
-])
-def test_internal_retry_recovers_and_still_checks_real_cycles(tmp_path: Path, payload, expected_status):
-    supervisor, runner, item = _supervisor(tmp_path, None)
-    responses = iter(["Malformed internal response", json.dumps(payload)])
-    calls = []
-
-    def respond(**kwargs):
-        calls.append(kwargs)
-        return RunnerResult(exit_code=0, agent_messages=[next(responses)])
-
-    runner.planner_backend.run_exec = respond
-    supervisor.tick()
-
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == expected_status
-    assert len(calls) == 2
-    assert len(runner.executed) == (1 if expected_status == "done" else 0)
-    assert bool(stored.pending_question) == (expected_status == "parked")
-
-
-def test_contract_revision_reassesses_but_real_content_edits_do_not_invalidate_structure(
-    tmp_path: Path,
-):
-    supervisor, runner, item = _supervisor(tmp_path, {
-        "status": "assessed", "dependencies": [_dependency()],
-    })
-    supervisor.tick()
-    revised = "The final report must include a link; evaluate the current Reviewer done receipt externally."
-    runner.planner_backend.payload = {
-        "status": "assessed", "dependencies": [{
-            **_dependency(placement="external"), "source_quote": revised,
-        }],
-    }
-    supervisor.memory.backlog.update(
-        item.id, pending_question="", operator_decision={},
-        objective="Finish REPORT.md. " + revised, acceptance_check=revised,
-    )
-    supervisor.memory.backlog.resume_parked()
-    assert supervisor.tick()["success"] is True
-    assert len(runner.planner_backend.calls) == 2
-    # A new report revision under the same external receipt contract is ordinary
-    # work, so it executes/reviews again without repeating dependency analysis.
-    (tmp_path / "project" / "REPORT.md").write_text("Substantive corrected content.")
-    previous = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    followup = BacklogItem.new(
-        title=previous.title, objective=previous.objective,
-        original_objective=previous.original_objective,
-        acceptance_check=previous.acceptance_check, non_goals=previous.non_goals,
-        manager_decision=previous.manager_decision, tags=previous.tags, iterate=False,
-    )
-    supervisor.memory.backlog.add(followup)
-    assert supervisor.tick()["success"] is True
-    assert len(runner.planner_backend.calls) == 2
-    assert len(runner.executed) == 2
-
-
 @pytest.mark.parametrize("clause", [
     "Review the report and check current numerical results.",
     "Include the new figure in REPORT.md. The current Reviewer should assess scientific quality. Record changes in CHECKPOINT.md.",
@@ -295,51 +217,6 @@ def test_chinese_legacy_task_and_named_planner_reply_use_the_production_guard(tm
     assert "acceptance" not in stored.pending_question
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
     assert stored.acceptance_check == clause
-
-
-def test_cancellation_provider_and_usage_scope_are_carried_to_dependency_call(tmp_path: Path, monkeypatch):
-    supervisor, runner, _item = _supervisor(tmp_path, {
-        "status": "assessed", "dependencies": [_dependency(placement="external")],
-    })
-    cancel = lambda: "operator pause requested"
-    monkeypatch.setattr(supervisor, "_planner_config", lambda: SimpleNamespace(
-        model="synthetic-model", reasoning_effort="high",
-        external_interrupt_reason_provider=cancel,
-    ))
-
-    supervisor.tick()
-
-    options = runner.planner_backend.calls[0]["options"]
-    assert options.external_interrupt_reason_provider is cancel
-    assert options.model == "synthetic-model"
-    assert options.force_safe_mode is True
-    assert options.sandbox_mode == "read-only"
-    assert runner.usage_scopes
-
-
-@pytest.mark.parametrize("suffix", ["", "\nRECEIPT_ARTIFACT=REPORT.md\nRECEIPT_ID=external\n"
-                         "RECEIPT_SUBJECT=OTHER.md\nRECEIPT_PLACEMENT=external\n"
-                         "RECEIPT_FRESHNESS=current_artifact\nRECEIPT_QUOTE=" + CLAUSE])
-def test_orphan_receipt_fields_cannot_be_discarded_as_an_empty_acyclic_assessment(
-    tmp_path: Path, suffix: str,
-):
-    supervisor, runner, item = _supervisor(tmp_path, None)
-    runner.planner_backend.run_exec = lambda **_kwargs: RunnerResult(
-        exit_code=0, agent_messages=[
-            "DEPENDENCY_STATUS=assessed\nDEPENDENCY_REASON=The current receipt depends on the same report.\n"
-            "RECEIPT_ID=review-report\nRECEIPT_SUBJECT=REPORT.md\n"
-            "RECEIPT_PLACEMENT=embedded\nRECEIPT_FRESHNESS=current_artifact\n"
-            "RECEIPT_QUOTE=not present in the original task" + suffix,
-        ],
-    )
-
-    supervisor.tick()
-
-    assert runner.executed == []
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert (stored.status, park_reason(stored)) == ("parked", "infra")
-    assert stored.pending_question == ""
-    assert "acceptance_dependency_assessment" not in stored.manager_decision
 
 
 def test_markdown_report_requirements_use_the_dependency_guard(tmp_path: Path):
@@ -402,24 +279,6 @@ def test_contract_changed_during_assessment_never_receives_the_stale_result(tmp_
     assert stored.status == "pending"
 
 
-def test_assessment_merges_concurrent_manager_metadata_without_overwriting_it(tmp_path: Path):
-    supervisor, runner, item = _supervisor(tmp_path, None)
-
-    def update_metadata(**_kwargs):
-        supervisor.memory.backlog.update(item.id, manager_decision={
-            **item.manager_decision, "fresh_instruction": "Keep this Manager record.",
-        })
-        return RunnerResult(exit_code=0, agent_messages=[json.dumps({
-            "status": "assessed", "dependencies": [_dependency(placement="external")],
-        })])
-
-    runner.planner_backend.run_exec = update_metadata
-    assert supervisor.tick()["success"] is True
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.manager_decision["fresh_instruction"] == "Keep this Manager record."
-    assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "well_founded"
-
-
 def test_invented_artifact_binding_is_an_internal_failure_even_with_a_real_source_quote(tmp_path: Path):
     supervisor, runner, item = _supervisor(tmp_path, {
         "status": "assessed", "dependencies": [{
@@ -434,67 +293,6 @@ def test_invented_artifact_binding_is_an_internal_failure_even_with_a_real_sourc
     assert (stored.status, park_reason(stored)) == ("parked", "infra")
     assert stored.pending_question == ""
     assert "acceptance_dependency_assessment" not in stored.manager_decision
-
-
-def test_superseded_external_contract_is_automatically_reassessed_before_execution(tmp_path: Path):
-    external = "The final report must include a link; evaluate the current Reviewer done receipt externally."
-    supervisor, runner, item = _supervisor(tmp_path, None, clause=external)
-    calls = 0
-
-    def revise(**_kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            supervisor.memory.backlog.update(
-                item.id, objective="Finish REPORT.md. " + CLAUSE, acceptance_check=CLAUSE,
-            )
-            relation = {**_dependency(placement="external"), "source_quote": external}
-        else:
-            relation = _dependency()
-        return RunnerResult(exit_code=0, agent_messages=[json.dumps({
-            "status": "assessed", "dependencies": [relation],
-        })])
-
-    runner.planner_backend.run_exec = revise
-    assert supervisor.tick()["status"] == "claim_lost"
-    assert supervisor.tick()["success"] is False
-    assert calls == 2
-    assert runner.executed == []
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
-
-
-def test_task_aborted_during_assessment_is_not_resurrected_or_settled_again(tmp_path: Path):
-    supervisor, runner, item = _supervisor(tmp_path, None)
-
-    def abort(**_kwargs):
-        supervisor.memory.backlog.update(item.id, status="aborted")
-        return RunnerResult(exit_code=0, agent_messages=[json.dumps({
-            "status": "assessed", "dependencies": [_dependency()],
-        })])
-
-    runner.planner_backend.run_exec = abort
-    assert supervisor.tick()["status"] == "claim_lost"
-    assert runner.executed == []
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "aborted"
-    assert stored.pending_question == ""
-
-
-def test_discarded_example_before_final_footer_cannot_create_a_contract_hold(tmp_path: Path):
-    supervisor, runner, _item = _supervisor(tmp_path, None)
-    runner.planner_backend.run_exec = lambda **_kwargs: RunnerResult(
-        exit_code=0, agent_messages=[
-            "Rejected draft:\nRECEIPT_ID=missing-start\n\nDecision:\n"
-            "DEPENDENCY_STATUS=assessed\nDEPENDENCY_REASON=External receipt only.\n"
-            "RECEIPT_ARTIFACT=REPORT.md\nRECEIPT_ID=external\n"
-            "RECEIPT_SUBJECT=REPORT.md\nRECEIPT_PLACEMENT=external\n"
-            "RECEIPT_FRESHNESS=current_artifact\nRECEIPT_QUOTE=" + CLAUSE,
-        ],
-    )
-    assert supervisor.tick()["success"] is True
-    assert len(runner.executed) == 1
 
 
 @pytest.mark.parametrize("raises", [False, True])

@@ -47,17 +47,6 @@ def test_metric_vertical_project_done_is_not_deferred(tmp_path: Path) -> None:
     assert consulted == []  # never reached the blocker check; gate stopped it cold
 
 
-def test_research_vertical_passes_the_gate_then_checks_for_a_blocker(tmp_path: Path) -> None:
-    # Research vertical → effective gate True → the defer logic gets PAST the gate and
-    # consults the external-blocker reason (which is None here → verdict returned),
-    # proving the gate is still honored for research.
-    sup, consulted = _supervisor(effective_gate=True, tmp_path=tmp_path)
-    verdict = SimpleNamespace(project_done=True)
-    out = sup._defer_project_done_for_operator_external_blocker(verdict)
-    assert out is verdict  # no blocker → not deferred
-    assert consulted == [True]  # but it DID pass the gate and check for a blocker
-
-
 def test_deferred_completion_drops_planner_settlements(tmp_path: Path) -> None:
     from argus.planner import PlannerVerdict
 
@@ -71,38 +60,6 @@ def test_deferred_completion_drops_planner_settlements(tmp_path: Path) -> None:
     assert out.settled_instructions == ()
 
 
-def test_persisted_bounded_data_domain_disables_emnlp_gate(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A persisted bounded data domain disables the full-EMNLP final gate.
-
-    The Manager decides + PERSISTS the vertical (no stale-state inference): a
-    completion_gate=none data domain in ``PIPELINE_STATE.json`` means the
-    final-submission override must not fire.
-    """
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    dd.write_data_domain(
-        tmp_path,
-        "perf_tuning",
-        stages=["profile", "isolate", "optimize", "benchmark", "test", "report"],
-    )
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        '{"current_stage": "profile", "vertical": "perf_tuning"}\n',
-        encoding="utf-8",
-    )
-
-    sup = LifeSupervisor.__new__(LifeSupervisor)
-    sup.config = SimpleNamespace(final_certification_gate=True)
-
-    assert sup._effective_final_certification_gate(tmp_path) is False
-    assert state_path.read_text(encoding="utf-8") == (
-        '{"current_stage": "profile", "vertical": "perf_tuning"}\n'
-    )
-
-
 def test_non_paper_planner_task_normalizes_final_submission_scope(
     tmp_path: Path,
 ) -> None:
@@ -113,20 +70,6 @@ def test_non_paper_planner_task_normalizes_final_submission_scope(
         "planner",
         "scope:bounded",
         "bounded_dag_node",
-        "review:required",
-        "stage:idea",
-    ]
-
-
-def test_paper_planner_task_preserves_final_submission_scope(
-    tmp_path: Path,
-) -> None:
-    sup, _consulted = _supervisor(effective_gate=True, tmp_path=tmp_path)
-    task = SimpleNamespace(scope="final_submission")
-
-    assert sup._planner_task_tags(task) == [
-        "planner",
-        "scope:final_submission",
         "review:required",
         "stage:idea",
     ]

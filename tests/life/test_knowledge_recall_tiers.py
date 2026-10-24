@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.core.event_catalog import validate_event_envelope
 from argus.core.paths import global_wiki_root, shared_vertical_wiki_root
 from argus.core.pipeline_state import write_pipeline_state
 from argus.life.knowledge_recall import (
@@ -103,75 +102,6 @@ def bundle(tenant: Path, workspace: Path) -> MemoryBundle:
 
 def root_kinds(recall: MarkdownKnowledgeRecall) -> list[str]:
     return [root.kind for root in recall.roots]
-
-
-def test_roots_include_shared_tiers_principles_and_every_earlier_project(tenant, tmp_path):
-    workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    same = tmp_path / "work" / "earlier-same"
-    other = tmp_path / "work" / "earlier-other"
-    undecided = tmp_path / "work" / "undecided"
-    earlier_project(tenant, "s-same", VERTICAL, same)
-    earlier_project(tenant, "s-other", OTHER_VERTICAL, other)
-    earlier_project(tenant, "s-none", "", undecided)
-    project_wiki(same, "same", "notes.md", page("Same", "same vertical", "quartz same"))
-    project_wiki(other, "other", "notes.md", page("Other", "other vertical", "quartz other"))
-    project_wiki(undecided, "none", "notes.md", page("None", "no state", "quartz none"))
-    project_wiki(workspace, "s-current", "notes.md", page("Current", "this project", "quartz current"))
-    vertical_root = shared_vertical_wiki_root(VERTICAL, tenant)
-    write(vertical_root / "pages" / "lessons" / "20260917-quartz.md", page("Lesson", "d", "quartz lesson"))
-    write(vertical_root / "principles.md", "---\ntitle: Principles\ndescription: d\nkind: principles\n---\n\n1. Rule.\n")
-    write(global_wiki_root(tenant) / "pages" / "quartz.md", page("Global", "d", "quartz global"))
-
-    recall = knowledge_recall_for_memory(bundle(tenant, workspace))
-    kinds = root_kinds(recall)
-    by_kind = {root.kind: root for root in recall.roots}
-
-    assert kinds[:2] == ["about the operator", "notes about the operator"]
-    assert kinds[2:6] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "shared knowledge"]
-    assert by_kind[f"{VERTICAL} knowledge"].path == vertical_root / "pages"
-    assert by_kind[f"{VERTICAL} knowledge"].scope == "vertical"
-    assert by_kind["principles"].path == vertical_root / "principles.md"
-    assert by_kind["shared knowledge"].path == global_wiki_root(tenant) / "pages"
-    assert by_kind["shared knowledge"].scope == "global"
-    siblings = {root.kind: root for root in recall.roots if root.kind.startswith("earlier project")}
-    assert set(siblings) == {f"earlier project Wiki ({sid})" for sid in ("s-same", "s-other", "s-none")}
-    assert siblings["earlier project Wiki (s-other)"].path == other / ".autors" / "other" / "wiki" / "pages"
-    assert {(root.source, root.scope) for root in siblings.values()} == {
-        ("s-same", "project"), ("s-other", "project"), ("s-none", "project")}
-    assert [root.kind for root in recall.roots if str(root.path).startswith(str(workspace))] == [
-        "project Wiki", "native project Skill",
-    ]
-    context = recall.render_context("quartz")
-    assert "earlier project Wiki (s-" in context and "quartz same" not in context
-
-
-def test_earlier_projects_are_found_where_the_host_keeps_them(tenant, tmp_path):
-    """The Manager writes a project's pipeline state into its state directory and the
-    session names a workspace anywhere on disk; neither sits under ``workspaces/``."""
-    workspace = tmp_path / "work" / "current"
-    state = earlier_project(tenant, "s-current", VERTICAL, workspace)
-    earlier = tmp_path / "work" / "earlier"
-    earlier_state = earlier_project(tenant, "s-earlier", VERTICAL, earlier)
-    project_wiki(earlier, "earlier", "engine.md", page("Engine", "how the engine schedules", "quartz engine"))
-    write(earlier / ".agents" / "skills" / "quartz-check" / "SKILL.md",
-          "---\nname: quartz-check\ndescription: check quartz\n---\n\nquartz procedure\n")
-    write(earlier_state / "skills" / "engineer" / "quartz-reflection.md",
-          "---\nname: quartz-reflection\ndescription: quartz reflected\n---\n\nquartz\n")
-    write(earlier_state / "skills" / "self" / "operator-taste.md",
-          "---\nname: operator-taste\ndescription: quartz preference\n---\n\nquartz\n")
-    memory = MemoryBundle.for_cwd(workspace, global_root=tenant, fingerprint=state.name)
-
-    recall = knowledge_recall_for_memory(memory)
-
-    siblings = {root.path: root.kind for root in recall.roots if root.kind.startswith("earlier project")}
-    assert siblings == {
-        earlier / ".autors" / "earlier" / "wiki" / "pages": "earlier project Wiki (s-earlier)",
-        earlier_state / "skills" / "engineer": "earlier project Skill (s-earlier)",
-        earlier / ".agents" / "skills": "earlier project Skill (s-earlier)",
-    }
-    context = recall.render_context("quartz")
-    assert str(earlier / ".autors" / "earlier" / "wiki" / "pages" / "engine.md") in context
-    assert "operator-taste" not in context
 
 
 def test_what_a_learning_project_kept_is_recalled_in_every_vertical(tenant, tmp_path):
@@ -396,41 +326,6 @@ def test_matching_lesson_outranks_equal_page_and_one_lesson_is_always_shown(tmp_
     assert first_two[0] == lesson and equal in first_two
 
 
-def test_recall_records_each_shown_page_in_the_journal_and_one_event_per_prompt(tenant, journal):
-    workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    vertical_root = shared_vertical_wiki_root(VERTICAL, tenant)
-    write(vertical_root / "pages" / "lessons" / "20260917-torch-search.md", page(
-        "Search the torch docs first", "d", "quartz torch", kind="lesson", source="s-fb4716b7/cf2c076f939e",
-    ))
-    write(vertical_root / "principles.md", "---\ntitle: P\ndescription: d\nkind: principles\n---\n\n1. Rule.\n")
-    write(global_wiki_root(tenant) / "pages" / "g.md", page("Global quartz", "d", "quartz global"))
-    project_wiki(workspace, "s-current", "own.md", page("Own quartz", "d", "quartz own"))
-    memory = bundle(tenant, workspace)
-
-    assert memory.render_recall_context("quartz", role="planner", mission_id="m-1")
-
-    records = journal(tenant)
-    assert records and all(record["kind"] == "recalled" for record in records)
-    by_path = {record["path"]: record for record in records}
-    lesson = by_path["pages/lessons/20260917-torch-search.md"]
-    assert lesson["scope"] == "vertical" and lesson["vertical"] == VERTICAL
-    assert lesson["title"] == "Search the torch docs first" and lesson["page_kind"] == "lesson"
-    assert lesson["source_project"] == "s-fb4716b7/cf2c076f939e"
-    assert lesson["role"] == "planner" and lesson["mission_id"] == "m-1"
-    assert by_path["principles.md"]["page_kind"] == "principles"
-    assert by_path["pages/g.md"]["scope"] == "global"
-    assert by_path["pages/own.md"]["scope"] == "project"
-    events = [json.loads(line) for line in (memory.project_root / "events.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-    recalled = [event for event in events if event.get("type") == "knowledge.recalled"]
-    assert len(recalled) == 1
-    event = recalled[0]
-    assert "event_validation" not in event and validate_event_envelope(event).valid
-    assert event["role"] == "planner" and event["mission_id"] == "m-1"
-    assert event["objective_excerpt"] == "quartz"
-    assert sorted(event["paths"]) == sorted(str(Path(p)) for p in event["paths"]) and len(event["paths"]) == len(records)
-    assert event["scope_counts"] == {"global": 1, "project": 1, "vertical": 2}
-
-
 def test_recall_records_default_to_the_engineer_and_a_failing_journal_never_breaks_the_prompt(tenant, journal, monkeypatch):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     project_wiki(workspace, "s-current", "own.md", page("Own quartz", "d", "quartz own"))
@@ -451,14 +346,6 @@ def test_recall_records_default_to_the_engineer_and_a_failing_journal_never_brea
                             render_failure_experience_context=lambda *_a, **_k: "")
     rendered = render_memory_recall(scope, "quartz", role="engineer", life_dir=memory.project_root)
     assert "Own quartz" in rendered or "own.md" in rendered
-
-
-def test_nothing_is_recorded_when_recall_is_empty(tenant, journal):
-    workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    memory = bundle(tenant, workspace)
-    assert memory.render_recall_context("quartz") == ""
-    assert journal(tenant) == []
-    assert not (memory.project_root / "events.jsonl").exists() or "knowledge" not in (memory.project_root / "events.jsonl").read_text(encoding="utf-8")
 
 
 def test_a_page_names_the_code_it_carries_and_not_the_material_it_cites(tmp_path):

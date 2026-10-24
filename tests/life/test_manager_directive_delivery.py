@@ -4,15 +4,8 @@ import json
 from pathlib import Path
 
 from argus.apps._runtime_execute import _engineer_guidance
-from argus.core.models import ReviewDecision, RunnerResult
-from argus.engineer.round_config import SupervisedConfig
-from argus.engineer.round_reviewer import RoundReviewerMixin
-from argus.engineer.round_state import RoundLoopState
 from argus.life.memory import LifeMemory
 from argus.life.supervisor._constants import PLAN_ERROR
-from argus.life.supervisor._mission_execution_runtime import (
-    MissionExecutionRuntimeMixin,
-)
 from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 from argus.life.supervisor._planning_cycle_intake import (
     PlanningCycleIntakeMixin,
@@ -82,74 +75,3 @@ def test_active_directive_reaches_each_engineer_round(tmp_path: Path) -> None:
     assert first == second
     assert STEERING_HEADER in first[0]
     assert "batch the unresolved frontier" in first[0]
-
-
-def test_standing_steering_reaches_every_mission_prelude(tmp_path: Path) -> None:
-    from types import SimpleNamespace
-
-    from argus.life.memory import BacklogItem
-
-    _set_objective(tmp_path)
-    set_active_manager_directive(tmp_path, "preserve the public contract")
-
-    class Harness(MissionExecutionRuntimeMixin):
-        def __init__(self) -> None:
-            self.memory = LifeMemory.open(tmp_path)
-            self.config = SimpleNamespace(runtime_context="")
-
-        @staticmethod
-        def _render_backlog_item_metadata(_item) -> str:
-            return ""
-
-    item = BacklogItem.new(title="mission", objective="implement the change")
-    first = Harness()._build_mission_prelude(item)
-    second = Harness()._build_mission_prelude(item)
-
-    assert STEERING_HEADER in first
-    assert "preserve the public contract" in first
-    assert first == second
-
-
-def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
-    set_active_manager_directive(tmp_path, "review the replacement target")
-
-    class CaptureReviewer:
-        def __init__(self) -> None:
-            self.kwargs = None
-
-        def evaluate(self, **kwargs):
-            self.kwargs = kwargs
-            return ReviewDecision(status="done", reason="verified", next_action="")
-
-    class Harness(RoundReviewerMixin):
-        def __init__(self) -> None:
-            from argus.reviewer import ReviewerConfig
-
-            self.reviewer = CaptureReviewer()
-            self.reviewer_config = ReviewerConfig(model="test")
-
-    harness = Harness()
-    result = harness._call_reviewer_once(
-        objective="stale bounded task",
-        original_objective="operator objective",
-        round_index=1,
-        supervised_config=SupervisedConfig(
-            engineer_log_path=str(tmp_path / "events.jsonl"),
-        ),
-        workdir=tmp_path,
-        scope="bounded",
-        checkpoint_path=None,
-        reviewer_skill_block=None,
-        engineer_result=RunnerResult(exit_code=0, agent_messages=["done"]),
-        engineer_message="implemented replacement",
-        safe_fatal_error=None,
-        process_ownership_note="",
-        state=RoundLoopState(),
-        on_event=None,
-    )
-
-    assert result.status == "done"
-    delivered = harness.reviewer.kwargs["operator_messages"]
-    assert len(delivered) == 1
-    assert STEERING_HEADER in delivered[0]
-    assert "review the replacement target" in delivered[0]

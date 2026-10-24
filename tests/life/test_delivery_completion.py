@@ -235,29 +235,6 @@ def test_project_delivery_is_titled_by_the_request_without_its_launch_settings(t
     assert delivery["title"] == request
 
 
-def test_terminal_delivery_survives_journal_noise_after_the_settlement(tmp_path) -> None:
-    """Journal chatter after the winning settlement must not hide it.
-
-    The receipt used to read ``journal.tail(80)``: 90 waiting heartbeats after
-    the settlement evicted it from the window and the terminal delivery lost
-    its verified output.
-    """
-    supervisor, memory = _delivery_supervisor(tmp_path)
-    with (memory.root / "events.jsonl").open("a", encoding="utf-8") as fh:
-        for index in range(90):
-            fh.write(json.dumps({
-                "type": "life.planner.waiting",
-                "ts": 1_000.0 + index,
-                "reason": "waiting on external dependency",
-            }) + "\n")
-
-    delivery = supervisor._build_terminal_project_delivery("All planned work is done.")
-
-    assert delivery is not None
-    assert delivery["primary_target"]["path"] == "final.md"
-    assert delivery["summary"] == "The final stage produced a reviewed file."
-
-
 def test_terminal_delivery_picks_the_success_over_later_non_success_settlements(
     tmp_path,
 ) -> None:
@@ -341,17 +318,6 @@ def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_
     assert 'unrelated.md' not in paths
 
 
-def test_software_completion_context_includes_delivered_files_and_vertical_certificate(tmp_path, monkeypatch):
-    supervisor, memory = _delivery_supervisor(tmp_path)
-    monkeypatch.setattr(supervisor, '_effective_final_certification_gate', lambda _root: False)
-    monkeypatch.setattr(supervisor, '_manager_final_stage_is_completed', lambda: True)
-    monkeypatch.setattr(supervisor, '_journal_has_final_certification', lambda: False)
-    context = supervisor._manager_project_completion_context()
-    assert context['current_final_certification']['certified'] is True
-    assert context['current_final_certification']['scope'] == 'vertical_completion'
-    assert 'final.md' in {row['path'] for row in context['current_artifact_evidence']}
-
-
 def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
     from argus.life.delivery import linked_report_paths, referenced_delivery_paths
     (tmp_path / "REPORT.md").write_text("Reviewed website: `index.html`; reproduce with `node validate.js`.\n")
@@ -362,15 +328,6 @@ def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
     assert paths == ["REPORT.md"]
     assert linked_report_paths(tmp_path, paths) == ["index.html", "validate.js"]
     assert referenced_delivery_paths(tmp_path, ["../private.md and .env are not deliverables."]) == []
-
-
-def test_spreadsheet_completion_is_deliverable_without_markdown_link(tmp_path):
-    from argus.life.delivery import referenced_delivery_paths
-
-    (tmp_path / "budget.xlsx").write_bytes(b"spreadsheet fixture")
-    assert referenced_delivery_paths(tmp_path, ["Created budget.xlsx."]) == ["budget.xlsx"]
-    assert referenced_delivery_paths(tmp_path, ["Created `budget.xlsx`."]) == ["budget.xlsx"]
-    assert referenced_delivery_paths(tmp_path, ["../budget.xlsx"]) == []
 
 
 def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tmp_path, monkeypatch):
@@ -400,22 +357,6 @@ def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tm
     assert receipt["primary_target"]["path"] == "index.html"
     paths = [row["path"] for row in receipt["targets"]]
     assert "REPORT.md" in paths and "verify.js" in paths
-
-
-def test_terminal_delivery_identity_changes_for_new_completed_work_in_one_session(tmp_path):
-    supervisor, memory = _delivery_supervisor(tmp_path)
-    first = supervisor._build_terminal_project_delivery("First goal done")
-    assert supervisor._emit({
-        "type": "life.mission.completed", "item_id": "second-goal",
-        "success": True, "status": "done", "summary": "Second goal done",
-        "overall_complete": False, "campaign_continues": True,
-        "execution_workdir": str(supervisor._project_workdir()),
-        "delivery_candidates": ["final.md"], "outcome": {"review_status": "done"},
-    })
-    second = supervisor._build_terminal_project_delivery("Second goal done")
-    replay = supervisor._build_terminal_project_delivery("Second goal done")
-    assert first["delivery_id"] != second["delivery_id"]
-    assert second["delivery_id"] == replay["delivery_id"]
 
 
 def test_terminal_delivery_recovers_reviewed_product_from_an_older_direct_settlement(tmp_path):

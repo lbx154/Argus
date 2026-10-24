@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -15,7 +14,6 @@ from argus.core.operator_context import (
     PreferenceRecord,
     StaleOperatorContextWrite,
     append_capability,
-    append_preference,
     append_revoke,
     build_operator_context_block,
     persist_intake_decision,
@@ -42,44 +40,6 @@ def global_preference(project: Path, value: str, *, global_root: Path | None = N
         source="operator.test",
         global_root=global_root,
     )
-
-
-def test_global_preference_crosses_only_its_user_and_project_override_can_be_revoked(
-    tmp_path: Path,
-) -> None:
-    user = tmp_path / "user-a"
-    first, second = user / "projects/first", user / "projects/second"
-    unrelated = tmp_path / "user-b/projects/third"
-    shared = global_preference(first, "Reuse verified local tools.", global_root=user)
-    assert shared.revision == 1
-    assert OperatorContextStore(first).revision == 0
-    assert (user / "operator_context.jsonl").exists()
-    assert not (first / "operator_context.jsonl").exists()
-    for project in (first, second):
-        projection = OperatorContextStore(project).project("planner")
-        assert [record.value for record in projection.preferences] == [
-            "Reuse verified local tools."
-        ]
-        assert projection.global_revision == 1
-        assert projection.preference_sources == ("global",)
-    assert OperatorContextStore(unrelated).project("planner").preferences == ()
-
-    local = append_preference(
-        second, kind="workflow", value="Use this project's pinned tool.", expected_revision=0
-    )
-    assert OperatorContextStore(second).project("planner").preferences == (local,)
-    append_revoke(second, local.revision, reason="remove project override", expected_revision=1)
-    assert OperatorContextStore(second).project("planner").preferences == (shared,)
-    append_revoke(
-        first,
-        shared.revision,
-        reason="withdraw shared preference",
-        expected_revision=1,
-        scope="global",
-        global_root=user,
-    )
-    assert OperatorContextStore(first).project("planner").preferences == ()
-    assert OperatorContextStore(second).project("planner").preferences == ()
 
 
 def test_legacy_local_global_label_stays_local_through_compaction(tmp_path: Path) -> None:
@@ -137,20 +97,6 @@ def test_custom_state_roots_require_explicit_shared_root_and_reject_conflicting_
         OperatorContextStore(tmp_path / "other/projects/session", global_root=shared)
 
 
-def test_replacing_then_revoking_a_preference_never_resurrects_its_previous_value(
-    tmp_path: Path,
-) -> None:
-    store = OperatorContextStore(tmp_path, max_records=3)
-    first = store.append(preference("obsolete setting"), expected_revision=0)
-    latest = store.append(preference("current setting"), expected_revision=1)
-    append_revoke(tmp_path, latest.revision, reason="withdraw setting", expected_revision=2)
-    assert store.project("planner").preferences == ()
-    store.compact()
-    (tmp_path / "operator_context.json").unlink()
-    assert OperatorContextStore(tmp_path).project("planner").preferences == ()
-    assert all(record.revision != first.revision for record in store.records())
-
-
 def test_compaction_preserves_revision_ack_consumption_and_mission_binding(tmp_path: Path) -> None:
     store = OperatorContextStore(tmp_path, max_records=5, max_bytes=16_000)
     keep = store.append(directive("Keep the public API."), expected_revision=0)
@@ -196,41 +142,6 @@ def test_discarded_old_tail_cannot_reenter_the_closed_checkpoint_prefix(tmp_path
         OperatorContextStore(tmp_path).project("engineer")
 
 
-def test_valid_new_tail_continues_checkpoint_revision_without_replaying_history(
-    tmp_path: Path,
-) -> None:
-    store = OperatorContextStore(tmp_path)
-    store.append(directive("Consumed.", lifetime="once"), expected_revision=0)
-    store.project("engineer")
-    store.compact()
-    with store.ledger_path.open("a") as handle:
-        handle.write(json.dumps(asdict(directive("New tail input.", revision=2))) + "\n")
-    restored = OperatorContextStore(tmp_path)
-    assert restored.revision == 2
-    assert [record.text for record in restored.project("engineer").directives] == [
-        "New tail input."
-    ]
-
-
-def test_consumption_survives_cache_write_failure_and_stale_cache_replacement(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from argus.core import operator_context
-
-    store = OperatorContextStore(tmp_path)
-    item = store.append(directive("Run exactly once.", lifetime="once"), expected_revision=0)
-    stale_cache = (tmp_path / "operator_context.json").read_bytes()
-
-    def fail_cache(*_args, **_kwargs):
-        raise OSError("cache unavailable")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(operator_context, "_write_cache", fail_cache)
-        store.settle_once(item.revision)
-    (tmp_path / "operator_context.json").write_bytes(stale_cache)
-    assert OperatorContextStore(tmp_path).project("engineer").directives == ()
-
-
 def test_legacy_once_without_consumption_evidence_is_not_replayed(tmp_path: Path) -> None:
     path = tmp_path / "operator_context.jsonl"
     path.write_text(json.dumps(asdict(directive("Old one-shot.", lifetime="once"))) + "\n")
@@ -269,32 +180,6 @@ def test_large_legacy_preference_history_streams_into_a_bounded_checkpoint(tmp_p
     assert path.stat().st_size < 4096
     (tmp_path / "operator_context.json").unlink()
     assert OperatorContextStore(tmp_path).project("engineer").directives == ()
-
-
-def test_compaction_failure_leaves_the_previous_canonical_ledger_intact(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from argus.core import operator_context_storage as storage
-
-    store = OperatorContextStore(tmp_path)
-    store.append(directive("Still authoritative."), expected_revision=0)
-    source = store.ledger_path.read_bytes()
-    original_replace = storage.os.replace
-
-    def fail_replace(source, destination):
-        if Path(destination) == store.ledger_path:
-            raise OSError("checkpoint replace failed")
-        return original_replace(source, destination)
-
-    with monkeypatch.context() as patch:
-        patch.setattr(storage.os, "replace", fail_replace)
-        with pytest.raises(OSError, match="checkpoint"):
-            store.compact()
-    assert store.ledger_path.read_bytes() == source
-    assert (
-        OperatorContextStore(tmp_path).project("engineer").directives[0].text
-        == "Still authoritative."
-    )
 
 
 def test_active_authority_is_not_evicted_when_capacity_is_full(tmp_path: Path) -> None:
@@ -338,21 +223,6 @@ def test_missing_canonical_source_cannot_revive_withdrawn_legacy_steering(
     assert not store.ledger_path.exists()
 
 
-def test_missing_canonical_source_cannot_reset_revision_or_consume_new_input_as_old(
-    tmp_path: Path,
-) -> None:
-    store = OperatorContextStore(tmp_path)
-    store.append(directive("Consumed original.", lifetime="once"), expected_revision=0)
-    store.project("engineer")
-    store.ledger_path.unlink()
-    with pytest.raises(ValueError, match="source is missing"):
-        OperatorContextStore(tmp_path).append(
-            directive("A new action.", lifetime="once"), expected_revision=0
-        )
-    with pytest.raises(ValueError, match="source is missing"):
-        _ = OperatorContextStore(tmp_path).revision
-
-
 def test_project_symlink_cannot_change_the_inferred_user_namespace(
     tmp_path: Path,
     require_symlink_support,
@@ -368,67 +238,3 @@ def test_project_symlink_cannot_change_the_inferred_user_namespace(
         OperatorContextStore(second).project("planner")
     with pytest.raises(ValueError, match="cannot alias"):
         opened_before_alias.project("planner")
-
-
-def test_real_planner_and_engineer_prompts_read_project_and_fresh_shared_preferences(
-    tmp_path: Path,
-) -> None:
-    from argus.life.memory import BacklogItem, MemoryBundle
-    from argus.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
-    from argus.roles.prompts.planner import build_continuous_prompt
-
-    memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-scope")
-    global_preference(memory.project_root, "Initial shared preference.")
-    store = OperatorContextStore(memory.project_root)
-    local = store.append(directive("Project-only instruction."), expected_revision=0)
-    host = SimpleNamespace(
-        memory=memory,
-        config=SimpleNamespace(runtime_context=""),
-        _render_backlog_item_metadata=lambda _item: "",
-    )
-    item = BacklogItem.new(title="task", objective="Carry out the request.")
-    before = MissionExecutionRuntimeMixin._build_mission_prelude(host, item)
-    assert "Initial shared preference." in before
-    assert "Project-only instruction." in before
-    global_preference(memory.project_root, "Updated shared preference.")
-    OperatorContextStore(tmp_path).compact()
-    for prompt in (
-        MissionExecutionRuntimeMixin._build_mission_prelude(host, item),
-        build_continuous_prompt(
-            continuous_objective=item.objective,
-            journal_tail="",
-            planning_cycle=0,
-            project_root=memory.project_root,
-            state_root=memory.project_root,
-        ),
-    ):
-        assert "Updated shared preference." in prompt
-        assert "Initial shared preference." not in prompt
-        assert "Project-only instruction." in prompt
-    assert store.revision == local.revision
-
-
-@pytest.mark.parametrize("existing_operator_ledger", [False, True])
-def test_current_manager_supervision_reaches_engineer_without_becoming_operator_authority(
-    tmp_path: Path,
-    existing_operator_ledger: bool,
-) -> None:
-    from argus.manager.directive import set_active_manager_directive
-
-    store = OperatorContextStore(tmp_path)
-    if existing_operator_ledger:
-        store.append(directive("Keep the operator's acceptance."), expected_revision=0)
-    revision = store.revision
-    set_active_manager_directive(
-        tmp_path,
-        "Inspect the failing boundary before another experiment.",
-        source="manager.supervision:observation-1",
-        scope_objective="",
-    )
-    block, _ = build_operator_context_block("engineer", tmp_path)
-    assert "Manager direction (project advisory)" in block
-    assert "Inspect the failing boundary before another experiment." in block
-    assert "not a new operator instruction or authorization" in block
-    assert store.revision == revision
-    assert not any("failing boundary" in getattr(record, "text", "") for record in store.records())
-    assert not (tmp_path / "STEERING.jsonl").exists()

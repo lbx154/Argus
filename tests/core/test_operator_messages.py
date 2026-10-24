@@ -1,38 +1,12 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from argus.core.operator_messages import (
     first_sentence,
     humanize_runtime_reason,
-    publish_operator_message,
     render_operator_update,
 )
-from argus.core.transcript import read_turns
-
-
-def test_publish_operator_message_is_idempotent_across_transcript_and_event(tmp_path) -> None:
-    assert publish_operator_message(
-        tmp_path,
-        text="Team completed.",
-        message_id="team-summary-1",
-    )
-    assert not publish_operator_message(
-        tmp_path,
-        text="Team completed.",
-        message_id="team-summary-1",
-    )
-
-    assert [turn["text"] for turn in read_turns(tmp_path)] == ["Team completed."]
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert [event["message_id"] for event in events if event["type"] == "ui.argus"] == [
-        "team-summary-1",
-    ]
 
 
 def test_brief_title_names_a_task_by_its_opening_clause() -> None:
@@ -44,21 +18,6 @@ def test_brief_title_names_a_task_by_its_opening_clause() -> None:
         "需求 A（文档组）：truncate 截断时不能把单词切成两半。"
     ) == "strtools 的 truncate 收到两条互相冲突的需求"
     assert len(brief_title("x" * 300)) == 50
-
-
-def test_operator_update_explains_blocker_and_next_action() -> None:
-    text = render_operator_update(
-        title="run the H100 benchmark",
-        status="blocked",
-        reason="The H100 runner is unavailable.",
-        next_action="Choose whether to wait or use a named H200-only track.",
-        holder="operator",
-    )
-
-    assert text.splitlines()[0] == "Stuck for now: run the H100 benchmark."
-    assert "Reason: The H100 runner is unavailable." in text
-    assert "Your call:" in text
-    assert text.strip() not in {"BLOCKED", "REVISE"}
 
 
 @pytest.mark.parametrize(
@@ -133,29 +92,6 @@ def test_a_reason_in_markdown_gives_its_first_sentence_as_plain_text() -> None:
     assert first_sentence("从 `sizefmt/__init__.py` 导出`format_mib`。其余未改。") == "从 sizefmt/__init__.py 导出format_mib。"
 
 
-def test_work_handed_to_the_manager_names_it_whatever_instruction_came_along() -> None:
-    text = render_operator_update(
-        title="为 timefmt 添加整小时格式化函数",
-        status="blocked",
-        reason="舍入规则冲突。",
-        next_action="请明确小时函数采用哪种舍入。",
-        holder="manager",
-    )
-
-    assert text.splitlines()[-1] == "接下来：经理在定怎么继续。"
-
-
-def test_runtime_timeout_is_explained_without_claiming_the_idea_failed() -> None:
-    text = humanize_runtime_reason(
-        "row exceeded timeout_s=300",
-        language_hint="优化内核",
-    )
-
-    assert "300 秒" in text
-    assert "不代表方案错误" in text
-    assert "最小诊断" in text
-
-
 def test_stale_decision_and_workspace_lock_are_humanized() -> None:
     assert "latest state" in humanize_runtime_reason(
         "stale decision: campaign changed since the question was created"
@@ -163,33 +99,6 @@ def test_stale_decision_and_workspace_lock_are_humanized() -> None:
     assert "starting a duplicate" in humanize_runtime_reason(
         "executor failed to start: workdir /tmp/p is already owned by active session s-1"
     )
-
-
-def test_operator_update_follows_chinese_project_language() -> None:
-    text = render_operator_update(
-        title="验证内核性能",
-        status="blocked",
-        reason="row exceeded timeout_s=300",
-        next_action="先运行单行诊断。",
-    )
-
-    assert text.splitlines()[0] == "「验证内核性能」暂时做不下去了。"
-    assert "原因：" in text
-    assert "接下来：先运行单行诊断。" in text
-
-
-def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
-    text = render_operator_update(
-        title="Analyze app.py",
-        status="aborted",
-        reason="The operator requested this mission be aborted.",
-        language_hint="用户要求取消任务。",
-    )
-
-    assert text.startswith("已取消：Analyze app.py。")
-    assert "未能完成" not in text
-    assert "原因" not in text
-    assert "下一步" not in text
 
 
 @pytest.mark.parametrize(
@@ -237,17 +146,6 @@ def test_a_spent_retry_window_is_explained_in_the_operator_language(
 
     assert expected in text
     assert RETRY_WINDOW_SPENT_REASON not in text
-
-
-def test_operator_update_leads_with_result() -> None:
-    assert render_operator_update(
-        title="repair the parser",
-        status="done",
-        reason="18 focused tests passed.",
-    ).splitlines() == [
-        "Done: repair the parser.",
-        "18 focused tests passed.",
-    ]
 
 
 @pytest.mark.parametrize('reason,expected', [

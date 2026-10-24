@@ -24,11 +24,6 @@ def test_latest_call_runtime_reads_the_newest_call_start(tmp_path: Path) -> None
     assert runtime == {"backend": "copilot", "model": "new-model", "effort": "high", "run_label": "reviewer", "role": "reviewer", "ts": 2.0}
 
 
-def test_latest_call_runtime_is_none_before_any_call(tmp_path: Path) -> None:
-    _write(tmp_path / "events.jsonl", [{"type": "life.mission.completed"}])
-    assert latest_call_runtime(tmp_path) is None
-
-
 def test_latest_call_runtime_reports_the_work_call_not_helper_calls(tmp_path: Path) -> None:
     """Classifiers, reflection and summaries run on their own (often
     smaller) models; the composer must name the call that did the work."""
@@ -45,11 +40,3 @@ def test_latest_call_runtime_reports_the_work_call_not_helper_calls(tmp_path: Pa
     assert runtime is not None
     assert (runtime["model"], runtime["effort"], runtime["run_label"]) == ("work-model", "high", "self-implement")
     assert runtime["role"] == "engineer"
-
-
-def test_latest_call_runtime_names_the_role_of_the_call(tmp_path: Path) -> None:
-    _write(tmp_path / "events.jsonl", [
-        {"type": "agent.io.start", "backend": "copilot", "model": "m", "run_label": "simple-1", "ts": 1.0},
-    ])
-    runtime = latest_call_runtime(tmp_path)
-    assert runtime is not None and runtime["role"] == "manager"

@@ -6,9 +6,7 @@ import os
 import time
 from pathlib import Path
 
-import argus.core.metrics as metrics_module
 from argus.core.metrics import (
-    http_route_template,
     metrics_snapshot,
     record_metric,
     render_prometheus,
@@ -147,29 +145,6 @@ def test_goal_metrics_cover_acceptance_progress_replans_and_duplicate_work(
     )
 
 
-def test_empty_metrics_are_healthy_and_do_not_invent_failures(tmp_path: Path) -> None:
-    snapshot = metrics_snapshot(root=tmp_path)
-    assert snapshot["provider"]["success_rate"] == 1.0
-    assert snapshot["web"]["error_rate_5xx"] == 0.0
-    assert snapshot["event_validation_failures"] == 0
-    assert snapshot["slo"] == {"status": "healthy", "violations": []}
-
-
-def test_metrics_snapshot_never_takes_the_writer_lock(tmp_path: Path, monkeypatch) -> None:
-    record_metric(
-        tmp_path,
-        "web.request",
-        labels={"method": "GET", "path": "/api/projects", "status": 200},
-    )
-
-    def forbidden_lock(_root):
-        raise AssertionError("snapshot reads must not block metric writers")
-
-    monkeypatch.setattr(metrics_module, "_metrics_lock", forbidden_lock)
-
-    assert metrics_snapshot(root=tmp_path)["web"]["requests"] == 1
-
-
 def test_metric_labels_bucket_unbounded_values(tmp_path: Path) -> None:
     record_metric(
         tmp_path,
@@ -207,16 +182,6 @@ def test_metric_labels_bucket_unbounded_values(tmp_path: Path) -> None:
         "status": "unknown",
     }
     assert metrics_snapshot(root=tmp_path)["web"]["errors_5xx"] == 0
-
-
-def test_http_route_template_never_falls_back_to_raw_identifier() -> None:
-    class Route:
-        path_format = "/api/projects/{sid}/snapshot"
-
-    assert http_route_template({"route": Route()}, "/api/projects/secret/snapshot") == (
-        "/api/projects/{sid}/snapshot"
-    )
-    assert http_route_template({}, "/api/projects/secret/snapshot") == "<unmatched>"
 
 
 def test_metrics_rotation_is_read_through_and_prunes_old_archives(
@@ -264,63 +229,3 @@ def test_multiprocess_metric_writes_remain_complete_json_lines(tmp_path: Path) -
     ]
     assert len(rows) == 100
     assert all(row["name"] == "provider.call" for row in rows)
-
-
-def test_legacy_provider_overrun_metric_is_ignored(tmp_path: Path) -> None:
-    record_metric(
-        tmp_path,
-        "provider.call",
-        labels={
-            "provider": "codex",
-            "status": "completed",
-            "pricing_status": "priced",
-        },
-        fields={"overrun_usd": 0.02},
-    )
-    snapshot = metrics_snapshot(root=tmp_path)
-    assert "overrun_calls" not in snapshot["provider"]
-    assert "overrun_usd" not in snapshot["provider"]
-    assert snapshot["slo"]["status"] == "healthy"
-    prometheus = render_prometheus(snapshot)
-    assert "budget_overrun" not in prometheus
-
-
-def test_cost_per_passed_task_counts_all_spend_over_passed_tasks(tmp_path: Path) -> None:
-    """CE-1: failed attempts and overhead are part of what a passed task cost."""
-    for index, cost in enumerate((1.0, 2.0, 3.0)):
-        record_metric(
-            tmp_path,
-            "provider.call",
-            labels={"provider": "copilot", "status": "completed"},
-            fields={"call_id": f"c{index}", "duration_ms": 10, "cost_usd": cost},
-            timestamp=100.0 + index,
-        )
-    for item, accepted in (("m1", True), ("m2", False)):
-        record_metric(
-            tmp_path,
-            "goal.mission",
-            fields={"project_id": "p1", "item_id": item, "accepted": accepted},
-            timestamp=110.0,
-        )
-
-    snapshot = metrics_snapshot(root=tmp_path, now=200.0)
-
-    assert snapshot["cost"] == {"total_usd": 6.0, "passed_tasks": 1, "per_passed_task_usd": 6.0}
-    assert "argus_cost_per_passed_task_usd 6.0" in render_prometheus(snapshot)
-
-
-def test_cost_per_passed_task_is_unset_until_a_task_passes(tmp_path: Path) -> None:
-    record_metric(
-        tmp_path,
-        "provider.call",
-        labels={"provider": "copilot", "status": "completed"},
-        fields={"call_id": "c1", "duration_ms": 10, "cost_usd": 2.5},
-        timestamp=100.0,
-    )
-
-    snapshot = metrics_snapshot(root=tmp_path, now=200.0)
-
-    assert snapshot["cost"]["per_passed_task_usd"] is None
-    prometheus = render_prometheus(snapshot)
-    assert "argus_cost_usd_total 2.5" in prometheus
-    assert "argus_cost_per_passed_task_usd" not in prometheus

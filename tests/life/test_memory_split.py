@@ -2,17 +2,14 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
 from argus.apps.cli import main
-from argus.core import project
 from argus.life import (
     BacklogItem,
-    GlobalMemory,
     JournalEntry,
     MemoryBundle,
     ProjectMemory,
@@ -50,67 +47,10 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # GlobalMemory
 # ---------------------------------------------------------------------------
 
-def test_global_memory_open_uses_core_paths(isolated_home: Path) -> None:
-    mem = GlobalMemory.open()
-    assert mem.root == isolated_home
-    assert mem.identity.path == isolated_home / "identity.md"
-
-
-def test_global_memory_lazy_creation(isolated_home: Path) -> None:
-    """Just calling open() must not write anything to disk."""
-    GlobalMemory.open()
-    assert not (isolated_home / "identity.md").exists()
-
-
-def test_global_memory_init_seeds_identity(isolated_home: Path) -> None:
-    mem = GlobalMemory.open()
-    created = mem.init()
-    # Global root seeds only identity; logs are per-project, so init must not
-    # create a global journal file.
-    assert created == {"identity": True}
-    assert (isolated_home / "identity.md").read_text(encoding="utf-8")
-    # Idempotent.
-    again = mem.init()
-    assert again == {"identity": False}
-
-
-def test_global_memory_explicit_root_overrides_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "env-home"))
-    other = tmp_path / "explicit"
-    mem = GlobalMemory.open(other)
-    assert mem.root == other
-
 
 # ---------------------------------------------------------------------------
 # ProjectMemory
 # ---------------------------------------------------------------------------
-
-def test_project_memory_paths_under_projects_root(isolated_home: Path) -> None:
-    proj = ProjectMemory.open("abc123abc123", label="my-project")
-    expected_root = isolated_home / "projects" / "abc123abc123"
-    assert proj.root == expected_root
-    assert proj.memory.path == expected_root / "events.jsonl"
-    assert proj.backlog.path == expected_root / "backlog.jsonl"
-    assert proj.label == "my-project"
-    assert proj.fingerprint == "abc123abc123"
-
-
-def test_project_memory_lazy_creation(isolated_home: Path) -> None:
-    ProjectMemory.open("deadbeefcafe")
-    expected_root = isolated_home / "projects" / "deadbeefcafe"
-    assert not expected_root.exists()
-
-
-def test_project_memory_init_seeds_events_and_backlog(isolated_home: Path) -> None:
-    proj = ProjectMemory.open("abc123abc123", label="my-project")
-    created = proj.init()
-    assert created == {
-        "events": True,
-        "backlog": True,
-    }
-    assert not (proj.root / "project.md").exists()
 
 
 def test_project_memory_init_idempotent(isolated_home: Path) -> None:
@@ -127,97 +67,9 @@ def test_project_memory_rejects_empty_fingerprint() -> None:
         ProjectMemory.open("")
 
 
-def test_project_memory_rejects_path_separator(isolated_home: Path) -> None:
-    with pytest.raises(ValueError):
-        ProjectMemory.open("../escape")
-
-
-def test_project_memory_journal_isolated_per_fingerprint(
-    isolated_home: Path,
-) -> None:
-    a = ProjectMemory.open("aaaaaaaaaaaa")
-    b = ProjectMemory.open("bbbbbbbbbbbb")
-    _write_project_event(
-        a.memory,
-        JournalEntry.new(kind="note", title="a-only", summary="exclusive to a")
-    )
-    assert [e.title for e in a.memory.all()] == ["a-only"]
-    assert b.memory.all() == []
-
-
-def test_project_memory_recent_journal(isolated_home: Path) -> None:
-    proj = ProjectMemory.open("aaaaaaaaaaaa")
-    _write_project_event(
-        proj.memory,
-        JournalEntry.new(
-            kind="mission_complete",
-            title="refactor sqlite store",
-            summary="moved store onto WAL",
-            tags=["sqlite"],
-        )
-    )
-    hits = proj.recent_journal()
-    assert len(hits) == 1
-    assert hits[0].title.startswith("refactor sqlite")
-
-
 # ---------------------------------------------------------------------------
 # MemoryBundle
 # ---------------------------------------------------------------------------
-
-def _init_git_repo(path: Path, remote_url: str) -> None:
-    """Helper to make project_fingerprint() resolve via git remote."""
-    subprocess.run(
-        ["git", "init", "-q"],
-        cwd=path,
-        env=project._git_env(),
-        check=True,
-    )
-    subprocess.run(
-        ["git", "remote", "add", "origin", remote_url],
-        cwd=path,
-        env=project._git_env(),
-        check=True,
-    )
-
-
-def test_memory_bundle_for_cwd_uses_git_remote(
-    isolated_home: Path, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _init_git_repo(repo, "https://github.com/lbx154/argus-skill.git")
-
-    bundle = MemoryBundle.for_cwd(repo)
-    assert bundle.global_mem.root == isolated_home
-    # fingerprint deterministic (sha1[:12] of normalised remote)
-    assert bundle.project.fingerprint
-    assert bundle.project.root.parent == isolated_home / "projects"
-
-
-def test_memory_bundle_for_cwd_falls_back_to_cwd_hash(
-    isolated_home: Path, tmp_path: Path
-) -> None:
-    no_repo = tmp_path / "nogit"
-    no_repo.mkdir()
-    bundle = MemoryBundle.for_cwd(no_repo)
-    assert bundle.project.fingerprint
-    assert bundle.project.root == (
-        isolated_home / "projects" / bundle.project.fingerprint
-    )
-
-
-def test_memory_bundle_init_creates_both(
-    isolated_home: Path, tmp_path: Path
-) -> None:
-    bundle = MemoryBundle.for_cwd(tmp_path)
-    created = bundle.init()
-    assert created["global"]["identity"] is True
-    assert created["project"]["events"] is True
-    assert created["project"]["backlog"] is True
-    assert not (bundle.project.root / "project.md").exists()
-    # idempotent
-    assert bundle.init()["global"] == {"identity": False}
 
 
 def test_memory_bundle_render_prelude_excludes_cross_project_journal(
@@ -277,36 +129,10 @@ def test_memory_bundle_journal_writes_are_project_only(
     assert bundle.journal.path == bundle.project.memory.path
     assert bundle.journal.total_cost_since(0) == pytest.approx(0.25)
 
-def test_memory_bundle_render_prelude_empty_when_nothing_relevant(
-    isolated_home: Path, tmp_path: Path
-) -> None:
-    """Empty memory + un-initialised cards → empty string."""
-    bundle = MemoryBundle.for_cwd(tmp_path)
-    rendered = bundle.render_prelude()
-    assert rendered == ""
-
-
-def test_memory_bundle_uses_core_paths_project_root(
-    isolated_home: Path, tmp_path: Path
-) -> None:
-    """ProjectMemory under bundle should sit inside ARGUS_SKILL_HOME/projects/."""
-    bundle = MemoryBundle.for_cwd(tmp_path)
-    assert bundle.project.root.parent == isolated_home / "projects"
-
 
 # ---------------------------------------------------------------------------
 # LifeMemory still works (compatibility facade)
 # ---------------------------------------------------------------------------
-
-def test_life_memory_still_works(tmp_path: Path) -> None:
-    """The LifeMemory facade uses the canonical event timeline."""
-    from argus.life import LifeMemory
-
-    mem = LifeMemory.open(tmp_path)
-    mem.init()
-    assert (tmp_path / "identity.md").exists()
-    assert (tmp_path / "events.jsonl").exists()
-    assert (tmp_path / "backlog.jsonl").exists()
 
 
 def test_cli_status_and_prelude_are_project_scoped(

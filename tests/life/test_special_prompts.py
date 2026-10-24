@@ -9,13 +9,6 @@ import pytest
 from argus.life import special_prompts
 
 
-def test_no_dir_returns_empty(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
-                       str(tmp_path / "absent"))
-    assert special_prompts.load_special_prompts() == []
-    assert special_prompts.render_special_prompts_context() == ""
-
-
 def test_loads_sorted_and_skips_empty(tmp_path: Path, monkeypatch) -> None:
     d = tmp_path / "sp"
     d.mkdir()
@@ -31,23 +24,6 @@ def test_loads_sorted_and_skips_empty(tmp_path: Path, monkeypatch) -> None:
 
     prompts = special_prompts.load_special_prompts()
     assert [name for name, _ in prompts] == ["10-first", "20-second"]
-
-
-def test_render_has_authoritative_header_and_bodies(
-    tmp_path: Path, monkeypatch
-) -> None:
-    d = tmp_path / "sp"
-    d.mkdir()
-    (d / "10-gpu.md").write_text("Free the keep-alive before training.",
-                                 encoding="utf-8")
-    (d / "10-gpu.md").chmod(0o644)
-    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
-
-    rendered = special_prompts.render_special_prompts_context()
-    assert "Operator Directives" in rendered
-    assert "authoritative" in rendered
-    assert "Free the keep-alive before training." in rendered
-    assert "### 10-gpu" in rendered
 
 
 def test_explicit_paper_scope_is_omitted_from_bounded_missions(

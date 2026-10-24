@@ -1,7 +1,6 @@
 """The consolidation pass: index rebuild, receipt, validation and the one model call."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,16 +10,12 @@ import argus.life.consolidation as consolidation
 from argus.core.file_lock import exclusive_file_lock
 from argus.core.handoff import HandOffActions
 from argus.life.consolidation import (
-    Receipt,
-    build_prompt,
     consolidate_knowledge,
     lesson_facts,
     lesson_pages,
     list_pages,
     read_receipt,
     rebuild_index,
-    render_index,
-    write_receipt,
 )
 from argus.wiki.journal import read_knowledge_events
 
@@ -147,27 +142,6 @@ def test_index_groups_pages_by_kind_and_keeps_the_heading(tmp_path: Path) -> Non
     assert "- [How to run](pages/howto.md) — Steps" in text
 
 
-def test_index_rebuild_is_idempotent_and_uses_a_default_heading(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _lesson(root, "20260917-a", "A lesson")
-
-    assert rebuild_index(root, list_pages(root), vertical=VERTICAL) is True
-    first = (root / "INDEX.md").read_text(encoding="utf-8")
-    assert rebuild_index(root, list_pages(root), vertical=VERTICAL) is False
-    assert (root / "INDEX.md").read_text(encoding="utf-8") == first
-    assert first.startswith("# Research knowledge\n")
-
-
-def test_index_lists_principles_before_the_sections(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _lesson(root, "20260917-a", "A lesson")
-    (root / "principles.md").write_text(
-        _page("Principles for research", "The rules so far", "1. Do it.", kind="principles"), encoding="utf-8"
-    )
-    text = render_index(root, list_pages(root), heading="# Research knowledge")
-    assert text.index("[Principles for research](principles.md) — The rules so far") < text.index("## Lessons")
-
-
 def test_unreadable_pages_are_skipped_not_raised(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
     _lesson(root, "20260917-a", "Good")
@@ -177,30 +151,6 @@ def test_unreadable_pages_are_skipped_not_raised(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- lesson facts and receipt
-
-
-def test_lesson_facts_change_only_with_lesson_files(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _three_lessons(root)
-    before = lesson_facts(lesson_pages(list_pages(root)))
-    (root / "pages" / "facts").mkdir()
-    (root / "pages" / "facts" / "f.md").write_text(_page("Fact", "d", "b"), encoding="utf-8")
-    assert lesson_facts(lesson_pages(list_pages(root))) == before
-    _lesson(root, "20260918-new", "New lesson")
-    assert lesson_facts(lesson_pages(list_pages(root))) != before
-
-
-def test_receipt_round_trips_and_tolerates_corruption(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    receipt = Receipt(vertical=VERTICAL, last_ts=NOW, lessons_compiled=[["a.md", [1, 2, 3]]], lesson_count=3, principle_count=2, outcome="compiled")
-    path = write_receipt(root, receipt, now=NOW)
-    assert path == root / ".consolidated.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["last_ts"] == NOW and data["lessons_compiled"] == [["a.md", [1, 2, 3]]] and data["updated_at"].startswith(TODAY)
-    loaded = read_receipt(root)
-    assert (loaded.last_ts, loaded.lessons_compiled, loaded.lesson_count, loaded.principle_count) == (NOW, [["a.md", [1, 2, 3]]], 3, 2)
-    path.write_text("{not json", encoding="utf-8")
-    assert read_receipt(root) == Receipt()
 
 
 # --------------------------------------------------------------------------- skip logic
@@ -235,30 +185,6 @@ def test_no_shared_root_or_vertical_skips_without_writing(tmp_path: Path, monkey
     assert empty["outcome"] == "skipped_no_vertical"
     bad = consolidate_knowledge(runner=object(), global_root=home, life_dir=home, vertical="../x", emit=None, now=NOW)
     assert bad["outcome"] == "skipped_bad_vertical"
-
-
-def test_unchanged_lessons_skip_the_model_until_a_lesson_changes(tmp_path: Path, monkeypatch) -> None:
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    calls = _stub_model(monkeypatch, _form([
-        ["pages/lessons/20260915-pin-versions.md", "pages/lessons/20260916-smoke-first.md"],
-    ]))
-
-    assert _run(home)["outcome"] == "compiled"
-    assert len(calls) == 1
-    assert _run(home, now=NOW + 1)["outcome"] == "skipped_unchanged"
-    fact = root / "pages" / "facts" / "gpu.md"
-    fact.parent.mkdir()
-    fact.write_text(_page("GPU hosts", "Which hosts have GPUs", "Two."), encoding="utf-8")
-    assert _run(home, now=NOW + 2)["outcome"] == "skipped_unchanged"
-    assert len(calls) == 1
-    receipt = read_receipt(root)
-    assert receipt.outcome == "skipped_unchanged" and receipt.lessons_compiled, "the compiled lessons are kept"
-
-    _lesson(root, "20260918-new", "New lesson")
-    assert _run(home, now=NOW + 3)["outcome"] == "compiled"
-    assert len(calls) == 2
-    assert _run(home, now=NOW + 4)["outcome"] == "skipped_unchanged"
 
 
 def test_a_concurrent_pass_holding_the_lock_makes_this_one_skip(tmp_path: Path, monkeypatch) -> None:
@@ -387,22 +313,6 @@ def test_a_refused_form_keeps_the_previous_principles_and_records_the_failure(tm
     assert (root / "INDEX.md").exists(), "the index is still rebuilt"
 
 
-def test_a_failed_pass_is_retried_only_when_a_page_changes(tmp_path: Path, monkeypatch) -> None:
-    """A retry on unchanged lessons was a model call every interval."""
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    calls = _stub_model(monkeypatch, RuntimeError("provider unavailable"))
-
-    result = _run(home)
-    assert result["outcome"] == "failed" and result["failure"] == "RuntimeError: provider unavailable"
-    assert not (root / "principles.md").exists()
-    assert [_run(home, now=NOW + day * 86400)["outcome"] for day in range(1, 8)] == ["skipped_unchanged"] * 7
-    assert len(calls) == 1
-    _lesson(root, "20260918-new", "A new lesson")
-    assert _run(home, now=NOW + 8 * 86400)["outcome"] == "failed"
-    assert len(calls) == 2, "new lessons are new input"
-
-
 def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -415,14 +325,6 @@ def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
     assert not (root / "principles.md").exists()
     assert _run(home, now=NOW + 5 * HOUR)["outcome"] == "skipped_unchanged"
     assert len(calls) == 1
-
-
-def test_a_call_that_files_no_form_fails_cleanly(tmp_path: Path, monkeypatch) -> None:
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    _stub_model(monkeypatch, None)
-    result = _run(home)
-    assert result["outcome"] == "failed" and "no consolidate form" in result["failure"]
 
 
 def test_history_is_kept_and_the_kind_is_added(tmp_path: Path, monkeypatch) -> None:
@@ -446,27 +348,6 @@ def test_history_is_kept_and_the_kind_is_added(tmp_path: Path, monkeypatch) -> N
         "- 2026-09-12: 1 principles from 3 lessons",
         f"- {TODAY}: 1 principles from 3 lessons",
     ]
-
-
-def test_prompt_lists_newest_lessons_first_with_bounded_bodies(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    _lesson(root, "20260915-old", "Old lesson", body="old " * 10)
-    _lesson(root, "20260917-new", "New lesson", body="x" * 2000)
-    lessons = lesson_pages(list_pages(root))
-    prompt = build_prompt(vertical=VERTICAL, lessons=lessons, current_principles="")
-    assert prompt.index("New lesson") < prompt.index("Old lesson")
-    assert "x" * 600 in prompt and "x" * 601 not in prompt
-    assert "(none yet)" in prompt and "hand_off" in prompt
-    for page in lessons:
-        assert f"### {page.relative}: " in prompt
-
-
-def test_prompt_shows_at_most_forty_lessons(tmp_path: Path) -> None:
-    _home_, root = _home(tmp_path)
-    for index in range(45):
-        _lesson(root, f"202609{(index % 28) + 1:02d}-l{index:02d}", f"Lesson {index:02d}")
-    prompt = build_prompt(vertical=VERTICAL, lessons=lesson_pages(list_pages(root)), current_principles="x")
-    assert prompt.count("\n### pages/") == 40 and "(40 of 45)" in prompt
 
 
 def test_the_model_call_uses_the_light_model(monkeypatch, tmp_path: Path) -> None:

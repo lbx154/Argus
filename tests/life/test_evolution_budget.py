@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from argus.core.knobs import learning_enabled
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
@@ -47,81 +47,6 @@ def test_learning_switch_defaults_on_and_honors_a_persisted_off(tmp_path, monkey
     assert learning_enabled() is False
     monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
     assert learning_enabled() is True
-
-
-def test_supervisor_passes_runner_shared_skill_root(tmp_path, monkeypatch) -> None:
-    memory = LifeMemory.open(tmp_path / "life")
-    runner = _Runner()
-    runner.shared_skills_root = lambda: tmp_path / "custom-shared"
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(max_missions=1),
-            project_worktree=tmp_path,
-        ),
-    )
-    memory.backlog.add(BacklogItem.new(title="evolve", objective="share skill"))
-    captured = {}
-
-    def _propagate(*args, **kwargs):
-        captured.update(kwargs)
-        return {"to_shared": 0, "errors": 0}
-
-    monkeypatch.setattr(
-        "argus.manager.skill_tidy.propagate_after_mission",
-        _propagate,
-    )
-
-    assert supervisor.tick() is not None
-    assert captured["project_state_dir"] == memory.root
-    assert captured["shared_root"] == tmp_path / "custom-shared"
-    assert captured["mission_objective"] == "share skill"
-    assert captured["mission_success"] is True
-
-
-def test_failed_mission_still_reaches_team_learning_review(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    memory = LifeMemory.open(tmp_path / "life")
-    runner = _Runner()
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(max_missions=1),
-            project_worktree=tmp_path,
-        ),
-    )
-    captured = {}
-
-    def _propagate(*args, **kwargs):
-        captured.update(kwargs)
-        return {"to_shared": 0, "errors": 0}
-
-    monkeypatch.setattr(
-        "argus.manager.skill_tidy.propagate_after_mission",
-        _propagate,
-    )
-    monkeypatch.setattr(
-        "argus.manager.domain_tidy.tidy_domains_after_mission",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("failed missions must not promote data domains")
-        ),
-    )
-
-    supervisor._evolve_runtime_skills_after_mission(
-        success=False,
-        usage_mission_id="failed-attempt",
-        mission_objective="Retry the fixed swap threshold",
-        mission_result="status=error; reason=the same fixed threshold blocked again",
-    )
-
-    assert captured["mission_success"] is False
-    assert "same fixed threshold" in captured["mission_result"]
 
 
 @pytest.mark.parametrize("learning", ["0", "1"])

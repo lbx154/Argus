@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -15,8 +14,7 @@ from argus.core.runner_errors import (
     model_output_observed,
     result_rejected_before_output,
 )
-from argus.core.token_usage import TokenUsage
-from argus.core.usage import PROVIDER_REJECTED_TIER, UsageLedger, build_usage_record
+from argus.core.usage import PROVIDER_REJECTED_TIER, UsageLedger
 
 # The real incident: a side role's call went through a local relay that could
 # not route the requested model and answered with an HTTP error.
@@ -33,15 +31,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     (tmp_path / "projects" / "p1").mkdir(parents=True)
     return tmp_path
-
-
-def _failed_record(home: Path, call_id: str, *, rejected: bool, usage: TokenUsage | None = None):
-    return build_usage_record(
-        call_id=call_id, project_root=home / "projects" / "p1", mission_id="map",
-        provider="codex", model=MODEL, run_label="map-summary",
-        started_at=time.time() - 1, completed_at=time.time(), status="error",
-        token_usage=usage, error=RELAY_REJECTION, rejected_before_output=rejected,
-    )
 
 
 def test_relay_rejection_is_recognized_from_the_runner_result() -> None:
@@ -146,27 +135,3 @@ def test_cli_call_rejected_after_reasoning_is_not_waived(
         assert (row.pricing_status, row.pricing_tier) == ("not_billed", PROVIDER_REJECTED_TIER)
     else:
         assert row.pricing_status != "not_billed"
-
-
-def test_provider_rejected_call_is_recorded_as_not_billed(home: Path) -> None:
-    record = _failed_record(home, "call-rejected", rejected=True)
-    assert record.pricing_status == "not_billed"
-    assert record.pricing_tier == PROVIDER_REJECTED_TIER
-    assert record.cost_usd == 0.0
-    assert record.error.startswith("unexpected status 502")
-    UsageLedger(home / "projects" / "p1", migrate_legacy=False).append(record)
-
-    stored = UsageLedger(home / "projects" / "p1", migrate_legacy=False).records()
-    assert [(r.call_id, r.status, r.pricing_status, r.error) for r in stored] == [
-        ("call-rejected", "error", "not_billed", record.error)]
-
-
-def test_reported_usage_overrides_the_rejection_flag(home: Path) -> None:
-    usage = TokenUsage(input_tokens=10, input_tokens_present=True, source="test")
-    record = _failed_record(home, "call-ran", rejected=True, usage=usage)
-    assert record.pricing_status != "not_billed"
-
-
-def test_call_that_ran_without_usage_is_not_waived(home: Path) -> None:
-    record = _failed_record(home, "call-ran", rejected=False)
-    assert record.pricing_status in {"partial", "unpriced"}

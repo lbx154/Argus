@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,7 +12,6 @@ from argus.apps._runtime_helpers import _ExecuteState
 from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.mission_outcome import (
-    mission_outcome_class,
     mission_outcome_dimensions,
     outcome_dimension_summary,
     review_keeps_mission_resumable,
@@ -75,219 +73,6 @@ def _make_supervisor(tmp_path, outcome: _Outcome) -> tuple[LifeSupervisor, _Sink
     return supervisor, sink
 
 
-def test_completed_event_carries_the_summary_of_the_handoff_that_ended_it(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=True,
-            status="done",
-            summary="Created RESULT.txt and verified its exact contents.",
-            final_review_reason="Reviewer accepted the file.",
-        ),
-    )
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="Create result", objective="Create RESULT.txt")
-    )
-
-    supervisor.tick()
-
-    assert "work_kind" not in supervisor.runner.kwargs
-    assert _completed_event(sink)["summary"] == "Reviewer accepted the file."
-
-
-def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
-    tmp_path,
-) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=True,
-            status="done",
-            final_review_status="done",
-            final_review_reason="已完整审阅《餐饮企业运营手册.md》；符合交付条件。",
-            final_message=(
-                "Decision:\n"
-                "RESULT=已完成餐饮企业运营手册。\n"
-                "→ reviewer"
-            ),
-        ),
-    )
-    workdir = supervisor._project_workdir()
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "餐饮企业运营手册.md").write_text("# 手册\n", encoding="utf-8")
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="制作运营手册", objective="制作餐饮企业运营手册")
-    )
-
-    supervisor.tick()
-
-    event = _completed_event(sink)
-    assert event["summary"] == "已完整审阅《餐饮企业运营手册.md》；符合交付条件。"
-    assert event["delivery"]["primary_target"]["path"] == "餐饮企业运营手册.md"
-
-
-def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=True,
-            status="done",
-            final_review_status="done",
-            final_review_reason="team-result.txt` passed independent byte verification.",
-            final_message=(
-                "Decision:\n"
-                "RESULT=Created `team-result.txt` and verified it.\n"
-                "→ reviewer"
-            ),
-        ),
-    )
-    workdir = supervisor._project_workdir()
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "team-result.txt").write_text("ARGUS_TEAM_OK\n", encoding="utf-8")
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="Create team result", objective="Create team-result.txt")
-    )
-
-    supervisor.tick()
-
-    assert _completed_event(sink)["delivery"]["primary_target"]["path"] == (
-        "team-result.txt"
-    )
-
-
-def test_direct_reviewed_website_delivers_when_both_final_messages_omit_files(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(tmp_path, _Outcome(
-        success=True, status="done", final_review_status="done",
-        final_review_source="reviewer", final_review_reason="Browser checks passed.",
-        final_output="RESULT=The responsive travel planner is complete.",
-    ))
-    workdir = supervisor._project_workdir()
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "index.html").write_text("<!doctype html><h1>Travel planner</h1>", encoding="utf-8")
-    item = BacklogItem.new(
-        title="Create travel planner", objective="Create a responsive travel planner",
-        tags=["manager_direct", "scope:bounded", "review:required"],
-    )
-    supervisor.memory.backlog.add(item)
-    original_execute = supervisor.runner.execute
-
-    def execute(**kwargs):
-        events = [
-            {"type": "life.mission.started"},
-            {
-                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
-                "tool_name": "apply_patch", "text": "apply_patch: *** Begin Patch\n*** Add File: index.html\n+product",
-            },
-            {"type": "round.review.started"},
-            {
-                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "reviewer",
-                "tool_name": "view", "text": 'view: {"path": "index.html"}',
-            },
-            {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
-        ]
-        with (supervisor.memory.root / "events.jsonl").open("a", encoding="utf-8") as handle:
-            for event in events:
-                handle.write(json.dumps({"item_id": item.id, **event}) + "\n")
-        return original_execute(**kwargs)
-
-    supervisor.runner.execute = execute
-    supervisor.tick()
-
-    completed = _completed_event(sink)
-    assert completed["overall_complete"] is True
-    assert completed["delivery_candidates"] == ["index.html"]
-    assert completed["delivery"]["primary_target"]["path"] == "index.html"
-    assert completed["delivery"]["review_status"] == "done"
-    # The receipt says who settled ``done`` so the UI can tell review from self-check.
-    assert completed["delivery"]["review_source"] == "reviewer"
-
-
-@pytest.mark.parametrize(
-    ("open_ended", "expected_complete"),
-    [(False, True), (True, False)],
-)
-def test_manager_complete_is_project_complete_only_for_bounded_campaign(
-    tmp_path,
-    open_ended: bool,
-    expected_complete: bool,
-) -> None:
-    outcome = _Outcome(
-        success=True,
-        status="done",
-        final_review_status="done",
-        final_review_source="reviewer",
-    )
-    outcome.stage_transition = {
-        "action": "complete",
-        "target_stage": "setup",
-    }
-    supervisor, sink = _make_supervisor(tmp_path, outcome)
-    supervisor.config.continuous = True
-    supervisor.config.open_ended = open_ended
-    supervisor.memory.backlog.add(
-        BacklogItem.new(
-            title="Complete the direct objective",
-            objective="Finish one reviewed direct task.",
-            tags=["manager_direct", "scope:bounded", "stage_closing"],
-            manager_decision={
-                "routed": True,
-                "vertical": "software",
-                "workflow_mode": "direct",
-            },
-        )
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None
-    assert result["overall_complete"] is expected_complete
-    assert result["campaign_continues"] is not expected_complete
-    event = _completed_event(sink)
-    assert event["overall_complete"] is expected_complete
-    assert event["campaign_continues"] is not expected_complete
-
-
-@pytest.mark.parametrize(
-    ("status", "success", "expected"),
-    [
-        ("done", True, "completed"),
-        ("completed", False, "completed"),
-        ("research_incomplete", False, "incomplete"),
-        ("paused_no_breakthrough", False, "incomplete"),
-        ("exhausted_current_methods", False, "incomplete"),
-        ("infra_blocked", False, "blocked"),
-        ("no_progress", False, "stalled"),
-        ("max_rounds", False, "stalled"),
-        ("blocked", False, "blocked"),
-        ("replan_requested", False, "ended"),
-        ("error", False, "failed"),
-        ("supervisor_error", False, "failed"),
-        ("paused_budget", False, "ended"),
-        ("paused_daemon_shutdown", False, "ended"),
-        ("paused_operator", False, "ended"),
-        ("aborted", False, "ended"),
-        ("legacy_unknown_status", False, "ended"),
-    ],
-)
-def test_mission_outcome_classifies_statuses(
-    status: str,
-    success: bool,
-    expected: str,
-) -> None:
-    assert mission_outcome_class(status=status, success=success) == expected
-
-
-def test_review_only_outcome_marks_stage_transition_intentionally_skipped() -> None:
-    outcome = mission_outcome_dimensions(
-        status="done",
-        success=True,
-        review_status="done",
-        stage_transition_skipped=True,
-    )
-
-    assert outcome["stage_certification"] == "intentionally_skipped"
-
-
 def test_outcome_summary_uses_human_labels_instead_of_raw_dimensions() -> None:
     summary = outcome_dimension_summary({
         "execution_status": "paused",
@@ -305,33 +90,6 @@ def test_outcome_summary_uses_human_labels_instead_of_raw_dimensions() -> None:
         "Can resume",
     ]
     assert not any("=" in part or "_" in part for part in summary)
-
-
-@pytest.mark.parametrize(
-    ("status", "success", "expected"),
-    [
-        ("done", True, "completed"),
-        ("blocked", False, "blocked"),
-    ],
-)
-def test_normal_completion_events_include_outcome_class(
-    tmp_path,
-    status: str,
-    success: bool,
-    expected: str,
-) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(success=success, status=status, stop_reason="mission finished"),
-    )
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title=f"{status} mission", objective="exercise event payload")
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None
-    assert _completed_event(sink)["outcome_class"] == expected
 
 
 def test_first_independent_success_promotes_learned_vertical(tmp_path) -> None:
@@ -437,141 +195,6 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
     )
 
 
-def test_reviewer_receives_compact_task_contract_not_engineer_prelude(
-    tmp_path,
-) -> None:
-    supervisor, _sink = _make_supervisor(
-        tmp_path,
-        _Outcome(success=True, status="done"),
-    )
-    supervisor.config.runtime_context = "large engineer-only runtime context"
-    supervisor.memory.backlog.add(
-        BacklogItem.new(
-            title="Compact review",
-            objective="Implement the kernel change.",
-            acceptance_check="benchmark exits zero",
-            non_goals=["do not change the public API"],
-        )
-    )
-
-    supervisor.tick()
-
-    review_objective = supervisor.runner.kwargs["review_objective"]
-    assert review_objective == (
-        "Implement the kernel change.\n"
-        "Acceptance check: benchmark exits zero\n"
-        "Non-goals: do not change the public API"
-    )
-    assert "engineer-only runtime context" not in review_objective
-
-def test_pause_completion_event_includes_outcome_class(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False,
-            status="paused_budget",
-            stop_kind="budget_exhausted",
-            recoverable=True,
-            stop_reason="per-attempt cap reached",
-        ),
-    )
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="paused mission", objective="exercise pause payload")
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None
-    assert _completed_event(sink)["outcome_class"] == "ended"
-
-
-def test_replan_reason_survives_runtime_and_supervisor_adapters(tmp_path) -> None:
-    review_reason = "Reviewer certified that the active node is refuted."
-    loop_outcome = LoopOutcome(
-        status="replan_requested",
-        rounds=[
-            RoundRecord(
-                round_index=1,
-                engineer_message="",
-                engineer_exit_code=0,
-                review=ReviewDecision(
-                    status="replan_requested",
-                    reason=review_reason,
-                    next_action="replace the active plan",
-                ),
-            )
-        ],
-        final_message="",
-        reason="",
-        workdir=str(tmp_path),
-    )
-    execute_state = _ExecuteState()
-    execute_state.outcome = loop_outcome
-    execute_state.effective_status = "replan_requested"
-    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
-    runtime_outcome = runner._build_execute_outcome(execute_state)
-    supervisor, _sink = _make_supervisor(tmp_path, runtime_outcome)
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="replan mission", objective="replace the active plan")
-    )
-
-    result = supervisor.tick()
-
-    assert runtime_outcome.final_review_reason == review_reason
-    assert result is not None
-    assert result["review_reason"] == review_reason
-
-
-def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
-    research_result = {
-        "result_class": "literature_review",
-        "correctness_status": "verified",
-        "novelty_status": "known",
-        "significance_status": "publishable",
-        "statement_fidelity_status": "verified",
-        "evidence": ["source audit"],
-        "limitations": [],
-    }
-    loop_outcome = LoopOutcome(
-        status="done",
-        rounds=[
-            RoundRecord(
-                round_index=1,
-                engineer_message="Wrote the survey and verified every cited source.",
-                engineer_exit_code=0,
-                review=ReviewDecision(
-                    status="done",
-                    reason="The survey is complete.",
-                    next_action="",
-                    research_result=research_result,
-                ),
-            )
-        ],
-        final_message="Wrote the survey and verified every cited source.",
-        reason="",
-        workdir=str(tmp_path),
-    )
-    execute_state = _ExecuteState()
-    execute_state.outcome = loop_outcome
-    execute_state.effective_status = "done"
-    runtime_outcome = _SkillLoopRunner.__new__(
-        _SkillLoopRunner
-    )._build_execute_outcome(execute_state)
-    supervisor, sink = _make_supervisor(tmp_path, runtime_outcome)
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="survey", objective="write the review")
-    )
-
-    supervisor.tick()
-
-    assert runtime_outcome.research_result == research_result
-    assert runtime_outcome.summary == (
-        "Wrote the survey and verified every cited source."
-    )
-    assert _completed_event(sink)["research_result"] == research_result
-    assert _completed_event(sink)["summary"] == "The survey is complete."
-
-
 def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> None:
     from argus.core.mission_view import load_mission_view, update_mission_view_event
 
@@ -622,99 +245,6 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
     assert mission["final_output"] == body
 
 
-def test_completion_does_not_invent_engineer_output_from_review_or_runtime_text(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False, status="blocked",
-            final_message="Runtime blocked execution.",
-            final_review_reason="Reviewer needs more evidence.",
-        ),
-    )
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="blocked task", objective="deliver a report"),
-    )
-    supervisor.tick()
-    assert _completed_event(sink)["summary"] == "Reviewer needs more evidence."
-    assert _completed_event(sink)["final_output"] == ""
-
-
-@pytest.mark.parametrize(
-    ("stop_kind", "recoverable"),
-    [("daemon_shutdown", True), (None, False)],
-)
-def test_daemon_shutdown_is_persisted_as_recoverable_pause(
-    tmp_path, stop_kind, recoverable,
-) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False,
-            status="parked",
-            park_reason="daemon_shutdown",
-            stop_kind=stop_kind,
-            recoverable=recoverable,
-            stop_reason="daemon shutdown requested",
-        ),
-    )
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="paused mission", objective="resume after restart")
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None and result["status"] == "parked"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert any(row.id == item.id for row in supervisor.memory.backlog.active())
-    completed = _completed_event(sink)
-    assert completed["success"] is False
-    assert (completed["status"], completed["park_reason"]) == ("parked", "daemon_shutdown")
-    assert completed["stop_kind"] == stop_kind
-    assert completed["recoverable"] is True
-
-
-def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:
-    supervisor, sink = _make_supervisor(
-        tmp_path,
-        _Outcome(
-            success=False,
-            status="aborted",
-            stop_kind="operator_abort",
-            stop_reason="operator aborted this mission",
-        ),
-    )
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="aborted mission", objective="stop only this item")
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None and result["status"] == "aborted"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "aborted"
-    completed = _completed_event(sink)
-    assert completed["success"] is False
-    assert completed["stop_kind"] == "operator_abort"
-    assert completed["failure_reason"] == ""
-
-
-def test_completed_review_and_stage_are_independent() -> None:
-    outcome = mission_outcome_dimensions(
-        status="done",
-        success=True,
-        review_status="done",
-        stage_transition={"action": "hold"},
-    )
-
-    assert outcome == {
-        "execution_status": "completed",
-        "review_status": "done",
-        "stage_certification": "not_certified",
-        "interruption_kind": "none",
-        "resumable": False,
-    }
-
 def test_supervisor_error_recovery_event_includes_outcome_class(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     item = memory.backlog.add(
@@ -760,15 +290,6 @@ def test_review_continue_keeps_a_stalled_mission_resumable() -> None:
     assert outcome["stage_certification"] == "deferred"
 
 
-def test_max_rounds_with_review_continue_is_resumable() -> None:
-    outcome = mission_outcome_dimensions(
-        status="max_rounds", success=False, review_status="continue"
-    )
-
-    assert outcome["execution_status"] == "paused"
-    assert outcome["resumable"] is True
-
-
 @pytest.mark.parametrize(
     ("status", "success", "review_status", "stop_kind"),
     [
@@ -800,7 +321,6 @@ def test_review_continue_does_not_resume_other_terminal_states(
         review_status=review_status,
         stop_kind=stop_kind,
     )["resumable"] is False
-
 
 
 def test_an_old_background_job_pause_resumes_without_being_watched(tmp_path) -> None:

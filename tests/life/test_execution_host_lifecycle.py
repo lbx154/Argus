@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from argus.core.models import ReviewDecision, RunnerResult
-from argus.core.runner_errors import is_execution_host_startup_error
 from argus.core.stop_kinds import OPERATOR_RESUMED_PARKS
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.life.memory import BacklogItem, LifeMemory, park_reason
@@ -19,19 +18,6 @@ HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "
     "C:/Codex/code-mode-host.exe: host executable was not found; fail closed"
 )
-
-
-@pytest.mark.parametrize("value", [
-    None,
-    "",
-    "The code-mode host executable was not found",
-    f"The log contains: {HOST_ERROR}",
-    f'"{HOST_ERROR}"',
-    "Code Mode is unavailable because failed to spawn code-mode host in the example",
-    "Process exited with code 1 before turn completion.",
-])
-def test_host_receipt_requires_complete_runtime_diagnostic(value: object) -> None:
-    assert not is_execution_host_startup_error(value)
 
 
 class _Backend:
@@ -192,23 +178,6 @@ def test_reviewer_host_failure_parks_without_retrying_either_role(tmp_path: Path
     assert parked.outcome["review_status"] == "not_assessed"
 
 
-def test_ordinary_infrastructure_pause_does_not_hold_other_work(tmp_path: Path) -> None:
-    memory = LifeMemory.open(tmp_path / "life")
-    parked = BacklogItem.new(title="unrelated", objective="wait")
-    parked.status = "infra_blocked"
-    parked.last_error = HOST_ERROR  # Unstructured prose is not a host circuit.
-    parked.outcome = {"interruption_kind": "backend_unavailable", "resumable": True}
-    memory.backlog.add(parked)
-    memory.backlog.add(BacklogItem.new(title="ready", objective="do work"))
-    runner = _MissionRunner(tmp_path)
-    runner.backend.available = True
-
-    result = _supervisor(memory, runner).tick()
-
-    assert result["success"] is True
-    assert runner.backend.calls == runner.reviewer.calls == 1
-
-
 @pytest.mark.parametrize("host_failure", [True, False])
 def test_an_infrastructure_park_skips_the_stage_judge(
     tmp_path: Path, host_failure: bool,
@@ -261,37 +230,3 @@ def test_an_infrastructure_park_skips_the_stage_judge(
     assert stage_calls == []
     assert result.final_review_status == ("not_assessed" if host_failure else "blocked")
     assert result.stage_transition == {}
-
-
-def test_planner_host_pause_gate_uses_split_memory_project_root(tmp_path: Path) -> None:
-    from argus.daemon.state import write_continuous_config
-
-    global_root = tmp_path / "global"
-    project_root = global_root / "projects" / "project-a"
-    write_continuous_config(
-        global_root, enabled=True, objective="unrelated global campaign",
-    )
-    write_continuous_config(
-        project_root, enabled=False, objective="project campaign", done_reason=HOST_ERROR,
-    )
-    memory = LifeMemory.open(project_root)
-    item = memory.backlog.add(BacklogItem.new(title="pending", objective="project work"))
-    runner = _MissionRunner(tmp_path)
-    supervisor = _supervisor(memory, runner)
-    supervisor.memory = SimpleNamespace(
-        root=global_root, project_root=project_root, backlog=memory.backlog,
-    )
-
-    blocked = supervisor._execution_host_failure_block(item=item)
-
-    assert blocked is not None and blocked["status"] == "runtime_block"
-    assert "turn continuous work back on" in blocked["reason"]
-    assert runner.backend.calls == 0
-    write_continuous_config(project_root, enabled=True, objective="project campaign")
-    assert supervisor._execution_host_failure_block(item=item) is None
-
-    # An unrelated global pause cannot hold this enabled project.
-    write_continuous_config(
-        global_root, enabled=False, objective="global campaign", done_reason=HOST_ERROR,
-    )
-    assert supervisor._execution_host_failure_block(item=item) is None

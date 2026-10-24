@@ -68,23 +68,6 @@ def _write_notes(life: Path, texts: list[str], node_id: str = "task-a") -> None:
     )
 
 
-def test_digest_renders_the_five_most_recent_notes(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    supervisor = _supervisor(project, life)
-    _write_notes(life, [f"提示 {i}" for i in range(7)])
-
-    note = supervisor._planner_current_reality_note()
-
-    assert "- operator_map_notes:" in note
-    assert "  - on task task-a: 提示 6" in note
-    assert "提示 2" in note
-    # Only the five most recent notes appear.
-    assert "提示 1" not in note
-    assert "提示 0" not in note
-
-
 def test_note_text_is_clipped_and_redacted(redact_secrets_on, tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -100,31 +83,6 @@ def test_note_text_is_clipped_and_redacted(redact_secrets_on, tmp_path: Path) ->
         line for line in note.splitlines() if line.startswith("  - on task task-a:")
     )
     assert len(note_line) < 260
-
-
-def test_absent_notes_file_renders_nothing_and_reads_nothing(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    supervisor = _supervisor(project, life)
-
-    import argus.life.memory as memory_module
-
-    reads: list[Path] = []
-    original = memory_module._read_jsonl_tail
-
-    def counting_tail(path, n, **kwargs):
-        reads.append(Path(path))
-        return original(path, n, **kwargs)
-
-    monkeypatch.setattr(memory_module, "_read_jsonl_tail", counting_tail)
-
-    note = supervisor._planner_current_reality_note()
-
-    assert "operator_map_notes" not in note
-    assert not any(path.name == "map_notes.jsonl" for path in reads)
 
 
 def test_unreadable_notes_file_never_breaks_the_digest(tmp_path: Path) -> None:

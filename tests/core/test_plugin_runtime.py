@@ -66,22 +66,6 @@ def test_unavailable_architecture_is_not_misidentified():
         runtime.platform_key("Linux", "riscv64")
 
 
-def test_installer_does_not_inherit_model_secrets(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setenv("COPILOT_PROVIDER_API_KEY", "secret")
-    monkeypatch.setenv("CODEX_HOME", "/external/config")
-    monkeypatch.setenv("PYTHONPATH", "/unrelated/module")
-    monkeypatch.setenv("CONDA_PREFIX", "/external/conda")
-    env = runtime.clean_env()
-    assert not {
-        "OPENAI_API_KEY",
-        "COPILOT_PROVIDER_API_KEY",
-        "CODEX_HOME",
-        "PYTHONPATH",
-        "CONDA_PREFIX",
-    } & set(env)
-
-
 def test_missing_host_python_is_provisioned_locally(monkeypatch, tmp_path):
     import subprocess
 

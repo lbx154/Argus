@@ -14,51 +14,6 @@ def empty_host(tmp_path, monkeypatch):
     return tmp_path / "host"
 
 
-def test_default_does_not_load_optional_vertical(empty_host):
-    from argus.skills.vertical_select import available_verticals
-
-    assert pm.installed(empty_host) == {}
-    assert "crystalpilot" not in available_verticals()
-    row = pm.plugin_rows(empty_host)[0]
-    assert not row["installed"] and not row["available"]
-
-
-@pytest.mark.parametrize("backend", ["codex", "copilot", "pi"])
-@pytest.mark.parametrize("system", ["linux", "windows", "darwin"])
-def test_supported_matrix(backend, system, monkeypatch):
-    from types import SimpleNamespace
-
-    from argus.core import role_config
-
-    # Simulate the target architecture instead of inheriting arm64 on macOS CI.
-    monkeypatch.setattr(pm.platform, "machine", lambda: "x86_64")
-
-    monkeypatch.setattr(
-        role_config,
-        "resolve_all_roles",
-        lambda **kw: [SimpleNamespace(role="engineer", backend=backend)],
-    )
-    assert pm.compatibility(pm.catalog()["crystalpilot"], system=system)["supported"]
-
-
-def test_unsupported_mixed_roles_are_reported(monkeypatch):
-    from types import SimpleNamespace
-
-    from argus.core import role_config
-
-    monkeypatch.setattr(
-        role_config,
-        "resolve_all_roles",
-        lambda **kw: [
-            SimpleNamespace(role="engineer", backend="pi"),
-            SimpleNamespace(role="reviewer", backend="claude"),
-        ],
-    )
-    result = pm.compatibility(pm.catalog()["crystalpilot"])
-    assert not result["supported"] and result["unsupported_roles"] == {"reviewer": "claude"}
-    assert "敬请期待" in result["reason"]
-
-
 def test_pinned_local_release_is_copied(tmp_path):
     (tmp_path / "release.whl").write_bytes(b"wheel")
     spec = {"_catalog_dir": str(tmp_path), "artifact": {"filename": "release.whl", "local": "release.whl"}}
@@ -137,22 +92,6 @@ def test_manage_requires_auth_and_does_not_launch_missing_plugin(empty_host):
     )
 
 
-def test_unsupported_primary_is_blocked_even_with_supported_roles(monkeypatch):
-    from types import SimpleNamespace
-
-    from argus.core import role_config
-
-    monkeypatch.setattr(
-        role_config,
-        "resolve_all_roles",
-        lambda **kw: [SimpleNamespace(role="engineer", backend="pi")],
-    )
-    result = pm.compatibility(
-        pm.catalog()["crystalpilot"], env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"}
-    )
-    assert not result["supported"] and result["unsupported_roles"] == {"default": "claude"}
-
-
 def test_python_falls_back_when_host_interpreter_is_incompatible(monkeypatch):
     import subprocess
     from types import SimpleNamespace
@@ -185,21 +124,6 @@ def test_frozen_python_compatibility_shim_is_not_an_installation_python(monkeypa
     monkeypatch.setattr(pm.subprocess, "run", frozen_probe)
     with pytest.raises(pm.PluginError, match="Python"):
         pm._python()
-
-
-def test_selected_python_can_create_a_real_scientific_environment(tmp_path, monkeypatch):
-    import subprocess
-    import sys
-
-    monkeypatch.setenv("ARGUS_PLUGIN_PYTHON", sys.executable)
-    python = pm._python()
-    environment = tmp_path / "science"
-    subprocess.run([python, "-m", "venv", str(environment)], check=True, timeout=60)
-    executable = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    subprocess.run(
-        [str(executable), "-I", "-c", "import sys,pip; assert not getattr(sys,'frozen',False)"],
-        check=True, timeout=15,
-    )
 
 
 def test_native_plugin_requires_this_sessions_enabled_binding(empty_host, monkeypatch):

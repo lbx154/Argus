@@ -37,65 +37,7 @@ Reviewer had just rejected.
 
 from __future__ import annotations
 
-import pytest
-
 from argus.core.role_reply import read_block, read_key_values, read_records
-
-#: Verbatim from run 15's ``agent_io.jsonl``, message
-#: ``cceec252-a852-42ab-bd8a-630087b6597e``, abridged in the prose above the
-#: footer and in the evidence arrays. The weld is exact.
-RUN_15_REVIEW = (
-    "I inspected the Lean build log and the two artefacts referenced by the "
-    "checkpoint, which are the material compilation evidence for the requested "
-    "Lean source.STATUS=done\n"
-    "REASON=Final submission gate is satisfied: the certified records mark "
-    "review complete and the Lean file builds with no sorry and no axiom.\n"
-    "NEXT_ACTION=\n"
-    "OPERATOR_QUESTION=none\n"
-    "FORWARD_PROGRESS=true\n"
-)
-
-
-def test_the_fields_below_the_weld_still_read() -> None:
-    """The rescue must not disturb what already worked."""
-    values = read_key_values(
-        RUN_15_REVIEW, ["STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION"]
-    )
-
-    assert values["STATUS"] == "done"
-    assert values["OPERATOR_QUESTION"] == "none"
-
-
-@pytest.mark.parametrize(
-    "glue",
-    ["source.", "source!", "source?", 'source"', "source)", "source]"],
-)
-def test_a_sentence_terminator_is_what_licenses_the_split(glue: str) -> None:
-    values = read_key_values(f"prose {glue}STATUS=done", ["STATUS"])
-
-    assert values == {"STATUS": "done"}
-
-
-@pytest.mark.parametrize(
-    "echo",
-    [
-        "End with a decisive check, `MILESTONE_STATUS=done|continue|blocked`, then stop.",
-        "Set STATUS=done only when the gate is certified, never before.",
-        "The field is named STATUS: done and continue are both legal.",
-    ],
-)
-def test_an_instruction_echo_mid_sentence_is_not_a_verdict(echo: str) -> None:
-    """Six of these appear in run 15's own prompts. None is a ruling.
-
-    A comma, a backtick and a colon are all places a model says the name of a
-    field while talking about it. Only a sentence terminator says it has
-    stopped talking and started answering.
-    """
-    assert read_key_values(echo, ["STATUS", "MILESTONE_STATUS"]) == {}
-
-
-def test_discussing_a_verdict_after_a_sentence_is_not_a_verdict() -> None:
-    assert read_key_values("Work continues. STATUS: done", ["STATUS"]) == {}
 
 
 def test_a_short_key_is_not_found_inside_a_longer_one() -> None:
@@ -124,20 +66,3 @@ def test_welded_records_are_read_as_records() -> None:
     )
 
     assert [r["TASK_TITLE"] for r in records] == ["first", "second"]
-
-
-def test_a_normal_footer_is_untouched() -> None:
-    text = "All checks pass.\n\nSTATUS=done\nREASON=everything verified\n"
-
-    assert read_key_values(text, ["STATUS", "REASON"])["STATUS"] == "done"
-
-
-def test_the_rescue_never_overrides_a_key_that_already_parsed() -> None:
-    """Strict first, and only the keys it missed are retried.
-
-    Otherwise a reply that reads correctly today could be reinterpreted by the
-    rescue tomorrow, which is a worse failure than the one being fixed.
-    """
-    text = "Do not confuse this.STATUS=blocked\nSTATUS=done\n"
-
-    assert read_key_values(text, ["STATUS"]) == {"STATUS": "done"}

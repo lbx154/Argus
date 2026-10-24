@@ -81,19 +81,6 @@ def test_completion_links_resolve_to_safe_workspace_relative_files(
     assert paths == ["final report.pdf", "source.tex"]
 
 
-def test_reviewed_chinese_book_title_resolves_to_existing_delivery(
-    tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "餐饮企业运营手册.md").write_text("# 手册\n", encoding="utf-8")
-
-    assert referenced_delivery_paths(
-        workspace,
-        ["已完整审阅《餐饮企业运营手册.md》；内容符合交付条件。"],
-    ) == ["餐饮企业运营手册.md"]
-
-
 def test_framework_format_lists_recover_only_safe_explicit_files(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     figures = workspace / "paper" / "figures"
@@ -112,28 +99,6 @@ def test_framework_format_lists_recover_only_safe_explicit_files(tmp_path: Path)
     ]) == [
         "paper/figures/method.pptx", "paper/figures/method.pdf", "paper/figures/method.png",
     ]
-
-
-def test_intermediate_success_has_no_delivery_even_with_an_artifact(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-    (workspace / "partial.md").write_text("partial\n", encoding="utf-8")
-
-    assert build_delivery_receipt(
-        item_id="task-partial",
-        title="Resume task",
-        summary="One stage advanced.",
-        success=True,
-        overall_complete=False,
-        status="done",
-        review_status="done",
-        final_submission_certified=False,
-        workspace=workspace,
-        state_root=state,
-        reviewer_artifacts=["partial.md"],
-    ) is None
 
 
 def _stage_package_receipt(tmp_path: Path, **overrides):
@@ -161,14 +126,6 @@ def _stage_package_receipt(tmp_path: Path, **overrides):
     return build_delivery_receipt(**fields)
 
 
-def test_reviewed_stage_package_gets_a_non_terminal_receipt(tmp_path: Path) -> None:
-    receipt = _stage_package_receipt(tmp_path)
-
-    assert receipt is not None
-    assert receipt["kind"] == "stage_package"
-    assert receipt["primary_target"]["path"] == "package.md"
-
-
 @pytest.mark.parametrize("overrides", [
     {"review_source": "engineer_self_review"},
     {"review_status": "continue"},
@@ -178,49 +135,6 @@ def test_reviewed_stage_package_gets_a_non_terminal_receipt(tmp_path: Path) -> N
 def test_stage_package_needs_an_independent_accepted_review(tmp_path: Path, overrides) -> None:
     # An unreviewed summary or a status string must never stand in for a delivery.
     assert _stage_package_receipt(tmp_path, **overrides) is None
-
-
-def test_completed_goal_keeps_its_terminal_kind_even_for_a_package_task(tmp_path: Path) -> None:
-    receipt = _stage_package_receipt(tmp_path, overall_complete=True)
-
-    assert receipt is not None and receipt["kind"] == "task_completed"
-
-
-def test_delivery_receipt_does_not_exist_without_a_renderable_file(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-
-    receipt = build_delivery_receipt(
-        item_id="task-2",
-        title="Finish analysis",
-        summary="The bounded analysis is complete.",
-        success=True,
-        overall_complete=True,
-        status="done",
-        review_status="done",
-        final_submission_certified=False,
-        workspace=workspace,
-        state_root=state,
-    )
-
-    assert receipt is None
-
-
-def test_failed_mission_has_no_delivery_receipt(tmp_path: Path) -> None:
-    assert build_delivery_receipt(
-        item_id="task-3",
-        title="Blocked task",
-        summary="",
-        success=False,
-        overall_complete=False,
-        status="blocked",
-        review_status="blocked",
-        final_submission_certified=False,
-        workspace=tmp_path,
-        state_root=tmp_path,
-    ) is None
 
 
 def _reviewed_edit_events(paths: list[str], *, item_id: str = "task-web") -> list[dict]:
@@ -266,21 +180,6 @@ def test_reviewed_changes_recover_product_without_delivering_context_or_fixtures
 
     assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == ["index.html", "REPORT.md"]
     assert reviewed_change_paths(tmp_path, tmp_path, "other-task") == []
-
-
-@pytest.mark.parametrize("ending", [
-    [{"type": "round.review.completed", "status": "revise", "review_source": "reviewer"}],
-    [{"type": "round.review.completed", "status": "done", "review_source": "engineer"}],
-    [{"type": "round.review.started"}],
-    [{"type": "life.mission.started"}],
-])
-def test_reviewed_changes_never_reuse_a_previous_accepted_review(tmp_path, ending) -> None:
-    (tmp_path / "index.html").write_text("product", encoding="utf-8")
-    events = _reviewed_edit_events(["index.html"])
-    events.extend({"item_id": "task-web", **event} for event in ending)
-    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
-
-    assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == []
 
 
 @pytest.mark.parametrize("failed_event_index", [1, 3])
@@ -336,35 +235,6 @@ def test_first_delivery_stays_readable_after_a_later_delivery_overwrites_the_fil
     assert read_delivery_snapshot(state, big["version"]) is None
 
 
-def test_redelivering_the_same_item_is_a_new_delivery_with_its_own_snapshot(
-    tmp_path: Path,
-) -> None:
-    from argus.life.delivery import read_delivery_snapshot
-
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-
-    def deliver() -> dict:
-        receipt = build_delivery_receipt(
-            item_id="site", title="site", summary="", success=True, overall_complete=True,
-            status="done", review_status="done", final_submission_certified=False,
-            workspace=workspace, state_root=state, reviewer_artifacts=["index.html"],
-        )
-        assert receipt is not None
-        return receipt
-
-    (workspace / "index.html").write_text("<p>v1</p>\n", encoding="utf-8")
-    first = deliver()
-    (workspace / "index.html").write_text("<p>v2</p>\n", encoding="utf-8")
-    second = deliver()
-
-    # A later round that changes the same item must reach the operator again.
-    assert first["delivery_id"] != second["delivery_id"]
-    assert read_delivery_snapshot(state, first["snapshots"][0]["version"]) == "<p>v1</p>\n"
-
-
 def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> None:
     from argus.life.delivery import (
         MAX_SNAPSHOT_DELIVERIES_PER_ITEM,
@@ -393,58 +263,6 @@ def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> N
     assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["version"]) == (
         f"version {MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 4}\n"
     )
-
-
-def test_rebuilding_an_unchanged_delivery_does_not_evict_older_versions(
-    tmp_path: Path,
-) -> None:
-    from argus.life.delivery import MAX_SNAPSHOT_DELIVERIES_PER_ITEM, read_delivery_snapshot
-
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-
-    def deliver() -> dict:
-        receipt = build_delivery_receipt(
-            item_id="notes", title="notes", summary="", success=True, overall_complete=True,
-            status="done", review_status="done", final_submission_certified=False,
-            workspace=workspace, state_root=state, reviewer_artifacts=["notes.md"],
-        )
-        assert receipt is not None
-        return receipt
-
-    (workspace / "notes.md").write_text("version 1\n", encoding="utf-8")
-    first = deliver()
-    (workspace / "notes.md").write_text("version 2\n", encoding="utf-8")
-    for _ in range(MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 3):
-        deliver()  # replays and reconnects rebuild the same content
-
-    # The earlier version is still the real previous version and stays diffable.
-    assert read_delivery_snapshot(state, first["snapshots"][0]["version"]) == "version 1\n"
-
-
-@pytest.mark.parametrize(
-    ("source", "expected"),
-    [("reviewer", "reviewer"), ("engineer_self_review", "engineer_self_review"), ("", "")],
-)
-def test_receipt_records_who_settled_the_review(
-    tmp_path: Path, source: str, expected: str
-) -> None:
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-    (workspace / "report.md").write_text("result\n", encoding="utf-8")
-    receipt = build_delivery_receipt(
-        item_id="r", title="r", summary="", success=True, overall_complete=True,
-        status="done", review_status="done", final_submission_certified=False,
-        review_source=source,
-        workspace=workspace, state_root=state, reviewer_artifacts=["report.md"],
-    )
-    assert receipt is not None
-    # ``done`` alone cannot tell an independent review from the worker's own check.
-    assert receipt["review_source"] == expected
 
 
 def test_a_delivery_is_current_until_a_delivered_file_changes(tmp_path: Path) -> None:

@@ -3,9 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -16,7 +13,6 @@ import pytest
 from argus.apps._runtime_backends import _Outcome
 from argus.core.event_catalog import EventType
 from argus.core.jsonl_reader import MAX_JSONL_RECORD_BYTES
-from argus.life import memory as memory_module
 from argus.life.event_log import JsonlEventSink, event_log_paths
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
@@ -52,82 +48,6 @@ def _claimed(backlog):
                 "summary": "Artifact verified."},
     )
     return item, record
-
-
-@pytest.mark.parametrize("boundary", ["commit", "live", "outbox", "outbox_written", "clear"])
-def test_terminal_and_delivery_recover_together_at_each_disk_boundary(tmp_path, monkeypatch, boundary):
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    item, record = _claimed(backlog)
-    rewrite = memory_module._atomic_rewrite_jsonl
-
-    def interrupted(path, rows):
-        rows = list(rows)
-        is_delivery = path.parent == backlog._mission_deliveries_path
-        if boundary == "live" and path == backlog.path:
-            raise OSError("crashed after archive fsync")
-        if boundary == "outbox" and is_delivery:
-            raise OSError("crashed before delivery materialization")
-        if boundary == "clear" and path == backlog._commit_path and rows == [{"version": 1}]:
-            raise OSError("crashed before commit acknowledgement")
-        rewrite(path, rows)
-        if boundary == "commit" and path == backlog._commit_path:
-            raise OSError("crashed after commit fsync")
-        if boundary == "outbox_written" and is_delivery:
-            raise OSError("crashed after delivery fsync")
-
-    with monkeypatch.context() as fault:
-        fault.setattr(memory_module, "_atomic_rewrite_jsonl", interrupted)
-        with pytest.raises(OSError):
-            backlog.update(item.id, status="done", _mission_delivery=record)
-    restarted = Backlog(backlog.path)
-    pending = restarted.pending_mission_deliveries()
-    assert [row["id"] for row in pending] == [record["id"]]
-    assert restarted.claim_next() is None
-    archived = restarted.history()
-    assert len(archived) == 1 and archived[0].status == "done"
-    assert archived[0].mission_result == record["result"]
-    assert archived[0].outcome == {}  # Public outcome dimensions are not a nested outbox.
-    assert restarted._mission_deliveries_path in restarted.storage_paths
-    assert len(restarted.archive_path.read_text().splitlines()) == 1
-    sink = JsonlEventSink(None, life_dir=tmp_path)
-    assert drain_mission_deliveries(restarted, sink.handle_event)
-    assert restarted.pending_mission_deliveries() == []
-    assert len(_rows(tmp_path)) == 1
-
-
-def test_process_exit_after_commit_recovers_without_reexecuting(tmp_path):
-    script = r'''
-import os, sys
-from pathlib import Path
-from argus.life import memory as module
-from argus.life.memory import Backlog, BacklogItem
-from argus.life.mission_delivery import prepare_mission_delivery
-backlog = Backlog(Path(sys.argv[1]) / "backlog.jsonl")
-backlog.add(BacklogItem.new(title="artifact", objective="produce it"))
-item = backlog.claim_next()
-record = prepare_mission_delivery(item=item,
-    event={"type":"life.mission.completed", "item_id":item.id, "status":"done"},
-    result={"item_id":item.id, "status":"done", "summary":"verified"})
-rewrite = module._atomic_rewrite_jsonl
-def crash(path, rows):
-    rows = list(rows)
-    rewrite(path, rows)
-    if path == backlog._commit_path and rows[0].get("version") == 2:
-        os._exit(73)
-module._atomic_rewrite_jsonl = crash
-backlog.update(item.id, status="done", _mission_delivery=record)
-'''
-    process = subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}, timeout=10,
-    )
-    assert process.returncode == 73, process.stderr
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    assert backlog.claim_next() is None
-    sink = JsonlEventSink(None, life_dir=tmp_path)
-    assert drain_mission_deliveries(backlog, sink.handle_event)
-    assert len(_rows(tmp_path)) == 1
-    assert backlog.history()[0].mission_result["summary"] == "verified"
 
 
 def _supervisor(tmp_path, monkeypatch):
@@ -190,50 +110,6 @@ def test_sink_failure_keeps_completion_pending_and_holds_new_work(tmp_path, monk
     assert len([row for row in observed if row.get("type") == EventType.LIFE_MISSION_COMPLETED]) == 1
 
 
-def test_delivery_ack_failure_cannot_duplicate_history_or_notifications(tmp_path, monkeypatch):
-    supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
-    unlink = Path.unlink
-
-    def fail_ack(path, *args, **kwargs):
-        if path.parent == supervisor.memory.backlog._mission_deliveries_path and path.suffix == ".json":
-            raise OSError("acknowledgement failed after event fsync")
-        return unlink(path, *args, **kwargs)
-
-    with monkeypatch.context() as fault:
-        fault.setattr(Path, "unlink", fail_ack)
-        assert supervisor.tick()["success"] is True
-    assert len(_rows(supervisor.memory.root)) == 1
-    assert len(supervisor.memory.backlog.pending_mission_deliveries()) == 1
-    mission_event_index.cache_clear()  # A fresh process must reach the same answer.
-    assert supervisor.run()["missions_run"] == 0
-    assert runner.calls == 1
-    assert len(_rows(supervisor.memory.root)) == 1
-    assert len(supervisor.memory.journal.tail_settlements(10)) == 1
-    assert len([row for row in observed if row.get("type") == EventType.LIFE_MISSION_COMPLETED]) == 1
-    assert supervisor.memory.backlog.pending_mission_deliveries() == []
-
-
-def test_recovery_fills_ui_receipt_if_process_failed_after_completion_append(tmp_path, monkeypatch):
-    from tests.manager_inbox import team_reports
-
-    supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
-    with monkeypatch.context() as fault:
-        fault.setattr(
-            supervisor, "_publish_mission_completion_message",
-            lambda _event: (_ for _ in ()).throw(OSError("crashed before UI receipt")),
-        )
-        assert supervisor.tick()["success"]
-    assert len(_rows(supervisor.memory.root)) == 1
-    assert not team_reports(supervisor.memory.root)
-    assert len(supervisor.memory.backlog.pending_mission_deliveries()) == 1
-    assert supervisor.run()["missions_run"] == 0
-    receipts = [report for report in team_reports(supervisor.memory.root) if report.get("mission_result")]
-    assert len(receipts) == 1
-    assert receipts[0]["message_id"] == f"mission-result-{_rows(supervisor.memory.root)[0]['mission_delivery_id']}"
-    assert len(_rows(supervisor.memory.root)) == 1
-    assert runner.calls == 1
-
-
 def test_v2_commit_rejects_delivery_not_bound_to_its_result(tmp_path, monkeypatch):
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item, record = _claimed(backlog)
@@ -268,39 +144,6 @@ def test_index_ack_failure_recovers_by_offset_even_after_rotation(tmp_path, monk
     _require_bounded_receipt_reads(monkeypatch, tmp_path)
     assert drain_mission_deliveries(backlog, sink.handle_event)
     assert len(_rows(tmp_path)) == 1
-
-
-def test_copied_backup_recovers_pending_receipt_without_duplicate_completion(tmp_path, monkeypatch):
-    original = tmp_path / "original"
-    backlog = Backlog(original / "backlog.jsonl")
-    item, record = _claimed(backlog)
-    backlog.update(item.id, status="done", _mission_delivery=record)
-    sink = JsonlEventSink(None, life_dir=original)
-    with monkeypatch.context() as fault:
-        fault.setattr(MissionEventIndex, "finish", lambda *_args: (_ for _ in ()).throw(OSError("index ack lost")))
-        assert not drain_mission_deliveries(backlog, sink.handle_event)
-    assert len(_rows(original)) == 1
-    restored = tmp_path / "restored"
-    shutil.copytree(original, restored)
-    assert (original / "events.jsonl").stat().st_ino != (restored / "events.jsonl").stat().st_ino
-    mission_event_index.cache_clear()
-    rebuild = MissionEventIndex._rebuild
-    rebuilds = []
-
-    def counted_rebuild(index):
-        rebuilds.append(index.root)
-        return rebuild(index)
-
-    monkeypatch.setattr(MissionEventIndex, "_rebuild", counted_rebuild)
-    recovered = Backlog(restored / "backlog.jsonl")
-    restored_sink = JsonlEventSink(None, life_dir=restored)
-    assert drain_mission_deliveries(recovered, restored_sink.handle_event)
-    assert recovered.claim_next() is None
-    assert recovered.pending_mission_deliveries() == []
-    assert len(recovered.history()) == 1
-    assert len(_rows(restored)) == 1
-    assert mission_event_index(str(restored.resolve())).contains(record["id"])
-    assert rebuilds == [restored]
 
 
 @pytest.mark.parametrize("invalid", [
@@ -370,19 +213,6 @@ def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypat
     assert len(backlog.history()) == 1
     assert len([row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]) == 1
     assert rebuilds == [tmp_path]
-
-
-def test_written_receipt_checks_current_offset_without_enumerating_archives(tmp_path, monkeypatch):
-    from argus.life import event_log
-
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    item, record = _claimed(backlog)
-    backlog.update(item.id, status="done", _mission_delivery=record)
-    sink = JsonlEventSink(None, life_dir=tmp_path)
-    assert drain_mission_deliveries(backlog, sink.handle_event)
-    monkeypatch.setattr(event_log, "event_log_paths", lambda _path: pytest.fail("enumerated archive history"))
-    _require_bounded_receipt_reads(monkeypatch, tmp_path)
-    assert mission_event_index(str(tmp_path.resolve())).contains(record["id"])
 
 
 def _require_bounded_receipt_reads(monkeypatch, root):

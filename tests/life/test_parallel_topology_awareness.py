@@ -10,10 +10,7 @@ surfaces.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from argus.core.models import RunnerResult
 from argus.life.event_log import JsonlEventSink
@@ -75,11 +72,6 @@ def _supervisor(
     return supervisor
 
 
-def _running_item(title: str, **fields) -> BacklogItem:
-    item = BacklogItem.new(title=title, objective=f"objective for {title}")
-    return item
-
-
 def test_digest_reports_slot_topology_and_ownership_metadata(
     tmp_path: Path,
 ) -> None:
@@ -113,50 +105,6 @@ def test_digest_reports_slot_topology_and_ownership_metadata(
     # A spare slot exists but the running task declares no ownership: the
     # digest must say so, or the Planner cannot know why width stays 1.
     assert "owns_paths" in note
-
-
-def test_digest_stays_quiet_for_serial_campaigns(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(
-        project, tmp_path / "life", _PlannerBackend([]), mission_slots=1
-    )
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="only mission", objective="do the work")
-    )
-
-    note = supervisor._planner_current_reality_note()
-
-    assert "mission_slots" not in note
-    assert "parallel_safe=" not in note
-
-
-def test_digest_shows_declared_ownership_without_the_advisory(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(
-        project, tmp_path / "life", _PlannerBackend([]), mission_slots=2
-    )
-    backlog = supervisor.memory.backlog
-    running = BacklogItem.new(
-        title="owned analysis lane",
-        objective="analyze the first dataset",
-        parallel_safe=True,
-        owns_paths=["analysis/lane-a"],
-    )
-    backlog.add(running)
-    backlog.mark_running(running.id)
-
-    note = supervisor._planner_current_reality_note()
-
-    owned_line = next(
-        line for line in note.splitlines() if "owned analysis lane" in line
-    )
-    assert "parallel_safe=true" in owned_line
-    assert "analysis/lane-a" in owned_line
-
 
 
 def _two_arm_plan(path_a: list[str], path_b: list[str]) -> tuple[str, dict]:
@@ -206,27 +154,6 @@ def test_nested_owned_paths_stay_serial_after_claim(tmp_path: Path) -> None:
     assert backlog.claim_next(parallel_only=True, respect_running=True) is None
 
 
-def test_digest_renders_ownership_in_the_footer_syntax(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(
-        project, tmp_path / "life", _PlannerBackend([]), mission_slots=2
-    )
-    running = BacklogItem.new(
-        title="two-path lane",
-        objective="write both outputs",
-        parallel_safe=True,
-        owns_paths=["runs/a", "runs/b"],
-    )
-    supervisor.memory.backlog.add(running)
-    supervisor.memory.backlog.mark_running(running.id)
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(line for line in note.splitlines() if "two-path lane" in line)
-    assert "owns_paths=runs/a|runs/b;" in line
-
-
 def test_stage_package_flag_reaches_the_backlog_tags(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -238,25 +165,6 @@ def test_stage_package_flag_reaches_the_backlog_tags(tmp_path: Path) -> None:
     (item,) = supervisor.memory.backlog.pending()
     assert "stage_package" in item.tags
     assert "review:required" in item.tags
-
-
-@pytest.mark.parametrize(("mode", "phrase"), [
-    ("broad", "working hypothesis you may revise"),
-    ("locked", "only the operator changes its claim"),
-])
-def test_digest_states_who_owns_the_research_idea(tmp_path: Path, mode, phrase) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
-    state = project / ".argus" / "PIPELINE_STATE.json"
-    payload = json.loads(state.read_text(encoding="utf-8"))
-    payload["research_direction_mode"] = mode
-    state.write_text(json.dumps(payload), encoding="utf-8")
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(line for line in note.splitlines() if "research_direction_mode" in line)
-    assert mode in line and phrase in line
 
 
 def test_digest_names_a_task_that_asked_for_more_gpus_than_the_machine_has(

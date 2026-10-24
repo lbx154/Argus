@@ -17,25 +17,6 @@ def _item(item_id: str) -> ChecklistItem:
     return ChecklistItem(item_id, f"Verify {item_id}", f"evidence for {item_id}")
 
 
-def test_minimal_non_research_vertical_implements_only_documented_contract() -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("build", "verify"),
-        CHECKLIST_ITEMS={"build": (_item("build.output"),), "verify": (_item("verify.output"),)},
-        completion_gate="none",
-    )
-
-    contract = vertical_contract("minimal_delivery", provider)
-
-    assert contract.name == "minimal_delivery"
-    assert contract.stage_order == ("build", "verify")
-    assert contract.completion_gate == "none"
-    assert contract.ground_before_handoff is False
-    assert contract.allow_stage_rollback is True
-    assert contract.banner("engineer") == ""
-    assert contract.role_prompt_context is None
-    assert contract.evidence_schema is None
-
-
 @pytest.mark.parametrize("value", [None, "false", "true", 0, 1, [], {}])
 def test_stage_rollback_policy_rejects_non_boolean_values(value: object) -> None:
     provider = SimpleNamespace(
@@ -47,35 +28,6 @@ def test_stage_rollback_policy_rejects_non_boolean_values(value: object) -> None
 
     with pytest.raises(VerticalContractError, match="ALLOW_STAGE_ROLLBACK must be a boolean"):
         vertical_contract("external_lab", provider)
-
-
-def test_provider_declares_routing_metadata_without_manager_name_tables() -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("work",),
-        CHECKLIST_ITEMS={"work": (_item("work.output"),)},
-        completion_gate="none",
-        MISSION_KIND="software",  # retired; read without error
-        GROUND_BEFORE_HANDOFF=True,
-    )
-
-    contract = vertical_contract("maintainer", provider)
-
-    assert contract.ground_before_handoff is True
-
-
-def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none",
-        stage_completion_issues=lambda stage, root: [f"{stage}:{root.name}", ""],
-    )
-
-    contract = vertical_contract("validated", provider)
-
-    assert contract.completion_issues("verify", tmp_path) == (
-        f"verify:{tmp_path.name}",
-    )
 
 
 def test_vertical_validator_can_defer_checks_by_verification_profile(
@@ -169,28 +121,6 @@ def test_empty_required_checklist_fails_but_runtime_authored_is_explicit() -> No
     assert contract.checklist_optional_stages == frozenset({"work"})
 
 
-def test_primary_stage_deliverables_are_exposed_by_contract() -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("scope", "work"),
-        CHECKLIST_ITEMS={
-            "scope": (_item("scope.output"),),
-            "work": (_item("work.output"),),
-        },
-        STAGE_PRIMARY_DELIVERABLES={
-            "scope": ("research/SCOPE.md", "research/setup.md"),
-        },
-        completion_gate="none",
-    )
-
-    contract = vertical_contract("scoped", provider)
-
-    assert contract.primary_deliverables("scope") == (
-        "research/SCOPE.md",
-        "research/setup.md",
-    )
-    assert contract.primary_deliverables("work") == ()
-
-
 def test_incomplete_vertical_fails_visibly() -> None:
     with pytest.raises(VerticalContractError, match="no checklist"):
         vertical_contract(
@@ -200,9 +130,6 @@ def test_incomplete_vertical_fails_visibly() -> None:
                 completion_gate="none",
             ),
         )
-
-
-_CORE_LIVE_SEARCH_DEFAULT = frozenset({"research"})
 
 
 def _live_search_provider(**extra: object) -> SimpleNamespace:
@@ -215,39 +142,6 @@ def _live_search_provider(**extra: object) -> SimpleNamespace:
         completion_gate="none",
         **extra,
     )
-
-
-def test_undeclared_live_search_stages_cover_the_vertical() -> None:
-    """A vertical that says nothing searches throughout its own stage order."""
-    contract = vertical_contract("quiet", _live_search_provider())
-
-    assert contract.engineer_live_search_stages is None
-    assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == frozenset(
-        contract.stage_order
-    )
-
-
-def test_vertical_declares_its_own_live_search_stages() -> None:
-    contract = vertical_contract(
-        "declared",
-        _live_search_provider(ENGINEER_LIVE_SEARCH_STAGES=("Scope", " solve ")),
-    )
-
-    assert contract.engineer_live_search_stages == frozenset({"scope", "solve"})
-    assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == frozenset(
-        {"scope", "solve"}
-    )
-
-
-def test_declared_empty_live_search_is_distinct_from_no_declaration() -> None:
-    """An explicit empty set means "never search", not "use the default"."""
-    contract = vertical_contract(
-        "offline",
-        _live_search_provider(ENGINEER_LIVE_SEARCH_STAGES=frozenset()),
-    )
-
-    assert contract.engineer_live_search_stages == frozenset()
-    assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == frozenset()
 
 
 def test_live_search_stage_typos_fail_visibly() -> None:

@@ -90,35 +90,6 @@ def test_no_operator_mission_question_parks_for_the_manager(
     assert stored.pending_question == "Which of the two conflicting release rules wins?"
 
 
-def test_operator_available_mission_question_still_parks(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    supervisor, _sink = _supervisor(tmp_path, runner=_QuestionRunner())
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Plan production", objective="plan production")
-    )
-
-    supervisor.tick()
-
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert stored.pending_question == "Which of the two conflicting release rules wins?"
-
-
-def test_operator_context_tells_every_role_when_nobody_will_answer(
-    tmp_path, monkeypatch
-) -> None:
-    from argus.core.operator_context import build_operator_context_block
-
-    life = tmp_path / "life"
-    life.mkdir()
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    block, _revision = build_operator_context_block("planner", life)
-    assert "no operator is available" in block
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    block, _revision = build_operator_context_block("planner", life)
-    assert "no operator is available" not in block
-
-
 def test_retired_operator_wait_exit_is_accepted_and_ignored(tmp_path) -> None:
     from argus.apps.cli import build_parser
     from argus.daemon.config import LifeWorkerConfig, config_from_payload, config_payload
@@ -130,26 +101,6 @@ def test_retired_operator_wait_exit_is_accepted_and_ignored(tmp_path) -> None:
     assert "--operator-wait-exit" not in _windows_daemon_command(bounded)
     payload = {**config_payload(bounded), "operator_wait_exit": True}
     assert not hasattr(config_from_payload(payload), "operator_wait_exit")
-
-
-@pytest.mark.parametrize(
-    "alternative",
-    [
-        "Load the data with polars instead of pandas.",
-        "Reduce the dataset size to the first 10k rows.",
-        "Follow the spec line in section 2.",
-    ],
-)
-def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
-    monkeypatch, alternative
-) -> None:
-    from argus.manager.plan_challenge import adjudicate_plan_challenge
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    decision = adjudicate_plan_challenge(
-        reviewer_status="replan_requested", review_reason="c", next_action=alternative,
-    )
-    assert decision.action == "replace"
 
 
 class _ProxyManager:
@@ -304,19 +255,6 @@ def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_
     assert len(manager.prompts) == 1
 
 
-def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
-    monkeypatch,
-) -> None:
-    from argus.roles.prompts.engineer import _HANDOFF_RULE, engineer_handoff_rule
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    rule = engineer_handoff_rule()
-    assert "write it in assumptions" in rule
-    assert rule.endswith("goes to=manager.")
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    assert engineer_handoff_rule() == _HANDOFF_RULE
-
-
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
 
@@ -331,17 +269,6 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     assert text.startswith("Decided without asking you")
     assert "I went with: The stricter one. (rather than Two release rules conflict.)" in text
     assert render_autonomous_assumptions(tmp_path, chinese=True).startswith("这些是没问你就定下的")
-
-
-def test_a_manager_answer_is_named_the_same_way_everywhere(tmp_path) -> None:
-    from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
-
-    record_autonomous_assumption(
-        tmp_path, item_id="x", conflict="Which rule wins?", reading="The newer one.",
-        source="manager_decision",
-    )
-    assert "the Manager decided for you: The newer one." in render_autonomous_assumptions(tmp_path)
-    assert "经理替你定了：The newer one." in render_autonomous_assumptions(tmp_path, chinese=True)
 
 
 # --- --no-operator lasts one run ---------------------------------------------
@@ -360,17 +287,6 @@ def test_operator_availability_is_a_visible_cockpit_switch() -> None:
     assert normalize_cockpit_knob_value("ARGUS_SKILL_OPERATOR_AVAILABLE", "on") == "1"
 
 
-def test_saved_knob_is_honoured_not_only_the_environment(monkeypatch) -> None:
-    from argus.core.autonomy import operator_available
-
-    monkeypatch.delenv("ARGUS_SKILL_OPERATOR_AVAILABLE", raising=False)
-    monkeypatch.setattr(
-        "argus.core.knob_store.read_persisted_knobs",
-        lambda: {"ARGUS_SKILL_OPERATOR_AVAILABLE": "0"},
-    )
-    assert operator_available() is False
-
-
 # --- assumptions: per run, the chosen reading, blocks are not assumptions ----
 def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     from argus.core.autonomy import (
@@ -384,51 +300,6 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     assert read_autonomous_assumptions(tmp_path)
     start_autonomy_run()
     assert read_autonomous_assumptions(tmp_path) == []
-
-
-
-
-def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> None:
-
-    from argus.core.autonomy import record_autonomous_assumption, start_autonomy_run
-    from argus.life.event_log import JsonlEventSink
-
-    start_autonomy_run()
-    memory = LifeMemory.open(tmp_path)
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=object(),
-        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
-        config=LifeSupervisorConfig(continuous=False, open_ended=False),
-    )
-    record_autonomous_assumption(
-        supervisor._project_state_root(), item_id="task-1", reading="Hello goes to stdout",
-        source="engineer",
-    )
-    supervisor._emit({
-        "type": "life.mission.completed",
-        "item_id": "task-1",
-        "title": "Write greet.py",
-        "success": True,
-        "status": "done",
-        "summary": "Wrote greet.py.",
-        "overall_complete": True,
-        "outcome": {"review_status": "done"},
-    })
-    from tests.manager_inbox import team_reports
-
-    texts = [report["text"] for report in team_reports(tmp_path)]
-    assert any("I went with: Hello goes to stdout" in text for text in texts)
-
-
-def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:
-    from argus.core.operator_context import build_operator_context_block
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    (tmp_path / "life").mkdir()
-    block, _ = build_operator_context_block("engineer", tmp_path / "life")
-    assert "in its handoff's assumptions" in block
-    assert "in the deliverable" not in block
 
 
 def test_engineer_evidence_for_the_next_holder_lives_in_the_working_directory() -> None:

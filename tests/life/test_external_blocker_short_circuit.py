@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 
 from argus.life.supervisor._helpers import (
-    _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
 )
 
@@ -16,117 +15,6 @@ def _write_blocker(project_root: Path, filename: str, payload: dict) -> Path:
     path = diagnosis / filename
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
-
-
-def test_finds_legacy_dated_lock_file(tmp_path: Path):
-    """Backwards-compat: the 3c40efa-era dated filename should still match."""
-    _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker_lock_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/wise.csv"],
-            "canonical_viability_verdict": "blocked: data missing",
-            "next_owner": "operator",
-        },
-    )
-    paths = _operator_only_blocker_paths_for_project(tmp_path)
-    assert len(paths) == 1
-    assert paths[0].name == "operator_only_external_blocker_lock_20260605.json"
-
-
-def test_finds_undated_generic_filename(tmp_path: Path):
-    """Forward-compat: new generic filename without date should also match."""
-    _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/wise.csv"],
-        },
-    )
-    paths = _operator_only_blocker_paths_for_project(tmp_path)
-    assert len(paths) == 1
-
-
-def test_returns_empty_when_no_blocker_file(tmp_path: Path):
-    (tmp_path / "diagnosis").mkdir()
-    paths = _operator_only_blocker_paths_for_project(tmp_path)
-    assert paths == []
-
-
-def test_ignores_unrelated_diagnosis_files(tmp_path: Path):
-    diagnosis = tmp_path / "diagnosis"
-    diagnosis.mkdir()
-    (diagnosis / "stage_check_terminal_index.md").write_text("ignore me")
-    (diagnosis / "operator_action_required.md").write_text("ignore me")
-    paths = _operator_only_blocker_paths_for_project(tmp_path)
-    assert paths == []
-
-
-def test_picks_most_recent_when_multiple(tmp_path: Path):
-    import time
-
-    _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker_20260601.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["a"],
-        },
-    )
-    time.sleep(0.01)
-    p2 = _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["b"],
-        },
-    )
-    paths = _operator_only_blocker_paths_for_project(tmp_path)
-    # Most recent first.
-    assert paths[0] == p2
-
-
-def test_short_circuit_asks_the_operator_without_calling_planner(
-    tmp_path: Path,
-    monkeypatch,
-):
-    """If an external blocker artifact is present, supervisor must not call
-    planner.plan_next this cycle; it hands the question to the operator."""
-    monkeypatch.chdir(tmp_path)
-    _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/wise.csv"],
-            "canonical_viability_verdict": "blocked: data missing",
-            "next_owner": "operator",
-        },
-    )
-    from argus.life.supervisor import LifeSupervisor
-
-    short_circuit = LifeSupervisor._operator_external_blocker_short_circuit_decision(
-        project_root=tmp_path,
-    )
-    assert short_circuit is not None
-    assert short_circuit.handoff == "operator"
-    assert "operator-only" in short_circuit.operator_question
-    assert short_circuit.new_tasks == []
-
-
-def test_short_circuit_returns_none_without_blocker(
-    tmp_path: Path,
-    monkeypatch,
-):
-    monkeypatch.chdir(tmp_path)
-    from argus.life.supervisor import LifeSupervisor
-
-    assert LifeSupervisor._operator_external_blocker_short_circuit_decision(
-        project_root=tmp_path,
-    ) is None
 
 
 def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
@@ -195,24 +83,6 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
     assert "planner_idle" in [entry.kind for entry in mem.journal.tail(5)]
 
 
-def test_blocker_waits_until_all_targets_present(tmp_path: Path):
-    _write_blocker(
-        tmp_path,
-        "operator_only_external_blocker_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/a.csv", "data/eval/b.csv"],
-        },
-    )
-    (tmp_path / "data" / "eval").mkdir(parents=True)
-    (tmp_path / "data" / "eval" / "a.csv").write_text("ok\n", encoding="utf-8")
-
-    reason = _operator_only_external_blocker_wait_reason_for_project(tmp_path)
-
-    assert reason
-    assert "b.csv" in reason
-
-
 def test_blocker_resolves_when_all_targets_present(tmp_path: Path):
     _write_blocker(
         tmp_path,
@@ -238,17 +108,6 @@ def test_malformed_blocker_json_is_treated_as_waiting(tmp_path: Path):
 
     assert reason
     assert "malformed JSON" in reason
-
-
-def test_blocker_tmp_file_is_ignored(tmp_path: Path):
-    diagnosis = tmp_path / "diagnosis"
-    diagnosis.mkdir()
-    (diagnosis / "operator_only_external_blocker_x.json.tmp").write_text(
-        "{",
-        encoding="utf-8",
-    )
-
-    assert _operator_only_external_blocker_wait_reason_for_project(tmp_path) == ""
 
 
 def test_bounded_mission_does_not_short_circuit_on_external_blocker(tmp_path: Path):

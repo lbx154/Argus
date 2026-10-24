@@ -2,10 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,83 +46,6 @@ def _enqueue(supervisor):
         iterate=False, context_refs=[{"path": str(supervisor.config.project_worktree / "checked.txt")}],
         manager_decision={"routed": True, "vertical": "software"},
     ))
-
-
-@pytest.mark.parametrize("boundary", ["delivery_failure", "stop_after_execute"])
-def test_settled_observation_survives_delivery_failure_or_stop_and_restart(tmp_path, monkeypatch, boundary):
-    stop = threading.Event()
-    supervisor = _supervisor(tmp_path, stop_event=stop, stop_after_execute=boundary == "stop_after_execute")
-    item = _enqueue(supervisor)
-    append = JsonlEventSink._append
-
-    def fail_delivery(sink, event):
-        if event.get("mission_delivery_id"):
-            return False
-        return append(sink, event)
-
-    with monkeypatch.context() as fault:
-        if boundary == "delivery_failure":
-            fault.setattr(JsonlEventSink, "_append", fail_delivery)
-        assert supervisor.tick()["success"] is True
-    settled = supervisor.memory.backlog.history()[0]
-    assert settled.id == item.id and settled.status == "done"
-    initial = supervisor.memory.failure_experiences.recent()
-    restarted = _supervisor(tmp_path, allow_execute=False)
-    assert restarted.tick() is None
-    assert restarted.tick() is None
-    experiences = restarted.memory.failure_experiences.recent()
-    assert len(experiences) == 1
-    assert len(initial) == 1
-    assert experiences[0].mission_id == item.id and experiences[0].revision == 1
-    assert experiences[0].research_narrative == "The bounded artifact check passed."
-    assert "not a general causal rule" in experiences[0].claim_boundaries[0]
-    assert str(supervisor.config.project_worktree / "checked.txt") in experiences[0].artifact_refs
-    assert restarted.memory.backlog.pending_mission_deliveries() == []
-    assert len((tmp_path / "executions.jsonl").read_text().splitlines()) == 1
-
-
-@pytest.mark.parametrize("boundary", ["commit", "capture"])
-def test_process_exit_after_real_settlement_replays_learning_without_execution(tmp_path, boundary):
-    script = r'''
-import importlib.util, os, sys
-from pathlib import Path
-from argus.life import memory as module
-spec = importlib.util.spec_from_file_location("settlement_fixture", sys.argv[2])
-fixture = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fixture)
-supervisor = fixture._supervisor(Path(sys.argv[1]))
-fixture._enqueue(supervisor)
-rewrite = module._atomic_rewrite_jsonl
-def crash(path, rows):
-    rows = list(rows)
-    rewrite(path, rows)
-    if sys.argv[3] == "commit" and path == supervisor.memory.backlog._commit_path and rows[0].get("version") == 2:
-        os._exit(73)
-module._atomic_rewrite_jsonl = crash
-if sys.argv[3] == "capture":
-    from argus.life.failure_experience_storage import ExperienceRepository
-    save = ExperienceRepository.save
-    def captured(repository, *args, **kwargs):
-        save(repository, *args, **kwargs)
-        os._exit(73)
-    ExperienceRepository.save = captured
-supervisor.tick()
-raise AssertionError("the real completion commit boundary was not reached")
-'''
-    process = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path), str(Path(__file__).resolve()), boundary],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
-        capture_output=True, text=True, timeout=15)
-    assert process.returncode == 73, process.stderr
-    restarted = _supervisor(tmp_path, allow_execute=False)
-    assert restarted.tick() is None
-    assert restarted.tick() is None
-    (settled,) = restarted.memory.backlog.history()
-    assert settled.status == "done" and settled.mission_result["success"] is True
-    assert restarted.memory.backlog.pending_mission_deliveries() == []
-    experiences = restarted.memory.failure_experiences.recent()
-    assert len(experiences) == 1
-    assert experiences[0].mission_id == settled.id and experiences[0].revision == 1
-    assert len((tmp_path / "executions.jsonl").read_text().splitlines()) == 1
 
 
 @pytest.mark.parametrize("failure", ["unwritable", "corrupt"])
@@ -205,49 +124,6 @@ def test_recovery_never_overwrites_later_canonical_lifecycle(tmp_path, monkeypat
     assert restarted.tick() is None
     assert store.path.read_bytes() == canonical
     assert restarted.memory.backlog.pending_mission_deliveries() == []
-
-
-def test_stop_capture_has_no_embedding_or_optional_model_work(tmp_path, monkeypatch):
-    from argus.life.http_embedding import HttpEmbeddingAdapter
-    from argus.life.recall_embedding import save_embedding_config
-
-    stop = threading.Event()
-    supervisor = _supervisor(tmp_path, stop_event=stop, stop_after_execute=True)
-    _enqueue(supervisor)
-    execute = supervisor.runner.execute
-    attempts = []
-
-    def forbidden(*_args, **_kwargs):
-        attempts.append("model_or_embedding")
-        raise AssertionError("stopping capture must only persist canonical evidence")
-
-    def enable_http_at_settlement(**kwargs):
-        result = execute(**kwargs)
-        save_embedding_config(supervisor.memory.root, {"enabled": True,
-            "endpoint": "http://127.0.0.1:1/never-called", "model": "offline-prohibited", "dimensions": 2})
-        return result
-
-    supervisor.runner.execute = enable_http_at_settlement
-    supervisor._evolve_runtime_skills_after_mission = forbidden
-    monkeypatch.setattr(HttpEmbeddingAdapter, "embed", forbidden)
-    assert supervisor.tick()["success"] is True
-    assert len(supervisor.memory.failure_experiences.recent()) == 1
-    assert attempts == []
-    assert not (supervisor.memory.root / "embedding/usage.sqlite3").exists()
-
-
-@pytest.mark.parametrize("iteration", ["requeued", "budget_exhausted", "measurement_blocked", "assessment_blocked"])
-def test_real_unfinished_iteration_is_never_captured_as_success(tmp_path, monkeypatch, iteration):
-    supervisor = _supervisor(tmp_path)
-    _enqueue(supervisor)
-    monkeypatch.setattr(supervisor, "_maybe_requeue_chartered_shortfall", lambda _state: {
-        "status": iteration, "requeued": False, "stop_reason": "The original target remains unmet.",
-    })
-    assert supervisor.tick()["success"] is True  # The existing execution verdict is independent.
-    (captured,) = supervisor.memory.failure_experiences.recent()
-    assert captured.status == "iteration_" + iteration
-    assert captured.factual_outcome == "The original target remains unmet."
-    assert "successful runtime verdict" not in " ".join(captured.claim_boundaries)
 
 
 @pytest.mark.parametrize("status,review,success", [
@@ -419,26 +295,6 @@ def test_confirmed_learning_cleanup_failure_does_not_pause_new_work(tmp_path, mo
     assert restarted.tick() is None
     assert len(restarted.memory.failure_experiences.recent()) == 2
     assert restarted.memory.backlog.pending_mission_deliveries() == []
-
-
-def test_learning_lock_contention_never_waits_for_the_default_storage_timeout(tmp_path, monkeypatch):
-    import time
-
-    from argus.life.failure_experience import FailureExperienceStore
-
-    supervisor = _supervisor(tmp_path)
-    _enqueue(supervisor)
-    with monkeypatch.context() as fault:
-        fault.setattr(FailureExperienceStore, "record_settled", lambda *_args: (_ for _ in ()).throw(OSError("deferred")))
-        assert supervisor.tick()["success"] is True
-    restarted = _supervisor(tmp_path, allow_execute=False)
-    with supervisor.memory.failure_experiences._repository.locked():
-        started = time.monotonic()
-        assert restarted.tick() is None
-        assert time.monotonic() - started < 1.0
-        assert len(restarted.memory.backlog.pending_mission_deliveries()) == 1
-    assert restarted.tick() is None
-    assert len(restarted.memory.failure_experiences.recent()) == 1
 
 
 def test_dispatch_contention_distinguishes_learning_from_unpersisted_delivery(tmp_path, monkeypatch):

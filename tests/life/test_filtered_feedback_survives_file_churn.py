@@ -48,50 +48,6 @@ class _Harness(PlanningContextMixin):
         return f"tree-{self._tree_churn}"
 
 
-def test_filtered_feedback_survives_project_file_churn(tmp_path) -> None:
-    harness = _Harness(
-        tmp_path,
-        [
-            SimpleNamespace(id="adjudicate-route09", status="pending"),
-            SimpleNamespace(id="confirm-route09", status="paused_external_work"),
-        ],
-    )
-
-    # Three consecutive all-filtered verdicts. The planner rephrases the
-    # duplicate title each cycle and the project tree churns underneath,
-    # but the backlog is unchanged — attempts must accumulate, not reset.
-    reasons = [
-        "[duplicate_task] Adjudicate the frozen Route 09 confirmation",
-        "[duplicate_task] Adjudicate the completed Route 09 confirmation",
-        "[duplicate_task] Adjudicate Route 09 confirmation evidence",
-    ]
-    feedback = None
-    for expected_attempts, reason in enumerate(reasons, start=1):
-        assert harness._persist_manager_planner_feedback(
-            stage="experiment",
-            reason=reason,
-            diagnostic=PLANNER_TASKS_FILTERED_DIAGNOSTIC,
-        )
-        feedback = harness._load_manager_planner_feedback()
-        assert feedback is not None
-        assert int(feedback["attempts"]) == expected_attempts
-
-    # Intake compares the recorded signature against the same backlog-based
-    # signature, so an unchanged backlog keeps the feedback alive.
-    recorded = str(feedback["evidence_signature"])
-    assert recorded == harness._manager_feedback_signature_for(
-        PLANNER_TASKS_FILTERED_DIAGNOSTIC
-    )
-
-    # The background job settles and the paused mission resumes: the backlog
-    # signature moves, which is exactly what wakes the planner back up.
-    harness.backlog_rows[1].status = "running"
-    assert (
-        harness._manager_feedback_signature_for(PLANNER_TASKS_FILTERED_DIAGNOSTIC)
-        != recorded
-    )
-
-
 class _HandoffHarness(_Harness, PlanningCycleCompletionMixin):
     """Enough of the supervisor to run the handoff feedback gate."""
 

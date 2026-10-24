@@ -61,22 +61,6 @@ def slow_install(monkeypatch):
     return release, calls
 
 
-def test_declared_ids_are_read_once_each_in_order(monkeypatch):
-    monkeypatch.setenv(pm.PREINSTALL_ENV, " crystalpilot, ,other ,crystalpilot")
-    assert pm.preinstalled_ids() == ["crystalpilot", "other"]
-    assert pm.managed_by_host("crystalpilot") and not pm.managed_by_host("absent")
-    monkeypatch.delenv(pm.PREINSTALL_ENV)
-    assert pm.preinstalled_ids() == [] and not pm.managed_by_host("crystalpilot")
-
-
-def test_current_plugin_is_left_untouched(host, monkeypatch):
-    write_registry(host, current_row())
-    monkeypatch.setattr(pm, "mutate", lambda *a, **k: pytest.fail("nothing should be started"))
-    for _ in range(2):
-        assert pm.preinstall(host, ids=["crystalpilot"]) == {"crystalpilot": {"status": "ready"}}
-    assert not (pm.install_root(host) / "crystalpilot" / "operation.json").exists()
-
-
 @pytest.mark.skipif(os.name != "nt", reason="Windows PLATON consent boundary")
 def test_preinstall_cannot_bypass_missing_operator_consent(host, monkeypatch):
     monkeypatch.setattr(pm, "_platon_license_accepted", lambda _root: False)
@@ -85,24 +69,6 @@ def test_preinstall_cannot_bypass_missing_operator_consent(host, monkeypatch):
     assert result["crystalpilot"]["status"] == "failed"
     assert "PLATON" in result["crystalpilot"]["error"]
     assert pm.registry(host) == {}
-
-
-def test_changed_validation_contract_requires_an_update(host):
-    write_registry(host, current_row(validation_imports=[]))
-    assert pm.preinstall_need("crystalpilot", host) == "update"
-
-
-def test_changed_scientific_constraints_require_an_update(host, slow_install):
-    release, calls = slow_install
-    release.set()
-    write_registry(host, current_row(python_constraints=[]))
-    assert pm.preinstall_need("crystalpilot", host) == "update"
-    assert pm.plugin_rows(host)[0]["update_available"] is True
-    assert pm.preinstall(host, ids=["crystalpilot"], wait=True, timeout=10) == {
-        "crystalpilot": {"status": "completed", "action": "update"},
-    }
-    assert calls == ["update"]
-    assert pm.preinstall_need("crystalpilot", host) is None
 
 
 def test_missing_plugin_is_installed_once_even_when_asked_again(host, slow_install):

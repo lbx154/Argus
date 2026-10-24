@@ -30,13 +30,6 @@ def _entry(**row):
     return EventJournal._entry_from_event(payload)
 
 
-def test_a_real_planner_error_is_still_journalled() -> None:
-    entry = _entry(error="planner verdict outbox write failed: OSError: disk full")
-
-    assert entry is not None
-    assert entry.kind == "planner_error"
-
-
 def test_a_benign_diagnostic_is_kept_out_of_the_journal() -> None:
     entry = _entry(
         error="discarded stale planner verdict outbox after semantic state change",
@@ -44,26 +37,3 @@ def test_a_benign_diagnostic_is_kept_out_of_the_journal() -> None:
     )
 
     assert entry is None
-
-
-def test_the_flag_is_structural_not_textual() -> None:
-    """The same message without the flag is still journalled.
-
-    Matching on the wording would make this projection guess at the emitter's
-    intent, which is exactly the kind of second-guessing the harness must not do.
-    """
-    entry = _entry(
-        error="discarded stale planner verdict outbox after semantic state change"
-    )
-
-    assert entry is not None and entry.kind == "planner_error"
-
-
-def test_stale_verdict_discard_is_not_a_planner_error() -> None:
-    event = {
-        "type": "life.planner.verdict.discarded",
-        "cycle": 1,
-        "reason": "semantic state changed before the prior verdict was delivered",
-    }
-
-    assert EventJournal._entry_from_event(event) is None

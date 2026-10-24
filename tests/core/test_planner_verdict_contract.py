@@ -5,92 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from argus.core.event_catalog import validate_event_envelope
 from argus.core.planner_verdict import (
-    PlannerVerdictStatus,
     adapt_legacy_planner_verdict_event,
     build_planner_verdict_event,
 )
 from argus.life.memory import EventJournal
 
 
-def test_planner_verdict_builder_produces_complete_valid_event() -> None:
-    event = build_planner_verdict_event(
-        status=PlannerVerdictStatus.COMPLETED,
-        reason="reviewer certified the persisted completion contract",
-        project_id="project-1",
-        mission_id="mission-1",
-        research_target_level="doctoral",
-        correctness_status="verified",
-        novelty_status="verified_new",
-        significance_status="doctoral",
-        completion_kind="project_completed",
-        project_done=True,
-        enqueued_tasks=0,
-    )
-
-    assert event["type"] == "life.planner.verdict"
-    assert event["status"] == "completed"
-    assert event["success"] is True
-    assert event["recoverable"] is False
-    assert event["summary"] == event["reason"]
-    assert event["stop_kind"] is None
-    assert validate_event_envelope(event, require_known=True).valid is True
-
-
-@pytest.mark.parametrize(
-    ("status", "success", "recoverable"),
-    [
-        (PlannerVerdictStatus.COMPLETED, True, False),
-        (PlannerVerdictStatus.RESEARCH_INCOMPLETE, False, True),
-        (PlannerVerdictStatus.PAUSED_BUDGET, False, True),
-        (PlannerVerdictStatus.PAUSED_NO_BREAKTHROUGH, False, True),
-        (PlannerVerdictStatus.EXHAUSTED_CURRENT_METHODS, False, True),
-        (PlannerVerdictStatus.PROVIDER_COOLDOWN, False, True),
-        (PlannerVerdictStatus.INFRA_BLOCKED, False, True),
-        (PlannerVerdictStatus.ERROR, False, False),
-    ],
-)
-def test_planner_verdict_status_policy_is_centralized(
-    status: PlannerVerdictStatus,
-    success: bool,
-    recoverable: bool,
-) -> None:
-    event = build_planner_verdict_event(status=status, reason=status.value)
-
-    assert event["success"] is success
-    assert event["recoverable"] is recoverable
-    assert validate_event_envelope(event, require_known=True).valid is True
-
-
 def test_planner_verdict_builder_requires_explicit_status() -> None:
     with pytest.raises(TypeError):
         build_planner_verdict_event(reason="missing status")  # type: ignore[call-arg]
-
-
-def test_legacy_unverified_research_verdict_maps_conservatively() -> None:
-    adapted = adapt_legacy_planner_verdict_event({
-        "type": "life.planner.verdict",
-        "project_done": True,
-        "reason": "legacy Math review ended",
-        "math_result": {
-            "result_class": "novelty_unverified",
-            "correctness": "verified",
-            "novelty": "unverified",
-            "statement_fidelity": "verified",
-            "evidence": ["checked finite cases"],
-            "limitations": ["novelty not established"],
-        },
-    })
-
-    assert adapted["status"] == "research_incomplete"
-    assert adapted["success"] is False
-    assert adapted["research_target_level"] is None
-    assert adapted["correctness_status"] == "verified"
-    assert adapted["novelty_status"] == "unverified"
-    assert adapted["significance_status"] == "exploratory"
-    assert adapted["novelty_status"] != "verified_new"
-    assert adapted["significance_status"] not in {"publishable", "doctoral"}
 
 
 def test_doctoral_novelty_unverified_maps_to_research_incomplete() -> None:

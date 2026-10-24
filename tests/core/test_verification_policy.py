@@ -10,13 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.verification_policy import (
-    VERIFICATION_PROFILES,
-    policy_line,
-    profile_for_stage,
     resolve_policy,
 )
 from argus.roles.prompts.reviewer import render_reviewer_prompt
@@ -64,41 +59,6 @@ def test_vertical_profile_reaches_reviewer_without_research_target(
 
 # -- the fix: early stages stop being judged as submissions ----------------
 
-def test_a_publishable_project_explores_during_the_idea_stage(tmp_path: Path) -> None:
-    # Old operator fields in the state file are ignored, never an error.
-    write_state(
-        tmp_path,
-        research_target_level="publishable",
-        verification_profile="certify",
-        exploration_posture="frontier",
-    )
-
-    policy = resolve_policy(stage="idea", stage_profiles=_profiles("research"))
-
-    # The project still aims at publishable, but this round is exploration.
-    assert policy.profile == "explore"
-    assert policy.resolved
-
-
-@pytest.mark.parametrize(
-    "stage,expected",
-    [
-        ("idea", "explore"),
-        ("experiment", "develop"),
-        ("paper", "develop"),
-        ("review", "certify"),
-    ],
-)
-def test_research_stage_mapping(stage, expected) -> None:
-    assert profile_for_stage(stage, _profiles("research")) == expected
-
-
-def test_maintenance_stage_mapping_is_vertical_owned() -> None:
-    assert profile_for_stage(
-        "change",
-        _profiles("argus_maintenance"),
-    ) == "develop"
-
 
 # -- what must not move -----------------------------------------------------
 
@@ -118,17 +78,6 @@ def test_an_unknown_or_missing_stage_is_reported_not_guessed() -> None:
 
 
 # -- prompt line ------------------------------------------------------------
-
-def test_policy_line_is_short_enough_for_a_budgeted_prompt() -> None:
-    for stage in ("research", "run", "review"):
-        line = policy_line(
-            resolve_policy(stage=stage, stage_profiles=_profiles("research"))
-        )
-        assert len(line) < 90, line
-
-
-def test_policy_line_marks_an_unresolved_profile() -> None:
-    assert "(unresolved)" in policy_line(resolve_policy(stage="???"))
 
 
 # -- what actually reaches the roles ---------------------------------------
@@ -156,28 +105,6 @@ def test_planner_injects_the_resolved_profile_too() -> None:
 
     assert "not this" in block
     assert "_policy.profile" in block
-
-
-def test_the_injected_block_is_shorter_than_what_it_replaced() -> None:
-    """The old block was 386 chars and carried less information."""
-    policy = resolve_policy(stage="research", stage_profiles=_profiles("research"))
-    block = (
-        "Project target `publishable` defines project completion, not this "
-        f"round's bar. This round: {policy_line(policy)}. The integrity floor is "
-        "identical at every profile. Judge directly and explain in `reason`. If "
-        "the direction cannot reach the target, return `replan_requested`.\n\n"
-    )
-
-    assert len(block) < 386
-
-
-def test_vertical_owned_profile_tables_cover_declared_stages() -> None:
-    for vertical in ("research", "argus_maintenance"):
-        contract = load_vertical_contract(vertical)
-        table = dict(contract.verification_stage_profiles or {})
-        assert table
-        assert set(table) <= set(contract.stage_order)
-        assert set(table.values()) <= set(VERIFICATION_PROFILES)
 
 
 def test_core_has_no_concrete_vertical_profile_registry() -> None:

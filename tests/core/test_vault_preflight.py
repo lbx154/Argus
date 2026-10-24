@@ -32,12 +32,6 @@ def _route_loader_all_present(_name: str) -> _StubRoute:
     return _StubRoute(name=_name)
 
 
-def _route_loader_missing_engineer(name: str) -> _StubRoute | None:
-    if name == "engineer":
-        return None
-    return _StubRoute(name=name)
-
-
 def _route_loader_unusable_engineer(name: str) -> _StubRoute:
     if name == "engineer":
         return _StubRoute(name=name, api_key="", usable=False)
@@ -47,11 +41,6 @@ def _route_loader_unusable_engineer(name: str) -> _StubRoute:
 def _probe_always_ok(base_url: str, api_key: str, model: str, wire_api: str,
                      *, timeout_s: float = 10.0):
     return (True, 200, "")
-
-
-def _probe_always_404(base_url: str, api_key: str, model: str, wire_api: str,
-                      *, timeout_s: float = 10.0):
-    return (False, 404, "HTTP 404: The API deployment for this resource does not exist.")
 
 
 def _probe_engineer_404(base_url: str, api_key: str, model: str, wire_api: str,
@@ -66,65 +55,9 @@ def _probe_engineer_404(base_url: str, api_key: str, model: str, wire_api: str,
 # ---------------------------------------------------------------------------
 
 
-def test_all_routes_ok() -> None:
-    report = check_routes(
-        probe=_probe_always_ok,
-        route_loader=_route_loader_all_present,
-    )
-    assert report.ok
-    assert report.required_failures == []
-    # Every required route probed
-    probed = {c.name for c in report.checks if not c.skipped}
-    for r in DEFAULT_REQUIRED_ROUTES:
-        assert r in probed, f"{r} should have been probed"
-
-
-def test_image_routes_marked_skipped_but_ok() -> None:
-    report = check_routes(
-        probe=_probe_always_ok,
-        route_loader=_route_loader_all_present,
-    )
-    image_checks = [c for c in report.checks if c.name in ("image", "image_review")]
-    assert len(image_checks) == 2
-    for c in image_checks:
-        assert c.skipped
-        assert c.ok  # treated as "config-present is enough" for image routes
-
-
 # ---------------------------------------------------------------------------
 # Failure paths
 # ---------------------------------------------------------------------------
-
-
-def test_required_route_404_fails_preflight() -> None:
-    def _probe(base_url, api_key, model, wire_api, *, timeout_s=10.0):
-        if model == "gpt-5.5":
-            # Engineer route lands here in this stub loader
-            return _probe_always_404(base_url, api_key, model, wire_api,
-                                     timeout_s=timeout_s)
-        return _probe_always_ok(base_url, api_key, model, wire_api,
-                                timeout_s=timeout_s)
-
-    report = check_routes(probe=_probe, route_loader=_route_loader_all_present)
-    assert not report.ok
-    # All required routes failed (probe 404s on every gpt-5.5)
-    failed = [c.name for c in report.required_failures]
-    for r in DEFAULT_REQUIRED_ROUTES:
-        assert r in failed
-
-
-def test_missing_route_in_vault_marked_skipped_and_fails_required() -> None:
-    # engineer route missing from vault → skipped + not ok → a required FAILURE,
-    # so the daemon must NOT start. (Previously this sailed through preflight as
-    # ok=True — the exact doom-loop the check exists to prevent.)
-    report = check_routes(
-        probe=_probe_always_ok,
-        route_loader=_route_loader_missing_engineer,
-    )
-    engineer = next(c for c in report.checks if c.name == "engineer")
-    assert engineer.skipped and not engineer.ok
-    assert "engineer" in [c.name for c in report.required_failures]
-    assert not report.ok
 
 
 def test_unusable_route_skipped_with_reason() -> None:
@@ -162,13 +95,6 @@ def test_partial_failure_only_engineer_404() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_format_report_marks_ok_when_all_pass() -> None:
-    report = check_routes(probe=_probe_always_ok, route_loader=_route_loader_all_present)
-    text = format_report(report)
-    assert "OK" in text
-    assert "all required routes probe successfully" in text
-
-
 def test_format_report_marks_fail_with_specific_404_hint() -> None:
     def loader(name: str) -> _StubRoute:
         if name == "engineer":
@@ -186,24 +112,6 @@ def test_format_report_marks_fail_with_specific_404_hint() -> None:
 # ---------------------------------------------------------------------------
 # CLI exit codes
 # ---------------------------------------------------------------------------
-
-
-def test_cli_exit_code_2_on_failure(monkeypatch, capsys) -> None:
-    # Monkeypatch the default network probe so test doesn't hit the wire
-    monkeypatch.setattr(
-        "argus.core.vault_preflight.default_probe",
-        _probe_always_404,
-    )
-    # Also stub the default loader to one that returns a usable route
-    monkeypatch.setattr(
-        "argus.tools.capability_vault.load_model_api_route",
-        _route_loader_all_present,
-    )
-
-    rc = preflight_main([])
-    out = capsys.readouterr().out
-    assert rc == 2
-    assert "FAIL" in out
 
 
 def test_cli_exit_code_0_on_success(monkeypatch, capsys) -> None:

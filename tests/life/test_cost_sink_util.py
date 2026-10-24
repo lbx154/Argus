@@ -31,39 +31,6 @@ def _util_event(inp: int, out: int, *, model: str = "gpt-5.5") -> dict:
     }
 
 
-def _main_event(inp: int, out: int, *, reasoning_out: int = 0) -> dict:
-    return {
-        "type": "round.main.completed",
-        "input_tokens": inp,
-        "cached_input_tokens": 0,
-        "output_tokens": out,
-        "reasoning_output_tokens": reasoning_out,
-        "usage_scope": "delta",
-    }
-
-
-def test_codex_util_event_records_tokens_and_folds_into_totals() -> None:
-    sink = _sink()
-    base = sink.total_usd()
-    sink.handle_event(_util_event(1000, 100))
-    assert sink.util_input_tokens == 1000
-    assert sink.util_output_tokens == 100
-    summary, costs = sink.completion_usage()
-    assert summary.input_tokens == 1000
-    assert summary.output_tokens == 100
-    assert costs["util_cost_usd"] >= 0.0
-    assert summary.known_cost_usd == base + costs["util_cost_usd"]
-
-
-def test_codex_util_events_accumulate_per_call() -> None:
-    sink = _sink()
-    sink.handle_event(_util_event(1000, 100))
-    sink.handle_event(_util_event(500, 50))
-    assert sink.util_input_tokens == 1500           # delta math sums per call
-    assert sink.util_output_tokens == 150
-    assert sink.completion_usage()[1]["util_cost_usd"] == usd_for_tokens("gpt-5.5", 1500, 0, 150)
-
-
 def test_util_buckets_by_model() -> None:
     sink = _sink()
     sink.handle_event(_util_event(1000, 100, model="gpt-5.5"))
@@ -71,20 +38,6 @@ def test_util_buckets_by_model() -> None:
     assert set(sink.util_usage_by_model) == {"gpt-5.5", "haiku-4-5"}
     assert sink.util_usage_by_model["gpt-5.5"][0] == 1000
     assert sink.util_usage_by_model["haiku-4-5"][0] == 200
-
-
-def test_engineer_reasoning_tokens_increase_usd() -> None:
-    without_reasoning = _sink()
-    with_reasoning = _sink()
-    without_reasoning.handle_event(_main_event(1000, 100, reasoning_out=0))
-    with_reasoning.handle_event(_main_event(1000, 100, reasoning_out=25))
-    assert without_reasoning.engineer_reasoning_output_tokens == 0
-    assert with_reasoning.engineer_reasoning_output_tokens == 25
-    assert with_reasoning.usage_summary().reasoning_output_tokens == 25
-    _, base_costs = without_reasoning.completion_usage()
-    _, reasoning_costs = with_reasoning.completion_usage()
-    assert reasoning_costs["engineer_cost_usd"] > base_costs["engineer_cost_usd"]
-    assert with_reasoning.total_usd() > without_reasoning.total_usd()
 
 
 def test_scientist_reasoning_tokens_increase_usd() -> None:

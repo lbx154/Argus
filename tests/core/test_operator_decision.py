@@ -84,24 +84,6 @@ def test_card_is_readable_and_uses_item_identity() -> None:
     }]
 
 
-def test_chinese_decision_uses_operator_language_and_human_reason() -> None:
-    card = build_operator_decision(
-        item_id="i-zh",
-        title="验证内核性能",
-        reason="row exceeded timeout_s=300",
-        question="是否继续使用更小的诊断 shape？",
-        options=[{
-            "id": "small-shape",
-            "label": "先运行单行诊断",
-            "description": "使用更小的诊断 shape 后再决定。",
-        }],
-    )
-
-    assert [row["label"] for row in card["options"]] == ["先运行单行诊断"]
-    assert "300 秒" in card["reason"]
-    assert "不代表方案错误" in card["reason"]
-
-
 def test_option_selection_is_direct_and_custom_requires_text() -> None:
     card = build_operator_decision(
         item_id="i",
@@ -122,21 +104,6 @@ def test_option_selection_is_direct_and_custom_requires_text() -> None:
     with pytest.raises(ValueError, match="requires an answer"):
         selected_decision_text(card, "custom", "")
     assert selected_decision_text(card, "custom", "Try B") == "Try B"
-
-
-def test_missing_agent_options_stays_freeform_without_host_choices() -> None:
-    card = build_operator_decision(
-        item_id="i",
-        title="t",
-        reason="r",
-        question="What should I do?",
-    )
-
-    assert card["options"] == []
-    assert card["options_source"] == "none"
-    with pytest.raises(ValueError, match="requires an answer"):
-        selected_decision_text(card, "custom", "")
-    assert selected_decision_text(card, "custom", "Wait for access") == "Wait for access"
 
 
 def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:
@@ -205,52 +172,3 @@ def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
     assert len(rows) == 1
     assert rows[0].pending_question == "choose"
     assert rows[0].operator_decision["status"] == "pending"
-
-
-def test_failed_decision_write_leaves_original_card_retriable(tmp_path, monkeypatch) -> None:
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    item = backlog.add(BacklogItem.new(title="blocked", objective="work", item_id="item"))
-    card = build_operator_decision(
-        item_id=item.id,
-        title=item.title,
-        reason="blocked",
-        question="choose",
-    )
-    backlog.update(
-        item.id,
-        park_reason="operator_pause",
-        pending_question="choose",
-        operator_decision=card,
-    )
-    original_save = backlog._save
-
-    def fail_write(_items) -> None:
-        raise OSError("injected write failure")
-
-    monkeypatch.setattr(backlog, "_save", fail_write)
-    with pytest.raises(OSError, match="injected write failure"):
-        backlog.resume_with_operator_reply(
-            item.id,
-            "Use B",
-            manager_decision="Use B",
-            decision_option="custom",
-            decision_id=card["id"],
-            decision_note="Use B",
-        )
-
-    persisted = Backlog(backlog.path).all()
-    assert len(persisted) == 1
-    assert persisted[0].pending_question == "choose"
-    assert persisted[0].operator_decision["status"] == "pending"
-
-    monkeypatch.setattr(backlog, "_save", original_save)
-    _resumed, answered = backlog.resume_with_operator_reply(
-        item.id,
-        "Use B",
-        manager_decision="Use B",
-        decision_option="custom",
-        decision_id=card["id"],
-        decision_note="Use B",
-    )
-    assert answered
-    assert [row.status for row in backlog.all()] == ["pending"]

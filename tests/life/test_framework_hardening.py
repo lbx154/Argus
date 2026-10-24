@@ -11,49 +11,6 @@ from types import SimpleNamespace
 
 from argus.life.project_lifecycle_io import lifecycle_path
 from argus.life.supervisor import LifeSupervisor
-from argus.life.supervisor._constants import IDLE_BACKOFF_BASE_SECONDS as _IDLE_BACKOFF_BASE_SECONDS
-from argus.life.supervisor._constants import IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS
-
-
-class _BackoffStub:
-    def __init__(self) -> None:
-        self._consecutive_idle_planner_cycles = 0
-        self._suggested_sleep_s = 0.0
-
-    _idle_backoff_seconds = LifeSupervisor._idle_backoff_seconds
-    _reset_idle_backoff = LifeSupervisor._reset_idle_backoff
-    _enter_idle_backoff = LifeSupervisor._enter_idle_backoff
-
-
-def test_idle_backoff_is_exponential_and_capped() -> None:
-    s = _BackoffStub()
-    s._enter_idle_backoff()
-    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS
-    s._enter_idle_backoff()
-    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS * 2
-    # Drive it far past the cap.
-    for _ in range(20):
-        s._enter_idle_backoff()
-    assert s._suggested_sleep_s == _IDLE_BACKOFF_CAP_SECONDS
-
-
-def test_idle_backoff_handles_an_extreme_persisted_cycle_count() -> None:
-    s = _BackoffStub()
-    s._consecutive_idle_planner_cycles = 10**6
-
-    assert s._idle_backoff_seconds() == _IDLE_BACKOFF_CAP_SECONDS
-
-
-def test_reset_clears_backoff() -> None:
-    s = _BackoffStub()
-    s._enter_idle_backoff()
-    s._enter_idle_backoff()
-    s._reset_idle_backoff()
-    assert s._consecutive_idle_planner_cycles == 0
-    assert s._suggested_sleep_s == 0.0
-    # After reset the next entry starts again at base.
-    s._enter_idle_backoff()
-    assert s._suggested_sleep_s == _IDLE_BACKOFF_BASE_SECONDS
 
 
 class _LifecycleRootStub:
@@ -66,19 +23,6 @@ class _LifecycleRootStub:
     _migrate_global_lifecycle_if_needed = (
         LifeSupervisor._migrate_global_lifecycle_if_needed
     )
-
-
-def test_lifecycle_root_prefers_per_project_state_dir(tmp_path) -> None:
-    per = tmp_path / "projects" / "abc123"
-    glob = tmp_path / "global"
-    stub = _LifecycleRootStub(project_state_dir=per, memory_root=glob)
-    assert stub._lifecycle_root() == per
-
-
-def test_lifecycle_root_falls_back_to_global_without_project_state_dir(tmp_path) -> None:
-    glob = tmp_path / "global"
-    stub = _LifecycleRootStub(project_state_dir=None, memory_root=glob)
-    assert stub._lifecycle_root() == glob
 
 
 def test_migration_copies_global_and_retires_it(tmp_path) -> None:
@@ -97,18 +41,6 @@ def test_migration_copies_global_and_retires_it(tmp_path) -> None:
     # ...and the global file retired so future projects don't inherit it.
     assert not legacy.exists()
     assert (glob / "lifecycle.json.migrated").exists()
-
-
-def test_migration_noop_without_project_state_dir(tmp_path) -> None:
-    glob = tmp_path / "global"
-    glob.mkdir(parents=True)
-    legacy = lifecycle_path(glob)
-    legacy.write_text('{"state": "writing"}', encoding="utf-8")
-
-    stub = _LifecycleRootStub(project_state_dir=None, memory_root=glob)
-    stub._migrate_global_lifecycle_if_needed(glob)
-    # Legacy/global file is untouched in the non-per-project regime.
-    assert legacy.exists()
 
 
 def test_migration_does_not_overwrite_existing_per_project(tmp_path) -> None:

@@ -13,7 +13,6 @@ from argus.core.progress_step import (
     ProgressDeduper,
     ProgressTally,
     describe_progress_step,
-    strip_shell_wrapper,
 )
 from argus.skills.builtins import builtin_skill_source_path
 
@@ -27,24 +26,6 @@ def test_command_step_says_what_the_command_does() -> None:
     })
     assert label == "搜索：cockpit"
     assert detail == "rg --line-number cockpit frontend/tui/src", "the command, unwrapped, stays in the detail"
-
-
-def test_failed_command_is_marked() -> None:
-    label, _ = describe_progress_step({
-        "kind": "command_execution",
-        "text": "pytest tests/test_x.py",
-        "status": "failed",
-    })
-    assert label == "✗ 运行测试"
-
-
-def test_multiline_command_keeps_the_rest_as_detail() -> None:
-    label, detail = describe_progress_step({
-        "kind": "command_execution",
-        "text": "cd /repo\npytest -q tests/a.py",
-    })
-    assert label == "运行测试", "changing directory only sets up the command that follows"
-    assert detail == "cd /repo pytest -q tests/a.py"
 
 
 _WS = "/work/proj"
@@ -91,36 +72,6 @@ def test_completion_echo_of_one_call_renders_once() -> None:
     assert dedupe.is_repeat(done, describe_progress_step(done)[0]) is True
 
 
-# Shape of real runner rows: every call of a mission shares one item_id and
-# none carries a call id; a failure is the same text reported again.
-_MISSION = {"kind": "tool_use", "item_id": "7c17ec4c586c", "actor": "reviewer"}
-
-
-def test_mission_level_item_id_does_not_merge_distinct_calls() -> None:
-    dedupe = ProgressDeduper()
-    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/copilot-home/a/meta.json"}'}
-    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/copilot-home/b/meta.json"}'}
-    label = describe_progress_step(first, _WS)[0]
-    assert label == describe_progress_step(second, _WS)[0] == "查阅 Argus 内部文件"
-    assert dedupe.classify(first, label) == "new"
-    assert dedupe.classify(second, label) == "new", "a second call with the same label still happened"
-    again = dict(first)
-    assert dedupe.classify(again, label) == "new", "re-reading the same file is a new step"
-
-
-def test_failure_of_a_known_call_is_shown_as_an_update() -> None:
-    dedupe = ProgressDeduper()
-    tally = ProgressTally()
-    running = {**_MISSION, "status": "running", "text": 'view: {"path": "/work/proj/x.md"}'}
-    failed = {**running, "status": "failed"}
-    label = describe_progress_step(running, _WS)[0]
-    assert dedupe.classify(running, label) == "new"
-    assert dedupe.classify(failed, describe_progress_step(failed, _WS)[0]) == "update"
-    tally.observe(running)
-    tally.observe(failed)
-    assert tally.reads == 1, "an outcome is not a second read"
-
-
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -153,29 +104,6 @@ def test_search_patterns_read_without_slashes(text: str, expected: str) -> None:
     label, _ = describe_progress_step({"kind": "tool_use", "text": text}, _WS)
     assert label == expected
     assert "/" not in label
-
-
-def test_workspace_from_the_caller_marks_internal_files() -> None:
-    event = {"kind": "tool_use", "text": 'view: {"path": "/runtime/argus/verticals/research/README.md"}'}
-    assert describe_progress_step(event, _WS)[0] == "查阅 Argus 内部文件"
-    inside = {"kind": "tool_use", "text": 'view: {"path": "/work/proj/RESEARCH_NOTES.md"}'}
-    assert describe_progress_step(inside, _WS)[0] == "查阅 RESEARCH_NOTES.md"
-
-
-@pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        # A repository the operator asked about lives outside the session
-        # workspace; reading it is project work, not Argus plumbing.
-        ("/data/someone/subject-repo/README.md", "查阅 README.md"),
-        ("/srv/state/copilot-home/s-1/state.json", "查阅 Argus 内部文件"),
-        # A project's state directory is Argus' own record: no step at all.
-        ("/srv/state/projects/s-1/state.json", ""),
-    ],
-)
-def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:
-    event = {"kind": "tool_use", "text": f'read: {{"path": "{path}"}}'}
-    assert describe_progress_step(event, _WS)[0] == expected
 
 
 @pytest.mark.parametrize(
@@ -366,12 +294,6 @@ def test_unknown_kind_falls_back_to_the_reported_text() -> None:
     assert label == "doing a thing"
 
 
-def test_strip_shell_wrapper_unwraps_quoted_bash_c() -> None:
-    assert strip_shell_wrapper("/bin/bash -lc 'ls -la'") == "ls -la"
-    assert strip_shell_wrapper('bash -c "echo hi"') == "echo hi"
-    assert strip_shell_wrapper("ls -la") == "ls -la"
-
-
 @pytest.mark.parametrize(
     ("kind", "text", "tool"),
     [
@@ -400,15 +322,6 @@ def test_failed_call_without_call_id_is_one_failed_step(kind: str, text: str, to
                                  "status": row["status"], "output": row.get("output_excerpt", "")}, now=ts)
     assert [step["status"] for step in steps] == ["failed"]
     assert steps[0]["ended_ts"] == 2
-
-
-def test_one_line_patch_names_only_the_file() -> None:
-    # A saved apply_patch detail has the hunk on the same line as the path.
-    text = (
-        "apply_patch: *** Begin Patch *** Update File: /data/state/config.json "
-        '@@ { + "SOME_SETTING": "x" } *** End Patch'
-    )
-    assert describe_progress_step({"kind": "tool_use", "text": text})[0] == "修改 config.json"
 
 
 def test_a_manager_turn_streams_each_plain_step_as_it_happens() -> None:

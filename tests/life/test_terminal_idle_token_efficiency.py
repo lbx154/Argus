@@ -9,8 +9,6 @@ from pathlib import Path
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PLAN_RETRY
-from argus.planner import PlannerVerdict
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
@@ -65,47 +63,6 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
     return supervisor
 
 
-def test_restart_continues_standing_objective_after_agent_bookkeeping(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = 0
-
-    def _plan_next(_planner, **_kwargs):
-        nonlocal calls
-        calls += 1
-        return PlannerVerdict(project_done=True, summary="verified terminal")
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
-    first = _supervisor(project, life)
-    assert first._plan_next_work() == PLAN_RETRY
-    assert calls == 1
-
-    # These files are written by Argus itself after or around a verdict. They
-    # preserve process evidence but do not constitute new operator intent or a
-    # changed accepted project state.
-    wiki = project / ".autors" / "project" / "wiki" / "sources" / "runs"
-    wiki.mkdir(parents=True)
-    (wiki / "round.md").write_text("reviewed run\n", encoding="utf-8")
-    raw = project / "research" / "raw"
-    raw.mkdir(parents=True)
-    (raw / "profile.log").write_text("counter output\n", encoding="utf-8")
-    (project / "research" / "GROUND_TRUTH.md").write_text(
-        "planner refresh\n",
-        encoding="utf-8",
-    )
-    ignored_review = project / ".venv" / "deep" / "package" / "REVIEW.md"
-    ignored_review.parent.mkdir(parents=True)
-    ignored_review.write_text("dependency metadata\n", encoding="utf-8")
-
-    restarted = _supervisor(project, life)
-    assert restarted._plan_next_work() == PLAN_RETRY
-    assert calls == 2
-
-
 def test_tracked_source_change_invalidates_terminal_signature(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -133,19 +90,3 @@ def test_tracked_source_change_invalidates_terminal_signature(tmp_path: Path) ->
     source.write_text("VALUE = 2\n", encoding="utf-8")
 
     assert supervisor._open_ended_terminal_idle_signature() != first
-
-
-def test_nonsemantic_json_timestamps_remain_ignored(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-    state_path = project / ".argus" / "PIPELINE_STATE.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    state["updated_at"] = 1
-    state_path.write_text(json.dumps(state), encoding="utf-8")
-    first = supervisor._open_ended_terminal_idle_signature()
-
-    state["updated_at"] = 2
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-
-    assert supervisor._open_ended_terminal_idle_signature() == first

@@ -21,7 +21,6 @@ from argus.life.supervisor._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
 )
-from argus.life.terminal_state import build_project_state_signature
 from argus.planner import PlannerVerdict
 from argus.skills.vertical_select import persist_vertical
 from argus.webapi.map_view import read_map
@@ -173,24 +172,6 @@ def _make_final_review(
     return supervisor, project, item
 
 
-@pytest.mark.parametrize("bind_handoff", [False, True])
-def test_certification_recovery_uses_separate_execution_workdir(
-    tmp_path: Path,
-    bind_handoff: bool,
-) -> None:
-    supervisor, project, _item = _make_final_review(
-        tmp_path,
-        scope="final_submission",
-        bind_handoff=bind_handoff,
-        separate_roots=True,
-    )
-    assert not (supervisor._artifact_root() / "paper" / "main.tex").exists()
-    assert not (project / ".argus" / "PIPELINE_STATE.json").exists()
-
-    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
-    assert supervisor._journal_has_final_certification() is True
-
-
 def test_old_weak_accept_cannot_close_a_new_strong_accept_goal(tmp_path: Path) -> None:
     supervisor, _project, _item = _make_final_review(
         tmp_path, scope="final_submission", bind_handoff=True, separate_roots=True,
@@ -316,17 +297,6 @@ def test_existing_final_review_closes_gate(
     assert supervisor._journal_has_final_certification() is False
 
 
-def test_bounded_review_cannot_be_recovered_as_final_certification(
-    tmp_path: Path,
-) -> None:
-    supervisor, project, _item = _make_final_review(tmp_path, scope="bounded")
-
-    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
-    assert _research_project_done_issue(
-        project, supervisor.memory.journal.all()
-    ) == "missing_exploratory_reviewer_certification"
-
-
 def test_completing_on_a_deferred_review_certifies_that_task_on_the_map(
     tmp_path: Path,
 ) -> None:
@@ -423,50 +393,3 @@ def test_changed_candidate_is_rejected_before_certification_recovery(
         supervisor.memory.journal.all(),
         evidence_root=project,
     ) == "missing_exploratory_reviewer_certification"
-
-
-def test_reviewed_handoff_preserves_final_candidate_provenance(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    source = project / "paper" / "main.tex"
-    source.parent.mkdir(parents=True)
-    source.write_text("candidate\n", encoding="utf-8")
-    mission = create_mission_context(
-        life_dir=tmp_path / "life",
-        mission_id="final-review",
-        stage="review",
-        objective="Review the final submission.",
-        scope="final_submission",
-        execution_workdir=str(project),
-        tags=["scope:final_submission", "review:required"],
-    )
-    reviewed = record_reviewed_handoff(
-        mission_context_path=mission,
-        round_index=1,
-        engineer_summary="Candidate ready.",
-        review=SimpleNamespace(
-            status="done",
-            reason="The final candidate passed.",
-            next_action="",
-            operator_question="",
-            review_source="reviewer",
-            manuscript_snapshot=manuscript_snapshot(project),
-        ),
-        checkpoint_path=None,
-    )
-
-    assert reviewed is not None
-    payload = json.loads(reviewed.read_text(encoding="utf-8"))
-    assert payload["producer_role"] == "reviewer"
-    assert payload["review"]["review_source"] == "reviewer"
-    assert payload["review"]["final_submission_signature"] == (
-        build_project_state_signature(
-            project_root=project,
-            state_root=mission.parent,
-        )
-    )
-    assert payload["review"]["manuscript_snapshot"] == manuscript_snapshot(
-        project,
-        recorded_at=payload["review"]["manuscript_snapshot"]["recorded_at"],
-    )

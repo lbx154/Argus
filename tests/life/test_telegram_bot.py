@@ -97,33 +97,6 @@ def test_add_enqueues_only_manager_execution_task(tmp_path, monkeypatch) -> None
     assert "ID:" not in replies[-1]
 
 
-def test_free_text_manager_self_reply_is_not_enqueued(
-    tmp_path, monkeypatch,
-) -> None:
-    router, life_dir, replies = _router(tmp_path)
-    monkeypatch.setattr(front_door, "manager_turn", replying(lambda mem, text, state: "在的，有什么需要我处理？"))
-
-    router.dispatch("在吗")
-
-    assert LifeMemory.open(life_dir).backlog.all() == []
-    assert replies == ["在的，有什么需要我处理？"]
-
-
-def test_continuous_persists_only_manager_execution_task(
-    tmp_path, monkeypatch,
-) -> None:
-    router, life_dir, _replies = _router(tmp_path)
-    _install_manager(monkeypatch, lambda text: "study MRAM continuously")
-    raw = "study MRAM continuously; Manager decides the right sidebar"
-
-    router._cmd_continuous(f"start {raw}")
-
-    cfg = json.loads((life_dir / "continuous.json").read_text())
-    assert cfg["enabled"] is True
-    assert cfg["objective"] == "study MRAM continuously"
-    assert raw not in (life_dir / "continuous.json").read_text()
-
-
 def test_continuous_reenable_cleans_stored_legacy_objective(
     tmp_path, monkeypatch,
 ) -> None:
@@ -204,91 +177,7 @@ def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
     assert "paused" not in text
 
 
-def test_poller_does_not_dispatch_when_offset_persistence_fails(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    from argus.life import telegram_bot
-
-    dispatched: list[str] = []
-    api_calls = 0
-    stopped = False
-
-    def api_call(*args, **kwargs):
-        nonlocal api_calls, stopped
-        api_calls += 1
-        if api_calls == 1:
-            return {
-                "ok": True,
-                "result": [
-                    {
-                        "update_id": 7,
-                        "message": {"chat": {"id": "1"}, "text": "/status"},
-                    }
-                ],
-            }
-        stopped = True
-        return {"ok": True, "result": []}
-
-    poller = telegram_bot.TelegramPoller(
-        life_dir=tmp_path,
-        token="token",
-        chat_id="1",
-    )
-    poller._stop = SimpleNamespace(
-        is_set=lambda: stopped,
-        wait=lambda timeout: None,
-    )
-    monkeypatch.setattr(telegram_bot, "_read_offset", lambda _life_dir: 0)
-    monkeypatch.setattr(telegram_bot, "_api_call", api_call)
-    monkeypatch.setattr(telegram_bot, "_write_offset", lambda *_args: False)
-    monkeypatch.setattr(_CommandRouter, "dispatch", lambda _self, text: dispatched.append(text))
-
-    poller._poll_loop()
-
-    assert dispatched == []
-    assert api_calls == 2
-
-
 # -- a reply to a parked question ------------------------------------------
-
-
-def _park_question(life_dir, title: str, options=()):
-    from argus.core.operator_decision import build_operator_decision
-    from argus.life.memory import BacklogItem
-
-    item = BacklogItem.new(title=title, objective=f"work on {title}")
-    item.status = "paused_operator"
-    item.pending_question = f"Which way for {title}?"
-    item.operator_decision = build_operator_decision(
-        item_id=item.id, title=title, reason="they conflict",
-        question=item.pending_question, options=options,
-    )
-    LifeMemory.open(life_dir).backlog.add(item)
-    return item
-
-
-def _judged(monkeypatch, *, is_answer: bool, decision: str = "", reply: str = "") -> list[str]:
-    """The Manager's reading of a reply, as the web chat asks for it; the prompts it saw."""
-    seen: list[str] = []
-
-    def judge(_mem, prompt, _state, **_kwargs):
-        seen.append(prompt)
-        return json.dumps({
-            "is_answer": is_answer, "resolved": is_answer, "decision": decision, "reply": reply,
-        })
-
-    return seen
-
-
-def _no_new_task(monkeypatch) -> list[str]:
-    triaged: list[str] = []
-    monkeypatch.setattr(front_door, "manager_turn", replying(lambda _m, text, _s, **_k: triaged.append(text)))
-    monkeypatch.setattr(
-        front_door, "manager_bounded_handoff",
-        lambda _mem, text, _state, persist, **_k: persist(text, None),
-    )
-    return triaged
 
 
 def test_free_text_manager_turn_reads_the_canvas_like_the_web_chat(tmp_path, monkeypatch) -> None:

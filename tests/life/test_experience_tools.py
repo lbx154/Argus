@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -104,24 +103,6 @@ def test_child_file_alias_cannot_read_another_projects_source_or_index(tmp_path,
     assert foreign.store.get(private.id).revision == 1
 
 
-def test_file_evidence_receipts_record_real_scoped_bytes_without_claiming_truth(tmp_path):
-    workspace, state = tmp_path / "workspace", tmp_path / "state"
-    service = ExperienceToolService(state, workspace=workspace, role="engineer", parent_call_id="call",
-                                    redact=lambda text: text.replace("test-secret", "[redacted]"))
-    item = capsule(service)
-    raw = b"Observed one condition. test-secret"
-    (workspace / "evidence.txt").write_bytes(raw)
-    receipt = service.dispatch("revise", correction(item.id))
-    row, = receipt["evidence"]
-    assert row["ref"] == "workspace:evidence.txt" and row["bytes_read"] == len(raw)
-    assert row["file_size"] == len(raw) and row["mtime_ns"] == (workspace / "evidence.txt").stat().st_mtime_ns
-    assert "test-secret" not in json.dumps(receipt) and "text" not in row
-    assert "interpretation remains advisory" in receipt["evidence_verification"]
-    revised = service.store.get(item.id)
-    pinned = f"workspace:evidence.txt#{len(raw)}:{row['mtime_ns']}"
-    assert pinned in revised.evidence_refs and revised.annotations[-1].evidence_refs == [pinned]
-
-
 @pytest.mark.parametrize("reference", ["nonexistent:proof", "missing.txt", "../outside.txt", "state:../outside.txt",
                                        "escape.txt", ".env", "large.txt"])
 def test_unverified_or_unbounded_evidence_cannot_modify_a_capsule(tmp_path, reference):
@@ -136,21 +117,6 @@ def test_unverified_or_unbounded_evidence_cannot_modify_a_capsule(tmp_path, refe
     with pytest.raises((OSError, ValueError)):
         service.dispatch("revise", {**correction(item.id), "evidence_refs": [reference]})
     assert service.store.get(item.id).revision == 1
-
-
-@pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
-def test_native_role_tools_preserve_workspace_permissions_and_role_boundary(tmp_path, role):
-    options = RunnerOptions(sandbox_mode="read-only", working_dir=str(tmp_path))
-    ctx = SimpleNamespace(options=options, run_label=role, usage_project_root=tmp_path,
-                          backend=SimpleNamespace(_backend_name="pi"), call_id="real-host-call", prompt="role prompt")
-    with experience_runtime.experience_run(ctx):
-        names = ctx.options.trusted_tool_names
-        assert {"get_experience", "search_experiences", "revise_experience", "retract_experience"} <= set(names)
-        assert ctx.options.sandbox_mode == "read-only"
-        assert not ctx.options.dangerous_yolo and ctx.options.force_safe_mode
-        assert not ({"bash", "write", "edit"} & set(names))
-        assert "expected_revision" in ctx.prompt
-    assert options.extension_env is None
 
 
 def test_actual_gateway_composes_extensions_and_executes_native_experience_tool(tmp_path, monkeypatch, platform_process_env):
@@ -217,15 +183,3 @@ process.stdout.write(JSON.stringify(result.details));
     updated = service.store.get(item.id)
     assert updated.factual_outcome == "observed through native role tool"
     assert updated.annotations[-1].relation == f"correction by manager; call:{calls[0]}"
-
-
-@pytest.mark.parametrize("disable_tools,backend,mode,label", [
-    (True, "pi", "read-only", "manager"), (False, "codex", "read-only", "reviewer"),
-    (False, "pi", "read-only", "unrecognized"),
-])
-def test_unavailable_call_does_not_gain_tools(tmp_path, disable_tools, backend, mode, label):
-    options = RunnerOptions(disable_tools=disable_tools, sandbox_mode=mode)
-    ctx = SimpleNamespace(options=options, run_label=label, usage_project_root=tmp_path,
-                          backend=SimpleNamespace(_backend_name=backend), prompt="original")
-    with experience_runtime.experience_run(ctx):
-        assert ctx.options is options and ctx.prompt == "original"

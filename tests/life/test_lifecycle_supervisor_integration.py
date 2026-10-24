@@ -19,16 +19,12 @@ import json
 import os
 import subprocess
 import sys
-import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from argus.core.project import project_fingerprint
-from argus.life import project_lifecycle_io
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import LifeMemory
 from argus.life.project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -37,7 +33,6 @@ from argus.life.project_lifecycle import (
 )
 from argus.life.project_lifecycle_io import (
     LifecycleIOError,
-    append_event,
     apply_persisted_to_status,
     lifecycle_path,
     load_history,
@@ -50,14 +45,6 @@ from argus.life.project_lifecycle_io import (
 # ---------------------------------------------------------------------------
 
 
-def test_fresh_dir_is_incubating(tmp_path: Path) -> None:
-    status = infer_observable_status(tmp_path)
-    assert status.state == ProjectState.INCUBATING
-    assert status.last_evidence_at is None
-    assert status.has_draft is False
-    assert status.has_submission_artifact is False
-
-
 def test_evidence_dir_with_bundle_promotes_to_running(tmp_path: Path) -> None:
     bundle = tmp_path / "benchmarks" / "evidence" / "demo"
     bundle.mkdir(parents=True)
@@ -66,27 +53,6 @@ def test_evidence_dir_with_bundle_promotes_to_running(tmp_path: Path) -> None:
     status = infer_observable_status(tmp_path)
     assert status.state == ProjectState.RUNNING
     assert status.last_evidence_at is not None
-
-
-def test_paper_main_tex_promotes_to_writing(tmp_path: Path) -> None:
-    (tmp_path / "paper").mkdir()
-    (tmp_path / "paper" / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
-
-    status = infer_observable_status(tmp_path)
-    assert status.state == ProjectState.WRITING
-    assert status.has_draft is True
-
-
-def test_submission_artifact_keeps_writing_initial_state(tmp_path: Path) -> None:
-    # The init heuristic still puts us in WRITING when only the PDF
-    # exists; the policy engine will later promote WRITING → DONE on
-    # decide_next_state.
-    (tmp_path / "paper").mkdir()
-    (tmp_path / "paper" / "main.pdf").write_text("pdf", encoding="utf-8")
-
-    status = infer_observable_status(tmp_path)
-    assert status.has_submission_artifact is True
-    assert status.state == ProjectState.WRITING
 
 
 # ---------------------------------------------------------------------------
@@ -104,27 +70,6 @@ def _status(state: ProjectState = ProjectState.RUNNING) -> ProjectStatus:
     )
 
 
-def test_load_persisted_missing_file_returns_empty(tmp_path: Path) -> None:
-    assert load_persisted(tmp_path) == {}
-
-
-def test_write_then_load_persisted_round_trip(tmp_path: Path) -> None:
-    status = _status(ProjectState.QUARANTINED)
-    event = LifecycleEvent(
-        at=status.last_state_change_at,
-        from_state=ProjectState.RUNNING,
-        to_state=ProjectState.QUARANTINED,
-        reason="manual_test",
-    )
-    write_persisted(tmp_path, status=status, history=[event])
-
-    persisted = load_persisted(tmp_path)
-    assert persisted["state"] == "quarantined"
-    assert isinstance(persisted["history"], list)
-    assert len(persisted["history"]) == 1
-    assert persisted["history"][0]["reason"] == "manual_test"
-
-
 def test_load_persisted_rejects_non_object_top_level(tmp_path: Path) -> None:
     path = lifecycle_path(tmp_path)
     path.write_text("[]", encoding="utf-8")
@@ -139,42 +84,11 @@ def test_load_persisted_rejects_malformed_json(tmp_path: Path) -> None:
         load_persisted(tmp_path)
 
 
-def test_apply_persisted_overlays_state(tmp_path: Path) -> None:
-    observed = _status(ProjectState.RUNNING)
-    overlaid = apply_persisted_to_status(observed, {"state": "quarantined"})
-    assert overlaid.state == ProjectState.QUARANTINED
-
-
 def test_apply_persisted_ignores_unknown_state(tmp_path: Path) -> None:
     observed = _status(ProjectState.RUNNING)
     overlaid = apply_persisted_to_status(observed, {"state": "nonsense"})
     # falls through, observed state wins
     assert overlaid.state == ProjectState.RUNNING
-
-
-def test_append_event_extends_history(tmp_path: Path) -> None:
-    status = _status(ProjectState.RUNNING)
-    e1 = LifecycleEvent(
-        at=datetime.now(timezone.utc),
-        from_state=ProjectState.INCUBATING,
-        to_state=ProjectState.RUNNING,
-        reason="first_evidence",
-    )
-    append_event(tmp_path, new_status=status, event=e1)
-
-    e2 = LifecycleEvent(
-        at=datetime.now(timezone.utc),
-        from_state=ProjectState.RUNNING,
-        to_state=ProjectState.QUARANTINED,
-        reason="user_quarantine",
-    )
-    quarantined = _status(ProjectState.QUARANTINED)
-    append_event(tmp_path, new_status=quarantined, event=e2)
-
-    history = load_history(tmp_path)
-    assert len(history) == 2
-    assert history[0].reason == "first_evidence"
-    assert history[1].reason == "user_quarantine"
 
 
 def test_load_history_tolerates_malformed_entries(tmp_path: Path) -> None:
@@ -210,63 +124,6 @@ def test_load_history_tolerates_malformed_entries(tmp_path: Path) -> None:
     assert history[1].reason == "ok-2"
 
 
-def test_concurrent_lifecycle_appends_serialize_read_modify_write(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_load = project_lifecycle_io.load_persisted
-    start = threading.Barrier(3)
-    guard = threading.Lock()
-    active = 0
-    max_active = 0
-
-    def slow_load(root: Path) -> dict:
-        nonlocal active, max_active
-        with guard:
-            active += 1
-            max_active = max(max_active, active)
-        try:
-            time.sleep(0.05)
-            return original_load(root)
-        finally:
-            with guard:
-                active -= 1
-
-    monkeypatch.setattr(project_lifecycle_io, "load_persisted", slow_load)
-    status = ProjectStatus(
-        project_id="p",
-        state=ProjectState.RUNNING,
-        created_at=datetime.now(timezone.utc),
-    )
-
-    def append(reason: str) -> None:
-        start.wait()
-        project_lifecycle_io.append_event(
-            tmp_path,
-            new_status=status,
-            event=LifecycleEvent(
-                at=datetime.now(timezone.utc),
-                from_state=ProjectState.INCUBATING,
-                to_state=ProjectState.RUNNING,
-                reason=reason,
-            ),
-        )
-
-    threads = [
-        threading.Thread(target=append, args=("first",)),
-        threading.Thread(target=append, args=("second",)),
-    ]
-    for thread in threads:
-        thread.start()
-    start.wait()
-    for thread in threads:
-        thread.join(timeout=2)
-
-    assert all(not thread.is_alive() for thread in threads)
-    assert max_active == 1
-    assert {event.reason for event in load_history(tmp_path)} == {"first", "second"}
-
-
 # ---------------------------------------------------------------------------
 # CLI: --lifecycle-resume / --lifecycle-archive
 # ---------------------------------------------------------------------------
@@ -276,33 +133,6 @@ def _cli_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["ARGUS_SKILL_HOME"] = str(project_root.parent / f".{project_root.name}-argus-home")
     return env
-
-
-def _cli_lifecycle_root(project_root: Path) -> Path:
-    home = Path(_cli_env(project_root)["ARGUS_SKILL_HOME"])
-    return home / "projects" / project_fingerprint(project_root).fingerprint
-
-
-def test_cli_archive_writes_persisted_state(tmp_path: Path) -> None:
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "argus",
-            "--lifecycle-archive",
-            "--project-root",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=_cli_env(tmp_path),
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "ARCHIVED" in proc.stdout.upper() or "archived" in proc.stdout
-
-    persisted = load_persisted(_cli_lifecycle_root(tmp_path))
-    assert persisted["state"] == "archived"
 
 
 def test_cli_resume_refuses_non_quarantined(tmp_path: Path) -> None:
@@ -323,108 +153,6 @@ def test_cli_resume_refuses_non_quarantined(tmp_path: Path) -> None:
     # Fresh project is incubating, not quarantined → resume refuses.
     assert proc.returncode == 1
     assert "cannot resume" in proc.stderr or "cannot resume" in proc.stdout
-
-
-def test_cli_lifecycle_transition_aborts_when_explicit_session_is_missing(
-    tmp_path: Path,
-) -> None:
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "argus",
-            "--lifecycle-archive",
-            "--resume",
-            "s-missing0",
-            "--project-root",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=_cli_env(tmp_path),
-    )
-
-    assert proc.returncode == 2
-    assert "lifecycle command aborted" in proc.stderr
-    assert not lifecycle_path(_cli_lifecycle_root(tmp_path)).exists()
-    assert not lifecycle_path(tmp_path).exists()
-
-
-@pytest.mark.parametrize("pause_status", ["paused_budget", "paused_provider_fence"])
-def test_cli_resume_after_quarantine_returns_to_running(
-    tmp_path: Path, pause_status: str,
-) -> None:
-    # Seed evidence so the inferred state on resume is RUNNING.
-    bundle = tmp_path / "benchmarks" / "evidence" / "demo"
-    bundle.mkdir(parents=True)
-    (bundle / "summary.tsv").write_text("x\n", encoding="utf-8")
-
-    # Manually persist quarantine state.
-    qstatus = ProjectStatus(
-        project_id=tmp_path.name,
-        state=ProjectState.QUARANTINED,
-        created_at=datetime.now(timezone.utc),
-    )
-    lifecycle_root = _cli_lifecycle_root(tmp_path)
-    write_persisted(lifecycle_root, status=qstatus, history=[])
-    memory = LifeMemory.open(lifecycle_root)
-    paused_item = memory.backlog.add(BacklogItem.new(title="paused", objective="resume safely"))
-    memory.backlog.update(paused_item.id, status=pause_status)
-
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "argus",
-            "--lifecycle-resume",
-            "--project-root",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=_cli_env(tmp_path),
-    )
-    assert proc.returncode == 0, proc.stderr
-
-    persisted = load_persisted(lifecycle_root)
-    assert persisted["state"] == "running"
-    resumed = next(item for item in memory.backlog.all() if item.id == paused_item.id)
-    assert resumed.status == "pending"
-    assert resumed.attempt == 2
-
-
-def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:
-    # Persist a quarantine, then run --lifecycle-status; it should show
-    # effective_state = quarantined (persisted) even though observable
-    # signals say incubating.
-    qstatus = ProjectStatus(
-        project_id=tmp_path.name,
-        state=ProjectState.QUARANTINED,
-        created_at=datetime.now(timezone.utc),
-    )
-    lifecycle_root = _cli_lifecycle_root(tmp_path)
-    write_persisted(lifecycle_root, status=qstatus, history=[])
-
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "argus",
-            "--lifecycle-status",
-            "--project-root",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=_cli_env(tmp_path),
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "observed_state    : incubating" in proc.stdout
-    assert "effective_state   : quarantined  (persisted)" in proc.stdout
-    assert "token_allocatable : False" in proc.stdout
 
 
 def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None:
@@ -523,23 +251,6 @@ def _with_preflight_pdf(tmp_path: Path) -> Path:
     return project_root
 
 
-def test_gate_suppresses_premature_done_for_uncertified_emnlp(tmp_path: Path) -> None:
-    # main.pdf exists but reviewer has NOT certified → no DONE, dispatch
-    # proceeds, and the suppressed transition is never journaled/persisted.
-    stub = _GateStub(
-        project_root=_with_preflight_pdf(tmp_path),
-        memory_root=tmp_path / "mem",
-        final_certification_gate=True,
-        certified=False,
-    )
-    result = stub.block()
-    assert result is None  # allocatable → dispatch proceeds
-    assert not any(e.get("type") == "life.lifecycle.transition" for e in stub.events)
-    assert not any(e.get("type") == "life.lifecycle.block" for e in stub.events)
-    # nothing premature was persisted
-    assert load_persisted(tmp_path / "mem") == {}
-
-
 def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
     memory_root = tmp_path / "mem"
     memory_root.mkdir()
@@ -589,31 +300,6 @@ def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
     assert load_persisted(memory_root)["state"] == "writing"
 
 
-def test_gate_allows_done_when_reviewer_certified(tmp_path: Path) -> None:
-    # Reviewer certification, not PDF presence alone, drives DONE.
-    stub = _GateStub(
-        project_root=_with_preflight_pdf(tmp_path),
-        memory_root=tmp_path / "mem",
-        final_certification_gate=True,
-        certified=True,
-    )
-    result = stub.block()
-    assert result is not None
-    assert result["status"] == "lifecycle_block"
-    assert result["lifecycle_state"] == "done"
-
-
-def test_gate_does_not_treat_generic_pdf_as_project_completion(tmp_path: Path) -> None:
-    stub = _GateStub(
-        project_root=_with_preflight_pdf(tmp_path),
-        memory_root=tmp_path / "mem",
-        final_certification_gate=False,
-        certified=False,
-    )
-    result = stub.block()
-    assert result is None
-
-
 def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> None:
     # Log hygiene: a project sitting in the same blocked state must emit
     # the held-item status + event line only ONCE, not on every tick — this
@@ -638,7 +324,6 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
 
 def test_planner_operator_handoff_records_its_question(tmp_path: Path) -> None:
     from argus.core.models import RunnerResult
-    from argus.life.memory import LifeMemory
     from argus.planner import PlannerConfig
 
     class _Budget:

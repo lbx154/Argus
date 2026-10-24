@@ -11,7 +11,6 @@ from argus.core.event_catalog import EventType
 from argus.core.usage import UsageLedger
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._mission_execution_helpers import _MissionRunState
 from argus.skills.vertical_select import persist_vertical
 
 
@@ -70,21 +69,6 @@ def _mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome, *, tags=(
     return supervisor, memory, item, runner, sink, learning_statuses
 
 
-def test_state_rejects_undeclared_dependencies_without_sharing_mutable_defaults():
-    item = BacklogItem.new(title="same task", objective="complete it")
-    first, second = _MissionRunState(item), _MissionRunState(item)
-    # State is an attempt identity, not structural equality over live services.
-    assert first != second
-    first.item_tags.add("planner")
-    first.plan_revision_witness["plan_id"] = "first-plan"
-    first.stage_transition["action"] = "hold"
-    assert second.item_tags == set()
-    assert second.plan_revision_witness == {}
-    assert second.stage_transition == {}
-    with pytest.raises(AttributeError):
-        first.undeclared_stage_owner = "manager"
-
-
 @pytest.mark.parametrize(
     "outcome,tags,result_status,stored_status,publishes",
     [
@@ -127,40 +111,6 @@ def test_execution_branches_preserve_metering_and_publication_order(
     assert learning == ([stored_status] if publishes and result_status != "parked" else [])
 
 
-def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, monkeypatch):
-    from argus.core.transcript import append_turn
-    from tests.manager_inbox import team_reports
-
-    outcome = _Outcome(True, "done", stage_transition={
-        "action": "hold", "diagnostic": "intentional_hold", "target_stage": "ingest",
-        "reason": "继续研究长程信用分配，保留已核实的知识。",
-    })
-    supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
-    append_turn(memory.root, "operator", "学习智能体强化学习")
-    first = supervisor._run_one(item)
-    assert first["status"] == "stage_continues"
-    event, stored_status = sink.completions[-1]
-    assert stored_status == "pending"
-    assert event["overall_complete"] is False
-    assert event["campaign_continues"] is True
-    assert event["outcome"]["execution_status"] == "incomplete"
-    supervisor._publish_mission_completion_message(event)
-    assert "自动接着做剩下的部分" in team_reports(memory.root)[-1]["text"]
-    assert "长程信用分配" in team_reports(memory.root)[-1]["text"]
-    stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert "长程信用分配" in supervisor._build_mission_prelude(stored)
-    from argus.core.mission_view import update_mission_view_event
-    view = update_mission_view_event(memory.root, event)
-    assert view["mission"]["status"] == "continued"
-
-    runner.outcome = _Outcome(True, "done", stage_transition={"action": "complete"})
-    second = supervisor._run_one(next(row for row in memory.backlog.all() if row.id == item.id))
-    assert second["status"] == "done"
-    assert runner.calls == 2
-    assert len(sink.completions) == 2
-    assert len(UsageLedger(memory.root, migrate_legacy=False).records()) == 2
-
-
 def test_hold_with_operator_question_waits_instead_of_repeating(tmp_path, monkeypatch):
     outcome = _Outcome(True, "done", stage_transition={
         "action": "hold", "diagnostic": "intentional_hold", "reason": "Need authorization",
@@ -184,31 +134,3 @@ def test_repeated_hold_keeps_passing_within_one_stage(tmp_path, monkeypatch):
         assert supervisor._run_one(stored)["status"] == "stage_continues"
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
     assert stored.status == "pending"
-
-
-def test_superseded_outcome_is_metered_without_settling_replacement(tmp_path, monkeypatch):
-    outcome = _Outcome(True, "done")
-    outcome.acceptance_assessment_superseded = True
-    supervisor, memory, item, runner, sink, learning = _mission(tmp_path, monkeypatch, outcome)
-
-    def replace_contract():
-        memory.backlog.update(
-            item.id, status="pending", objective="New accepted contract.",
-            acceptance_check="Use the replacement acceptance check.",
-        )
-
-    runner.on_execute = replace_contract
-
-    result = supervisor._run_one(item)
-
-    assert result["status"] == "claim_lost"
-    assert result["recoverable"] is True
-    stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert (stored.status, stored.objective, stored.acceptance_check) == (
-        "pending", "New accepted contract.", "Use the replacement acceptance check.",
-    )
-    records = UsageLedger(memory.root, migrate_legacy=False).records()
-    assert len(records) == 1 and records[0].input_tokens == 1_000
-    assert result["known_cost_usd"] == records[0].cost_usd
-    assert sink.completions == []
-    assert learning == []

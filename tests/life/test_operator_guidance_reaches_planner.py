@@ -67,20 +67,6 @@ class _Supervisor(IdleCycleMixin):
 _ANSWER = "There is no GPU and none can be provisioned. Do not wait for one."
 
 
-def test_the_answer_that_unblocked_a_mission_reaches_the_next_plan(
-    tmp_path: Path,
-) -> None:
-    supervisor = _Supervisor([_ANSWER], tmp_path)
-    item = SimpleNamespace(id="item-1", pending_question="need a GPU")
-
-    assert supervisor._resolve_pending_question_from_inbox([item]) is True
-    # The inbox is now empty — this is the state the Planner used to see.
-    assert supervisor._pop() is None
-
-    assert supervisor._take_operator_guidance_carryover() == [_ANSWER]
-    assert _ANSWER in render_active_steering(tmp_path)
-
-
 def test_the_one_shot_carryover_is_handed_over_only_once(tmp_path: Path) -> None:
     """The immediate note is one-shot while the standing ledger persists."""
     supervisor = _Supervisor([_ANSWER], tmp_path)

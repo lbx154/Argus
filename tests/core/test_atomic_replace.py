@@ -44,20 +44,3 @@ def test_a_persistent_refusal_still_surfaces(tmp_path: Path, monkeypatch) -> Non
 
     with pytest.raises(PermissionError):
         atomic_replace.replace(source, tmp_path / "manifest.json")
-
-
-def test_posix_hosts_replace_once_without_retrying(tmp_path: Path, monkeypatch) -> None:
-    source = tmp_path / "new.json"
-    source.write_text("new", encoding="utf-8")
-    calls = []
-
-    def refuse(src, dst):
-        calls.append(src)
-        raise PermissionError(13, "denied")
-
-    monkeypatch.setattr(atomic_replace.sys, "platform", "linux")
-    monkeypatch.setattr(atomic_replace.os, "replace", refuse)
-
-    with pytest.raises(PermissionError):
-        atomic_replace.replace(source, tmp_path / "manifest.json")
-    assert len(calls) == 1

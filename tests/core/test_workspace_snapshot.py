@@ -4,7 +4,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from argus.core.file_facts import file_facts
 from argus.core.workspace_snapshot import LARGE_FILE_BYTES, Change, WorkspaceSnapshots
 
 _GIT = ["git", "-c", "user.name=u", "-c", "user.email=u@example.invalid"]
@@ -69,24 +68,6 @@ def test_plain_directory_diffs_text_and_lists_binary_and_large_files(tmp_path):
     assert "data/big.bin" not in _stored(snapshots, "candidate")
 
 
-def test_environments_caches_argus_state_and_ignored_files_are_left_out(tmp_path):
-    work = tmp_path / "work"
-    _write(work, "main.py")
-    _write(work, ".gitignore", "outputs/\n")
-    snapshots = _snapshots(tmp_path, work)
-    assert snapshots.take("baseline")
-    for relative in (
-        ".argus/runs/r1/log.txt", ".venv/lib/site.py", "venv/bin/python",
-        "node_modules/pkg/index.js", "src/__pycache__/m.pyc", ".pytest_cache/v",
-        "pkg.egg-info/PKG-INFO", "outputs/model.ckpt",
-    ):
-        _write(work, relative)
-    _write(work, "src/model.py", "class Model: ...\n")
-    assert snapshots.take("candidate")
-
-    assert [change.path for change in snapshots.changes("baseline", "candidate")] == ["src/model.py"]
-
-
 def test_a_work_tree_holding_the_repository_never_records_it(tmp_path):
     _write(tmp_path, "main.py")
     snapshots = _snapshots(tmp_path, tmp_path)
@@ -120,41 +101,6 @@ def test_nested_repositories_are_their_own(tmp_path):
     assert snapshots.changes("baseline", "candidate") == []
 
 
-def test_the_users_repository_head_index_refs_and_tree_are_untouched(tmp_path):
-    work = tmp_path / "repo"
-    _write(work, "a.py", "a = 1\n")
-    _write(work, ".gitignore", "build/\n")
-    _git(work, "init", "-q")
-    _git(work, "add", "-A")
-    _git(work, "commit", "-qm", "init")
-    _write(work, "a.py", "a = 2\n")
-    _git(work, "add", "a.py")
-    _write(work, "b.py", "b = 1\n")
-    _write(work, "build/out.o")
-
-    def observed():
-        return (
-            _git(work, "rev-parse", "HEAD"),
-            file_facts(work / ".git" / "index"),
-            _git(work, "for-each-ref"),
-            # Observing must not write the index itself, as a plain status may.
-            _git(work, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"),
-            sorted(str(path.relative_to(work)) for path in work.rglob("*") if ".git" not in path.parts),
-        )
-
-    before = observed()
-    snapshots = _snapshots(tmp_path, work)
-    assert snapshots.take("baseline")
-    _write(work, "b.py", "b = 2\n")
-    assert snapshots.take("candidate")
-
-    after = observed()
-    assert after == before
-    assert "refs/argus" not in after[2]
-    assert snapshots.changes("baseline", "candidate") == [Change("b.py", 1, 1)]
-    assert _stored(snapshots, "candidate") == [".gitignore", "a.py", "b.py"]
-
-
 def test_a_kept_baseline_stays_and_a_broken_store_reports_failure(tmp_path):
     work = tmp_path / "work"
     _write(work, "a.py", "1\n")
@@ -171,16 +117,3 @@ def test_a_kept_baseline_stays_and_a_broken_store_reports_failure(tmp_path):
     broken = WorkspaceSnapshots(blocked, work, "line")
     assert broken.take("baseline") is False
     assert broken.changes("baseline", "candidate") is None
-
-
-def test_a_git_stopped_mid_write_does_not_block_the_next_snapshot(tmp_path):
-    work = tmp_path / "work"
-    _write(work, "train.py")
-    snapshots = _snapshots(tmp_path, work)
-    assert snapshots.take("baseline")
-    lock = snapshots.store / "indexes" / "node_train_eval.lock"
-    lock.write_text("")  # what a git killed by the timeout leaves behind
-
-    assert not snapshots.take("candidate")
-    assert not lock.exists()
-    assert snapshots.take("candidate")

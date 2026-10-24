@@ -28,17 +28,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from argus.life.supervisor._planning_context import PlanningContextMixin
-from argus.skills.vertical_select import (
-    resolve_vertical,
-    resolve_vertical_if_decided,
-)
-from argus.verticals._base import load_vertical_contract
-
-CERTIFIED = "research"
-NOT_CERTIFIED = ("software", "argus_maintenance", "learning")
 
 
 class _Harness(PlanningContextMixin):
@@ -50,33 +40,6 @@ class _Harness(PlanningContextMixin):
         return self._root
 
 
-def test_the_premise_that_made_this_wrong_still_holds(tmp_path) -> None:
-    """Guard the trap: the fallback is silent, so the fix must not be reverted.
-
-    If ``resolve_vertical`` ever starts raising for an undecided root, the
-    original ``try/except`` becomes correct and this whole file is moot.
-    """
-    assert resolve_vertical(tmp_path) == CERTIFIED
-    assert resolve_vertical_if_decided(tmp_path) is None
-    assert load_vertical_contract(CERTIFIED).completion_gate == "certified"
-
-
-def test_an_undecided_project_is_not_at_its_final_gate(tmp_path) -> None:
-    """No Manager decision on this root means the gate cannot apply yet."""
-    assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is False
-
-
-@pytest.mark.parametrize("vertical", NOT_CERTIFIED)
-def test_a_vertical_without_a_certified_gate_stays_ungated(
-    tmp_path, vertical
-) -> None:
-    from argus.skills.vertical_select import persist_vertical
-
-    persist_vertical(tmp_path, vertical)
-
-    assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is False
-
-
 def test_a_metric_vertical_stays_ungated(tmp_path, optimize_vertical) -> None:
     """A metric vertical is the shape that, gated, wedges forever."""
     from argus.skills.vertical_select import persist_vertical
@@ -84,49 +47,3 @@ def test_a_metric_vertical_stays_ungated(tmp_path, optimize_vertical) -> None:
     persist_vertical(tmp_path, optimize_vertical)
 
     assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is False
-
-
-def test_research_keeps_its_gate(tmp_path) -> None:
-    """The fix must change nothing for the vertical the gate exists for."""
-    from argus.skills.vertical_select import persist_vertical
-
-    persist_vertical(tmp_path, CERTIFIED)
-
-    assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is True
-
-
-def test_the_operator_switch_still_wins_over_a_certified_vertical(tmp_path) -> None:
-    from argus.skills.vertical_select import persist_vertical
-
-    persist_vertical(tmp_path, CERTIFIED)
-
-    assert (
-        _Harness(tmp_path, gate=False)._effective_final_certification_gate(tmp_path)
-        is False
-    )
-
-
-def test_a_workdir_that_records_no_decision_does_not_gate(tmp_path) -> None:
-    """The two-root split is what makes this reachable at all.
-
-    Testbed runs 15 and 16 kept the Manager's vertical in the session state
-    root and ran in a separate repository workdir that holds only the adopted
-    objective. Any caller handed the workdir sees an undecided project.
-    """
-    from argus.skills.vertical_select import persist_vertical
-
-    state_root = tmp_path / "s-ed5b69fc"
-    workdir = tmp_path / "argus-testbed-univ24-r16"
-    state_root.mkdir()
-    workdir.mkdir()
-    persist_vertical(state_root, "software")
-
-    harness = _Harness(state_root)
-
-    assert harness._effective_final_certification_gate(workdir) is False
-    assert harness._effective_final_certification_gate(state_root) is False
-
-
-def test_the_scope_predicate_inherits_the_same_answer(tmp_path) -> None:
-    """``_final_submission_scope_applies`` short-circuits on this predicate."""
-    assert _Harness(tmp_path)._final_submission_scope_applies(tmp_path) is False

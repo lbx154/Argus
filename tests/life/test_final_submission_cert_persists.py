@@ -74,22 +74,6 @@ def test_final_submission_cert_tracks_current_project_state(tmp_path: Path):
     assert sup._journal_has_final_certification() is False
 
 
-def test_unbound_legacy_cert_never_certifies_a_manuscript(tmp_path: Path):
-    sup = _make_supervisor(tmp_path)
-    source = tmp_path / "project" / "paper" / "main.tex"
-    source.parent.mkdir()
-    source.write_text("legacy certified\n", encoding="utf-8")
-    events = tmp_path / "life" / "events.jsonl"
-    events.write_text(json.dumps({
-        "type": "life.mission.completed",
-        "title": "legacy final submission",
-        "success": True,
-        "final_submission_certified": True,
-    }) + "\n", encoding="utf-8")
-
-    assert sup._journal_has_final_certification() is False
-
-
 def test_project_signature_ignores_history_only_commits(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()

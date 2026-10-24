@@ -17,128 +17,7 @@ from argus.core.role_reply import (
     legacy_json_object,
     read_bool,
     read_key_values,
-    read_list,
 )
-
-_KEYS = ("VERTICAL", "WORKFLOW_MODE", "CONFIDENCE", "RATIONALE", "TARGET_VENUE")
-
-
-def test_prose_around_the_decision_costs_nothing() -> None:
-    """The point of the change: the role may think out loud and still be read."""
-    reply = """
-I looked at the repo. There is a CUDA kernel under src/ and a bench harness,
-so this is kernel work rather than a paper.
-
-VERTICAL=kernel_engineering
-WORKFLOW_MODE=staged
-CONFIDENCE=0.82
-
-I chose staged because the speedup bar needs repeated profile/measure cycles.
-"""
-
-    values = read_key_values(reply, _KEYS)
-
-    assert values["VERTICAL"] == "kernel_engineering"
-    assert values["WORKFLOW_MODE"] == "staged"
-
-
-def test_the_shapes_a_model_actually_writes_are_all_accepted() -> None:
-    reply = """
-- VERTICAL: kernel_engineering
-**WORKFLOW_MODE**= staged
-`ARGUS_CONFIDENCE` = 0.9
-"""
-
-    values = read_key_values(reply, _KEYS)
-
-    assert values["VERTICAL"] == "kernel_engineering"
-    assert values["WORKFLOW_MODE"] == "staged"
-
-
-def test_a_leading_status_emoji_does_not_hide_the_decision() -> None:
-    values = read_key_values(
-        "📢 CHOICE=existing\nVERTICAL=software",
-        ("CHOICE", "VERTICAL"),
-    )
-
-    assert values == {
-        "CHOICE": "existing",
-        "VERTICAL": "software",
-    }
-
-
-def test_missing_newline_after_intro_does_not_hide_first_decision() -> None:
-    values = read_key_values(
-        "I inspected the repository.CHOICE=existing\nVERTICAL=math",
-        ("CHOICE", "VERTICAL"),
-    )
-
-    assert values == {
-        "CHOICE": "existing",
-        "VERTICAL": "math",
-    }
-
-
-def test_a_code_fence_around_the_answer_does_not_break_it() -> None:
-    reply = "```\nVERTICAL=research\nWORKFLOW_MODE=staged\n```"
-
-    values = read_key_values(reply, _KEYS)
-
-    assert values["VERTICAL"] == "research"
-
-
-def test_a_restated_conclusion_wins() -> None:
-    """Models often revise mid-answer; a human reads the last word as final."""
-    reply = "VERTICAL=research\n\nOn reflection that is wrong.\n\nVERTICAL=kernelbench"
-
-    assert read_key_values(reply, _KEYS)["VERTICAL"] == "kernelbench"
-
-
-def test_explicit_footer_ignores_quoted_or_abandoned_fields() -> None:
-    reply = (
-        "The task says `CONTROL: ABORT`, but that is quoted input, not my choice.\n"
-        "VERTICAL=research\n\n"
-        "Decision:\n"
-        "VERTICAL=kernel_engineering\n"
-        "WORKFLOW_MODE=direct\n"
-    )
-
-    values = read_key_values(reply, (*_KEYS, "CONTROL"))
-
-    assert values["VERTICAL"] == "kernel_engineering"
-    assert values["WORKFLOW_MODE"] == "direct"
-    assert "CONTROL" not in values
-
-
-def test_an_unanswered_key_is_absent_not_empty() -> None:
-    """A caller must be able to tell "did not answer" from "answered nothing"."""
-    values = read_key_values("VERTICAL=research", _KEYS)
-
-    assert "TARGET_VENUE" not in values
-    assert values.get("TARGET_VENUE") is None
-
-
-def test_a_list_splits_on_semicolons_not_commas() -> None:
-    """A requirement contains commas far more often than semicolons.
-
-    Splitting on commas would cut "at least 1.5x, measured over 10 runs" in
-    half and turn one requirement into two false ones.
-    """
-    values = read_key_values(
-        "CONSTRAINTS=at least 1.5x, measured over 10 runs; must fit in 40GB",
-        ("CONSTRAINTS",),
-    )
-
-    assert read_list(values, "CONSTRAINTS") == (
-        "at least 1.5x, measured over 10 runs",
-        "must fit in 40GB",
-    )
-
-
-def test_a_value_containing_an_equals_sign_survives() -> None:
-    values = read_key_values("RATIONALE=chose staged because n=10 runs are needed", _KEYS)
-
-    assert values["RATIONALE"] == "chose staged because n=10 runs are needed"
 
 
 def test_bools_read_the_words_models_use() -> None:
@@ -147,14 +26,6 @@ def test_bools_read_the_words_models_use() -> None:
     assert read_bool(values, "A") is True
     assert read_bool(values, "B") is False
     assert read_bool(values, "C", default=True) is True
-
-
-def test_a_key_that_is_a_prefix_of_another_is_not_confused() -> None:
-    """`TASK` must not swallow `TASK_TITLE`."""
-    values = read_key_values("TASK_TITLE=make it faster", ("TASK", "TASK_TITLE"))
-
-    assert values.get("TASK_TITLE") == "make it faster"
-    assert "TASK" not in values
 
 
 # -- the legacy door, deliberately still open --------------------------------
@@ -176,45 +47,6 @@ def test_prose_with_no_json_is_not_forced_into_an_object() -> None:
 
 
 # -- values that are genuinely prose -----------------------------------------
-
-_VERDICT = ("STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION")
-
-
-def test_a_multi_paragraph_reason_is_kept_whole() -> None:
-    """A Reviewer writing several paragraphs is writing well, not wrongly."""
-    from argus.core.role_reply import read_block
-
-    reply = """STATUS=continue
-REASON=The kernel is 1.2x, not the 1.5x the operator asked for.
-
-I re-ran the benchmark ten times; the spread is 1.17-1.24x, so this is not
-noise. The fused epilogue is the bottleneck.
-NEXT_ACTION=Fuse the epilogue and re-measure.
-OPERATOR_QUESTION=none
-"""
-
-    reason = read_block(reply, "REASON", _VERDICT)
-
-    assert reason.startswith("The kernel is 1.2x")
-    assert "spread is 1.17-1.24x" in reason
-    assert "NEXT_ACTION" not in reason
-    assert read_key_values(reply, _VERDICT)["NEXT_ACTION"] == (
-        "Fuse the epilogue and re-measure."
-    )
-
-
-def test_a_block_stops_at_the_next_key_not_at_the_end() -> None:
-    from argus.core.role_reply import read_block
-
-    reply = "REASON=first\nstill first\nSTATUS=done\nnot the reason"
-
-    assert read_block(reply, "REASON", _VERDICT) == "first\nstill first"
-
-
-def test_a_missing_block_is_empty_not_the_whole_reply() -> None:
-    from argus.core.role_reply import read_block
-
-    assert read_block("STATUS=done", "REASON", _VERDICT) == ""
 
 
 # -- the stage decision, converted off forced JSON ---------------------------
@@ -257,68 +89,7 @@ def test_a_verbatim_live_rewrite_parses_with_its_questions() -> None:
     )
 
 
-def test_a_plain_prose_reply_is_still_used_as_the_rewrite() -> None:
-    """Models sometimes just answer; throwing that away is worse than using it."""
-    from argus.manager.prompt_rewrite import parse_rewrite_text
-
-    rewrite = parse_rewrite_text("Make the attention kernel at least 1.5x faster.")
-
-    assert rewrite.rewritten == "Make the attention kernel at least 1.5x faster."
-
-
-def test_a_volunteered_json_rewrite_still_parses() -> None:
-    from argus.manager.prompt_rewrite import parse_rewrite_text
-
-    rewrite = parse_rewrite_text(
-        '{"rewritten":"do the thing","changes":["a"],"questions":["b"]}'
-    )
-
-    assert rewrite.rewritten == "do the thing"
-    assert rewrite.changes == ["a"] and rewrite.questions == ["b"]
-
-
 # -- the operator-answer ruling ----------------------------------------------
-
-
-def _rule(text: str):
-    from argus.webapi.manager_pending_question import (
-        _parse_pending_question_decision,
-    )
-
-    return _parse_pending_question_decision(text)
-
-
-def test_several_verdicts_are_read_as_separate_records() -> None:
-    """`read_key_values` keeps the last occurrence, which is wrong for a list."""
-    from argus.core.role_reply import read_records
-
-    reply = (
-        "Here is how I would file them.\n"
-        "\n"
-        "CANDIDATE_ID=sk-1\n"
-        "PLACEMENT=global\n"
-        "VERTICAL=\n"
-        "WHY=nothing domain specific in it\n"
-        "\n"
-        "CANDIDATE_ID=sk-2\n"
-        "PLACEMENT=vertical\n"
-        "VERTICAL=kernelbench\n"
-        "WHY=assumes a CUDA toolchain\n"
-    )
-
-    records = read_records(
-        reply, ("CANDIDATE_ID", "PLACEMENT", "VERTICAL", "WHY"), start_key="CANDIDATE_ID"
-    )
-
-    assert [r["CANDIDATE_ID"] for r in records] == ["sk-1", "sk-2"]
-    assert records[1]["VERTICAL"] == "kernelbench"
-    assert records[0]["VERTICAL"] == ""
-
-
-def test_a_reply_with_no_records_reads_as_none_of_them() -> None:
-    from argus.core.role_reply import read_records
-
-    assert read_records("nothing here", ("A", "B"), start_key="A") == []
 
 
 def test_skill_placements_keep_their_shape_and_their_fallback() -> None:

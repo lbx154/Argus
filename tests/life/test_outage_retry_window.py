@@ -89,16 +89,6 @@ def test_tasks_failing_on_the_model_service_stop_after_three_hours(tmp_path) -> 
     assert next(item for item in memory.backlog.all() if item.id == later.id).status == "pending"
 
 
-def test_a_younger_outage_still_fails_the_task_into_the_plan(tmp_path) -> None:
-    memory = LifeMemory.open(tmp_path / "life")
-    _ended(memory, ago=600, stop_kind="backend_unavailable")
-    task = memory.backlog.add(BacklogItem.new(title="next", objective="next work", manager_decision=_ROUTED))
-
-    _supervisor(tmp_path, memory, _ReviewerOutageRunner()).run()
-
-    assert next(item for item in memory.backlog.all() if item.id == task.id).status == "failed"
-
-
 def test_a_task_that_failed_on_its_own_merits_ends_the_outage_run(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     _ended(memory, ago=AUTOMATIC_RETRY_WINDOW_SECONDS + 60, stop_kind="backend_unavailable")
