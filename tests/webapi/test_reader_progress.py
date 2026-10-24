@@ -31,7 +31,6 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setattr(reader_foundation, "resolve_map_model", lambda: model)
     monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: model)
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr("argus.webapi.map_history.indexed_evidence", lambda *a, **k: [])
     return sid, life, workspace
 
 

@@ -53,7 +53,6 @@ afterEach(() => {
 });
 
 it("opens a task or one of its steps without asking for an explanation to be written", async () => {
-  const generate = vi.spyOn(api, "generateMapCopy").mockResolvedValue(empty);
   const steps = buildSubmap(data.tasks[1], data.events, false);
   const chosen = steps.find(step => step.kind === 'review')!;
   act(() => { renderer = create(tree('b')); });
@@ -63,19 +62,16 @@ it("opens a task or one of its steps without asking for an explanation to be wri
   act(() => renderer!.update(tree('b', chosen.id)));
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(latest.readingRequest?.key).toBe(chosen.id);
-  expect(generate).not.toHaveBeenCalled();
 });
 
 it("keeps showing explanations that were saved earlier", async () => {
   const saved: MapCopy = { ...empty, cards: { b: { title: "Saved title", summary: "Saved summary", detail: "Saved detail", generated_at: 5 } } };
   const read = vi.spyOn(api, "mapCopy").mockResolvedValue(saved);
-  const generate = vi.spyOn(api, "generateMapCopy");
   client.removeQueries({ queryKey: key });
   act(() => { renderer = create(tree('b')); });
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(read).toHaveBeenCalledOnce();
   expect(latest.copy?.cards.b.title).toBe("Saved title");
-  expect(generate).not.toHaveBeenCalled();
 });
 
 it("selects only the explicitly read step of the focused task", () => {

@@ -15,9 +15,19 @@ from argus.webapi import map_model
 from argus.webapi.server import create_app
 
 
-def test_map_output_recovers_only_the_observed_premature_cards_root_closure():
-    from argus.webapi.map_narrative import schema
+def schema(keys: list[str], task_ids: list[str]) -> dict:
+    """A cards-and-relations output schema: one required card per key."""
+    def obj(props):
+        return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
+    text = {"type": "string", "minLength": 1}
+    brief = obj({"why": text, "concept": {"anyOf": [{"type": "object"}, {"type": "null"}]}, "scope": text, "next": text})
+    card = obj({"reader_brief": brief, "title": text, "summary": text, "detail": text})
+    relation = obj({key: {"type": "string", "enum": task_ids} for key in ("source", "target")} | {"label": {"type": "string"}})
+    return obj({"cards": obj({key: card for key in keys}), "relations": {"type": "array", "items": relation}})
+
+
+def test_map_output_recovers_only_the_observed_premature_cards_root_closure():
     card = {"title": "Check a boundary", "summary": "The result covers one case", "detail": "A literal } is part of the note.",
             "reader_brief": {"why": "Check the stated assumption", "concept": None,
                              "scope": "The general claim has not been established", "next": "No next step is recorded"}}
@@ -48,8 +58,6 @@ def test_map_output_recovery_rejects_trailing_prose_other_shapes_and_incomplete_
 
 
 def test_recovered_output_still_requires_the_requested_schema_and_card_coverage():
-    from argus.webapi.map_narrative import schema
-
     with pytest.raises(ValueError, match="schema"):
         map_model._parse_document('{"cards":{}},"relations":[]}', schema(["required-task"], ["required-task"]))
     with pytest.raises(ValueError, match="schema"):

@@ -19,12 +19,6 @@ from .map_model import (
     resolve_map_model,
 )
 from .map_outcomes import project_task_outcome
-from .map_teaching_review import (
-    BRIEF_LIMITS,
-    CARD_TEXT_LIMITS,
-    CONCEPT_LIMITS,
-    checked_text_fields,
-)
 from .map_view import facts, task_content_revision, text
 
 PROMPT_VERSION = 26
@@ -171,108 +165,6 @@ def read_cache(root: Path, source: str) -> dict:
         return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
-
-
-def _normalize_reader_brief_shape(value) -> object:
-    """Accept the one wrong shape the model keeps producing: ``next`` (and the
-    scope text) nested inside ``scope`` instead of beside it.
-
-    The instructions read "why → concept → scope → next" and the map model
-    returned ``{"why", "concept", "scope": {"scope": ..., "next": ...}}`` on
-    the stable web trial at 04:07 and 05:03 (2026-09-16), each time failing
-    the brief as invalid and leaving the page without an explanation for the
-    card. Nothing is invented: the text is only moved to where the schema
-    says it goes, and a brief still missing a section still fails.
-    """
-    if not isinstance(value, dict):
-        return value
-    scope = value.get("scope")
-    flat = dict(value)
-    if isinstance(scope, dict) and (isinstance(scope.get("scope"), str) or isinstance(scope.get("next"), str)):
-        inner_scope = scope.get("scope")
-        inner_next = scope.get("next")
-        if isinstance(inner_scope, str):
-            flat["scope"] = inner_scope
-        else:
-            flat.pop("scope", None)
-        if isinstance(inner_next, str) and not isinstance(flat.get("next"), str):
-            flat["next"] = inner_next
-    # A second wrong shape, from gemini-3.8-flash on 2026-09-20: a section
-    # written as an object of named parts ({"name", "restriction", ...}), the
-    # way `concept` is, where the schema asks for one text. The parts are the
-    # model's own paragraphs in its own order, so they are joined, not dropped;
-    # the length limit is still the schema's to enforce.
-    for key in BRIEF_LIMITS:
-        parts = flat.get(key)
-        if isinstance(parts, dict) and parts and all(isinstance(part, str) and part.strip() for part in parts.values()):
-            flat[key] = "\n\n".join(part.strip() for part in parts.values())
-    return flat
-
-
-def _prepare_cards(value: dict) -> dict:
-    """Before the schema check: reader briefs in the shapes known to be text misplaced."""
-    cards = value.get("cards")
-    if isinstance(cards, dict):
-        for card in cards.values():
-            if isinstance(card, dict) and "reader_brief" in card:
-                card["reader_brief"] = _normalize_reader_brief_shape(card["reader_brief"])
-    return value
-
-
-def _reader_brief(value) -> dict:
-    """Validate bounded presentation text; never manufacture missing sections."""
-    value = _normalize_reader_brief_shape(value)
-    if not isinstance(value, dict) or set(value) != {*BRIEF_LIMITS, "concept"}:
-        raise ValueError("invalid reader brief")
-
-    def strings(source, limits):
-        checked = checked_text_fields(source, limits, "invalid reader brief text")
-        return {key: item.strip() for key, item in checked.items()}
-
-    result = strings({key: value[key] for key in BRIEF_LIMITS}, BRIEF_LIMITS)
-    result["concept"] = None if value["concept"] is None else strings(value["concept"], CONCEPT_LIMITS)
-    return result
-
-
-def schema(keys: list[str], task_ids: list[str]) -> dict:
-    def obj(props):
-        return {
-            "type": "object",
-            "properties": props,
-            "required": list(props),
-            "additionalProperties": False,
-        }
-
-    string = {"type": "string"}
-    def bounded(limits):
-        return {key: {"type": "string", "minLength": 1, "maxLength": limit} for key, limit in limits.items()}
-
-    brief = obj({
-        **bounded({"why": BRIEF_LIMITS["why"]}),
-        "concept": {"anyOf": [obj(bounded(CONCEPT_LIMITS)), {"type": "null"}]},
-        **bounded({key: BRIEF_LIMITS[key] for key in ("scope", "next")}),
-    })
-    return obj(
-        {
-            # Required object properties force one result for every requested ID.
-            # An array with enum keys still permits omitted or duplicated cards.
-            "cards": obj(
-                {key: obj({"reader_brief": brief, **bounded(CARD_TEXT_LIMITS)})
-                 for key in keys}
-            ),
-            "relations": {
-                "type": "array",
-                "maxItems": 8,
-                "items": obj(
-                    {
-                        "source": {"type": "string", "enum": task_ids},
-                        "target": {"type": "string", "enum": task_ids},
-                        "label": {**string, "maxLength": 32},
-                    }
-                ),
-            },
-        }
-    )
 
 
 def _bounded_document(document: dict) -> dict:

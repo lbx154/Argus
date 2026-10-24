@@ -90,7 +90,6 @@ beforeEach(() => {
     path, name: 'retained.md', why: '', exists: true, kind: 'text', mime: 'text/markdown', size: 80, mtime: 100,
     source: 'progress_snapshot', progress_source: sourceA, preview: '# The actual retained progress source\n\nOriginal source text.',
   });
-  vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('A reading question must not regenerate the progress card'));
   vi.spyOn(api, 'messageStream').mockRejectedValue(new Error('A reading question must not enter research dispatch'));
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -121,7 +120,7 @@ it.each(['button', 'task', 'step'])('uses the same independent editor for a %s r
   expect(renderer!.root.findByProps({ 'data-reading-question-id': firstId })).toBeTruthy();
   expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(saved.preview);
   expect(foundationChoice(client, 'project-a', 'en-US').id).toBe('a-different-foundation');
-  expect(api.generateMapCopy).not.toHaveBeenCalled(); expect(api.messageStream).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
 });
 
 it('reopens saved questions by source and follows only the explicitly selected answer', async () => {
@@ -319,7 +318,6 @@ it('does not create source material without a saved explanation', async () => {
   props.card = { ...card(), copy_revision: undefined }; act(() => renderer!.update(tree()));
   expect(button('Ask about this step').props.disabled).toBe(true);
   expect(api.mapQuestionSource).not.toHaveBeenCalled();
-  expect(api.generateMapCopy).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -332,7 +330,6 @@ it.each([
   await mount(); await open();
   expect(renderer!.root.findByProps({ role: 'alert' }).children.join('')).toContain('unavailable or has changed');
   expect(renderer!.root.findAllByProps({ 'data-testid': 'progress-questions' })).toHaveLength(0);
-  expect(api.generateMapCopy).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -344,7 +341,6 @@ it.each([
   await mount(); await open();
   expect(renderer!.root.findByProps({ role: 'alert' }).children.join('')).toContain('No question was opened');
   expect(generate).not.toHaveBeenCalled();
-  expect(api.generateMapCopy).not.toHaveBeenCalled();
   expect(api.messageStream).not.toHaveBeenCalled();
   await open();
   expect(dialog().props['data-progress-source-id']).toBe(sourceA.source_id);
@@ -378,7 +374,6 @@ it.each(['project', 'locale', 'card', 'task', 'generation', 'preview', 'foundati
     await flush();
     await act(async () => pending.resolve(sourceA)); await flush();
     if (renderer) expect(renderer.root.findAllByProps({ 'data-testid': 'progress-questions' })).toHaveLength(0);
-    expect(api.generateMapCopy).not.toHaveBeenCalled();
   },
 );
 

@@ -228,19 +228,3 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             })
     finally:
         db.close()
-
-
-def indexed_evidence(root: Path, life_dir: Path, ids: list[str]) -> list[dict]:
-    path = history_path(root, life_dir)
-    if not path.is_file() or not ids:
-        return []
-    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
-    try:
-        placeholders = ",".join("?" for _ in ids)
-        # Summary requests can arrive before history_page migrates an old
-        # index. Keep usable cached evidence and omit malformed rows read-only.
-        return [event for row in db.execute(
-            f"SELECT body FROM events WHERE id IN ({placeholders})", ids,
-        ) if (event := _finite_record(row[0])) is not None]
-    finally:
-        db.close()

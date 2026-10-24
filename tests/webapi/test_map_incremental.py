@@ -200,7 +200,7 @@ def test_history_index_survives_reopening_and_resets_replaced_files(tmp_path, mo
     second = map_history.history_page(tmp_path, life, value, first["history_cursor"])
     assert first["history_loading"] and not second["history_loading"]
     assert second["events"][0]["id"] == "review"
-    assert map_history.indexed_evidence(tmp_path, life, ["review"])[0]["item_id"] == "a"
+    assert second["events"][0]["item_id"] == "a"
     (life / "events.jsonl").write_text("")
     reset = map_history.history_page(tmp_path, life, value, second["history_cursor"])
     assert reset["reset_history"] and not reset["events"]

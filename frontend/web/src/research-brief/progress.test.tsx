@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api } from '../api';
 import { ReaderExplanationStatus } from './ReaderExplanation';
 import { beginExplanationProgress, useExplanationProgress } from './progress';
 
@@ -43,7 +42,6 @@ afterEach(() => {
 });
 
 it('shares one request with passive readers while isolating other cards, projects and modes', async () => {
-  const generate = vi.spyOn(api, 'generateMapCopy');
   act(() => { renderer = create(tree()); });
   const observed = beginExplanationProgress(client, copyKey, [{ key: 'a' }]);
   observed.update('planning');
@@ -63,7 +61,6 @@ it('shares one request with passive readers while isolating other cards, project
   await flush();
   expect(phase('current')).toEqual([]);
   expect(phase('history')).toEqual([]);
-  expect(generate).not.toHaveBeenCalled();
 });
 
 it('keeps a newer request when an older request reports or finishes late', async () => {

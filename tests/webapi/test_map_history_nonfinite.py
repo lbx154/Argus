@@ -66,7 +66,6 @@ def test_history_http_skips_bad_ids_and_keeps_pagination_progress(tmp_path, monk
     next_page = client.get(f"/api/projects/{sid}/map-history", params={"after": cursor}).json()
     assert next_page["events"] == []
     assert next_page["history_cursor"] == cursor
-    assert {row["id"] for row in map_history.indexed_evidence(tmp_path, life, ["bad", "good"])} == {"good"}
 
 
 @pytest.mark.parametrize("bad_metadata", [False, True])

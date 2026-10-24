@@ -982,14 +982,14 @@ function mapCopyPath(source: string, name: string, values: Record<string, string
 }
 
 /** Both explanation purposes use the same stream and terminal/EOF semantics. */
-async function explanationResponse<T>(path: string, body: unknown, signal?: AbortSignal, onProgress?: (phase: ExplanationPhase) => void): Promise<T> {
-  const response = await postResponse(path, body, signal);
+async function explanationResponse<T>(path: string, body: unknown, onProgress?: (phase: ExplanationPhase) => void): Promise<T> {
+  const response = await postResponse(path, body);
   let receivedTerminal = false;
   const terminal = await readSSE(response, 'Explanation stream', frame => {
     if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
     if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
       onProgress?.(frame.phase as ExplanationPhase);
-  }, signal);
+  });
   if (terminal.type === 'error') {
     const detail = terminal.error && typeof terminal.error === 'object' ? terminal.error as Record<string, unknown> : undefined;
     throw new ApiError(String(detail?.message ?? terminal.error ?? 'Explanation failed'),
@@ -1028,12 +1028,10 @@ export const api = {
   mapQuestionSource: (sid: string, body: { card_key: string; task_id: string; locale: 'zh-CN' | 'en-US'; preview?: ReaderPreview; foundation_id?: string }, signal?: AbortSignal) =>
     postJson<ProgressSourceRef>(`/api/map-question-source/project/${encodeURIComponent(sid)}?session_id=${encodeURIComponent(sid)}`,
       { ...body, preview: body.preview === 'source-first' ? true : body.preview ?? false }, signal),
-  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string; manual_retry?: boolean}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
-    explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
   generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
-    explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
+    explanationResponse(P(sid, '/reader-foundation?stream=true'), body, onProgress),
   askReaderFoundation: (sid: string, parentId: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US' }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
-    explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, undefined, onProgress),
+    explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, onProgress),
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,

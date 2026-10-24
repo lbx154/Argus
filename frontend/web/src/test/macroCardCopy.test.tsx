@@ -105,7 +105,7 @@ describe("macro card copy", () => {
     expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
     expect(markup.match(/Build a reusable date workflow/g)).toHaveLength(2); // text plus title tooltip
   });
-  it("says one thing under its title once the map's words exist, and the state once", () => {
+  it("keeps an explanation that may claim too much off an ended card, and says the state once", () => {
     const ended = { ...task, status: "done", objective: "Implement and execute downstream long-context evaluation" };
     const scope = "This execution ended; the overall goal is not complete yet.";
     const bare = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], { task: ended, live: false, completionScope: scope })} />);
@@ -114,27 +114,19 @@ describe("macro card copy", () => {
     expect(bare).toContain(scope);
     const written = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
       task: ended, live: false, completionScope: scope,
-      words: { title: "Downstream long-context evaluation", summary: "Qasper F1 reached 4.15 against 3.76 for the baseline." },
       // An explanation written before the execution ended may claim more than happened.
       copy: { cards: { parent: { title: "Accepted evaluation", summary: "All goals accepted.", detail: "d", generated_at: 1, task_status: "done" } } },
     })} />);
-    expect(written).toContain("Downstream long-context evaluation");
-    expect(written).toContain("Qasper F1 reached 4.15");
     expect(written).not.toContain("Accepted evaluation");
     expect(written).not.toContain("All goals accepted.");
-    expect(written).not.toContain('class="map-card-objective"');
-    // The sentence about the goal is the chip's tooltip now, not a second line on the card.
-    expect(written.match(/class="map-card-copy">.*?<\/div>/)?.[0]).not.toContain(scope);
-    expect(written).not.toContain('class="map-card-recorded"');
     expect(written.match(/class="map-status"/g)).toHaveLength(1);
   });
   it("keeps a reader's own turn in the reader's words", () => {
     const turn = { ...task, kind: "turn" as const, status: "done", title: "How many lines is the README?" };
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
-      task: turn, live: false, words: { title: "Count README lines", summary: "One line." },
+      task: turn, live: false,
     })} />);
     expect(markup).toContain("How many lines is the README?");
-    expect(markup).not.toContain("Count README lines");
   });
   it("keeps yesterday's summary when the status drifted and hints at the refresh", () => {
     const markup = renderToStaticMarkup(
@@ -191,7 +183,6 @@ describe("zoom-independent card content", () => {
       task: { ...task, status: "done" },
       live: false,
       completionScope: "The goal was incomplete on this attempt.",
-      words: { title: "Evaluation", summary: "The recorded results remain visible." },
       copy: copyFor("A superseded conclusion must not return when zooming.", "done"),
       historyCount: 2,
       toggleHistory: vi.fn(),
@@ -205,10 +196,9 @@ describe("zoom-independent card content", () => {
       );
     });
     expect(new Set(markups).size).toBe(1);
-    expect(markups[0]).toContain("The recorded results remain visible.");
     expect(markups[0]).not.toContain("A superseded conclusion");
     expect(markups[0]).toContain('class="map-card-course"');
-    expect(markups[0]).toContain("Mission history: Evaluation");
+    expect(markups[0]).toContain("Mission history: Research portfolio");
     expect(markups[0]).not.toMatch(/data-overview-density|data-copy-lines|--title-lines/);
   });
 });

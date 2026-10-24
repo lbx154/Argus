@@ -58,7 +58,6 @@ it('retains explicit choices across remounts while isolating projects and locale
 
 it('never falls back to default or another preview’s explanations when no foundation is selected', async () => {
   const read = vi.spyOn(api, 'mapCopy').mockResolvedValue(empty);
-  const generate = vi.spyOn(api, 'generateMapCopy');
   const foundation = vi.spyOn(api, 'generateReaderFoundation');
   function Readers() {
     useMapCopy(source, 'a', false, undefined, props.sid);
@@ -68,7 +67,6 @@ it('never falls back to default or another preview’s explanations when no foun
   await flush(1500);
   expect(read.mock.calls.length).toBeGreaterThan(0);
   expect(read.mock.calls.every(call => call[5] === preview && call[6] === null)).toBe(true);
-  expect(generate).not.toHaveBeenCalled();
   expect(foundation).not.toHaveBeenCalled();
 });
 
@@ -83,7 +81,6 @@ it('reads map explanations saved for the reader’s pinned foundation until a ne
   let latest!: ReturnType<typeof useMapCopy>;
   function Reader() { latest = useMapCopy(source, 'a', false, undefined, props.sid, 'a', pinned); return null; }
   const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
-  const generate = vi.spyOn(api, 'generateMapCopy');
   act(() => { renderer = create(render()); }); await flush(750);
   expect(latest.copy?.cards.a.title).toBe('foundation-a application');
   act(() => { selectFoundation(client, props.sid, 'en-US', 'foundation-b'); }); await flush(750);
@@ -93,5 +90,4 @@ it('reads map explanations saved for the reader’s pinned foundation until a ne
   act(() => renderer!.update(render())); await flush(750);
   expect(latest.copy?.cards.a.title).toBe('foundation-b application');
   expect(latest.questionContext.foundationId).toBe('foundation-b');
-  expect(generate).not.toHaveBeenCalled();
 });

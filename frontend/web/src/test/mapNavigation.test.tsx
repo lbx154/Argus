@@ -4,7 +4,6 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { Edge } from "@xyflow/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api } from "../api";
 import { Modal } from "../components/Modal";
 import { MapCanvas } from "../map/MapPanel";
 import { MapReaderContent } from "../map/MapReaderContent";
@@ -121,7 +120,6 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
     title: 'Retained task explanation', summary: 'A limited finding', detail: 'Retained evidence', generated_at: 1, version: 22,
     reader_brief: { why: 'Original question', scope: 'Original scope', next: 'Original assignment', concept: null },
   } } };
-  const generate = vi.spyOn(api, 'generateMapCopy');
   await act(async () => { client.setQueryData(key, retained); await new Promise(resolve => setTimeout(resolve, 0)); });
   act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
   act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
@@ -143,14 +141,12 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
   expect(reader().props['data-task-id']).toBe('failed');
   expect(reader().findByType(MapReaderContent).props.card.title).toBe('Updated task explanation');
   expect(reader().findByType(MapReaderContent).props.selection.request.task_id).toBe('failed');
-  expect(generate).not.toHaveBeenCalled();
 
   act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
   expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
 });
 
 it("opens a task without a saved explanation on its own record and never asks for one to be written", async () => {
-  const generate = vi.spyOn(api, 'generateMapCopy');
   await act(async () => {
     client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: true });
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -166,7 +162,6 @@ it("opens a task without a saved explanation on its own record and never asks fo
   expect(reading.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
   // A live team task reads as its recorded trajectory, not a written explanation.
   expect(reading.findByType(TaskTrace).props.taskId).toBe('failed');
-  expect(generate).not.toHaveBeenCalled();
 });
 
 it("does not count a partial research execution as a completed overall goal", () => {

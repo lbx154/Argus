@@ -10,7 +10,10 @@ import { ApiError } from '../../../core/src/http';
 const nativeFetch = globalThis.fetch;
 const encoder = new TextEncoder();
 const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
-const requestBody = { cards: [{ key: 'task', task_id: 'task', kind: 'task', event_ids: ['review'] }], locale: 'zh-CN' };
+/** The explanation endpoints share one SSE client (explanationResponse); a reader-foundation question drives it. */
+const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const };
+const reading = { path: `reader-notes/research/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
+const explain = (onProgress?: (phase: ExplanationPhase) => void) => api.generateReaderFoundation('research', question, onProgress);
 const complete: MapCopy = {
   version: 21, model_revision: 'review-high', cache_revision: 2, available: true, relations: [],
   cards: { task: { title: '完整讲解', summary: '复核后的结论', detail: '保留条件与证据。', generated_at: 130,
@@ -102,7 +105,7 @@ it.each([
   ['', null], ['?reader_preview=other', null], ['?project=research&reader_preview=source-first', 'true'],
   ['?project=research&reader_preview=learning-path', 'learning-path'],
   ['?project=research&reader_preview=question-foundation', 'question-foundation'],
-])('selects the same map-copy cache and generation mode from %s', async (search, preview) => {
+])('selects the map-copy cache from %s', async (search, preview) => {
   vi.stubGlobal('window', { location: { search } });
   const fetch = await serve((response, request) => {
     if (request.method === 'GET') {
@@ -115,21 +118,18 @@ it.each([
   });
   const controller = new AbortController();
   await expect(api.mapCopy('project', 'research name', 'zh-CN', controller.signal, 's research')).resolves.toEqual(complete);
-  await expect(api.generateMapCopy('project', 'research name', requestBody, controller.signal, 's research')).resolves.toEqual(complete);
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
-  expect(requests.map(request => request.body)).toEqual([undefined, requestBody]);
-  requests.forEach((request, index) => {
-    const url = new URL(request.path, 'http://argus.test');
-    expect(url.pathname).toBe('/api/map-copy/project/research%20name');
-    expect(url.searchParams.get('session_id')).toBe('s research');
-    expect(url.searchParams.get('preview')).toBe(preview);
-    expect(url.searchParams.get(index ? 'stream' : 'locale')).toBe(index ? 'true' : 'zh-CN');
-    expect(request.headers.authorization).toBe('Bearer test-pairing-token');
-  });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  const [request] = requests;
+  const url = new URL(request.path, 'http://argus.test');
+  expect(request.method).toBe('GET');
+  expect(url.pathname).toBe('/api/map-copy/project/research%20name');
+  expect(url.searchParams.get('session_id')).toBe('s research');
+  expect(url.searchParams.get('preview')).toBe(preview);
+  expect(url.searchParams.get('locale')).toBe('zh-CN');
+  expect(request.headers.authorization).toBe('Bearer test-pairing-token');
 });
 
-it.each<ReaderPreview>([null, 'source-first', 'learning-path', 'question-foundation'])('keeps scheduled GET and POST requests in captured mode %s after the page URL changes', async preview => {
+it.each<ReaderPreview>([null, 'source-first', 'learning-path', 'question-foundation'])('keeps a scheduled read in captured mode %s after the page URL changes', async preview => {
   vi.stubGlobal('window', { location: { search: preview === 'learning-path' ? '?reader_preview=source-first' : '?reader_preview=learning-path' } });
   await serve((response, request) => {
     if (request.method === 'GET') {
@@ -141,27 +141,24 @@ it.each<ReaderPreview>([null, 'source-first', 'learning-path', 'question-foundat
     }
   });
   await api.mapCopy('project', 'research', 'zh-CN', undefined, 's research', preview);
-  await api.generateMapCopy('project', 'research', requestBody, undefined, 's research', preview);
-  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+  expect(requests.map(request => request.method)).toEqual(['GET']);
   for (const request of requests) expect(new URL(request.path, 'http://argus.test').searchParams.get('preview'))
     .toBe(preview === 'source-first' ? 'true' : preview);
 });
 
-it('uses one selected foundation for both the retained application and its real request', async () => {
+it('reads the retained application of one selected foundation', async () => {
   await serve((response, request) => {
     response.writeHead(200, { 'Content-Type': request.method === 'GET' ? 'application/json' : 'text/event-stream' });
     response.end(request.method === 'GET' ? JSON.stringify(complete) : frame({ type: 'done', result: complete }));
   });
   const foundation = 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb';
   await api.mapCopy('project', 'research', 'zh-CN', undefined, 'research', 'question-foundation', foundation);
-  await api.generateMapCopy('project', 'research', { ...requestBody, foundation_id: foundation }, undefined, 'research', 'question-foundation');
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(1);
   for (const request of requests) {
     const url = new URL(request.path, 'http://argus.test');
     expect(url.searchParams.get('preview')).toBe('question-foundation');
     expect(url.searchParams.get('foundation_id')).toBe(foundation);
   }
-  expect(requests[1].body).toEqual({ ...requestBody, foundation_id: foundation });
 });
 
 it.each(['foundation', 'clarification'] as const)('submits the actual %s question once and reads its saved file without another generation', async kind => {
@@ -206,7 +203,7 @@ it('preserves a definite source rejection from the original completed SSE respon
   expect(requests).toHaveLength(1);
 });
 
-it('waits through 125 seconds of HTTP heartbeats and returns only the complete explanation at 130 seconds', async () => {
+it('waits through 125 seconds of HTTP heartbeats and returns only the complete reading at 130 seconds', async () => {
   // The HTTP connection is real; only the model/heartbeat clock is accelerated.
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
   let start!: () => void;
@@ -223,14 +220,13 @@ it('waits through 125 seconds of HTTP heartbeats and returns only the complete e
         response.write(frame({ type: 'heartbeat', quiet_s: seconds }));
       } else {
         clearInterval(timer);
-        response.end(frame({ type: 'done', result: complete }));
+        response.end(frame({ type: 'done', result: reading }));
       }
     }, 5_000);
     response.on('close', () => clearInterval(timer));
     start();
   });
-  const controller = new AbortController();
-  const pending = api.generateMapCopy('project', 'research name', requestBody, controller.signal, 's research');
+  const pending = explain();
   let settled = false;
   void pending.then(() => { settled = true; });
   await started;
@@ -240,19 +236,15 @@ it('waits through 125 seconds of HTTP heartbeats and returns only the complete e
   expect(heartbeats).toHaveLength(25);
   expect(heartbeats.at(-1)).toBe(125);
   await vi.advanceTimersByTimeAsync(5_000);
-  await expect(pending).resolves.toEqual(complete);
+  await expect(pending).resolves.toEqual(reading);
   expect(fetch).toHaveBeenCalledTimes(1);
-  expect(fetch.mock.calls[0][1]?.signal).toBe(controller.signal);
   expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ method: 'POST', body: requestBody,
+  expect(requests[0]).toMatchObject({ method: 'POST', body: question, path: '/api/projects/research/reader-foundation?stream=true',
     headers: { authorization: 'Bearer test-pairing-token', 'content-type': 'application/json' } });
-  const url = new URL(requests[0].path, 'http://argus.test');
-  expect(url.pathname).toBe('/api/map-copy/project/research%20name');
-  expect(Object.fromEntries(url.searchParams)).toEqual({ stream: 'true', session_id: 's research' });
 });
 
 it('reassembles UTF-8, JSON and CRLF frame boundaries split into individual bytes', async () => {
-  const bytes = encoder.encode((frame({ type: 'heartbeat' }) + frame({ type: 'done', result: complete })).replaceAll('\n', '\r\n'));
+  const bytes = encoder.encode((frame({ type: 'heartbeat' }) + frame({ type: 'done', result: reading })).replaceAll('\n', '\r\n'));
   let offset = 0;
   const fetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
     pull(controller) {
@@ -261,7 +253,7 @@ it('reassembles UTF-8, JSON and CRLF frame boundaries split into individual byte
     },
   }), { headers: { 'Content-Type': 'text/event-stream' } }));
   vi.stubGlobal('fetch', fetch);
-  await expect(api.generateMapCopy('dataset', 'example', requestBody)).resolves.toEqual(complete);
+  await expect(explain()).resolves.toEqual(reading);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
@@ -276,8 +268,7 @@ it('reports real explanation phases before the result without treating progress 
       + frame({ type: 'progress', phase: 'invented_percentage' }));
   });
   const phases: ExplanationPhase[] = [];
-  const pending = api.generateMapCopy('project', 'research', requestBody, undefined, 's research', null,
-    phase => { phases.push(phase); });
+  const pending = explain(phase => { phases.push(phase); });
   let settled = false;
   void pending.then(() => { settled = true; });
   await vi.waitFor(() => expect(phases).toEqual(['waiting_for_source', 'planning']));
@@ -285,8 +276,8 @@ it('reports real explanation phases before the result without treating progress 
   response.write(frame({ type: 'progress', phase: 'writing' }));
   await vi.waitFor(() => expect(phases.at(-1)).toBe('writing'));
   expect(settled).toBe(false);
-  response.end(frame({ type: 'done', result: complete }));
-  await expect(pending).resolves.toEqual(complete);
+  response.end(frame({ type: 'done', result: reading }));
+  await expect(pending).resolves.toEqual(reading);
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(requests).toHaveLength(1);
 });
@@ -295,26 +286,25 @@ it.each(['done', 'error'])('ignores late phases after %s while still draining th
   await serve(response => {
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     response.end(frame({ type: 'progress', phase: 'writing' })
-      + frame({ type, result: complete, error: 'Observed failure' })
+      + frame({ type, result: reading, error: 'Observed failure' })
       + frame({ type: 'progress', phase: 'reviewing' }));
   });
   const phases: ExplanationPhase[] = [];
-  const pending = api.generateMapCopy('project', 'research', requestBody, undefined, undefined, null,
-    phase => { phases.push(phase); });
-  if (type === 'done') await expect(pending).resolves.toEqual(complete);
+  const pending = api.askReaderFoundation('research', 'parent', question, phase => { phases.push(phase); });
+  if (type === 'done') await expect(pending).resolves.toEqual(reading);
   else await expect(pending).rejects.toThrow('Observed failure');
   expect(phases).toEqual(['writing']);
   expect(requests).toHaveLength(1);
 });
 
 it.each([
-  ['map', 'done'], ['map', 'error'], ['manager', 'done'], ['manager', 'error'],
+  ['reader', 'done'], ['reader', 'error'], ['manager', 'done'], ['manager', 'error'],
 ])('drains the %s %s response through EOF without cancelling after its terminal frame', async (endpoint, type) => {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let awaitingEOF!: () => void;
   const readingTail = new Promise<void>(resolve => { awaitingEOF = resolve; });
   const cancel = vi.fn();
-  const result = endpoint === 'map' ? complete : { kind: 'chat', reply: '完整回答' };
+  const result = endpoint === 'reader' ? reading : { kind: 'chat', reply: '完整回答' };
   let sent = false;
   const body = new ReadableStream<Uint8Array>({
     start(value) { controller = value; },
@@ -330,8 +320,8 @@ it.each([
   vi.stubGlobal('fetch', fetch);
   const onDone = vi.fn();
   const onError = vi.fn();
-  const pending = endpoint === 'map'
-    ? api.generateMapCopy('project', 'research', requestBody)
+  const pending = endpoint === 'reader'
+    ? explain()
     : api.messageStream('s-research', 'Explain this', { onDone, onError });
   const outcome = pending.then(value => ({ value }), error => ({ error }));
 
@@ -344,10 +334,10 @@ it.each([
   }
   controller.enqueue(encoder.encode(': response complete\n\n'));
   controller.close();
-  if (endpoint === 'map' && type === 'error') {
+  if (endpoint === 'reader' && type === 'error') {
     await expect(outcome).resolves.toEqual({ error: expect.objectContaining({ message: 'Review unavailable' }) });
   } else {
-    await expect(outcome).resolves.toEqual({ value: endpoint === 'map' ? complete : undefined });
+    await expect(outcome).resolves.toEqual({ value: endpoint === 'reader' ? reading : undefined });
   }
   expect(cancel).not.toHaveBeenCalled();
   expect(body.locked).toBe(false);
@@ -363,7 +353,7 @@ it.each([
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     response.end(responseBody);
   });
-  await expect(api.generateMapCopy('project', 'research', requestBody)).rejects.toThrow(message);
+  await expect(explain()).rejects.toThrow(message);
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(requests).toHaveLength(1);
 });
@@ -373,25 +363,7 @@ it('preserves an HTTP rejection before the stream opens without replaying the PO
     response.writeHead(422, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ detail: 'event does not belong to the task' }));
   });
-  await expect(api.generateMapCopy('project', 'research', requestBody)).rejects.toMatchObject({ status: 422 });
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-it('aborts an open HTTP explanation stream without returning a partial card or replaying it', async () => {
-  let start!: () => void;
-  const started = new Promise<void>(resolve => { start = resolve; });
-  const fetch = await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    response.write(frame({ type: 'heartbeat' }));
-    start();
-  });
-  const controller = new AbortController();
-  const pending = api.generateMapCopy('project', 'research', requestBody, controller.signal);
-  const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
-  await started;
-  await fetch.mock.results[0].value;
-  controller.abort();
-  await rejected;
+  await expect(explain()).rejects.toMatchObject({ status: 422 });
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 

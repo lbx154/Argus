@@ -49,9 +49,6 @@ export type MacroData = MapCard & {
   focused: boolean;
   detailed: boolean;
   copy?: Pick<MapCopy, "cards" | "version">;
-  /** A short title and a sentence for this task's card, written for the whole
-   * map at once. They stand in until the task's own explanation exists. */
-  words?: { title: string; summary: string };
   readCopy?: (nodeId: string, key: string | null) => void;
   readerCopy?: MapReaderSelection;
   live: boolean;
@@ -230,12 +227,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     if (step.completionScope || step.status === "review_unavailable") return undefined;
     return copy[step.id];
   };
-  // A reader's own turn keeps the words the reader used.
-  const words = task.kind === "turn" ? undefined : data.words;
-  // The words written for the map say what a task is about and never claim an
-  // outcome, so they may head a card whose execution ended short of its goal;
-  // an explanation's own title may not.
-  const title = (data.completionScope ? "" : copy[task.id]?.title) || words?.title || task.title;
+  // An explanation written before the execution ended short of its goal may
+  // claim more than happened, so it does not head such a card.
+  const title = (data.completionScope ? "" : copy[task.id]?.title) || task.title;
   const range = zh
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
@@ -250,12 +244,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       : undefined;
   const objectiveVisible = isLastPart && task.objective && task.objective.trim() !== task.title.trim();
   // What has been written about this task. An explanation written before the
-  // execution ended short of its goal may claim more than happened, so only
-  // the map's own words (written knowing how the execution ended) stand then.
+  // execution ended short of its goal may claim more than happened, so it does
+  // not stand then.
   const reviewUnavailable = state === "review_unavailable";
   const reviewSummary = zh ? "当次审查器未能给出判断，未形成审阅结论。" : "The Reviewer could not return a judgment on this attempt.";
   const written = reviewUnavailable ? reviewSummary
-    : (data.completionScope ? "" : copy[task.id]?.summary) || words?.summary || "";
+    : (data.completionScope ? "" : copy[task.id]?.summary) || "";
   // A card says one thing under its title: what the task found. That its
   // execution ended short of the goal is on the state chip; the sentence for
   // it fills the card only while nothing has been written.

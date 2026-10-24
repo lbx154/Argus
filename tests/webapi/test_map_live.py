@@ -257,14 +257,6 @@ def test_card_key_cannot_overwrite_another_tasks_copy(tmp_path):
         )
 
 
-def test_generation_schema_requires_every_card_exactly_once():
-    cards = copy.schema(["task-a", "review-b"], ["task-a"])["properties"]["cards"]
-    assert cards["type"] == "object"
-    assert cards["required"] == ["task-a", "review-b"]
-    assert set(cards["properties"]) == {"task-a", "review-b"}
-    assert cards["additionalProperties"] is False
-
-
 def _progress(kind, item_id, ts, **extra):
     return {"type": "engineer.progress", "kind": kind, "item_id": item_id, "ts": ts,
             "agent_layer": "engineer", **extra}
@@ -604,23 +596,3 @@ def test_failure_metadata_forgets_a_failure_once_its_cooldown_has_passed() -> No
         {"generation_error": {"code": "invalid_response"}, "retry_at": _time.time() - 1}
     )
     assert stale == {"generation_error": None, "retry_after": 0}
-
-
-def test_reader_brief_accepts_next_nested_inside_scope_without_inventing_text() -> None:
-    """The map model nested ``next`` under ``scope``; the page went without an
-    explanation for the card twice on the trial (2026-09-16 04:07, 05:03)."""
-    import pytest
-
-    from argus.webapi import map_narrative
-
-    nested = {
-        "why": "为什么要做这一步。", "concept": None,
-        "scope": {"scope": "这次做了什么。", "next": "接下来做什么。"},
-    }
-    assert map_narrative._reader_brief(nested) == {
-        "why": "为什么要做这一步。", "scope": "这次做了什么。", "next": "接下来做什么。", "concept": None,
-    }
-    flat = {"why": "w", "concept": None, "scope": "s", "next": "n"}
-    assert map_narrative._reader_brief(flat) == flat
-    with pytest.raises(ValueError, match="invalid reader brief"):
-        map_narrative._reader_brief({"why": "w", "concept": None, "scope": {"scope": "s"}})
