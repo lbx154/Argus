@@ -1,7 +1,7 @@
 {
-  "git_commit": "467d6d8349ba046aef721ccef8992deceedae556",
+  "git_commit": "1d077dd983761e17e6643ee873c952f1124ebb03",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+467d6d8349ba",
+  "release_id": "0.1.8+1d077dd98376",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -90,7 +90,7 @@
     "argus/builtin_skills/manager/replying/SKILL.md": 1817,
     "argus/builtin_skills/manager/research-and-sources/SKILL.md": 1813,
     "argus/builtin_skills/manager/settings-and-control/SKILL.md": 1730,
-    "argus/builtin_skills/manager/team-handoff/SKILL.md": 3784,
+    "argus/builtin_skills/manager/team-handoff/SKILL.md": 3828,
     "argus/builtin_skills/manager/workflow-setup/SKILL.md": 2079,
     "argus/builtin_skills/manager/workspace-and-view/SKILL.md": 947,
     "argus/builtin_skills/performance-profile-ground-truth.md": 2527,
@@ -728,7 +728,7 @@
     "argus/webapi/routes/counterexamples.py": 849,
     "argus/webapi/routes/daemon.py": 10027,
     "argus/webapi/routes/learning.py": 414,
-    "argus/webapi/routes/manager.py": 32354,
+    "argus/webapi/routes/manager.py": 32953,
     "argus/webapi/routes/map_datasets.py": 1913,
     "argus/webapi/routes/map_live.py": 16806,
     "argus/webapi/routes/map_notes.py": 1948,
