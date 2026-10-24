@@ -336,7 +336,7 @@ function outcomeIds(data: Dataset, id: string, through = Infinity): string[] {
     .map((e) => e.id);
 }
 /** One request per step of a task's sub-map, in reading order. */
-export function stepRequests(data: Dataset, task: MapTask, steps: SubmapStep[]): CardRequest[] {
+function stepRequests(data: Dataset, task: MapTask, steps: SubmapStep[]): CardRequest[] {
   return steps.map((s) => ({
     key: s.id,
     task_id: task.id,

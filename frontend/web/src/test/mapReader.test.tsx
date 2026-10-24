@@ -28,7 +28,7 @@ const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: '
   canvasSize: { width: 1440, height: 960 }, zh: false, focused: true, detailed: true, live: true,
   source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), readCopy: vi.fn(),
   copy: { version: 15, cards: { [task.id]: explanation('LATEST ROOT CONCLUSION'), [step.id]: oldCopy } },
-  readerCopy: { request: { key: step.id, task_id: task.id, kind: step.kind, event_ids: step.eventIds }, pending: true, generating: false },
+  readerCopy: { request: { key: step.id, task_id: task.id, kind: step.kind, event_ids: step.eventIds } },
   ...patch,
 } } as NodeProps<MacroNode>);
 let renderer: ReactTestRenderer | undefined;
@@ -62,8 +62,7 @@ it('uses the same explanation component for a historical step without borrowing 
   expect(sources).not.toContain('Later outcome');
   expect(sources).not.toContain('Other task evidence');
   expect(reader.findAllByProps({ 'data-event-id': 'old-event' })).toHaveLength(0);
-  expect(reader.findByProps({ 'data-testid': 'research-brief-status' }).findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
-  expect(reader.findAllByType('span').some(node => node.children.includes(' · update pending'))).toBe(true);
+  expect(reader.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
   expect(renderer!.root.findAll(node => node.type === 'button' && node.props['data-testid'] === 'map-task-read')).toHaveLength(0);
   act(() => reader.findByProps({ 'aria-label': 'Close step details' }).props.onClick());
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, null);
@@ -110,76 +109,16 @@ it('opens a task explanation with only its own root key, including read-only vie
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
 });
 
-it('does not use mismatched reader metadata as a card’s pending generation', () => {
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={oldCopy}
-    originalDetail={step.detail} selection={{ ...props().data.readerCopy!, request: { key: 'another-step', task_id: task.id, kind: 'review', event_ids: ['old-event'] } }} />); });
-  expect(renderer!.root.findAllByType('pre')).toHaveLength(0);
-  expect(JSON.stringify(renderer!.toJSON())).not.toContain('update pending');
-});
-
-it.each([true, false])('shows a stopped failure and manual retry with retained explanation=%s', async retained => {
-  vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: 'zh-CN', setLocale: vi.fn(), t: key => key });
-  const retry = vi.fn().mockResolvedValue(undefined);
-  const selection = { ...props().data.readerCopy!, error: new Error('Internal provider detail'), retry };
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={retained ? oldCopy : undefined}
-    originalDetail={step.detail} selection={selection} />); });
-  const status = renderer!.root.findByProps({ 'data-testid': 'research-brief-status' });
-  expect(status.findByProps({ role: 'status' }).children).toEqual(['说明生成未完成；不会自动重复请求。']);
-  expect(status.findAllByType(Spinner)).toHaveLength(0);
-  const button = status.findByType('button');
-  expect(button.children).toContain('重试');
-  expect(button.props.disabled).toBe(false);
-  await act(async () => { button.props.onClick(); });
-  expect(retry).toHaveBeenCalledOnce();
-  const text = JSON.stringify(renderer!.toJSON());
-  expect(text).not.toContain('Internal provider detail');
-  expect(text).not.toContain('阅读说明待整理');
-  expect(text).not.toContain('待更新');
-  expect(text.includes(step.detail)).toBe(!retained);
-  expect(renderer!.root.findAllByProps({ 'data-event-id': 'old-event' })).toHaveLength(0);
-  if (retained) {
-    expect(renderer!.root.findByType(ReaderExplanation).props.brief).toEqual(oldCopy.reader_brief);
-    expect(status.findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
-    expect(text).toContain(oldCopy.detail);
-  } else {
-    expect(renderer!.root.findAllByType(ReaderExplanation)).toHaveLength(0);
-    expect(status.findAllByType('time')).toHaveLength(0);
-  }
-  // A stale generating flag must not claim automatic work after a failed attempt.
-  act(() => renderer!.update(<MapReaderContent cardKey={step.id} taskId={task.id} card={retained ? oldCopy : undefined}
-    originalDetail={step.detail} selection={{ ...selection, generating: true }} />));
+it.each([true, false])('shows the card’s own record without writing, failure or retry status when it has no explanation (zh=%s)', zh => {
+  vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: zh ? 'zh-CN' : 'en', setLocale: vi.fn(), t: key => key });
+  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} originalDetail={step.detail}
+    selection={props().data.readerCopy} />); });
+  expect(renderer!.root.findAllByType(ReaderExplanation)).toHaveLength(0);
+  expect(renderer!.root.findByType(MarkdownContent).props.children).toBe(step.detail);
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
   expect(renderer!.root.findAllByType(Spinner)).toHaveLength(0);
-  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-status' }).findByType('button').props.disabled).toBe(true);
-});
-
-it('offers manual retry for a coalesced older explanation without reporting a failed provider', () => {
-  const retry = vi.fn().mockResolvedValue(undefined);
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={oldCopy}
-    originalDetail={step.detail} selection={{ ...props().data.readerCopy!, unavailable: true, retry }} />); });
-  const status = renderer!.root.findByProps({ 'data-testid': 'research-brief-status' });
-  expect(status.findByProps({ role: 'status' }).children).toEqual(['The explanation has not been updated yet. You can retry manually.']);
-  expect(status.findByType('button').children).toContain('Retry');
-  expect(status.findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
-  expect(renderer!.root.findByType(ReaderExplanation).props.brief).toEqual(oldCopy.reader_brief);
-  expect(JSON.stringify(renderer!.toJSON())).not.toContain('could not be prepared');
-  expect(renderer!.root.findAllByType(Spinner)).toHaveLength(0);
-});
-
-it.each([
-  { key: 'another-step', task_id: task.id },
-  { key: step.id, task_id: 'another-task' },
-])('keeps another card or task’s retry status out of the reader: %j', identity => {
-  const retry = vi.fn().mockResolvedValue(undefined);
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={oldCopy}
-    originalDetail={step.detail} selection={{ ...props().data.readerCopy!,
-      request: { ...props().data.readerCopy!.request, ...identity },
-      error: new Error('Another card failed'), unavailable: true, generating: true, retry }} />); });
-  const status = renderer!.root.findByProps({ 'data-testid': 'research-brief-status' });
-  expect(status.findAllByProps({ role: 'status' })).toHaveLength(0);
-  expect(status.findAllByType('button')).toHaveLength(0);
-  expect(status.findAllByType(Spinner)).toHaveLength(0);
-  expect(status.findByType('time').props.dateTime).toBe('1970-01-01T00:02:00.000Z');
-  expect(retry).not.toHaveBeenCalled();
+  expect(renderer!.root.findAllByType('button')).toHaveLength(0);
+  expect(JSON.stringify(renderer!.toJSON())).not.toMatch(/正在撰写说明|Writing the explanation|重试|Retry/);
 });
 
 it('keeps useful explanation links without repeating source records or current task detail', () => {
@@ -188,8 +127,7 @@ it('keeps useful explanation links without repeating source records or current t
   const onOpenArtifact = vi.fn();
   act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={copy} task={currentTask}
     artifacts={[{ path: 'research/note.md', name: 'note.md', why: 'Recorded note', exists: true, kind: 'markdown', mime: 'text/markdown', size: 42, mtime: null }]} onOpenArtifact={onOpenArtifact}
-    originalDetail="Current loaded detail only" selection={{ request: { key: step.id, task_id: task.id, kind: 'review', event_ids: [] },
-      pending: true, generating: false }} />); });
+    originalDetail="Current loaded detail only" selection={{ request: { key: step.id, task_id: task.id, kind: 'review', event_ids: [] } }} />); });
   const text = JSON.stringify(renderer!.toJSON());
   for (const shell of ['View evidence', 'Source record', 'Original record', 'Currently loaded task and step record', 'data-evidence', 'Current loaded detail only']) {
     expect(text).not.toContain(shell);

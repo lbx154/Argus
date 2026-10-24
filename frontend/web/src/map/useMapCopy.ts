@@ -1,25 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { mapCopyKey, readerPreview } from './copyMode';
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
-import { briefEvidence, briefInputSignature, briefRequest } from '../research-brief/model';
-import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from '../research-brief/progress';
+import { briefEvidence, briefRequest } from '../research-brief/model';
 import { useSelectedFoundation } from '../research-brief/foundation';
 import {
   mergeMapCopy,
-  needsCardCopy,
   requestsFor,
-  stepRequests,
   type CardRequest,
   type MapCopy,
 } from "./presentation";
 
-/** How many step cards one canvas is willing to warm up for later readers. */
-export const PREWARM_LIMIT = 600;
-
-/** Existing history stays readable; generation follows what the reader opens. */
+/** The card a reader opened and the records it covers. */
 export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused: string | null, readingKey: string | null = focused): CardRequest[] {
   if (!focused || !readingKey) return [];
   const task = data.tasks.find(task => task.id === focused);
@@ -31,56 +25,17 @@ export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused:
     && card.event_ids.every(id => !owners.get(id) || owners.get(id) === focused));
 }
 
-/** A failed explanation belongs to its selected sources, not live cursors or task revision noise. */
-export function mapCopyInputSignature(data: Dataset, cards: CardRequest[]): string {
-  const events = new Map(data.events.map(event => [event.id, event]));
-  return JSON.stringify(cards.map(card => {
-    const task = data.tasks.find(item => item.id === card.task_id);
-    const dynamic = [card.task_id, `${card.task_id}:active`, `${card.task_id}:outcome`].includes(card.key);
-    // Historical steps receive the task's contract and their own events, not
-    // the mutable status, result or attempt of today's task.
-    const sourceTask = !task || dynamic ? task : {
-      ...task, status: '', summary: undefined, outcome: undefined, pending_question: undefined,
-      started_ts: undefined, finished_ts: undefined, attempt: undefined,
-    };
-    return [card, briefInputSignature(sourceTask, card.event_ids.flatMap(id => events.get(id) ? [events.get(id)!] : []))];
-  }));
-}
-
 /**
- * Step cards of every task that is not open right now. Written text for a card
- * is shared through the server cache, so warming it in the background while
- * this canvas is idle means the next reader who opens any task finds the
- * plain-language notes already written instead of watching them being drafted.
- * Tasks that have finished go first: their steps will not change again, so the
- * text written for them is never wasted.
+ * Explanations already saved for this map. Opening a card only reads them:
+ * nothing here asks a model to write one, so a card without a saved
+ * explanation shows its own record.
  */
-export function prewarmRequests(
-  data: Dataset,
-  zh: boolean,
-  focused: string | null,
-  limit = PREWARM_LIMIT,
-): CardRequest[] {
-  const settled = (status?: string) =>
-    ["done", "failed", "cancelled", "recorded", "skipped"].includes(status || "");
-  const tasks = data.tasks.filter((t) => t.id !== focused && t.turn_kind !== 'qa');
-  const ordered = [...tasks.filter((t) => settled(t.status)), ...tasks.filter((t) => !settled(t.status))];
-  const out: CardRequest[] = [];
-  for (const task of ordered) {
-    if (out.length >= limit) break;
-    out.push(...stepRequests(data, task, buildSubmap(task, data.events, zh)));
-  }
-  return out.slice(0, limit);
-}
-
 export function useMapCopy(
   data: Dataset,
   focused: string | null,
   zh: boolean,
-  allowGeneration = true,
   visibleSteps?: SubmapStep[],
   sessionId?: string,
-  prewarm = false,
   readingKey: string | null = focused,
   pinnedFoundationId?: string | null,
 ) {
@@ -90,7 +45,6 @@ export function useMapCopy(
   const preview = readerPreview();
   const foundationChoice = useSelectedFoundation(sessionId ?? name, locale);
   const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
-  const foundationRequired = preview === 'question-foundation' && !foundationId;
   const key = mapCopyKey(source, name, locale, sessionId, preview, foundationId);
   const queryClient = useQueryClient();
   const copy = useQuery({
@@ -107,137 +61,10 @@ export function useMapCopy(
     refetchOnWindowFocus: false,
   });
   const task = data.tasks.find((t) => t.id === focused);
-  const progress = useExplanationProgress(key, readingKey, explanationRunStart(readingKey, task));
   const steps = useMemo(
     () => visibleSteps ?? (task ? buildSubmap(task, data.events, zh) : []),
     [task, data.events, zh, visibleSteps],
   );
-  const [pulse, setPulse] = useState(0);
-  const [generating, setGenerating] = useState(false);
-  const mounted = useRef(true);
-  const inflight = useRef<Promise<unknown> | null>(null);
-  // Set by the retry button for the next request only: once the server has
-  // spent its automatic retries on an input, only the reader asks again.
-  const manualRetry = useRef(false);
-  const eventIndex = useMemo(
-    () => new Map(data.events.map((e) => [e.id, e])),
-    [data.events],
-  );
-  const foreground = prewarm ? requestsFor(data, steps, focused) : focusedCopyRequests(data, steps, focused, readingKey);
-  // Background warming only starts once everything on screen has its text.
-  const background = useMemo(
-    () => (prewarm ? prewarmRequests(data, zh, focused) : []),
-    [data, zh, focused, prewarm],
-  );
-  const cards = [...foreground, ...background]
-    .filter(c => data.tasks.find(task => task.id === c.task_id)?.turn_kind !== 'qa')
-    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex))
-    .slice(0, 8);
-  const inputSignature = mapCopyInputSignature(data, cards);
-  const generationScope = ['map-copy-generation', source, name, locale, sessionId];
-  const generationKey = [...generationScope, preview, ...(preview === 'question-foundation' ? [foundationId] : []), copy.data?.version ?? null,
-    copy.data?.model_revision ?? null, inputSignature];
-  const signature = JSON.stringify(generationKey);
-  const activeGenerations = useIsFetching({ queryKey: generationScope });
-  const generationOptions = {
-    queryKey: generationKey,
-    queryFn: async () => {
-      const requestedModelRevision = copy.data?.model_revision;
-      // Finish and save against this request's source even after its reader unmounts.
-      const observed = beginExplanationProgress(queryClient, key, cards.map(card => ({
-        key: card.key, startedAt: explanationRunStart(card.key, data.tasks.find(task => task.id === card.task_id)),
-      })));
-      let result: MapCopy;
-      try {
-        const manual = manualRetry.current;
-        manualRetry.current = false;
-        result = await api.generateMapCopy(source, name, { cards, locale,
-          ...(foundationId ? { foundation_id: foundationId } : {}),
-          ...(manual ? { manual_retry: true } : {}) }, undefined, sessionId, preview, observed.update);
-      } finally {
-        observed.finish();
-      }
-      queryClient.setQueryData<MapCopy>(key, previous => mergeMapCopy(previous, result, requestedModelRevision));
-      return { available: !result.retry_after && result.available !== false
-          && cards.every(card => !needsCardCopy(card, data, result, eventIndex)),
-        retryAfter: typeof result.retry_after === 'number' && result.retry_after > 0 ? result.retry_after : null };
-    },
-    staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
-    retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
-  } as const;
-  // Observe attempts through the same Query cache as the brief. Failures stay
-  // settled across remounts; a successful server-directed wait may refresh later.
-  const generation = useQuery({ ...generationOptions, enabled: false });
-  const retryAfter = generation.isSuccess && generation.data.available === false
-    ? generation.data.retryAfter : null;
-  const cachedFailure = useMemo(() => copy.data?.generation_error
-    ? new Error(copy.data.generation_error.message) : null,
-  [copy.data?.generation_error?.code, copy.data?.generation_error?.message]);
-  const startGeneration = () => {
-    const request = queryClient.fetchQuery({ ...generationOptions, staleTime: 0 });
-    inflight.current = request;
-    setGenerating(true);
-    void request.then(() => undefined, () => undefined).finally(() => {
-      if (inflight.current === request) {
-        inflight.current = null;
-        if (mounted.current) {
-          setGenerating(false);
-          setPulse(value => value + 1);
-        }
-      }
-    });
-    return request;
-  };
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    if (
-      !allowGeneration ||
-      foundationRequired ||
-      // Whether the project's daemon is running is not asked here. A map is
-      // read most when the work is over; an explanation is written by a
-      // separate read-only turn that needs no daemon, and only for what the
-      // reader opened, so a stopped project can still be explained.
-      !copy.data?.available ||
-      !cards.length ||
-      generation.isError || (generation.isSuccess && !retryAfter) || activeGenerations > 0 ||
-      inflight.current
-    )
-      return;
-    // Failures cool down the source; successful coalescing belongs only to
-    // generationKey's input. A finished task must bypass an active-task wait.
-    const persistedDelay = copy.data.generation_error && typeof copy.data.retry_after === 'number' && copy.data.retry_after > 0
-      ? copy.data.retry_after : 0;
-    const notBefore = Math.max(
-      retryAfter ? generation.dataUpdatedAt + retryAfter * 1000 : 0,
-      persistedDelay ? copy.dataUpdatedAt + persistedDelay * 1000 : 0,
-    );
-    const timer = setTimeout(() => {
-      if (queryClient.isFetching({ queryKey: generationScope }) === 0)
-        void startGeneration();
-    }, Math.max(700, notBefore - Date.now()));
-    // Cancel an unstarted debounce only. The active request is source-scoped;
-    // cancelling it on every live event leaves completed results stuck on disk.
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, pulse, copy.data?.available, copy.data?.retry_after, copy.dataUpdatedAt,
-    allowGeneration, foundationRequired, activeGenerations, generation.status, generation.dataUpdatedAt]);
-  const busy = generating || generation.isFetching || activeGenerations > 0;
-  const retry = async () => {
-    if (!allowGeneration || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
-    manualRetry.current = true;
-    await startGeneration().catch(() => undefined);
-  };
-  return { copy: copy.data, generating: busy, ready: copy.isFetched,
-    foundationRequired, questionContext: { locale, preview, foundationId },
-    readingGenerating: progress.active, generationPhase: progress.phase,
-    generationError: cards.length && !generation.isFetching && !progress.active ? generation.error || cachedFailure : null,
-    generationUnavailable: !!cards.length && !generation.isFetching && !progress.active && !retryAfter && generation.data?.available === false,
-    retry,
-    readingRequest: foreground.find(card => card.key === readingKey),
-    readingNeedsUpdate: generation.data?.available !== true && cards.some(card => card.key === readingKey) };
+  return { copy: copy.data, ready: copy.isFetched, questionContext: { locale, preview, foundationId },
+    readingRequest: focusedCopyRequests(data, steps, focused, readingKey).find(card => card.key === readingKey) };
 }

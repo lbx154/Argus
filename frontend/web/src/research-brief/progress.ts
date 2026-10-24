@@ -9,14 +9,6 @@ interface ExplanationProgress {
 let nextRequestId = 0;
 const progressKey = (copyKey: QueryKey, cardKey: string, startedAt = 0) => ['explanation-progress', ...copyKey, cardKey, startedAt];
 
-/** Milestones can grow during one attempt; a new attempt has its own progress. */
-export function explanationRunStart(cardKey: string | null | undefined, task?: { id: string; started_ts?: number | null }, fallback = 0) {
-  if (!task) return fallback;
-  if (![task.id, `${task.id}:active`, `${task.id}:outcome`].includes(cardKey ?? '')) return 0;
-  return typeof task.started_ts === 'number' && Number.isFinite(task.started_ts) && task.started_ts >= 0
-    ? task.started_ts : fallback;
-}
-
 /** One observed request can update only the cards it actually requested. */
 export function beginExplanationProgress(client: QueryClient, copyKey: QueryKey, cards: readonly { key: string; startedAt?: number }[]) {
   const requestId = ++nextRequestId;

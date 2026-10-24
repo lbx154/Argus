@@ -205,25 +205,19 @@ export function MapCanvas({
     tracedTask.id, ...dependencies.upstream.map((task) => task.id),
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
-  const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
-    readingGenerating, generationPhase, foundationRequired, questionContext,
-    generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
+  // Opening a card reads what was saved for it; it does not ask for new text.
+  const { copy, ready: copyReady, readingRequest, questionContext } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
     zh,
-    !readOnly && !data.history_loading,
     focusedNode?.data.layout.steps,
     sessionId,
-    false,
     readingKey,
     readingCopy?.foundationId,
   );
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
-    request: readingRequest, questionContext, pending: readingNeedsUpdate, generating: readingGenerating,
-    phase: generationPhase, error: copyGenerationError, unavailable: copyGenerationUnavailable, foundationRequired,
-    retry: readOnly ? undefined : retryCopy, retryDisabled: copyGenerating,
-  } : undefined, [readingRequest, questionContext, readingNeedsUpdate, copyGenerating, readingGenerating, generationPhase,
-    copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy, foundationRequired]);
+    request: readingRequest, questionContext,
+  } : undefined, [readingRequest, questionContext]);
   // The lines are drawn first and annotated after: a note says what an
   // existing line carries, so asking for notes cannot move the map.
   const unstated = useMemo(
@@ -963,11 +957,6 @@ export function MapCanvas({
     <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
-      {copy?.generation_error && <div role="status" className="map-paused-label">
-        {zh ? '地图说明暂时不可用，任务和已有说明仍可阅读。' : 'Map explanation unavailable; tasks and saved explanations remain readable.'}
-        {copy.generation_error.code === 'cost_unreconciled' && (zh
-          ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
-      </div>}
       {data.kind === "live" && !replaying && brief && (
         <dl className="map-brief" aria-label={zh ? "任务进展" : "Task progress"}>
           <div><dt>{zh ? "正在做" : "Now"}</dt><dd title={brief.goal}>{brief.current}</dd></div>
