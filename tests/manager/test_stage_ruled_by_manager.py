@@ -55,24 +55,43 @@ def _rules(manager: Manager, monkeypatch, hand) -> None:
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
 
 
+def _question(root: Path) -> str:
+    return json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text()).get("stage_question", "")
+
+
 def _team_report(root: Path) -> None:
-    [report] = team_reports(root)
+    """The turn the web server runs when the team pushes its question."""
     manager_bridge.manager_team_report(
-        "s-stage", report["text"], message_id=report["message_id"], event_fields={},
+        "s-stage", _question(root), message_id="stage-question-1", event_fields={},
         global_root=root.parent.parent,
     )
 
 
-def test_a_stage_question_waits_in_the_managers_inbox_and_the_stage_holds(tmp_path: Path) -> None:
+def test_a_stage_question_waits_for_the_manager_and_the_stage_holds(tmp_path: Path) -> None:
     manager, root = _project(tmp_path)
 
     transition = _asks_the_manager(manager, root)
 
     assert transition.action == "hold" and _stage_now(root) == "setup"
-    [report] = team_reports(root)
-    assert "Which rounding rule does format_mib use?" in report["text"]
-    assert "floor like format_kib" in report["text"]
-    assert report["text"].endswith("the readings of their request it turns on.")
+    assert "Which rounding rule does format_mib use?" in _question(root)
+    assert "floor like format_kib" in _question(root)
+    assert _question(root).endswith("the readings of their request it turns on.")
+    assert not team_reports(root) and not (root / "manager-deferred").exists()
+
+
+def test_with_no_web_server_the_managers_next_turn_rules(tmp_path: Path, monkeypatch) -> None:
+    """CLI-only use: nobody runs the Manager's turn at once, so the question
+    goes with its next one."""
+    manager, root = _project(tmp_path)
+    _asks_the_manager(manager, root)
+    runner = manager_runner(manager, hand=manager_settles("Floor; keep going.", stage={"move": "hold"}), reply="Ruled.")
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
+
+    manager_bridge.manager_message("s-stage", "how is it going?", global_root=root.parent.parent)
+
+    assert "Which rounding rule does format_mib use?" in runner.turns[0]
+    assert "Floor; keep going." in _team_reads(root)[0]
+    assert not _question(root)
 
 
 def test_the_manager_rules_and_the_team_reads_the_choice_it_made(tmp_path: Path, monkeypatch) -> None:
@@ -112,7 +131,7 @@ def test_the_operator_who_asked_to_take_part_is_asked_and_their_answer_is_carrie
 ) -> None:
     manager, root = _project(tmp_path, operator_decides_stages=True)
     _asks_the_manager(manager, root)
-    assert team_reports(root)[0]["text"].endswith("The operator asked to take part in stage decisions.")
+    assert _question(root).endswith("The operator asked to take part in stage decisions.")
     ask = ("hand_off", {"to": "operator", "summary": "The stage needs your call.", "assumptions": [], "ask": {
         "question": "Which rounding rule should format_mib use?",
         "options": [{"label": "Floor, like format_kib"}, {"label": "Round, like format_gib"}],

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import queue
 import threading
 import uuid
@@ -18,11 +19,12 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile, WebSocket, 
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
-from ...core.event_catalog import EventType
 from ...daemon import life_worker as daemon_worker
 from .. import project_state, server
 from .context import STREAM_PROTOCOL, ServerContext
-from .models import CancelMessageIn, MessageIn
+from .models import CancelMessageIn, MessageIn, TeamTurnIn
+
+log = logging.getLogger(__name__)
 
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
@@ -175,11 +177,6 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         root = ctx.project_root_or_404(sid)
         if str(root.resolve()) != str(Path(saved["global_root"]).resolve()):
             raise ValueError("queued message project root changed")
-        if "team" in saved:
-            from ..manager_bridge import manager_team_report
-
-            return manager_team_report(sid, saved["text"], message_id=saved["turn_id"],
-                                       event_fields=saved["team"], global_root=root)
         kwargs = {k: v for k, v in saved.items()
                   if k not in {"sid", "text", "_queue_owner", "_queue_generation"}}
         generation = manager_control_generation(sid)
@@ -199,11 +196,53 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         for root in ctx.roots:
             for directory in (root / "projects").glob("*/manager-deferred"):
                 deferred.resume(directory.parent)
-        deferred.watch(lambda: ctx.roots)
 
     @app.on_event("shutdown")
     def _close_deferred_messages():
         deferred.close()
+
+    @app.middleware("http")
+    async def _publish_manager_endpoint(request, call_next):
+        # A project process pushes the Manager's decisions here. The socket a
+        # request reached is this server's own address, whatever launched it.
+        server_address = request.scope.get("server")
+        if server_address and server_address[1] and endpoint.get("at") != server_address:
+            from ...core.team_reports import publish_manager_endpoint
+
+            host, port = server_address
+            host = f"[{host}]" if ":" in host else host
+            for root in ctx.roots:
+                try:
+                    publish_manager_endpoint(root, url=f"http://{host}:{port}", token=ctx.token or "")
+                except OSError:
+                    log.warning("Manager endpoint not published in %s", root, exc_info=True)
+            endpoint["at"] = server_address
+        return await call_next(request)
+
+    endpoint: dict[str, Any] = {}
+    team_turns: set[tuple[str, str]] = set()
+
+    @app.post("/api/projects/{sid}/manager/team-turn", status_code=202, dependencies=[Depends(ctx.require_auth)])
+    def _team_turn(sid: str, body: TeamTurnIn) -> dict[str, Any]:
+        """A decision only the Manager makes, which the team waits on: its turn starts now."""
+        from ..manager_bridge import manager_team_report
+
+        root = ctx.project_root_or_404(sid)
+        with team_turns_lock:
+            if (sid, body.message_id) in team_turns:
+                return {"accepted": True, "duplicate": True}
+            team_turns.add((sid, body.message_id))
+
+        def _run() -> None:
+            try:
+                manager_team_report(sid, body.text, message_id=body.message_id, event_fields={}, global_root=root)
+            except Exception:  # noqa: BLE001 - the question waits for the next turn
+                log.exception("Manager turn for %s failed in %s", body.message_id, sid)
+
+        threading.Thread(target=_run, name=f"manager-team-turn-{sid}", daemon=True).start()
+        return {"accepted": True}
+
+    team_turns_lock = threading.Lock()
 
     def _begin_message(sid: str, request_id: str):
         try:
@@ -641,8 +680,6 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         if life_dir is None:
             await ws.close(code=4404, reason="unknown project")
             return
-        # A team report the project process left while nobody was watching.
-        deferred.resume(life_dir)
         iterator = server.tail_events(
             life_dir,
             replay_limit=max(0, min(replay, 200)),
@@ -666,8 +703,6 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                     except StopAsyncIteration:
                         return
                     event_task = asyncio.create_task(anext(iterator))
-                    if ev.get("type") == EventType.LIFE_MANAGER_INBOX:
-                        deferred.resume(life_dir)
                     if view == "ui" and not server._event_visible_in_web_ui(ev):
                         continue
                     await ws.send_json(ev)

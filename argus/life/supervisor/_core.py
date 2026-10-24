@@ -1456,8 +1456,8 @@ class LifeSupervisor(
                 self._publish_mission_completion_message(event)
                 # A mission boundary is a natural moment to write home.
                 self._maybe_write_letter()
-        # A finished project is told by the Manager's completion report; its
-        # verdict carries the delivery card, not a second completion message.
+        # A finished project is told by its completion message; its verdict
+        # carries the delivery card, not a second completion message.
         return delivered
 
     def _continuation_line(self, item_id: str, chinese: bool) -> str:
@@ -1497,37 +1497,6 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - a status line must not break settlement
             return False
 
-    def _project_report_tells(self, event: dict[str, Any]) -> bool:
-        """Whether this finished task is the whole project, followed by its report.
-
-        A finite project of one task ends with that task, and the Manager's
-        project report then follows the task's message about the same
-        delivery. Other live work or unread operator input can keep the
-        project open, so the Manager then reads the task's own report.
-        """
-        if not (
-            event.get("success") is True
-            and event.get("overall_complete") is True
-            and not event.get("campaign_continues")
-            and not event.get("final_submission_certified")
-            and getattr(self.config, "continuous", False)
-            and not getattr(self.config, "open_ended", False)
-        ):
-            return False
-        try:
-            from ...core.operator_context import (
-                OperatorContextStore,
-                operator_context_state_root,
-            )
-
-            item_id = str(event.get("item_id") or "")
-            if any(row.id != item_id for row in self.memory.backlog.active()):
-                return False
-            context = OperatorContextStore(operator_context_state_root(self.memory))
-            return context.revision <= context.acknowledged_revision("planner")
-        except Exception:  # noqa: BLE001 - when unsure, the task tells itself
-            return False
-
     def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
         """Tell the operator a Team mission ended without another model call."""
         try:
@@ -1559,7 +1528,7 @@ class LifeSupervisor(
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")
             if status == "stage_continues":
-                self._report_to_manager(
+                self._show_team_message(
                     life_dir,
                     text=render_operator_update(
                         title=title, status=status,
@@ -1674,10 +1643,17 @@ class LifeSupervisor(
                 ).strip()
                 park = str(event.get("park_reason") or "") if status == "parked" else ""
                 if operator_question:
-                    self._report_to_manager(
+                    from .pending_notify import numbered_options
+
+                    # The answers the task offers, as its card shows them.
+                    asking = next((row for row in self.memory.backlog.active() if row.id == item_id), None)
+                    decision = getattr(asking, "operator_decision", None)
+                    self._show_team_message(
                         life_dir,
                         text="\n".join(part for part in (
                             say("needs_your_call", chinese, title=brief, question=operator_question),
+                            numbered_options(decision.get("options") if isinstance(decision, dict) else None,
+                                             chinese),
                             summary if summary != operator_question else "",
                         ) if part),
                         message_id=_message_id(f"mission-result-{item_id}-{status}"),
@@ -1712,7 +1688,7 @@ class LifeSupervisor(
                 # The summary often is the stop reason, its lines run together;
                 # the update gives its first sentence, its row the rest.
                 told = " ".join(summary.split()) in " ".join(f"{reason} {text}".split())
-                self._report_to_manager(
+                self._show_team_message(
                     life_dir,
                     text="\n".join(part for part in (text, "" if told else summary) if part),
                     message_id=_message_id(f"mission-result-{item_id}-{status}"),
@@ -1764,10 +1740,8 @@ class LifeSupervisor(
             assumptions_line = render_autonomous_assumptions(
                 self._project_state_root(), item_id=item_id, chinese=chinese,
             )
-            self._show_team_result(
+            self._show_team_message(
                 life_dir,
-                # A finished project gets one Manager turn, on its report.
-                tell_manager=not self._project_report_tells(event),
                 text="\n".join(
                     part
                     for part in (
@@ -1806,12 +1780,12 @@ class LifeSupervisor(
             log.exception("life supervisor: failed to publish mission completion")
 
     def _confirm_mission_completion_receipt(self, event: dict[str, Any]) -> bool:
-        """Tell the result (chat or Manager) before acknowledging completion.
+        """Put the result in the chat before acknowledging completion.
 
         The report's message id makes retry safe even when the process died
         after leaving it. External letters/notifications remain separate.
         """
-        from ...core.team_reports import team_result_told as _told
+        from ...core.team_reports import team_message_told as _told
 
         delivery_id = str(event.get("mission_delivery_id") or "")
         if not delivery_id:
@@ -1924,33 +1898,19 @@ class LifeSupervisor(
         """Whether the operator writes Chinese, as their objective reads."""
         return uses_cjk(getattr(self.config, "continuous_objective", ""))
 
-    def _report_to_manager(
+    def _show_team_message(
         self, life_dir: Path | str, *, text: str, message_id: str, event_fields: dict[str, Any],
     ) -> None:
-        """Hand a team result to the Manager; it tells the operator in its own session."""
-        from ...core.team_reports import post_team_report
+        """Tell the operator what the team has to say, in its chat, as it happens.
 
-        post_team_report(Path(life_dir), message_id=message_id, text=text, event_fields=event_fields)
-        self._emit({"type": EventType.LIFE_MANAGER_INBOX, "message_id": message_id})
-
-    def _show_team_result(
-        self, life_dir: Path | str, *, text: str, message_id: str,
-        event_fields: dict[str, Any], tell_manager: bool,
-    ) -> None:
-        """Show a finished task in the team's words now; the Manager may follow up.
-
-        The Manager's turn waits for the web server to pick up its report and
-        for a model call: s-ec08e4a5's result reached the chat 4.7 minutes
-        after the task finished (10-24). Its report says it was shown, so it
-        answers only with what the team's message leaves out.
+        A Manager turn on each report first waited for the web server to pick
+        it up, then for a model call: s-ec08e4a5's result reached the chat
+        4.7 minutes after the task finished (10-24). The Manager reads it at
+        the start of its next turn.
         """
-        from ...core.operator_messages import publish_operator_message
+        from ...core.team_reports import show_team_message
 
-        publish_operator_message(Path(life_dir), text=text, message_id=message_id, event_fields=event_fields)
-        if tell_manager:
-            self._report_to_manager(
-                life_dir, text=text, message_id=message_id, event_fields={**event_fields, "shown": True},
-            )
+        show_team_message(Path(life_dir), text=text, message_id=message_id, event_fields=event_fields)
 
     def _tell_operator(self, notice_id: str, kind: str, **params: Any) -> None:
         """Post the sentence for ``kind`` to the operator's conversation, once per ``notice_id``."""

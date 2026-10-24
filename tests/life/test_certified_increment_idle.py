@@ -99,14 +99,10 @@ def campaign(tmp_path, monkeypatch):
 
 
 def _reports(life: Path):
-    """The project reports the team left for the Manager, oldest first."""
-    records = [json.loads(path.read_text()) for path in (Path(life) / "manager-deferred").glob("*.json")]
-    return [
-        {"message_id": record["request"]["turn_id"], "facts": json.loads(record["request"]["text"]),
-         **record["request"]["team"]}
-        for record in sorted(records, key=lambda record: record["created_at"])
-        if record["request"]["turn_id"].startswith("manager-project-report-")
-    ]
+    """The project completion messages the team put in the chat, oldest first."""
+    from tests.manager_inbox import team_reports
+
+    return [report for report in team_reports(life) if report.get("manager_project_report")]
 
 
 @pytest.mark.parametrize("wake", ["evidence", "operator"])
@@ -349,10 +345,8 @@ def test_certified_increment_reports_once_and_survives_restart(campaign):
     assert record["outcome"] == PLAN_TERMINAL_IDLE
     assert record["event"]["project_done"] is False
     assert record["event"]["completion_kind"] == "certified_increment"
-    context = _reports(campaign.life)[0]["facts"]["context"]
-    assert context["standing_objective_active"] is True
-    assert context["completion_scope"] == "certified_increment"
-    assert context["stages"]["delivery"]["status"] == "done"
+    assert "the longer-term goal continues" in _reports(campaign.life)[0]["text"]
+    assert supervisor._manager_project_completion_context()["stages"]["delivery"]["status"] == "done"
     assert supervisor.config.continuous and supervisor.config.open_ended
     assert supervisor.memory.backlog.active() == []
 

@@ -7,13 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.core.team_reports import post_team_report
+from argus.core.team_reports import show_team_message
 from argus.core.transcript import read_turns
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus.manager import front_door
 from argus.manager._session_ops import _ManagerSession
 from argus.webapi import manager_bridge, manager_state
-from argus.webapi.deferred_messages import DeferredMessages
 from tests.hand_off import manager_runner
 
 pytest.importorskip("fastapi")
@@ -89,20 +88,6 @@ def test_a_failed_turn_starts_the_next_one_fresh(project: Path, monkeypatch) -> 
     assert front_door.manager_session(SimpleNamespace(project_root=project)) is None
 
 
-def test_a_team_report_is_left_once_for_the_owner(project: Path) -> None:
-    for _ in range(2):
-        post_team_report(project, message_id="mission-result-x", text="Task done; result in out.txt",
-                         event_fields={"mission_result": True, "item_id": "x"})
-
-    records = [json.loads(p.read_text()) for p in (project / "manager-deferred").glob("*.json")]
-    assert len(records) == 1
-    assert records[0]["status"] == "waiting"
-    assert records[0]["request"] == {
-        "sid": "s-owner", "global_root": str(project.parent.parent), "text": "Task done; result in out.txt",
-        "turn_id": "mission-result-x", "team": {"mission_result": True, "item_id": "x"},
-    }
-
-
 def test_the_owner_answers_a_team_report_in_the_same_session(project: Path, monkeypatch) -> None:
     _ManagerSession(None, project)._write_tid("thread-A")
     seeds: list = []
@@ -132,46 +117,65 @@ def test_the_operator_reads_the_team_report_when_the_manager_cannot_answer(proje
     assert turn["text"] == "Task done; result in out.txt"
 
 
-def test_a_result_the_chat_shows_gets_the_manager_s_words_only_when_they_add_to_it(
-    project: Path, monkeypatch,
-) -> None:
-    """s-fcf4b146 (10-24): the chat showed the team's completion and, eight
-    seconds later, the Manager saying the same thing again."""
-    shown = {"mission_result": True, "item_id": "x", "delivery_id": "delivery:x", "shown": True}
-    runner = _runner(monkeypatch, project, [], reply=manager_bridge.NOTHING_TO_ADD)
-    manager_bridge.manager_team_report(
-        "s-owner", "Task done; result in out.txt", message_id="mission-result-x",
-        event_fields=shown, global_root=project.parent.parent,
-    )
-    assert "already read this result" in runner.turns[0]
-    assert manager_bridge.NOTHING_TO_ADD in runner.turns[0]
+def test_what_the_team_said_costs_no_turn_and_goes_with_the_next_one(project: Path, monkeypatch) -> None:
+    """s-ec08e4a5 (10-24): a Manager turn on each team report put the result
+    in the chat 4.7 minutes late, and held the session meanwhile."""
+    runner = _runner(monkeypatch, project, [], reply="Run `python out.py`.")
+    show_team_message(project, text="Task done; result in out.txt", message_id="mission-result-x",
+                      event_fields={"mission_result": True})
+    assert runner.turns == []
+    [shown] = read_turns(project)
+    assert shown["text"] == "Task done; result in out.txt"
+
     _runner(monkeypatch, project, [], failure="provider broke")
-    manager_bridge.manager_team_report(
-        "s-owner", "Task done; result in out.txt", message_id="mission-result-y",
-        event_fields=shown, global_root=project.parent.parent,
-    )
-    assert read_turns(project) == []
+    manager_bridge.manager_message("s-owner", "how do I run it?", global_root=project.parent.parent)
+    runner = _runner(monkeypatch, project, [], reply="Run `python out.py`.")
+    manager_bridge.manager_message("s-owner", "how do I run it?", global_root=project.parent.parent)
+    manager_bridge.manager_message("s-owner", "thanks", global_root=project.parent.parent)
 
-    _runner(monkeypatch, project, [], reply="Run it with `python -m out`.")
-    manager_bridge.manager_team_report(
-        "s-owner", '{"reason": "done"}', message_id="manager-project-report-x",
-        event_fields={"manager_project_report": True, "shown": True}, global_root=project.parent.parent,
-    )
-    [turn] = read_turns(project)
-    assert turn["message_id"] == "manager-project-report-x-manager"
-    assert turn["text"] == "Run it with `python -m out`."
-    # The card stays on the team's message.
-    assert not {"delivery_id", "mission_result", "manager_project_report"} & set(turn)
+    # A failed turn leaves it for the next; a turn that ran carried it.
+    told = "The team told the operator this in the chat since your last turn"
+    assert f"{told} (for your context):\n\nTask done; result in out.txt" in runner.turns[0]
+    assert told not in runner.turns[1]
 
 
-def test_the_owner_drains_team_reports_as_turns(project: Path) -> None:
-    post_team_report(project, message_id="mission-result-x", text="Task done", event_fields={})
+def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(project: Path, monkeypatch) -> None:
+    """The team waits on a stage ruling: the web server that owns the Manager's
+    session runs the turn when the project process asks, with no inbox to poll."""
+    import threading
+    from contextlib import nullcontext
+    from urllib.parse import urlsplit
+
+    from fastapi.testclient import TestClient
+
+    from argus.core import team_reports
+    from argus.core.session import SessionMeta, write_session_meta
+    from argus.webapi import server
+
+    global_root = project.parent.parent
+    write_session_meta(global_root, SessionMeta(id="s-owner", workdir=str(global_root)))
     ran: list = []
-    deferred = DeferredMessages(lambda request, _cancelled: ran.append(request) or {"kind": "chat"})
+    done = threading.Event()
+    monkeypatch.setattr(manager_bridge, "manager_team_report",
+                        lambda sid, text, **kwargs: ran.append((sid, text, kwargs["message_id"])) or done.set())
+    # No server has said where it is: the question waits for the next turn.
+    assert not team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
 
-    deferred.resume(project)
-    deferred._workers[project.resolve()].join(5)
+    with TestClient(server.create_app(global_root=global_root, auth_token="secret")) as client:
+        client.get("/api/projects")  # any request tells project processes where the owner is
+        endpoint = global_root / "manager-endpoint.json"
+        assert json.loads(endpoint.read_text()) == {"url": "http://testserver:80", "token": "secret"}
+        assert endpoint.stat().st_mode & 0o777 == 0o600
 
-    assert [request["team"] for request in ran] == [{}]
-    [record] = [json.loads(p.read_text()) for p in (project / "manager-deferred").glob("*.json")]
-    assert record["status"] == "completed"
+        def urlopen(request, timeout):
+            response = client.post(urlsplit(request.full_url).path, content=request.data,
+                                   headers=dict(request.header_items()))
+            return nullcontext(SimpleNamespace(status=response.status_code))
+
+        monkeypatch.setattr(team_reports.urllib.request, "urlopen", urlopen)
+        for _ in range(2):
+            assert team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
+        assert done.wait(5)
+        assert client.post("/api/projects/s-owner/manager/team-turn",
+                           json={"message_id": "stage-question-2", "text": "x"}).status_code == 401
+    assert ran == [("s-owner", "Stage question", "stage-question-1")]

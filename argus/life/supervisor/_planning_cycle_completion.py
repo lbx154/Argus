@@ -337,11 +337,17 @@ class PlanningCycleCompletionMixin:
         self, completion_reason: str, *, certified_increment: bool = False,
         delivery: dict[str, Any] | None = None,
     ) -> None:
-        """Hand the completed stage ledger to the Manager, which tells the operator.
+        """Tell the operator the project (or a certified piece of it) is done.
 
-        The same completion, with the same evidence, is one report: its id is
-        the digest of its facts.
+        The same completion, with the same evidence, is one message: its id
+        is the digest of its facts. The task that finished the project may
+        already have put this delivery card in the chat; telling it again
+        showed it twice (s-fcf4b146, 10-24).
         """
+        from ...core.mission_view import uses_cjk
+        from ...core.team_reports import show_team_message
+        from ...core.transcript import operator_request
+
         context = self._manager_project_completion_context()
         if certified_increment:
             context.update(
@@ -355,23 +361,26 @@ class PlanningCycleCompletionMixin:
             "context": context,
         })
         root = self._manager_project_report_root()
-        delivery_id = str(delivery.get("delivery_id") or "") if isinstance(delivery, dict) else ""
-        # The task that finished the project may already have put this card in
-        # the chat; the Manager then follows up rather than telling it again
-        # (s-fcf4b146 showed both, eight seconds apart, 10-24).
-        shown = bool(delivery_id) and any(
-            turn.get("delivery_id") == delivery_id for turn in read_turns(root)
-        )
-        self._report_to_manager(
+        delivery = delivery if isinstance(delivery, dict) else {}
+        delivery_id = str(delivery.get("delivery_id") or "")
+        if delivery_id and any(turn.get("delivery_id") == delivery_id for turn in read_turns(root)):
+            self._clear_manager_planner_feedback()
+            return
+        chinese = uses_cjk(operator_request(root))
+        path = str((delivery.get("primary_target") or {}).get("path") or "")
+        show_team_message(
             root,
-            text=facts,
+            text="\n".join(part for part in (
+                say("increment_done" if certified_increment else "project_done", chinese),
+                str(delivery.get("summary") or completion_reason).strip(),
+                path and say("result_in", chinese, path=path),
+            ) if part),
             message_id=f"manager-project-report-{hashlib.sha256(facts.encode()).hexdigest()[:16]}",
             event_fields={
                 "manager_project_report": True,
                 "current_stage": str(self._current_pipeline_stage() or ""),
                 # The project's delivery card rides on its one completion message.
-                **({"shown": True} if shown else
-                   {"delivery": delivery, "delivery_id": delivery_id} if isinstance(delivery, dict) else {}),
+                **({"delivery": delivery, "delivery_id": delivery_id} if delivery else {}),
             },
         )
         self._clear_manager_planner_feedback()

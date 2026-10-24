@@ -148,21 +148,3 @@ def test_busy_retries_back_off_and_stop_after_three_hours(tmp_path, monkeypatch)
     assert "3 hours" in read_turns(life)[-1]["text"]
 
 
-
-
-def test_a_team_report_is_answered_while_no_project_page_is_open(tmp_path):
-    """s-ec08e4a5 (10-24): the report waited 3.2 minutes for a page to open."""
-    from argus.core.team_reports import post_team_report
-
-    life = tmp_path / "projects" / "s-unwatched"
-    (life / "manager-deferred").mkdir(parents=True)
-    answered = threading.Event()
-    deferred = DeferredMessages(lambda request, cancelled: answered.set() or {"kind": "chat"})
-    deferred.watch(lambda: [tmp_path], interval=0.02)
-    try:
-        time.sleep(0.1)  # the watcher has seen the empty inbox
-        post_team_report(life, message_id="mission-result-x", text="Task done", event_fields={})
-        assert answered.wait(5)
-        wait_for(lambda: read_json(life / "manager-deferred" / "mission-result-x.json")["status"] == "completed")
-    finally:
-        deferred.close()
