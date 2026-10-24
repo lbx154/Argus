@@ -19,12 +19,30 @@ ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", 
 ACCEPTANCE_BAR_POLICY = "operator_acceptance_bar"
 
 
-def requires_venue_review(*, vertical: str, stage: str, scope: str = "", operation: str = "evaluate") -> bool:
-    return (
-        str(vertical).strip().lower() == "research"
-        and operation == "evaluate"
-        and (str(stage).strip().lower() == "review" or str(scope).strip().lower().replace("-", "_") == "final_submission")
+def requires_venue_review(
+    *, vertical: str, stage: str, scope: str = "", operation: str = "evaluate",
+    artifact_root: Path | str | None = None,
+) -> bool:
+    """Whether a review is the paper's final venue review.
+
+    The paper's review stage always is. A final acceptance outside it is one
+    only for a submission-shaped deliverable: given ``artifact_root``, a
+    workspace with no paper (a survey, a report) is accepted by its ordinary
+    review, since no venue recommendation could ever bind to it.
+    """
+    if str(vertical).strip().lower() != "research" or operation != "evaluate":
+        return False
+    if str(stage).strip().lower() == "review":
+        return True
+    return str(scope).strip().lower().replace("-", "_") == "final_submission" and (
+        artifact_root is None or has_submission_candidate(artifact_root)
     )
+
+
+def has_submission_candidate(artifact_root: Path | str) -> bool:
+    """Whether the workspace holds a paper (its source or its rendered PDF)."""
+    root = Path(artifact_root)
+    return any((root / relative).is_file() for relative in ("paper/main.tex", "paper/main.pdf"))
 
 
 def selected_venue(state_root: Path | str) -> str:

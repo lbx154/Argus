@@ -86,25 +86,47 @@ def outside_inputs(state: RoundLoopState) -> list[object] | None:
 
 
 def returned_unchanged(holder: str, state: RoundLoopState, label: str) -> bool:
-    """Whether ``holder`` already held this work as snapshot ``label`` shows it, with nothing new since."""
-    return state.snapshots is not None and state.snapshots.held_unchanged(holder, label, outside_inputs(state))
+    """Whether ``holder`` already held this work as snapshot ``label`` shows it, with nothing new since.
 
-
-def accepted_as_is(state: RoundLoopState, label: str) -> bool:
-    """Whether the Reviewer accepted the work as snapshot ``label`` shows it, with nothing new since.
-
-    The host refusing that acceptance is new: once the task it ended is
-    anything but done in the backlog (failed, or sent back to run again), the
-    acceptance no longer stands, and the unchanged work climbs past the
-    Reviewer like any unchanged return. An unreadable backlog keeps nothing.
+    Review once: a closing step (a final acceptance, or the task that closes
+    a stage) judges files other tasks made, so past the Engineer a holder that
+    held the very same files on another task held this work too. The closing
+    step's Engineer still gets its turn, and other tasks keep their own line.
     """
-    verdict = state.snapshots.held_verdict("reviewer") if state.snapshots is not None else None
-    if not verdict or not returned_unchanged("reviewer", state, label):
+    if state.snapshots is None:
         return False
-    rows = backlog_history(state.state_root)
-    return rows is not None and not any(
-        row.id == verdict["mission"] and row.status != "done" for row in rows
+    inputs = outside_inputs(state)
+    return state.snapshots.held_unchanged(holder, label, inputs) or (
+        state.closing and holder != "engineer" and bool(state.snapshots.held_elsewhere(holder, label, inputs))
     )
+
+
+def accepted_as_is(state: RoundLoopState, label: str) -> dict | None:
+    """The Reviewer's acceptance of the work as snapshot ``label`` shows it, with nothing new since.
+
+    For a closing step, an acceptance of the same files on another task
+    stands too. The host refusing that acceptance is new: once the task it
+    ended is anything but done in the backlog (failed, or sent back to run
+    again), the acceptance no longer stands, and the unchanged work climbs
+    past the Reviewer like any unchanged return. An unreadable backlog keeps
+    nothing.
+    """
+    snapshots = state.snapshots
+    if snapshots is None:
+        return None
+    inputs = outside_inputs(state)
+    if snapshots.held_unchanged("reviewer", label, inputs):
+        verdicts = [snapshots.held_verdict("reviewer")]
+    else:
+        held = snapshots.held_elsewhere("reviewer", label, inputs) if state.closing else []
+        verdicts = sorted((row.get("verdict") for row in held), key=lambda verdict: (verdict or {}).get("at") or 0)
+    verdict = verdicts[-1] if verdicts else None
+    if not isinstance(verdict, dict):
+        return None
+    rows = backlog_history(state.state_root)
+    if rows is None or any(row.id == verdict.get("mission") and row.status != "done" for row in rows):
+        return None
+    return verdict
 
 
 def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
@@ -200,7 +222,10 @@ class RoundRoutingMixin:
         """
         passed: list[str] = []
         while holder in LADDER[:-1] and returned_unchanged(holder, state, label):
-            if holder == "reviewer" and accepted_as_is(state, label):
+            verdict = accepted_as_is(state, label) if holder == "reviewer" else None
+            if verdict:
+                # This task's Reviewer holds the acceptance the work stands on.
+                state.snapshots.hold("reviewer", label, outside_inputs(state), verdict)
                 return "done", passed
             passed.append(holder)
             holder = LADDER[LADDER.index(holder) + 1]

@@ -109,6 +109,16 @@ def mission_lineage(supervised_config: Any) -> str:
     return str(packet.get("node_key") or "").strip() or str(packet.get("mission_id") or "").strip()
 
 
+def mission_closes(supervised_config: Any, scope: str = "") -> bool:
+    """Whether this mission is a closing step: a final acceptance, or the task that closes a stage."""
+    contract = mission_contract(supervised_config)
+    tags = contract.get("tags") if isinstance(contract.get("tags"), list) else []
+    scopes = {str(scope), str(contract.get("scope") or "")}
+    return "final_submission" in {value.strip().lower().replace("-", "_") for value in scopes} or any(
+        str(tag).strip().lower().replace("-", "_") == "stage_closing" for tag in tags
+    )
+
+
 def mission_contract(supervised_config: Any) -> dict[str, Any]:
     """The mission contract (``mission.json``) the packet belongs to, or {}."""
     packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()

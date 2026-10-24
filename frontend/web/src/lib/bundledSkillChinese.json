@@ -74,7 +74,7 @@
     "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 3784
+    "sourceBytes": 3946
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",
@@ -95,7 +95,7 @@
     "summary": "规划者只读只派、不执行，阶段只由经理改变；把目标与已有证据整理成最小、可执行、有真实依赖且能明确验收的任务集合。",
     "originalName": "The Planner's role and dependency-aware task decomposition",
     "source": "argus/builtin_skills/planner/dependency-aware-task-decomposition.md",
-    "sourceBytes": 2732
+    "sourceBytes": 3182
   },
   "global/project-venv-package-management.md": {
     "title": "项目环境、依赖与运行前核查",
@@ -109,7 +109,7 @@
     "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 5276
+    "sourceBytes": 5785
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
