@@ -48,7 +48,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
+import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroNode } from "./MacroTaskNode";
@@ -57,8 +57,6 @@ import { groupNotesByNode } from "./notes";
 import "./notes.css";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
-import { useMapLines } from "./useMapLines";
-import { useMapWords } from "./useMapWords";
 import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
@@ -218,19 +216,15 @@ export function MapCanvas({
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
     request: readingRequest, questionContext,
   } : undefined, [readingRequest, questionContext]);
-  // The lines are drawn first and annotated after: a note says what an
-  // existing line carries, so asking for notes cannot move the map.
-  const unstated = useMemo(
-    () => unstatedPairs(connectMap(graph, copy?.relations || [], zh)),
+  // Lines follow the relations the records state; nothing is written for
+  // them, and time order only joins cards no relation reaches.
+  const links = useMemo(
+    () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
   );
-  // Asked for whether or not the project is still running: a finished map is
-  // the one that gets read, and its lines are written once, in one small call.
-  const cardWords = useMapWords(data, zh, !readOnly && !data.history_loading, sessionId);
-  const lineNotes = useMapLines(data, unstated, zh, !readOnly && !data.history_loading, sessionId);
-  const links = useMemo(
-    () => connectMap(graph, copy?.relations || [], zh, lineNotes),
-    [graph, copy?.relations, zh, lineNotes],
+  const relationKinds = useMemo(
+    () => new Set(links.flatMap((link) => link.relation ? [link.relation] : [])),
+    [links],
   );
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
   // Before the canvas is measured the window stands in for it, so a phone
@@ -427,8 +421,8 @@ export function MapCanvas({
   // cycling, so the three can never disagree about what "a match" is.
   const cardSearchText = useCallback(
     (card: { task: { id: string; title: string; objective?: string }; part: number }) =>
-      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${cardWords[card.task.id]?.title || ""} ${cardWords[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
-    [copy, cardWords, zh],
+      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
+    [copy, zh],
   );
   const matches = useMemo(
     () =>
@@ -586,7 +580,6 @@ export function MapCanvas({
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
-          words: cardWords[n.data.task.id],
           readerCopy: readingCopy?.nodeId === n.id ? readerSelection : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
@@ -630,7 +623,6 @@ export function MapCanvas({
       query,
       cardSearchText,
       copy,
-      cardWords,
       readingCopy,
       readerSelection,
       zh,
@@ -699,9 +691,11 @@ export function MapCanvas({
             // of ten tasks is not annotated with the same two words nine times.
             quiet: !e.stated && (e.kind === "context" || (e.kind === "dependency" && !e.label)),
           },
-          className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
+          className: `map-edge-${e.kind}${e.relation ? ` map-edge-relation-${e.relation}` : ""}${lit.edges.has(e.id) ? " is-lit" : ""}`,
           label: e.label ||
-            (e.kind === "replacement"
+            (e.kind === "relation"
+              ? RELATION_KINDS.find(([kind]) => kind === e.relation)?.[zh ? 1 : 2] ?? ""
+              : e.kind === "replacement"
               ? (taskByCard.get(e.source)?.superseded_reason || "")
                   .replace(/\s+/g, " ")
                   .slice(0, 60) ||
@@ -1320,7 +1314,13 @@ export function MapCanvas({
               <b className="dashed" />
               {zh ? "内容关联" : "Related work"}
             </span>
-            <span title={zh ? "工作发生的先后" : "The order work happened in"}>
+            {RELATION_KINDS.filter(([kind]) => relationKinds.has(kind)).map(([kind, zhName, enName]) => (
+              <span key={kind} title={zh ? "记录里写明的关系" : "A relation the records state"}>
+                <b className={`relation relation-${kind}`} />
+                {zh ? zhName : enName}
+              </span>
+            ))}
+            <span title={zh ? "没有记录关系的卡片按时间先后相连" : "Cards with no recorded relation are joined in time order"}>
               <b className="order" />
               {zh ? "先后" : "Order"}
             </span>
@@ -1459,7 +1459,7 @@ export function MapCanvas({
             )}
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
-              readOnly={readOnly}
+              readOnly={readOnly} sessionId={data.kind === 'live' ? sessionId : undefined} zh={zh}
               originalDetail={readingTask.turn_kind === 'qa'
                 ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.summary || (zh ? '尚无回答。' : 'No answer recorded.'))
                 : readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
@@ -1796,7 +1796,7 @@ export const MapPanel = memo(function MapPanel({
       </header>
       {source === "live" && info.data && (
         <MapHistoryChoice open={chooseHistory || !choice && info.data.requires_choice}
-          info={info.data} zh={zh} readOnly={readOnly} onChoose={selectHistory} />
+          info={info.data} zh={zh} onChoose={selectHistory} />
       )}
       {source === "live" && info.isError && (
         <div className="map-data-error">

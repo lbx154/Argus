@@ -190,35 +190,6 @@ def test_new_material_contains_only_explanation_and_question_time_task_events(pr
     assert "```json" not in document and '"resolved_evidence":' not in document
 
 
-def test_enrichment_does_not_retain_sources_when_replacing_same_card(project, tmp_path, monkeypatch):
-    sid, life, _ = project
-    old = selected_card()
-    source = map_narrative.copy_source(f"live:{sid}", "en-US")
-    path = map_narrative.cache_path(tmp_path, source)
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"cards": {"task-one": old}, "cache_revision": old["copy_revision"], "attempt_at": 0}))
-    newer_event = {**old["source_snapshot"]["events"][0], "text": "NEW SOURCE MATERIAL", "revision": "new-source-revision"}
-    dataset = {"id": f"live:{sid}", "tasks": [{"id": "task-one", "title": "Current task", "objective": "Existing goal", "status": "done"}],
-               "events": [newer_event]}
-
-    def generate(documents, tasks, locale, **kwargs):
-        document, = documents
-        new = copy.deepcopy(old)
-        new["key"] = "task-one"
-        new["detail"] = "NEW EXPLANATION FOR THIS CARD"
-        new["source_snapshot"] = {"version": 2, "card_key": "task-one", "task_id": "task-one", "captured_at": 200,
-                                  "task": document["task"], "events": document["events"], "source_ids": [newer_event["id"]]}
-        return {"cards": [new], "relations": []}
-
-    monkeypatch.setattr(map_narrative, "generate", generate)
-    monkeypatch.setattr(reader_progress, "retain_progress_source", lambda *a, **k: pytest.fail("Generation retained sources"))
-    request = [{"key": "task-one", "task_id": "task-one", "kind": "task", "event_ids": [newer_event["id"]]}]
-    result = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=life)
-    assert result["cards"]["task-one"]["detail"] == "NEW EXPLANATION FOR THIS CARD"
-    assert not {"source_snapshot", "progress_source"} & result["cards"]["task-one"].keys()
-    assert not (life / reader_progress.DIRECTORY).exists()
-
-
 def test_registered_source_is_session_owned_even_when_workspaces_are_shared(project, tmp_path):
     sid, _, workspace = project
     ref = retain(tmp_path, sid, selected_card())
@@ -271,7 +242,6 @@ def test_legacy_map_get_strips_wrappers_without_writing_registry_or_cache(projec
     before = cache_path.read_bytes()
     monkeypatch.setattr(map_narrative, "cache_path", lambda *a: cache_path)
     monkeypatch.setattr(map_narrative, "_source_lock", lambda *a: pytest.fail("GET waited for a generation lock"))
-    monkeypatch.setattr(map_narrative, "enrich", lambda *a, **k: pytest.fail("GET generated a card"))
     monkeypatch.setattr(reader_progress, "retain_progress_source", lambda *a, **k: pytest.fail("GET retained sources"))
     client = TestClient(create_app(global_root=tmp_path))
     url = f"/api/map-copy/project/{sid}?locale=en-US"

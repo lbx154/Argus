@@ -104,17 +104,15 @@ REGISTRY: tuple[Site, ...] = (
         ("simple-1", "manager-quick-reply", "self-micro", "self-implement"),
     ),
     Site(
-        r"reader-(foundation|application)", FOREGROUND,
-        "One reader foundation per question (reserved once), or the application cards of "
-        "one reader request.",
-        ("argus/webapi/reader_foundation.py:278", "argus/webapi/reader_application.py:77"),
-        ("reader-foundation", "reader-application"),
+        r"reader-foundation", FOREGROUND,
+        "One reader foundation per question (reserved once).",
+        ("argus/webapi/reader_foundation.py:278",),
+        ("reader-foundation",),
     ),
     Site(
         r"map-summary", FOREGROUND,
-        "Map words, lines, lessons and explanations for one reader request, written against "
-        "an input digest; a failing explanation is retried automatically at most "
-        "MAP_AUTOMATIC_RETRIES times.",
+        "The map model's default label. The map no longer writes card words, line notes "
+        "or explanations on its own; only an explicit reader request runs this model.",
         ("argus/webapi/map_model.py:314",),
         ("map-summary",),
     ),

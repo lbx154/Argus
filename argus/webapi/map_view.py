@@ -16,6 +16,7 @@ from ..core.session import read_session_meta
 from ..core.stop_kinds import NON_FAILURE_STOP_KINDS
 from ..life.memory import LifeMemory, _jsonl_history_paths, park_reason
 from .map_outcomes import project_map_outcomes, public_outcome
+from .map_relations import project_relations, relation_facts, reply_paths
 
 TASK_FIELDS = (
     "id",
@@ -497,6 +498,18 @@ def turn_records(
                     event.update(status="cancelled", ts_end=_timestamp(row.get("ts")))
                 turns[f"turn:{message_id}"] = turn
             continue
+        if row.get("type") == "life.manager.intent.completed" and row.get("item_id"):
+            # The turn handed the request to a team task: the turn's own work
+            # is over, and the task carries the request on.
+            for turn in reversed(turns.values()):
+                if turn["card"]["status"] == "running" and not turn["card"].get("turn_kind"):
+                    ended = _timestamp(row.get("ts"))
+                    turn["card"].update(status="done", finished_ts=ended)
+                    for event in turn["events"]:
+                        event.update(status="recorded", ts_end=ended)
+                    turn["dispatched"] = text(row["item_id"], 160)
+                    break
+            continue
         if row.get("type") == "ui.operator" and message_id.endswith("-operator"):
             asks[message_id[: -len("-operator")]] = {
                 "ts": row.get("ts"), "text": text(row.get("text"), 4000),
@@ -567,7 +580,11 @@ def turn_records(
         replied_at = _timestamp(row.get("ts"))
         card_id = f"turn:{turn_id}"
         title = ask_title(asked) if asked else (reply.splitlines()[0] if reply else turn_id)
+        dispatched = (turns.get(card_id) or {}).get("dispatched")
         turns[card_id] = {
+            **({"dispatched": dispatched} if dispatched else {}),
+            # The files the reply links or names: what this turn is about.
+            "paths": reply_paths(reply, workspace),
             "card": {
                 "id": card_id,
                 "kind": "turn",
@@ -677,7 +694,9 @@ def read_map(
             segments: dict = {}
             turns: dict = {}
             asks: dict = {}
+            known: dict = {}
             if append:
+                known = state.get("relation_facts") or {}
                 previous = state.get("events", [])
                 active = set(state.get("active", ()))
                 segments = state.get("segments") or {}
@@ -696,6 +715,7 @@ def read_map(
                 segments = {}
                 turns = {}
                 asks = {}
+                known = {}
             consumed = f.tell()
             for line in f.read(8 * 1024 * 1024).splitlines(keepends=True):
                 if not line.endswith(b"\n"):
@@ -709,6 +729,7 @@ def read_map(
                     continue
             workspace = progress_workspace(life_dir, read_session_meta(root, sid))
             turns = turn_records(rows, turns, asks, workspace)
+            known = relation_facts(rows, known)
             # In the order things happened: a segment is only complete when
             # its round closes, and a turn's records when it is answered.
             events = sorted({e["id"]: e for e in [
@@ -720,7 +741,7 @@ def read_map(
             state.update(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
                 task_ids=task_ids, events=events[-2000:], active=active,
-                segments=segments, turns=turns, turn_asks=asks,
+                segments=segments, turns=turns, turn_asks=asks, relation_facts=known,
                 truncated=truncated or len(events) > 2000,
                 reset=bool(state) and not append and not retained_previous
                 and state.get("task_ids") == task_ids,
@@ -742,6 +763,7 @@ def read_map(
     for task in tasks:
         if task["id"] in roles:
             task["role"] = roles[task["id"]]
+    tasks = project_relations(tasks, state.get("turns") or {}, state.get("relation_facts") or {})
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if

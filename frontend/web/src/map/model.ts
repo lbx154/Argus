@@ -30,7 +30,24 @@ export interface MapTask
   /** 'turn': a single-agent answer or action, shown as a card. */
   kind?: string;
   turn_kind?: 'qa';
+  /** What this card is about, as the records state it (map_relations.py). */
+  relations?: TaskRelation[];
 }
+/** ``target`` is the card this one asks about, checks, follows, replaces or
+ * carries out; the map draws the line from the target to this card. */
+export interface TaskRelation {
+  kind: RelationKind;
+  target: string;
+}
+export type RelationKind = "about" | "checks" | "follows" | "replaces" | "carries_out";
+/** The kinds in the order the legend lists them, with their names. */
+export const RELATION_KINDS: Array<[RelationKind, string, string]> = [
+  ["carries_out", "执行请求", "Carries out"],
+  ["about", "关于", "About"],
+  ["checks", "检查", "Checks"],
+  ["follows", "接续", "Follows"],
+  ["replaces", "替代", "Replaces"],
+];
 /** One tool call inside a work segment, as the runner reported it. */
 export interface WorkStep {
   kind: string;
@@ -121,7 +138,10 @@ export interface MapLink {
     | "replacement"
     | "context"
     | "semantic"
-    | "continuation";
+    | "continuation"
+    | "relation";
+  /** kind "relation": which recorded relation this line is. */
+  relation?: RelationKind;
   label?: string;
   evidence?: string;
   /** The label says what connects these two tasks, not just what kind of
@@ -335,13 +355,27 @@ export function buildMap(tasks: MapTask[]): MapGraph {
     }
   }
   const cyclic = processed !== all.length;
+  // Recorded relations, drawn from what a card is about to the card itself.
+  const related = new Set<string>();
+  for (const task of ordered)
+    for (const relation of task.relations ?? []) {
+      if (!unique.has(relation.target) || relation.target === task.id) continue;
+      related.add(`${relation.target}\u0000${task.id}`);
+      links.push({
+        id: JSON.stringify(["relation", relation.kind, relation.target, task.id]),
+        source: relation.target,
+        target: task.id,
+        kind: "relation",
+        relation: relation.kind,
+      });
+    }
   // Plan replacement links target the earliest visible task in the new plan.
   for (const task of ordered) {
     if (!task.superseded_by_plan_id) continue;
     const targets = ordered.filter(
       (t) => t.id !== task.id && t.plan_id === task.superseded_by_plan_id,
     );
-    if (!targets.length) continue;
+    if (!targets.length || related.has(`${task.id}\u0000${targets[0].id}`)) continue;
     links.push({
       id: JSON.stringify(["replacement", task.id, task.superseded_by_plan_id]),
       source: task.id,
@@ -380,21 +414,10 @@ export function replayTasks(tasks: MapTask[], count: number): MapTask[] {
     .slice(0, count);
 }
 
-export type LineNote = { source: string; target: string; label: string };
-
-/** The pairs of tasks whose line has nothing to say yet beyond its kind: the
- * lines a note is asked for (useMapLines). */
-export function unstatedPairs(links: MapLink[]): Array<{ source: string; target: string }> {
-  return links
-    .filter((link) => !link.stated && (link.kind === "context" || (link.kind === "dependency" && !link.label)))
-    .map(({ source, target }) => ({ source, target }));
-}
-
 /** Connect components with content/context links; recorded dependencies remain authoritative.
  *
- * `notes` say what an existing line carries. They annotate the line between
- * their two tasks and never add one or change its kind, so the map keeps its
- * shape whether or not the notes have arrived. */
+ * Recorded relations join their cards first; a time-order line only joins
+ * cards that no relation reaches. */
 export function connectMap(
   graph: MapGraph,
   semantic: Array<{
@@ -403,15 +426,10 @@ export function connectMap(
     label: string;
   }>,
   zh: boolean,
-  notes: LineNote[] = [],
 ): MapLink[] {
-  const noteFor = (source: string, target: string) =>
-    notes.find((n) => n.source === source && n.target === target && n.label);
   const links = graph.links.map((link): MapLink => {
     if (link.kind !== "dependency") return link;
-    const phrase =
-      semantic.find((r) => r.source === link.source && r.target === link.target) ??
-      noteFor(link.source, link.target);
+    const phrase = semantic.find((r) => r.source === link.source && r.target === link.target);
     return phrase
       ? {
           ...link,
@@ -429,7 +447,7 @@ export function connectMap(
   const join = (a: string, b: string) => {
     parent.set(find(a), find(b));
   };
-  for (const link of links.filter((l) => l.kind === "dependency"))
+  for (const link of links.filter((l) => l.kind === "dependency" || l.kind === "relation" || l.kind === "replacement"))
     join(link.source, link.target);
   for (const relation of semantic) {
     if (
@@ -455,20 +473,6 @@ export function connectMap(
       previous = graph.tasks[i - 1];
     if (find(task.id) === find(previous.id)) continue;
     const samePlan = task.plan_id && task.plan_id === previous.plan_id;
-    const note = noteFor(previous.id, task.id);
-    if (note) {
-      links.push({
-        id: `context:${previous.id}:${task.id}`,
-        source: previous.id,
-        target: task.id,
-        kind: "context",
-        label: note.label,
-        stated: true,
-        evidence: `${note.label} · ${zh ? "按时间排列，不表示执行依赖。" : "Arranged in time; no execution dependency is implied."}`,
-      });
-      join(previous.id, task.id);
-      continue;
-    }
     links.push({
       id: `context:${previous.id}:${task.id}`,
       source: previous.id,

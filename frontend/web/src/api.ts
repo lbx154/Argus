@@ -1021,12 +1021,9 @@ export const api = {
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
-  /** A short title and a sentence for each task's card. `write` also has the missing ones written. */
-  mapCardWords: (source: string, name: string, body: { tasks: string[]; locale: string; write: boolean }, signal?: AbortSignal, sessionId?: string) =>
-    postJson<import('./map/useMapWords').MapCardWords>(`/api/map-cards/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`, body, signal),
-  /** What the lines between tasks say. `write` also has the missing notes written. */
-  mapLines: (source: string, name: string, body: { pairs: Array<{ source: string; target: string }>; locale: string; write: boolean }, signal?: AbortSignal, sessionId?: string) =>
-    postJson<import('./map/useMapLines').MapLines>(`/api/map-lines/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`, body, signal),
+  /** One task's recorded trajectory: what each role thought, said, ran and changed. */
+  mapTrace: (sid: string, task: string, signal?: AbortSignal) =>
+    getJson<import('./components/TaskTrace').TaskTraceData>(P(sid, '/map-trace') + `?task=${encodeURIComponent(task)}`, signal),
   /** The explanation a reader is about to ask about, kept at that moment with the step's records. */
   mapQuestionSource: (sid: string, body: { card_key: string; task_id: string; locale: 'zh-CN' | 'en-US'; preview?: ReaderPreview; foundation_id?: string }, signal?: AbortSignal) =>
     postJson<ProgressSourceRef>(`/api/map-question-source/project/${encodeURIComponent(sid)}?session_id=${encodeURIComponent(sid)}`,

@@ -10,6 +10,7 @@
   --map-edge-semantic: #8b95a0; /* neutral gray: related work */
   --map-edge-context: #6f8ca8; /* slate blue, a step quieter: the order work happened in */
   --map-edge-replacement: #af8149; /* muted amber: the plan changed course */
+  --map-edge-relation: #4f7f6a; /* sage green: a relation the records state */
 }
 [data-theme="dark"] .argus-map {
   --map-edge-dependency: #7ea9cd;
@@ -17,6 +18,7 @@
   --map-edge-semantic: #939ea9;
   --map-edge-context: #7d97b0;
   --map-edge-replacement: #c79e63;
+  --map-edge-relation: #82b39c;
 }
 
 /* Legend swatches quote the same variables so the key never drifts from the
@@ -28,6 +30,12 @@
   border-top-color: var(--map-edge-semantic);
 }
 .argus-map .map-legend .replacement {
+  border-top-color: var(--map-edge-replacement);
+}
+.argus-map .map-legend .relation {
+  border-top-color: var(--map-edge-relation);
+}
+.argus-map .map-legend .relation-replaces {
   border-top-color: var(--map-edge-replacement);
 }
 
@@ -63,6 +71,9 @@
 }
 .argus-map .map-relation-label[data-kind="replacement"] {
   --edge-hue: var(--map-edge-replacement);
+}
+.argus-map .map-relation-label[data-kind="relation"] {
+  --edge-hue: var(--map-edge-relation);
 }
 [data-theme="dark"] .argus-map .map-relation-label {
   color: color-mix(in srgb, var(--edge-hue) 66%, rgb(var(--ink)));
