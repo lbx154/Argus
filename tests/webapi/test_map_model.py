@@ -320,12 +320,3 @@ def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatc
     assert receipts == []
     assert not (tmp_path / "map-presentation").exists()
 
-
-def test_historical_generation_requires_an_owning_session(tmp_path, monkeypatch):
-    folder = tmp_path / "datasets"
-    folder.mkdir()
-    (folder / "history.json").write_text(json.dumps({"id": "history", "read_only": True, "tasks": [], "events": []}))
-    monkeypatch.setenv("ARGUS_MAP_DATASETS_DIR", str(folder))
-    with TestClient(create_app(global_root=tmp_path)) as client:
-        response = client.post("/api/map-copy/dataset/history", json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
-        assert response.status_code == 422

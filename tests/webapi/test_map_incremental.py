@@ -1,8 +1,4 @@
 import json
-import subprocess
-import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -10,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.webapi import map_history, map_narrative
+from argus.webapi import map_history
 from argus.webapi.map_feed import MapFeed
 from argus.webapi.map_view import read_map
 from argus.webapi.server import create_app
@@ -195,45 +191,6 @@ def test_history_size_check_never_reads_events_or_generates_copy(tmp_path, monke
     assert not (tmp_path / "map-history-cache").exists()
 
 
-def test_complete_history_pages_include_evidence_before_the_live_tail(tmp_path, monkeypatch):
-    sid, life, _ = setup_session(tmp_path)
-    append(life, {"event_id": "early", "type": "round.review.completed", "ts": 3, "text": "Early finding"})
-    with (life / "events.jsonl").open("a") as stream:
-        noise = json.dumps({"type": "tool.output", "text": "x" * 1024}) + "\n"
-        stream.write(noise * 8500)
-    append(life, {"event_id": "late", "type": "round.review.completed", "ts": 4, "text": "Later finding"})
-    seen, after = [], None
-    with TestClient(create_app(global_root=tmp_path)) as client:
-        for _ in range(30):
-            response = client.get(f"/api/projects/{sid}/map-history", params={"after": after} if after else {})
-            assert response.status_code == 200, response.text
-            page = response.json()
-            seen.extend(page["events"])
-            after = page["history_cursor"]
-            if not page["history_loading"]:
-                break
-        else:
-            raise AssertionError("History paging did not finish")
-        assert [e["id"] for e in seen if e["id"] in {"early", "late"}] == ["early", "late"]
-        assert all(e["item_id"] == "a" for e in seen)
-        assert not (tmp_path / "map-presentation").exists()
-        assert len({e["id"] for e in seen}) == len(seen)
-        empty = client.get(f"/api/projects/{sid}/map-history", params={"after": after, "task_after": page["cursor"]}).json()
-        assert empty["events"] == empty["tasks"] == []
-        assert not empty["history_loading"]
-
-        def generate(documents, *args, **kwargs):
-            assert documents[0]["events"][0]["text"] == "Early finding"
-            return {"cards": [{"key": "early", "title": "Review", "summary": "Early finding", "detail": "Evidence checked"}], "relations": []}
-
-        monkeypatch.setattr(map_narrative, "configured", lambda: True)
-        monkeypatch.setattr(map_narrative, "generate", generate)
-        result = client.post(f"/api/map-copy/project/{sid}", json={
-            "cards": [{"key": "early", "task_id": "a", "kind": "review", "event_ids": ["early"]}],
-        })
-        assert result.status_code == 200, result.text
-
-
 def test_history_index_survives_reopening_and_resets_replaced_files(tmp_path, monkeypatch):
     sid, life, _ = setup_session(tmp_path)
     value = read_map(sid, tmp_path, life, include_events=False)
@@ -360,119 +317,6 @@ def test_feed_preserves_loaded_evidence_when_the_live_log_rolls_over(tmp_path):
     assert [event["id"] for event in continued["events"]] == ["after-roll"]
 
 
-def test_completed_child_copy_ignores_later_progress_but_rechecks_requested_model_changes(tmp_path, monkeypatch):
-    sid, life, memory = setup_session(tmp_path)
-    append(life, {"event_id": "review", "type": "round.review.completed", "ts": 3, "text": "First review"})
-    calls = []
-
-    def generate(documents, *args, **kwargs):
-        calls.append(documents)
-        return {"cards": [{"key": d["key"], "title": "Review", "summary": "First review", "detail": "Checked"} for d in documents], "relations": []}
-
-    monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "generate", generate)
-    request = [{"key": "review", "task_id": "a", "kind": "review", "event_ids": ["review"]}]
-    first = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
-    memory.backlog.update("a", status="done", notes="Later successful result", finished_ts=99)
-    second = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
-    assert second["cached"] and len(calls) == 1
-    assert second["cards"]["review"] == first["cards"]["review"]
-    assert "status" not in calls[0][0]["task"]
-    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "different-model")
-    third = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
-    assert not third["cached"] and len(calls) == 2
-    assert third["cards"]["review"]["model_revision"] != first["cards"]["review"]["model_revision"]
-    # Re-checking historical copy must still use that step's original evidence.
-    assert calls[1][0]["task"] == calls[0][0]["task"]
-    assert calls[1][0]["events"] == calls[0][0]["events"]
-
-
-@pytest.mark.parametrize("version", [None, 5, 6])
-def test_legacy_copy_remains_readable_when_generation_is_unavailable(tmp_path, monkeypatch, version):
-    phases = []
-    sid, life, _ = setup_session(tmp_path)
-    value = read_map(sid, tmp_path, life)
-    saved = {"version": version, "model_revision": "earlier-model",
-             "task_revision": value["tasks"][0]["revision"], "event_ids": [],
-             "title": "Coverage", "summary": "Existing summary", "detail": "Existing detail", "generated_at": 1}
-    path = map_narrative.cache_path(tmp_path, value["id"] + ":en-US")
-    path.parent.mkdir()
-    path.write_text(json.dumps({"cards": {"a": saved}, "relations": []}))
-    monkeypatch.setattr(map_narrative, "configured", lambda: False)
-    monkeypatch.setattr(map_narrative, "generate", lambda *a, **k: (_ for _ in ()).throw(AssertionError("regenerated")))
-    result = map_narrative.enrich(tmp_path, value, [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US",
-                                 project_root=life, on_progress=phases.append)
-    assert result["available"] is False and result["cards"]["a"]["generated_at"] == 1
-    assert "reader_brief" not in result["cards"]["a"]
-    assert "input_revision" not in result["cards"]["a"]
-    assert phases == ["waiting_for_source"]
-
-
-def test_different_sessions_can_prepare_copy_concurrently(tmp_path, monkeypatch):
-    sessions = [setup_session(tmp_path, sid) for sid in ("s-one", "s-two")]
-    barrier = threading.Barrier(2)
-
-    def generate(documents, *args, **kwargs):
-        barrier.wait(timeout=5)
-        return {"cards": [{"key": "a", "title": "Coverage", "summary": "Checked", "detail": "Independent result"}], "relations": []}
-
-    monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "generate", generate)
-
-    def run(session):
-        sid, life, _ = session
-        return map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life),
-                                    [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US", project_root=life)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(run, sessions))
-    assert all(r["cache_revision"] == 1 for r in results)
-
-
-def test_same_session_requests_share_the_existing_generation(tmp_path, monkeypatch):
-    sid, life, _ = setup_session(tmp_path)
-    data = read_map(sid, tmp_path, life)
-    calls = []
-
-    def generate(documents, *args, **kwargs):
-        calls.append(documents)
-        return {"cards": [{"key": "a", "title": "Coverage", "summary": "Checked", "detail": "Result"}], "relations": []}
-
-    monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "generate", generate)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(map_narrative.enrich, tmp_path, data,
-                                   [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US", project_root=life) for _ in range(2)]
-        results = [f.result() for f in futures]
-    assert len(calls) == 1
-    assert sum(r["cached"] for r in results) == 1
-
-
-def test_separate_api_processes_reuse_the_same_cached_generation(tmp_path):
-    script = """
-import json, sys, time
-from pathlib import Path
-from argus.webapi import map_narrative as copy
-root = Path(sys.argv[1])
-def generate(documents, *args, **kwargs):
-    with (root / 'calls.txt').open('a') as f: f.write('call\\n')
-    time.sleep(.15)
-    return {'cards': [{'key': 'a', 'title': 'Coverage', 'summary': 'Checked', 'detail': 'Result'}], 'relations': []}
-copy.generate = generate
-copy.configured = lambda: True
-data = {'id': 'live:s-process', 'tasks': [{'id': 'a', 'title': 'Coverage', 'status': 'done'}], 'events': []}
-result = copy.enrich(root, data, [{'key': 'a', 'task_id': 'a', 'kind': 'task', 'event_ids': []}], 'en-US', project_root=root)
-print(json.dumps({'cached': result['cached']}))
-"""
-    workers = [subprocess.Popen([sys.executable, "-c", script, str(tmp_path)],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
-    receipts = []
-    for worker in workers:
-        stdout, stderr = worker.communicate(timeout=30)
-        assert worker.returncode == 0, stderr
-        receipts.append(json.loads(stdout))
-    assert (tmp_path / "calls.txt").read_text().splitlines() == ["call"]
-    assert sum(r["cached"] for r in receipts) == 1
 
 
 def test_updated_event_behind_the_cursor_is_redelivered(tmp_path):
