@@ -1073,7 +1073,7 @@ export function EventStream({
     if (live && (work?.taskId ? work.taskId === block.taskId : block.key === timeline.latestTask)) return 'running';
     return status === 'running' || status === 'pending' ? 'paused' : 'idle';
   };
-  const taskTitle = (block: Extract<TimelineBlock, { kind: 'task' }>) => {
+  const blockTitle = (block: Extract<TimelineBlock, { kind: 'task' }>) => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
     const named = item?.title || block.rows.map(row => row.ev.mission_title || row.ev.task_title).find(Boolean);
     return String(named || (block.taskId
@@ -1241,7 +1241,7 @@ export function EventStream({
                 onOpenArtifact={onOpenArtifact}
                 onOpenDelivery={onOpenDelivery}
               />;
-              return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={taskTitle(block)}
+              return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
                 snapshot={snapshot} view={missionView} events={deferredEvents} onOpenWork={() => setWorkOpen(true)}
                 onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
             })}
