@@ -77,10 +77,10 @@ export function TopBar({
     : draining
     ? t('topbar.draining')
     : snap.daemon.alive
-    ? onPause ? t('topbar.pauseAfterCurrent') : t('topbar.pauseDaemon')
+    ? onPause ? t('topbar.pauseTeam') : t('topbar.pauseDaemon')
     : foregroundWork
     ? t('topbar.working')
-    : t('topbar.runDaemon');
+    : hasQueuedWork ? t('topbar.resumeTeam') : t('topbar.runDaemon');
   const stopNow = () => {
     if (window.confirm(t('daemon.stopConfirm'))) onStop();
   };
@@ -166,7 +166,7 @@ export function TopBar({
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
-            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : snap.daemon.alive ? t('common.pause') : foregroundWork ? t('common.working') : t('common.run')}</span>
+            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : snap.daemon.alive ? t('topbar.pauseTeam') : foregroundWork ? t('common.working') : hasQueuedWork ? t('topbar.resumeTeam') : t('common.run')}</span>
           </button>}
           {snap.daemon.alive && onPause && !externalDaemon ? <button
             type="button"

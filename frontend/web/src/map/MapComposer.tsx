@@ -262,7 +262,7 @@ export function MapComposer({
         task: [zh ? "任务已进入地图" : "Your task is on the map", zh ? "跟随地图，查看执行进展" : "Follow its progress on the map"],
         message: [zh ? `${applicationBrand().name} 已回复` : `${applicationBrand().name} replied`, zh ? "在对话中查看回复" : "Open the conversation to read it"],
         error: [zh ? "发送没有成功" : "Message could not be sent", zh ? "草稿已保留，可以重试" : "Your draft is ready to retry"],
-        cancelled: [zh ? "正在停止回复" : "Stopping reply", zh ? "可以发送新消息" : "You can send another message"],
+        cancelled: [zh ? "正在停止本次回复" : "Stopping this reply", zh ? "可以发送新消息" : "You can send another message"],
       }[dispatchStatus]
     : undefined;
   const queuedCopy = [
@@ -275,7 +275,7 @@ export function MapComposer({
     : sent ? (zh ? `已发送给 ${applicationBrand().name}` : `Sent to ${applicationBrand().name}`) : (zh ? `交给 ${applicationBrand().name}` : `Ask ${applicationBrand().name}`));
   const detail = feedback?.[1] || (pending && queued ? queuedCopy[1] : pending
     ? progressVisible ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
-      : (zh ? '可发送后续消息或停止回复' : 'Send a follow-up or stop the reply')
+      : (zh ? '可发送后续消息或停止本次回复' : 'Send a follow-up or stop this reply')
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
       : hasDraft ? (zh ? "草稿已保留，点此继续" : "Draft saved — tap to continue")
         : (zh ? "描述目标，看它变成成果" : "Turn your next idea into a result"));
@@ -391,7 +391,8 @@ export function MapComposer({
         </button>
         {compact && pending && (
           <button type="button" className="map-island-stop" onClick={onCancel}
-            aria-label={zh ? "停止回复" : "Stop reply"}>
+            aria-label={zh ? "停止本次回复" : "Stop this reply"}
+            title={zh ? "只停止 Manager 这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}>
             <Square size={13} />
           </button>
         )}
@@ -462,7 +463,8 @@ export function MapComposer({
                   onCancel();
                 }}
                 tabIndex={compact ? -1 : 0}
-                aria-label={zh ? "停止回复" : "Stop reply"}
+                aria-label={zh ? "停止本次回复" : "Stop this reply"}
+                title={zh ? "只停止 Manager 这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}
                 className="map-send is-pending"
               >
                 <Square size={15} />

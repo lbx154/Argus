@@ -2,6 +2,7 @@ import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
 import { ComposerRuntime } from '../components/ComposerRuntime';
+import { WorkStatusBar } from '../components/WorkStatusBar';
 import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { MapReaderContent, type MapReaderSelection } from './MapReaderContent';
@@ -1504,7 +1505,13 @@ export const MapPanel = memo(function MapPanel({
   onOpenReceipt,
   onOpenArtifact,
   onAnswer,
+  onPauseTeam,
+  onResumeTeam,
+  teamBusy,
 }: {
+  onPauseTeam?: () => void;
+  onResumeTeam?: () => void;
+  teamBusy?: boolean;
   snapshot: Snapshot;
   currentTaskId?: string | null;
   events: EventMsg[];
@@ -1701,7 +1708,9 @@ export const MapPanel = memo(function MapPanel({
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
-      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} />,
+      footer: <><WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
+        onPauseTeam={readOnly ? undefined : onPauseTeam} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />
+        <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} /></>,
       routeOverride,
       onRouteOverrideChange,
       value: draft,
@@ -1719,7 +1728,7 @@ export const MapPanel = memo(function MapPanel({
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
      pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
      source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
-     readOnly, onOpenSettings],
+     readOnly, onOpenSettings, events, connected, onPauseTeam, onResumeTeam, teamBusy],
   );
   const switchSource = (value: string) => {
     setSource(value);

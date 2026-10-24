@@ -191,7 +191,7 @@ describe('pause lets the current task finish; stop now is separate', () => {
   it('offers a graceful pause and a separate stop-now control', () => {
     const html = renderToStaticMarkup(<TopBar snap={running} streamOk onStart={() => undefined} onStop={() => undefined}
       onPause={() => undefined} onManage={() => undefined} busy={false} />);
-    expect(html).toContain('aria-label="当前任务完成后暂停"');
+    expect(html).toContain('aria-label="暂停团队"');
     expect(html).toContain('aria-label="立即停止"');
   });
 
