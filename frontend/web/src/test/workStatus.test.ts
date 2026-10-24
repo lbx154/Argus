@@ -75,6 +75,30 @@ describe('shared work status', () => {
     expect(workStatusLabel(done, 'zh-CN')).toBe('项目已完成');
   });
 
+  it('never calls a project done while its only result is a stage package with the overall goal open', () => {
+    // Trial s-efe9deac: a reviewed plan (stage package, "整体目标未完成") and
+    // then a clock-out stop; the header said "项目已完成".
+    const snapshot = fixture(), view = emptyMissionView();
+    view.mission.status = 'continued';
+    view.routing.continuous = true;
+    view.delivery = { kind: 'stage_package', status: 'done', item_id: '99d44fc3006a' } as unknown as typeof view.delivery;
+    snapshot.backlog = [{ id: '99d44fc3006a', status: 'done', title: 'LLM 强化学习原创研究与 ACL 完整论文' }] as Snapshot['backlog'];
+    view.mission.id = '99d44fc3006a';
+    snapshot.continuous = { enabled: true, objective: 'ACL 论文' };
+    const between = currentWorkStatus(snapshot, view);
+    expect(between).toMatchObject({ state: 'waiting', reason: 'goal_open' });
+    expect(workStatusLabel(between, 'zh-CN')).toBe('阶段成果已交付，正在安排下一阶段');
+    snapshot.daemon.alive = false;
+    snapshot.continuous = { enabled: false, objective: 'ACL 论文', done_reason: 'operator stop (graceful SIGTERM/SIGINT — clock out)', done_at: '2026-10-24T15:00:38Z' };
+    const stopped = currentWorkStatus(snapshot, view);
+    expect(stopped).toMatchObject({ state: 'step_finished', reason: 'goal_open' });
+    expect(workStatusLabel(stopped, 'zh-CN')).toBe('阶段成果已交付，整体目标还没完成；发条消息就能让团队继续');
+    expect(workStatusLabel(stopped, 'en')).toContain('the overall goal is still open');
+    // The Planner judging the goal met is what closes the project.
+    snapshot.continuous = { enabled: false, objective: 'ACL 论文', done_reason: 'planner declared project done', done_at: '2026-10-24T15:00:38Z' };
+    expect(currentWorkStatus(snapshot, view).reason).toBe('project_done');
+  });
+
   it('shows the Planner choosing the next step after a step finishes, but not post-step housekeeping', () => {
     const snapshot = fixture(), view = emptyMissionView();
     view.mission.status = 'complete';

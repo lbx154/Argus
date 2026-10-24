@@ -82,6 +82,20 @@ def _check_setup(payload: dict[str, Any], setting_up: bool) -> None:
         raise ValueError("ask: offer two to four answers to the setup question, your recommendation first.")
 
 
+def _check_no_start_hold(payload: dict[str, Any], message: str) -> None:
+    """Argus holds the work before Start by itself; a ticket that says to wait outlives the click."""
+    from ..core.launch_settings import HOLD_CONTEXT_HEADINGS, mentions_waiting_for_start
+
+    if not any(heading in message for heading in HOLD_CONTEXT_HEADINGS):
+        return
+    lines = [payload.get("goal") or "", *(payload.get("acceptance") or ()), *(payload.get("constraints") or ())]
+    if any(mentions_waiting_for_start(line) for line in lines):
+        raise ValueError(
+            "Argus itself holds this work until the operator presses Start, and the team reads the "
+            "ticket after that: take waiting for Start out of goal, acceptance and constraints."
+        )
+
+
 def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_allowed: bool,
            route: Callable[[dict[str, Any]], Any] | None,
            stage: Callable[[dict[str, Any]], Any] | None, waiting: Mapping[str, Sequence[str]],
@@ -111,6 +125,7 @@ def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_
     if settings and payload.get("intake", {}).get("type") == "standing_directive":
         raise ValueError("A setting change is intake.type=preference; config stores the setting itself.")
     if to == "team":
+        _check_no_start_hold(payload, message)
         return route(_route(payload)) if route else None
     if "stage" in payload and to != "manager":
         raise ValueError("A stage ruling is carried out by Argus: file it with to=manager.")

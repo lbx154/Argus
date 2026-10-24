@@ -31,6 +31,28 @@ def test_a_ticket_carries_its_goal_acceptance_and_route():
     assert payload["vertical"] == "research" and payload["research_target_level"] == "exploratory"
 
 
+def test_a_held_ticket_never_tells_the_team_to_wait_for_start():
+    # Trial s-efe9deac: told of the hold as operator text, the Manager wrote
+    # "wait for 开始执行" into goal, acceptance and constraints; after the click
+    # the team still waited and only re-checked the plan.
+    from argus.core.launch_settings import launch_hold_context
+
+    message = "请直接给一个完整的论文 我要投ACL\n\n" + launch_hold_context("写论文")
+    actions = manager_actions(message, active_mission=False, operator_available=True, route=lambda _p: "decision")
+    held = dict(to="team", goal="完成 ACL 论文", acceptance=["交付 paper/main.pdf"], vertical="research")
+    for field, text in (
+        ("goal", "完成 ACL 论文。必须先排队等待用户点击“开始执行”。"),
+        ("acceptance", ["用户点击“开始执行”前只排队，不开展文献调研。"]),
+        ("constraints", ["交给团队后先别开工：Argus 会把排好的任务停在开始之前。"]),
+    ):
+        assert "take waiting for Start out" in _call(actions, **{**held, field: text})
+    assert _call(actions, **held) == ""
+    # Without a hold the same words are the operator's own and pass as written.
+    plain = manager_actions("等我点“开始执行”再做实验", active_mission=False, operator_available=True,
+                            route=lambda _p: "decision")
+    assert _call(plain, **{**held, "constraints": ["等我点“开始执行”再做实验"]}) == ""
+
+
 def test_an_answer_kept_with_the_manager_cannot_go_to_the_team():
     actions = manager_actions("/ask 这个怎么做", active_mission=False, team_allowed=False, operator_available=True)
     assert "yourself" in _call(actions, to="team", goal="g", acceptance=["a"])
