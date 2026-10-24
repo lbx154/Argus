@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Sequence
 
 from ..core.research_contract import normalize_research_direction_mode
@@ -197,6 +197,8 @@ class VerticalDecision:
     session_title: str = ""
     workflow_profile: str = ""
     workflow_requested_stages: tuple[str, ...] = ()
+    # The plan file the Manager wrote for the ticket: ``{"path", "summary"}``, or empty.
+    plan: dict[str, str] = field(default_factory=dict)
 
 
 def _listed(payload: Mapping[str, Any], key: str) -> tuple[str, ...]:
@@ -247,6 +249,7 @@ class RouteContext:
             precise_constraints=_listed(payload, "precise_constraints"),
             assumptions=tuple(payload["assumptions"]),
             session_title=topic_name(payload.get("session_title")),
+            plan=dict(payload.get("plan", {})),
         )
         if choice == "new":
             return self._new(payload, decision)

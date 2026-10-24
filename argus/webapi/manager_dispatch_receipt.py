@@ -23,7 +23,9 @@ def _dispatch_ack_text(
     zh = uses_cjk(operator_text or item.get("title") or item.get("objective"))
     dispatch_state = result.get("dispatch_state")
     if result.get("launch_hold"):
-        return say("ack_plan_awaits_start", zh)
+        # Nothing has started, so the Manager's own words on its plan close the
+        # turn; the card under them holds Start and Discard.
+        return str(result.get("reply") or "").strip() or say("ack_plan_awaits_start", zh)
     question = str(item.get("pending_question") or "").strip()
     if question:
         from ..life.supervisor.pending_notify import numbered_options

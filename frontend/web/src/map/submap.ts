@@ -173,7 +173,7 @@ function stepVerb(step: WorkStep): StepVerb {
 }
 
 /** One tool call as a short plain phrase. The backend already says each call
- * plainly ("查阅 main.py", "$ pytest -q"); a command line is shown as one. */
+ * plainly ("查阅 main.py", "运行测试"); a command reads as what it does. */
 export function stepPhrase(step: WorkStep, zh: boolean): string {
   const tool = (step.tool || "").trim();
   const label = step.label.replace(STEP_GLYPH, "").trim();

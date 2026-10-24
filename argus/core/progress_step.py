@@ -5,16 +5,16 @@ handful of euphemisms ("checking project state", "using a tool"). That told the
 operator *that* something was happening but never *what*, which is exactly the
 "the CLI feels frozen / I can't see what it is doing" complaint.
 
-This module is a dumb, domain-agnostic formatter: it reports the action the
-agent actually took (the command it ran, the tool it called, the files it
-touched) verbatim-but-trimmed, after routing the text through
-:mod:`argus.core.secret_guard`. It makes no judgment about whether the
+This module is a dumb, domain-agnostic formatter: it says in plain words the
+action the agent actually took (what the command it ran does, the tool it
+called, the files it touched), after routing the text through
+:mod:`argus.core.secret_guard`, and leaves Argus finding its way out. It makes no judgment about whether the
 step was useful, on-track, or complete — that stays with the agent.
 
 ``describe_progress_step`` returns ``(label, detail)``:
 
 * ``label`` — one short scannable line for the live status row; empty for
-  Argus' own tool, which is no step of the operator's.
+  an internal step (:func:`internal_step`), which is no step of the operator's.
 * ``detail`` — the longer redacted body for an expandable/secondary row; may be
   empty when the label already says everything.
 """
@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -39,16 +40,8 @@ _DETAIL_LIMIT = 240
 # How many files a step names before it says "and others".
 _NAMES_SHOWN = 3
 
-_SHELL_PREFIXES = (
-    "/bin/bash -lc ",
-    "/bin/bash -c ",
-    "/bin/sh -lc ",
-    "/bin/sh -c ",
-    "bash -lc ",
-    "bash -c ",
-    "sh -lc ",
-    "sh -c ",
-)
+# The shell a runner wraps a command in, under any path: ``/usr/bin/bash -lc '<cmd>'``.
+_SHELL_WRAPPER = re.compile(r"^(?:\S*/)?(?:ba|z)?sh\s+-l?c\s+")
 
 
 def _first_line(text: str) -> str:
@@ -67,15 +60,16 @@ def _clip(text: str, limit: int) -> str:
 
 
 def strip_shell_wrapper(command: str) -> str:
-    """Unwrap ``/bin/bash -lc '<cmd>'`` so the operator sees ``<cmd>``."""
+    """Unwrap ``/usr/bin/bash -lc '<cmd>'`` so the operator sees ``<cmd>``."""
     text = (command or "").strip()
-    for prefix in _SHELL_PREFIXES:
-        if text.startswith(prefix):
-            inner = text[len(prefix):].strip()
-            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
-                inner = inner[1:-1]
-            return inner.strip()
-    return text
+    wrapper = _SHELL_WRAPPER.match(text)
+    if not wrapper:
+        return text
+    inner = text[wrapper.end():].strip()
+    if inner[:1] in ("'", '"'):
+        # A clipped command lost its closing quote along with its tail.
+        inner = inner[1:-1] if len(inner) >= 2 and inner[-1] == inner[0] else inner[1:]
+    return inner.strip()
 
 
 def _tool_label(text: str) -> tuple[str, str]:
@@ -134,14 +128,18 @@ _LIBRARIES = ((_WIKI_ROOTS, "知识页", "知识库"), (_SKILL_ROOTS, "技能", 
 _HANDOFF_ROOTS = (("state", "projects", "*", "handoffs"),)
 # Tools that start a helper agent on part of the work.
 _HELPER_TOOLS = frozenset({"task", "agent"})
+# The installed Argus package itself (its built-in skills among it).
+_PACKAGE = tuple(_parts(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 # Path segments that only Argus' own plumbing uses: session stores, shared
 # skill libraries and wikis, handoff checkpoints, the shipped verticals, and
 # the installed Argus package itself (its built-in skills).
 _PLUMBING_SEGMENTS = (
     ("state", "projects"), ("state", "skills"), ("argus", "verticals"),
-    ("role-sessions",), ("copilot-home",), *_WIKI_ROOTS,
-    tuple(_parts(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))),
+    ("role-sessions",), ("copilot-home",), *_WIKI_ROOTS, _PACKAGE,
 )
+# Argus' own rules and records: its skill libraries, its package and a
+# project's state directory (events, backlog, transcript, handoffs).
+_INTERNAL_ROOTS = (*_SKILL_ROOTS, ("state", "projects"), _PACKAGE)
 
 
 def _marker_end(parts: list[str], markers: tuple[tuple[str, ...], ...]) -> int:
@@ -341,6 +339,101 @@ def _humane_tool_label(name: str, args: str, workspace: str = "") -> str:
     return "交出工作" if name.endswith("hand_off") else f"调用 {name}"
 
 
+def internal_step(kind: str, text: str) -> bool:
+    """Whether one action is Argus finding its way rather than a step of the work.
+
+    The one place this is decided: running Argus' own tool, and reading or
+    searching Argus' rules (its skill libraries, its package) or a project's
+    state directory. Such a step is never shown to the operator; its raw
+    record stays in the agent's log.
+    """
+    text = str(text or "")
+    if kind == "command_execution":
+        return bool(_ARGUS_TOOL.search(text)) or any(
+            _marker_end(_parts(path), _INTERNAL_ROOTS) for path in _ABSOLUTE_PATH.findall(text)
+        )
+    if kind not in {"tool_use", "tool_call"}:
+        return False
+    name, args = _tool_label(text)
+    if _tool_verb(name) not in {"read", "search"}:
+        return False
+    payload = _parse_args(args)
+    path = _first_value(payload, _PATH_KEYS) or (
+        args.split()[0] if payload is None and args.strip() and "{" not in args else ""
+    )
+    return bool(_marker_end(_parts(path), _INTERNAL_ROOTS))
+
+
+_COMMAND_SEGMENTS = re.compile(r"\s*(?:&&|\|\||;|\||\n)\s*")
+# Words that only set up the command that follows them.
+_LEAD_WORDS = frozenset({"sudo", "time", "timeout", "env", "nohup", "exec", "uv", "run", "poetry"})
+# Commands that only prepare for the next one on the line.
+_SETUP_COMMANDS = frozenset({"cd", "export", "source", "set", ".", "mkdir"})
+_TEST_RUNNERS = frozenset({"pytest", "vitest", "jest"})
+_READ_COMMANDS = frozenset({"cat", "head", "tail", "less", "more", "sed", "nl", "wc", "awk", "jq", "bat", "stat"})
+_LIST_COMMANDS = frozenset({"ls", "tree", "find", "fd", "du"})
+_SEARCH_COMMANDS = frozenset({"rg", "grep", "egrep", "ag"})
+_FETCH_COMMANDS = frozenset({"curl", "wget"})
+_FILE_COMMANDS = frozenset({"mkdir", "cp", "mv", "rm", "touch", "ln", "chmod", "tar", "unzip"})
+_INSTALLERS = frozenset({"pip", "pip3", "conda", "npm", "pnpm", "yarn", "apt", "apt-get"})
+_GIT_READS = frozenset({"status", "diff", "log", "show", "blame"})
+_MACHINE_COMMANDS = {
+    "nvidia-smi": "查看 GPU 状态",
+    **dict.fromkeys(("ps", "top", "htop", "free", "df", "nproc", "uname", "lscpu", "uptime"), "查看机器状态"),
+}
+
+
+def _command_words(segment: str) -> list[str]:
+    try:
+        words = shlex.split(segment)
+    except ValueError:
+        words = segment.split()
+    while words and (words[0] in _LEAD_WORDS or "=" in words[0] or words[0].isdigit()):
+        words = words[1:]
+    return words
+
+
+def _command_label(command: str, workspace: str = "") -> str:
+    """Say what a command line does -- ``查阅 main.py``, ``运行测试`` -- never the line itself."""
+    segments = [_command_words(part) for part in _COMMAND_SEGMENTS.split(command)]
+    segments = [words for words in segments if words]
+    if not segments:
+        return "运行命令"
+    words = next((words for words in segments if words[0] not in _SETUP_COMMANDS), segments[0])
+    name = os.path.basename(words[0])
+    operands = [word for word in words[1:] if not word.startswith(("-", "<", ">", "2>"))]
+    if _TEST_RUNNERS & {os.path.basename(word) for word in words} or operands[:1] == ["test"]:
+        return "运行测试"
+    if name.startswith("python"):
+        if "-m" in words[:-1]:
+            return _phrase("运行", words[words.index("-m") + 1])
+        if operands and "-c" not in words:
+            return _phrase("运行", _short_name(operands[0], workspace))
+        return "运行一段 Python 脚本"
+    if name in _LIST_COMMANDS or (name in _SEARCH_COMMANDS and "--files" in words):
+        where = operands[0] if operands else "."
+        if where in {".", "./"} or (workspace and os.path.normpath(where) == os.path.normpath(workspace)):
+            return "查看项目目录"
+        return _phrase("查看", _short_name(where, workspace))
+    if name in _READ_COMMANDS:
+        return _phrase("查阅", _short_name(operands[-1], workspace)) if operands else "查阅文件"
+    if name in _SEARCH_COMMANDS:
+        return _humane_tool_label("grep", json.dumps({"pattern": operands[0] if operands else ""}))
+    if name in _FETCH_COMMANDS:
+        return _humane_tool_label("fetch", json.dumps({"url": next((w for w in operands if "://" in w), "")}))
+    if name == "git" and _GIT_READS & set(operands):
+        return "查看代码改动"
+    if name == "git" and "clone" in operands:
+        return "下载代码仓库"
+    if name in _MACHINE_COMMANDS:
+        return _MACHINE_COMMANDS[name]
+    if name in _INSTALLERS and "install" in operands:
+        return "安装依赖"
+    if name in _FILE_COMMANDS:
+        return "整理文件"
+    return _phrase("运行", name)
+
+
 def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
     """Return ``(label, detail)`` describing one observable agent action.
 
@@ -358,23 +451,21 @@ def describe_progress_step(event: Any, workspace: str = "") -> tuple[str, str]:
         raw_text = redact_secrets_text(str(event.get("text") or ""))
         summary = " ".join(str(event.get("action_summary") or "").split())
         workspace = str(event.get("workspace") or event.get("cwd") or workspace or "")
+        if event.get("argus_internal") or internal_step(kind, raw_text):
+            # Argus finding its way is no step of the operator's: no label, so
+            # it is never shown. Its event, failure included, stays in the log.
+            return "", ""
 
         if kind == "command_execution":
             command = strip_shell_wrapper(raw_text).strip()
-            head = strip_shell_wrapper(_first_line(raw_text))
-            status = str(event.get("status") or "").strip().lower()
-            marker = "✗ $" if status in {"failed", "error"} else "$"
-            if _ARGUS_TOOL.search(head):
-                # Argus' own tool is how Argus works, not a step of the operator's
-                # work: no label, so it is never shown as one. Its event, failure
-                # included, stays in the agent's log.
-                return "", ""
-            if head:
-                label = f"{marker} {_clip(plain_command(head, workspace), _LABEL_LIMIT - 2)}"
-                # Only carry a detail when it actually adds something (a
-                # multi-line or clipped command); never echo the label back.
-                detail = _clip(command, _DETAIL_LIMIT)
-                return label, "" if detail == _clip(head, _DETAIL_LIMIT) else detail
+            if command:
+                failed = str(event.get("status") or "").strip().lower() in {"failed", "error"}
+                label = _command_label(command, workspace)
+                # The command itself, its wrapper gone, stays in the detail.
+                return (
+                    _clip(f"✗ {label}" if failed else label, _LABEL_LIMIT),
+                    _clip(plain_command(command, workspace), _DETAIL_LIMIT),
+                )
             return summary or "running a command", ""
 
         if kind in {"tool_use", "tool_call"}:
@@ -435,7 +526,8 @@ def plain_step_label(label: str, tool: str = "", detail: str = "", workspace: st
     Turn steps saved before plain labels existed read ``⚙ view · {json}``
     with the full arguments in ``detail``; those are relabelled from the tool
     and its arguments. A raw ``name: {json}`` text is relabelled the same way.
-    A label that is already plain is returned unchanged, never wrapped again.
+    A label that is already plain is returned unchanged, never wrapped again;
+    an internal step is relabelled empty, so it is not listed.
     """
     text = str(label or "").strip()
     legacy = _LEGACY_TOOL_LABEL.match(text)
@@ -444,9 +536,9 @@ def plain_step_label(label: str, tool: str = "", detail: str = "", workspace: st
         args = str(detail or "").strip() or legacy.group(2) or ""
         # ``detail`` of a newer step already carries the ``name: `` prefix.
         raw = args if _RAW_TOOL_TEXT.match(args) else f"{name}: {args}"
-        return describe_progress_step({"kind": "tool_use", "text": raw}, workspace)[0] or text
+        return describe_progress_step({"kind": "tool_use", "text": raw}, workspace)[0]
     if _RAW_TOOL_TEXT.match(text):
-        return describe_progress_step({"kind": "tool_use", "text": text}, workspace)[0] or text
+        return describe_progress_step({"kind": "tool_use", "text": text}, workspace)[0]
     return text
 
 
@@ -548,7 +640,7 @@ class ProgressTally:
         if kind not in {"tool_use", "tool_call", "command_execution", "file_change"}:
             return
         label, _ = describe_progress_step(event)
-        if self._dedupe.classify(event, label) != "new":
+        if not label or self._dedupe.classify(event, label) != "new":
             return
         if kind == "command_execution":
             self.commands += 1
@@ -584,6 +676,7 @@ __all__ = [
     "ProgressDeduper",
     "ProgressTally",
     "describe_progress_step",
+    "internal_step",
     "plain_command",
     "plain_step_label",
     "strip_shell_wrapper",
