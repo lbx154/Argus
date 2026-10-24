@@ -550,3 +550,65 @@ describe('project work status and conversation separation', () => {
     expect(header('engineer')).not.toContain('glob');
   });
 });
+
+describe('project work progress in plain words', () => {
+  let ts = 0;
+  const reviewer = (kind: string, text: string): EventMsg => ({ type: 'engineer.progress', kind, agent_layer: 'reviewer', text, event_id: `r${++ts}`, ts });
+  const engineer = (kind: string, text: string, extra: Record<string, unknown> = {}): EventMsg => ({ type: 'engineer.progress', kind, agent_layer: 'engineer', text, event_id: `e${++ts}`, ts, ...extra });
+  const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
+  const toggles = (role: string) => renderer!.root.findByProps({ 'data-role': role }).findAll(node => node.type === 'button' && node.props['data-command-toggle']);
+
+  it('heads a role with what it said and folds its commands, without the stray shell quote, until asked', () => {
+    // Trial s-7d7b7d22: the Reviewer's header read `"python - <<'PY'` and its last message ended in a bare "continue".
+    const heredoc = `/usr/bin/bash -lc "python - <<'PY'\nfrom pathlib import Path`;
+    mount([
+      reviewer('agent_message', 'The survey covers every requirement; one record still names the wrong source.\n\ncontinue'),
+      reviewer('command_execution', heredoc),
+      reviewer('command_execution', "/usr/bin/bash -lc 'cat research-plan.md'"),
+    ]);
+    expect(header('reviewer')).toBe('ReviewerThe survey covers every requirement; one record still names the wrong source.');
+    const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
+    expect(visibleText(group)).not.toMatch(/python|research-plan|continue/);
+    const [toggle] = toggles('reviewer');
+    expect(toggle.props['aria-expanded']).toBe(false);
+    expect(visibleText(toggle)).toBe('Show commands (2)');
+
+    act(() => toggle.props.onClick());
+    expect(visibleText(toggles('reviewer')[0])).toBe('Hide commands');
+    const commandRow = group.find(node => node.props.title === heredoc);
+    expect(visibleText(commandRow)).toBe("python - <<'PY'");
+    expect(visibleText(group)).toContain('cat research-plan.md');
+    // The header still says what the role concluded, never the command it ran last.
+    expect(header('reviewer')).not.toMatch(/python|cat /);
+  });
+
+  it('groups tool steps and repeated commands once the commands are shown', () => {
+    const view = (path: string) => engineer('tool_use', `view: ${JSON.stringify({ path })}`, { tool_name: 'view', status: 'running' });
+    mount([view('a.py'), view('b.py'), view('c.py'), engineer('command_execution', 'pytest -q'), engineer('command_execution', 'pytest -q')]);
+    // A role that said nothing yet is headed by its newest tool step in words.
+    expect(header('engineer')).toBe('EngineerRead c.py');
+    act(() => toggles('engineer')[0].props.onClick());
+    const group = renderer!.root.findByProps({ 'data-feed-group': 'read' });
+    expect(group.props['data-open']).toBe('false');
+    expect(visibleText(group)).toContain('Read 3 files: a.py, b.py, c.py');
+    expect(group.findAllByProps({ title: 'Show each step' })[0].props['aria-expanded']).toBe(false);
+    expect(renderer!.root.findAllByProps({ 'data-repeat': 2 })).toHaveLength(1);
+  });
+
+  it('says a verdict in one line with the rest folded, and the host’s English reason in plain words', () => {
+    mount([
+      { type: 'round.review.completed', status: 'replan_requested', review_source: 'unchanged_return', round_index: 2, item_id: 't',
+        reason: 'Nothing changed since the reviewer last held this work, and nothing new arrived from outside, so it went one rung up, to the planner.', event_id: 'v1', ts: 1 },
+      { type: 'round.review.completed', status: 'continue', review_source: 'reviewer', round_index: 1, item_id: 't',
+        reason: 'The content passed; one internal record still needs a fix.', next_action: 'Correct the attribution in source-verification.md.', event_id: 'v2', ts: 2 },
+    ]);
+    const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
+    expect(visibleText(group)).toContain('Nothing changed since the Reviewer last looked at it, so the Planner takes it over.');
+    expect(visibleText(group)).not.toMatch(/one rung up|replan_requested|\bcontinue\b/);
+    expect(header('reviewer')).toBe('ReviewerThe content passed; one internal record still needs a fix.');
+    expect(group.findAllByProps({ 'data-full-text': true })).toHaveLength(0);
+    const fullToggles = group.findAll(node => node.type === 'button' && node.props['data-full-toggle']);
+    act(() => fullToggles[fullToggles.length - 1].props.onClick());
+    expect(visibleText(group.findByProps({ 'data-full-text': true }))).toContain('Next: Correct the attribution in source-verification.md.');
+  });
+});

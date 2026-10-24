@@ -29,9 +29,9 @@ import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
-import { plainDetail, plainTaskReport, type PlainDetail } from '../lib/plainStatus';
+import { plainDetail, plainTaskReport } from '../lib/plainStatus';
+import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
-import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { earlierRoleWork } from './agentActivityModel';
@@ -49,18 +49,19 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
+/** A task's title by its id, so a round names the task it belongs to. */
+const TaskTitleContext = createContext<(id: string) => string>(() => '');
 
-type RowText = PlainDetail & { prose: boolean };
+type RowText = ProgressText & { prose: boolean };
 
 /** A row as the feed says it: a call reads as "verb + object" or as the command
  * it ran, with its raw text kept for the tooltip; a report in plain words, and
  * in its Markdown when a role wrote it, as the conversation shows it. */
-function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: string): RowText {
+function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: string, taskTitle?: (id: string) => string): RowText {
   const call = ev.type === 'engineer.progress' ? String(ev.kind || '') : '';
   if (call === 'tool_use') return { text: plainToolLabel(ev, locale), technical: r.text, prose: false };
   if (call === 'command_execution') return { text: plainCommand(r.text, workspace), technical: r.text, prose: false };
-  const report = ['agent_message', 'assistant_message', 'message'].includes(String(ev.kind || '')) ? readableRecord(r.text) : r.text;
-  return { ...plainDetail(report, locale), prose: !['tool_result', 'file_change'].includes(call) };
+  return { ...plainRowText(ev, r, locale, taskTitle), prose: !['tool_result', 'file_change'].includes(call) };
 }
 
 function RowWords({ text, prose }: Pick<RowText, 'text' | 'prose'>) {
@@ -92,7 +93,9 @@ function EventRow({
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
   const workspace = useContext(WorkspaceContext);
-  const plain = rowText(ev, r, locale, workspace);
+  const taskTitle = useContext(TaskTitleContext);
+  const plain = rowText(ev, r, locale, workspace, taskTitle);
+  const [fullOpen, setFullOpen] = useState(false);
   const resultText = result ? plainDetail(result.r.text, locale).text : '';
   const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (
@@ -135,6 +138,15 @@ function EventRow({
         <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={tooltip || undefined}>
           <RowWords {...plain} />
         </div>
+        {plain.full ? <>
+          <button type="button" data-full-toggle aria-expanded={fullOpen} onClick={() => setFullOpen(current => !current)}
+            className="mt-1 rounded text-xs text-ink-faint hover:text-ink-dim">
+            {t(fullOpen ? 'stream.hideFull' : 'stream.showFull')}
+          </button>
+          {fullOpen ? <div data-full-text className="mt-1 whitespace-pre-wrap break-words border-l border-line/60 pl-3 text-xs leading-5 text-ink-dim">
+            <RowWords text={plain.full} prose />
+          </div> : null}
+        </> : null}
       </div>
     </div>
   );
@@ -398,11 +410,14 @@ function RoleLogGroup({
   const savedScrollTop = useRef(0);
   const [readingHistory, setReadingHistory] = useState(false);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
-  const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
-  // The collapsed header says the newest row as the log below says it.
-  const latest = folded[folded.length - 1];
-  const workspace = useContext(WorkspaceContext);
-  const preview = !latest ? null : latest.kind === 'group' ? { text: groupSummary(latest, t, locale), prose: false } : rowText(latest.ev, latest.r, locale, workspace);
+  // The commands a role ran are its process: folded until the reader asks.
+  const [showCommands, setShowCommands] = useState(false);
+  const commandCount = useMemo(() => rows.filter(row => isCallRow(row.ev)).length, [rows]);
+  const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
+  const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
+  // The collapsed header says what the role is doing or concluded, never a command.
+  const taskTitle = useContext(TaskTitleContext);
+  const headline = useMemo(() => roleHeadline(rows, locale, taskTitle), [rows, locale, taskTitle]);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -439,14 +454,19 @@ function RoleLogGroup({
           style={{ background: color }}
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
-        <span className="font-mono text-xs text-ink-faint">{folded.length}</span>
-        {preview?.text ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint"><RowWords {...preview} /></span> : <span className="flex-1" />}
+        {headline ? <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '')}><RowWords text={headline} prose /></span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
       </button>
       {open ? (
         <div className="grid grid-rows-[1fr]">
+          {commandCount > 0 ? <div className="flex border-t border-line/40 px-4 py-1.5">
+            <button type="button" data-command-toggle aria-expanded={showCommands} onClick={() => setShowCommands(current => !current)}
+              className="rounded text-xs text-ink-faint hover:text-ink-dim">
+              {showCommands ? t('stream.hideCommands') : t('stream.showCommands', { count: commandCount })}
+            </button>
+          </div> : null}
           <div className="relative min-h-0 overflow-hidden">
             <div ref={logScroller}
               onScroll={(event) => {
@@ -456,7 +476,7 @@ function RoleLogGroup({
                 setReadingHistory(!following.current);
               }}
               className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
-              {folded.length > 0 ? <FeedRows rows={folded} /> : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+              {folded.length > 0 ? <FeedRows rows={folded} /> : commandCount > 0 ? null : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
             </div>
             {readingHistory ? <button
               type="button"
@@ -508,7 +528,6 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
         className="flex h-10 w-full items-center gap-2 px-4 text-left text-xs text-ink-faint hover:bg-bg/60"
       >
         <span>{t('stream.system')}</span>
-        <span className="font-mono">{folded.length}</span>
         <span className="flex-1" />
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -790,6 +809,10 @@ export function EventStream({
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
   const workspace = snapshot?.session.workdir || snapshot?.session.cwd || '';
+  const taskTitle = useMemo(() => {
+    const titles = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item.title || '']));
+    return (id: string) => titles.get(id) ?? '';
+  }, [snapshot?.backlog]);
   // A finished step keeps its process: the actions between its task's start
   // and end, computed only when a report asks for them.
   const stepProcess = useMemo(() => {
@@ -962,6 +985,7 @@ export function EventStream({
   return (
     <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
+    <TaskTitleContext.Provider value={taskTitle}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1023,7 +1047,6 @@ export function EventStream({
               <section key="project-work" data-project-work className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
                 <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                   {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
-                  <span className="font-mono font-normal tracking-normal">{conversations.projectWork.length}</span>
                 </div>
                 <RoleLogCollection rows={conversations.projectWork} live={live} followLatest activeRole={work?.role} activeTaskId={work?.taskId} />
                 {conversations.projectDeliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
@@ -1054,6 +1077,7 @@ export function EventStream({
         </button>
       )}
     </section>
+    </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
   );

@@ -330,38 +330,7 @@ describe('foldFeedRows · a real campaign', () => {
 });
 
 describe('EventStream renders folded rows', () => {
-  it('shows a tool group as one expandable line and a repeated sentence with its count', () => {
-    const html = renderToStaticMarkup(createElement(EventStream, {
-      // The Planner's three identical errors come first; the Engineer, being
-      // the role that spoke last, is the group that opens on a live feed.
-      events: [
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 1 },
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 2 },
-        { type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: 3 },
-        call('view', { path: 'a.py' }),
-        call('view', { path: 'b.py' }),
-        call('view', { path: 'c.py' }),
-        shell('pytest -q'),
-        shell('pytest -q'),
-      ] as EventMsg[],
-      connected: true,
-      showReasoning: true,
-      onToggleReasoning: () => undefined,
-    }));
-
-    expect(html).toContain('Read 3 files: a.py, b.py, c.py');
-    expect(html).toContain('data-feed-group="read" data-open="false"');
-    // Members wait behind the summary until it is opened, from a real button.
-    expect(html).not.toContain('view: {');
-    expect(html).toMatch(/<button type="button" aria-expanded="false" title="Show each step"/);
-    // Two identical shell commands fold to one line with a count.
-    expect(html).toContain('data-repeat="2"');
-    // The collapsed Planner header still previews its folded row.
-    expect(html).toContain("The Planner hasn&#x27;t had an answer");
-    expect(html).not.toContain('Used ');
-  });
-
-  it("shows a role's own words in their Markdown and a command as it ran", () => {
+  it("shows a role's own words in their Markdown and folds the command it ran", () => {
     // Trial s-f0e1b2f0: the Engineer's lane read "**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…".
     const html = renderToStaticMarkup(createElement(EventStream, {
       events: [shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')],
@@ -373,7 +342,8 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain('<strong>尚未实现：取整规则存在歧义。</strong>');
     expect(html).toContain('<code>sizefmt/core.py</code>');
     expect(html).not.toContain('**');
-    expect(html).toContain('ls sizefmt/__init__.py');
+    expect(html).not.toContain('ls sizefmt/__init__.py');
+    expect(html).toContain('Show commands (1)');
   });
 
   it('keeps the lane of a role whose work came before the loaded events', () => {
@@ -395,8 +365,8 @@ describe('EventStream renders folded rows', () => {
       onToggleReasoning: () => undefined,
     }));
 
-    expect(html).toMatch(/data-role="manager"[^]*?<span class="font-mono text-xs text-ink-faint">1<[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
+    expect(html).toMatch(/data-role="manager"[^]*?data-role-headline[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
     // Work the loaded events already tell is not told twice.
-    expect(html).toMatch(/data-role="engineer"[^]*?<span class="font-mono text-xs text-ink-faint">1</);
+    expect(html.slice(html.indexOf('data-role="engineer"')).split('event-activity-row')).toHaveLength(2);
   });
 });

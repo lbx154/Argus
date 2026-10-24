@@ -431,7 +431,9 @@ export function plainPaths(text: string, workspace = ''): string {
 export function plainCommand(text: string, workspace = ''): string {
   const line = text.trim();
   const wrapped = line.match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]+)\1\s*$/);
-  const command = wrapped ? wrapped[2] : line.replace(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '');
+  const unwrapped = line.replace(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+/, '');
+  // A record cut short loses the shell's closing quote; its opening one is not the command's.
+  const command = wrapped ? wrapped[2] : unwrapped !== line ? unwrapped.replace(/^['"]/, '') : line;
   return plainPaths(command, workspace).split('\n')[0].trim();
 }
 
