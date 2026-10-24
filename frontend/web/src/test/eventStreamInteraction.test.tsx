@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
+import type { MissionView } from '../../../core/src/types';
+import { TurnSteps } from '../components/TurnSteps';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { CopyButton } from '../components/CopyButton';
 import { EventStream } from '../components/EventStream';
@@ -104,6 +106,16 @@ function scrollConversation(top: number) {
   outer.scrollTop = top;
   const listener = outer.addEventListener.mock.calls.find(([name]) => name === 'scroll')![1];
   act(() => listener());
+}
+function timelineSections() {
+  return renderer!.root.findAll(node => node.type === 'section'
+    && (node.props['data-task-work'] || String(node.props.className).includes('conversation-thread')));
+}
+function streamOrder() {
+  return timelineSections().map(section => section.props['data-task-work'] ? `task ${section.props['data-task-work']}` : 'thread');
+}
+function drawer() {
+  return renderer!.root.findByProps({ 'data-work-drawer': true });
 }
 function visibleText(node: ReactTestInstance): string {
   return node.children.map(child => typeof child === 'string' ? child : visibleText(child)).join('');
@@ -435,7 +447,7 @@ describe('historical task receipts', () => {
 });
 
 describe('project work status and conversation separation', () => {
-  it('places work before the dialogue and offers a jump that pauses outer following until Jump to latest', () => {
+  it('keeps a reply under its question, shows the task as one card after it and opens its progress beside the conversation', () => {
     const events: EventMsg[] = [
       { type: 'ui.operator', text: 'Start research task A', ts: 1 },
       { ...progress(2), item_id: 'task-a' },
@@ -443,23 +455,25 @@ describe('project work status and conversation separation', () => {
     ];
     mount(events);
     paint();
-    const sections = renderer!.root.findAll(node => node.type === 'section'
-      && (node.props['data-project-work'] || String(node.props.className).includes('conversation-thread')));
-    expect(sections[0].props['data-project-work']).toBe(true);
-    expect(visibleText(sections.at(-1)!)).toContain('Latest answer');
+    const sections = timelineSections();
+    expect(streamOrder()).toEqual(['thread', 'task task-a']);
+    expect(visibleText(sections[0])).toContain('Latest answer');
     expect(outer.scrollTop).toBe(600);
-    const viewWork = renderer!.root.find(node => node.type === 'button' && node.children.includes('View work progress'));
-    act(() => viewWork.props.onClick());
-    expect(outer.scrollTop).toBe(0);
+    const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
+    expect(card.props['data-state']).toBe('running');
+    expect(visibleText(card)).toContain('Engineer：Recorded finding 2');
+    expect(drawer().props['data-open']).toBe(false);
+    act(() => card.find(node => node.type === 'button' && node.children.includes('View work progress')).props.onClick());
+    expect(drawer().props['data-open']).toBe(true);
+    expect(visibleText(drawer())).toContain('Recorded finding 2');
+    // The progress opens beside the conversation; following the newest message continues.
     outer.scrollHeight = 1200;
     update([...events, { ...progress(4), item_id: 'task-a' }]);
     paint();
-    expect(outer.scrollTop).toBe(0);
-    const resume = renderer!.root.findByProps({ 'aria-label': 'Jump to latest' });
-    act(() => resume.props.onClick());
-    paint();
     expect(outer.scrollTop).toBe(900);
-    expect(renderer!.root.findAllByProps({ 'aria-label': 'Jump to latest' })).toHaveLength(0);
+    expect(streamOrder()).toEqual(['thread', 'task task-a']);
+    act(() => drawer().find(node => node.type === 'button' && node.children.includes('Close')).props.onClick());
+    expect(drawer().props['data-open']).toBe(false);
   });
 
   it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
@@ -482,6 +496,8 @@ describe('project work status and conversation separation', () => {
     expect(visibleText(threads[1])).toContain('Answer to question B');
     expect(visibleText(threads[1])).not.toContain('Research task A');
     expect(threads[1].findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
+    // Task A keeps one card where it started; question B and its answer follow it.
+    expect(streamOrder()).toEqual(['thread', 'task task-a', 'thread']);
     expect(renderer!.root.findAllByProps({ 'data-project-work': true })).toHaveLength(1);
     expect(roleGroup().props['data-open']).toBe('false');
     act(() => roleGroup().findAllByType('button')[0].props.onClick());
@@ -491,14 +507,83 @@ describe('project work status and conversation separation', () => {
     expect(visibleText(log())).toContain('Research task A second finding');
   });
 
-  it('preserves a task completion receipt in project work after a new question arrives', () => {
+  it('shows questions, answers, work and reports strictly in time order', () => {
+    const delivery = { schema_version: 1, delivery_id: 'delivery-csv', kind: 'task_completed', item_id: 'task-csv', title: 'CSV tool result', summary: 'All tests pass', status: 'done', review_status: 'done', delivered_at: 59, primary_target: null, targets: [] };
+    const roleWork = (id: string, ts: number, role: string, detail: string) => ({
+      id, ts, role, kind: 'agent_message', title: '', detail, status: '', item_id: 'task-csv',
+    }) as unknown as MissionView['role_work'][number];
+    const events: EventMsg[] = [
+      { type: 'ui.operator', text: 'Hello', ts: 10, message_id: 'q-hello' },
+      { type: 'ui.argus', text: 'Hi, ready when you are.', ts: 11, message_id: 'a-hello' },
+      { type: 'ui.operator', text: 'Build the CSV tool', ts: 20, message_id: 'q-csv' },
+      { type: 'ui.argus', text: 'Which tax rate should the summary show? Reply 1, 2 or 3.', ts: 25, message_id: 'a-csv',
+        steps: [{ kind: 'command_execution', label: 'Read the code', status: 'completed', started_ts: 21, ended_ts: 24 }] },
+      { type: 'ui.operator', text: '2', ts: 30, message_id: 'q-choice' },
+      { type: 'ui.argus', text: 'Got it, starting now.', ts: 32, message_id: 'a-choice' },
+      { ...progress(45, 'Reviewer checked the CSV tool'), agent_layer: 'reviewer', item_id: 'task-csv' },
+      { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: 'pytest -q', event_id: 'cmd-46', ts: 46, item_id: 'task-csv' },
+      { type: 'ui.argus', text: 'Done: the CSV tool passes all tests.', ts: 60, message_id: 'report-csv', delivery },
+      { type: 'ui.operator', text: '1', ts: 70, message_id: 'q-format' },
+      { ...progress(71, 'Engineer formatted the amounts'), item_id: 'task-format' },
+      { type: 'ui.argus', text: 'Finished the first format.', ts: 80, message_id: 'report-format', mission_result: true, item_id: 'task-format' },
+    ];
+    // Work older than the live window comes from the mission view, recorded
+    // while Argus was writing its acknowledgement and after it.
+    const view = { ...emptyMissionView(), role_work: [
+      roleWork('planner:task', 31, 'planner', 'Planner created the CSV task'),
+      roleWork('engineer:round', 40, 'engineer', 'Engineer built the CSV tool'),
+    ] };
+    act(() => {
+      renderer = create(<EventStream events={events} missionView={view} connected showReasoning={false} onToggleReasoning={() => {}} />,
+        { createNodeMock: nodeMock });
+    });
+    expect(streamOrder()).toEqual([
+      'thread: Hello / Hi, ready when you are.',
+      'thread: Build the CSV tool / Which tax rate should the summary show? Reply 1, 2 or 3.',
+      'thread: 2 / Got it, starting now.',
+      'task task-csv',
+      'thread: Done: the CSV tool passes all tests.',
+      'thread: 1',
+      'task task-format',
+      'thread: Finished the first format.',
+    ].map(entry => entry.startsWith('thread') ? 'thread' : entry));
+    expect(timelineSections().filter(section => !section.props['data-task-work'])
+      .map(section => section.findAllByType('article').map(row => visibleText(row.findByProps({ 'data-markdown': true }))).join(' / ')))
+      .toEqual([
+        'Hello / Hi, ready when you are.',
+        'Build the CSV tool / Which tax rate should the summary show? Reply 1, 2 or 3.',
+        '2 / Got it, starting now.',
+        'Done: the CSV tool passes all tests.',
+        '1',
+        'Finished the first format.',
+      ]);
+    // A settled task reads as its latest plain line, never the command it ran.
+    const csv = renderer!.root.findByProps({ 'data-task-work': 'task-csv' });
+    expect(visibleText(csv)).toContain('Reviewer：Reviewer checked the CSV tool');
+    expect(visibleText(csv)).not.toContain('pytest');
+    expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('running');
+    // The whole process is one click away: the drawer feed holds every role's work in time order.
+    expect(visibleText(drawer())).toContain('Planner created the CSV task');
+    // The question's own process stays attached to it, and the receipt follows its report.
+    const sections = timelineSections();
+    expect(sections[1].findAllByType(TurnSteps)).toHaveLength(1);
+    expect(sections.filter(section => section !== sections[1]).flatMap(section => section.findAllByType(TurnSteps))).toHaveLength(0);
+    expect(visibleText(sections[4])).toContain('CSV tool result');
+    expect(sections[3].findAll(node => visibleText(node).includes('CSV tool result'))).toHaveLength(0);
+  });
+
+  it('shows a finished task as one result line with its receipt after a new question arrives', () => {
     const delivery = { schema_version: 1, delivery_id: 'delivery-a', kind: 'task_completed', item_id: 'task-a', title: 'Task A result', summary: 'Task A evidence', status: 'done', review_status: 'done', delivered_at: 4, primary_target: null, targets: [] };
     mount([
       { type: 'ui.operator', text: 'Question B', ts: 3 },
       { type: 'life.mission.completed', item_id: 'task-a', status: 'done', ts: 4, delivery },
     ]);
-    const work = renderer!.root.findByProps({ 'data-project-work': true });
-    expect(visibleText(work)).toContain('Task A result');
+    const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
+    expect(card.props['data-state']).toBe('done');
+    expect(visibleText(card)).toContain('Done');
+    expect(visibleText(card)).toContain('Task A result');
+    // The process stays folded until asked for.
+    expect(card.findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
     const thread = renderer!.root.find(node => node.type === 'section' && String(node.props.className).includes('conversation-thread'));
     expect(visibleText(thread)).not.toContain('Task A result');
   });
