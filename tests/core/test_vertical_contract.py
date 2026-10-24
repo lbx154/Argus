@@ -367,6 +367,48 @@ def test_non_string_live_search_stage_is_rejected_not_coerced() -> None:
         )
 
 
+@pytest.mark.parametrize("value", [None, "true", "yes", 0, 1, [], {}])
+def test_require_staged_workflow_rejects_non_boolean_values(value: object) -> None:
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("build",),
+        CHECKLIST_ITEMS={"build": (_item("build.output"),)},
+        completion_gate="none",
+        REQUIRE_STAGED_WORKFLOW=value,
+    )
+
+    with pytest.raises(VerticalContractError, match="REQUIRE_STAGED_WORKFLOW must be a boolean"):
+        vertical_contract("gated_lab", provider)
+
+
+def test_require_staged_workflow_must_agree_with_declared_workflow_mode() -> None:
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("build",),
+        CHECKLIST_ITEMS={"build": (_item("build.output"),)},
+        completion_gate="none",
+        REQUIRE_STAGED_WORKFLOW=True,
+        WORKFLOW_MODE="direct",
+    )
+
+    with pytest.raises(VerticalContractError, match="WORKFLOW_MODE is 'direct'"):
+        vertical_contract("gated_lab", provider)
+
+
+def test_require_staged_workflow_defaults_off_and_loads_on() -> None:
+    base = dict(
+        CHECKLIST_STAGE_ORDER=("build",),
+        CHECKLIST_ITEMS={"build": (_item("build.output"),)},
+        completion_gate="none",
+    )
+
+    plain = vertical_contract("plain_lab", SimpleNamespace(**base))
+    assert plain.require_staged_workflow is False
+
+    gated = vertical_contract(
+        "gated_lab", SimpleNamespace(REQUIRE_STAGED_WORKFLOW=True, **base)
+    )
+    assert gated.require_staged_workflow is True
+
+
 def test_core_has_no_vertical_package_imports() -> None:
     """Core defines the vertical contract and must never resolve one.
 

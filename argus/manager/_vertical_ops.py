@@ -643,6 +643,17 @@ class _VerticalDecisionMixin:
                         decision.start_stage = ""
                 elif decision.workflow_profile or decision.workflow_requested_stages:
                     raise VerticalDecisionError("selected vertical does not provide workflow profiles")
+                if contract.require_staged_workflow and decision.workflow_mode != "staged":
+                    # Contract-level precedence over the Manager's advisory
+                    # routing field: this vertical's per-stage deterministic
+                    # gates are load-bearing and cannot be folded away by
+                    # routing the work as a direct single-stage mission. The
+                    # host binds the orchestration mode the operator's vertical
+                    # contract declared; the Manager's workflow_mode choice is
+                    # not authority here (same precedence _repository_workflow_mode
+                    # applies to software-kind missions).
+                    decision.workflow_mode = "staged"
+                    decision.start_stage = ""
                 if contract.mission_kind == "software":
                     decision.workflow_mode = _repository_workflow_mode(
                         decision.workflow_mode

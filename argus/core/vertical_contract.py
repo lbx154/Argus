@@ -189,6 +189,7 @@ class VerticalContract:
     completion_contract_version: int = 0
     research_target_levels: tuple[str, ...] = ()
     workflow_mode: str = "staged"
+    require_staged_workflow: bool = False
     verification_stage_profiles: dict[str, str] | None = None
     checklist_optional_stages: frozenset[str] = frozenset()
     stage_aliases: dict[str, str] | None = None
@@ -727,6 +728,16 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has unsupported workflow mode {mode!r}"
         )
+    require_staged = getattr(provider, "REQUIRE_STAGED_WORKFLOW", False)
+    if not isinstance(require_staged, bool):
+        raise VerticalContractError(
+            f"vertical {name!r} REQUIRE_STAGED_WORKFLOW must be a boolean"
+        )
+    if require_staged and mode != "staged":
+        raise VerticalContractError(
+            f"vertical {name!r} declares REQUIRE_STAGED_WORKFLOW but its "
+            f"WORKFLOW_MODE is {mode!r}, not 'staged'"
+        )
     allow_stage_rollback = getattr(provider, "ALLOW_STAGE_ROLLBACK", True)
     if not isinstance(allow_stage_rollback, bool):
         raise VerticalContractError(
@@ -908,6 +919,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             if str(level).strip()
         ),
         workflow_mode=mode,
+        require_staged_workflow=require_staged,
         verification_stage_profiles=verification_stage_profiles,
         checklist_optional_stages=optional_stages,
         stage_aliases=aliases,

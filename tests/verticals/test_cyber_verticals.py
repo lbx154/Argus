@@ -91,6 +91,7 @@ def test_red_team_contract() -> None:
     contract = load_vertical_contract("red_team")
     assert contract.stage_order == ("authorize", "attack", "report")
     assert contract.workflow_mode == "staged"
+    assert contract.require_staged_workflow is True
     assert contract.requires_independent_review is True
     assert contract.completion_gate == "none"
     assert contract.completion_contract_version == 1
@@ -111,6 +112,7 @@ def test_blue_team_contract() -> None:
     contract = load_vertical_contract("blue_team")
     assert contract.stage_order == ("triage", "remediate", "verify")
     assert contract.workflow_mode == "staged"
+    assert contract.require_staged_workflow is True
     assert contract.requires_independent_review is True
     assert contract.completion_gate == "none"
     assert contract.completion_contract_version == 1
@@ -154,10 +156,19 @@ def test_engagement_gate_rejects_a_missing_or_broken_declaration(tmp_path: Path)
     ("overrides", "fragment"),
     [
         ({"operator": "  "}, "operator"),
-        ({"window": {"start": "2026-10-24", "end": "2026-10-24"}}, "not current"),
-        ({"window": {"start": "2026-10-26", "end": "2026-10-27"}}, "not current"),
-        ({"window": {"start": "soon", "end": "2026-10-27"}}, "ISO date"),
-        ({"window": {"start": "2026-10-27", "end": "2026-10-24"}}, "ends before"),
+        (
+            {"window": {"start": (TODAY - timedelta(days=2)).isoformat(), "end": (TODAY - timedelta(days=1)).isoformat()}},
+            "not current",
+        ),
+        (
+            {"window": {"start": (TODAY + timedelta(days=2)).isoformat(), "end": (TODAY + timedelta(days=3)).isoformat()}},
+            "not current",
+        ),
+        ({"window": {"start": "soon", "end": (TODAY + timedelta(days=3)).isoformat()}}, "ISO date"),
+        (
+            {"window": {"start": (TODAY + timedelta(days=3)).isoformat(), "end": (TODAY - timedelta(days=1)).isoformat()}},
+            "ends before",
+        ),
         ({"targets": [{"kind": "vuln", "ref": "x", "authorization": "y"}]}, "kind"),
         ({"targets": []}, "non-empty list"),
         (

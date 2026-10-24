@@ -557,3 +557,62 @@ def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
     assert opts.force_safe_mode is True
     assert opts.dangerous_yolo is False
     assert opts.full_auto is False
+
+
+def test_require_staged_vertical_cannot_be_folded_into_direct_routing(
+    tmp_path, monkeypatch,
+) -> None:
+    """REQUIRE_STAGED_WORKFLOW binds the Manager's advisory workflow_mode.
+
+    A staged-only vertical (red_team/blue_team) whose per-stage deterministic
+    gates are contract-level must never be committed as a direct single-stage
+    mission: routing is coerced to staged host-side, with the same precedence
+    software-kind normalization applies to the Manager's mode choice.
+    """
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    runner = _FakeRunner({
+        "choice": "existing",
+        "vertical": "red_team",
+        "workflow_mode": "direct",
+        "start_stage": "authorize",
+        "execution_task": (
+            "Audit the local netstatus service under SECURITY_ENGAGEMENT.json "
+            "and ship FINDINGS.json."
+        ),
+        "rationale": "authorized offensive security audit with evidence-bound findings",
+        "confidence": 0.9,
+    })
+
+    division = Manager(project_root=tmp_path, runner=runner).divide(
+        "Audit the local netstatus service for vulnerabilities."
+    )
+
+    assert division.vertical == "red_team"
+    assert division.workflow_mode == "staged"
+    assert division.start_stage == ""
+    assert vs.resolve_vertical(tmp_path) == "red_team"
+    assert vs.resolve_workflow_mode(tmp_path) == "staged"
+
+
+def test_direct_routing_stays_available_for_verticals_that_allow_it(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    runner = _FakeRunner({
+        "choice": "existing",
+        "vertical": "software",
+        "workflow_mode": "direct",
+        "execution_task": "Fix the failing cache test.",
+        "rationale": "one coherent engineer task",
+        "confidence": 0.9,
+    })
+
+    division = Manager(project_root=tmp_path, runner=runner).divide(
+        "Fix the failing cache test."
+    )
+
+    assert division.vertical == "software"
+    assert division.workflow_mode == "direct"
+    assert vs.resolve_workflow_mode(tmp_path) == "direct"

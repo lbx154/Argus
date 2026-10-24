@@ -23,6 +23,11 @@ STAGE_ORDER = ("authorize", "attack", "report")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 WORKFLOW_MODE = "staged"
+#: The staged orchestration is itself contract-level: the Manager's routing
+#: cannot fold authorize/attack/report into one direct mission, because the
+#: per-stage deterministic gates (declaration, evidence, findings) only run
+#: when the stages actually close in order.
+REQUIRE_STAGED_WORKFLOW = True
 VERIFICATION_STAGE_PROFILES = {
     "authorize": "explore",
     "attack": "develop",
@@ -149,6 +154,7 @@ __all__ = [
     "COMPLETION_CONTRACT_VERSION",
     "PROTECTED_ITEM_IDS",
     "REQUIRE_INDEPENDENT_REVIEW",
+    "REQUIRE_STAGED_WORKFLOW",
     "STAGE_ORDER",
     "STAGE_PRIMARY_DELIVERABLES",
     "VERIFICATION_STAGE_PROFILES",
