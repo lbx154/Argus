@@ -104,7 +104,7 @@ def _effort_source(
         persisted, "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
     ):
         return "persisted:ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
-    return "default: xhigh"
+    return "default: by need (core.effort_policy)"
 
 
 def build_config_snapshot(

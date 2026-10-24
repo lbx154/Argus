@@ -123,4 +123,4 @@ def test_write_config_snapshot_json(tmp_path) -> None:
     payload = json.loads(out.read_text(encoding="utf-8"))
     engineer = next(r for r in payload["roles"] if r["role"] == "engineer")
     assert engineer["model"] == "gpt-5.5"
-    assert engineer["reasoning_effort"] == "xhigh"
+    assert engineer["reasoning_effort"] == "high"

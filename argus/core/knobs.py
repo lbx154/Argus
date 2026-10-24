@@ -725,7 +725,7 @@ def resolve_light_effort(*, env: Mapping[str, str] | None = None) -> str:
 
 
 def resolve_role_reasoning_effort(
-    role_env: str, *, env: Mapping[str, str] | None = None, default: str = "xhigh",
+    role_env: str, *, env: Mapping[str, str] | None = None, default: str = "high",
 ) -> str:
     """Resolve a role's reasoning effort using Argus's runtime precedence:
     role-specific env override -> persisted switch (a prior ``/config``

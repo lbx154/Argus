@@ -236,7 +236,7 @@ class Planner:
         add_dirs = [*(cfg.add_dirs or ()), *(str(path) for path in libraries.library_roots)]
         planner_options = RunnerOptions(
             model=cfg.model,
-            reasoning_effort=cfg.reasoning_effort or "xhigh",
+            reasoning_effort=cfg.reasoning_effort or "high",
             working_dir=cfg.working_dir,
             add_dirs=add_dirs or None,
             write_dirs=[cfg.state_root] if cfg.state_root else None,

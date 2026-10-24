@@ -222,10 +222,13 @@ DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
     "cycles": 0,
     "continuous": False,
-    "manager_effort": "xhigh",
-    "planner_effort": "xhigh",
-    "engineer_effort": "xhigh",
-    "reviewer_effort": "high",
+    # Role efforts are chosen by need (core.effort_policy): empty here means no
+    # operator switch. These keys exist so /config can show and set them; the
+    # run reads the switch from the knob, never from this dict.
+    "manager_effort": "",
+    "planner_effort": "",
+    "engineer_effort": "",
+    "reviewer_effort": "",
 }
 
 _ROLE_EFFORT_ENVS: dict[str, str] = {
@@ -255,11 +258,16 @@ def render_config_cmd(
                 )
             elif isinstance(value, bool):
                 config_lines.append(f"  {key:20s} = {'on' if value else 'off'}")
+            elif key in _ROLE_EFFORT_ENVS:
+                from ..core.effort_policy import explicit_effort
+
+                shown = explicit_effort(_ROLE_EFFORT_ENVS[key]) or value or "by need (medium or high)"
+                config_lines.append(f"  {key:20s} = {shown}")
             else:
                 config_lines.append(f"  {key:20s} = {value}")
         config_lines.append("")
         config_lines.append(
-            "  usage: /config cycles=10 engineer_effort=xhigh"
+            "  usage: /config cycles=10 engineer_effort=high"
         )
         return "\n".join(config_lines)
 

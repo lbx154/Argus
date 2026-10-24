@@ -694,7 +694,7 @@ class RoundReviewerMixin:
         # The engineer's output for THIS round is already valid and in hand, so
         # a reviewer subprocess crash / 429 / missing-output-schema must retry
         # the (cheap) reviewer leg — NOT discard the round and re-run the
-        # (xhigh) engineer turn. We leave this inner loop with a real verdict,
+        # engineer turn. We leave this inner loop with a real verdict,
         # or by failing loud once the reviewer-backend streak hits threshold.
         reviewer_turn_cap_restarts = 0
         while True:
@@ -1013,7 +1013,7 @@ class RoundReviewerMixin:
                         status, state.rounds, state.last_engineer_message, reason_text, None,
                     ))
             # Retry ONLY the reviewer against the SAME engineer output — do
-            # not fall through to a fresh (xhigh) engineer turn.
+            # not fall through to a fresh engineer turn.
             continue
         # A real reviewer verdict arrived — reset the reviewer-backend streak.
         return control_proceed(review)

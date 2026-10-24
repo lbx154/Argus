@@ -167,9 +167,9 @@ def test_model_defaults_to_gpt_6_1_sol():
 
 # ── reasoning effort ──────────────────────────────────────────────────────
 
-def test_effort_shown_for_reasoning_model_defaults_xhigh():
+def test_effort_shown_for_reasoning_model_defaults_high():
     c = resolve_role_config("engineer", env={"ARGUS_SKILL_ENGINEER_MODEL": "gpt-5.5"})
-    assert c.effort == "xhigh"
+    assert c.effort == "high"
 
 
 def test_manager_and_planner_effort_default_to_high() -> None:
