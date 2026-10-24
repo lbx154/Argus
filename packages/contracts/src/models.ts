@@ -372,6 +372,8 @@ export interface LaunchHold {
     exclusions?: string[];
     assumptions?: string[];
   };
+  /** The plan file the Manager handed over with the ticket: where it is, and its summary. */
+  plan?: { path: string; summary: string };
 }
 
 export interface Snapshot {

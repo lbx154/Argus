@@ -26,7 +26,7 @@ import time
 from typing import Any, Callable
 
 from ..core.command_record import anonymous_call_id, captures_for, output_digest
-from ..core.progress_step import plain_command
+from ..core.progress_step import internal_step, plain_command
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 # Items larger than this are truncated in the cooked progress event so a
@@ -292,6 +292,9 @@ def make_stream_progress_callback(
             "actor": actor,
             "agent_layer": _agent_layer_for_actor(actor),
         }
+        if internal_step(kind, text):
+            # Decided on the whole text: the paths cut above no longer tell.
+            payload["argus_internal"] = True
         if extra:
             for key, value in extra.items():
                 if value is None or value == "":

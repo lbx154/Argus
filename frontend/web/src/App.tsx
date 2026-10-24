@@ -1351,6 +1351,7 @@ export default function App() {
                   readOnly={kiosk}
                   onStart={startHeldLaunch}
                   onRewrite={rewriteHeldLaunch}
+                  onOpenArtifact={setArtifactPath}
                 /> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>

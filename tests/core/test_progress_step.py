@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import os
+import shlex
+
 import pytest
 
+from argus.adapters.stream_progress import make_stream_progress_callback
 from argus.core.progress_step import (
     ProgressDeduper,
     ProgressTally,
@@ -13,15 +18,15 @@ from argus.core.progress_step import (
 from argus.skills.builtins import builtin_skill_source_path
 
 
-def test_command_step_shows_the_real_command_not_a_euphemism() -> None:
+def test_command_step_says_what_the_command_does() -> None:
     label, detail = describe_progress_step({
         "kind": "command_execution",
         "text": "/bin/bash -lc 'rg --line-number cockpit frontend/tui/src'",
         # The bucketed summary must NOT win: it hides what actually ran.
         "action_summary": "inspecting project state",
     })
-    assert label == "$ rg --line-number cockpit frontend/tui/src"
-    assert detail == "", "a single-line command already says everything"
+    assert label == "搜索：cockpit"
+    assert detail == "rg --line-number cockpit frontend/tui/src", "the command, unwrapped, stays in the detail"
 
 
 def test_failed_command_is_marked() -> None:
@@ -30,8 +35,7 @@ def test_failed_command_is_marked() -> None:
         "text": "pytest tests/test_x.py",
         "status": "failed",
     })
-    assert label.startswith("✗ $ ")
-    assert "pytest tests/test_x.py" in label
+    assert label == "✗ 运行测试"
 
 
 def test_multiline_command_keeps_the_rest_as_detail() -> None:
@@ -39,7 +43,7 @@ def test_multiline_command_keeps_the_rest_as_detail() -> None:
         "kind": "command_execution",
         "text": "cd /repo\npytest -q tests/a.py",
     })
-    assert label == "$ cd /repo"
+    assert label == "运行测试", "changing directory only sets up the command that follows"
     assert detail == "cd /repo pytest -q tests/a.py"
 
 
@@ -50,7 +54,7 @@ _WS = "/work/proj"
     ("text", "expected"),
     [
         ('view: {"path": "/work/proj/src/main.py"}', "查阅 main.py"),
-        ('view: {"path": "/data/state/projects/abc/state.json"}', "查阅 Argus 内部文件"),
+        ('view: {"path": "/data/state/copilot-home/abc/state.json"}', "查阅 Argus 内部文件"),
         ('view: {"path": "src/main.py"}', "查阅 main.py"),
         ('grep: {"pattern": "def route", "path": "/work/proj"}', "搜索：def route"),
         ('web_search: {"query": "rl reward shaping"}', "搜索：rl reward shaping"),
@@ -94,8 +98,8 @@ _MISSION = {"kind": "tool_use", "item_id": "7c17ec4c586c", "actor": "reviewer"}
 
 def test_mission_level_item_id_does_not_merge_distinct_calls() -> None:
     dedupe = ProgressDeduper()
-    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/projects/a/meta.json"}'}
-    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/state/projects/b/meta.json"}'}
+    first = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/copilot-home/a/meta.json"}'}
+    second = {**_MISSION, "status": "running", "text": 'view: {"path": "/elsewhere/copilot-home/b/meta.json"}'}
     label = describe_progress_step(first, _WS)[0]
     assert label == describe_progress_step(second, _WS)[0] == "查阅 Argus 内部文件"
     assert dedupe.classify(first, label) == "new"
@@ -164,7 +168,9 @@ def test_workspace_from_the_caller_marks_internal_files() -> None:
         # A repository the operator asked about lives outside the session
         # workspace; reading it is project work, not Argus plumbing.
         ("/data/someone/subject-repo/README.md", "查阅 README.md"),
-        ("/srv/state/projects/s-1/state.json", "查阅 Argus 内部文件"),
+        ("/srv/state/copilot-home/s-1/state.json", "查阅 Argus 内部文件"),
+        # A project's state directory is Argus' own record: no step at all.
+        ("/srv/state/projects/s-1/state.json", ""),
     ],
 )
 def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:
@@ -189,14 +195,12 @@ def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> Non
         ("/repo/docs/wiki/pages/setup.md", "查阅 setup.md"),
         # A folder inside a wiki is the wiki, not one of its pages.
         ("/repo/.autors/learn/wiki/pages", "查阅知识库"),
-        # Trial s-6f0e6213: skills read as "查阅文件", with no name.
-        ("/srv/state/skills/_shared_verticals/software/reviewer/software-change-review.md",
-         "查阅技能 software-change-review"),
-        ("/srv/state/projects/s-1/skills", "查阅技能库"),
-        ("/srv/argus/verticals/software/skills/engineer", "查阅技能库"),
-        ("/srv/argus/builtin_skills/reviewer/argus-reviewer-role.md", "查阅技能 argus-reviewer-role"),
-        # A role's notes for the next holder, whatever file holds them.
-        ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅交接记录"),
+        # Argus' rules and a project's state are Argus finding its way: no step.
+        ("/srv/state/skills/_shared_verticals/software/reviewer/software-change-review.md", ""),
+        ("/srv/state/projects/s-1/skills", ""),
+        ("/srv/argus/verticals/software/skills/engineer", ""),
+        ("/srv/argus/builtin_skills/reviewer/argus-reviewer-role.md", ""),
+        ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", ""),
         # .autors holds the project's wiki and nothing else (trial s-757b9dac
         # read "查阅文件" twice for these folders).
         ("/repo/.autors", "查阅知识库"),
@@ -234,22 +238,23 @@ def test_argus_own_tool_is_no_operator_step_even_when_it_fails() -> None:
 
 def test_backend_session_paths_in_a_command_are_cut_to_their_last_name() -> None:
     files = "/srv/state/copilot-home/session-state/09822296-0a3e-4707-8382-d75ac8da42f6/files"
-    label, _ = describe_progress_step({
+    label, detail = describe_progress_step({
         "kind": "command_execution",
         "text": f"mkdir -p {files} && python -m pytest -q 2>&1 | tee {files}/pytest.log",
     }, _WS)
-    assert label == "$ mkdir -p …/files && python -m pytest -q 2>&1 | tee …/pytest.log"
-    kept, _ = describe_progress_step({"kind": "command_execution", "text": "git -C /work/repo status"}, _WS)
-    assert kept == "$ git -C /work/repo status", "a path of the work stays as it is"
+    assert label == "运行测试"
+    assert detail == "mkdir -p …/files && python -m pytest -q 2>&1 | tee …/pytest.log"
+    _, kept = describe_progress_step({"kind": "command_execution", "text": "git -C /work/repo status"}, _WS)
+    assert kept == "git -C /work/repo status", "a path of the work stays as it is"
 
 
 def test_paths_in_the_project_read_from_its_root() -> None:
     # Trial s-7d356ee9: "rm -r -- /fastdata/…/work/datefmt/build" spelled out the project's path.
-    label, _ = describe_progress_step({
+    _, detail = describe_progress_step({
         "kind": "command_execution",
         "text": "rm -r -- /work/proj/build /work/proj2/build && ls /work/proj",
     }, _WS)
-    assert label == "$ rm -r -- build /work/proj2/build && ls ."
+    assert detail == "rm -r -- build /work/proj2/build && ls ."
     # Trial s-757b9dac: a result line named the package by its whole path;
     # a path outside the project keeps the rules it had.
     result, _ = describe_progress_step({
@@ -259,15 +264,48 @@ def test_paths_in_the_project_read_from_its_root() -> None:
     assert result == "↳ Public package: timefmt/__init__.py | /usr/lib/python3/site-packages/x.py"
 
 
-def test_paths_into_the_installed_argus_package_are_cut_in_a_command() -> None:
-    builtin = str(builtin_skill_source_path())
-    label, _ = describe_progress_step({
-        "kind": "command_execution",
-        "text": f"rg -n '^name:' /srv/state/skills {builtin} -g SKILL.md",
-    }, _WS)
-    assert label == "$ rg -n '^name:' …/skills …/builtin_skills -g SKILL.md"
-    event = {"kind": "tool_use", "text": f'view: {{"path": "{builtin}/engineer/minimal-coding-agent.md"}}'}
-    assert describe_progress_step(event, _WS)[0] == "查阅技能 minimal-coding-agent"
+class _Sink:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def handle_event(self, event: dict) -> None:
+        self.events.append(event)
+
+
+_TRIAL_WS = "/srv/state/workspaces/s-99ca9ad6"
+_TRIAL_STATE = "/srv/state/projects/s-99ca9ad6"
+_INSTALL = os.path.dirname(os.path.dirname(str(builtin_skill_source_path())))
+
+
+# Trial s-99ca9ad6: the Manager's turn showed "$ /usr/bin/bash -lc 'cat …/SKILL.md'"
+# and its reads of the backlog and events; each command here is one it ran.
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (f"cat {_INSTALL}/argus/builtin_skills/manager/replying/SKILL.md", ""),
+        (f"ls -la {_TRIAL_STATE}", ""),
+        (f"tail -n 8 {_TRIAL_STATE}/backlog.jsonl", ""),
+        (f"tail -n 22 {_TRIAL_STATE}/events.jsonl", ""),
+        (f"rg --files {_TRIAL_STATE}/skills /srv/state/skills {_INSTALL}/argus/builtin_skills 2>/dev/null | rg -i skill", ""),
+        (f"sed -n '1,200p' {_INSTALL}/argus/life/delivery.py", ""),
+        (f"ls -la {_TRIAL_WS}", "查看项目目录"),
+        (f"rg --files {_TRIAL_WS} | head -65", "查看项目目录"),
+        ("nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.free --format=csv", "查看 GPU 状态"),
+        ("ps -eo pid,ppid,user,etime,comm --sort=-pcpu | head -45", "查看机器状态"),
+        ("python - <<'PY'\nimport urllib.request\nPY", "运行一段 Python 脚本"),
+    ],
+)
+def test_trial_commands_read_plainly_and_argus_rules_and_state_are_no_steps(command: str, expected: str) -> None:
+    sink = _Sink()
+    callback = make_stream_progress_callback(sink)
+    callback("simple-1.stdout", json.dumps({"type": "item.completed", "item": {
+        "id": "item_1", "type": "command_execution", "status": "completed",
+        "command": f"/usr/bin/bash -lc {shlex.quote(command)}",
+    }}))
+    [event] = [e for e in sink.events if e["type"] == "engineer.progress"]
+    label, _ = describe_progress_step(event, _TRIAL_WS)
+    assert label == expected
+    assert not any(raw in label for raw in ("bash", "$", "/"))
 
 
 def test_a_tool_result_cuts_plumbing_paths_as_a_command_does() -> None:
@@ -311,7 +349,7 @@ def test_credentials_never_reach_the_status_line(redact_secrets_on) -> None:
     })
     assert secret not in label
     assert secret not in detail
-    assert "REDACTED" in label
+    assert "REDACTED" in detail
 
 
 def test_malformed_events_degrade_instead_of_raising() -> None:
@@ -371,3 +409,27 @@ def test_one_line_patch_names_only_the_file() -> None:
         '@@ { + "SOME_SETTING": "x" } *** End Patch'
     )
     assert describe_progress_step({"kind": "tool_use", "text": text})[0] == "修改 config.json"
+
+
+def test_a_manager_turn_streams_each_plain_step_as_it_happens() -> None:
+    # Trial s-99ca9ad6: a 544-second Manager turn. Each step reaches the live
+    # stream as the runner reports it; Argus' own reads never do.
+    from argus.apps._self_reply import _PhaseSink
+
+    phases: list[str] = []
+    sink = _PhaseSink(_Sink(), lambda label, **_kw: phases.append(label), _TRIAL_WS)
+    callback = make_stream_progress_callback(sink)
+    commands = [
+        f"cat {_INSTALL}/argus/builtin_skills/manager/team-handoff/SKILL.md",
+        "nvidia-smi --query-gpu=index,memory.free --format=csv",
+        f"tail -n 8 {_TRIAL_STATE}/backlog.jsonl",
+        "python - <<'PY'\nimport urllib.request\nPY",
+    ]
+    seen = []
+    for index, command in enumerate(commands):
+        callback("simple-1.stdout", json.dumps({"type": "item.completed", "item": {
+            "id": f"item_{index}", "type": "command_execution", "status": "completed",
+            "command": f"/usr/bin/bash -lc {shlex.quote(command)}",
+        }}))
+        seen.append(list(phases))
+    assert seen == [[], ["查看 GPU 状态"], ["查看 GPU 状态"], ["查看 GPU 状态", "运行一段 Python 脚本"]]

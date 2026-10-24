@@ -284,6 +284,10 @@ def enqueue_mission(
         shown = display_objective or str(prepared_handoff.public_objective or "")
         if shown.strip() and shown.strip() != execution_body.strip():
             manager_decision["display_objective"] = shown
+        plan = getattr(prepared_handoff.decision, "plan", None)
+        if plan:
+            # The one record of the Manager's plan: the held-launch card reads it here.
+            manager_decision["plan"] = dict(plan)
         if direct:
             # One reviewed, stage-closing mission: the same item the campaign
             # supervisor queues for a finite direct objective, so its certified

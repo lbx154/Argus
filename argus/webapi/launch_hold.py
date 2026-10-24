@@ -103,6 +103,11 @@ def _understood(life_dir: Path) -> dict[str, Any]:
     }
 
 
+def _field(item: Any, name: str) -> Any:
+    """One field of a backlog row, whether it is a ``BacklogItem`` or its dict."""
+    return item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+
+
 def launch_hold_view(
     life_dir: Path | str,
     *,
@@ -114,15 +119,13 @@ def launch_hold_view(
     record = read_launch_hold(life_dir)
     if record is None or daemon_alive:
         return None
-    statuses = {
-        str(getattr(item, "id", "") or (item.get("id") if isinstance(item, dict) else "")):
-        str(getattr(item, "status", "") or (item.get("status") if isinstance(item, dict) else ""))
-        for item in backlog or []
-    }
+    statuses = {str(_field(item, "id") or ""): str(_field(item, "status") or "") for item in backlog or []}
     has_work = any(status in _ACTIVE_STATUSES for status in statuses.values())
     if not has_work and not (record.get("continuous") and continuous_enabled):
         return None
-    return {**record, "understood": _understood(Path(life_dir))}
+    held = next((item for item in backlog or [] if _field(item, "id") == record.get("item_id")), None)
+    plan = (_field(held, "manager_decision") or {}).get("plan") if held is not None else None
+    return {**record, "understood": _understood(Path(life_dir)), **({"plan": plan} if plan else {})}
 
 
 def discard_held_work(life_dir: Path | str) -> dict[str, Any]:

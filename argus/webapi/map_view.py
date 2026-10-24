@@ -145,9 +145,9 @@ def _step_from_progress(row: dict, workspace: str = "") -> dict:
         label = plain_step_label(
             redact_secrets_text(str(label or "")), str(row.get("tool_name") or ""),
             redact_secrets_text(str(row.get("detail") or "")), workspace,
-        ) or label
+        )
     elif kind == "command_execution" and not row.get("turn_step"):
-        # "$ <command>" as a turn step says it, Argus' own paths cut short.
+        # What the command does, as a turn step says it.
         label = describe_progress_step(row, workspace)[0]
     step = {
         "kind": kind,
