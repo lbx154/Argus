@@ -53,7 +53,7 @@
     "summary": "用操作者的语言直接回答，说清结论、依据和不确定之处。",
     "originalName": "Replying to the operator",
     "source": "argus/builtin_skills/manager/replying/SKILL.md",
-    "sourceBytes": 1817
+    "sourceBytes": 2218
   },
   "global/manager/research-and-sources/SKILL.md": {
     "title": "调研与引用来源",
@@ -74,7 +74,7 @@
     "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 3946
+    "sourceBytes": 4222
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",

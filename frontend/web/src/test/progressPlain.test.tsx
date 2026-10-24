@@ -7,7 +7,7 @@ import { AgentActivity } from '../components/AgentActivity';
 import { EventStream } from '../components/EventStream';
 import { liveStaleness } from '../components/agentActivityModel';
 import { stepText } from '../components/TurnSteps';
-import { plainToolLabel, readableGlob } from '../lib/feedSteps';
+import { plainCommand, plainToolLabel, readableGlob, renderFeedRows } from '../lib/feedSteps';
 
 const tool = (text: string, tool_name?: string) => ({ type: 'engineer.progress', kind: 'tool_use', text, ...(tool_name ? { tool_name } : {}) }) as unknown as EventMsg;
 
@@ -143,8 +143,10 @@ describe('real rows from a dogfood session', () => {
     const command = `mkdir -p ${files} && pytest -q | tee ${files}/pytest.log`;
     const events = [{ type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1, status: 'running' }] as unknown as EventMsg[];
     const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} onToggleReasoning={() => undefined} />);
-    expect(html).toContain('>mkdir -p …/files &amp;&amp; pytest -q | tee …/pytest.log<');
-    expect(html).toContain(`title="${command.replace(/&/g, '&amp;')}"`);
+    // The command waits behind its role's "Show commands" (eventStreamInteraction opens it).
+    expect(html).toContain('Show commands (1)');
+    expect(html).not.toContain('pytest -q');
+    expect(plainCommand(command)).toBe('mkdir -p …/files && pytest -q | tee …/pytest.log');
   });
 
   it('a command and a result read paths in the project from its root; the tooltip keeps the command', () => {
@@ -160,9 +162,11 @@ describe('real rows from a dogfood session', () => {
       { type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: 'Public package: /work/datefmt/datefmt/__init__.py | /usr/lib/python3/site-packages/x.py', ts: 2 },
     ] as unknown as EventMsg[];
     const html = renderToStaticMarkup(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} onToggleReasoning={() => undefined} />);
-    expect(html).toContain('>rm -r -- build /work/datefmt2/build &amp;&amp; ls .<');
-    expect(html).toContain(`title="${command.replace(/&/g, '&amp;')}"`);
-    expect(html).toContain('Public package: datefmt/__init__.py | /usr/lib/python3/site-packages/x.py');
+    expect(html).toContain('Show commands (2)');
+    expect(html).not.toContain('rm -r --');
+    expect(plainCommand(command, snapshot.session.workdir)).toBe('rm -r -- build /work/datefmt2/build && ls .');
+    expect(renderFeedRows(events, { locale: 'en', showReasoning: false, workspace: '/work/datefmt' }).list[1].r.text)
+      .toContain('Public package: datefmt/__init__.py | /usr/lib/python3/site-packages/x.py');
   });
 
   it('a patch to the handoff notes names them as the read does', () => {
@@ -174,10 +178,10 @@ describe('real rows from a dogfood session', () => {
     // Trial s-36ca9747: the row spelled out the whole path into the built-in skills.
     const result = '?? .autors/ | /srv/dogfood-code/argus/builtin_skills/engineer/minimal-coding-agent.md:3:description: "用于软件" | /work/numfmt/core.py';
     const events = [{ type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: result, ts: 1 }] as unknown as EventMsg[];
-    const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} onToggleReasoning={() => undefined} />);
-    expect(html).toContain('…/minimal-coding-agent.md:3:description:');
-    expect(html).not.toContain('/srv/dogfood-code/argus');
-    expect(html).toContain('/work/numfmt/core.py');
+    const text = renderFeedRows(events, { locale: 'en', showReasoning: false }).list[0].r.text;
+    expect(text).toContain('…/minimal-coding-agent.md:3:description:');
+    expect(text).not.toContain('/srv/dogfood-code/argus');
+    expect(text).toContain('/work/numfmt/core.py');
   });
 
   it('a regular expression is not shown raw', () => {

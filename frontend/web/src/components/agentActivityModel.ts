@@ -66,6 +66,8 @@ export function earlierRoleWork(view: MissionView | null | undefined, events: Ev
     .sort((a, b) => a.ts - b.ts)
     .map((work) => ({
       type: 'engineer.progress', agent_layer: work.role, ts: work.ts, item_id: work.item_id, event_id: work.id,
+      // What the row was, so the progress feed can say a verdict in one line and fold the rest.
+      work_kind: work.kind, work_status: work.status, work_title: plainStatus(work.title, locale), work_detail: work.detail,
       ...(SAID_KINDS.has(work.kind) ? { kind: work.kind, text: work.detail } : {
         kind: 'message',
         text: [plainStatus(work.title, locale), RESTATES_GOAL.has(work.kind) ? '' : cleanActivityText(work.detail)].filter(Boolean).join(' · '),

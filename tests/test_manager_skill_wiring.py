@@ -167,3 +167,19 @@ def test_manager_stage_decision_reads_the_libraries_it_names_and_only_judges(
     assert library in call["options"].add_dirs
     assert "Manager self-evolution" not in call["prompt"]
     assert "you change no files" in call["prompt"]
+
+
+def test_manager_reports_lead_with_the_result_and_leave_out_team_mechanics() -> None:
+    """A task report reads as the result, not as the team's bookkeeping.
+
+    Trial s-7d7b7d22: the chat's task reports said "再次交接被自动审批拒绝…系统的
+    最终验收登记尚未确认" and the operator asked "为啥我看不懂你在干啥".
+    """
+    manager = _BUILTIN_ROOT / "manager"
+    for rule in ("replying", "team-handoff"):
+        text = " ".join((manager / rule / "SKILL.md").read_text(encoding="utf-8").split())
+        assert "one short paragraph" in text, rule
+        assert "the result and where to open it" in text, rule
+        for mechanic in ("approvals or refusals", "verification records", "certification bookkeeping", "review rounds"):
+            assert mechanic in text, (rule, mechanic)
+        assert "only when the operator must act" in text, rule
