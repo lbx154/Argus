@@ -416,6 +416,39 @@ def test_backend_failures_never_arm_the_skip(tmp_path: Path, monkeypatch) -> Non
     assert calls["count"] == 2
 
 
+def test_a_superseded_call_never_arms_the_skip_and_the_campaign_plans_its_next_stage(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    # Trial s-efe9deac: after a reviewed plan (a stage package, the overall
+    # paper goal open) the Planner was cut off by a Manager steer meant for the
+    # team. The cut-off call armed the skip, the steer changed nothing the
+    # Planner reads, and the campaign sat silent for hours.
+    from argus.planner import PLANNER_SUPERSEDED_ERROR
+
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = _install_planner(
+        monkeypatch,
+        verdicts=[
+            PlannerVerdict(project_done=False, summary=PLANNER_SUPERSEDED_ERROR, error=PLANNER_SUPERSEDED_ERROR),
+            _idle_verdict(),
+        ],
+    )
+    supervisor = _supervisor(project, life)
+    supervisor.config.continuous_objective = "完成一篇由真实实验支持的 ACL 完整论文（研究 · 分阶段）"
+
+    supervisor._plan_next_work()
+    assert calls["count"] == 1
+    assert any(event.get("type") == "life.planner.superseded" for event in _events(life))
+    assert not supervisor._planner_unchanged_skip_signature
+
+    # Same inputs, but the cut-off call never answered them: ask again.
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 2
+    assert not [event for event in _events(life) if event.get("model_call_skipped")]
+
+
 def test_an_unusable_answer_is_not_bought_again_on_unchanged_inputs(
     tmp_path: Path, monkeypatch,
 ) -> None:

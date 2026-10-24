@@ -979,19 +979,28 @@ class PlanningContextMixin:
         Armed when the model answered this cycle without proposing work,
         whatever it said: the same inputs would only buy the same answer
         again, so the Planner is asked next when something it reads changes.
-        Proposed work (enqueued or not), a completion accepted, or a failed
-        backend call (which may be transient) clears the record. Cycles that
-        never reached the model, including the skip itself, leave the record
+        Proposed work (enqueued or not), a completion accepted, a failed
+        backend call (which may be transient), or a call cut off because a
+        newer instruction superseded it clears the record. Cycles that never
+        reached the model, including the skip itself, leave the record
         untouched so consecutive unchanged cycles keep skipping until an input
         changes.
+
+        A superseded call never answered: arming on it kept a research
+        campaign silent for hours after one stage (trial s-efe9deac), because
+        the steer that cut it off was meant for the team and changed nothing
+        the Planner reads.
         """
         if not bool(getattr(state, "planner_invoked", False)):
             return
+        from ...planner import PLANNER_SUPERSEDED_ERROR
+
         verdict = state.verdict
         if (
             str(getattr(state, "planner_input_signature", "") or "")
             and verdict is not None
             and not planner_failure_kind(verdict)
+            and not str(getattr(verdict, "error", "") or "").startswith(PLANNER_SUPERSEDED_ERROR)
             and not getattr(verdict, "new_tasks", None)
             and not state.completion_accepted
         ):

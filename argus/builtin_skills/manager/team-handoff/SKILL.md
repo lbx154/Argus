@@ -26,6 +26,8 @@ The ticket is the team's whole brief; they do not see this conversation.
 - `goal`: the outcome, standalone, in the operator's language.
 - `acceptance`: the checks that prove it is done.
 - `constraints`: limits the operator stated, verbatim; never invented.
+  Waiting for the operator's Start is Argus's own hold, never part of the
+  ticket: no goal, acceptance check or constraint says to wait for Start.
 - `context`: paths of files the team should read first.
 - `plan`: when you wrote a plan file, its workspace-relative `path` and a
   `summary` of a few to a dozen lines; the operator reads them on the ticket

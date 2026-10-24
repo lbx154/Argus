@@ -12,7 +12,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | 'project_done' | '';
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | 'project_done' | 'goal_open' | '';
   /** The Manager is answering a request the operator sent, not tidying up on its own. */
   foreground?: boolean;
 }
@@ -20,6 +20,8 @@ export interface WorkStatus {
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working', 'grounding', 'framed']);
 const FINISHED = new Set(['complete', 'completed', 'done', 'success', 'ended']);
 const PAUSED = new Set(['paused', 'stopped', 'cancelled', 'aborted', 'incomplete', 'blocked', 'stalled']);
+/** The one reason a closed campaign means the whole project is done; a stop or pause is not. */
+const PROJECT_DONE_REASON = 'planner declared project done';
 const timestamp = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 /** Work that writes only Argus's own records (``.argus/…``): its failure is
@@ -164,10 +166,16 @@ export function currentWorkStatus(
     if (snapshot.daemon.alive && liveRoles.some(item => item.role === 'planner')) {
       return { ...result, state: 'running', role: 'planner' };
     }
+    // The last step delivered a stage result and said the campaign goes on:
+    // the overall goal is open until the Planner declares it met (trial
+    // s-efe9deac showed "项目已完成" beside "整体目标未完成" after a stop).
+    const goalOpen = view?.mission.status === 'continued' || view?.delivery?.kind === 'stage_package';
+    const closed = deriveMissionView(snapshot).state === 'complete';
     return asked ?? { ...result, role: '',
       state: snapshot.daemon.alive && (view?.routing?.continuous || snapshot.continuous?.enabled) ? 'waiting' : 'step_finished',
       // The campaign closed: the project, not just this step, is over.
-      reason: deriveMissionView(snapshot).state === 'complete' ? 'project_done' : '',
+      reason: closed && (!goalOpen || snapshot.continuous?.done_reason === PROJECT_DONE_REASON) ? 'project_done'
+        : goalOpen ? 'goal_open' : '',
     };
   }
   if (!snapshot.daemon.alive) {
@@ -200,6 +208,12 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.reason === 'project_done') return zh ? '项目已完成' : 'Project complete';
+  if (status.reason === 'goal_open') {
+    // Say what comes next: the team plans the next stage, or waits for a word to go on.
+    if (status.state === 'waiting') return zh ? '阶段成果已交付，正在安排下一阶段' : 'Stage result delivered; arranging the next stage';
+    return zh ? '阶段成果已交付，整体目标还没完成；发条消息就能让团队继续'
+      : 'Stage result delivered; the overall goal is still open. Send a message to have the team continue';
+  }
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
     return roleActionLabel(status.role, zh, status.title);

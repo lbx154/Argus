@@ -135,7 +135,7 @@ def _manager_message(
     ``route_override="chat"`` (or ``/ask``) keeps the answer with the Manager:
     it may not hand the work to the team.
     """
-    from ..core.launch_settings import launch_note, normalize_launch_settings
+    from ..core.launch_settings import launch_hold_context, launch_note, normalize_launch_settings
     from ..core.mission_view import say, uses_cjk
     from ..core.transcript import append_turn
     from ..life.memory import BacklogItem, MemoryBundle
@@ -355,7 +355,8 @@ def _manager_message(
             body = f"{body}\n\n{reference_context}"
         # Launch settings reach the Manager as operator text with the request;
         # the journaled operator turn above stays exactly what was typed.
-        body += launch_note(normalize_launch_settings(launch), language_hint=operator_text)
+        launch_settings = normalize_launch_settings(launch)
+        body += launch_note(launch_settings, language_hint=operator_text)
         root_task_id = BacklogItem.new_id()
         public_task = operator_text
         intake_before = None
@@ -410,6 +411,9 @@ def _manager_message(
             # never part of a ticket the team receives.
             if canvas_context := manager_canvas_context(life_dir):
                 turn_input = f"{turn_input}\n\n{canvas_context}"
+            # The hold before Start is Argus's state, told beside the request.
+            if launch_settings and launch_settings.get("hold"):
+                turn_input = f"{turn_input}\n\n{launch_hold_context(operator_text)}"
             reply, handoff = manager_turn(
                 mem, turn_input, chat_state,
                 on_fragment=emitter.fragment, root_task_id=root_task_id, team_allowed=not explicit_chat,
