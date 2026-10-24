@@ -892,21 +892,22 @@ def _settle_manager_turn(
         chat_state.pop("_self_delivery", None)
         return emitter.respond(reply, {"kind": "error", "success": False, "error_code": "inline_reply_failed"})
     life_dir = emitter.life_dir
+    # The files the Manager's own turn changed are its delivery, whatever it also filed.
+    result: dict[str, Any] = {"kind": "chat"}
+    delivery = chat_state.pop("_self_delivery", None)
+    if isinstance(delivery, dict):
+        result.update(
+            mission_result=True, success=True, summary=str(delivery.get("summary") or ""),
+            delivery_id=str(delivery.get("delivery_id") or ""), delivery=delivery,
+        )
     if handoff is None or handoff.to == "operator":
         if handoff is not None:
             reply = ask_text(handoff, uses_cjk(operator_text))
-        result: dict[str, Any] = {"kind": "chat"}
-        delivery = chat_state.pop("_self_delivery", None)
-        if isinstance(delivery, dict):
-            result.update(
-                mission_result=True, success=True, summary=str(delivery.get("summary") or ""),
-                delivery_id=str(delivery.get("delivery_id") or ""), delivery=delivery,
-            )
         return emitter.journal_and_respond(reply, result) if handoff is None else emitter.respond(reply, result)
     if handoff.to == "team":
         return None
     # Argus applies what the Manager filed and confirms it after its reply.
-    emitter.journal(reply, {"kind": "chat"})
+    emitter.journal(reply, result)
     emitter.turn_id = f"{emitter.turn_id}-applied"
     if handoff.get("answer"):
         from .manager_pending_question import apply_manager_answer

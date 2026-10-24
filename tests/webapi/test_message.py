@@ -1647,3 +1647,35 @@ def test_changing_the_default_model_in_chat_is_one_reply_without_tools_or_missio
     assert not any("tool" in str(event.get("type", "")) or event.get("type") in {
         "life.manager.task.started", "life.planner.task_added", "life.mission.started",
     } for event in events[1:])
+
+
+def test_a_turn_that_files_to_argus_keeps_its_own_delivery() -> None:
+    """Scenario eval m3: the Manager changed files and also recorded the operator's
+    choice as a lasting rule (to=manager); the changed files must still be its delivery."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from argus.webapi.manager_dispatch import _settle_manager_turn
+
+    class Journaled(Exception):
+        pass
+
+    seen: dict = {}
+
+    class Emitter:
+        life_dir = None
+        turn_id = "web-1"
+
+        def journal(self, text, result):
+            seen.update(result)
+            raise Journaled
+
+    handoff = SimpleNamespace(to="manager", get=lambda key, default=None: default)
+    receipt = {"delivery_id": "delivery:x:task_completed:1", "summary": "已完成", "targets": [{"path": "README.md"}]}
+    with pytest.raises(Journaled):
+        _settle_manager_turn(
+            None, "已完成。", handoff, {"_self_delivery": receipt}, Emitter(),
+            source_channel="web", source_message_id="m", operator_text="选第一套",
+        )
+    assert seen["delivery"] == receipt and seen["delivery_id"] == receipt["delivery_id"]

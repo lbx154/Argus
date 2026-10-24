@@ -1,7 +1,7 @@
 {
-  "git_commit": "0617029eb5e760e7a94fe3066b78b4501b650fb9",
+  "git_commit": "8588b31d9a9732d28db90f80c6410069fd1e40d4",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+0617029eb5e7",
+  "release_id": "0.1.8+8588b31d9a97",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -688,7 +688,7 @@
     "argus/webapi/index_cache.py": 13476,
     "argus/webapi/launch_hold.py": 5621,
     "argus/webapi/manager_bridge.py": 32595,
-    "argus/webapi/manager_dispatch.py": 39053,
+    "argus/webapi/manager_dispatch.py": 39104,
     "argus/webapi/manager_dispatch_receipt.py": 6061,
     "argus/webapi/manager_followups.py": 3182,
     "argus/webapi/manager_pending_question.py": 33569,
