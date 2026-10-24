@@ -83,7 +83,7 @@ def test_manager_planner_and_self_reasoning_defaults_are_high() -> None:
 
     assert defaults["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "high"
     assert defaults["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "high"
-    assert defaults["ARGUS_SKILL_SELF_REASONING_EFFORT"] == "high"
+    assert defaults["ARGUS_SKILL_SELF_REASONING_EFFORT"] == "medium"
 
 
 def test_config_help_does_not_advertise_formal_vertical_override() -> None:

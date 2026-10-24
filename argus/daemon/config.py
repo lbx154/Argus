@@ -26,7 +26,7 @@ class LifeWorkerConfig:
     backend: str = "codex"  # "codex" | "memory"
     engineer_model: str = "gpt-6.1-sol"
     reviewer_model: str = "gpt-6.1-sol"
-    engineer_reasoning_effort: str = "xhigh"
+    engineer_reasoning_effort: str = "high"
     reviewer_reasoning_effort: str = "high"
     # A ceiling on concurrent mission workers; the ready DAG and free GPUs
     # decide how many of them run at once. A retired ``auto`` reads as the
@@ -147,7 +147,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
             "ARGUS_SKILL_REVIEWER_MODEL",
         ),
         engineer_reasoning_effort=str(
-            data.get("engineer_reasoning_effort") or "xhigh"
+            data.get("engineer_reasoning_effort") or "high"
         ),
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"

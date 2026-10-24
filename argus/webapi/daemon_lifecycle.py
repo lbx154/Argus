@@ -92,7 +92,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
             "reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL",
         ),
         engineer_reasoning_effort=resolve_role_reasoning_effort(
-            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", default="high",
         ),
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",

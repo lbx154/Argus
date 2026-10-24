@@ -608,15 +608,6 @@ class SkillLoopExecuteMixin:
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
             "require_independent_review": effective_require_independent_review,
-            "engineer_initial_reasoning_effort": os.environ.get(
-                "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high"
-            ),
-            "engineer_reasoning_effort": getattr(args, "engineer_reasoning_effort", "xhigh"),
-            "reviewer_reasoning_effort": getattr(
-                args,
-                "reviewer_reasoning_effort",
-                "xhigh",
-            ),
             "max_rounds": (
                 max(1, int(max_rounds_override))
                 if max_rounds_override is not None
@@ -698,15 +689,6 @@ class SkillLoopExecuteMixin:
             workflow_mode_override.strip().lower() or _workflow_mode_for_project_root(_proot)
         )
         config_kwargs["workflow_mode"] = resolved_workflow_mode
-        if resolved_workflow_mode == "direct":
-            from ..core.knobs import resolve_role_reasoning_effort
-
-            config_kwargs["reviewer_reasoning_effort"] = (
-                resolve_role_reasoning_effort(
-                    "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-                    default="high",
-                )
-            )
         # A paper contract is enabled only by a non-direct vertical that explicitly
         # declares PAPER_MISSION. Certification strength is a separate contract.
         # An explicit False may opt out; True cannot turn a non-paper vertical
@@ -723,6 +705,26 @@ class SkillLoopExecuteMixin:
                 else _paper_mission_for_project_root(_proot)
             )
         )
+        # Effort by need: bounded work runs at medium, deeper work at high, and
+        # an operator's explicit effort wins (core.effort_policy).
+        from ..core.effort_policy import is_bounded_mission, mission_efforts
+
+        _vertical = active_vertical
+        if not _vertical:
+            try:
+                from ..skills.vertical_select import resolve_skill_scope
+
+                _vertical = resolve_skill_scope(_proot)
+            except Exception:  # noqa: BLE001 — an unreadable vertical counts as deep work
+                _vertical = "research"
+        _efforts = mission_efforts(bounded=not maintenance_mission and is_bounded_mission(
+            workflow_mode=resolved_workflow_mode,
+            paper_mission=config_kwargs["paper_mission"],
+            vertical=_vertical,
+        ))
+        config_kwargs["engineer_initial_reasoning_effort"] = _efforts.engineer_initial
+        config_kwargs["engineer_reasoning_effort"] = _efforts.engineer
+        config_kwargs["reviewer_reasoning_effort"] = _efforts.reviewer
         try:
             from inspect import signature
 

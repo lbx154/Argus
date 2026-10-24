@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  dropSupersededDrafts,
   mergeConversationEvents,
   mergeOptimisticManagerDelta,
   optimisticOperatorEvent,
@@ -211,5 +212,28 @@ describe('persisted Manager turn steps', () => {
 
     expect(merged.map((event) => event.type)).toEqual(['engineer.progress', 'ui.argus']);
     expect(merged[0].agent_layer).toBe('engineer');
+  });
+});
+
+describe('Manager reply in progress', () => {
+  const op = { type: 'ui.operator', text: 'format_ratio 是干嘛的？', ts: 100, message_id: 'web-1-operator' };
+  const draft = { type: 'ui.argus', text: '我先看一下 core.py', ts: 102.6, message_id: 'web-1-argus', in_progress: true, live: true };
+  const final = { type: 'ui.argus', text: '`format_ratio` 把比例格式化成百分比。', ts: 120, message_id: 'web-1-argus' };
+
+  it('shows the first words at once, marked live', () => {
+    const feed = mergeConversationEvents([op, draft], [], []);
+    expect(feed.map((event) => event.text)).toEqual([op.text, draft.text]);
+    expect(feed[1].live).toBe(true);
+  });
+
+  it('the final reply replaces the first words', () => {
+    expect(mergeConversationEvents([op, draft, final], [], []).map((event) => event.text)).toEqual([op.text, final.text]);
+    const journaled = [{ ts: 120, role: 'argus', text: final.text, message_id: 'web-1-argus' }];
+    expect(mergeConversationEvents([op, draft], journaled, []).map((event) => event.text)).toEqual([op.text, final.text]);
+  });
+
+  it('a later message retires first words whose turn never finished', () => {
+    const next = { type: 'ui.operator', text: '算了', ts: 130, message_id: 'web-2-operator' };
+    expect(dropSupersededDrafts([op, draft, next]).map((event) => event.text)).toEqual([op.text, next.text]);
   });
 });

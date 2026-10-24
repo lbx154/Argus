@@ -142,12 +142,32 @@ def _manager_message(
             return False
 
     turn_steps: list[dict[str, Any]] = []
+    draft_shown: list[bool] = [False]
+
+    def _show_draft(payload: dict[str, Any]) -> None:
+        # Early words (ux rule 3): the Manager's first message of the turn
+        # ("我先看一下 core.py") goes on the shared Activity stream at once,
+        # marked in progress. Every client shows it as the start of the reply;
+        # the final reply carries the same message id and replaces it. It is
+        # never journaled: the transcript keeps only the final reply.
+        if draft_shown[0] or not payload.get("live"):
+            return
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return
+        draft_shown[0] = True
+        _emit_ui_turn(
+            life_dir, "argus", text, message_id=f"{turn_id}-argus",
+            metadata={"in_progress": True, "live": True},
+        )
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         # A provider can emit buffered output after its interrupt was accepted.
         # Do not let that old turn reappear in the operator's current stream.
         if _cancelled():
             return
+        if kind == "delta":
+            _show_draft(payload)
         if kind == "phase":
             changed = record_turn_step(turn_steps, payload)
             if turn_steps:

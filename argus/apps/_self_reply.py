@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
+from ..core.knobs import resolve_role_model
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.progress_step import REPLY_KINDS, ProgressDeduper, ProgressTally, describe_progress_step
@@ -68,12 +68,17 @@ class SelfReplyMixin:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
         root_task_id: str | None = None,
+        deciding: bool = False,
     ) -> _Outcome:
-        """One operator message, one turn of the Manager's session; ``actions`` holds what it handed off."""
+        """One operator message, one turn of the Manager's session; ``actions`` holds what it handed off.
+
+        ``deciding`` marks a turn that rules on a team stage question; it
+        thinks harder than an ordinary chat turn (``core.effort_policy``).
+        """
         with self.task_usage_context(root_task_id):
             outcome = self._manager_turn(
                 message=message, sink=sink, actions=actions, seed_thread_id=seed_thread_id,
-                phase_cb=phase_cb, root_task_id=root_task_id,
+                phase_cb=phase_cb, root_task_id=root_task_id, deciding=deciding,
             )
         self.last_chat_outcome = outcome
         return outcome
@@ -94,7 +99,9 @@ class SelfReplyMixin:
         seed_thread_id: str | None,
         phase_cb: Any,
         root_task_id: str | None,
+        deciding: bool = False,
     ) -> _Outcome:
+        from ..core.effort_policy import manager_chat_effort
         from ..core.operator_context import append_operator_context, build_operator_context_block
         from ..life.knowledge_recall import knowledge_read_dirs
         from ..manager.self_context import self_skill_context
@@ -141,7 +148,7 @@ class SelfReplyMixin:
         )
         options = RunnerOptions(
             model=model,
-            reasoning_effort=resolve_role_reasoning_effort("ARGUS_SKILL_SELF_REASONING_EFFORT", default="high"),
+            reasoning_effort=manager_chat_effort(deciding=deciding),
             skip_git_repo_check=True,
             dangerous_yolo=True,
             working_dir=str(workdir),

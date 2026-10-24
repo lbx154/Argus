@@ -112,10 +112,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "high", "planner reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "low", "reasoning effort for every light route", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "high", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
-    Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "medium", "Manager chat turn effort; unset: medium, high while ruling on a team stage question", "reasoning"),
+    Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "medium", "direct-task first-round Engineer effort; unset: medium for bounded work, high for research/paper; later rounds use the Engineer effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high", "engineer reasoning effort: low|medium|high|xhigh; set, it applies to every round", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "medium", "reviewer reasoning effort; unset: medium for bounded work, high for research/paper/staged", "reasoning", cockpit=True),
     # Capacity limits are explicit resource admission, not work clocks.
     # --- budget ---
     Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),

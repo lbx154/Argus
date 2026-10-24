@@ -49,7 +49,7 @@ _ROLE_EFFORT_ENV = {
 _ROLE_EFFORT_DEFAULT = {
     "manager": "high",
     "planner": "high",
-    "engineer": "xhigh",
+    "engineer": "high",
     "reviewer": "high",
 }
 

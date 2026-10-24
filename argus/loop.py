@@ -59,11 +59,12 @@ class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
     engineer_model: str | None = "gpt-6.1-sol"
     reviewer_model: str | None = None  # default: same as engineer
-    # Direct/bounded work starts at high. A Reviewer-requested second round
-    # escalates to ``engineer_reasoning_effort`` (xhigh by default). Staged and
-    # paper missions retain xhigh from round one.
+    # Direct work starts at ``engineer_initial_reasoning_effort``; a
+    # Reviewer-requested second round, staged and paper missions use
+    # ``engineer_reasoning_effort``. The daemon picks both by need
+    # (core.effort_policy); nothing defaults to xhigh.
     engineer_initial_reasoning_effort: str | None = "high"
-    engineer_reasoning_effort: str | None = "xhigh"
+    engineer_reasoning_effort: str | None = "high"
     reviewer_reasoning_effort: str = "high"
     require_independent_review: bool = True
     # Completed tasks may retain durable learning when the Agent judges it useful.

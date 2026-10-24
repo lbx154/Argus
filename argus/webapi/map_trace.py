@@ -100,7 +100,8 @@ def _calls_by_task(life_dir: Path) -> dict[str, dict]:
             last_review = item
         elif kind == "manager.turn.started":
             turn = f"turn:{row.get('message_id') or ''}"
-        elif kind == "ui.argus" and turn and str(row.get("message_id") or "") == turn[5:] + "-argus":
+        elif (kind == "ui.argus" and turn and not row.get("in_progress")
+              and str(row.get("message_id") or "") == turn[5:] + "-argus"):
             turn = ""
         elif kind == "life.manager.intent.completed":
             # The turn handed its request to the team; its own calls are over.

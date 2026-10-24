@@ -168,6 +168,42 @@ export function mergeOptimisticManagerDelta(
   return next;
 }
 
+const isChatRow = (event: EventMsg) => event.type === 'ui.operator' || event.type === 'ui.argus';
+
+/**
+ * A Manager reply in progress (its first words, shown at once) stays only
+ * while it is the newest word of the conversation: the final reply with the
+ * same message id, a later in-progress row of that reply, or any later
+ * message replaces it.
+ */
+export function dropSupersededDrafts(
+  streamedEvents: EventMsg[],
+  transcript: TranscriptTurn[] = [],
+  localEvents: EventMsg[] = [],
+): EventMsg[] {
+  if (!streamedEvents.some((event) => event.type === 'ui.argus' && event.in_progress === true)) return streamedEvents;
+  const finals = new Set<string>();
+  for (const event of [...streamedEvents, ...localEvents]) {
+    if (event.type === 'ui.argus' && event.in_progress !== true && event.message_id) finals.add(String(event.message_id));
+  }
+  for (const turn of transcript) {
+    if (turn.role !== 'operator' && turn.message_id) finals.add(String(turn.message_id));
+  }
+  const chatTs = [
+    ...streamedEvents.filter(isChatRow).map((event) => ({ id: String(event.message_id ?? ''), ts: Number(event.ts ?? 0) })),
+    ...transcript.map((turn) => ({ id: String(turn.message_id ?? ''), ts: Number(turn.ts ?? 0) })),
+  ];
+  return streamedEvents.filter((event, index) => {
+    if (event.type !== 'ui.argus' || event.in_progress !== true) return true;
+    const id = String(event.message_id ?? '');
+    if (id && finals.has(id)) return false;
+    const ts = Number(event.ts ?? 0);
+    if (streamedEvents.some((other, at) => at > index && other.type === 'ui.argus' && other.in_progress === true
+      && String(other.message_id ?? '') === id)) return false;
+    return !chatTs.some((other) => other.id !== id && other.ts > ts);
+  });
+}
+
 /**
  * Build one conversation feed from transcript replay, live events, and local
  * optimistic rows. A server-confirmed message replaces its local row by stable
@@ -181,7 +217,11 @@ export function mergeConversationEvents(
 ): EventMsg[] {
   // A Manager turn's tool calls are persisted as progress rows for the Agent
   // activity panel; the reply row already lists them as steps.
-  const liveEvents = streamedEvents.filter((event) => !(event.type === 'engineer.progress' && event.turn_step === true));
+  const liveEvents = dropSupersededDrafts(
+    streamedEvents.filter((event) => !(event.type === 'engineer.progress' && event.turn_step === true)),
+    transcript,
+    localEvents,
+  );
   const liveByContent = new Map<string, number[]>();
   const mergedLive = [...liveEvents];
   liveEvents.forEach((event, index) => {

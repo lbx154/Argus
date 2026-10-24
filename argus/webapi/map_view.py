@@ -557,7 +557,7 @@ def turn_records(
                         error=text(row.get("fatal_error"), SEGMENT_TEXT_LIMIT),
                     )
                     break
-        if row.get("type") != "ui.argus" or not message_id.endswith("-argus"):
+        if row.get("type") != "ui.argus" or not message_id.endswith("-argus") or row.get("in_progress"):
             continue
         turn_id = message_id[: -len("-argus")]
         ask = asks.pop(turn_id, {})

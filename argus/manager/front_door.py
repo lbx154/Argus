@@ -259,7 +259,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
                 backend=runner_backend,
             ),
             engineer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
+                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
             ),
             reviewer_reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
@@ -1267,6 +1267,8 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
             message="\n\n".join(part for part in (told, setup, body, stage_question, waiting_text) if part),
             sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
             phase_cb=_phase, root_task_id=root_task_id,
+            # A stage ruling decides where the project goes; it keeps high effort.
+            deciding=bool(stage_question),
         )
     except BackendLoginRequired:
         raise
