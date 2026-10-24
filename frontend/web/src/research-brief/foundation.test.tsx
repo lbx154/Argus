@@ -7,7 +7,7 @@ import { mapCopyKey } from '../map/copyMode';
 import type { MapCopy } from '../map/presentation';
 import { useMapCopy } from '../map/useMapCopy';
 import { selectFoundation, useSelectedFoundation } from './foundation';
-import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
+import { briefLiveKey, briefSelection, currentBriefData } from './model';
 import { completedCopy, inputs, source } from './testFixtures';
 
 vi.mock('../components/Modal', () => ({
@@ -56,52 +56,42 @@ it('retains explicit choices across remounts while isolating projects and locale
   expect(generate).not.toHaveBeenCalled();
 });
 
-it('never falls back to default or another preview generation when no foundation is selected', async () => {
+it('never falls back to default or another preview’s explanations when no foundation is selected', async () => {
   const read = vi.spyOn(api, 'mapCopy').mockResolvedValue(empty);
   const generate = vi.spyOn(api, 'generateMapCopy');
   const foundation = vi.spyOn(api, 'generateReaderFoundation');
-  let history!: ReturnType<typeof useMapCopy>;
   function Readers() {
-    history = useMapCopy(source, 'a', false, true, undefined, props.sid);
+    useMapCopy(source, 'a', false, undefined, props.sid);
     return null;
   }
   await act(async () => { renderer = create(<QueryClientProvider client={client}><Readers /></QueryClientProvider>); });
   await flush(1500);
-  expect(history.foundationRequired).toBe(true);
-  await act(async () => { await history.retry(); });
   expect(read.mock.calls.length).toBeGreaterThan(0);
   expect(read.mock.calls.every(call => call[5] === preview && call[6] === null)).toBe(true);
   expect(generate).not.toHaveBeenCalled();
   expect(foundation).not.toHaveBeenCalled();
 });
 
-it('binds map application requests and caches to the reader’s pinned foundation until a new reading selection is made', async () => {
-  for (const id of ['foundation-a', 'foundation-b']) client.setQueryData(mapCopyKey('project', props.sid, 'en-US', props.sid, preview, id), empty);
+it('reads map explanations saved for the reader’s pinned foundation until a new reading selection is made', async () => {
+  for (const id of ['foundation-a', 'foundation-b']) {
+    const saved = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
+    saved.cards.a.title = `${id} application`;
+    client.setQueryData(mapCopyKey('project', props.sid, 'en-US', props.sid, preview, id), saved);
+  }
   selectFoundation(client, props.sid, 'en-US', 'foundation-a');
   let pinned: string | undefined = 'foundation-a';
   let latest!: ReturnType<typeof useMapCopy>;
-  function Reader() { latest = useMapCopy(source, 'a', false, true, undefined, props.sid, false, 'a', pinned); return null; }
+  function Reader() { latest = useMapCopy(source, 'a', false, undefined, props.sid, 'a', pinned); return null; }
   const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
-  let finishA!: (copy: MapCopy) => void, finishB!: (copy: MapCopy) => void;
-  const generate = vi.spyOn(api, 'generateMapCopy')
-    .mockReturnValueOnce(new Promise(resolve => { finishA = resolve; }))
-    .mockReturnValueOnce(new Promise(resolve => { finishB = resolve; }));
+  const generate = vi.spyOn(api, 'generateMapCopy');
   act(() => { renderer = create(render()); }); await flush(750);
+  expect(latest.copy?.cards.a.title).toBe('foundation-a application');
   act(() => { selectFoundation(client, props.sid, 'en-US', 'foundation-b'); }); await flush(750);
-  expect(generate).toHaveBeenCalledTimes(1);
-  expect(generate.mock.calls[0][2].foundation_id).toBe('foundation-a');
-  const doneA = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
-  doneA.cards.a.title = 'Foundation A application';
-  await act(async () => { finishA(doneA); await vi.advanceTimersByTimeAsync(25); });
-  expect(latest.copy?.cards.a.title).toBe('Foundation A application');
+  expect(latest.copy?.cards.a.title).toBe('foundation-a application');
+  expect(latest.questionContext.foundationId).toBe('foundation-a');
   pinned = undefined;
   act(() => renderer!.update(render())); await flush(750);
-  expect(generate).toHaveBeenCalledTimes(2);
-  expect(generate.mock.calls[1][2].foundation_id).toBe('foundation-b');
-  const doneB = completedCopy(source.tasks[0], ['start-a', 'main-a'], 40);
-  doneB.cards.a.title = 'Foundation B application';
-  await act(async () => { finishB(doneB); await vi.advanceTimersByTimeAsync(25); });
-  expect(latest.copy?.cards.a.title).toBe('Foundation B application');
-  expect(client.getQueryData<MapCopy>(briefCopyKey(props.sid, 'en-US', preview, 'foundation-a'))?.cards.a.title).toBe('Foundation A application');
-  expect(generate.mock.calls.every(call => call[5] === preview)).toBe(true);
+  expect(latest.copy?.cards.a.title).toBe('foundation-b application');
+  expect(latest.questionContext.foundationId).toBe('foundation-b');
+  expect(generate).not.toHaveBeenCalled();
 });
