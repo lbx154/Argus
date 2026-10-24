@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from urllib.parse import unquote
 
-from ..life.delivery import _referenced_path_candidates
+from ..life.delivery import referenced_path_candidates
 
 PATH_LIMIT = 12
 RELATION_LIMIT = 6
@@ -29,7 +29,7 @@ RELATION_LIMIT = 6
 def reply_paths(text: str, workspace: str = "") -> list[str]:
     """Workspace-relative paths a reply links or names, as written."""
     paths: list[str] = []
-    for candidate in _referenced_path_candidates(text):
+    for candidate in referenced_path_candidates(text):
         path = _normal(candidate, workspace)
         if path and path not in paths:
             paths.append(path)

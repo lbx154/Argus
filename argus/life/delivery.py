@@ -155,7 +155,7 @@ def reviewed_change_paths(
     return inspected[:MAX_DELIVERY_TARGETS]
 
 
-def _referenced_path_candidates(text: object) -> list[str]:
+def referenced_path_candidates(text: object) -> list[str]:
     body = str(text or "")
     candidates: list[str] = []
     for match in _MARKDOWN_TARGET_RE.finditer(body):
@@ -236,7 +236,7 @@ def referenced_delivery_paths(
         return []
     paths: list[str] = []
     for text in texts:
-        for candidate in _referenced_path_candidates(text):
+        for candidate in referenced_path_candidates(text):
             path = _workspace_relative_reference(root, candidate)
             if path and path not in paths:
                 paths.append(path)
@@ -261,7 +261,7 @@ def linked_report_paths(workspace: Path | str, paths: Iterable[object]) -> list[
                 text = handle.read(128 * 1024).decode("utf-8", errors="replace")
             # Markdown links resolve against the report's directory. Still
             # validate the resulting path against the full workspace boundary.
-            for candidate in _referenced_path_candidates(text):
+            for candidate in referenced_path_candidates(text):
                 candidate_path = str(candidate)
                 if not re.match(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|[/\\])", candidate_path):
                     candidate_path = (Path(safe).parent / candidate_path).as_posix()

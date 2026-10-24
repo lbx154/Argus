@@ -468,8 +468,11 @@ def _apply_operator_answer(
     from ..life.event_log import JsonlEventSink
 
     question = str(item.pending_question or "").strip()
-    # A clicked option is in the card's words; the question is in the operator's.
-    manager_reply = manager_reply or say("answer_taken", conversation_is_chinese(answer, question))
+    # Typed words are the operator's own language. A clicked option is in the card's words
+    # (often code or English), so for a click the question's language decides.
+    clicked = decision_option.strip().lower() not in ("", "custom")
+    zh = conversation_is_chinese(question, answer) if clicked else conversation_is_chinese(answer, question)
+    manager_reply = manager_reply or say("answer_taken", zh)
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
