@@ -13,7 +13,7 @@ describe('MobileTabBar', () => {
   it('offers every destination that is otherwise reachable only on desktop', () => {
     const html = markup();
 
-    for (const label of ['Projects', 'Map', 'Conversation', 'Workbench', 'Files']) {
+    for (const label of ['Projects', 'Map', 'Conversation', 'Workbench', 'Results &amp; files']) {
       expect(html).toContain(`>${label}<`);
     }
     expect(html).not.toContain('>Mission<');

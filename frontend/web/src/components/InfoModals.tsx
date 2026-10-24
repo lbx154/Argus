@@ -267,8 +267,8 @@ export function ConfigModal({
   return (
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
-      <div className="p-4">
-        {themeMode && onCycleTheme && <section className="mb-4 flex items-center gap-3 rounded-lg border border-line p-3">
+      <div className="settings-body">
+        {themeMode && onCycleTheme && <section className="settings-section mb-4 flex items-center gap-3">
           <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">{locale === 'zh-CN' ? '此浏览器的偏好' : 'Preferences for this browser'}</h3>
             <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '语言与明暗外观，不改变项目和任务设置。' : 'Language and light/dark appearance. Project and task settings are unchanged.'}</p></div>
           <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
@@ -277,14 +277,14 @@ export function ConfigModal({
         {!isLoading && isError && <LoadFailure message={t('settings.loadError')} retrying={isFetching} onRetry={() => void refetch()} t={t} />}
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
-          <div className="space-y-4">
-            {!data.trial_mode && <section className="rounded-lg border border-line glass-card p-3">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
-              <details className="mb-3 rounded border border-line/60 p-2">
+          <div className="settings-sections">
+            {!data.trial_mode && <section className="settings-section">
+              <h3 className="mb-3 text-sm font-semibold text-ink">{t('settings.quickConfig')}</h3>
+              <details className="mb-4">
                 <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置 · 由维护者配置' : 'Service connection · Maintainer settings'}</summary>
-                <p className="my-2 text-[11px] text-ink-faint">{locale === 'zh-CN' ? '普通使用无需修改。更换连接前，请确认服务已配置好相应账号与环境。' : 'Not required for ordinary use. Confirm the account and environment before changing this connection.'}</p>
+                <p className="my-2 text-xs leading-5 text-ink-faint">{locale === 'zh-CN' ? '普通使用无需修改。更换连接前，请确认服务已配置好相应账号与环境。' : 'Not required for ordinary use. Confirm the account and environment before changing this connection.'}</p>
               <label className="flex flex-wrap items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
+                <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.backend')}</span>
                 <select
                   value={pendingBackend || backendOption(currentBackend)}
                   disabled={quickConfigBusy}
@@ -329,7 +329,7 @@ export function ConfigModal({
               </label>
               </details>
               <div className="mt-2 flex items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
+                <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.model')}</span>
                 <select
                   value={quickModelValue || 'auto'}
                   onChange={(event) => setQuickModelValue(event.target.value === 'auto' ? '' : event.target.value)}
@@ -362,7 +362,7 @@ export function ConfigModal({
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.lightModel')}</span>
+                <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.lightModel')}</span>
                 <select
                   value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || 'auto'}
                   disabled={quickConfigBusy}
@@ -399,7 +399,7 @@ export function ConfigModal({
               )}
             </section>}
 
-            {data.trial_mode && <section className="rounded-lg border border-blue/30 bg-blue/5 p-3" aria-label={t('settings.trialAccount')}>
+            {data.trial_mode && <section className="settings-section" aria-label={t('settings.trialAccount')}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-ink">{t('settings.trialAccount')}</h3>
@@ -412,26 +412,26 @@ export function ConfigModal({
 
             {advancedOpen && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
 
-            <section className="overflow-hidden rounded-lg border border-line bg-surface/50">
+            <section className="settings-section">
               <button
                 type="button"
                 aria-expanded={advancedOpen}
                 aria-controls="config-advanced-settings"
                 onClick={() => setAdvancedOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-bg/30"
+                className="flex w-full items-center justify-between gap-3 py-2 text-left hover:bg-bg/30"
               >
                 <span>
-                  <span className="block text-xs font-semibold text-ink">{t('settings.advanced')}</span>
-                  <span className="mt-0.5 block text-[10px] text-ink-faint">{t('settings.advancedHint')}</span>
+                  <span className="block text-sm font-semibold text-ink">{t('settings.advanced')}</span>
+                  <span className="mt-1 block text-xs text-ink-faint">{t('settings.advancedHint')}</span>
                 </span>
                 <FontAwesomeIcon icon={faChevronDown} className={`text-xs text-ink-faint transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {advancedOpen && (
-                <div id="config-advanced-settings" className="space-y-4 border-t border-line/70 p-3">
-                  <section className="rounded-lg border border-line bg-surface p-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.connection')}</div>
-                    <div className="mt-2 grid gap-2 text-[10px] sm:grid-cols-[100px_minmax(0,1fr)]">
+                <div id="config-advanced-settings" className="space-y-6 pt-4">
+                  <section>
+                    <h3 className="text-sm font-medium text-ink">{t('settings.connection')}</h3>
+                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-[100px_minmax(0,1fr)]">
                       <span className="text-ink-faint">{t('settings.webApi')}</span>
                       <code className="min-w-0 break-all text-ink-dim">{connection.webApi}</code>
                       <span className="text-ink-faint">{t('settings.eventStream')}</span>
@@ -441,13 +441,13 @@ export function ConfigModal({
                     </div>
                   </section>
 
-                  <form onSubmit={(event) => void submit(event)} className="rounded-lg border border-blue/30 bg-blue/5 p-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-blue">{t('settings.overrideTitle')}</div>
-                    <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.overrideHint')}</p>
+                  <form onSubmit={(event) => void submit(event)} className="settings-section">
+                    <h3 className="text-sm font-medium text-ink">{t('settings.overrideTitle')}</h3>
+                    <p className="mt-1 text-xs text-ink-faint">{t('settings.overrideHint')}</p>
                     <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                       <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('settings.namePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
                       <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={t('settings.valuePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-                      <button disabled={busy || !name.trim() || !value.trim()} title={t('settings.applyAdvanced')} aria-label={t('settings.applyAdvanced')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
+                      <button disabled={busy || !name.trim() || !value.trim()} title={t('settings.applyAdvanced')} aria-label={t('settings.applyAdvanced')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
                     </div>
                     {result ? <div className="mt-2 text-xs text-ink-dim">{result}</div> : null}
                   </form>
@@ -457,7 +457,7 @@ export function ConfigModal({
                       <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('settings.rolesTitle')}</div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         {data.roles.map((role) => (
-                          <div key={role.role} className="rounded-lg border border-line bg-surface p-3">
+                          <div key={role.role} className="border-t border-line py-3">
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-xs font-semibold text-ink">{roleLabel(role.role, t)}</div>
                               <span className="text-[10px] text-ink-faint">{role.backend_label}</span>
@@ -484,7 +484,7 @@ export function ConfigModal({
                       {Object.entries(knobGroups).map(([group, knobs]) => (
                         <div key={group} className="mt-3 first:mt-0">
                           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t(GROUP_TEXT[group])}</div>
-                          <div className="overflow-hidden rounded-lg border border-line">
+                          <div className="border-t border-line">
                             {knobs.map((knob, index) => {
                               const copy = KNOB_TEXT[knob.name];
                               const displayValue = configValueLabel(knob, t);
@@ -558,7 +558,7 @@ export function IdentityModal({ sid, open, onClose }: { sid: string; open: boole
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} className="w-full resize-y rounded-lg border border-line bg-bg p-3 font-sans text-sm leading-relaxed text-ink outline-none focus:border-blue" placeholder={t('identity.placeholder')} />
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-ink-faint">{result}</span>
-              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title={t('identity.save')} aria-label={t('identity.save')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
+              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title={t('identity.save')} aria-label={t('identity.save')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
             </div>
           </>
         ) : null}

@@ -18,7 +18,7 @@ import { errorText } from '../lib/format';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
-import { isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
+import { canEditArtifact, isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 
 /** Authenticated preview/download for one registered project file. */
@@ -33,6 +33,7 @@ export function ArtifactModal({
   reviewActivity,
   artifacts = [],
   onRevise,
+  onEdit,
 }: {
   sid: string | null;
   path: string | null;
@@ -44,6 +45,7 @@ export function ArtifactModal({
   reviewActivity?: 'revising' | 'reviewing';
   artifacts?: Array<{ path: string; storage_path?: string }>;
   onRevise?: (path: string) => void;
+  onEdit?: (path: string) => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -162,6 +164,8 @@ export function ArtifactModal({
           </p>
         </div>
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="shrink-0 rounded-md border border-line p-2 text-ink-dim">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
+        {onEdit && path && info && canEditArtifact(info)
+          && <button type="button" onClick={() => onEdit(path)} className="shrink-0 rounded-md border border-blue/30 px-3 py-2 text-xs text-blue">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
         {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
           className="shrink-0 rounded-md border border-blue/30 bg-blue/5 px-3 py-2 text-xs text-blue disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
         {info?.kind === 'html' && <button type="button" disabled={downloading} onClick={() => void download(true)} className="shrink-0 rounded-md border border-blue-deep/60 bg-blue-deep/10 px-3 py-2 text-xs text-blue-sky disabled:opacity-50">{zh ? '下载完整网页' : 'Download website'}</button>}

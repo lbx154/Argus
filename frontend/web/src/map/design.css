@@ -289,25 +289,23 @@
  * by the edge itself and may load after this file), so the palette holds
  * whatever order the bundler settles on. */
 .argus-map.argus-map {
-  /* 宣纸 paper and 墨 ink */
-  --map-canvas: #f4f1ea;
-  --map-paper: #fffdf8;
-  --map-card-surface: #fffdf8;
-  --map-dot: rgb(74 66 52 / 0.09);
-  --map-minimap-mask: rgb(244 241 234 / 0.78);
-  --ink-1: #1f2226; /* 焦墨 */
-  --ink-2: #3c4248; /* 浓墨 */
-  --ink-3: #6d737a; /* 淡墨 */
-  --ink-4: #a2a7ad; /* 清墨 */
+  --map-canvas: rgb(var(--surface-0));
+  --map-paper: rgb(var(--surface-1));
+  --map-card-surface: rgb(var(--surface-1));
+  --map-dot: rgb(var(--ink) / .09);
+  --map-minimap-mask: rgb(var(--surface-0) / .78);
+  --ink-1: rgb(var(--ink));
+  --ink-2: rgb(var(--ink-dim));
+  --ink-3: rgb(var(--ink-faint));
+  --ink-4: rgb(var(--ink-faint) / .65);
   /* 颜料 pigments, each the muted mineral tone of its name */
-  --pig-malachite: #4f7f68; /* 石绿 done */
-  --pig-indigo: #3b668c; /* 花青 running */
-  --pig-vermilion: #b0463a; /* 朱砂 failed */
-  --pig-gamboge: #b38a34; /* 藤黄 a question is waiting */
+  --pig-malachite: rgb(var(--ok));
+  --pig-indigo: rgb(var(--blue));
+  --pig-vermilion: rgb(var(--err));
+  --pig-gamboge: rgb(var(--warn));
   --pig-ochre: #977650; /* 赭石 paused */
   --pig-lotus: #867a93; /* 藕荷 superseded */
-  --map-serif: "New York", "Iowan Old Style", "Songti SC", "STSong", "Source Han Serif SC",
-    "Noto Serif CJK SC", "Noto Serif SC", Georgia, serif;
+  --map-serif: "Geist Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
   /* Lines are ink. The order of work is the body of the drawing, a dependency
    * is pressed harder, an association is a dry, broken stroke. */
   --map-edge-context: var(--ink-2);
@@ -318,19 +316,8 @@
 }
 [data-theme="dark"] .argus-map.argus-map {
   /* Night ink: the sheet is dark, the ink is pale, the pigments lift a step. */
-  --map-canvas: #131518;
-  --map-paper: #1c1f23;
-  --map-card-surface: #1c1f23;
-  --map-dot: rgb(226 220 205 / 0.06);
-  --map-minimap-mask: rgb(19 21 24 / 0.74);
-  --ink-1: #eceae4;
-  --ink-2: #c4c6c8;
-  --ink-3: #8f959b;
-  --ink-4: #5d636a;
-  --pig-malachite: #74a88f;
-  --pig-indigo: #6f9cc4;
-  --pig-vermilion: #d07466;
-  --pig-gamboge: #d1ab58;
+  --map-dot: rgb(var(--ink) / .07);
+  --map-minimap-mask: rgb(var(--surface-0) / .78);
   --pig-ochre: #b89873;
   --pig-lotus: #a99db8;
   /* Restated here: the edge sheet's own dark rule is as specific as the light
@@ -544,10 +531,10 @@
 .argus-map .map-legend,
 .argus-map .react-flow__controls,
 .argus-map .react-flow__minimap {
-  background-color: color-mix(in srgb, var(--map-paper) 72%, transparent);
-  -webkit-backdrop-filter: saturate(1.5) blur(18px);
-  backdrop-filter: saturate(1.5) blur(18px);
-  border-color: rgb(var(--ink) / 0.08);
+  background-color: rgb(var(--panel-raised));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: rgb(var(--line));
 }
 /* While the map moves the glass is plain paper (useSemanticCamera sets
  * `data-moving`): what is behind a frosted panel changes on every frame of a

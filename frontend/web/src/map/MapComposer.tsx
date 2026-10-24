@@ -1,8 +1,7 @@
 import type { MessageRouteOverride } from '../api';
 import type { MapSend } from './submission';
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowUp, Check, ChevronDown, CornerDownLeft, Square, X } from "lucide-react";
-import { ArgusMark } from "../components/Wordmark";
+import { ArrowUp, Check, ChevronDown, CornerDownLeft, Paperclip, Square, X } from "lucide-react";
 import { applicationBrand } from "../applicationBrand";
 import { referenceText, splitDraft } from "./presentation";
 import { useI18n } from "../i18n";
@@ -366,7 +365,7 @@ export function MapComposer({
           disabled={pending && !compact}
           onClick={() => fileInput.current?.click()}
         >
-          <ArgusMark size={25} />
+          <Paperclip size={22} />
         </button>
         <button
           type="button"

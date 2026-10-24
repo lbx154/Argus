@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 
@@ -26,11 +25,12 @@ def test_pairing_requires_owner_to_issue_and_explicit_single_use_redemption(tmp_
             assert landing.headers["Referrer-Policy"] == "no-referrer"
         redeemed = client.post(path, follow_redirects=False)
         assert redeemed.status_code == 303
-        assert parse_qs(urlparse(redeemed.headers["location"]).query)["token"] == [TOKEN]
+        assert redeemed.headers["location"] == "/" and TOKEN not in redeemed.headers["location"]
+        assert "HttpOnly" in redeemed.headers["set-cookie"]
         assert redeemed.headers["Cache-Control"] == "no-store"
         assert client.post(path, follow_redirects=False).status_code == 410
         assert client.get(path).status_code == 410
-        assert client.get("/api/projects").status_code == 401
+        assert client.get("/api/projects").status_code == 200
         assert client.get("/api/projects", headers=AUTH).status_code == 200
 
 

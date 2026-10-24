@@ -3,6 +3,7 @@ import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { addComposerFiles, attachmentMime, isSupportedAttachment, MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
 import { Sidebar } from '../components/Sidebar';
+import { api } from '../api';
 
 // The plugin list fetches on mount; it is not under test here.
 vi.mock('../components/PluginLauncher', () => ({ PluginLauncher: () => null }));
@@ -25,13 +26,15 @@ describe('attachments a researcher actually has', () => {
 });
 
 describe('sidebar knowledge entry', () => {
-  it('opens the current project’s knowledge instead of the raw learning feed', () => {
+  it('opens the current project’s knowledge instead of the raw learning feed', async () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal('window', new EventTarget());
+    vi.spyOn(api, 'organization').mockResolvedValue({ value: {}, revision: 0 });
     const onOpenLearning = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     let view: ReturnType<typeof create>;
     try {
-      act(() => {
+      await act(async () => {
         view = create(<QueryClientProvider client={client}><Sidebar projects={[]} activeId="s-A" localCwd="" onSelect={vi.fn()} onManage={vi.fn()}
           onOpenPanel={vi.fn()} onOpenLearning={onOpenLearning} onNew={vi.fn()} loading={false} onToggleCollapse={vi.fn()}
           themeMode="light" onCycleTheme={vi.fn()} /></QueryClientProvider>);
@@ -42,6 +45,7 @@ describe('sidebar knowledge entry', () => {
     } finally {
       act(() => view!.unmount());
       client.clear();
+      vi.restoreAllMocks();
       vi.unstubAllGlobals();
     }
   });

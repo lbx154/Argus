@@ -11,7 +11,7 @@ import { useI18n } from '../i18n';
 
 export type MobileTab = 'sessions' | 'activity' | 'workbench' | 'map' | 'preview';
 
-/** The map is home; conversation and files stay within one tap. */
+/** Conversation first; research tracing and expert tools remain one tap away. */
 export function MobileTabBar({
   active,
   onSelect,
@@ -23,12 +23,12 @@ export function MobileTabBar({
   onOpenSessions?: () => void;
   sidebarOpen?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: IconDefinition }[] = [
-    { id: 'map', label: t('mobile.map'), icon: faDiagramProject },
     { id: 'activity', label: t('mobile.activity'), icon: faListUl },
+    { id: 'preview', label: locale === 'zh-CN' ? '成果与文件' : 'Results & files', icon: faWindowMaximize },
+    { id: 'map', label: t('mobile.map'), icon: faDiagramProject },
     { id: 'workbench', label: t('mobile.workbench'), icon: faFlask },
-    { id: 'preview', label: t('mobile.preview'), icon: faWindowMaximize },
   ];
 
   return (

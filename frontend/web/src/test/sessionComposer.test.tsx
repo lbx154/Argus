@@ -1,6 +1,8 @@
 import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSessionComposer, type DraftSnapshot } from '../useSessionComposer';
+import { useSyncedDraft } from '../useSyncedDraft';
+import { api, type BrowserState } from '../api';
 
 let controller: ReturnType<typeof useSessionComposer>;
 let renderer: ReturnType<typeof create>;
@@ -16,7 +18,91 @@ beforeEach(() => {
     removeItem: (key: string) => saved.delete(key),
   });
 });
-afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+let sync: ReturnType<typeof useSyncedDraft>;
+function SyncedProbe({ sid }: { sid: string }) {
+  controller = useSessionComposer(sid);
+  sync = useSyncedDraft(sid, controller.draft, controller.capture, controller.replace);
+  return null;
+}
+
+describe('cross-device drafts', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', Object.assign(new EventTarget(), { setTimeout, clearTimeout }));
+    vi.spyOn(api, 'saveBrowserDraft').mockImplementation(async (_sid, value, revision) => ({ value, revision: revision + 1 }));
+  });
+  it('hydrates a server draft and saves edits against the observed server revision', async () => {
+    vi.spyOn(api, 'browserDraft').mockResolvedValue({ value: { text: 'Other device' }, revision: 2 });
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    expect(controller.draft.text).toBe('Other device');
+    act(() => controller.setText('Local change'));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(api.saveBrowserDraft).toHaveBeenCalledWith('s-A', { text: 'Local change', attachments: [], uploaded: [] }, 2);
+    expect(sync.status).toBe('ready');
+  });
+  it('never overwrites conflicting drafts without an explicit choice', async () => {
+    saved.set('argus.composer.draft.v1:s-A', JSON.stringify({ text: 'Local draft', attachments: [] }));
+    vi.spyOn(api, 'browserDraft').mockResolvedValue({ value: { text: 'Remote draft' }, revision: 4 });
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    expect(sync.status).toBe('conflict');
+    expect(controller.draft.text).toBe('Local draft');
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(api.saveBrowserDraft).not.toHaveBeenCalled();
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(sync.status).toBe('conflict');
+    expect(api.saveBrowserDraft).not.toHaveBeenCalled();
+    act(() => sync.resolve(false));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(api.saveBrowserDraft).toHaveBeenCalledWith('s-A', { text: 'Local draft', attachments: [], uploaded: [] }, 4);
+  });
+  it('does not apply a late load for A to B', async () => {
+    let resolve!: (value: BrowserState) => void;
+    const pending = new Promise<BrowserState>(done => { resolve = done; });
+    vi.spyOn(api, 'browserDraft').mockImplementation(sid => sid === 's-A' ? pending : Promise.resolve({ value: { text: 'B only' }, revision: 1 }));
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    await act(async () => { renderer.update(<SyncedProbe sid="s-B" />); });
+    await act(async () => { resolve({ value: { text: 'Late A' }, revision: 1 }); });
+    expect(controller.draft.text).toBe('B only');
+    expect(sync.status).toBe('ready');
+  });
+  it('retains a save conflict across refocusing until the user chooses', async () => {
+    vi.spyOn(api, 'browserDraft').mockResolvedValueOnce({ value: { text: 'Original' }, revision: 1 })
+      .mockResolvedValue({ value: { text: 'Concurrent edit' }, revision: 2 });
+    vi.mocked(api.saveBrowserDraft).mockRejectedValue(Object.assign(new Error('Conflict'), { status: 409 }));
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    act(() => controller.setText('Keep my local edit'));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(sync.status).toBe('conflict');
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(sync.status).toBe('conflict');
+    expect(api.saveBrowserDraft).toHaveBeenCalledTimes(1);
+    expect(controller.draft.text).toBe('Keep my local edit');
+  });
+  it('waits for an accepted save when returning to a project before loading its revision', async () => {
+    let finish!: (value: BrowserState) => void;
+    const pending = new Promise<BrowserState>(resolve => { finish = resolve; });
+    vi.mocked(api.saveBrowserDraft).mockReturnValueOnce(pending);
+    const load = vi.spyOn(api, 'browserDraft').mockResolvedValueOnce({ value: { text: 'Original A' }, revision: 1 })
+      .mockResolvedValueOnce({ value: { text: 'B' }, revision: 1 })
+      .mockResolvedValue({ value: { text: 'Saved A' }, revision: 2 });
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    act(() => controller.setText('Saved A'));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    await act(async () => { renderer.update(<SyncedProbe sid="s-B" />); });
+    await act(async () => { renderer.update(<SyncedProbe sid="s-A" />); });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(sync.status).toBe('loading');
+    act(() => controller.setText('A newer local edit'));
+    await act(async () => { finish({ value: { text: 'Saved A' }, revision: 2 }); });
+    expect(controller.draft.text).toBe('A newer local edit');
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(api.saveBrowserDraft).toHaveBeenLastCalledWith('s-A', { text: 'A newer local edit', attachments: [], uploaded: [] }, 2);
+  });
+});
 
 describe('persistent text drafts and in-memory file revisions', () => {
   it('persists completed references, retains unfinished reminders and fences removed files', () => {

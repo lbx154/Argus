@@ -18,6 +18,7 @@ from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_second
 # beside ``argus``, which a project stream selects.
 STREAM_PROTOCOL = "argus"
 BEARER_PROTOCOL = "argus.bearer."
+BROWSER_COOKIE = "argus_browser_access"
 
 
 class ServerContext:
@@ -67,18 +68,27 @@ class ServerContext:
                     for protocol in connection.scope.get("subprotocols", ())]
         if cookie:
             offered.append((connection.cookies.get(cookie), self.token))
-        return any(value is not None and hmac.compare_digest(value.encode(), expected.encode())
-                   for value, expected in offered)
+        if any(value is not None and hmac.compare_digest(value.encode(), expected.encode())
+               for value, expected in offered):
+            return True
+        browser = connection.cookies.get(BROWSER_COOKIE)
+        if not browser or not hmac.compare_digest(browser.encode(), self.token.encode()):
+            return False
+        origin = connection.headers.get("origin")
+        if connection.scope["type"] == "websocket" or connection.scope.get("method") not in {"GET", "HEAD", "OPTIONS"}:
+            scheme = "https" if connection.url.scheme in {"https", "wss"} else "http"
+            return origin == str(connection.base_url.replace(scheme=scheme)).rstrip("/")
+        return True
 
     def require_auth(self, request: Request) -> None:
         if not self.authorized(request):
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
-    def grant_cookie(self, request: Request, response: Response, name: str, path: str) -> None:
+    def grant_cookie(self, request: Request, response: Response, name: str, path: str, *, max_age: int | None = None) -> None:
         """Let documents the browser loads by URL under ``path`` authenticate."""
         if self.token:
             response.set_cookie(name, self.token, httponly=True, samesite="strict",
-                                secure=request.url.scheme == "https", path=path)
+                                secure=request.url.scheme == "https", path=path, max_age=max_age)
 
     def root_for_project(self, sid: str) -> Path | None:
         for root in self.roots:

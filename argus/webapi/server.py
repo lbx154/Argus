@@ -441,6 +441,9 @@ def create_app(
     # operator config/identity/reset/skills). Registrars share this
     # app's auth/root helpers and narrow daemon services through ``ctx``.
     register_project_routes(app, ctx)
+    from .routes.experience import register_experience_routes
+
+    register_experience_routes(app, ctx)
     register_workitem_routes(app, ctx)
     register_counterexample_routes(app, ctx)
     register_daemon_routes(app, ctx)

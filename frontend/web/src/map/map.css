@@ -11,7 +11,7 @@
   overflow: hidden;
   background: var(--map-paper);
   color: rgb(var(--ink));
-  font-family: "Geist Variable", sans-serif;
+  font-family: inherit;
 }
 [data-theme="dark"] .argus-map {
   /* Cards sit a step above the canvas instead of matching the near-black
@@ -36,10 +36,10 @@
   list-style: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: var(--control-height);
+  height: var(--control-height);
   border: 1px solid rgb(var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: rgb(var(--ink-dim));
   cursor: pointer;
 }
@@ -177,7 +177,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
+  height: var(--control-height);
   color: rgb(var(--ink-dim));
   font-size: 12px;
   white-space: nowrap;
@@ -532,6 +532,8 @@
   flex: 1;
   min-height: 200px;
   height: 100%;
+  padding: 24px;
+  text-align: center;
   color: rgb(var(--ink-faint));
   font-size: 12px;
 }
@@ -605,10 +607,11 @@
     right: 12px;
     top: 12px;
     gap: 4px;
+    flex-wrap: wrap;
   }
   /* The search is an icon until it is tapped, then it opens for typing. */
   .map-search {
-    width: 38px;
+    width: 44px;
     padding: 0 11px;
     flex-shrink: 0;
     overflow: hidden;
@@ -619,7 +622,7 @@
   .map-search:not(:focus-within) input {
     opacity: 0;
   }
-  .map-canvas-toolbar > button { flex-shrink: 0; }
+  .map-canvas-toolbar > button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
   /* Inside a card the row keeps the pager and the way back; the search and
    * the whole-map fit wait until the reader is back on the overview. */
   .map-canvas-wrap[data-detailed="true"] .map-search,
@@ -699,7 +702,7 @@
 .map-starters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .map-starters button { padding: 9px 12px; border: 1px solid rgb(var(--line)); background: rgb(var(--panel)); border-radius: 10px; font-size: 12px; color: rgb(var(--blue)); pointer-events: auto; }
 .map-empty p { max-width: 450px; }
-@media(max-width:640px) { .map-workspace-actions { gap: 4px; } .map-workspace-actions button { padding: 0; width: 36px; justify-content: center; } .map-agent-toggle i { left: 20px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 56px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 12px; } }
+@media(max-width:640px) { .map-workspace-actions { gap: 4px; margin-left: auto; } .map-workspace-actions button { padding: 0; width: 44px; min-height: 44px; justify-content: center; } .map-agent-toggle i { left: 24px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 64px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { min-height: 44px; padding: 9px; font-size: 12px; } }
 @media(prefers-reduced-motion:reduce) { .map-conversation { animation: none; } }
 
 /* A live task announces itself: a breathing ring in its own state color. */

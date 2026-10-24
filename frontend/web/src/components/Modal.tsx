@@ -107,9 +107,9 @@ export function Modal({
 
 export function ModalHeader({ title, sub }: { title: string; sub?: string }) {
   return (
-    <div className="px-6 pb-3 pr-14 pt-5">
-      <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-      {sub && <p className="mt-1 text-sm text-ink-faint">{sub}</p>}
+    <div className="modal-header">
+      <h2 className="text-ink">{title}</h2>
+      {sub && <p>{sub}</p>}
     </div>
   );
 }

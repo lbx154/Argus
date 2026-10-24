@@ -42,6 +42,8 @@ import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
 import { StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
+import type { ConversationRevision } from './ExperiencePanels';
+import { History, PencilLine, RotateCcw } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -53,6 +55,7 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
+const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
 
@@ -281,13 +284,16 @@ function ConversationRow({
   r,
   artifacts,
   onOpenArtifact,
+  revision,
 }: {
   ev: EventMsg;
   r: RenderedLine;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
+  revision?: ConversationRevision;
 }) {
   const { t, locale } = useI18n();
+  const onAction = useContext(ConversationActionContext);
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
   // Preserve the full recorded message, including research/control-like lines.
@@ -302,6 +308,9 @@ function ConversationRow({
   const responseLatency = !operator && responseLatencyMs >= 100
     ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
     : '';
+  const revisionLabel = operator ? locale === 'zh-CN' ? '编辑并重发' : 'Edit and resend'
+    : locale === 'zh-CN' ? '重新回答（仅对话）' : 'Answer again (chat only)';
+  const versionsLabel = locale === 'zh-CN' ? '版本记录' : 'Versions';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
     if (!rowRef.current) return;
@@ -320,19 +329,12 @@ function ConversationRow({
     );
   });
   return (
-    <article ref={rowRef} data-task-receipt={taskReceipt || undefined}
+    <article ref={rowRef} data-conversation-ts={ev.ts} data-task-receipt={taskReceipt || undefined}
       data-task-receipt-id={taskReceipt ? String(ev.message_id || ev.event_id || '') : undefined}
-      className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+      className="conversation-row group mx-auto w-full max-w-full px-4 py-4 sm:px-6 lg:max-w-[840px]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
-          <CopyButton
-            text={r.text}
-            label={t('copy.message')}
-            copiedLabel={t('copy.copied')}
-            className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
-          />
-          <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
-          <div className="max-w-[calc(100%_-_3rem)] rounded-[18px] bg-conversation-user px-4 py-2.5 text-[15px] leading-relaxed text-ink ring-1 ring-line/35 sm:max-w-[82%]">
+          <div className="conversation-message">
             {references.length ? <div className="mb-2 space-y-2">
               {references.map((reference, index) => <blockquote
                 key={`${reference.source}:${reference.task_id}:${reference.step_id}:${index}`}
@@ -365,11 +367,11 @@ function ConversationRow({
               {taskReceipt ? <span className="text-[11px] text-ink-dim">
                 {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
               </span> : null}
-              <CopyButton
+              {taskReceipt && <><CopyButton
                 text={reportText}
                 label={report ? (locale === 'zh-CN' ? '复制原始回报' : 'Copy original report') : t('copy.message')}
                 copiedLabel={t('copy.copied')}
-                className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
+                className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               />
               <time
                 className={`font-mono text-[10px] tabular-nums text-ink-faint ${taskReceipt ? 'basis-full sm:basis-auto' : ''}`}
@@ -378,7 +380,7 @@ function ConversationRow({
               >{recordedAt ? recordedAt.toLocaleString(locale, {
                 year: 'numeric', month: '2-digit', day: '2-digit',
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-              }) : clockOf(ev)}{responseLatency}</time>
+              }) : clockOf(ev)}{responseLatency}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)}
@@ -390,6 +392,15 @@ function ConversationRow({
           </div>
         </div>
       )}
+      {!taskReceipt && ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : 'pl-10'}`}>
+        <time>{clockOf(ev)}{responseLatency}</time>
+        <div className="conversation-tools">
+        <CopyButton text={r.text} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
+        {revision && onAction && <><button type="button" aria-label={revisionLabel} title={revisionLabel} onClick={() => onAction({ ...revision, mode: operator ? 'edit' : 'regenerate' })}>
+          {operator ? <PencilLine size={14} /> : <RotateCcw size={14} />}<span>{revisionLabel}</span></button>
+        {!operator && <button type="button" aria-label={versionsLabel} title={versionsLabel} onClick={() => onAction({ ...revision, mode: 'versions' })}><History size={14} /><span>{versionsLabel}</span></button>}</>}
+        </div>
+      </div>}
     </article>
   );
 }
@@ -856,6 +867,12 @@ function ConversationThread({
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
   const argusRows = group.rows.filter((row) => row.ev.type === 'ui.argus');
+  const revision: ConversationRevision | undefined = group.operator ? {
+    source: String(group.operator.ev.message_id || group.operator.ev.ts),
+    prompt: group.operator.r.text,
+    answer: argusRows.filter(row => row.ev.mission_result !== true).map(row => row.r.text).join('\n\n'),
+    mode: 'edit', baseVersion: 0,
+  } : undefined;
   const replyParts = argusRows
     .map((row) => {
       // Historical reports keep their complete event text for the original view
@@ -902,6 +919,7 @@ function ConversationThread({
         r={group.operator.r}
         artifacts={artifacts}
         onOpenArtifact={onOpenArtifact}
+        revision={revision}
       /> : null}
       {replyParts.map(({ key, reply: row }) => {
         if (!row) return <Fragment key={key}>{trailing(key)}</Fragment>;
@@ -925,6 +943,7 @@ function ConversationThread({
               r={row.r}
               artifacts={artifacts}
               onOpenArtifact={onOpenArtifact}
+              revision={revision}
             />
             {trailing(key)}
           </Fragment>
@@ -965,6 +984,8 @@ export function EventStream({
   notifications,
   latestDelivery,
   rememberPosition = false,
+  onConversationAction,
+  requestedMessageTs,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -991,6 +1012,8 @@ export function EventStream({
   rememberPosition?: boolean;
   notifications?: NotificationControl;
   latestDelivery?: DeliveryReceipt | null;
+  onConversationAction?: (target: ConversationRevision) => void;
+  requestedMessageTs?: number;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -999,10 +1022,24 @@ export function EventStream({
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const searchSeen = useRef<number | undefined>();
   const [readingError, setReadingError] = useState(false);
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
+  useEffect(() => {
+    if (requestedMessageTs === undefined) { searchSeen.current = undefined; return; }
+    if (searchSeen.current === requestedMessageTs) return;
+    const target = content.current?.querySelector<HTMLElement>(`[data-conversation-ts="${requestedMessageTs}"]`);
+    if (target) {
+      content.current?.querySelectorAll<HTMLElement>('[data-search-hit]').forEach(previous => { delete previous.dataset.searchHit; });
+      target.dataset.searchHit = 'true';
+      target.scrollIntoView({ block: 'center' });
+      searchSeen.current = requestedMessageTs;
+      setFollowing(false);
+      followingRef.current = false;
+    }
+  }, [requestedMessageTs, deferredEvents]);
   const workspace = snapshot?.session.workdir || snapshot?.session.cwd || '';
   const taskTitle = useMemo(() => {
     const titles = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item.title || '']));
@@ -1170,6 +1207,7 @@ export function EventStream({
   };
 
   return (
+    <ConversationActionContext.Provider value={onConversationAction}>
     <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
@@ -1279,5 +1317,6 @@ export function EventStream({
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
+    </ConversationActionContext.Provider>
   );
 }

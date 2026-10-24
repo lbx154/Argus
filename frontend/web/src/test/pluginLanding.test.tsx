@@ -18,14 +18,13 @@ it('offers an empty workspace a direct start, four draft examples and the phone 
   expect(html).toContain('What would you like to accomplish?');
   expect(html).toContain('landing.new');
   expect(html.match(/<button /g)).toHaveLength(6);
-  expect(html).toContain('does not start work automatically');
+  expect(html).toContain('never start work automatically');
   expect(html).toContain('landing.menu');
-  expect(html).toContain('class="lg:hidden"');
+  expect(html).toContain('class="landing-navigation lg:hidden"');
   expect(html.match(/class="[^"]*landing-mark text-ink"/g)).toHaveLength(1);
   expect(html).toContain('width:var(--landing-mark-size);height:var(--landing-mark-size)');
   expect(html.indexOf('landing-mark text-ink')).toBeLessThan(html.indexOf('<h1'));
-  expect(html).toContain('[--landing-mark-size:56px]');
-  expect(html).toContain('lg:[--landing-mark-size:72px]');
+  expect(html).toContain('class="landing-intro"');
 });
 
 it('does not offer plugin management while the host is disconnected', () => {
