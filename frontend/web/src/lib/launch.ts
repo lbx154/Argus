@@ -4,8 +4,42 @@ export const DEFAULT_LAUNCH_SETTINGS: LaunchSettings = {
   first_result_hours: null,
   target_level: 'auto',
   deliverable: 'any',
-  hold: true,
+  hold: false,
 };
+
+/** "什么时候问我": when Argus stops for the person before team work starts. */
+export type AskMode = 'every_task' | 'first_task' | 'beyond_authority';
+// Product decision: stage rulings go to the Manager unless the person opts in.
+export const DEFAULT_ASK_MODE: AskMode = 'beyond_authority';
+export const ASK_MODES: AskMode[] = ['every_task', 'first_task', 'beyond_authority'];
+
+export function askModeLabel(mode: AskMode, zh: boolean): string {
+  return {
+    every_task: zh ? '每个新任务都先给我看计划' : 'Show me the plan for every new task',
+    first_task: zh ? '只在第一次确认' : 'Only confirm the first task',
+    beyond_authority: zh ? '只有超出我授权的事才问我' : 'Only ask about things beyond what I authorised',
+  }[mode];
+}
+
+/** The launch settings a message carries: the first task gets all of them; later
+ * tasks only carry the plan hold, and only when the person asked for it every time. */
+export function launchForMessage(settings: LaunchSettings, ask: AskMode, fresh: boolean): LaunchSettings | undefined {
+  if (fresh) return { ...settings, hold: ask !== 'beyond_authority' };
+  return ask === 'every_task' ? { ...DEFAULT_LAUNCH_SETTINGS, hold: true } : undefined;
+}
+
+const askKey = (sid: string) => `argus.askMode.${sid}`;
+export function readAskMode(sid: string | null | undefined): AskMode {
+  if (!sid) return DEFAULT_ASK_MODE;
+  try {
+    const stored = window.localStorage.getItem(askKey(sid)) as AskMode | null;
+    return stored && ASK_MODES.includes(stored) ? stored : DEFAULT_ASK_MODE;
+  } catch { return DEFAULT_ASK_MODE; }
+}
+export function writeAskMode(sid: string | null | undefined, mode: AskMode): void {
+  if (!sid) return;
+  try { window.localStorage.setItem(askKey(sid), mode); } catch { /* per-viewer convenience only */ }
+}
 
 const NEVER_RAN = new Set(['skipped', 'cancelled']);
 

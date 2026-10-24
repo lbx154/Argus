@@ -16,7 +16,7 @@ import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
 import { LaunchHoldCard, LaunchSettingsBar } from './components/LaunchPanel';
-import { DEFAULT_LAUNCH_SETTINGS, isFreshProject } from './lib/launch';
+import { DEFAULT_LAUNCH_SETTINGS, isFreshProject, launchForMessage, readAskMode, writeAskMode, type AskMode } from './lib/launch';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
@@ -442,7 +442,9 @@ export default function App() {
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   // Launch settings apply to a project's first task only, and never carry over.
   const freshProject = Boolean(loadedSid) && isFreshProject(snap);
-  useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); }, [activeSid]);
+  const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
+  useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
+  const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
   const startHeldLaunch = useCallback(async () => {
     if (!loadedSid) return;
     try {
@@ -1056,7 +1058,7 @@ export default function App() {
             attachments: attachmentRefs,
             routeOverride,
             requestId: serverRequestId,
-            launch: freshProject && routeOverride !== 'chat' ? launchSettings : undefined,
+            launch: routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -1395,7 +1397,8 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
-                    {freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} disabled={messagePending} /> : null}
+                    {loadedSid && routeOverride !== 'chat' && !kiosk ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
+                      started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}

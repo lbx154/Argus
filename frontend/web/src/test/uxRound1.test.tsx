@@ -67,7 +67,7 @@ describe('launch settings and the confirm-before-start card', () => {
     expect(isFreshProject(snapshot({ backlog: [{ id: 'a', title: 't', objective: 't', status: 'done', priority: 1 }] }))).toBe(false);
     expect(isFreshProject(snapshot({ launch_hold: hold }))).toBe(false);
     expect(isFreshProject(snapshot({ backlog: [{ id: 'a', title: 't', objective: 't', status: 'skipped', priority: 1 }] }))).toBe(true);
-    expect(DEFAULT_LAUNCH_SETTINGS.hold).toBe(true);
+    expect(DEFAULT_LAUNCH_SETTINGS.hold).toBe(false); // product decision: ask only beyond authority by default
   });
 
   it('shows the request without the appended settings and marks Argus-judged requirements', () => {
@@ -112,12 +112,15 @@ describe('launch settings and the confirm-before-start card', () => {
     expect(workStatusLabel(status, 'zh-CN')).toBe('计划已排好，等你确认开始');
   });
 
-  it('renders the settings bar with the confirm option on by default', () => {
-    const html = renderToStaticMarkup(<LaunchSettingsBar value={DEFAULT_LAUNCH_SETTINGS} onChange={() => undefined} />);
+  it('renders the settings bar with one ask choice, defaulting to asking only beyond authority', () => {
+    const html = renderToStaticMarkup(<LaunchSettingsBar value={DEFAULT_LAUNCH_SETTINGS} onChange={() => undefined}
+      ask="beyond_authority" onAskChange={() => undefined} research />);
     expect(html).toContain('开工设置');
     expect(html).toContain('首个结果');
+    expect(html).toContain('什么时候问我');
     expect(html).toContain('冲刺可发表（耗时长）');
-    expect(html).toMatch(/type="checkbox"[^>]*checked/);
+    expect(html).not.toContain('type="checkbox"');
+    expect(DEFAULT_LAUNCH_SETTINGS.hold).toBe(false);
   });
 });
 
