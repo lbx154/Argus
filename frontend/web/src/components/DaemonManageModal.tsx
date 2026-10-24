@@ -100,7 +100,7 @@ export function DaemonManageModal({
             disabled={busy || !controlAvailable}
             onClick={() => void toggleExecutor()}
             className={`rounded border px-3 py-1.5 text-xs disabled:cursor-wait disabled:opacity-50 ${
-              effectiveAlive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-white hover:bg-blue-deep/80'
+              effectiveAlive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-on-accent hover:bg-blue-deep/80'
             }`}
           >
             {busy ? t('manage.working') : !controlAvailable ? t('common.external') : effectiveAlive ? t('manage.stopNow') : t('manage.resume')}

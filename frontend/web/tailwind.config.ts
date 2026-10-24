@@ -12,6 +12,7 @@ export default {
         surface: 'rgb(var(--surface) / <alpha-value>)',
         panel: 'rgb(var(--panel) / <alpha-value>)',
         'panel-raised': 'rgb(var(--panel-raised) / <alpha-value>)',
+        'on-accent': 'rgb(var(--on-accent) / <alpha-value>)',
         line: 'rgb(var(--line) / <alpha-value>)',
         blue: {
           DEFAULT: 'rgb(var(--blue) / <alpha-value>)',

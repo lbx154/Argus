@@ -125,7 +125,7 @@ export function PendingReplyDialog({
                 for a while before it returns; the dialog can be put away
                 meanwhile and the work continues in the map. */}
             <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-xs text-ink-dim hover:bg-bg">{busy ? t('decision.closeContinue') : t('decision.later')}</button>
-            <button type="button" onClick={() => submit('custom')} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
+            <button type="button" onClick={() => submit('custom')} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent disabled:opacity-50">
               {busy ? t('decision.applying') : t('decision.sendAnswer')}
             </button>
           </div>

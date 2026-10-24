@@ -13,6 +13,8 @@ import { ArtifactModal } from '../components/ArtifactModal';
 import { ResearchCanvas } from '../components/ResearchCanvas';
 import { MapPanel } from '../map/MapPanel';
 import { DaemonManageModal } from '../components/DaemonManageModal';
+import { ConversationEditor } from '../components/ExperiencePanels';
+import { EventStream } from '../components/EventStream';
 
 const fixture = vi.hoisted(() => {
   const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, refetch: vi.fn(async () => ({})) };
@@ -114,6 +116,8 @@ beforeEach(async () => {
   // Fail closed: no unmocked test request can reach a user backend or provider.
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected request outside the synthetic fixture'); }));
   vi.spyOn(api, 'cancelMessage').mockResolvedValue({ requested: true, status: 'cancelled' });
+  vi.spyOn(api, 'browserDraft').mockResolvedValue({ value: {}, revision: 0 });
+  vi.spyOn(api, 'saveBrowserDraft').mockImplementation(async (_sid, value, revision) => ({ value, revision: revision + 1 }));
   vi.spyOn(api, 'projectIndex').mockImplementation(async () => fixture.index.data as Awaited<ReturnType<typeof api.projectIndex>>);
   vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', why: 'Synthetic fixture', exists: true, size: 1, mtime: 1, preview: `${sid} ONLY` }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -128,6 +132,23 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
+  it('keeps conversation revisions in chat even if the route control is changed and preserves their original version', async () => {
+    vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
+    const save = vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Revised answer' });
+    const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
+      handlers.onDone?.({ kind: 'message', reply: 'Revised answer' });
+    });
+    const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'edit', baseVersion: 0 };
+    await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
+    act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
+    act(() => props().onRouteOverrideChange!('task'));
+    await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
+    expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
+      expect.objectContaining({ routeOverride: 'chat', launch: undefined }));
+    expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
+      source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
+    }));
+  });
   it('gives the chat composer the same runtime line as the map composer', () => {
     const footer = props().footer as { type?: unknown; props?: { sid?: string } };
     expect(footer?.type).toBe(ComposerRuntime);
@@ -225,7 +246,7 @@ describe('App session composer ownership', () => {
     const file = new File(['A'], 'report.md');
     type('shared');
     act(() => { props().onAttachmentsChange([file]); props().onRouteOverrideChange!('task'); });
-    await act(async () => renderer.root.findAllByType('button').find(node => node.children[0] === 'Map')!.props.onClick());
+    await act(async () => renderer.root.findAllByType('button').find(node => node.children[0] === 'Research map')!.props.onClick());
     const map = renderer.root.findByType(MapPanel);
     expect(map.props.draft).toBe('shared'); expect(map.props.attachments[0]).toBe(file);
     act(() => map.props.onDraftChange('map edit'));

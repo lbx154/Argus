@@ -294,8 +294,8 @@ describe('shared frontend core', () => {
     };
     const light = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'light' })));
     const dark = renderToStaticMarkup(createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, { ...props, themeMode: 'dark' })));
-    expect(light).toContain('Settings');
-    expect(light).toContain('data-icon="gear"');
+    expect(light).toContain('aria-label="Open settings"');
+    expect(light).toContain('lucide-settings');
     expect(light).toContain('lucide-sun');
     expect(light).toContain('switch to dark');
     expect(dark).toContain('lucide-moon');

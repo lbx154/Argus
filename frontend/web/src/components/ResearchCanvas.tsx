@@ -15,7 +15,7 @@ import { translate, useI18n, type Locale } from '../i18n';
 import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
-import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { canEditArtifact, isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 import { theme } from '../lib/theme';
 import { plainProgress, plainRouteStatus, plainStatus } from '../lib/plainStatus';
@@ -279,6 +279,7 @@ export function ResearchCanvas({
   connected = true,
   filesFirst = false,
   onRevise,
+  onEdit,
   onRetry,
   loading = false,
   latestDelivery,
@@ -302,6 +303,7 @@ export function ResearchCanvas({
   connected?: boolean;
   filesFirst?: boolean;
   onRevise?: (path: string) => void;
+  onEdit?: (path: string) => void;
   onRetry?: () => void;
   loading?: boolean;
   /** Newest delivered result, pinned above the file list so phones see it first. */
@@ -458,6 +460,8 @@ export function ResearchCanvas({
         <div className="shrink-0">
           {selected ? (
             <div className="flex shrink-0 items-center gap-1">
+              {onEdit && info && canEditArtifact(info)
+                && <button type="button" onClick={() => onEdit(selected.path)} className="rounded-md px-2 py-1 text-xs text-blue hover:bg-bg">{locale === 'zh-CN' ? '编辑与版本' : 'Edit & versions'}</button>}
               {onRevise && <button type="button" disabled={!selected.exists} onClick={() => onRevise(selected.path)}
                 className="rounded-md px-2 py-1 text-xs text-blue hover:bg-bg">{locale === 'zh-CN' ? '继续修改' : 'Revise'}</button>}
               <button

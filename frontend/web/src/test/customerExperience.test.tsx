@@ -1,13 +1,16 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ArtifactInfo, ProjectRow } from '../api';
+import { api, type ArtifactInfo, type ProjectRow, type ProjectPreference } from '../api';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { Landing } from '../components/Landing';
 import { StartPrompts } from '../components/StartPrompts';
 import { ResearchCanvas, FILES_PATH } from '../components/ResearchCanvas';
 import { Sidebar } from '../components/Sidebar';
 import { ActionNotice } from '../components/ActionNotice';
+import { ChatBox } from '../components/ChatBox';
 import { matchesQuery, verticalTitle } from '../lib/verticalStore';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { HistorySearch } from '../components/ExperiencePanels';
 
 vi.mock('../i18n', () => ({ useI18n: () => ({
   locale: 'zh-CN', setLocale: vi.fn(),
@@ -28,11 +31,58 @@ beforeEach(() => {
     removeItem: (key: string) => storage.delete(key),
   };
   vi.stubGlobal('localStorage', localStorage);
-  vi.stubGlobal('window', { localStorage, setTimeout, clearTimeout });
+  vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
+  const preferences: Record<string, ProjectPreference> = {};
+  let revision = 0;
+  vi.spyOn(api, 'organization').mockResolvedValue({ value: {}, revision: 0 });
+  vi.spyOn(api, 'organize').mockImplementation(async (sid, field, value) => {
+    preferences[sid] = { ...(preferences[sid] ?? { pinned: false, archived: false, followup: false }), [field]: value };
+    return { value: { ...preferences }, revision: ++revision };
+  });
 });
-afterEach(() => { act(() => view?.unmount()); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { act(() => view?.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('starting and revisiting work', () => {
+  it('lets the home page prepare a draft without creating a project and preserves it after a rejected send', async () => {
+    const onNew = vi.fn();
+    const onSubmit = vi.fn(async () => false);
+    act(() => { view = create(<Landing loading={false} hasProjects={false} canCreate onNew={onNew} onSubmit={onSubmit} onRetry={vi.fn()} onChoose={vi.fn()} />); });
+    act(() => button('调研清楚，帮我做决策').props.onClick());
+    expect(onNew).not.toHaveBeenCalled();
+    const chat = () => view.root.findByType(ChatBox);
+    expect(chat().props.value).toContain('不编造依据');
+    expect(view.root.findAllByType('button').some(node => node.props['aria-label'] === 'sidebar.create' || text(node) === 'landing.new')).toBe(false);
+    await act(async () => { await chat().props.onSend('first question', []); });
+    expect(onSubmit).toHaveBeenCalledWith('first question', []);
+    expect(chat().props.value).toContain('不编造依据');
+  });
+
+  it('lets a narrow-screen search reader return to results without opening a project', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
+    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle excerpt', text: 'Full recorded answer' };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+    client.setQueryData(['history-search', 'Needle'], { results: [result], partial: false, errors: [] });
+    const onChoose = vi.fn();
+    const onClose = vi.fn();
+    try {
+      act(() => { view = create(<QueryClientProvider client={client}><HistorySearch open onChoose={onChoose} onClose={onClose} /></QueryClientProvider>); });
+      await act(async () => {
+        view.root.findByProps({ type: 'search' }).props.onChange({ target: { value: 'Needle' } });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      act(() => button('Matching project').props.onClick());
+      expect(text(view.root)).toContain('Full recorded answer');
+      act(() => button('返回搜索结果').props.onClick());
+      expect(text(view.root)).not.toContain('Full recorded answer');
+      expect(onChoose).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      act(() => button('Matching project').props.onClick());
+      act(() => button('打开并定位').props.onClick());
+      expect(onChoose).toHaveBeenCalledWith(result);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally { client.clear(); }
+  });
   it('offers four editable starting points without automatically creating or submitting work', () => {
     const onNew = vi.fn();
     act(() => { view = create(<Landing loading={false} hasProjects={false} canCreate onNew={onNew} onRetry={vi.fn()} onChoose={vi.fn()} />); });
@@ -93,28 +143,41 @@ describe('project organization', () => {
   };
   const manage = (name: string) => view.root.findAllByType('button').find(node => node.props['aria-label'] === `sidebar.manage ${name}`)!;
 
-  it('pins, marks and archives without deleting, pausing or managing server projects', () => {
-    act(() => { view = create(<Sidebar {...props} />); });
+  it('explains project settings on the empty home page and still opens them for a selected project', async () => {
+    const onOpenPanel = vi.fn();
+    await act(async () => { view = create(<Sidebar {...props} projects={[]} activeId={null} onOpenPanel={onOpenPanel} />); });
+    act(() => view.root.findByProps({ 'aria-label': 'sidebar.openSettings' }).props.onClick());
+    expect(onOpenPanel).not.toHaveBeenCalled();
+    expect(text(view.root)).toContain('先打开或创建一个项目');
+    await act(async () => { view.update(<Sidebar {...props} onOpenPanel={onOpenPanel} />); });
+    expect(text(view.root)).not.toContain('先打开或创建一个项目');
+    act(() => view.root.findByProps({ 'aria-label': 'sidebar.openSettings' }).props.onClick());
+    expect(onOpenPanel).toHaveBeenCalledWith('config');
+  });
+
+  it('syncs pins, marks and archives without deleting, pausing or managing server projects', async () => {
+    await act(async () => { view = create(<Sidebar {...props} />); });
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
-    act(() => button('置顶项目').props.onClick());
+    await act(async () => button('置顶项目').props.onClick());
     expect(text(view.root)).toContain('置顶项目');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
-    act(() => button('标记待跟进').props.onClick());
+    await act(async () => button('标记待跟进').props.onClick());
     act(() => button('待跟进').props.onClick());
     expect(text(view.root)).toContain('Beta');
     expect(text(view.root)).not.toContain('Alpha');
     expect(text(view.root)).toContain('不代表后台任务状态');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
-    act(() => button('归档项目').props.onClick());
+    await act(async () => button('归档项目').props.onClick());
     expect(text(view.root)).not.toContain('Beta');
     expect(props.onManage).not.toHaveBeenCalled();
     act(() => button('已归档').props.onClick());
     expect(text(view.root)).toContain('Beta');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
-    act(() => button('移出归档').props.onClick());
+    await act(async () => button('移出归档').props.onClick());
     act(() => button('最近').props.onClick());
     expect(text(view.root)).toContain('Beta');
     expect(storage.get('argus.project.organization.v1')).toContain('"archived":false');
+    expect(api.organize).toHaveBeenCalledWith('s-B', 'pinned', true);
   });
 
   it('keeps readable names searchable without changing the backend identifier', () => {

@@ -1,4 +1,5 @@
-import { isAuthenticationError, LocalArgusUnavailableError } from '../api';
+import { api, isAuthenticationError, LocalArgusUnavailableError } from '../api';
+import { errorText } from '../lib/format';
 import { useI18n } from '../i18n';
 import { canOpenDesktopSettings } from '../lib/desktopBridge';
 import { useState, type FormEvent } from 'react';
@@ -38,9 +39,10 @@ export function ConnectionProblemBanner({
   const unavailable = error instanceof LocalArgusUnavailableError;
   const [pairingInput, setPairingInput] = useState('');
   const [pairingError, setPairingError] = useState('');
+  const [connecting, setConnecting] = useState(false);
   if (!pairing && !unavailable) return null;
 
-  const repairPairing = (event: FormEvent) => {
+  const repairPairing = async (event: FormEvent) => {
     event.preventDefault();
     const link = temporaryPairingLinkFromInput(pairingInput);
     if (link) {
@@ -52,9 +54,15 @@ export function ConnectionProblemBanner({
       setPairingError(t('connection.pairingInvalid'));
       return;
     }
-    const target = new URL(window.location.href);
-    target.searchParams.set('token', token);
-    window.location.replace(target.toString());
+    setConnecting(true);
+    try {
+      await api.connectBrowser(token);
+      localStorage.removeItem('argus_web_token');
+      window.location.reload();
+    } catch (problem) {
+      setPairingError(errorText(problem));
+      setConnecting(false);
+    }
   };
 
   if (pairing) {
@@ -65,7 +73,7 @@ export function ConnectionProblemBanner({
         <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 text-left shadow-2xl">
           <h1 className="text-base font-semibold text-ink">{t('connection.pairingTitle')}</h1>
           <p className="mt-2 text-sm leading-relaxed text-ink-dim">{t('connection.pairingDetail')}</p>
-          <form onSubmit={repairPairing} className="mt-4 flex flex-col gap-2">
+          <form onSubmit={event => void repairPairing(event)} className="mt-4 flex flex-col gap-2">
             <label className="text-xs font-medium text-ink-dim" htmlFor="pairing-link">{t('connection.pairingInput')}</label>
             <div className="flex gap-2">
               <input
@@ -82,7 +90,7 @@ export function ConnectionProblemBanner({
                 placeholder={t('connection.pairingPlaceholder')}
                 className="h-10 min-w-0 flex-1 rounded-md border border-line bg-bg px-3 text-sm text-ink outline-none focus:border-blue"
               />
-              <button type="submit" className="h-10 shrink-0 rounded-md border border-blue/45 bg-blue px-4 text-sm font-medium text-white hover:bg-blue-deep">
+              <button type="submit" disabled={connecting} className="h-10 shrink-0 rounded-md border border-blue/45 bg-blue px-4 text-sm font-medium text-on-accent hover:bg-blue-deep disabled:opacity-50">
                 {t('connection.connect')}
               </button>
             </div>

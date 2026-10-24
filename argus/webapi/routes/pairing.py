@@ -9,7 +9,7 @@ from urllib.parse import quote
 from fastapi import Depends, HTTPException, Request, Response
 from starlette.responses import HTMLResponse, RedirectResponse
 
-from .context import ServerContext
+from .context import BROWSER_COOKIE, ServerContext
 
 _TTL_SECONDS = 3600
 _MAX_LINKS = 32
@@ -70,8 +70,9 @@ def register_pairing_routes(app, ctx: ServerContext) -> None:
         )
 
     @app.post("/pair/{code}")
-    def redeem_link(code: str) -> RedirectResponse:
+    def redeem_link(code: str, request: Request) -> RedirectResponse:
         if not valid(code, consume=True):
             raise HTTPException(410, "Pairing link was used or expired", headers=_HEADERS)
-        # Reuse native token adoption/storage and immediate URL scrubbing.
-        return RedirectResponse(f"/?token={quote(str(ctx.token), safe='')}", status_code=303, headers=_HEADERS)
+        response = RedirectResponse("/", status_code=303, headers=_HEADERS)
+        ctx.grant_cookie(request, response, BROWSER_COOKIE, "/", max_age=30 * 86400)
+        return response

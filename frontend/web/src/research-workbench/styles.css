@@ -21,20 +21,20 @@
 
 @layer base {
   .integrated-workbench {
-    --surface-2: var(--panel-raised);
-    --surface-3: var(--panel);
+    --surface-2: var(--surface-0);
+    --surface-3: var(--panel-raised);
     --overlay: var(--panel-raised);
     --border: var(--line);
     --border-strong: var(--glass-edge);
     --text: var(--ink);
     --muted: var(--ink-dim);
     --faint: var(--ink-faint);
-    --accent: var(--blue-deep);
-    --accent-fg: 255 255 255;
+    --accent: var(--blue);
+    --accent-fg: var(--on-accent);
     --blue-bg: var(--conversation-argus);
-    --green: var(--blue);
+    --green: var(--ok);
     --green-bg: var(--conversation-argus);
-    --amber: var(--ink-dim);
+    --amber: var(--warn);
     --amber-bg: var(--conversation-user);
     --red: var(--err);
     --red-bg: var(--conversation-user);
@@ -49,14 +49,14 @@
     --shadow-1: none;
     --shadow-2: none;
     --shadow-3: 0 20px 60px -32px rgb(0 0 0 / .28);
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
     --font: 'Geist Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
     min-width: 0;
     min-height: 0;
-    font-family: var(--font);
+    font-family: inherit;
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
@@ -75,9 +75,9 @@
   .argus-wordmark__copy small { margin-top: 3px; color: rgb(var(--muted)); font-size: 9px; font-weight: 530; }
   .brand-button { display: inline-flex; align-items: center; background: transparent; padding: 0; }
 
-  .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 8px; background: rgb(var(--surface-2)); padding: 7px 12px; color: rgb(var(--text)); font-size: 12px; font-weight: 590; box-shadow: none; transition: color .15s, background .15s; }
+  .button { min-height: var(--control-height); display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: var(--radius-control); background: rgb(var(--surface-2)); padding: 5px 12px; color: rgb(var(--text)); font-size: 13px; font-weight: 500; box-shadow: none; transition: color .15s, background .15s; }
   .button:hover:not(:disabled) { background: rgb(var(--border)); }
-  .button--primary { border-color: rgb(var(--blue) / .34); background: rgb(var(--blue) / .08); color: rgb(var(--blue)); }
+  .button--primary { background: rgb(var(--blue)); color: rgb(var(--accent-fg)); }
   .button--primary:hover:not(:disabled) {
     border-color: rgb(var(--blue-deep));
     background: rgb(var(--blue-deep));
@@ -102,10 +102,10 @@
   .is-pulsing { animation: livePulse 2s infinite; }
 
   .ros-card, .panel { min-width: 0; min-height: 0; overflow: hidden; border: 0; border-radius: var(--radius-sm); background: rgb(var(--surface)); box-shadow: none; }
-  .panel { display: flex; flex-direction: column; }
-  .panel__header, .ros-card > header { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgb(var(--border)); padding: 12px 16px; }
+  .panel { display: flex; flex-direction: column; border-radius: 0; background: transparent; }
+  .panel__header, .ros-card > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgb(var(--border)); padding: 12px 16px; }
   .panel__heading, .ros-card > header > div { min-width: 0; }
-  .panel__title, .ros-card > header h2 { margin: 1px 0 0; color: rgb(var(--text)); font-size: 13px; font-weight: 650; }
+  .panel__title, .ros-card > header h2 { margin: 1px 0 0; color: rgb(var(--text)); font-size: 14px; font-weight: 600; }
   .ros-card > header span, .panel__header .eyebrow { color: rgb(var(--faint)); font-size: 9px; font-weight: 690; letter-spacing: .12em; }
   .panel__body { min-width: 0; min-height: 0; padding: 16px; }
   .panel__body--flush { padding: 0; }
@@ -115,7 +115,7 @@
   .empty-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; text-align: center; }
   .empty-state__icon { width: 44px; height: 44px; display: grid; place-items: center; margin-bottom: 12px; border: 1px solid rgb(var(--border)); border-radius: 12px; background: rgb(var(--surface-2)); color: rgb(var(--faint)); }
   .empty-state__title { font-size: 13px; font-weight: 640; }
-  .empty-state p { max-width: 360px; margin: 6px 0 0; color: rgb(var(--muted)); font-size: 11px; line-height: 1.55; }
+  .empty-state p { max-width: 360px; margin: 6px 0 0; color: rgb(var(--muted)); font-size: 12px; line-height: 1.65; }
   .empty-state__action { margin-top: 14px; }
   .spinner { display: inline-flex; align-items: center; gap: 7px; color: rgb(var(--muted)); font-size: 12px; }
   .spin { animation: spin .85s linear infinite; }
@@ -966,3 +966,7 @@
 .vscode-tabs button.workspace-download { min-width: 0; max-width: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border-top: 0; background: transparent; padding: 0 12px; font-size: 11px; color: rgb(var(--vscode-text)); }
 .vscode-tabs button.workspace-download:hover:not(:disabled) { color: rgb(var(--vscode-blue)); }
 .workspace-download-error { align-self: center; padding: 0 8px; font-size: 11px; color: rgb(var(--err)); }
+.integrated-workbench :is(.checkpoint--done, .checkpoint--active, .research-stage-rail > div.is-active) > span { color: rgb(var(--on-accent)); }
+@media (max-width: 640px), (pointer: coarse) {
+  .integrated-workbench :is(.button, .icon-button) { min-width: 44px; min-height: 44px; }
+}

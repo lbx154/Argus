@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProjectRow } from '../api';
+import { api, type ProjectRow } from '../api';
 import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
 import { PluginLauncher } from './PluginLauncher';
 import { VerticalStoreEntry } from './VerticalStore';
@@ -7,23 +7,12 @@ import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
-import { formatRelativeTime, uptime } from '../lib/format';
+import { errorText, formatRelativeTime, uptime } from '../lib/format';
 import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  faAnglesLeft,
-  faAnglesRight,
-  faChevronDown,
-  faEllipsis,
-  faFolder,
-  faGear,
-  faMicrochip,
-  faPlay,
-} from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
-import { Archive, ChevronRight, PackageCheck, Pin, Flag } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
 const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
@@ -85,6 +74,8 @@ export function Sidebar({
   onOpenResults,
   resultsCount = 0,
   onNew,
+  onSearch,
+  onDevices,
   loading,
   creating = false,
   error,
@@ -111,6 +102,8 @@ export function Sidebar({
   onOpenResults?: () => void;
   resultsCount?: number;
   onNew: () => void;
+  onSearch?: () => void;
+  onDevices?: () => void;
   loading: boolean;
   creating?: boolean;
   error?: string;
@@ -130,6 +123,9 @@ export function Sidebar({
   const [projectFilter, setProjectFilter] = useState<'active' | 'followup' | 'archived'>('active');
   const [organizing, setOrganizing] = useState<string | null>(null);
   const [organizationNotice, setOrganizationNotice] = useState('');
+  const [syncingOrganization, setSyncingOrganization] = useState(true);
+  const [syncAttempt, setSyncAttempt] = useState(0);
+  const [settingsHint, setSettingsHint] = useState(false);
   const zh = locale === 'zh-CN';
   // Plugins, the knowledge library and the domain store are for experienced users.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
@@ -140,15 +136,55 @@ export function Sidebar({
     : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)
       : (zh ? '这个项目还没有交付成果' : 'No results delivered in this project yet');
   const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
-  const organize = (id: string, field: keyof ProjectPreference) => {
-    const next = { ...organization.values, [id]: { ...preference(id), [field]: !preference(id)[field] } };
-    setOrganization({ values: next, error: !writeLocalStorage(ORGANIZATION_KEY, JSON.stringify(next)) });
+  const projectIds = projects.map(project => project.id).join('\n');
+  useEffect(() => {
+    const focus = () => setSyncAttempt(value => value + 1);
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setSyncingOrganization(true);
+    void (async () => {
+      let remote = await api.organization();
+      if (cancelled) return;
+      if (remote.revision === 0) {
+        for (const id of projectIds.split('\n').filter(Boolean)) {
+          const local = readOrganization().values[id];
+          if (!local) continue;
+          for (const field of ['pinned', 'archived', 'followup'] as const) {
+            if (local[field]) remote = await api.organize(id, field, true);
+          }
+        }
+      }
+      if (!cancelled) {
+        setOrganization({ values: remote.value, error: !writeLocalStorage(ORGANIZATION_KEY, JSON.stringify(remote.value)) });
+        setSyncingOrganization(false);
+        setOrganizationNotice('');
+      }
+    })().catch(problem => {
+      if (!cancelled) {
+        setOrganizationNotice(`${zh ? '项目标记尚未同步：' : 'Project markers not synced: '}${errorText(problem)}`);
+        setSyncingOrganization(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [projectIds, syncAttempt, zh]);
+  const organize = async (id: string, field: keyof ProjectPreference) => {
+    setSyncingOrganization(true);
+    try {
+      const remote = await api.organize(id, field, !preference(id)[field]);
+      setOrganization({ values: remote.value, error: !writeLocalStorage(ORGANIZATION_KEY, JSON.stringify(remote.value)) });
+    } catch (problem) {
+      setOrganizationNotice(`${zh ? '标记未保存：' : 'Marker not saved: '}${errorText(problem)}`);
+      return;
+    } finally { setSyncingOrganization(false); }
     setOrganizing(null);
     setOrganizationNotice(field === 'archived'
-      ? zh ? '只整理此浏览器的列表，不删除文件、不停止工作。可在“已归档”中找回。' : 'Only this browser’s list changes. No files are deleted and no work is stopped. Restore from Archived.'
-      : zh ? '标记已更新，只保存在此浏览器。' : 'The marker was updated in this browser only.');
+      ? zh ? '归档状态已同步；不删除文件、不停止工作。可在“已归档”中找回。' : 'Archive synced. No files are deleted and no work is stopped. Restore from Archived.'
+      : zh ? '标记已同步至此试用空间。' : 'Marker synced to this trial space.');
   };
-  useEffect(() => { setOrganizing(null); }, [activeId]);
+  useEffect(() => { setOrganizing(null); setSettingsHint(false); }, [activeId]);
   const slim = collapsed && !mobileOpen;
   const normalizedLocalCwd = localCwd.trim();
   const localProjects = useMemo(
@@ -192,7 +228,7 @@ export function Sidebar({
           <>
             <Wordmark size={24} />
             <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.collapse')} title={`${t('sidebar.collapse')} · Ctrl/⌘ B`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
-              <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
+              <PanelLeftClose size={16} />
             </button>
           </>
         )}
@@ -200,14 +236,14 @@ export function Sidebar({
       {slim ? (
         <div className="flex h-12 shrink-0 items-center justify-center">
           <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.expand')} title={`${t('sidebar.expand')} · Ctrl/⌘ B`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink">
-            <FontAwesomeIcon icon={faAnglesRight} className="h-3.5 w-3.5" />
+            <PanelLeftOpen size={16} />
           </button>
         </div>
       ) : null}
 
       {slim && onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} aria-label={resultsLabel} title={resultsTitle} data-sidebar-results
         className="relative mx-auto my-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-40">
-        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-0.5 top-0.5 rounded-full bg-ok px-1 text-[9px] leading-4 text-white">{resultsCount}</span> : null}
+        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-0.5 top-0.5 rounded-full bg-ok px-1 text-[11px] leading-5 text-on-accent">{resultsCount}</span> : null}
       </button> : null}
       {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
       {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
@@ -222,9 +258,10 @@ export function Sidebar({
               {resultsCount ? <span className="ml-auto rounded-full bg-ok/15 px-1.5 text-[11px] font-medium text-ok">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
+              title={zh ? '知识库、领域商店、插件' : 'Knowledge, domain store and plugins'}
               className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
               <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
-              <span>{zh ? '高级：知识库、领域商店、插件' : 'Advanced: knowledge, domain store, plugins'}</span>
+              <span>{zh ? '高级工具' : 'Advanced tools'}</span>
             </button>
             {advancedOpen ? <>
               {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
@@ -232,6 +269,10 @@ export function Sidebar({
               <PluginLauncher />
             </> : null}
           </nav>
+          {onSearch && <button type="button" onClick={onSearch}
+            className="sidebar-global-search">
+            <Search size={16} />{zh ? '搜索历史与成果' : 'Search history and results'}
+          </button>}
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
             {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
@@ -250,13 +291,14 @@ export function Sidebar({
           </div>
 
           <div className="px-3 py-2">
-            <label className="sr-only" htmlFor="daemon-search">{t('sidebar.find')}</label>
-            <div className="flex items-center rounded-md border border-line/60 bg-bg/60 px-2 focus-within:border-blue/60">
+            <label className="sr-only" htmlFor="daemon-search">{zh ? '筛选项目名称' : 'Filter project names'}</label>
+            <div className="sidebar-project-search">
+              <Search size={14} className="shrink-0 text-ink-faint" aria-hidden="true" />
               <input
                 id="daemon-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('sidebar.find')}
+                placeholder={zh ? '筛选项目名称' : 'Filter project names'}
                 className="h-8 min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-faint"
               />
               {query ? (
@@ -264,15 +306,16 @@ export function Sidebar({
               ) : null}
             </div>
           </div>
-          <div className="flex gap-1 px-3 pb-2" role="group" aria-label={zh ? '整理项目' : 'Organize projects'}>
+          <div className="sidebar-project-filters" role="group" aria-label={zh ? '整理项目' : 'Organize projects'}>
             {(['active', 'followup', 'archived'] as const).map(filter => <button type="button" key={filter}
               aria-pressed={projectFilter === filter} onClick={() => { setProjectFilter(filter); setOrganizing(null); }}
-              className={`rounded-md px-2 py-1 text-xs ${projectFilter === filter ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg'}`}>
+              >
               {filter === 'active' ? zh ? '最近' : 'Recent' : filter === 'followup' ? zh ? '待跟进' : 'Follow up' : zh ? '已归档' : 'Archived'}
             </button>)}
           </div>
           {organization.error && <p role="alert" className="px-4 pb-2 text-xs text-warn">{zh ? '浏览器无法读取或保存项目标记；服务器项目不受影响。' : 'This browser cannot read or save project markers. Server projects are unaffected.'}</p>}
-          {organizationNotice && <p role="status" className="px-4 pb-2 text-[11px] leading-5 text-ink-faint">{organizationNotice}</p>}
+          {organizationNotice && <p role="status" className="px-4 pb-2 text-[11px] leading-5 text-ink-faint">{organizationNotice}
+            <button type="button" disabled={syncingOrganization} onClick={() => setSyncAttempt(value => value + 1)} className="ml-2 underline">{zh ? '重新同步' : 'Sync again'}</button></p>}
           {projectFilter !== 'active' && <p className="px-4 pb-2 text-[11px] text-ink-faint">{projectFilter === 'followup'
             ? zh ? '你手动标记的项目，不代表后台任务状态。' : 'Projects you marked manually, not background task status.'
             : zh ? '归档只收起列表，项目内容和运行不受影响。' : 'Archiving only hides list entries. Project data and running work are unchanged.'}</p>}
@@ -314,8 +357,8 @@ export function Sidebar({
                   })}
                   className="mb-1 flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[11px] font-medium text-ink-faint hover:bg-bg/70 hover:text-ink-dim"
                 >
-                  <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
-                  <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
+                  <ChevronDown size={12} className={`transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
+                  <Folder size={14} />
                   <span className="min-w-0 flex-1 truncate">{path === '__pinned__' ? (zh ? '置顶项目' : 'Pinned projects') : projectGroupLabel(path)}</span>
                 </button> : null}
                 {(path === '__pinned__' ? !groupIsCollapsed(path) : rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path)) ? rows.map((project) => {
@@ -395,9 +438,9 @@ export function Sidebar({
                           }}
                           aria-label={t('sidebar.resume')}
                           title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
-                          className="absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                          className="project-resume absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                         >
-                          {resumingId === project.id ? '…' : <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />}
+                          {resumingId === project.id ? '…' : <Play size={14} />}
                         </button>
                       ) : null}
                       <button
@@ -409,14 +452,14 @@ export function Sidebar({
                         aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
                         aria-expanded={organizing === project.id}
-                        className="absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        className="project-manage absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                       >
-                        <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" />
+                        <MoreHorizontal size={18} />
                       </button>
-                      {organizing === project.id && <div className="mx-2 mb-2 flex flex-col gap-1 rounded-lg border border-line bg-panel p-1 text-xs">
-                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'pinned')}><Pin size={13} />{preference(project.id).pinned ? zh ? '取消置顶' : 'Unpin' : zh ? '置顶项目' : 'Pin project'}</button>
-                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'followup')}><Flag size={13} />{preference(project.id).followup ? zh ? '取消待跟进' : 'Clear follow-up' : zh ? '标记待跟进' : 'Mark for follow-up'}</button>
-                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'archived')}><Archive size={13} />{preference(project.id).archived ? zh ? '移出归档' : 'Restore to recent' : zh ? '归档项目' : 'Archive project'}</button>
+                      {organizing === project.id && <div className="project-organization-menu">
+                        <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'pinned')}><Pin size={13} />{preference(project.id).pinned ? zh ? '取消置顶' : 'Unpin' : zh ? '置顶项目' : 'Pin project'}</button>
+                        <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'followup')}><Flag size={13} />{preference(project.id).followup ? zh ? '取消待跟进' : 'Clear follow-up' : zh ? '标记待跟进' : 'Mark for follow-up'}</button>
+                        <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'archived')}><Archive size={13} />{preference(project.id).archived ? zh ? '移出归档' : 'Restore to recent' : zh ? '归档项目' : 'Archive project'}</button>
                         <button type="button" className="rounded border-t border-line px-2 py-2 text-left hover:bg-bg" onClick={() => { setOrganizing(null); onManage(project.id); }}>{zh ? '名称与项目管理' : 'Name and project settings'}</button>
                       </div>}
                     </div>
@@ -426,17 +469,19 @@ export function Sidebar({
             ))}
           </div>
 
-          <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
-            <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
-              <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
+          <div className="sidebar-footer">
+            {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-1 px-1 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={16} />{zh ? '设备' : 'Devices'}</button>}
+            <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
+              <Settings size={16} />
             </button>
             {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
               <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
                 className="icon-control flex h-8 w-8 items-center justify-center text-blue">
-                <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
+                <Cpu size={16} />
               </a>
             ) : null}
             <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
+            {settingsHint && <p role="status" className="sidebar-settings-hint">{zh ? '先打开或创建一个项目，再调整该项目的设置。' : 'Open or create a project first to adjust its settings.'}</p>}
           </div>
         </>
       ) : null}

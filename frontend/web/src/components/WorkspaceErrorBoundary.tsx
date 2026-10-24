@@ -23,7 +23,7 @@ export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; loc
               : 'A page resource failed to load. Backend work has not been stopped. Desktop menus remain available for logs and settings. Reloading discards unsent input on this page.'}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button type="button" className="rounded-md bg-blue px-4 py-2 text-sm text-white" onClick={() => window.location.reload()}>
+            <button type="button" className="rounded-md bg-blue px-4 py-2 text-sm text-on-accent" onClick={() => window.location.reload()}>
               {zh ? '重新加载工作台' : 'Reload workspace'}
             </button>
             <button type="button" className="rounded-md border border-line px-4 py-2 text-sm" onClick={() => {

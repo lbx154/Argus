@@ -999,7 +999,43 @@ async function explanationResponse<T>(path: string, body: unknown, onProgress?: 
   return terminal.result as T;
 }
 
+export interface BrowserDraftValue {
+  text: string;
+  attachments: string[];
+  uploaded: UploadedAttachment[];
+}
+export interface BrowserState { value: Partial<BrowserDraftValue>; revision: number }
+export interface ProjectPreference { pinned: boolean; archived: boolean; followup: boolean }
+export interface Edition { version: number; content: string; note: string; created: number }
+export interface SearchResult {
+  sid: string; title: string; kind: 'project' | 'conversation' | 'artifact' | 'edition';
+  snippet: string; text: string; path?: string; version?: number; role?: string;
+  ts?: number; line?: number; message_id?: string; truncated?: boolean;
+}
+
 export const api = {
+  pairingLink: () => postJson<{ path: string; expires_in: number }>('/api/pairing-links'),
+  browserDraft: (sid: string) => getJson<BrowserState>(P(sid, '/browser-draft')),
+  saveBrowserDraft: (sid: string, value: BrowserDraftValue, revision: number) =>
+    postJson<BrowserState>(P(sid, '/browser-draft'), { value, revision }),
+  organization: () => getJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization'),
+  organize: (sid: string, field: keyof ProjectPreference, value: boolean) =>
+    postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),
+  searchHistory: (query: string, signal?: AbortSignal) =>
+    getJson<{ results: SearchResult[]; partial: boolean; errors: string[] }>(`/api/search?q=${encodeURIComponent(query)}`, signal, 30_000),
+  editions: (sid: string, kind: 'artifact' | 'conversation', source: string) =>
+    getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
+  saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
+    postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
+  connectBrowser: async (credential: string) => {
+    const response = await fetch('/api/browser-session', { method: 'POST', headers: { Authorization: `Bearer ${credential}` } });
+    await ensureResponseOk(response, 'POST', '/api/browser-session');
+  },
+  disconnectBrowser: async () => {
+    const response = await fetch('/api/browser-session', { method: 'DELETE', headers: authHeaders() });
+    await ensureResponseOk(response, 'DELETE', '/api/browser-session');
+    localStorage.removeItem(TOKEN_KEY);
+  },
   workflows: workflowClient(getJson, postJson),
   advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
   saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),

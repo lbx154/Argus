@@ -39,6 +39,7 @@ export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
   slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote,
+  settings,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -60,6 +61,7 @@ export function ChatBox({
   footer?: ReactNode;
   /** Replaces the reply hint while the send waits on something else, such as uploads. */
   pendingNote?: string;
+  settings?: ReactNode;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -180,14 +182,18 @@ export function ChatBox({
         'aria-controls': completionOpen ? SLASH_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
         'aria-activedescendant': activeCompletion ? slashCompletionOptionId(activeCompletion.id) : undefined,
         placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
-      }}
-      controls={<>
-        {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
-        {onRewrite && value.trim() ? <button type="button" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
-          title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
-          {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}
-        </button> : null}
-      </>} />
-    {footer}
+      }} />
+    <div className="composer-meta">
+    {(settings || onRouteOverrideChange || footer) && <details className="composer-options">
+      <summary>{zh ? '任务设置与模型' : 'Task settings and model'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
+      {settings}
+      {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
+      {footer}
+    </details>}
+    {onRewrite && value.trim() ? <button type="button" className="composer-rewrite" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
+      title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
+      {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}
+    </button> : null}
+    </div>
   </div>;
 }

@@ -66,6 +66,9 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
+import { useSyncedDraft } from './useSyncedDraft';
+import { ArtifactEditor, ConversationEditor, DeviceAccess, DraftSyncStatus, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
+import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
@@ -232,6 +235,15 @@ export default function App() {
   const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [conversationEditor, setConversationEditor] = useState<ConversationRevision | null>(null);
+  const [revisionContext, setRevisionContext] = useState<ConversationRevision | null>(null);
+  const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
+  const [highlightedTs, setHighlightedTs] = useState<number | undefined>();
+  const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
+  const [initialSend, setInitialSend] = useState<{ sid: string; text: string; files: File[] } | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
@@ -313,8 +325,12 @@ export default function App() {
     rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
-    rememberUploaded, removeUploaded,
+    rememberUploaded, removeUploaded, replace: replaceDraft,
   } = useSessionComposer(selectedSid);
+  const syncedDraft = useSyncedDraft(selectedSid, {
+    text: composerDraft, attachments: composerAttachments, revision: 0,
+    missingAttachments, uploaded: composerUploaded,
+  }, captureDraft, replaceDraft);
   // Chosen files upload at once, one after another; sending waits only for
   // what is still on its way. Removing a file cancels or deletes it.
   const draftUploadCallbacks = useRef({ rememberUploaded, captureDraft });
@@ -424,7 +440,13 @@ export default function App() {
     refetchProjects: projectsQ.refetch,
     selectProject,
     translate: t,
-    onCreated: (sid, draft) => { if (draft) seedDraft(sid, draft); },
+    onCreated: (sid, draft) => {
+      if (draft) seedDraft(sid, draft, homeRequest.current?.files ?? []);
+      if (homeRequest.current) {
+        setInitialSend({ sid, ...homeRequest.current });
+        homeRequest.current = null;
+      }
+    },
   });
   // A new session starts as an idle conversation in the default workspace;
   // the first message names what it is for, so there is nothing to ask up front.
@@ -447,6 +469,9 @@ export default function App() {
   const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
   useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
   const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
+  useEffect(() => {
+    setEditor(null); setConversationEditor(null); setRevisionContext(null); setHighlightedTs(undefined);
+  }, [activeSid]);
   const startHeldLaunch = useCallback(async () => {
     if (!loadedSid) return;
     try {
@@ -648,9 +673,9 @@ export default function App() {
   );
   const openDelivery = deliveryCenter.open;
   const composeContext = (text: string) => {
-    if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
+    if (!loadedSid || loadedSid !== sidRef.current || kiosk) return false;
     const next = [composerDraft, text].filter(Boolean).join('\n\n');
-    if (next.length > MESSAGE_TEXT_MAX_CHARS) { notify('error', t('chat.messageTooLong')); return; }
+    if (next.length > MESSAGE_TEXT_MAX_CHARS) { notify('error', t('chat.messageTooLong')); return false; }
     setComposerDraft(next);
     setOverlay('none');
     setArtifactPath(null);
@@ -658,10 +683,14 @@ export default function App() {
     setWorkspaceView('activity');
     setMobileView('activity');
     setComposerFocus(value => value + 1);
+    return true;
   };
   const reviseArtifact = (path: string) => composeContext(locale === 'zh-CN'
     ? `请继续修改当前项目的成果文件：${path}\n修改要求：`
     : `Please revise this result in the current project: ${path}\nRequested changes:`);
+  const editArtifact = (path: string) => {
+    setEditor({ path }); setArtifactPath(null); deliveryCenter.close();
+  };
   const useMaterial = (title: string, content: string, scope: string) => {
     if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
     const name = `${title.replace(/[\\/:*?"<>|]/g, '-')}.md`;
@@ -859,13 +888,14 @@ export default function App() {
     const requestSid = activeSid;
     if (!requestSid || requestSid !== sidRef.current || messageSubmitLockRef.current || messageRequestRef.current) return false;
     const requestEpoch = messageEpochRef.current;
+    const revision = revisionContext;
 
     messageSubmitLockRef.current = true;
     let requestId: number;
     let serverRequestId: string;
     let controller: AbortController;
     try {
-      if (!attachments.length && !uploadOptions?.ready?.length) {
+      if (!revision && !attachments.length && !uploadOptions?.ready?.length) {
         const command = await dispatchWebCommand(text, commandHandlers);
         if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
         if (command.kind === 'error') {
@@ -1054,6 +1084,13 @@ export default function App() {
               ));
               showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
+              if (revision && result.kind !== 'error' && typeof result.reply === 'string' && result.reply.trim()) {
+                void api.saveEdition(requestSid, 'conversation', {
+                  source: revision.source, content: result.reply, note: text, original: revision.answer,
+                  base_version: revision.baseVersion,
+                }).then(() => queryClient.invalidateQueries({ queryKey: ['editions', requestSid, 'conversation', revision.source] }))
+                  .catch(error => notify('error', `${locale === 'zh-CN' ? '回答已保留在对话中，但修订版本未保存：' : 'Answer kept in conversation, but version was not saved: '}${errorText(error)}`));
+              }
               const item = result.item as { id?: unknown } | undefined;
               if (result.kind !== 'task' || typeof item?.id !== 'string')
                 observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
@@ -1064,9 +1101,9 @@ export default function App() {
           }, {
             signal: controller.signal,
             attachments: attachmentRefs,
-            routeOverride,
+            routeOverride: revision ? 'chat' : routeOverride,
             requestId: serverRequestId,
-            launch: routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
+            launch: !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -1091,6 +1128,7 @@ export default function App() {
       }
     })();
 
+    if (revision) setRevisionContext(null);
     return true; // draft clears immediately on dispatch, not when stream finishes
   };
 
@@ -1109,6 +1147,10 @@ export default function App() {
       return false;
     }
     if (options?.whileRunning) {
+      if (revisionContext) {
+        notify('error', locale === 'zh-CN' ? '请等待当前回复结束后再发送修订，不会自动排队重跑。' : 'Wait for the current reply before sending a revision. It will not be queued or rerun automatically.');
+        return false;
+      }
       if (files.length || draft.uploaded?.length) {
         notify('error', t('chat.attachWhileRunning'));
         return false;
@@ -1133,7 +1175,7 @@ export default function App() {
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.
-    const rewriteCommand = !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
+    const rewriteCommand = !revisionContext && !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
@@ -1151,6 +1193,30 @@ export default function App() {
     }
     return accepted;
   };
+  const composerSendRef = useRef(sendComposerMessage);
+  composerSendRef.current = sendComposerMessage;
+  useEffect(() => {
+    if (!initialSend) return;
+    if (activeSid && activeSid !== initialSend.sid) { setInitialSend(null); return; }
+    if (loadedSid !== initialSend.sid) return;
+    setInitialSend(null);
+    void composerSendRef.current(initialSend.text, initialSend.files);
+  }, [initialSend, loadedSid, activeSid]);
+  useEffect(() => {
+    if (!searchTarget || loadedSid !== searchTarget.sid) return;
+    if (searchTarget.kind === 'artifact' && searchTarget.path) focusDeliveryPath(searchTarget.path);
+    else if (searchTarget.kind === 'edition' && searchTarget.path) setEditor({ path: searchTarget.path, version: searchTarget.version });
+    else if (searchTarget.kind === 'conversation') {
+      localConversationSid.current = loadedSid;
+      setLocalConversationEvents(current => [...current, {
+        type: searchTarget.role === 'operator' ? 'ui.operator' : 'ui.argus',
+        agent_layer: searchTarget.role === 'operator' ? 'operator' : 'manager',
+        text: searchTarget.text, ts: Number(searchTarget.ts), message_id: searchTarget.message_id,
+      }]);
+      setHighlightedTs(Number(searchTarget.ts));
+    }
+    setSearchTarget(null);
+  }, [searchTarget, loadedSid, focusDeliveryPath]);
 
   const paletteItems: PaletteItem[] = useMemo(() => {
     const commandRows = commandPaletteRows(
@@ -1162,6 +1228,8 @@ export default function App() {
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
+      { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
+      { id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
@@ -1247,6 +1315,7 @@ export default function App() {
         reviewActivity={deliveryCenter.selection.sid === loadedSid ? reviewActivity : undefined}
         onSelectDelivery={openDelivery} onSelectPath={deliveryCenter.selectPath} onClose={deliveryCenter.close}
         onRevise={kiosk ? undefined : reviseArtifact}
+        onEdit={kiosk ? undefined : editArtifact}
       />}
       {!kiosk && sidebarOpen ? (
         <button
@@ -1283,6 +1352,8 @@ export default function App() {
           }}
           resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
+          onSearch={() => setSearchOpen(true)}
+          onDevices={() => setDevicesOpen(true)}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1326,16 +1397,16 @@ export default function App() {
               />}
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
                 <div className="workspace-tabs">
-                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{locale === 'zh-CN' ? '研究地图' : 'Research map'}</button>
+                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
                 <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
                     else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
                   }}>
-                  {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
+                  {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
@@ -1396,6 +1467,8 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
+                    onConversationAction={kiosk || messagePending ? undefined : setConversationEditor}
+                    requestedMessageTs={highlightedTs}
                     notifications={kiosk ? undefined : notifications}
                     latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
@@ -1412,8 +1485,10 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
-                    {loadedSid && routeOverride !== 'chat' && !kiosk ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
-                      started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : null}
+                    {revisionContext && <div className="experience-notice">
+                      <span>{locale === 'zh-CN' ? '对话修订 · 原始记录保留，仅重新回答，不重新提交研究任务。' : 'Chat revision · original records kept; research tasks are not resubmitted.'}</span>
+                      <button type="button" onClick={() => setRevisionContext(null)}>{locale === 'zh-CN' ? '取消修订关联' : 'Detach revision'}</button>
+                    </div>}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
@@ -1432,13 +1507,15 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
+                      settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
+                        started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
                     />
                     {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
-                      <span>{draftStorageError
-                        ? locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'
-                        : locale === 'zh-CN' ? '文字草稿仅保存在此浏览器 · 附件选中后立即上传，发送后 Argus 才会读取' : 'Text draft saved in this browser · Files upload when chosen; Argus reads them once you send'}</span>
+                      {draftStorageError
+                        ? <span>{locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'}</span>
+                        : <DraftSyncStatus sync={syncedDraft} />}
                       {missingAttachments.length > 0 && <><span className="text-warn">{locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择：' : 'Unuploaded files must be selected again: '}{missingAttachments.join('、')}</span><button type="button" onClick={dismissMissingAttachments}>{locale === 'zh-CN' ? '不再使用这些附件' : 'Discard missing attachments'}</button></>}
                       {composerDraft && <button type="button" onClick={() => setComposerDraft('')}>{locale === 'zh-CN' ? '清空文字草稿' : 'Clear text draft'}</button>}
                     </div>}
@@ -1506,6 +1583,7 @@ export default function App() {
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}
+                onEdit={kiosk ? undefined : editArtifact}
                 onRetry={() => void artifactsQ.refetch()}
                 routeVisible
               />
@@ -1527,6 +1605,14 @@ export default function App() {
               if (activeSid) void snapQ.refetch();
             }}
             onNew={startNewSession}
+            onSubmit={async (text, files) => {
+              if (homeRequest.current) return false;
+              homeRequest.current = { text, files };
+              setWorkspaceView('activity'); setMobileView('activity');
+              const created = await createDaemon('', '', '', text);
+              if (!created) homeRequest.current = null;
+              return created;
+            }}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
             creating={creatingDaemon}
@@ -1535,6 +1621,21 @@ export default function App() {
       </main>
 
       {/* global overlays */}
+      <HistorySearch open={searchOpen} onClose={() => setSearchOpen(false)} onChoose={result => {
+        setSearchTarget(result); selectProject(result.sid);
+        setWorkspaceView('activity'); setMobileView('activity'); setSidebarOpen(false);
+      }} />
+      <DeviceAccess open={devicesOpen} onClose={() => setDevicesOpen(false)} />
+      {activeSid && editor && <ArtifactEditor key={`${activeSid}:${editor.path}:${editor.version ?? ''}`} sid={activeSid}
+        path={editor.path} initialVersion={editor.version} onClose={() => setEditor(null)}
+        onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
+      {activeSid && conversationEditor && <ConversationEditor key={`${activeSid}:${conversationEditor.source}`} sid={activeSid}
+        target={conversationEditor} onClose={() => setConversationEditor(null)}
+        onCompose={(text, target) => {
+          if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
+          setComposerDraft(text); setRevisionContext(target); setRouteOverride('chat');
+          setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
+        }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
           onUse={kiosk ? undefined : useMaterial}
@@ -1569,6 +1670,7 @@ export default function App() {
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} artifacts={artifactsQ.data ?? []}
         onRevise={kiosk ? undefined : reviseArtifact}
+        onEdit={kiosk ? undefined : editArtifact}
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />

@@ -11,6 +11,11 @@ export function isMarkdownArtifact(artifact: ArtifactPresentation): boolean {
   return /\.(?:md|markdown)$/i.test(artifact.name || artifact.path || '');
 }
 
+export function canEditArtifact(artifact: { kind: string; source?: string; size: number }): boolean {
+  return ['markdown', 'text', 'json', 'table', 'html'].includes(artifact.kind) && artifact.size <= 512 * 1024
+    && artifact.source !== 'attachment' && artifact.source !== 'reader_foundation' && artifact.source !== 'progress_snapshot';
+}
+
 export function readerFoundationTitle(foundation: { question: string; title?: string }): string {
   return foundation.title?.trim() || foundation.question;
 }

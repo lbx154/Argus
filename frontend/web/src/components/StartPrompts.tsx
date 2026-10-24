@@ -14,7 +14,7 @@ export function StartPrompts({ onPick, disabled = false }: { onPick: (text: stri
     {starters.map(({ icon: Icon, zh, en }) => {
       const [title, hint, prompt] = locale === 'zh-CN' ? zh : en;
       return <button type="button" key={title} className="starter-card" onClick={() => onPick(prompt)} disabled={disabled}>
-        <Icon size={19} aria-hidden="true" /><span><strong>{title}</strong><small>{hint}</small></span>
+        <Icon size={18} strokeWidth={1.6} aria-hidden="true" /><span><strong>{title}</strong><small>{hint}</small></span>
       </button>;
     })}
   </div>;
