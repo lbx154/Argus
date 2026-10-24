@@ -66,6 +66,6 @@ describe('one compact work-progress area', () => {
       slashSelection={0} onSlashSelectionChange={() => undefined} />);
     expect(html).not.toContain('turn-steps');
     expect(html).not.toContain('<ol');
-    expect(html).toContain('aria-label="Stop reply"');
+    expect(html).toContain('aria-label="Stop this reply"');
   });
 });

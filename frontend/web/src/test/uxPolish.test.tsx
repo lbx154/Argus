@@ -70,3 +70,36 @@ describe('launch setting: when to ask me', () => {
     expect(unknown).toContain('研究类项目的选项');
   });
 });
+
+describe('questions, paths and header', async () => {
+  const { splitReplyOptions, readableQuestions, ReplyOptionButtons, ReplyChoiceContext } = await import('../components/ReplyOptions');
+  const { relativizeWorkspacePaths } = await import('../lib/workspacePaths');
+  const { spendEstimateLabel } = await import('../lib/projectOverview');
+
+  it('turns numbered options into buttons and keeps the rest of the text', () => {
+    const text = '“更适合发票”希望采用哪套规则？\n\n可选（回复编号即可）：\n1. 金额 1,234.50；百分比 12.50%\n2. 金额 1,234.50；百分比 12.5%\n\n直接回复，或在网页端处理。';
+    const { body, options } = splitReplyOptions(text);
+    expect(options).toEqual(['金额 1,234.50；百分比 12.50%', '金额 1,234.50；百分比 12.5%']);
+    expect(body).not.toContain('回复编号');
+    expect(body).toContain('直接回复');
+    const html = renderToStaticMarkup(<ReplyChoiceContext.Provider value={() => {}}><ReplyOptionButtons options={options} zh /></ReplyChoiceContext.Provider>);
+    expect(html.match(/<button/g)).toHaveLength(2);
+    expect(html).toContain('也可以在下方直接写你的回答');
+    expect(splitReplyOptions('没有选项的普通回复').options).toEqual([]);
+  });
+
+  it('lists several questions packed into one line', () => {
+    const line = '请确认以下几点：数据从哪里来？需要覆盖哪些年份？结果用什么格式交付？是否需要附上原始代码？';
+    expect(readableQuestions(line)).toContain('\n2. 需要覆盖哪些年份？');
+  });
+
+  it('shows workspace-relative paths', () => {
+    const root = '/fastdata/v-boxiuli/argus-trial-1023';
+    expect(relativizeWorkspacePaths(`在 ${root}/demo/c1-review 的 moneyfmt 中，见 [README](${root}/demo/c1-review/README.md)`, root))
+      .toBe('在 demo/c1-review 的 moneyfmt 中，见 [README](demo/c1-review/README.md)');
+  });
+
+  it('labels cost as an API-price estimate', () => {
+    expect(spendEstimateLabel({ spendUsd: 4.63, spendStatus: 'priced' } as never, true)).toBe('估算 ≈$4.63（按 API 价）');
+  });
+});

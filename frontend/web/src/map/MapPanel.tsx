@@ -1784,8 +1784,9 @@ export const MapPanel = memo(function MapPanel({
               </button>
             )}
             {!readOnly && onOpenSettings && (
-              <button type="button" onClick={onOpenSettings} className="map-scope-button">
-                {zh ? "地图模型设置" : "Map model settings"}
+              <button type="button" onClick={onOpenSettings} className="map-scope-button"
+                title={zh ? "打开共享模型设置。轻量模型同时用于：研究地图的文字、前台快速回复、任务复盘。改动会影响这三处。" : "Opens shared model settings. The light model also serves: map wording, front-door quick replies, task reflection. A change affects all three."}>
+                {zh ? "轻量模型设置（地图 · 前台 · 复盘）" : "Light model settings (map · front door · reflection)"}
               </button>
             )}
             {replacementCount > 0 && (

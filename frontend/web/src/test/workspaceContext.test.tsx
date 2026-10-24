@@ -51,7 +51,7 @@ describe('A3 snapshot-only session context', () => {
   });
 
   it('keeps the existing runtime action for actual queued work and an active daemon', () => {
-    expect(markup(topbar({ ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] }))).toContain('Run Argus');
+    expect(markup(topbar({ ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] }))).toContain('Resume');
     expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('Pause Argus');
   });
 

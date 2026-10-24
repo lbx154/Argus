@@ -48,14 +48,14 @@ export function DaemonSpendBadge({
   ].filter(Boolean).join(' · ');
   return (
     <span
-      title={detail}
-      aria-label={`Project spend ${value}`}
+      title={`Estimate at API prices, not what the account was charged · 按 API 价估算，不是账户实际扣费 · ${detail}`}
+      aria-label={`Estimated project spend ${value}`}
       className={`inline-flex shrink-0 items-center rounded-full border border-gold/25 bg-gold/8 font-mono tabular-nums text-gold ${
         compact ? 'h-6 gap-1 px-2 text-[10px]' : 'h-5 gap-1 px-1.5 text-[9px]'
       }`}
     >
       {live ? <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold/80" /> : null}
-      <span>{value}</span>
+      <span>≈{value}</span>
     </span>
   );
 }

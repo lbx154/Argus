@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.mission_view import say, sentences, uses_cjk
+from ..core.mission_view import conversation_is_chinese, say, sentences, uses_cjk
 from .manager_dispatch_receipt import record_task_dispatch_ack as record_task_dispatch_ack
 
 
@@ -469,7 +469,7 @@ def _apply_operator_answer(
 
     question = str(item.pending_question or "").strip()
     # A clicked option is in the card's words; the question is in the operator's.
-    manager_reply = manager_reply or say("answer_taken", uses_cjk(answer, question))
+    manager_reply = manager_reply or say("answer_taken", conversation_is_chinese(answer, question))
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
@@ -555,8 +555,14 @@ def apply_manager_answer(mem: Any, handoff: Any, operator_text: str) -> dict[str
     record = persist_once_answer(
         mem.project_root, operator_text, source="operator.pending_answer", mission_id=str(item.id),
     )
+    # The reply speaks to the person; ``summary`` is the Manager's note for the team.
+    options = (item.operator_decision or {}).get("options") or ()
+    picked = next((str(option.get("label") or "").strip() for option in options
+                   if isinstance(option, dict) and option.get("id") == answer.get("option")), "")
+    zh = conversation_is_chinese(operator_text, item.pending_question, item.title)
     result = _apply_operator_answer(
-        mem, item, operator_text, manager_decision=answer["decision"], manager_reply=handoff.summary,
+        mem, item, operator_text, manager_decision=answer["decision"],
+        manager_reply=say("answer_continue_with", zh, choice=picked) if picked else say("answer_taken", zh),
         decision_option=answer.get("option", "custom"),
         operator_context_persisted=True, operator_context_revision=record.revision,
     )

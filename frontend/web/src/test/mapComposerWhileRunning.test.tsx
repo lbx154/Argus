@@ -44,7 +44,7 @@ it("keeps Stop and offers a separate send arrow while a turn is running", () => 
   let renderer!: ReactTestRenderer;
   act(() => { renderer = create(createElement(MapComposer, base)); });
   const labels = renderer.root.findAllByType("button").map((node) => node.props["aria-label"]);
-  expect(labels).toContain("Stop reply");
+  expect(labels).toContain("Stop this reply");
   expect(labels).toContain("Send while Argus works");
 });
 

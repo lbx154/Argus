@@ -629,6 +629,7 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     # Replies to the operator's answer to a question.
     "answer_taken": ("Got it, carrying on with your choice.", "收到，按你定的继续做。"),
+    "answer_continue_with": ("OK, carrying on with your choice: {choice}.", "好的，按你的选择继续：{choice}。"),
     "answer_already_taken": ("I already have this decision.", "这个决定之前已经收到了。"),
     "answer_not_applied": (
         "That answer couldn't be applied: the question may already be answered or gone.",
@@ -777,11 +778,28 @@ def uses_cjk(*texts: Any) -> bool:
     return any(_CJK_RE.search(str(text or "")) for text in texts)
 
 
+def written_language(text: Any) -> str:
+    """``"zh"`` or ``"en"`` for words that show a language; ``""`` for a bare number, a
+    choice like "2" or "ok", which keep whatever language the conversation is in."""
+    sample = str(text or "")
+    if _CJK_RE.search(sample):
+        return "zh"
+    return "en" if len(re.findall(r"[A-Za-z]{2,}", sample)) >= 2 else ""
+
+
+def conversation_is_chinese(latest: Any, *earlier: Any) -> bool:
+    """The reply language follows the conversation: the latest message when it shows a
+    language, otherwise the earlier text it continues (task title, question, request)."""
+    for text in (latest, *earlier):
+        if language := written_language(text):
+            return language == "zh"
+    return uses_cjk(latest, *earlier)
+
+
 def remember_language(view: dict[str, Any], text: str) -> None:
     """Record the session's language from the operator's own words."""
-    sample = str(text or "").strip()
-    if sample:
-        view["language"] = "zh" if uses_cjk(sample) else "en"
+    if language := written_language(str(text or "").strip()):
+        view["language"] = language
 
 
 def session_is_chinese(view: Mapping[str, Any], *texts: str) -> bool:

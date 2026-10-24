@@ -3,7 +3,8 @@ import { formatBytes } from '../lib/format';
 import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { deliveryHeadingKey } from '../lib/deliveryKind';
-import { diskView, durationLabel, projectOverview, spendLabel } from '../lib/projectOverview';
+import { diskView, durationLabel, projectOverview, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
+import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 
 export interface NotificationControl {
   supported: boolean;
@@ -30,17 +31,19 @@ export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notificat
   if (!overview) return null;
   const disk = diskView(snapshot.storage, zh, formatBytes);
   const elapsed = durationLabel(overview.elapsedSeconds, zh);
-  const spend = spendLabel(overview, zh);
+  const spend = spendEstimateLabel(overview, zh);
+  // Free disk space is noise until it runs short.
+  const diskWarning = disk?.warn ? disk : null;
   const delivery = overview.latestDelivery;
   return <div className="project-overview shrink-0 border-b border-line/60 bg-panel/70 px-4 py-2 text-xs text-ink-dim" data-testid="project-overview">
     {overview.goal ? <div className="truncate" title={overview.goal}>
-      <span className="font-medium text-ink">{overview.goalIsTask ? (zh ? '当前任务：' : 'Current task: ') : (zh ? '目标：' : 'Goal: ')}</span>{overview.goal}
+      <span className="font-medium text-ink">{overview.goalIsTask ? (zh ? '当前任务：' : 'Current task: ') : (zh ? '目标：' : 'Goal: ')}</span>{relativizeWorkspacePaths(overview.goal, snapshot.session.workdir, snapshot.session.cwd)}
     </div> : null}
     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
       <span>{zh ? `任务 ${overview.done}/${overview.total} 已完成` : `${overview.done}/${overview.total} tasks done`}{overview.active ? (zh ? ` · ${overview.active} 项进行中` : ` · ${overview.active} open`) : ''}</span>
       {elapsed ? <span>{zh ? `已用时 ${elapsed}` : `${elapsed} elapsed`}</span> : null}
-      {spend ? <span>{zh ? `花费 ${spend}` : `Spent ${spend}`}</span> : null}
-      {disk ? <span className={disk.warn ? 'font-medium text-warn' : ''} title={disk.warn ? (zh ? '建议清理不需要的中间文件，或让 Argus 只保留可复现所需的数据' : 'Consider removing intermediate files or keeping only what reproduction needs') : undefined}>{disk.text}</span> : null}
+      {spend ? <span title={zh ? SPEND_ESTIMATE_HINT.zh : SPEND_ESTIMATE_HINT.en} className="cursor-help">{spend}</span> : null}
+      {diskWarning ? <span className="font-medium text-warn" title={diskWarning.warn ? (zh ? '建议清理不需要的中间文件，或让 Argus 只保留可复现所需的数据' : 'Consider removing intermediate files or keeping only what reproduction needs') : undefined}>{diskWarning.text}</span> : null}
       {delivery ? <span className="flex min-w-0 items-center gap-1">
         <span className="shrink-0">{t(deliveryHeadingKey(delivery))}：</span>
         {onOpenDelivery

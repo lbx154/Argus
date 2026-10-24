@@ -10,6 +10,7 @@ import { DaemonSpendBadge } from './DaemonSpendBadge';
 import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
+import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -58,12 +59,12 @@ export function TopBar({
   const roleName = work.role || 'manager';
   const roleActive = work.state === 'running' && streamOk && !snapshotStale;
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
-  const focus = work.title
+  const focus = relativizeWorkspacePaths(work.title
     || activeItem?.title
     || activeItem?.objective
     || (missionTerminal ? missionView?.mission.summary || missionView?.mission.title : '')
     || snap.session.objective
-    || '';
+    || '', snap.session.workdir, snap.session.cwd);
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
   const spendUsd = typeof snap.spend_usd === 'number' ? snap.spend_usd : snap.usage_summary?.known_cost_usd ?? 0;
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;

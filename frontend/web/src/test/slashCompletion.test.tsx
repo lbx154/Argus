@@ -100,7 +100,7 @@ describe('slash completion menu', () => {
         onSlashSelectionChange={() => undefined}
       />,
     );
-    expect(html).toContain('Esc stop reply');
+    expect(html).toContain('Esc stops this reply');
     expect(html).not.toContain('Argus is working on your message');
     expect(html).not.toContain('Still working; no new update');
   });

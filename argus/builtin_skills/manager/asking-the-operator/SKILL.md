@@ -44,7 +44,8 @@ wherever it conflicts with the task as first given: when it changes a method,
 scope, tool or requirement, name the earlier constraint it supersedes instead
 of trying to satisfy both. When the message is about something else, leave
 `answer` out; when it does not answer enough, reply with the one thing still
-missing.
+missing. Your reply goes to them: speak to them, not about them ("好的，按你的选择继续：…"
+/ "OK, carrying on with your choice: …"); `summary` is your note for the team.
 
 When Argus asks you to decide such a question in the operator's place, decide
 as they would for their objective and file `answer` the same way, with why in

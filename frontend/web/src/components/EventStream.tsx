@@ -33,6 +33,7 @@ import { plainDetail, plainTaskReport } from '../lib/plainStatus';
 import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { WorkStatusBar } from './WorkStatusBar';
+import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { earlierRoleWork } from './agentActivityModel';
 import { liveActivity, liveLines, type LiveLine } from '../lib/liveActivity';
@@ -42,6 +43,10 @@ import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
 import { StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
+import { relativizeWorkspacePaths } from '../lib/workspacePaths';
+
+/** The project's workspace roots, so replies show paths relative to them. */
+export const WorkspaceRootsContext = createContext<string[]>([]);
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -288,6 +293,8 @@ function ConversationRow({
   onOpenArtifact?: (path: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const roots = useContext(WorkspaceRootsContext);
+  const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
   // Preserve the full recorded message, including research/control-like lines.
@@ -297,6 +304,8 @@ function ConversationRow({
   const draft = operator ? splitDraft(r.text) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : r.text;
+  // A question's numbered options become buttons; typing a free answer still works.
+  const asked = !operator && !taskReceipt ? splitReplyOptions(reportText) : null;
   const steps = operator ? [] : turnStepsFrom(ev.steps);
   const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
   const responseLatency = !operator && responseLatencyMs >= 100
@@ -380,7 +389,7 @@ function ConversationRow({
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
               }) : clockOf(ev)}{responseLatency}</time>
             </div>
-            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
+            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}

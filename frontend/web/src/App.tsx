@@ -7,8 +7,9 @@ import { LearningLibrary, type LearningScope, type LearningSelection } from './c
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
+import { ReplyChoiceContext } from './components/ReplyOptions';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import { EventStream, latestConversationDelivery } from './components/EventStream';
+import { EventStream, latestConversationDelivery, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
@@ -1091,6 +1092,8 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
+  const workspaceRoots = useMemo(() => [snap?.session.workdir, snap?.session.cwd].filter((root): root is string => Boolean(root)), [snap?.session.workdir, snap?.session.cwd]);
+  const replyChoice = useCallback((choice: string) => { void sendMessageRef.current(choice); }, []);
   const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
@@ -1362,6 +1365,8 @@ export default function App() {
                 /> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
+                  <ReplyChoiceContext.Provider value={kiosk ? null : replyChoice}>
+                  <WorkspaceRootsContext.Provider value={workspaceRoots}>
                   <EventStream
                     key={loadedSid}
                     snapshot={snap}
@@ -1387,6 +1392,8 @@ export default function App() {
                     latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
                   />
+                  </WorkspaceRootsContext.Provider>
+                  </ReplyChoiceContext.Provider>
                   </div>
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">

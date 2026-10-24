@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
-from ..core.mission_view import say, uses_cjk
+from ..core.mission_view import conversation_is_chinese, say
 
 
 def _dispatch_ack_text(
@@ -20,7 +20,8 @@ def _dispatch_ack_text(
     """The first reply to a task: what happens next, without echoing the request."""
     raw_item = result.get("item")
     item = raw_item if isinstance(raw_item, dict) else {}
-    zh = uses_cjk(operator_text or item.get("title") or item.get("objective"))
+    # A reply like "2" says nothing about language: keep the conversation's.
+    zh = conversation_is_chinese(operator_text, item.get("pending_question"), item.get("title"), item.get("objective"))
     dispatch_state = result.get("dispatch_state")
     if result.get("launch_hold"):
         # Nothing has started, so the Manager's own words on its plan close the
@@ -121,7 +122,7 @@ def record_task_dispatch_ack(
                 return ""
             fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as exc:
-        text = say("ack_not_recorded", uses_cjk(operator_text or text))
+        text = say("ack_not_recorded", conversation_is_chinese(operator_text, text))
         result["ack_error"] = text
         result["ack_diagnostic"] = f"{transcript_path}: {exc}"
 

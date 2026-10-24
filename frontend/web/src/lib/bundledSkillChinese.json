@@ -32,7 +32,7 @@
     "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处；阶段决定默认由经理自己定，操作者要求参与时才带选项问。",
     "originalName": "Asking the operator",
     "source": "argus/builtin_skills/manager/asking-the-operator/SKILL.md",
-    "sourceBytes": 2759
+    "sourceBytes": 2935
   },
   "global/manager/workflow-setup/SKILL.md": {
     "title": "和用户商定可复用流程",
@@ -53,7 +53,7 @@
     "summary": "用操作者的语言直接回答，说清结论、依据和不确定之处。",
     "originalName": "Replying to the operator",
     "source": "argus/builtin_skills/manager/replying/SKILL.md",
-    "sourceBytes": 2218
+    "sourceBytes": 2295
   },
   "global/manager/research-and-sources/SKILL.md": {
     "title": "调研与引用来源",

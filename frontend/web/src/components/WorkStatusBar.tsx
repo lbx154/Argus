@@ -3,6 +3,7 @@ import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { TeamPauseButton, teamPhase, teamPhaseLabel } from './TeamControls';
+import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 
 /** Shared, factual status for the conversation and its progress panel. */
 export function WorkStatusBar({ snapshot, view, events = [], connected, compact = false, onPauseTeam, onResumeTeam, teamBusy }: {
@@ -13,7 +14,8 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   const zh = locale === 'zh-CN';
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 10_000); return () => window.clearInterval(timer); }, []);
-  const status = currentWorkStatus(snapshot, view, events, now);
+  const raw = currentWorkStatus(snapshot, view, events, now);
+  const status = { ...raw, title: relativizeWorkspacePaths(raw.title, snapshot?.session.workdir, snapshot?.session.cwd) };
   const phase = teamPhase(status, snapshot);
   // Compact (chat header) keeps one line; only a step that needs the person adds a hint.
   const actionable = ['launch_confirm', 'operator_input', 'task_failed'].includes(status.reason);
