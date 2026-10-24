@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from argus.core.json_codec import loads_finite_json
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.webapi import map_history, map_narrative
+from argus.webapi import map_history
 from argus.webapi.map_view import read_map
 from argus.webapi.server import create_app
 
@@ -102,34 +102,3 @@ def test_old_history_index_rebuilds_and_resets_cursor(tmp_path, bad_metadata):
         assert state["version"] == map_history.HISTORY_VERSION
         assert {row[0] for row in db.execute("SELECT id FROM events")} == {"start", "good"}
 
-
-def test_old_cached_evidence_filters_bad_ids_before_http_summary_context(tmp_path, monkeypatch):
-    sid, life, _path = _project(tmp_path)
-    map_history.history_page(tmp_path, life, read_map(sid, tmp_path, life, include_events=False), None)
-    cache = map_history.history_path(tmp_path, life)
-    with sqlite3.connect(cache) as db:
-        state = json.loads(db.execute("SELECT value FROM metadata WHERE key='state'").fetchone()[0])
-        state["version"] = 3
-        db.execute("UPDATE metadata SET value=? WHERE key='state'", (json.dumps(state),))
-        for seq, event_id, timestamp in ((20, "cached-bad", float("nan")), (21, "cached-good", 2)):
-            event = {"id": event_id, "item_id": "A", "type": "round.review.completed",
-                     "ts": timestamp, "text": "Cached evidence", "role": "reviewer"}
-            db.execute("INSERT INTO events VALUES (?, ?, ?)", (seq, event_id, json.dumps(event)))
-    before = cache.read_bytes()
-    ids = ["cached-bad", "cached-good"]
-    assert [row["id"] for row in map_history.indexed_evidence(tmp_path, life, ids)] == ["cached-good"]
-
-    def inspect_context(root, value, cards, locale, *, project_root):
-        # Exercise real HTTP evidence loading, replacing only model generation.
-        assert {event["id"] for event in value["events"]} == {"start", "cached-good"}
-        json.dumps(value, allow_nan=False)
-        return {"evidence_ids": [event["id"] for event in value["events"]]}
-
-    monkeypatch.setattr(map_narrative, "enrich", inspect_context)
-    response = TestClient(create_app(global_root=tmp_path)).post(
-        f"/api/map-copy/project/{sid}",
-        json={"cards": [{"key": "cached-good", "task_id": "A", "kind": "review", "event_ids": ids}]},
-    )
-    assert response.status_code == 200, response.text
-    assert set(response.json()["evidence_ids"]) == {"start", "cached-good"}
-    assert cache.read_bytes() == before  # Evidence reads do not migrate/write the cache.

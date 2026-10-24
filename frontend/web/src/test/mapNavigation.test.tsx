@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TaskTrace } from '../components/TaskTrace';
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { Edge } from "@xyflow/react";
 import type { ComponentProps } from "react";
@@ -10,7 +11,6 @@ import { MapReaderContent } from "../map/MapReaderContent";
 import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
 import type { MapCopy } from "../map/presentation";
-import { MarkdownContent } from "../components/MarkdownContent";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
 const initialization = vi.hoisted(() => ({ ready: false }));
@@ -164,7 +164,8 @@ it("opens a task without a saved explanation on its own record and never asks fo
   expect(reader.props.card).toBeUndefined();
   expect(reader.props.selection.request.task_id).toBe('failed');
   expect(reading.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
-  expect(reading.findByType(MarkdownContent).props.children).toBe(reader.props.originalDetail);
+  // A live team task reads as its recorded trajectory, not a written explanation.
+  expect(reading.findByType(TaskTrace).props.taskId).toBe('failed');
   expect(generate).not.toHaveBeenCalled();
 });
 

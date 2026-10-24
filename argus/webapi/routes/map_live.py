@@ -1,8 +1,7 @@
-"""Map records and summaries using the configured research runner."""
+"""Map records, saved card text, and each task's recorded trajectory."""
 
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Query
@@ -11,25 +10,10 @@ from starlette.concurrency import run_in_threadpool
 
 from .. import map_narrative
 from ..map_feed import MapFeed
-from ..map_history import history_info, history_page, indexed_evidence
+from ..map_history import history_info, history_page
 from ..map_view import read_map, with_revisions
 from ..reader_application import PROCESS_VERSION as APPLICATION_PROCESS_VERSION
 from ..reader_application import foundation_reference
-
-
-class MapCardIn(BaseModel):
-    key: str = Field(min_length=1, max_length=240)
-    task_id: str = Field(min_length=1, max_length=160)
-    kind: Literal["task", "plan", "execution", "review", "revision", "result"]
-    event_ids: list[str] = Field(default_factory=list, max_length=16)
-
-
-class MapCopyIn(BaseModel):
-    cards: list[MapCardIn] = Field(min_length=1, max_length=16)
-    locale: Literal["zh-CN", "en-US"] = "zh-CN"
-    foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
-    # The reader pressed retry; automatic requests leave a spent input alone.
-    manual_retry: bool = False
 
 
 class MapQuestionSourceIn(BaseModel):
@@ -38,32 +22,6 @@ class MapQuestionSourceIn(BaseModel):
     locale: Literal["zh-CN", "en-US"] = "zh-CN"
     preview: map_narrative.Preview = False
     foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
-
-
-class MapLinePairIn(BaseModel):
-    source: str = Field(min_length=1, max_length=200)
-    target: str = Field(min_length=1, max_length=200)
-
-
-class MapLinesIn(BaseModel):
-    pairs: list[MapLinePairIn] = Field(min_length=1, max_length=48)
-    locale: Literal["zh-CN", "en-US"] = "zh-CN"
-    # False reads what is saved; True also writes the notes that are missing.
-    write: bool = False
-
-
-class MapCardWordsIn(BaseModel):
-    tasks: list[str] = Field(min_length=1, max_length=80)
-    locale: Literal["zh-CN", "en-US"] = "zh-CN"
-    # False reads what is saved; True also writes the words that are missing.
-    write: bool = False
-
-
-def _copy_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, ValueError):
-        logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
-        return HTTPException(422, "card content could not be prepared")
-    return HTTPException(503, "card text is temporarily unavailable")
 
 
 def _reader_copy(value: dict) -> dict:
@@ -102,6 +60,14 @@ def register_map_live_routes(app, ctx, read_dataset):
         value["generation_available"] = map_narrative.configured()
         return value
 
+    @app.get("/api/projects/{sid}/map-trace", dependencies=[Depends(ctx.require_auth)])
+    async def map_trace(sid: str, task: str = Query(min_length=1, max_length=200)):
+        """What the roles thought, said, ran and changed for one task, from the runner's log."""
+        from ..map_trace import task_trace
+
+        life_dir = ctx.resolve_or_404(sid)
+        return await run_in_threadpool(task_trace, life_dir, task)
+
     @app.get("/api/projects/{sid}/map-info", dependencies=[Depends(ctx.require_auth)])
     def map_info(sid: str):
         root, life_dir = ctx.project_root_or_404(sid), ctx.resolve_or_404(sid)
@@ -124,19 +90,10 @@ def register_map_live_routes(app, ctx, read_dataset):
                       cursor=delta["cursor"], removed_task_ids=delta.get("removed_task_ids", []))
         return result
 
-    def load(source, name, cards=None):
+    def load(source, name):
         if source == "project":
             root, life_dir = ctx.project_root_or_404(name), ctx.resolve_or_404(name)
-            value = feed.read(name, root, life_dir)
-            if cards:
-                ids = list({key for c in cards for key in (
-                    c.key, c.key.removesuffix(":next"), *c.event_ids,
-                )})
-                saved = indexed_evidence(root, life_dir, ids)
-                value = {**value, "events": list({e["id"]: e for e in [
-                    *saved, *value["events"],
-                ]}.values())}
-            return with_revisions(value)
+            return with_revisions(feed.read(name, root, life_dir))
         value = read_dataset(name)
         if value.get("id") != name or value.get("read_only") is not True:
             raise HTTPException(404, "unknown map")
@@ -256,95 +213,3 @@ def register_map_live_routes(app, ctx, read_dataset):
                 raise _foundation_error(exc) from exc
 
         return await run_in_threadpool(prepare)
-
-    @app.post("/api/map-lines/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
-    async def map_lines_notes(
-        source: Literal["project", "dataset"], name: str, body: MapLinesIn,
-        session_id: str | None = None,
-    ):
-        """What the lines between tasks say. The pairs are the lines the
-        reader's map draws; the notes annotate them and change no line."""
-        from .. import map_lines
-
-        value = await run_in_threadpool(load, source, name)
-        root, project_root = owner(source, name, session_id)
-        try:
-            return await run_in_threadpool(
-                lambda: map_lines.notes(
-                    root, value, [pair.model_dump() for pair in body.pairs], body.locale,
-                    project_root=project_root, generate=body.write,
-                )
-            )
-        except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
-            raise _copy_error(exc) from exc
-
-    @app.post("/api/map-cards/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
-    async def map_card_words(
-        source: Literal["project", "dataset"], name: str, body: MapCardWordsIn,
-        session_id: str | None = None,
-    ):
-        """A short title and a sentence for each task's card, standing in until
-        the task's own explanation has been written."""
-        from .. import map_cards
-
-        value = await run_in_threadpool(load, source, name)
-        root, project_root = owner(source, name, session_id)
-        try:
-            return await run_in_threadpool(
-                lambda: map_cards.words(
-                    root, value, [task_id[:200] for task_id in body.tasks], body.locale,
-                    project_root=project_root, generate=body.write,
-                )
-            )
-        except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
-            raise _copy_error(exc) from exc
-
-    @app.post("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
-    async def make_copy(
-        source: Literal["project", "dataset"], name: str, body: MapCopyIn,
-        session_id: str | None = None,
-        stream: bool = False,
-        preview: map_narrative.Preview = False,
-        foundation_id: str | None = Query(default=None, min_length=1, max_length=80),
-    ):
-        value = await run_in_threadpool(load, source, name, body.cards)
-        root, project_root = owner(source, name, session_id)
-        if project_root is None:
-            raise HTTPException(422, "select a session for map summaries")
-        foundation = None
-        if preview == "question-foundation":
-            if foundation_id and body.foundation_id and foundation_id != body.foundation_id:
-                raise HTTPException(422, "question foundation references do not match")
-            foundation = await run_in_threadpool(
-                load_foundation, source, name, root, foundation_id or body.foundation_id, required=True,
-            )
-        cards = [c.model_dump() for c in body.cards]
-
-        def generate(on_progress=None):
-            try:
-                result = map_narrative.enrich(
-                    root, value, cards, body.locale, project_root=project_root,
-                    **({"manual_retry": True} if body.manual_retry else {}),
-                    **({"preview": preview} if preview else {}),
-                    **({"on_progress": on_progress} if on_progress is not None else {}),
-                    **({"foundation": foundation} if foundation is not None else {}),
-                )
-                return _reader_copy(result)
-            except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
-                raise _copy_error(exc) from exc
-
-        if not stream:
-            return await run_in_threadpool(generate)
-
-        # Keep card/event ownership failures as HTTP errors before committing
-        # the stream. The shared enrichment still owns generation and caching.
-        try:
-            await run_in_threadpool(map_narrative.card_evidence, value, cards)
-        except ValueError as exc:
-            raise _copy_error(exc) from exc
-
-        from .model_stream import model_stream_response
-
-        return model_stream_response(
-            generate, thread_name="map-copy-stream", unavailable_message="card text is temporarily unavailable",
-        )

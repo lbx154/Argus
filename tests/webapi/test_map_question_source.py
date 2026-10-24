@@ -41,8 +41,6 @@ def project(tmp_path, monkeypatch):
     }
     monkeypatch.setattr(MapFeed, "read", lambda *a, **k: copy.deepcopy(dataset))
     monkeypatch.setattr(map_narrative, "_source_lock", lambda *a, **k: pytest.fail("Question acquired generation lock"))
-    monkeypatch.setattr(map_narrative, "enrich", lambda *a, **k: pytest.fail("Question generated copy"))
-    monkeypatch.setattr(map_narrative, "run_map_model", lambda *a, **k: pytest.fail("Question called copy model"))
     return sid, life, workspace, dataset, card
 
 
