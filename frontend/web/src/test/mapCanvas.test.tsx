@@ -254,3 +254,40 @@ it("puts the team line and the held plan's 开始执行 on the canvas overview",
   await act(async () => { await start.props.onClick({ stopPropagation: () => {} }); });
   expect(onStartLaunch).toHaveBeenCalledTimes(1);
 });
+
+it("lets a link start anywhere on a card's edge, about 14 screen pixels wide at any zoom", async () => {
+  const { rimWidth } = await import("../map/CanvasNodes");
+  expect(rimWidth(1)).toBe(14);
+  expect(rimWidth(0.25)).toBe(56);
+  expect(rimWidth(0.0625) * 0.0625).toBeCloseTo(14, 0);
+  expect(rimWidth(3)).toBe(14);
+});
+
+it("shows a person's card as a large two-line label once its words would be too small to read", async () => {
+  const { farLabelFont } = await import("../map/CanvasNodes");
+  expect(farLabelFont(0.25, "idea")).toBe(0);
+  expect(farLabelFont(0.5, "file")).toBe(0);
+  // At an overview zoom the label is sized for the screen (14 px)…
+  expect(farLabelFont(0.125, "idea") * 0.125).toBeCloseTo(14, 0);
+  // …and never outgrows two lines of the card.
+  expect(farLabelFont(0.03, "idea")).toBe(Math.floor((480 - 56) / 2.3));
+  expect(farLabelFont(0.03, "file")).toBe(Math.floor((320 - 56) / 2.3));
+});
+
+it("refetches the canvas when the live stream announces a newer revision than this window holds", async () => {
+  const { canvasRevisionFromEvents } = await import("../hooks");
+  const { refreshCanvas } = await import("../map/canvas");
+  expect(canvasRevisionFromEvents([])).toBe(0);
+  expect(canvasRevisionFromEvents([
+    { type: "project.canvas.updated", revision: 3, ts: 1 },
+    { type: "ui.argus", ts: 2 },
+    { type: "project.canvas.updated", revision: 5, ts: 3 },
+  ] as never)).toBe(5);
+  const client = new QueryClient();
+  const spy = vi.spyOn(client, "invalidateQueries");
+  client.setQueryData(["map-canvas", "s1"], { ...EMPTY_CANVAS, revision: 5 });
+  refreshCanvas(client, "s1", 5); // the window that wrote it already holds it
+  expect(spy).not.toHaveBeenCalled();
+  refreshCanvas(client, "s1", 6);
+  expect(spy).toHaveBeenCalledWith({ queryKey: ["map-canvas", "s1"], exact: true });
+});

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiError } from "../../../core/src/http";
 import { api } from "../api";
 
@@ -103,6 +103,14 @@ export function placeAroundPeople(
 }
 
 const KEY = (sid: string) => ["map-canvas", sid] as const;
+
+/** Another window wrote the canvas (the live stream says which revision):
+ * refetch it unless this window already holds that revision, as the writer
+ * does. A map that is not open refetches when it opens. */
+export function refreshCanvas(client: QueryClient, sessionId: string, revision: number) {
+  const held = client.getQueryData<CanvasRecord>(KEY(sessionId))?.revision ?? -1;
+  if (held < revision) void client.invalidateQueries({ queryKey: KEY(sessionId), exact: true });
+}
 
 /** The project's canvas with serialized, revision-checked writes. A write
  * based on a stale revision refreshes the canvas once and is tried again, so

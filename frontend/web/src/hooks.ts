@@ -299,6 +299,16 @@ export function snapshotRefreshEventKey(events: EventMsg[]): string {
   return '';
 }
 
+/** The newest canvas revision the live stream announced (a write in any
+ * window), or 0. Open maps refetch the canvas when it is ahead of theirs. */
+export function canvasRevisionFromEvents(events: EventMsg[]): number {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event.type === 'project.canvas.updated') return Number(event.revision) || 0;
+  }
+  return 0;
+}
+
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {

@@ -10,8 +10,8 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { FileText, Lightbulb, MoreHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { linkKindLabel, type HumanCard, type LinkKind } from "./canvas";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { humanFrame, linkKindLabel, type HumanCard, type LinkKind } from "./canvas";
 import { useSteppedZoom } from "./zoomStep";
 import "./canvas.css";
 
@@ -32,26 +32,68 @@ export type HumanCardNode = Node<HumanCardData, "human">;
 
 const SIDES = [Position.Left, Position.Right, Position.Top, Position.Bottom];
 
-/** Handles every card carries: the hidden side ports lines attach to, and one
- * visible dot a person drags from to draw a link. */
-export function CanvasHandles({ connectable }: { connectable: boolean }) {
+/** How wide the grab strip along a card's edge is, in flow units: about
+ * 14 screen pixels at any zoom, so the edge stays easy to catch from afar. */
+export const rimWidth = (step: number) => Math.round(Math.max(14, 14 / Math.max(step, 0.01)));
+
+/** Where a person starts a link: the whole edge of the card (four strips,
+ * invisible until the card is hovered) and the dot on its right side. These
+ * are handles, so pressing one draws a line while the card's middle still
+ * drags, and a plain click still reaches the card. */
+export function ConnectSource({ zh }: { zh: boolean }) {
+  const rim = useSteppedZoom(rimWidth);
+  const title = zh ? "拖到另一张卡上连线" : "Drag onto another card to link";
+  return (
+    <>
+      {SIDES.map((position) => (
+        <Handle
+          key={`rim-${position}`}
+          id={`rim-${position}`}
+          type="source"
+          position={position}
+          className={`canvas-rim canvas-rim-${position}`}
+          isConnectableEnd={false}
+          style={{ "--rim": `${rim}px` } as CSSProperties}
+          title={title}
+        />
+      ))}
+      <Handle id="connect" type="source" position={Position.Right} className="canvas-connect"
+        isConnectableEnd={false} title={title} />
+    </>
+  );
+}
+
+/** Handles every card carries: the hidden side ports lines attach to, and
+ * where a person starts a link (see ``ConnectSource``). */
+export function CanvasHandles({ connectable, zh }: { connectable: boolean; zh: boolean }) {
   return (
     <>
       {(["source", "target"] as const).flatMap((type) => SIDES.map((position) => (
         <Handle key={`${type}-${position}`} id={position} type={type} position={position} isConnectable={false} />
       )))}
-      {connectable && (
-        <Handle
-          id="connect"
-          type="source"
-          position={Position.Right}
-          className="canvas-connect"
-          isConnectableEnd={false}
-          title="拖到另一张卡上连线 / Drag onto another card to link"
-        />
-      )}
+      {connectable && <ConnectSource zh={zh} />}
     </>
   );
+}
+
+/** Body type of a person's card in flow units (canvas.css), and the smallest
+ * it may look on screen before the card switches to its far view. */
+const BODY_FONT = 60;
+const NEAR_MIN_PX = 12;
+/** The far view's label aims at this many screen pixels, within the card. */
+const FAR_LABEL_PX = 14;
+const FAR_PAD = 28;
+const FAR_LINES = 2;
+
+/** Seen from afar a card drops its header and size line and shows its words
+ * (or file name) as one large, bold, two-line label sized for the screen,
+ * the way task cards keep a readable summary at overview zoom. ``0`` keeps
+ * the near view. */
+export function farLabelFont(step: number, kind: HumanCard["kind"]): number {
+  if (BODY_FONT * step >= NEAR_MIN_PX) return 0;
+  const frame = humanFrame({ kind });
+  const fit = Math.floor((frame.height - 2 * FAR_PAD) / (FAR_LINES * 1.15));
+  return Math.round(Math.min(fit, Math.max(BODY_FONT, FAR_LABEL_PX / Math.max(step, 0.01))));
 }
 
 function sizeLabel(bytes: number) {
@@ -75,6 +117,28 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
     else if (draft || (save && !value && card.kind === "idea")) data.cancel(card.id);
   };
   const isFile = card.kind === "file";
+  const farFont = useSteppedZoom((step) => farLabelFont(step, card.kind));
+  const far = farFont > 0 && !editing && !draft;
+  const label = isFile ? card.attachment?.name || card.text : card.text;
+  if (far) {
+    return (
+      <div
+        className={`canvas-card canvas-card-${card.kind} is-far`}
+        data-testid={`canvas-card-${card.kind}`}
+        title={label}
+        style={{ "--far-font": `${farFont}px`, "--far-pad": `${FAR_PAD}px` } as CSSProperties}
+        onContextMenu={(e) => {
+          if (readOnly) return;
+          e.preventDefault();
+          e.stopPropagation();
+          data.menu(card.id, { x: e.clientX, y: e.clientY });
+        }}
+      >
+        <CanvasHandles connectable={!readOnly} zh={zh} />
+        <p className="canvas-far-label">{label}</p>
+      </div>
+    );
+  }
   return (
     <div
       className={`canvas-card canvas-card-${card.kind}${editing ? " is-editing" : ""}`}
@@ -86,7 +150,7 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         data.menu(card.id, { x: e.clientX, y: e.clientY });
       }}
     >
-      <CanvasHandles connectable={!readOnly && !draft} />
+      <CanvasHandles connectable={!readOnly && !draft && !editing} zh={zh} />
       <header>
         {isFile ? <FileText aria-hidden /> : <Lightbulb aria-hidden />}
         <span>{isFile ? (zh ? "资料卡" : "File") : (zh ? "想法卡" : "Idea")}</span>

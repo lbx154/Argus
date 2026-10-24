@@ -5667,6 +5667,26 @@
           }
         }
       }
+    },
+    "project.canvas.updated": {
+      "version": 1,
+      "required": [
+        "revision"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "card",
+            "link",
+            "positions"
+          ]
+        }
+      }
     }
   }
 }

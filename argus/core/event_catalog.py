@@ -181,6 +181,7 @@ class EventType(StrEnum):
     LIFE_DAEMON_DEGRADED = "life.daemon.degraded"
     PROJECT_COMPLETED = "project.completed"
     PROJECT_COMPLETION_REFUSED = "project.completion_refused"
+    PROJECT_CANVAS_UPDATED = "project.canvas.updated"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
     DAEMON_COMMAND_COMPLETED = "daemon.command.completed"
