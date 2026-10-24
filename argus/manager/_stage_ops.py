@@ -913,10 +913,17 @@ class _StageDecisionMixin:
             f"Stage question at `{cur}` (later stages: {', '.join(order[at + 1:]) or 'none'}; "
             f"earlier: {', '.join(order[:at]) or 'none'}):",
             question,
+            "The team holds this work: change no project files in this turn.",
             "The operator asked to take part in stage decisions."
             if state.get("operator_decides_stages")
-            else "The operator did not ask to take part in stage decisions: you are the authorized role "
-            "for this one, including the readings of their request it turns on.",
+            # The operator's acceptance stays theirs (OperatorContext): a
+            # Manager told it could read their request for them picked the
+            # reading, did the work and said it was done before they
+            # answered the same question (k1-split-cents, 2026-10-24).
+            else "The operator did not ask to take part in stage decisions: the stage move is yours. "
+            "When the question is which reading of their requirement to deliver, and the readings "
+            "deliver different behavior, it stays theirs: ask them (to=operator, the readings as "
+            "options); the task waits on their answer and resumes with it.",
         ))
         with self.pipeline_lock():
             write_pipeline_state(root, {

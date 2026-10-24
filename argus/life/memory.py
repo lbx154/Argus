@@ -2529,6 +2529,13 @@ class Backlog:
                     f"{response}:\n{answer}"
                 )
                 item.manager_decision = {**item.manager_decision, "routed": True}
+                # The answer is part of what the Reviewer accepts, not only
+                # context in the objective: a result that keeps the reading
+                # the operator turned down does not pass.
+                item.acceptance_check = "\n".join(part for part in (
+                    item.acceptance_check.strip(),
+                    f"The result follows the operator's answer: {decision}",
+                ) if part)
             else:
                 item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"
             # A canary admission belonged to the run that asked.

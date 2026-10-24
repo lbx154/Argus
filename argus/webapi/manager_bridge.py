@@ -576,7 +576,11 @@ def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: d
         if reply is None or chat_state.pop("_self_failure", None):
             reply = text
         elif handoff is not None and handoff.to == "operator":
+            from ..manager.stage_question import park_stage_question_on_task
+
             reply = ask_text(handoff, uses_cjk(reply))
+            # The stage question's task waits on the operator's answer, on its card.
+            park_stage_question_on_task(mem.project_root, handoff)
         publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
     return {"kind": "chat", "reply": reply}
 
