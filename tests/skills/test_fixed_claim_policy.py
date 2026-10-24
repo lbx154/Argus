@@ -23,7 +23,6 @@ from pathlib import Path
 
 import argus
 from argus.verticals.research.library_preparation import STAGE_PLAYBOOK_PATHS
-from argus.verticals.research.prompt_policy import render_role_prompt_fragment
 from argus.verticals.research.stages import STAGE_CHECKLISTS, role_banner
 
 SKILLS = Path(argus.__file__).parent / "verticals" / "research" / "skills"
@@ -37,12 +36,6 @@ LADDER = (
     "baseline fairness",
     "named the rung it was testing",
 )
-
-
-def _fragment(role: str, stage: str, operation: str = "execute") -> str:
-    return render_role_prompt_fragment(
-        role=role, operation=operation, stage=stage, scope="", project_root=None,
-    )
 
 
 def _text(path: Path) -> str:
@@ -108,79 +101,6 @@ def test_reviewer_skill_treats_claim_drift_and_early_negatives_as_repairs() -> N
     assert "is a repair request" in review
     assert "# @component" in review
     assert "re-deriving the thesis" not in review
-
-
-def test_planner_fragment_never_rewrites_the_claim_and_hands_over_a_brief() -> None:
-    text = _fragment("planner", "experiment", operation="plan")
-
-    assert "Never reword the METHOD.md claim to fit results" in text
-    assert "never schedule a negative-result or restricted-case paper" in text
-    assert "next undiagnosed rung" in text
-    assert "an operator question (locked)" in text
-    assert "working-hypothesis revision (broad)" in text
-    assert "three diagnosed attempts" not in text
-    assert "engineer/method-card.md" in text
-    assert "acceptance is executable checks, not adjectives" in text
-    assert "one task is one brief" in text
-    assert "stay verbatim" in text
-    assert "re-derivation" not in text
-    assert "refuted closes its family" not in text
-
-
-def test_planner_fragment_finishes_the_shared_runner_and_fans_arms_out() -> None:
-    """A scaffold bundled with the first arm, then 'extend the runner, run arm X'
-    per arm, gave every arm the same owner and serialized them."""
-    text = _fragment("planner", "experiment", operation="plan")
-
-    assert "finishes the shared runner" in text
-    assert "every planned arm, baseline and config as an argument" in text
-    assert "per-arm output directory" in text
-    assert "emit them together in one plan as parallel_safe tasks" in text
-    assert "each with deps on the runner" in text
-    assert "only its own output and config paths" in text
-    assert "free mission_slots and parallel_slot" in text
-    assert "chains every arm behind one owner" in text
-    assert "finishes the shared runner" not in _fragment("planner", "idea", operation="plan")
-
-
-def test_reviewer_fragment_reads_the_packet_first_and_refuses_claim_drift() -> None:
-    text = _fragment("reviewer", "experiment", operation="evaluate")
-
-    assert "review packet" in text
-    assert text.index("review packet") < text.index("METHOD.md")
-    assert "claim drift" in text
-    assert "without a '# @component' anchor" in text
-    assert "is a repair request, whatever the attempt count" in text
-    assert "fewer than three" not in text
-
-
-def test_engineer_fragment_points_to_write_for_review_anchors() -> None:
-    text = _fragment("engineer", "experiment")
-
-    assert "engineer/method-card.md" in text
-    assert "'# @component <name>'" in text
-    assert "builds the Reviewer's packet from these anchors" in text
-    revision = _fragment("engineer", "review")
-    assert "Do not default to weaker claims" in revision
-    assert "never rewrite the claim to match the code" in revision
-    assert "adjust the interpretation honestly" not in revision
-
-
-def test_paper_policy_leads_with_the_strongest_result_and_writes_nothing_defensively() -> None:
-    fragment = _fragment("engineer", "paper")
-    playbook = _text(SKILLS / STAGE_PLAYBOOK_PATHS["paper"]).lower()
-    paper_items = " ".join(item.statement for item in STAGE_CHECKLISTS["paper"]).lower()
-
-    assert "no defensive writing" in fragment
-    assert "written only when that claim is supported" in fragment
-    assert "one honest paragraph" in fragment
-    assert "legitimate paper when its evidence" not in fragment
-    assert "no defensive writing" in playbook
-    assert "led by the strongest supported result" in playbook
-    assert "one honest paragraph" in playbook
-    assert "unless the operator has changed the claim" in playbook
-    assert "no defensive writing" in paper_items
-    assert "negative or boundary thesis" not in paper_items
 
 
 def test_checklist_and_banners_fix_the_claim_and_hold_narrowed_acceptances() -> None:

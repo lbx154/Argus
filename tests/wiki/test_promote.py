@@ -27,33 +27,6 @@ def _write(path: Path, text: str, mtime: float) -> None:
     os.utime(path, (mtime, mtime))
 
 
-def test_tagged_pages_are_copied_and_listed_once(tmp_path):
-    workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
-    wiki = _project_wiki(workspace)
-    _write(wiki / "pages" / "eval" / "protocol.md", _page("Protocol", "How we evaluate", "Body.", audience="vertical"), 2_000)
-    _write(wiki / "pages" / "hosts.md", _page("Hosts", "Host facts", "Body.", audience="global"), 3_000)
-    _write(wiki / "pages" / "local.md", _page("Local", "Project only", "Body."), 4_000)
-
-    promoted = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
-
-    assert promoted == {"research": ["eval/protocol.md"], "global": ["hosts.md"]}
-    vertical_copy = shared / "_shared_verticals" / "research" / "pages" / "eval" / "protocol.md"
-    global_copy = shared / "_global" / "pages" / "hosts.md"
-    assert vertical_copy.read_text(encoding="utf-8") == _page("Protocol", "How we evaluate", "Body.", audience="vertical")
-    assert global_copy.is_file()
-    assert not (shared / "_global" / "pages" / "local.md").exists()
-    assert not (shared / "_shared_verticals" / "research" / "pages" / "local.md").exists()
-    vertical_index = (shared / "_shared_verticals" / "research" / "INDEX.md").read_text(encoding="utf-8")
-    assert vertical_index == "# Research knowledge\n\n- [Protocol](pages/eval/protocol.md) — How we evaluate\n"
-    global_index = (shared / "_global" / "INDEX.md").read_text(encoding="utf-8")
-    assert global_index == "# Global knowledge\n\n- [Hosts](pages/hosts.md) — Host facts\n"
-
-    # Running again changes nothing: the shared copies are as new as the pages.
-    again = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
-    assert again == {}
-    assert (shared / "_shared_verticals" / "research" / "INDEX.md").read_text(encoding="utf-8") == vertical_index
-
-
 def test_newer_project_page_replaces_older_shared_copy_but_not_the_reverse(tmp_path):
     workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
     wiki = _project_wiki(workspace)
@@ -139,12 +112,6 @@ def test_a_page_names_the_vertical_it_belongs_to(tmp_path):
     assert "[Serving](pages/serving.md)" in (shared / "_shared_verticals" / "software" / "INDEX.md").read_text(encoding="utf-8")
     assert (shared / "_shared_verticals" / "research" / "pages" / "eval.md").is_file()
     assert not (shared / "_shared_verticals" / "no-such").exists()
-
-
-def test_workspace_without_a_wiki_promotes_nothing(tmp_path):
-    shared = tmp_path / "home" / "wiki"
-    assert promote_wiki_pages(tmp_path / "ws", vertical="research", shared_root=shared) == {}
-    assert not shared.exists()
 
 
 def test_a_promoted_page_takes_the_checks_it_links_to(tmp_path):

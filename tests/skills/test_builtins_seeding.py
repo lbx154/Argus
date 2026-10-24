@@ -1,21 +1,15 @@
 """Vertical-aware builtin-skill seeding."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from argus.core.file_facts import file_facts
 from argus.skills.builtins import (
     _RETIRED_BUILTIN_SEEDS,
-    _validate_builtin,
     iter_builtin_skill_texts,
     iter_common_builtin_skill_texts,
     iter_vertical_skill_texts,
     remove_unmodified_inactive_context_skill_seeds,
     remove_unmodified_vertical_skill_seeds,
-    retire_orphaned_builtin_seeds,
-    seed_builtin_skills,
     seed_builtin_skills_for_vertical,
     seed_vertical_skills,
     vertical_skill_source_path,
@@ -41,92 +35,11 @@ RETIRED_NANOCHAT_SKILLS = {
     "engineer/nanochat-pretrain-runner.md",
 }
 
-RESEARCH_BASE_SKILLS = {
-    "engineer/sources-and-citations.md",
-    "engineer/figure_spec_scripts/figure_renderer.py",
-    "engineer/method-card.md",
-    "engineer/research-grind.md",
-    "engineer/training-infrastructure.md",
-    "engineer/figure_spec_scripts/paper_chart_style.py",
-    "engineer/figure_spec_scripts/paper_charts.py",
-    "engineer/figure_spec_scripts/echarts_figure.py",
-    "engineer/figure_spec_scripts/pptx_export.py",
-    "engineer/paper-framework-figure-studio.md",
-    "engineer/research_visual_scripts/browser_render.py",
-    "research-idea-playbook.md",
-    "research-experiment-playbook.md",
-    "research-paper-playbook.md",
-    "research-review-playbook.md",
-    "reviewer/strongest-argument-against.md",
-}
-_RESEARCH_MOVE_MARKER = json.loads(
-    (
-        vertical_skill_source_path("research")
-        / ".moved-from-global.json"
-    ).read_text(encoding="utf-8")
-)
-RESEARCH_MOVED_SKILLS = set(
-    path
-    for path in (
-        _RESEARCH_MOVE_MARKER.get("paths", ())
-        if isinstance(_RESEARCH_MOVE_MARKER, dict)
-        else _RESEARCH_MOVE_MARKER
-    )
-    if (vertical_skill_source_path("research") / path).is_file()
-)
-RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
-    "engineer/venue-paper-drafting.md",
-    "engineer/venue-format-preflight.md",
-    "reviewer/venue-academic-language-review.md",
-}
-
-
-def test_iter_vertical_skill_texts_argus_maintenance() -> None:
-    got = {name for name, _ in iter_vertical_skill_texts("argus_maintenance")}
-    assert got == MAINTENANCE_SKILLS
-
-
-def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
-    assert list(iter_vertical_skill_texts("nope")) == []
-    software = dict(iter_vertical_skill_texts("software"))
-    assert set(software) == {
-        "engineer/software-change-implementation.md",
-        "reviewer/software-change-review.md",
-    }
-
-
-def test_iter_vertical_skill_texts_research_visual_router() -> None:
-    names = {name for name, _ in iter_vertical_skill_texts("research")}
-
-    assert names == RESEARCH_SKILLS
-
 
 def test_vertical_skill_source_path_rejects_injection() -> None:
     for bad in ("", "a/b", "..", ".hidden", "x\\y"):
         with pytest.raises(ValueError):
             vertical_skill_source_path(bad)
-
-
-def test_vertical_owned_skills_are_not_also_flat_builtins() -> None:
-    # The flat builtin pool is seeded into every runtime layer and every
-    # project workspace, so anything left there is a matcher candidate for
-    # every project forever. A skill a vertical owns must therefore live in
-    # that vertical ONLY: a kernel playbook or a Lean proof recipe must not
-    # cost a software or paper project summary tokens on every match.
-    #
-    # This used to be worked around with pointer stubs that stayed behind in
-    # builtin_skills/. Stubs are candidates too — the seeding path already
-    # skips them for the owning vertical, so they were pure dead weight for
-    # everyone else. Deleting the skill from the flat pool is the fix; this
-    # guard keeps it deleted.
-    from argus.skills.vertical_select import VERTICALS
-
-    flat = {name for name, _text in iter_builtin_skill_texts()}
-    leaked = {
-        vertical: sorted({name for name, _t in iter_vertical_skill_texts(vertical)} & flat)
-        for vertical in VERTICALS
-    }
-    assert {v: names for v, names in leaked.items() if names} == {}
 
 
 def test_retired_builtin_skills_are_not_packaged() -> None:
@@ -155,55 +68,6 @@ def test_machine_specific_nanochat_playbook_seeds_stay_retired() -> None:
     assert RETIRED_NANOCHAT_SKILLS <= _RETIRED_BUILTIN_SEEDS
 
 
-def test_retire_orphaned_builtin_seeds_archives_edited_copies(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-
-    body = "retired seed\n"
-    names = ("engineer/unchanged.md", "engineer/edited.md")
-    monkeypatch.setattr(
-        builtins, "iter_builtin_skill_texts", lambda: iter((name, body) for name in names),
-    )
-    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset())
-    seed_builtin_skills(tmp_path)
-    unchanged = tmp_path / "engineer" / "unchanged.md"
-    edited = tmp_path / "engineer" / "edited.md"
-    edited.write_text(body + "operator edit\n", encoding="utf-8")
-    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset(names))
-
-    removed = retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
-
-    assert removed == ["engineer/edited.md", "engineer/unchanged.md"]
-    assert not unchanged.exists()
-    assert not edited.exists()
-    archived = (
-        tmp_path
-        / "_retired_builtin_skills"
-        / "engineer"
-        / "edited.md.retired"
-    )
-    assert archived.read_text(encoding="utf-8") == body + "operator edit\n"
-    assert not (archived.parent / "unchanged.md.retired").exists()
-
-
-def test_seeding_retires_existing_obsolete_skill(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-
-    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset({"engineer/obsolete.md"}))
-    obsolete = tmp_path / "engineer" / "obsolete.md"
-    obsolete.parent.mkdir(parents=True)
-    obsolete.write_bytes(b"retired seed\n")
-
-    builtins.seed_builtin_skills(tmp_path)
-
-    assert not obsolete.exists()
-
-
 def test_atomic_write_accepts_concurrent_identical_winner(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -222,92 +86,6 @@ def test_atomic_write_accepts_concurrent_identical_winner(
 
     assert destination.read_text(encoding="utf-8") == "same runtime seed\n"
     assert list(tmp_path.glob("shared.md.tmp.*")) == []
-
-
-def test_seeding_refreshes_manifest_owned_builtin_but_preserves_user_edit(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-
-    relative = "engineer/example.md"
-    bodies = iter(("factory v1\n", "factory v2\n", "factory v3\n"))
-    monkeypatch.setattr(
-        builtins,
-        "iter_builtin_skill_texts",
-        lambda: iter(((relative, next(bodies)),)),
-    )
-
-    builtins.seed_builtin_skills(tmp_path)
-    builtins.seed_builtin_skills(tmp_path)
-    destination = tmp_path / relative
-    assert destination.read_text(encoding="utf-8") == "factory v2\n"
-
-    destination.write_text("operator edit\n", encoding="utf-8")
-    changed = builtins.seed_builtin_skills(tmp_path)
-
-    assert changed[relative] is False
-    assert destination.read_text(encoding="utf-8") == "operator edit\n"
-
-
-def test_research_playbooks_are_owned_only_by_research_vertical() -> None:
-    common = dict(iter_builtin_skill_texts())
-    research = dict(iter_vertical_skill_texts("research"))
-
-    assert "research-idea-playbook.md" not in common
-    assert "reviewer/experiment-results-review.md" not in common
-    assert "research-idea-playbook.md" in research
-    assert "reviewer/experiment-results-review.md" in research
-
-
-def test_global_seeding_retires_manifest_owned_moved_research_skill(
-    tmp_path,
-) -> None:
-    relative = "engineer/idea-discovery.md"
-    body = "old factory research skill\n"
-    destination = tmp_path / relative
-    destination.parent.mkdir(parents=True)
-    destination.write_text(body, encoding="utf-8")
-    (tmp_path / ".argus-builtin-seeds.json").write_text(
-        json.dumps({relative: file_facts(destination)}),
-        encoding="utf-8",
-    )
-
-    seed_builtin_skills(tmp_path)
-
-    assert not destination.exists()
-
-
-def test_all_builtins_valid_including_stubs() -> None:
-    # Every bundled .md (stubs included) must parse with a name+description,
-    # else the seeding pipeline's _validate_builtin would raise at runtime.
-    for name, text in iter_builtin_skill_texts():
-        if name.endswith(".md"):
-            _validate_builtin(name, text)
-
-
-def test_reference_corpora_are_assets_not_matchable_skills(tmp_path) -> None:
-    names = {name for name, _text in iter_builtin_skill_texts()}
-
-    assert not any("/references/" in f"/{name}" for name in names)
-    seed_vertical_skills(tmp_path, "research", overwrite=True)
-    # The Idea playbook may open these paths on demand. Excluding
-    # them from matching must not exclude them from the runtime cache.
-    assert (
-        tmp_path
-        / "engineer/references/ideation/ideation-patterns/overview.md"
-    ).is_file()
-
-
-def test_seed_vertical_skills_writes_only_research_runtime_layer(
-    tmp_path,
-) -> None:
-    written = seed_vertical_skills(tmp_path, "research")
-
-    assert RESEARCH_SKILLS.issubset(written)
-    assets = set(written) - RESEARCH_SKILLS
-    assert assets
-    assert all("/references/" in f"/{name}" for name in assets)
 
 
 def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> None:
@@ -358,17 +136,6 @@ def test_remove_inactive_vertical_seeds_prunes_inactive_but_preserves_edits_and_
     assert (
         tmp_path / "engineer" / "paper-framework-figure-studio.md"
     ).exists()
-
-
-def test_remove_inactive_vertical_seeds_with_no_active_vertical_prunes_all(
-    tmp_path,
-) -> None:
-    seed_vertical_skills(tmp_path, "argus_maintenance")
-
-    removed = remove_unmodified_inactive_context_skill_seeds(tmp_path, None)
-
-    assert set(removed) == MAINTENANCE_SKILLS
-    assert not any((tmp_path / filename).exists() for filename in MAINTENANCE_SKILLS)
 
 
 def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> None:

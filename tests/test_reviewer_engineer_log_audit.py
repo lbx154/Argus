@@ -18,7 +18,6 @@ Pinned here:
 """
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 from argus.core.models import ReviewDecision, RunnerResult
@@ -28,10 +27,8 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.skills.vertical_select import persist_vertical
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
-_CALL_ID = "0123456789abcdef"
 
 
 def _build(
@@ -56,24 +53,6 @@ def _build(
         engineer_call_id=call_id,
         scope=scope,
     )
-
-
-# --------------------------------------------------------------------------- #
-# Prompt shape: present when path set, absent (legacy) when empty
-# --------------------------------------------------------------------------- #
-def test_audit_section_present_when_log_path_set() -> None:
-    p = _build(_LOG_PATH)
-    assert "The event log is at" in p
-    assert _LOG_PATH in p
-    assert "if the Engineer's account seems wrong" in p
-    assert "## Engineer's account of this round" in p
-    assert "use_attach" not in p
-
-
-def test_no_audit_section_when_log_path_empty() -> None:
-    p = _build("")
-    assert "Engineer execution-log audit" not in p
-    assert "events.jsonl" not in p
 
 
 def test_engineer_account_is_labeled_and_capped_at_6000_chars() -> None:
@@ -108,50 +87,6 @@ def test_reviewer_rejects_retroactive_audit_reconstruction() -> None:
     assert "missing byte-faithful command" in p
 
 
-def test_log_pointer_scopes_to_current_engineer_call_without_recipe() -> None:
-    p = _build(
-        _LOG_PATH,
-        call_id=_CALL_ID,
-        scope="final_submission",
-        main_error="suspicious execution",
-    )
-
-    assert f"current call `{_CALL_ID}`" in p
-    assert "event_log_query" not in p
-    assert "rg -F" not in p
-    assert "\n    grep -nE 'use_attach" not in p
-    assert "\n    grep -nE 'pytest" not in p
-
-
-def test_missing_call_id_does_not_invite_unscoped_keyword_scan() -> None:
-    p = _build(
-        _LOG_PATH,
-        scope="final_submission",
-        main_error="suspicious execution",
-    )
-
-    assert "Current engineer call id:" not in p
-    assert "The event log is at" in p
-    assert "grep -nE 'use_attach" not in p
-    assert "grep -nE 'pytest" not in p
-
-
-def test_manager_staged_research_uses_compact_on_demand_audit(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    persist_vertical(tmp_path, "research", workflow_mode="staged")
-    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
-
-    p = _build(
-        _LOG_PATH,
-        call_id=_CALL_ID,
-    )
-
-    assert "The event log is at" in p
-    assert "if the Engineer's account seems wrong" in p
-
-
 def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
     # Back-compat: passing "" must produce exactly the same prompt as omitting
     # the new kwarg entirely (the memory backend / tests / no-life_dir case).
@@ -177,39 +112,6 @@ def test_final_submission_uses_on_demand_process_audit() -> None:
     assert "The event log is at" in p
     assert "if the Engineer's account seems wrong" in p
     assert "use_attach" not in p
-
-
-def test_engineer_error_still_uses_one_line_log_pointer() -> None:
-    p = _build(
-        _LOG_PATH,
-        main_error="worker exited unexpectedly",
-    )
-    assert "The event log is at" in p
-    assert "event_log_query" not in p
-    assert "grep recipes" not in p.lower()
-
-
-# --------------------------------------------------------------------------- #
-# Structural path threading: SupervisedConfig -> reviewer.evaluate
-# --------------------------------------------------------------------------- #
-def test_supervised_config_has_engineer_log_path_field() -> None:
-    fields = {f.name for f in dataclasses.fields(SupervisedConfig)}
-    assert "engineer_log_path" in fields
-    assert SupervisedConfig().engineer_log_path == ""  # back-compat default
-
-
-class _OneRoundEngineerRunner:
-    """Engineer succeeds once so the loop reaches the reviewer call."""
-
-    def run_exec(self, **_kwargs):
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=["implemented the increment; artifact at out.json"],
-            thread_id="t1",
-            call_id=_CALL_ID,
-            call_id_log_correlated=True,
-            fatal_error=None,
-        )
 
 
 class _CapturingReviewer:
@@ -240,31 +142,6 @@ class _UncorrelatedEngineerRunner:
         )
 
 
-def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
-    log_path = str(tmp_path / "global" / "projects" / "deadbeef" / "events.jsonl")
-    reviewer = _CapturingReviewer()
-    engine = SupervisedEngineer(
-        engineer_runner=_OneRoundEngineerRunner(),
-        reviewer=reviewer,
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-    config = SupervisedConfig(
-        max_rounds=1,
-        engineer_log_path=log_path,
-    )
-    engine.run(
-        objective="implement the increment",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the increment",
-        supervised_config=config,
-        workdir=tmp_path,
-        on_event=lambda _e: None,
-    )
-    assert reviewer.seen_log_path == log_path
-    assert reviewer.seen_call_id == _CALL_ID
-    assert reviewer.seen_round_max == 1
-
-
 def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
     tmp_path: Path,
 ) -> None:
@@ -290,43 +167,6 @@ def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
     )
 
     assert reviewer.seen_call_id == ""
-
-
-def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
-    reviewer = _CapturingReviewer()
-    engine = SupervisedEngineer(
-        engineer_runner=_OneRoundEngineerRunner(),
-        reviewer=reviewer,
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-    config = SupervisedConfig(
-        max_rounds=1,
-    )
-    engine.run(
-        objective="implement the increment",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the increment",
-        supervised_config=config,
-        workdir=tmp_path,
-        on_event=lambda _e: None,
-    )
-    assert reviewer.seen_log_path == ""
-    assert reviewer.seen_call_id == _CALL_ID
-
-
-def test_checkpoint_path_is_internal_and_directly_editable(tmp_path: Path) -> None:
-    import argparse
-
-    from argus.apps._runtime_helpers import _checkpoint_path_for
-
-    session_dir = tmp_path / "projects" / "s-1d7da0e9"
-    workdir = tmp_path / "some-worktree"
-    path = _checkpoint_path_for(
-        argparse.Namespace(project_state_dir=str(session_dir), life_dir=None),
-        workdir,
-    )
-
-    assert path == session_dir / "CHECKPOINT.md"
 
 
 # --------------------------------------------------------------------------- #

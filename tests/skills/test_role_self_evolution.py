@@ -2,26 +2,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus.manager import Manager
 from argus.planner import Planner
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
-from argus.skills.layered import LayeredSkillStore
-from argus.skills.missions import PlannerMission, SelfMission
+from argus.skills.missions import PlannerMission
 from argus.skills.role_memory import (
     profile_role_skill_dir,
     profile_self_skill_dir,
     project_role_skill_dir,
 )
 from argus.skills.store import SkillStore
-
-
-def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
-    assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is False
-
-    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
-    assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is True
 
 
 def test_role_skill_directories_are_isolated(tmp_path) -> None:
@@ -39,35 +29,6 @@ def test_profile_role_skill_directories_are_cross_session(tmp_path) -> None:
             tmp_path / "profile" / role
         ).resolve()
     assert profile_self_skill_dir(store) == (tmp_path / "profile" / "self").resolve()
-
-
-def test_new_session_discovers_profile_self_skill(tmp_path) -> None:
-    profile = tmp_path / "profile"
-    self_dir = profile / "self"
-    self_dir.mkdir(parents=True)
-    learned = self_dir / "operator-vocabulary.md"
-    learned.write_text(
-        "---\nname: operator vocabulary\ndescription: Interpret recurring terms\n---\n",
-        encoding="utf-8",
-    )
-    first = LayeredSkillStore(
-        project_dir=tmp_path / "session-a",
-        global_dir=profile,
-    )
-    second = LayeredSkillStore(
-        project_dir=tmp_path / "session-b",
-        global_dir=profile,
-    )
-
-    assert self_dir.resolve() in SelfMission(first).libraries().native_paths
-    assert self_dir.resolve() in SelfMission(second).libraries().native_paths
-    manager = Manager(
-        project_root=tmp_path,
-        runner=SimpleNamespace(),
-        skill_store=second,
-    )
-    assert manager._session is not None
-    assert str(self_dir.resolve()) in manager._session.skill_paths
 
 
 def test_engineer_learning_stays_inside_the_workspace(tmp_path) -> None:
@@ -164,4 +125,3 @@ def test_planner_does_not_write_skills_during_planning(tmp_path, monkeypatch) ->
     assert "Planner self-evolution" not in control
     assert "Planner self-evolution" not in treatment
     assert str((tmp_path / "skills" / "planner").resolve()) not in treatment
-

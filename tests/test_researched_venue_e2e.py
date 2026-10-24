@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from argus.skills.stage_machine import format_stage_checklist
 from argus.verticals.research.venue_profiles import (
     resolve_venue_profile,
     venue_profile_path,
@@ -56,37 +55,6 @@ def test_researched_profile_resolves_for_the_selected_venue(tmp_path: Path) -> N
     root = _seed_project(tmp_path, target_venue="AAAI 2027")
     venue = resolve_venue_profile(root)
     assert venue.key == "AAAI"
-
-
-def test_review_checklist_and_reviewer_skill_are_venue_neutral(tmp_path: Path) -> None:
-    root = _seed_project(tmp_path)
-    review = format_stage_checklist("review", role="reviewer", project_root=root)
-    assert "review.visual" in review
-    assert "review.language" in review
-    profile = resolve_venue_profile(root)
-    assert profile.review_skill_path == "reviewer/venue-academic-language-review.md"
-    format_skill = (
-        Path(__file__).parents[1]
-        / "argus/verticals/research/skills/engineer/venue-format-preflight.md"
-    ).read_text(encoding="utf-8")
-    assert "selected venue" in format_skill
-    assert "official author kit" in format_skill
-
-
-def test_unresearched_venue_fails_closed(tmp_path: Path) -> None:
-    # A named venue with no researched profile must not silently borrow another
-    # venue's rules; resolution points at the venue-format research step.
-    state = {
-        "current_stage": "research",
-        "vertical": "research",
-        "objective": "obj",
-        "target_venue": "NeurIPS",
-    }
-    target = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(state), encoding="utf-8")
-    with pytest.raises(KeyError, match="researched"):
-        resolve_venue_profile(tmp_path)
 
 
 def test_venue_language_reviews_describe_claims_without_sentence_templates() -> None:

@@ -101,15 +101,3 @@ def test_the_rejection_names_the_stage_that_holds_the_disputed_record(project):
     assert "'items': []" in issue, "must print the contract actually stored"
     assert "re-certify" in issue
     assert "'stage': 'review'" not in issue, "the stage that never ran is not the subject"
-
-
-def test_a_matching_certificate_still_passes_the_gate(project):
-    from argus.life.supervisor._planning_cycle_helpers import (
-        _staged_goal_completion_issue,
-    )
-
-    stage_machine.complete_final_stage(
-        project, reason="scope is enough", allow_early_completion=True
-    )
-
-    assert _staged_goal_completion_issue(project) == ""

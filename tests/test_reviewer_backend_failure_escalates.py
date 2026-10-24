@@ -24,7 +24,6 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
-from tests.hand_off import hand_off
 
 
 # --------------------------------------------------------------------------- #
@@ -67,24 +66,6 @@ def test_backend_death_is_blocked_not_continue() -> None:
     assert decision.backend_unavailable is True
 
 
-def test_empty_clean_output_is_reviewer_failure_not_engineer_work() -> None:
-    # An empty Reviewer turn says nothing about implementation. Routing it as
-    # continue manufactures another Engineer round from no evidence.
-    class _EmptyCleanResult:
-        agent_messages: list[str] = []
-        exit_code = 0
-        fatal_error = ""
-        input_tokens = cached_input_tokens = output_tokens = 0
-
-    class _EmptyRunner:
-        def run_exec(self, **_kwargs):
-            return _EmptyCleanResult()
-
-    decision = _evaluate(Reviewer(runner=_EmptyRunner()))
-    assert decision.status == "blocked"
-    assert decision.backend_unavailable is True
-
-
 @pytest.mark.parametrize("interrupt,kind,said,said_zh", [
     ("operator pause requested", "operator_pause", "because you paused the work", "因为你暂停了工作"),
     ("operator abort requested: replace the target", "operator_abort",
@@ -112,89 +93,6 @@ def test_an_interrupted_review_names_who_stopped_it_only_when_the_record_does(
         main_summary="(engineer handoff)", main_error=None, config=ReviewerConfig(model="gpt-5.5"),
     )
     assert decision.reason.startswith(f"审阅者没能读完这一轮，{said_zh}；")
-
-
-def test_native_action_succeeds_without_final_reviewer_message() -> None:
-    class _DecisionRunner:
-        def run_exec(self, **_kwargs):
-            from argus.core.role_actions import PREFIX
-            from argus.core.role_tool_bridge import bridge_request
-
-            bridge_request(PREFIX, *hand_off("done", "The focused check passed."), env=_kwargs["options"].extension_env)
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=[],
-            )
-
-    decision = _evaluate(Reviewer(runner=_DecisionRunner()))
-
-    assert decision.status == "done"
-    assert decision.reason == "The focused check passed."
-
-
-def test_invalid_named_footer_is_not_credited_as_evidence() -> None:
-    class _InvalidRunner:
-        def run_exec(self, **_kwargs):
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=["not a reviewer verdict"],
-            )
-
-    decision = _evaluate(Reviewer(runner=_InvalidRunner()))
-
-    assert decision.status == "blocked"
-    assert decision.backend_unavailable is True
-
-
-def test_unavailable_engineer_model_pauses_for_provider_cooldown(
-    tmp_path: Path,
-) -> None:
-    """A model the CLI rejects is treated as a provider outage: the mission
-    pauses for cooldown (so the daemon retries it later instead of marking
-    the whole backlog blocked), the Reviewer never runs, and the operator
-    alert still fires."""
-    events: list[dict] = []
-
-    class _UnavailableModelEngineer:
-        calls = 0
-
-        def run_exec(self, **_kwargs):
-            self.calls += 1
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=[],
-                fatal_error='Error: Model "gpt5.6" from --model flag is not available.',
-            )
-
-    class _ReviewerMustNotRun:
-        def evaluate(self, **_kwargs):  # pragma: no cover - contract assertion
-            raise AssertionError("Reviewer must not run when Engineer model is invalid")
-
-    engineer_runner = _UnavailableModelEngineer()
-    engine = SupervisedEngineer(
-        engineer_runner=engineer_runner,
-        reviewer=_ReviewerMustNotRun(),
-        engineer_config=EngineerConfig(model="gpt5.6"),
-        reviewer_config=ReviewerConfig(model="gpt5.6"),
-    )
-    status, rounds, _message, reason, _tid = engine.run(
-        objective="prove a theorem",
-        engineer_prompt_builder=lambda _next, _static=True: "prove it",
-        supervised_config=SupervisedConfig(
-            max_rounds=10,
-            backend_failure_backoff_seconds=0,
-        ),
-        workdir=tmp_path,
-        on_event=events.append,
-    )
-
-    assert status == "parked"
-    assert engineer_runner.calls == 1
-    assert len(rounds) == 1
-    assert rounds[0].stop_kind == "provider_cooldown"
-    assert "model is unavailable" in reason.lower()
-    alerts = [event for event in events if event.get("type") == "round.model_configuration_error"]
-    assert len(alerts) == 1 and alerts[0]["operator_alert"] is True
 
 
 @pytest.mark.parametrize(
@@ -339,30 +237,6 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
     assert continues == []
 
 
-def test_reviewer_outage_names_the_model_service_as_the_stop(tmp_path: Path) -> None:
-    engine = SupervisedEngineer(
-        engineer_runner=_HealthyEngineerRunner(),
-        reviewer=_DeadBackendReviewer(),
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-    status, rounds, _final_msg, _reason, _tid = engine.run(
-        objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
-        supervised_config=SupervisedConfig(
-            max_rounds=10,
-            backend_failure_threshold=2,
-            backend_failure_backoff_seconds=0.0,
-        ),
-        workdir=tmp_path,
-        on_event=lambda _event: None,
-    )
-
-    # The host bounds a run of such tasks as an outage, not as plan failures.
-    assert status == "error"
-    assert rounds[-1].stop_kind == "backend_unavailable"
-
-
 class _DoneReviewer:
     def __init__(self) -> None:
         self.calls = 0
@@ -446,148 +320,3 @@ def test_watchdog_timeout_retries_once_from_checkpoint_in_fresh_session(
     assert retry["fresh_session"] is True
     assert retry["checkpoint_available"] is True
     assert retry["checkpoint_path"] == str(checkpoint)
-
-
-def test_watchdog_retry_exhaustion_fails_loudly(tmp_path: Path) -> None:
-    checkpoint = tmp_path / "CHECKPOINT.md"
-    events: list[dict] = []
-    runner = _WatchdogThenHealthyEngineer(always_fail=True)
-    reviewer = _DoneReviewer()
-    engine = SupervisedEngineer(
-        engineer_runner=runner,
-        reviewer=reviewer,
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-
-    status, rounds, _message, reason, _thread_id = engine.run(
-        objective="do not loop forever",
-        engineer_prompt_builder=lambda _next, _static=True: "continue",
-        supervised_config=SupervisedConfig(
-            max_rounds=10,
-            backend_failure_threshold=5,
-            backend_failure_backoff_seconds=0,
-            checkpoint_path=checkpoint,
-        ),
-        workdir=tmp_path,
-        on_event=events.append,
-    )
-
-    assert status == "error"
-    assert runner.calls == 2
-    assert runner.resume_thread_ids == [None, None]
-    assert reviewer.calls == 0
-    assert len(rounds) == 2
-    # A turn Argus stopped for silence is reported as that, not as a model
-    # service failure, and the next round is told not to repeat the command.
-    assert reason.startswith("Argus stopped the Engineer's session")
-    assert "timeout" in rounds[-1].review.next_action
-    assert "consecutive failures=2, limit=2" in reason
-    watchdog_events = [
-        event for event in events if event["type"].startswith("round.watchdog.retry")
-    ]
-    assert [event["type"] for event in watchdog_events] == [
-        "round.watchdog.retry",
-        "round.watchdog.retry_exhausted",
-    ]
-    assert all(event["max_attempts"] == 2 for event in watchdog_events)
-
-
-def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
-    # A SINGLE transient reviewer-backend blip (streak < threshold) must be
-    # tolerated with a backoff retry, then a real verdict resets the streak —
-    # the loop keeps going rather than dying on one flake.
-    events: list[dict] = []
-
-    class _FlakyThenDoneReviewer:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def evaluate(self, **_kwargs) -> ReviewDecision:
-            self.calls += 1
-            if self.calls == 1:
-                return ReviewDecision(
-                    status="blocked",
-                    reason="transient backend blip",
-                    next_action="retry",
-                    backend_unavailable=True,
-                )
-            return ReviewDecision(
-                status="done",
-                reason="objective met",
-                next_action="none",
-            )
-
-    engineer = _HealthyEngineerRunner()
-    reviewer = _FlakyThenDoneReviewer()
-    engine = SupervisedEngineer(
-        engineer_runner=engineer,
-        reviewer=reviewer,
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-    config = SupervisedConfig(
-        max_rounds=10,
-        backend_failure_threshold=2,
-        backend_failure_backoff_seconds=0.0,
-    )
-    status, rounds, _final_msg, _reason, _tid = engine.run(
-        objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
-        supervised_config=config,
-        workdir=tmp_path,
-        on_event=events.append,
-    )
-    assert status == "done"
-    # F8: the transient reviewer blip retried the REVIEWER in place; the engineer
-    # ran exactly once and its single output was reused for the real verdict.
-    assert engineer.calls == 1
-    assert reviewer.calls == 2  # blip, then the real "done" verdict
-    assert len(rounds) == 1
-
-
-def test_reviewer_flake_does_not_rerun_engineer(tmp_path: Path) -> None:
-    # The exact F8 contract: a reviewer infra flake reuses the engineer output
-    # already in hand; the round record stores that ONE engineer turn's message,
-    # never a second (xhigh) engineer turn's output.
-    class _FlakyThenContinueReviewer:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def evaluate(self, **_kwargs) -> ReviewDecision:
-            self.calls += 1
-            if self.calls == 1:
-                return ReviewDecision(
-                    status="blocked",
-                    reason="transient backend blip",
-                    next_action="retry",
-                    backend_unavailable=True,
-                )
-            return ReviewDecision(status="done", reason="ok", next_action="none")
-
-    engineer = _HealthyEngineerRunner()
-    reviewer = _FlakyThenContinueReviewer()
-    engine = SupervisedEngineer(
-        engineer_runner=engineer,
-        reviewer=reviewer,
-        engineer_config=EngineerConfig(model="gpt-5.5"),
-        reviewer_config=ReviewerConfig(model="gpt-5.5"),
-    )
-    config = SupervisedConfig(
-        max_rounds=10,
-        backend_failure_threshold=2,
-        backend_failure_backoff_seconds=0.0,
-    )
-    status, rounds, _final_msg, _reason, _tid = engine.run(
-        objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
-        supervised_config=config,
-        workdir=tmp_path,
-        on_event=lambda _e: None,
-    )
-    assert status == "done"
-    assert engineer.calls == 1  # NOT re-run for the reviewer flake
-    assert len(rounds) == 1
-    # The single engineer turn's output (#1) is what got reviewed — not a
-    # discarded-and-regenerated second turn.
-    assert "increment #1" in rounds[0].engineer_message

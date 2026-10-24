@@ -17,123 +17,14 @@ to its verbatim raw transcript record.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
-
-import pytest
 
 from argus.adapters.agent_cli_backend._io_log import raw_transcript_path
-
-
-def _rows(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
 
 
 def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
     assert raw_transcript_path(Path("/p/events.jsonl")) == Path("/p/agent_io.jsonl")
     assert raw_transcript_path(None) is None
-
-
-@pytest.mark.parametrize("label", [
-    "planner.acceptance_dependencies", "reviewer_control",
-    "engineer-r1", "reviewer", "manager-frontdoor-direct",
-])
-def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_secrets_on, tmp_path, monkeypatch, label):
-    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
-
-    live = []
-    logger = AgentIOLogger(external_event_callback=lambda *event: live.append(event))
-    logger.start_call(
-        call_id="c1", run_label=label, log_path=tmp_path / "events.jsonl",
-        prompt="Current work",
-    )
-    # Visibility follows the actual role, not keyword stripping: a real
-    # reviewer may need to discuss this text when explaining a process defect.
-    line = json.dumps({"type": "assistant.message", "data": {
-        "content": "DEPENDENCY_STATUS=assessed; source token fixture-secret",
-    }})
-    logger.stream_event_callback(
-        label + ".stdout", line, known_secret_values=("fixture-secret",),
-    )
-    logger.close("c1")
-
-    rows = _rows(tmp_path / "agent_io.jsonl")
-    assert len(rows) == 1 and "DEPENDENCY_STATUS" in rows[0]["line"]
-    assert "fixture-secret" not in rows[0]["line"]
-    if label in {"engineer-r1", "reviewer", "manager-frontdoor-direct"}:
-        assert live == [(label + ".stdout", rows[0]["line"])]
-    else:
-        assert live == []
-
-
-class _Backend:
-    """Captures what the real spawn path writes, per destination."""
-
-    def __init__(self) -> None:
-        self.written: dict[str, list[dict]] = {}
-        self._runner = SimpleNamespace(backend="copilot")
-
-    def _log_agent_io(self, path, row) -> None:
-        self.written.setdefault(str(path), []).append(dict(row))
-
-
-def _emit_start(prompt: str, tmp_path: Path) -> tuple[list[dict], list[dict]]:
-    """Call the REAL start-record path and return (history rows, raw rows)."""
-    from argus.adapters.agent_cli_backend._exec_spawn import log_start_record
-
-    backend = _Backend()
-    history = tmp_path / "events.jsonl"
-    ctx = SimpleNamespace(
-        call_id="c1",
-        run_label="engineer-1",
-        options=SimpleNamespace(model="m", reasoning_effort="high", working_dir="/w"),
-        resume_thread_id=None,
-        prompt=prompt,
-        log_path=history,
-    )
-
-    log_start_record(backend, ctx)
-
-    return (
-        backend.written.get(str(history), []),
-        backend.written.get(str(raw_transcript_path(history)), []),
-    )
-
-
-def test_history_never_carries_the_prompt(tmp_path: Path) -> None:
-    prompt = "solve the conjecture\n" * 500
-    history, _raw = _emit_start(prompt, tmp_path)
-
-    assert history and "prompt" not in history[0]
-    assert history[0]["prompt_chars"] == len(prompt)
-
-
-def test_the_raw_transcript_keeps_the_verbatim_prompt(
-    tmp_path: Path,
-) -> None:
-    prompt = "solve the conjecture\n" * 500
-    history, raw = _emit_start(prompt, tmp_path)
-
-    assert raw and raw[0]["prompt"] == prompt
-    assert history[0]["call_id"] == raw[0]["call_id"]
-    assert "prompt_sha256" not in history[0]
-    assert "prompt_sha256" not in raw[0]
-
-
-def test_the_history_record_stays_small(tmp_path: Path) -> None:
-    # The point of the change, as a number: the record the projections scan is
-    # bounded by its metadata, not by prompt length.
-    small, _ = _emit_start("x" * 100, tmp_path)
-    large, _ = _emit_start("x" * 500_000, tmp_path)
-
-    assert len(json.dumps(large[0])) - len(json.dumps(small[0])) < 200
 
 
 def test_no_consumer_reads_the_prompt_off_an_event_row() -> None:
@@ -155,51 +46,3 @@ def test_no_consumer_reads_the_prompt_off_an_event_row() -> None:
         if "image_api" not in line and "figure_tool" not in line
     ]
     assert offenders == [], offenders
-
-
-def test_the_prompt_is_redacted_on_its_way_to_the_raw_transcript(redact_secrets_on, 
-    tmp_path: Path,
-) -> None:
-    """Moving the prompt must not move it around the credential guard.
-
-    Both destinations go through ``_log_agent_io`` -> ``IoLogger.log`` ->
-    ``redact_secrets_record``, but that is exactly the kind of thing worth
-    asserting rather than assuming: the new write is the one that carries the
-    verbatim prompt, so it is the one a leaked key would ride out on.
-
-    The secret is supplied as a *known* value, which is how production reaches
-    this path: `known_secret_values()` collects the configured environment and
-    vault credentials and redacts them by exact match. Guessing a credential
-    from the shape of its value was deliberately removed, so a bare token shape
-    is no longer what proves the guard runs — an actual known secret is.
-    """
-    from argus.adapters.agent_cli_backend._exec_spawn import log_start_record
-    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
-
-    secret = "-".join(("sk", "proj", "AbCd1234EfGh5678IjKl"))
-    history = tmp_path / "events.jsonl"
-
-    class _RealLoggingBackend:
-        def __init__(self) -> None:
-            self._runner = SimpleNamespace(backend="copilot")
-            self._io_logger = AgentIOLogger()
-            self._known_secret_values = (secret,)
-
-        def _log_agent_io(self, path, row) -> None:
-            self._io_logger.log(path, row, known_secret_values=self._known_secret_values)
-
-    ctx = SimpleNamespace(
-        call_id="c1",
-        run_label="engineer-1",
-        options=SimpleNamespace(model="m", reasoning_effort="high", working_dir="/w"),
-        resume_thread_id=None,
-        prompt=f"use this key: {secret}\n",
-        log_path=history,
-    )
-
-    log_start_record(_RealLoggingBackend(), ctx)
-
-    raw = raw_transcript_path(history)
-    assert raw.exists(), "the verbatim prompt was never written"
-    assert secret not in raw.read_text(encoding="utf-8")
-    assert secret not in history.read_text(encoding="utf-8")

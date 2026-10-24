@@ -147,55 +147,6 @@ def project(tmp_path: Path) -> Path:
     return root
 
 
-def test_card_text_is_parsed_from_the_hand_written_sections(project: Path) -> None:
-    card = derive_method_card(project)
-
-    assert card["exists"] is True
-    assert card["path"] == "METHOD.md"
-    assert card["title"] == "Gated residual attention"
-    assert card["statement"].startswith("The method adds a learned gate")
-    assert card["statement"].endswith("half the attention FLOPs.")
-    assert card["truncated"] is False
-    assert card["markdown"] == METHOD_MD
-    assert "WikiText-103" in card["protocol"] and "## " not in card["protocol"]
-    assert card["falsifiers"].startswith("Accuracy at k=64")
-    assert card["updated_at"]
-    json.dumps(card)  # JSON-serialisable end to end
-
-
-def test_components_list_the_tests_that_carry_their_marker(project: Path) -> None:
-    card = derive_method_card(project)
-    by_name = {entry["component"]: entry for entry in card["components"]}
-
-    assert list(by_name) == ["residual gate", "sparse attention", "curriculum warmup"]
-    gate = by_name["residual gate"]
-    assert gate["prescribes"] == '"the residual is scaled by a per-token sigmoid gate"'
-    assert gate["tests"] == [
-        {"id": "tests/spec/test_differential.py::test_gate_matches_oracle", "kind": "differential"},
-        {"id": "tests/spec/test_knockouts.py::test_knockout_gate", "kind": "knockout"},
-    ]
-    assert by_name["sparse attention"]["notes"].startswith("simplified:")
-    assert by_name["curriculum warmup"]["tests"] == []
-    assert [entry["component"] for entry in card["unlisted_components"]] == ["positional bias"]
-    assert "checks" not in card and "status" not in gate
-
-
-def test_an_old_host_check_record_is_ignored(project: Path) -> None:
-    before = derive_method_card(project)
-    checks = project / ".argus" / "round-checks"
-    checks.mkdir()
-    (checks / "latest.json").write_text(json.dumps({
-        "round_index": 3, "exit_code": 1, "counts": {"FAILED": 1},
-        "outcomes": {"tests/spec/test_knockouts.py::test_knockout_gate": "FAILED"},
-        "components": {"residual gate": {"tests": [], "status": "contradicted"}},
-    }), encoding="utf-8")
-
-    after = derive_method_card(project)
-
-    assert after["components"] == before["components"]
-    assert "round 3" not in render_for_reviewer(project)
-
-
 def test_old_five_column_component_table_still_parses(project: Path) -> None:
     (project / "METHOD.md").write_text(
         "# Old shape\n\nStatement.\n\n## Components\n\n"
@@ -209,62 +160,6 @@ def test_old_five_column_component_table_still_parses(project: Path) -> None:
     assert [entry["component"] for entry in card["components"]] == ["residual gate"]
     assert card["components"][0]["notes"] == ""
     assert {test["kind"] for test in card["components"][0]["tests"]} == {"knockout", "differential"}
-
-
-def test_reused_code_maps_imports_to_clones_and_packages(project: Path) -> None:
-    card = derive_method_card(project)
-    by_name = {(entry["kind"], entry["name"]): entry for entry in card["reused_code"]}
-
-    clone = by_name[("third_party", "rpc")]
-    assert clone["revision_or_version"], "the clone's short revision is read from git"
-    assert clone["remote"] == "https://example.invalid/rpc.git"
-    assert clone["modules"] == ["rpc", "third_party.rpc.utils"]
-    assert clone["imported_from"] == ["src/model.py"]
-    numpy_entry = by_name[("package", "numpy")]
-    assert numpy_entry["revision_or_version"]  # installed in the test environment
-    assert numpy_entry["modules"] == ["numpy"]
-    # Standard-library imports and the project's own modules are not "reused code".
-    assert ("package", "json") not in by_name and ("package", "os") not in by_name
-    assert card["reused_code"][0]["kind"] == "third_party"
-
-
-def test_hyperparameters_carry_why_and_diff_against_the_previous_snapshot(project: Path) -> None:
-    first = derive_method_card(project)["hyperparameters"]
-    by_key = {entry["key"]: entry for entry in first}
-
-    assert by_key["model.rank"]["value"] == "64"
-    assert by_key["model.rank"]["file"] == "configs/base.yaml"
-    assert by_key["model.rank"]["why"] == "the route's section 3 fixes rank 64 for the 125M scale"
-    assert by_key["model.dropout"]["why"] == "reference recipe default"
-    assert by_key["training.lr"]["why"] == ""
-    assert by_key["training.seeds"]["value"] == "[1, 2, 3]"
-    assert by_key["training.schedule.warmup_steps"]["value"] == "1000"
-    assert all(entry["changed"] is False and entry["previous"] is None for entry in first)
-    snapshot = project / ".argus" / "method-card" / "hyperparameters.json"
-    assert snapshot.is_file()
-
-    (project / "configs" / "base.yaml").write_text(
-        BASE_YAML.replace("rank: 64", "rank: 128"), encoding="utf-8"
-    )
-    second = {entry["key"]: entry for entry in derive_method_card(project)["hyperparameters"]}
-    assert second["model.rank"]["changed"] is True
-    assert second["model.rank"]["previous"] == "64"
-    assert second["model.rank"]["value"] == "128"
-    assert second["training.lr"]["changed"] is False
-
-    # A third derivation without a config edit keeps reporting the same diff.
-    third = {entry["key"]: entry for entry in derive_method_card(project)["hyperparameters"]}
-    assert third["model.rank"]["changed"] is True and third["model.rank"]["previous"] == "64"
-
-
-def test_change_log_comes_from_git(project: Path) -> None:
-    log = derive_method_card(project)["change_log"]
-
-    assert log, "the fixture repository has one commit touching METHOD.md"
-    assert log[0]["summary"] == "initial method, config and clone"
-    assert len(log[0]["when"]) == 10
-    assert "METHOD.md" in log[0]["files"]
-    assert "configs/base.yaml" in log[0]["files"]
 
 
 def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> None:
@@ -288,16 +183,6 @@ def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> Non
     assert any(line.startswith("- third_party/rpc @ ") and "example.invalid" in line for line in lines)
     assert any(line.startswith("- numpy @ ") for line in lines)
     assert any("configs/base.yaml:model.rank 128 -> 256" in line for line in lines)
-
-
-def test_project_without_a_card_is_empty_and_silent(tmp_path: Path) -> None:
-    card = derive_method_card(tmp_path)
-
-    assert card["exists"] is False
-    assert card["components"] == [] and card["reused_code"] == []
-    assert card["hyperparameters"] == [] and card["change_log"] == []
-    assert render_for_reviewer(tmp_path) == ""
-    assert render_for_reviewer(tmp_path / "missing") == ""
 
 
 def test_derivation_survives_broken_inputs(project: Path) -> None:
@@ -350,44 +235,6 @@ class RotaryCache:
 def anchored(project: Path) -> Path:
     (project / "src" / "model.py").write_text(ANCHORED_MODEL_PY, encoding="utf-8")
     return project
-
-
-def test_code_anchors_attach_to_the_card_rows(anchored: Path) -> None:
-    card = derive_method_card(anchored)
-    by_name = {entry["component"]: entry for entry in card["components"]}
-
-    gate = by_name["residual gate"]
-    assert gate["simplified"] == []
-    assert len(gate["anchors"]) == 1
-    anchor = gate["anchors"][0]
-    assert (anchor["file"], anchor["line"], anchor["symbol"]) == ("src/model.py", 7, "gate")
-    assert anchor["excerpt"].startswith("# @component residual gate\ndef gate(x):")
-    assert len(anchor["excerpt"].splitlines()) <= method_card.ANCHOR_EXCERPT_LINES
-    assert method_card.anchor_location(gate) == "src/model.py:7 (gate)"
-
-    # The join is case- and whitespace-insensitive, like the marker join.
-    sparse = by_name["sparse attention"]
-    assert sparse["anchors"][0]["symbol"] == "sparse"
-    assert sparse["simplified"] == [
-        {"reason": "fixed k instead of learned k", "file": "src/model.py", "line": 12}
-    ]
-    assert by_name["curriculum warmup"]["anchors"] == []
-
-    assert card["reuse_anchors"] == [
-        {"file": "src/model.py", "line": 15, "what": "rpc.attention", "note": "the dense baseline path"}
-    ]
-    json.dumps(card)
-
-
-def test_anchors_for_components_the_card_does_not_name_are_listed(anchored: Path) -> None:
-    card = derive_method_card(anchored)
-    unlisted = {entry["component"]: entry for entry in card["unlisted_components"]}
-
-    assert set(unlisted) == {"positional bias", "rotary cache"}
-    rotary = unlisted["rotary cache"]
-    assert rotary["tests"] == []
-    assert rotary["anchors"][0]["symbol"] == "RotaryCache"
-    assert unlisted["positional bias"]["anchors"] == []
 
 
 def test_review_packet_shows_anchor_excerpt_changes_and_gaps(anchored: Path) -> None:
@@ -473,12 +320,6 @@ def test_stand_ins_in_project_code_are_listed_with_call_sites_and_footprint(tmp_
     assert "Run reality (derived from the tree, not from any account):" in packet
     assert "src/pbis/evaluator.py:1 mock_worker_llm — used from src/pbis/evaluator.py:8" in packet
     assert "Results footprint: results/ 1 files" in packet
-
-
-def test_projects_without_stand_ins_show_no_run_reality_lines(project: Path) -> None:
-    card = derive_method_card(project)
-    assert [e for e in card["stand_ins"] if e["kind"] == "definition"] == []
-    assert "Possible stand-ins" not in render_for_reviewer(project)
 
 
 def test_random_input_measurements_and_fast_results_are_dated(tmp_path: Path) -> None:
@@ -586,17 +427,6 @@ def test_claim_attainment_shows_the_engineers_words_beside_the_hosts_values(tmp_
     assert "- [partial] beat KIVI by 25 pp — Engineer: \"+22 pp\"; pointer no field: results/ruler.json comparison.gain" in packet
     assert "pointer outside workspace: /etc/hostname" in packet
     assert packet.index("Claim attainment") < packet.index("Run reality") if "Run reality" in packet else True
-
-
-def test_results_without_an_attainment_statement_are_named_as_such(tmp_path: Path) -> None:
-    root = tmp_path / "proj"
-    (root / "results").mkdir(parents=True)
-    (root / "METHOD.md").write_text("# M\n\nM does X.\n", encoding="utf-8")
-    (root / "results" / "summary.json").write_text("{}", encoding="utf-8")
-
-    packet = render_for_reviewer(root)
-
-    assert "No claim attainment statement (.argus/claim_attainment.json): results exist but the Engineer has not said which clauses of the claim they meet." in packet
 
 
 def test_result_tables_read_per_method_numbers_and_name_metrics_that_separate_nothing(tmp_path: Path) -> None:

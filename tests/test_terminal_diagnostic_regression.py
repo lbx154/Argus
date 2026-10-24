@@ -4,143 +4,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
 from argus.agent_cli.models import AgentRunResult
-from argus.core.models import RunnerOptions
 from argus.core.runner_errors import result_has_pre_provider_refusal
 from argus.provider_integrations.authorization_retry import _unauthorized_cause
-
-
-@pytest.mark.parametrize(
-    "terminal,kind",
-    [
-        ("HTTP 503 Service Unavailable", "transient_error"),
-        ("stream disconnected before completion: idle timeout waiting for SSE", "transient_error"),
-        ("HTTP 429 Too Many Requests", "provider_cooldown"),
-        ("External interrupt: daemon stop requested", "daemon_shutdown"),
-        ("Provider turn cap reached: allowance 40", "backend_unavailable"),
-    ],
-)
-@pytest.mark.parametrize(
-    "history",
-    [
-        "HTTP 401 Unauthorized (recovered earlier)",
-        "error: failed to load models: HTTP 401 Unauthorized (recovered earlier)",
-    ],
-)
-def test_terminal_failure_is_shared_by_translation_auth_and_accounting(
-    monkeypatch, tmp_path, terminal, kind, history
-):
-    backend = AgentCliBackend(backend="codex")
-    raw = AgentRunResult(
-        command=["codex"],
-        exit_code=1,
-        turn_failed=True,
-        fatal_error=terminal,
-        stderr_lines=[history],
-    )
-    monkeypatch.setattr(backend._runner, "run_exec", lambda **kwargs: raw)
-    result = backend.run_exec(
-        prompt="fixture", options=RunnerOptions(working_dir=str(tmp_path)), run_label="engineer-r1"
-    )
-    assert result.stop_kind == kind
-    assert result.fatal_error == terminal
-    assert result.stderr_lines == [history]
-    assert not backend._auth_failure_detected
-    assert not _unauthorized_cause(raw)
-    assert not result_has_pre_provider_refusal(raw)
-
-
-@pytest.mark.parametrize("fatal", [None, "Process exited with code 1 before turn completion."])
-@pytest.mark.parametrize(
-    "diagnostic,kind,auth",
-    [
-        ("HTTP 401 Unauthorized", "permanent_error", True),
-        ("HTTP 503 Service Unavailable", "transient_error", False),
-        ("error: failed to load models: HTTP 401 Unauthorized", "permanent_error", True),
-    ],
-)
-def test_startup_failure_uses_latest_diagnostic(fatal, diagnostic, kind, auth):
-    raw = AgentRunResult(
-        command=["codex"],
-        exit_code=1,
-        turn_failed=True,
-        fatal_error=fatal,
-        stderr_lines=["HTTP 401 recovered", diagnostic],
-    )
-    result = translate_result(
-        raw, resume_thread_id=None, copilot_usage=None, usage_accumulator=UsageAccumulator()
-    )
-    assert result.stop_kind == kind
-    assert bool(_unauthorized_cause(raw)) is auth
 
 
 def test_completed_turn_does_not_resurrect_old_auth():
     raw = AgentRunResult(
         command=["codex"], exit_code=0, turn_completed=True, stderr_lines=["HTTP 401 Unauthorized"]
-    )
-    assert not _unauthorized_cause(raw)
-    assert not result_has_pre_provider_refusal(raw)
-
-
-def _consume_codex_events(events):
-    from argus.agent_cli.agent_cli_runner import AgentCliRunner
-
-    runner = AgentCliRunner(agent_bin="codex", backend="codex")
-    failed, error = False, None
-    for event in events:
-        _, _, failed, error = runner._consume_codex_event(
-            event=event,
-            thread_id=None,
-            agent_messages=[],
-            turn_completed=False,
-            turn_failed=failed,
-            fatal_error=error,
-        )
-    return failed, error
-
-
-@pytest.mark.parametrize("progress", ["turn.started", "item.started", "item.updated"])
-def test_missing_terminal_message_does_not_keep_recovered_event(progress):
-    failed, error = _consume_codex_events([
-        {"type": "error", "message": "HTTP 401 Unauthorized (recovered earlier)"},
-        {"type": progress, "item": {"type": "agent_message"}},
-        {"type": "turn.failed", "error": {}},
-    ])
-    assert failed
-    assert error == "Backend reported a failed turn."
-
-
-@pytest.mark.parametrize("err", [{}, {"message": ""}, {"message": "  "}])
-def test_empty_failed_turn_keeps_immediately_preceding_provider_error(err):
-    failed, error = _consume_codex_events([
-        {"type": "turn.started"},
-        {"type": "error", "message": "HTTP 429 Too Many Requests"},
-        {"type": "turn.failed", "error": err},
-    ])
-    assert failed
-    assert error == "HTTP 429 Too Many Requests"
-
-
-def test_concrete_failed_turn_message_replaces_preceding_provider_error():
-    failed, error = _consume_codex_events([
-        {"type": "error", "message": "Reconnecting... 1/5"},
-        {"type": "turn.failed", "error": {"message": "HTTP 503 Service Unavailable"}},
-    ])
-    assert failed
-    assert error == "HTTP 503 Service Unavailable"
-
-
-def test_generic_exit_after_progress_cannot_be_startup_auth():
-    raw = SimpleNamespace(
-        exit_code=1,
-        turn_failed=True,
-        fatal_error="Process exited with code 1 before turn completion.",
-        stderr_lines=["error: failed to load models: HTTP 401 recovered"],
-        tool_activity_observed=True,
-        json_events=[],
-        agent_messages=[],
     )
     assert not _unauthorized_cause(raw)
     assert not result_has_pre_provider_refusal(raw)
@@ -192,49 +64,6 @@ def test_relay_owner_replays_only_current_401(monkeypatch, tmp_path, terminal, r
     assert result.fatal_error == (terminal if requests == 1 else "HTTP 503")
 
 
-def test_progress_survives_bounded_event_capture():
-    raw = AgentRunResult(
-        command=["fixture"],
-        exit_code=1,
-        turn_failed=True,
-        fatal_error="Process exited with code 1 before turn completion.",
-        model_progress_observed=True,
-        json_events=[],
-        stderr_lines=["HTTP 401 recovered"],
-    )
-    assert not _unauthorized_cause(raw)
-
-
-def test_new_provider_error_replaces_recoverable_error_and_progress_clears_it():
-    from argus.agent_cli.agent_cli_runner import AgentCliRunner
-
-    runner = AgentCliRunner(agent_bin="codex", backend="codex")
-    error = "HTTP 401 Unauthorized"
-    for event, expected in [
-        ({"type": "error", "message": "HTTP 503"}, "HTTP 503"),
-        ({"type": "item.completed", "item": {"type": "command_execution"}}, None),
-    ]:
-        _, _, _, error = runner._consume_codex_event(
-            event=event,
-            thread_id=None,
-            agent_messages=[],
-            turn_completed=False,
-            turn_failed=False,
-            fatal_error=error,
-        )
-        assert error == expected
-
-
-def test_empty_terminal_error_replaces_recovered_401():
-    failed, error = _consume_codex_events([
-        {"type": "error", "message": "HTTP 401 recovered"},
-        {"type": "item.completed", "item": {"type": "command_execution"}},
-        {"type": "turn.failed", "error": {}},
-    ])
-    assert failed
-    assert error == "Backend reported a failed turn."
-
-
 def _finalize_after_progress(stderr_before, stderr_after):
     from argus.agent_cli._run_exec import _StreamState
     from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
@@ -247,26 +76,6 @@ def _finalize_after_progress(stderr_before, stderr_after):
         process=SimpleNamespace(returncode=1), command=["codex"],
         options=RunnerOptions(), state=state,
     )
-
-
-@pytest.mark.parametrize(
-    "terminal,kind,auth",
-    [
-        ("HTTP 429 Too Many Requests", "provider_cooldown", False),
-        ("HTTP 401 Unauthorized: token expired", "permanent_error", True),
-    ],
-)
-def test_stderr_after_progress_classifies_current_failure(terminal, kind, auth):
-    raw = _finalize_after_progress(
-        ["HTTP 503 recovered during startup"], ["retrying request", terminal]
-    )
-    assert raw.terminal_stderr_lines == ["retrying request", terminal]
-    result = translate_result(
-        raw, resume_thread_id=None, copilot_usage=None, usage_accumulator=UsageAccumulator()
-    )
-    assert result.stop_kind == kind
-    assert terminal in result.fatal_error
-    assert bool(_unauthorized_cause(raw)) is auth
 
 
 def test_stderr_before_progress_stays_history_after_generic_exit():

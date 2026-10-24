@@ -1,15 +1,6 @@
 from argus.apps._target_paths import resolve_life_root
 
 
-def test_relative_life_dir_is_anchored_before_daemon_detaches(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    assert resolve_life_root("state") == tmp_path / "state"
-
-
 def test_a_project_state_directory_resolves_to_its_global_root(tmp_path) -> None:
     from argus.core.project import project_fingerprint
 

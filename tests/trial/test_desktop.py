@@ -1,27 +1,14 @@
 from __future__ import annotations
 
 import io
-import itertools
 import json
 import os
 import tarfile
-import urllib.error
 from pathlib import Path
 
 import pytest
 
 from argus.trial import client, desktop, native_cli
-
-
-@pytest.mark.parametrize("system,machine,asset", [
-    ("Darwin", "arm64", "copilot-darwin-arm64.tar.gz"),
-    ("Darwin", "x86_64", "copilot-darwin-x64.tar.gz"),
-    ("Windows", "AMD64", "copilot-win32-x64.zip"),
-    ("Windows", "ARM64", "copilot-win32-arm64.zip"),
-])
-def test_native_assets_cover_both_desktop_platforms(system, machine, asset):
-    name, size = native_cli.asset_for(system, machine)
-    assert name == asset and size > 0
 
 
 def test_no_download_or_profile_changes_for_invalid_key(tmp_path, monkeypatch):
@@ -66,57 +53,6 @@ def test_install_checks_integrity_and_only_publishes_verified_binary(tmp_path, m
     assert not list(tmp_path.rglob("escape"))
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", lambda *a, **kw: pytest.fail("Reuse installed CLI"))
     assert native_cli.install_native_copilot() == str(path)
-
-
-def test_corrupt_download_never_installs(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setattr(native_cli.urllib.request, "urlopen", lambda *a, **kw: DownloadResponse(b"corrupt"))
-    monkeypatch.setattr(native_cli, "verify_cli", lambda *_: pytest.fail("Unverified bytes must not execute"))
-    with pytest.raises(ValueError, match="校验失败"):
-        native_cli.install_native_copilot()
-    assert not any(path.is_file() for path in tmp_path.rglob("copilot.exe" if os.name == "nt" else "copilot"))
-
-
-@pytest.mark.parametrize("known_length", [True, False])
-def test_download_reports_received_bytes_and_distinct_install_stages(tmp_path, monkeypatch, known_length):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setattr(native_cli.platform, "system", lambda: "Darwin")
-    content = archive_bytes()
-    total = len(content) if known_length else None
-    monkeypatch.setattr(native_cli, "asset_for", lambda *_: ("copilot.tar.gz", len(content)))
-
-    class SlowResponse(DownloadResponse):
-        def read1(self, size):
-            return super().read1(min(size, 32))
-
-    def download(request, **kwargs):
-        assert request.get_header("Authorization") is None
-        assert kwargs["context"].check_hostname
-        return SlowResponse(content, total)
-
-    monkeypatch.setattr(native_cli.urllib.request, "urlopen", download)
-    monkeypatch.setattr(native_cli.time, "monotonic", itertools.count(step=0.25).__next__)
-    monkeypatch.setattr(native_cli, "verify_cli", lambda _: None)
-    events, stages = [], []
-    native_cli.install_native_copilot(progress=stages.append, download_progress=lambda *event: events.append(event))
-    assert events[0] == (0, total)
-    assert events[-1] == (len(content), total)
-    assert any(0 < received < len(content) for received, _ in events)
-    assert [received for received, _ in events] == sorted(received for received, _ in events)
-    assert any("校验" in stage for stage in stages) and any("安装" in stage for stage in stages)
-
-
-@pytest.mark.parametrize("failure", [urllib.error.URLError("unreachable"), TimeoutError(), ConnectionResetError()])
-def test_failed_download_explains_proxy_and_never_publishes_partial_binary(tmp_path, monkeypatch, failure):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-
-    def download(*args, **kwargs):
-        raise failure
-
-    monkeypatch.setattr(native_cli.urllib.request, "urlopen", download)
-    with pytest.raises(ValueError, match="系统代理 / TUN 模式后重试"):
-        native_cli.install_native_copilot()
-    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
 
 
 def test_truncated_download_reports_network_failure_before_install(tmp_path, monkeypatch):

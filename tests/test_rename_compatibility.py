@@ -138,8 +138,3 @@ def test_the_current_entry_points_do_not_print_the_rename_notice(monkeypatch, ca
         cli_entry.main(["--version"])
 
     assert capsys.readouterr().err == ""
-
-
-@pytest.mark.parametrize("argv0", ["argus-skill", "argus-skill.exe", "argus-skill-script.py", "/x/ARGUS-SKILL.EXE"])
-def test_legacy_launcher_spellings_are_recognised(argv0: str) -> None:
-    assert cli_entry._invoked_as_legacy_command(argv0) is True

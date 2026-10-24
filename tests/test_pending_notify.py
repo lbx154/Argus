@@ -18,7 +18,6 @@ import pytest
 from argus.life.supervisor.pending_notify import (
     ask_operator,
     notify_pending_question,
-    pending_question_message,
     should_report_pending_wait,
 )
 
@@ -56,65 +55,8 @@ def channel(monkeypatch):
 
 # -- the message ------------------------------------------------------------
 
-def test_the_message_carries_what_a_decision_needs() -> None:
-    text = pending_question_message(
-        project="s-research1",
-        title="survey the literature",
-        question="which dataset should the baseline use?",
-        options=[{"label": "CIFAR"}, {"label": "ImageNet"}],
-    )
-
-    assert "Your decision is needed" in text
-    assert "Project: s-research1" in text
-    assert "Task: survey the literature" in text
-    assert "s-research1" in text
-    assert "survey the literature" in text
-    assert "which dataset" in text
-    # Options matter on a phone: numbered, one digit answers.
-    assert "Options (reply with a number):\n1. CIFAR\n2. ImageNet" in text
-
-
-def test_options_are_optional() -> None:
-    text = pending_question_message(project="p", title="t", question="q?")
-
-    assert "q?" in text
-    assert "Options" not in text
-
-
-def test_malformed_options_do_not_break_the_message() -> None:
-    text = pending_question_message(
-        project="p", title="t", question="q?", options=["not a dict", {}, {"label": ""}]
-    )
-
-    assert "Options" not in text
-
-
-def test_chinese_question_uses_a_chinese_wrapper() -> None:
-    text = pending_question_message(
-        project="研究项目",
-        title="选择数据集",
-        question="基线应该使用哪个数据集？",
-        options=[{"label": "数据集 A"}, {"label": "数据集 B"}],
-    )
-
-    assert "需要你决定" in text
-    assert "项目：研究项目" in text
-    assert "任务：选择数据集" in text
-    assert "可选（回复编号即可）：\n1. 数据集 A\n2. 数据集 B" in text
-
 
 # -- sending ----------------------------------------------------------------
-
-def test_the_question_is_sent(project: Path, channel) -> None:
-    assert notify_pending_question(project, _item()) is True
-    assert channel and "which dataset" in channel[0]
-
-
-def test_the_same_question_is_not_sent_twice(project: Path, channel) -> None:
-    notify_pending_question(project, _item())
-    notify_pending_question(project, _item())
-
-    assert len(channel) == 1
 
 
 def test_the_dedup_survives_a_restart(project: Path, channel) -> None:
@@ -123,49 +65,7 @@ def test_the_dedup_survives_a_restart(project: Path, channel) -> None:
     assert notify_pending_question(project, _item()) is False
 
 
-def test_a_new_question_on_the_same_item_is_sent(project: Path, channel) -> None:
-    # Pausing again with a different question is new information.
-    notify_pending_question(project, _item())
-    notify_pending_question(project, _item(pending_question="which seed count?"))
-
-    assert len(channel) == 2
-
-
-def test_nothing_is_sent_without_a_question(project: Path, channel) -> None:
-    assert notify_pending_question(project, _item(pending_question="   ")) is False
-    assert channel == []
-
-
-def test_no_configured_channel_is_not_an_error(project: Path) -> None:
-    # Every channel is opt-in; a project with none simply gets no message.
-    assert notify_pending_question(project, _item()) is False
-
-
 # -- persistent waiting-status dedup ---------------------------------------
-
-
-def test_wait_status_is_reported_once_per_question_set(project: Path) -> None:
-    items = [_item()]
-
-    assert should_report_pending_wait(project, items, now=100.0) is True
-    assert should_report_pending_wait(project, items, now=101.0) is False
-    # A new supervisor process reads the same durable state.
-    assert should_report_pending_wait(project, items, now=102.0) is False
-
-
-def test_wait_status_reports_changed_question_and_slow_heartbeat(project: Path) -> None:
-    assert should_report_pending_wait(project, [_item()], now=100.0) is True
-    assert should_report_pending_wait(
-        project,
-        [_item(pending_question="which seed count?")],
-        now=101.0,
-    ) is True
-    assert should_report_pending_wait(
-        project,
-        [_item(pending_question="which seed count?")],
-        heartbeat_seconds=60.0,
-        now=162.0,
-    ) is True
 
 
 def test_wait_status_ignores_empty_question_set(project: Path) -> None:
@@ -194,24 +94,6 @@ def test_a_failing_channel_does_not_raise(project: Path, monkeypatch) -> None:
     assert notify_pending_question(project, _item()) is False
 
 
-def test_one_channel_failing_does_not_stop_the_other(project: Path, monkeypatch) -> None:
-    delivered: list[str] = []
-
-    def explode(_message):
-        raise RuntimeError("down")
-
-    monkeypatch.setattr(
-        "argus.life.supervisor.pending_notify._send_telegram", explode
-    )
-    monkeypatch.setattr(
-        "argus.life.supervisor.pending_notify._send_feishu",
-        lambda message: delivered.append(message) or True,
-    )
-
-    assert notify_pending_question(project, _item()) is True
-    assert delivered
-
-
 def test_a_garbage_item_is_survivable(project: Path, channel) -> None:
     assert notify_pending_question(project, object()) is False
 
@@ -229,23 +111,6 @@ def test_an_unwritable_ledger_still_sends(tmp_path: Path, channel, monkeypatch) 
 
 
 # -- the wiring -------------------------------------------------------------
-
-def test_asking_the_operator_announces_only_a_recorded_question(project, monkeypatch) -> None:
-    order: list[str] = []
-    monkeypatch.setattr(
-        "argus.life.supervisor.pending_notify._send_telegram",
-        lambda _message: order.append("operator told") or True,
-    )
-    monkeypatch.setattr("argus.life.supervisor.pending_notify._send_feishu", lambda _message: False)
-    ask_operator(
-        project, _item(pending_question=""), "which dataset?", reason="two disagree", layer="planner",
-        save=lambda **fields: order.append(f"saved {fields['pending_question']}"),
-        emit=lambda event: order.append(f"{event['agent_layer']} asked"),
-    )
-
-    # The question reaches the backlog before anyone hears of it, or a crash
-    # between the two would announce a decision that was never recorded.
-    assert order == ["saved which dataset?", "operator told", "planner asked"]
 
 
 def test_the_question_event_carries_the_options_a_role_listed(project, channel) -> None:

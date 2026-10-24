@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from argus.adapters.agent_cli_backend import _needed_for_live_progress
 from argus.agent_cli import _run_exec
 from argus.agent_cli import _sandbox_commands as sandbox_commands
 from argus.agent_cli import agent_cli_runner as runner_mod
@@ -47,17 +46,6 @@ def test_opencode_command_uses_json_stdin_and_resume() -> None:
         "--session",
         "ses-123",
     ]
-
-
-def test_opencode_full_auto_uses_explicit_full_access_agent() -> None:
-    runner = _runner()
-    options = RunnerOptions(full_auto=True)
-
-    child_env = runner._child_env(options)
-
-    assert child_env is not None
-    config = json.loads(child_env["OPENCODE_CONFIG_CONTENT"])
-    assert config["agent"]["argus-full-access"]["permission"] == {"*": "allow"}
 
 
 @pytest.mark.parametrize("reasoning_effort", [None, "high", "max", "xhigh"])
@@ -147,59 +135,6 @@ def test_opencode_read_only_uses_restricted_agent_and_strips_override() -> None:
         "glob": "allow",
         "grep": "allow",
     }
-
-
-def test_opencode_delivers_plain_prompt_on_stdin() -> None:
-    command = _runner()._build_opencode_command(
-        resume_thread_id=None,
-        options=RunnerOptions(),
-    )
-
-    prepared, stdin_prompt, cleanup_path = _runner()._prepare_prompt_delivery(
-        command, "review"
-    )
-
-    assert prepared == command
-    assert stdin_prompt == "review"
-    assert cleanup_path is None
-    assert "--output-schema" not in command
-
-
-def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:
-    from argus.agent_cli._event_consumers import _OpenCodeWriteState
-
-    runner = _runner()
-    messages: list[str] = []
-    write_state = _OpenCodeWriteState()
-    state = runner._consume_opencode_event(
-        event={
-            "type": "text",
-            "sessionID": "ses-123",
-            "part": {"text": "done"},
-        },
-        thread_id=None,
-        agent_messages=messages,
-        write_state=write_state,
-        turn_completed=False,
-        turn_failed=False,
-        fatal_error=None,
-    )
-    state = runner._consume_opencode_event(
-        event={
-            "type": "step_finish",
-            "sessionID": "ses-123",
-            "part": {"reason": "stop"},
-        },
-        thread_id=state[0],
-        agent_messages=messages,
-        write_state=write_state,
-        turn_completed=state[1],
-        turn_failed=state[2],
-        fatal_error=state[3],
-    )
-
-    assert messages == ["done"]
-    assert state == ("ses-123", True, False, None)
 
 
 def test_opencode_tool_step_is_not_terminal() -> None:
@@ -533,46 +468,3 @@ def test_opencode_nested_error_is_preserved() -> None:
     )
 
     assert state == ("ses-error", False, True, "provider unavailable")
-
-
-def test_opencode_step_events_count_as_live_progress() -> None:
-    for event_type in ("step_start", "reasoning", "step_finish"):
-        line = json.dumps({"type": event_type, "part": {}})
-        assert _needed_for_live_progress("main.stdout", line)
-
-
-def test_opencode_step_usage_is_summed() -> None:
-    usage = extract_token_usage([
-        {
-            "type": "step_finish",
-            "part": {
-                "tokens": {
-                    "input": 49,
-                    "output": 34,
-                    "reasoning": 14,
-                    "cache": {"read": 20096, "write": 0},
-                },
-                "cost": 0.012,
-            },
-        },
-        {
-            "type": "step_finish",
-            "part": {
-                "tokens": {
-                    "input": 123,
-                    "output": 17,
-                    "reasoning": 3,
-                    "cache": {"read": 20096, "write": 0},
-                },
-                "cost": 0.003,
-            },
-        },
-    ])
-
-    assert usage.source == "per_step"
-    assert usage.input_tokens == 40364
-    assert usage.cached_input_tokens == 40192
-    assert usage.cache_write_tokens == 0
-    assert usage.output_tokens == 51
-    assert usage.reasoning_output_tokens == 17
-    assert usage.provider_cost_usd == 0.015

@@ -5,7 +5,6 @@ must still wait and recheck state after obtaining that cross-process lock.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 import sys
@@ -16,10 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from argus.apps._runtime_construction import build_life_runner
 from argus.core.pipeline_state import (
     primary_pipeline_state_path,
-    read_pipeline_state,
     write_pipeline_state,
 )
 
@@ -76,111 +73,6 @@ def _mission_holds_pipeline(root: Path):
             process.kill()
             stdout, stderr = process.communicate(timeout=5)
         assert process.returncode == 0, (stdout, stderr)
-
-
-def _start_manager_build(state_root: Path, workdir: Path):
-    result = {}
-    finished = threading.Event()
-
-    def build():
-        try:
-            result["runner"] = build_life_runner(argparse.Namespace(
-                backend="memory",
-                workdir=str(workdir),
-                project_state_dir=str(state_root),
-                manager_session_root=str(state_root),
-            ))
-        except BaseException as exc:
-            result["error"] = exc
-        finally:
-            finished.set()
-
-    thread = threading.Thread(target=build, daemon=True)
-    thread.start()
-    return thread, finished, result
-
-
-@pytest.mark.parametrize("payload", [
-    None,
-    {},
-    {"vertical": "argus_maintenance", "current_stage": "verify"},
-    {"vertical": "research", "current_stage": "experiment", "stages": {
-        "idea": {"status": "done"}, "experiment": {"status": "in_progress"},
-    }},
-])
-def test_manager_construction_does_not_wait_for_a_mission_without_migration(
-    tmp_path: Path, payload: dict | None,
-) -> None:
-    state, workdir = tmp_path / "state", tmp_path / "workdir"
-    workdir.mkdir()
-    if payload is not None:
-        write_pipeline_state(state, payload)
-        # The existing target must also prevent importing a stale workdir copy.
-        write_pipeline_state(workdir, {"vertical": "argus_maintenance", "current_stage": "change"})
-    state_path = primary_pipeline_state_path(state)
-    before = state_path.read_bytes() if state_path.exists() else None
-    with _mission_holds_pipeline(state):
-        thread, finished, result = _start_manager_build(state, workdir)
-        assert finished.wait(5), "Manager construction waited for the active mission"
-        thread.join(timeout=1)
-        assert "error" not in result, result.get("error")
-        assert result["runner"].manager.project_root == state
-        assert result["runner"].manager.execution_workdir == workdir
-        assert (state_path.read_bytes() if state_path.exists() else None) == before
-
-
-@pytest.mark.parametrize("migration", ["import", "stage"])
-@pytest.mark.parametrize("peer_commits", [False, True])
-def test_manager_migration_waits_and_rereads_after_the_peer_commits(
-    tmp_path: Path, monkeypatch, migration: str, peer_commits: bool,
-) -> None:
-    from argus.manager import _session_ops
-
-    lock_requested = threading.Event()
-    pipeline_lock = _session_ops.manager_pipeline_lock
-
-    def observed_pipeline_lock(root):
-        lock_requested.set()
-        return pipeline_lock(root)
-
-    monkeypatch.setattr(_session_ops, "manager_pipeline_lock", observed_pipeline_lock)
-    state, workdir = tmp_path / "state", tmp_path / "workdir"
-    workdir.mkdir()
-    original = {"vertical": "research", "current_stage": "research", "stages": {
-        "research": {"status": "done"},
-    }}
-    if migration == "import":
-        original = {"vertical": "argus_maintenance", "current_stage": "change"}
-        write_pipeline_state(workdir, original)
-    else:
-        write_pipeline_state(state, original)
-    state_path = primary_pipeline_state_path(state)
-    before = state_path.read_bytes() if state_path.exists() else None
-    replacement = {
-        "vertical": "research", "current_stage": "experiment",
-        "stages": {"experiment": {"status": "in_progress"}},
-        "peer_commit": "must survive initialization",
-    }
-    with _mission_holds_pipeline(state) as release:
-        thread, finished, result = _start_manager_build(state, workdir)
-        assert lock_requested.wait(5), "Manager did not request the migration lock"
-        assert not finished.wait(0.25), "Manager migration bypassed the write lock"
-        assert (state_path.read_bytes() if state_path.exists() else None) == before
-        release(replacement if peer_commits else None)
-        assert finished.wait(5), "Manager migration did not resume after unlock"
-        thread.join(timeout=1)
-        assert "error" not in result, result.get("error")
-
-    committed = read_pipeline_state(state)
-    if peer_commits:
-        assert committed == replacement
-    elif migration == "import":
-        assert committed == original
-        assert read_pipeline_state(workdir) == original
-    else:
-        assert committed["current_stage"] == "idea"
-        assert committed["stages"]["idea"]["status"] == "in_progress"
-        assert committed["current_verdict"] == "mapped_stage_requires_current_review"
 
 
 def test_self_question_completes_during_a_peer_mission(

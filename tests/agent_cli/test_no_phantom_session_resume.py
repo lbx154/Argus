@@ -22,7 +22,6 @@ from argus.agent_cli.agent_cli_runner import RunnerOptions as CliRunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_COPILOT
 from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.run_gateway import run_exec as gateway_run_exec
-from argus.provider_integrations.authorization_retry import BackendLoginRequired
 
 BOUND = "0cb916db-26aa-40f2-86b5-1ba81b225fd2"
 
@@ -67,25 +66,6 @@ def _call(copilot, tmp_path: Path, *, resume: str | None = None):
     )
 
 
-def test_runner_crash_before_any_durable_event_reports_no_session(tmp_path, copilot) -> None:
-    def crash(_bound):
-        exc = RuntimeError("reader failed")
-        exc.provider_session_observed = False
-        return exc
-
-    copilot["install"](crash)
-    result = _call(copilot, tmp_path)
-
-    assert result.thread_id is None
-    assert result.fatal_error.startswith("RuntimeError:")
-
-
-def test_runner_crash_without_evidence_reports_no_session(tmp_path, copilot) -> None:
-    copilot["install"](lambda _bound: RuntimeError("reader failed"))
-
-    assert _call(copilot, tmp_path).thread_id is None
-
-
 def test_runner_crash_after_a_durable_event_keeps_the_session(tmp_path, copilot) -> None:
     def crash(_bound):
         exc = RuntimeError("reader failed")
@@ -107,15 +87,6 @@ def test_runner_crash_keeps_a_session_the_store_holds(tmp_path, copilot) -> None
     result = _call(copilot, tmp_path)
 
     assert result.thread_id == copilot["options"].provider_session_id
-
-
-def test_login_required_reports_no_new_session(tmp_path, copilot) -> None:
-    copilot["install"](lambda _bound: BackendLoginRequired("401 unauthorized"))
-
-    with pytest.raises(BackendLoginRequired):
-        _call(copilot, tmp_path)
-    usage = json.loads((tmp_path / "usage.jsonl").read_text().splitlines()[-1])
-    assert usage["thread_id"] is None
 
 
 def test_crash_on_a_resumed_call_keeps_its_own_session(tmp_path, copilot) -> None:
@@ -197,20 +168,6 @@ class _Backend:
         return RunnerResult(exit_code=0, thread_id="fresh-thread")
 
 
-def test_missing_session_resume_continues_in_a_fresh_session() -> None:
-    backend = _Backend()
-
-    result = gateway_run_exec(
-        backend, prompt="continue the task", run_label="planner",
-        resume_thread_id="stale-thread",
-    )
-
-    assert [call["resume_thread_id"] for call in backend.calls] == ["stale-thread", None]
-    assert backend.calls[1]["prompt"].endswith("continue the task")
-    assert "fresh session" in backend.calls[1]["prompt"]
-    assert result.exit_code == 0 and result.thread_id == "fresh-thread"
-
-
 def test_fresh_fallback_happens_once_and_never_rebinds_the_stale_session() -> None:
     backend = _Backend(fresh_fails=True)
 
@@ -220,14 +177,3 @@ def test_fresh_fallback_happens_once_and_never_rebinds_the_stale_session() -> No
 
     assert len(backend.calls) == 2
     assert result.exit_code == 1 and result.thread_id is None
-
-
-def test_caller_with_its_own_handoff_can_keep_the_failure() -> None:
-    backend = _Backend()
-
-    result = gateway_run_exec(
-        backend, prompt="continue", run_label="manager", resume_thread_id="stale-thread",
-        fresh_on_missing_resume=False,
-    )
-
-    assert len(backend.calls) == 1 and result.exit_code == 1

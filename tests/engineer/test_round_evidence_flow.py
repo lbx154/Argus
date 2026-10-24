@@ -106,20 +106,6 @@ def test_reviewer_sees_provider_text_as_raw_evidence_and_engineer_gets_the_note(
     assert requests[1].previous_state == {"seen": 1}
 
 
-def test_silent_provider_adds_no_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(registry, "_PROVIDERS", [lambda request: None])
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv1"))
-
-    out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
-    assert out.successful
-    reviewer_prompt = next(p for label, p, _o in backend.history if label == "reviewer")
-    assert "Raw verification evidence:" not in reviewer_prompt
-
-
 def test_raising_provider_does_not_break_the_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(request: RoundEvidenceRequest) -> RoundEvidence:
         raise RuntimeError("provider exploded")

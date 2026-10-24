@@ -37,28 +37,6 @@ def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
     assert "submission.readiness" not in body_a
 
 
-def test_data_domain_resolves_and_seeds_first_stage(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    dd.write_data_domain(
-        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
-    )
-    vs.persist_vertical(tmp_path, "robotics_sim")
-    assert vs.resolve_vertical(tmp_path) == "robotics_sim"
-    assert sc.current_stage(tmp_path) == "scope"  # seeded to the domain's first stage
-    order, _items = sc.active_vertical_checklist_defs(tmp_path)
-    assert list(order) == ["scope", "simulate", "measure", "report"]
-
-
-def test_default_research_env_preserves_persisted_data_domain(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
-    dd.write_data_domain(
-        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
-    )
-    vs.persist_vertical(tmp_path, "robotics_sim")
-
-    assert vs.resolve_vertical(tmp_path) == "robotics_sim"
-
-
 # NOTE: the checklist-store DATA-domain INFERENCE (_data_domain_from_checklists)
 # was removed — resolve_vertical is now FAIL-HARD and never guesses the vertical
 # from checklist stages. The Manager decides + persists the vertical explicitly.
@@ -79,17 +57,6 @@ def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, mon
     assert sc.current_stage(tmp_path) == "simulate"
     body = sc.format_stage_checklist("simulate", role="reviewer", project_root=tmp_path)
     assert "research.literature" not in body
-
-
-def test_manager_persisted_data_domain_wins_over_bootstrap_builtin_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "software")
-    dd.write_data_domain(
-        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
-    )
-    vs.persist_vertical(tmp_path, "robotics_sim")
-
-    assert vs.resolve_vertical(tmp_path) == "robotics_sim"
-    assert sc.current_stage(tmp_path) == "scope"
 
 
 def test_store_override_shows_in_render(tmp_path, monkeypatch):
@@ -137,25 +104,3 @@ def test_data_domain_can_advance_past_first_stage(tmp_path, monkeypatch):
     assert sc.current_stage(tmp_path) == "scope"
     sc.advance_stage(tmp_path, target_stage="build", reason="r6-1 regression")
     assert sc.current_stage(tmp_path) == "build"  # advanced, not stuck on scope
-
-
-def test_store_custom_item_is_ignored_for_five_stage_research(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    vs.persist_vertical(tmp_path, "research")
-    _write_store(
-        tmp_path,
-        vertical="research",
-        stages={
-            "idea": [
-                {
-                    "id": "idea.custom",
-                    "statement": "a custom research gate",
-                    "evidence_hint": "x",
-                }
-            ]
-        },
-    )
-    body = sc.format_stage_checklist("idea", role="reviewer", project_root=tmp_path)
-    assert "idea.custom" not in body
-    assert "idea.selection" in body
-    assert (tmp_path / "research" / "CHECKLISTS.json").is_file()

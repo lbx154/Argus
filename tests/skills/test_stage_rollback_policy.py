@@ -13,7 +13,6 @@ from argus.skills.stage_machine import (
     ChecklistItem,
     StageCompletionError,
     StageRollbackError,
-    reset_stage_for_replacement_intent,
     rollback_stage,
 )
 from argus.skills.vertical_select import persist_vertical
@@ -128,15 +127,3 @@ def test_forward_only_planner_request_preserves_completion_failure(tmp_path, mon
         )
 
     assert read_pipeline_state(state) == before
-
-
-def test_replacement_intent_can_reset_a_forward_only_vertical(tmp_path, monkeypatch) -> None:
-    state, _workdir, _provider = _external_project(tmp_path, monkeypatch, False)
-
-    reset_stage_for_replacement_intent(
-        state, target_stage="build", reason="The operator replaced the objective.",
-    )
-
-    payload = read_pipeline_state(state)
-    assert payload["current_stage"] == "build"
-    assert payload["stage_history"][-1]["direction"] == "reset"

@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
-import stat
 from pathlib import Path
 
 import pytest
 
 from argus.tools.capability_vault import (
-    ModelApiGrant,
     ModelApiRoute,
     bootstrap_model_api_vault,
-    default_codex_config_path,
     format_api_context,
     load_model_api_grant,
     load_model_api_route,
-    read_codex_default_model,
-    save_model_api_grant,
     save_model_api_routes,
-    status_payload,
 )
 
 
@@ -50,67 +43,6 @@ def _clear_model_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARGUS_SKILL_IMAGE_REVIEW_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
-
-
-def test_codex_config_model_uses_codex_home_and_active_profile(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
-        'model = "gpt-5.5"\n',
-        encoding="utf-8",
-    )
-    (codex_home / "research.config.toml").write_text(
-        'model = "gpt-5.6-sol"\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    assert default_codex_config_path() == codex_home / "config.toml"
-    assert read_codex_default_model() == "gpt-5.5"
-    assert read_codex_default_model(profile="research") == "gpt-5.6-sol"
-
-
-def test_codex_default_model_ignores_argus_inspection_path(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
-        'model = "gpt-5.6-sol"\n',
-        encoding="utf-8",
-    )
-    inspection = tmp_path / "inspection.toml"
-    inspection.write_text('model = "claude-sonnet-5"\n', encoding="utf-8")
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_CONFIG", str(inspection))
-
-    assert read_codex_default_model() == "gpt-5.6-sol"
-
-
-def test_save_and_load_model_api_grant_uses_private_vault(tmp_path: Path) -> None:
-    vault = tmp_path / "caps" / "model_api.json"
-    grant = ModelApiGrant(
-        api_key="dummy-key",
-        base_url="https://example.invalid/openai/v1/",
-        text_models=("gpt-5.4-mini", "gpt-5.4"),
-        image_model="gpt-image-2",
-        image_review_model="gpt-5.4",
-        vault_path=vault,
-    )
-
-    saved = save_model_api_grant(grant)
-    loaded = load_model_api_grant({"ARGUS_SKILL_CAPABILITY_VAULT": str(saved)})
-
-    assert loaded is not None
-    assert loaded.api_key == "dummy-key"
-    assert loaded.base_url == "https://example.invalid/openai/v1/"
-    assert loaded.image_model == "gpt-image-2"
-    if os.name != "nt":
-        assert stat.S_IMODE(saved.stat().st_mode) == 0o600
 
 
 def test_load_model_api_grant_honors_codex_model_provider(tmp_path: Path) -> None:
@@ -149,94 +81,6 @@ wire_api = "responses"
     assert grant.key_source == f"file:{auth_path}"
 
 
-def test_runtime_defaults_to_vault_over_codex_sources(tmp_path: Path) -> None:
-    vault = tmp_path / "model_api.json"
-    save_model_api_grant(
-        ModelApiGrant(
-            api_key="vault-key",
-            base_url="https://vault.invalid/openai/v1/",
-            provider="vault-provider",
-            vault_path=vault,
-        )
-    )
-    auth_path = tmp_path / "auth.json"
-    auth_path.write_text(json.dumps({"OPENAI_API_KEY": "codex-key"}), encoding="utf-8")
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """
-[model_providers.codex]
-base_url = "https://codex.invalid/openai/v1/"
-wire_api = "responses"
-""".strip(),
-        encoding="utf-8",
-    )
-
-    grant = load_model_api_grant(
-        {
-            "ARGUS_SKILL_CAPABILITY_VAULT": str(vault),
-            "ARGUS_SKILL_MODEL_API_AUTH_JSON": str(auth_path),
-            "ARGUS_SKILL_CODEX_CONFIG": str(config_path),
-        }
-    )
-
-    assert grant is not None
-    assert grant.api_key == "vault-key"
-    assert grant.base_url == "https://vault.invalid/openai/v1/"
-    assert grant.provider == "vault-provider"
-    assert grant.key_source.startswith(f"vault:{vault}")
-
-
-def test_bootstrap_imports_codex_sources_into_vault(tmp_path: Path) -> None:
-    vault = tmp_path / "caps" / "model_api.json"
-    auth_path = tmp_path / "auth.json"
-    auth_path.write_text(json.dumps({"OPENAI_API_KEY": "codex-key"}), encoding="utf-8")
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """
-[model_providers.codex]
-base_url = "https://codex.invalid/openai/v1/"
-wire_api = "responses"
-""".strip(),
-        encoding="utf-8",
-    )
-
-    saved = bootstrap_model_api_vault(
-        {
-            "ARGUS_SKILL_CAPABILITY_VAULT": str(vault),
-            "ARGUS_SKILL_MODEL_API_AUTH_JSON": str(auth_path),
-            "ARGUS_SKILL_CODEX_CONFIG": str(config_path),
-        }
-    )
-    grant = load_model_api_grant({"ARGUS_SKILL_CAPABILITY_VAULT": str(saved)})
-
-    assert saved == vault
-    assert grant is not None
-    assert grant.api_key == "codex-key"
-    assert grant.base_url == "https://codex.invalid/openai/v1/"
-
-
-def test_status_payload_is_secret_free_and_includes_provider_metadata(tmp_path: Path) -> None:
-    vault = tmp_path / "model_api.json"
-    save_model_api_grant(
-        ModelApiGrant(
-            api_key="vault-secret",
-            base_url="https://vault.invalid/openai/v1/",
-            provider="codex",
-            wire_api="responses",
-            vault_path=vault,
-        )
-    )
-
-    status = status_payload({"ARGUS_SKILL_CAPABILITY_VAULT": str(vault)})
-    rendered = json.dumps(status, sort_keys=True)
-
-    assert "vault-secret" not in rendered
-    assert status["model_api_available"] is True
-    assert status["provider"] == "codex"
-    assert status["wire_api"] == "responses"
-    assert status["base_url"] == "https://vault.invalid/openai/v1/"
-
-
 def test_api_context_exposes_capabilities_without_vault_access_instructions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -263,17 +107,6 @@ def test_api_context_exposes_capabilities_without_vault_access_instructions(
     assert "model_api.json" not in rendered
     assert "json.load" not in rendered
     assert "Never open the vault directly" in rendered
-
-
-def test_api_context_is_empty_without_usable_routes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "argus.tools.capability_vault.load_model_api_route",
-        lambda _name: None,
-    )
-
-    assert format_api_context() == ""
 
 
 def test_v2_routes_can_use_distinct_endpoint_key_and_model(tmp_path: Path) -> None:

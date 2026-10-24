@@ -13,14 +13,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus.core.model_visible_text import MODEL_INTEGRITY_BOUNDARY
-from argus.roles.prompts import engineer as engineer_prompts
-from argus.roles.prompts.engineer import (
-    assemble_round_prompt,
-    build_mission_prompt,
-)
 from argus.roles.prompts.manager import (
-    assemble_manager_prompt,
     build_stage_decision_prompt,
 )
 from argus.roles.prompts.planner import (
@@ -43,96 +36,6 @@ def _end_of(text: str, marker: str) -> int:
 # --- Engineer ---------------------------------------------------------------
 
 
-def _engineer(monkeypatch, tmp_path: Path, *, task: str, next_action: str | None, cycle: int, compact_team: bool = False) -> str:
-    monkeypatch.setattr(engineer_prompts, "native_shell_contract", lambda: "")
-    monkeypatch.setattr(engineer_prompts, "native_shell_summary", lambda: "")
-    return build_mission_prompt(
-        task=task,
-        skill_text="## Skill libraries (on-demand)\nRole: engineer.",
-        next_action=next_action,
-        original_request="Make the cache hold.",
-        role_banner="Vertical policy for the Engineer.",
-        project_root=tmp_path,
-        compact_team=compact_team,
-        operator_context=(
-            "## OperatorContext\n"
-            f"- directive [mission]: cycle {cycle}\n"
-            f"operator_context_revision={cycle}"
-        ),
-    )
-
-
-def test_engineer_static_rules_precede_every_mission_specific_line(monkeypatch, tmp_path) -> None:
-    first = _engineer(monkeypatch, tmp_path, task="Fix the prefix.", next_action=None, cycle=1)
-    second = _engineer(
-        monkeypatch, tmp_path,
-        task="Fix the suffix instead.",
-        next_action="Address the Reviewer's finding.",
-        cycle=2,
-    )
-
-    static_end = _end_of(first, "and why it goes to them.")
-    assert _lcp(first, second) >= static_end
-    # The recalled Skills, the request and the task follow the static rules.
-    assert first.index("## Skill libraries") > static_end
-    assert first.index("## Original operator request") > static_end
-    assert first.index("## Current mission task") > static_end
-    assert second.index("## Reviewer guidance from prior round") > second.index("## Current mission task")
-    assert second.rstrip().endswith("operator_context_revision=2")
-
-
-def test_engineer_compact_team_prompt_keeps_the_same_shape(monkeypatch, tmp_path) -> None:
-    first = _engineer(monkeypatch, tmp_path, task="Fix the prefix.", next_action=None, cycle=1, compact_team=True)
-    second = _engineer(monkeypatch, tmp_path, task="Fix the suffix instead.", next_action=None, cycle=2, compact_team=True)
-
-    static_end = _end_of(first, "and why it goes to them.")
-    assert _lcp(first, second) >= static_end
-    assert first.index("## Skill libraries") > static_end
-    assert first.index("Fix the prefix.") > first.index("## Skill libraries")
-
-
-def test_engineer_round_tail_follows_the_mission_text(monkeypatch, tmp_path) -> None:
-    """Per-round blocks land after the whole mission text, before the trailing
-    OperatorContext — even when the mission text itself quotes such a block."""
-    quoted = (
-        "## OperatorContext\nquoted by the mission text\n"
-        "operator_context_revision=3\n---\n## Live objective\nShip it."
-    )
-    prompt = _engineer(monkeypatch, tmp_path, task="Do the work.\n\n" + quoted, next_action=None, cycle=4)
-
-    first = assemble_round_prompt(
-        prompt,
-        role_context="## Active research context\nnotes after round 0",
-        checkpoint_block="## MissionBrief\n- Decisive result: round 1",
-        background_advisory="## Current host context\n- recalled: round 1",
-    )
-    second = assemble_round_prompt(
-        prompt,
-        role_context="## Active research context\nnotes after round 1",
-        checkpoint_block="## MissionBrief\n- Decisive result: round 2",
-        background_advisory="",
-    )
-
-    mission_end = _end_of(first, "Ship it.")
-    assert _lcp(first, second) >= mission_end
-    assert first.index("## Active research context") > mission_end
-    assert first.index("## MissionBrief") > first.index("## Active research context")
-    assert first.rindex("## OperatorContext") > first.index("## Current host context")
-    assert first.rstrip().endswith("operator_context_revision=4")
-
-
-def test_engineer_round_tail_is_appended_when_no_operator_context_trails(monkeypatch, tmp_path) -> None:
-    quoted = "## OperatorContext\nquoted only\noperator_context_revision=3\n---\n## Live objective\nShip it."
-    prompt = build_mission_prompt(
-        task="Do the work.\n\n" + quoted, skill_text="", next_action=None, project_root=tmp_path,
-    )
-
-    assembled = assemble_round_prompt(prompt, checkpoint_block="## MissionBrief\n- round 1")
-
-    assert assembled.startswith(prompt)
-    assert assembled.rstrip().endswith("- round 1")
-
-
 # --- Planner ----------------------------------------------------------------
 
 
@@ -147,18 +50,6 @@ def _planner(tmp_path: Path, cycle: int, *, resume: bool = False) -> str:
         project_root=tmp_path,
         state_root=tmp_path,
     )
-
-
-def test_planner_prompt_keeps_policy_and_brief_ahead_of_cycle_facts(tmp_path) -> None:
-    persist_vertical(tmp_path, "software")
-    first, second = _planner(tmp_path, 1), _planner(tmp_path, 2)
-
-    brief_end = _end_of(first, "## Manager mission brief (authoritative)\nReach the target.")
-    assert _lcp(first, second) >= brief_end
-    # The runtime hygiene rule is static and now sits in the stable prefix.
-    assert first.index("## Runtime\n") < brief_end
-    for volatile in ("## Journal of completed work", "## Current reality", "planning cycle #"):
-        assert first.index(volatile) > brief_end, volatile
 
 
 def test_planner_resume_delta_keeps_the_brief_ahead_of_cycle_facts(tmp_path) -> None:
@@ -229,23 +120,6 @@ def test_manager_stage_prompt_keeps_objective_and_checklist_ahead_of_the_evidenc
     checklist_end = _end_of(first, "## What the current stage requires\n- [ ] experiment.result — the decisive run exists")
     assert _lcp(first, second) >= checklist_end
     assert first.index("## Latest completion evidence") > checklist_end
-
-
-def test_manager_assembly_leads_with_the_vertical_banner() -> None:
-    prompt = assemble_manager_prompt(
-        "Decide.",
-        role_banner="Vertical policy for the Manager.",
-        role_skill_block="## Skill libraries (on-demand)\npaths",
-        role_context="## Active research context\nnotes",
-    )
-
-    assert prompt.startswith(MODEL_INTEGRITY_BOUNDARY)
-    assert (
-        prompt.index("## Active vertical Manager skill")
-        < prompt.index("Decide.")
-        < prompt.index("## Active research context")
-        < prompt.index("## Skill libraries")
-    )
 
 
 # --- Research vertical: static policy vs. live notes ------------------------

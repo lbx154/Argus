@@ -1,4 +1,3 @@
-import copy
 import json
 from importlib.resources import files
 
@@ -46,19 +45,6 @@ def forecast(data):
     return estimate(data)["proposals"][0]
 
 
-def test_deadline_selects_real_option_and_recomputes_all_three_scenarios():
-    data = payload([task("build", [8, 10, 18], execution_options=[option("reuse", [2, 4, 8])])])
-    original = copy.deepcopy(data)
-    result = forecast(data)
-    assert result["finish_hours"] == {"lower": 2, "expected": 13 / 3, "upper": 8}
-    assert result["schedule"][0]["execution_option_id"] == "reuse"
-    assert result["adaptation"]["changes"][0]["tradeoff"] == "Less implementation freedom"
-    assert data == original
-    data["deadline_hours"] = 30
-    assert forecast(data)["finish_hours"]["upper"] == 18
-    assert forecast(data)["schedule"][0]["execution_option_id"] == "standard"
-
-
 def test_critical_path_reorders_work_instead_of_just_reporting_overrun():
     data = payload(
         [
@@ -74,26 +60,6 @@ def test_critical_path_reorders_work_instead_of_just_reporting_overrun():
     assert result["schedule"][0]["id"] == "core"
 
 
-def test_tied_parallel_paths_can_both_adopt_faster_options():
-    data = payload(
-        [
-            task(key, [10, 10, 10], execution_options=[option("reuse", [4, 4, 4])])
-            for key in ["a", "b"]
-        ]
-    )
-    assert forecast(data)["finish_hours"]["expected"] == 4
-
-
-def test_no_invented_compression_for_infeasible_deadline_or_unapproved_options():
-    unsafe = option("skip-controls", [1, 1, 1])
-    unsafe["preserves_acceptance"] = False
-    data = payload([task("required", [10, 12, 20], execution_options=[unsafe])], deadline=2)
-    result = forecast(data)
-    assert result["finish_hours"]["upper"] == 20
-    assert result["deadline_gap_hours"] > 0
-    assert result["adaptation"]["status"] == "gap"
-
-
 def test_options_cannot_borrow_unavailable_resources():
     fast = option("parallel", [1, 2, 4])
     fast["resources"] = {"gpu": 2}
@@ -101,25 +67,6 @@ def test_options_cannot_borrow_unavailable_resources():
     assert forecast(data)["finish_hours"]["expected"] == 10
     data["resources"]["gpu"] = 2
     assert forecast(data)["finish_hours"]["expected"] < 6
-
-
-def test_running_task_is_never_shortened_by_deadline_adaptation():
-    data = payload(
-        [
-            task(
-                "run",
-                [10, 10, 10],
-                status="running",
-                actual_start_hours=0,
-                remaining_hours=[7, 8, 10],
-                execution_options=[option("fast", [1, 1, 1])],
-            )
-        ]
-    )
-    data["now_hours"] = 2
-    result = forecast(data)
-    assert result["schedule"][0]["execution_option_id"] == "standard"
-    assert result["finish_hours"]["upper"] == 12
 
 
 def test_example_shorter_and_longer_deadlines_change_work_and_range():

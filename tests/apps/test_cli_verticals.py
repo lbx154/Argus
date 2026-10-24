@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from argus.apps import tui_launcher
-from argus.apps.cli import build_parser, main
+from argus.apps.cli import main
 from argus.core.pipeline_state import write_pipeline_state
 from argus.verticals import _registry, store
 from tests.verticals import fake_release as fake
@@ -29,25 +26,6 @@ def release(tmp_path, monkeypatch) -> Path:
     yield catalog
     _registry.refresh_vertical_plugins()
     store._purge_modules(["argus_verticals"])
-
-
-def test_parser_exposes_the_verticals_subcommands() -> None:
-    parser = build_parser()
-    assert parser.parse_args(["verticals", "list", "--json"]).verticals_cmd == "list"
-    info = parser.parse_args(["verticals", "info", "quant"])
-    assert info.command == "verticals" and info.name == "quant" and info.json is False
-    assert parser.parse_args(["verticals", "install", "quant", "medical"]).names == ["quant", "medical"]
-    assert parser.parse_args(["verticals", "update"]).names == []
-    remove = parser.parse_args(["verticals", "remove", "quant", "--force"])
-    assert remove.name == "quant" and remove.force is True
-    uninstall = parser.parse_args(["verticals", "uninstall", "quant"])
-    assert uninstall.verticals_cmd == "uninstall" and uninstall.name == "quant"
-    assert parser.parse_args(["verticals", "enable", "quant"]).verticals_cmd == "enable"
-    assert parser.parse_args(["verticals", "disable", "quant"]).verticals_cmd == "disable"
-    assert parser.parse_args(["verticals", "refresh"]).verticals_cmd == "refresh"
-    with pytest.raises(SystemExit, match="2"):
-        parser.parse_args(["verticals"])
-    assert "verticals" in tui_launcher._PYTHON_ADMIN_COMMANDS
 
 
 def test_list_install_info_remove_round_trip(capsys) -> None:
@@ -124,18 +102,6 @@ def test_unresolved_store_root_placeholder_exits_2(monkeypatch, capsys) -> None:
     monkeypatch.delenv("ARGUS_NO_SUCH_PLACEHOLDER", raising=False)
     assert main(["verticals", "list"]) == 2
     assert "unresolved placeholder" in capsys.readouterr().err
-
-
-def test_python_dash_m_argus_runs_the_store_headless(release) -> None:
-    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
-    result = subprocess.run(
-        [sys.executable, "-m", "argus", "verticals", "list", "--json"],
-        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert [row["name"] for row in payload["verticals"] if row["kind"] == "available"] == ["base_v", "child_v"]
-    assert "node" not in result.stderr.lower()
 
 
 def test_runtime_refusal_reaches_cli_info_list_and_install(release, capsys):

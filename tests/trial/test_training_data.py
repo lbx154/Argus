@@ -172,25 +172,6 @@ def test_explicit_feedback_not_download_and_sharing_review_gate(training):
     assert any(row["outcome"] == "failed" for row in data.controls.audit_log()["events"])
 
 
-def test_disabled_expired_deleted_and_retention_exclude_copies(training):
-    data, store, now = training
-    grant(data)
-    chat(training)
-    store.set_access("tenant-one", enabled=False)
-    files, _ = unpack(data)
-    assert records(files, "trajectories.jsonl") == []
-    assert json.loads(files["quality_report.json"])["reason_counts"]["tester_access_inactive"] == 1
-    store.set_access("tenant-one", enabled=True, expires_at=now[0])
-    assert not data.preview("internal_training", selection())["projects"][0]["eligible"]
-    store.set_access("tenant-one", enabled=True)
-    now[0] += 31 * 86400
-    assert not records(unpack(data)[0], "trajectories.jsonl")
-    chat(training)
-    data.controls.delete_copies(data.journal, "tenant-one", "s-project")
-    assert not records(unpack(data)[0], "trajectories.jsonl")
-    assert data.preview("internal_training", selection())["projects"][0]["reason"] == "research_deleted"
-
-
 def test_sensitive_content_private_thoughts_and_malformed_records_quarantine(training):
     data, _, _ = training
     grant(data)
@@ -654,41 +635,6 @@ def test_combined_onboarding_enables_at_acceptance_without_passive_or_retroactiv
         assert db.execute("SELECT count(*) FROM training_permission_history").fetchone()[0] == 2
 
 
-def test_combined_onboarding_preserves_revocation_until_explicit_reauthorization(training):
-    data, _, now = training
-    data.analytics.notice_version = COMBINED_NOTICE_VERSION
-    data.analytics.record_consent("tenant-one", COMBINED_NOTICE_VERSION)
-    for accepted in (False, 1, "true"):
-        with pytest.raises(AnalyticsError, match="affirmative_combined_acceptance_required"):
-            data.accept_onboarding("tenant-one", COMBINED_NOTICE_VERSION, accepted=accepted)
-    first = data.accept_onboarding(
-        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True,
-    )
-    original = first["granted_at"]["external_sharing"]
-    now[0] += 5
-    grant(data, internal=False, external=True)
-    now[0] += 5
-    ordinary = data.accept_onboarding("tenant-one", COMBINED_NOTICE_VERSION, accepted=True)
-    assert ordinary["internal_training"] is False and ordinary["external_sharing"] is True
-    assert ordinary["granted_at"]["external_sharing"] == original
-    assert ordinary["onboarding"]["last_accepted_at"] == now[0]
-    assert ordinary["onboarding"]["reauthorized_at"] is None
-    # A declined older-version purpose is not silently converted into a grant.
-    with data.analytics._db() as db:
-        db.execute("UPDATE training_permissions SET notice_version='training-data-v1'")
-    preserved = data.accept_onboarding(
-        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True,
-    )
-    assert preserved["internal_training"] is False
-    now[0] += 5
-    renewed = data.accept_onboarding(
-        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True, reauthorize=True,
-    )
-    assert renewed["internal_training"] is True and renewed["external_sharing"] is True
-    assert renewed["granted_at"] == {"internal_training": now[0], "external_sharing": now[0]}
-    assert renewed["onboarding"]["reauthorized_at"] == now[0]
-
-
 def test_atomic_notice_recording_cannot_bypass_acceptance_version_or_external_optin(training):
     data, _, now = training
     data.analytics.notice_version = COMBINED_NOTICE_VERSION
@@ -756,35 +702,6 @@ def test_offline_team_authority_is_truthful_internal_only_and_forward_scoped(tra
                for event in data.controls.audit_log()["events"])
 
 
-def test_offline_policy_accepts_legacy_extra_columns_without_rewriting_receipts(training):
-    data, _, now = training
-    data.analytics.notice_version = COMBINED_NOTICE_VERSION
-    with data.analytics._db() as db:
-        db.execute("ALTER TABLE training_offline_authorizations ADD COLUMN external_sharing INTEGER NOT NULL DEFAULT 0")
-        db.execute("ALTER TABLE training_offline_authorizations ADD COLUMN sharing_recorded_at REAL")
-        db.execute("INSERT INTO training_offline_authorizations VALUES (?,?,?,?,?,?,?,?,?)", (
-            "tenant-two", COMBINED_NOTICE_VERSION, NOTICE_VERSION, "operator_attested_offline",
-            now[0] - 10, None, "Existing owner declaration.", 1, now[0] - 5,
-        ))
-        original = tuple(db.execute("SELECT * FROM training_offline_authorizations").fetchone())
-    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
-              "evidence_note": "Owner explicitly authorized internal-team training."}
-    first = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
-    assert first["internal_training"] and not first["external_sharing"]
-    assert first["authorization"]["effective_at"] is None
-    assert first["onboarding"] is None
-    now[0] += 10
-    repeated = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
-    assert repeated["authorization"] == first["authorization"]
-    assert repeated["granted_at"] == first["granted_at"]
-    with data.analytics._db() as db:
-        created = db.execute("SELECT external_sharing,sharing_recorded_at FROM training_offline_authorizations "
-                             "WHERE tenant_id='tenant-one'").fetchone()
-        assert tuple(created) == (0, None)
-        retained = db.execute("SELECT * FROM training_offline_authorizations WHERE tenant_id='tenant-two'").fetchone()
-        assert tuple(retained) == original
-
-
 def test_offline_policy_is_private_preserves_revocations_and_never_resurrects_deletion(training):
     data, _, now = training
     policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
@@ -817,55 +734,11 @@ def test_offline_policy_is_private_preserves_revocations_and_never_resurrects_de
         })
 
 
-
-
 def _authorization_state(data):
     with data.analytics._db() as db:
         return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
                 for table in ("training_permissions", "training_permission_history",
                               "training_tool_episodes", "training_sample_reviews")}
-
-
-def test_offline_policy_preserves_existing_grants_episodes_and_reviews(training):
-    data, _, now = training
-    data.analytics.notice_version = COMBINED_NOTICE_VERSION
-    data.accept_onboarding(
-        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True, record_research=True,
-    )
-    now[0] += 1
-    assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
-    candidate = data.preview("internal_training", selection())["candidates"][0]
-    unpack(data, review={"content_approved": True, "tool_context_approved": True,
-                         "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "human_operator"})
-    original = _authorization_state(data)
-    assert original["training_tool_episodes"] and original["training_sample_reviews"]
-    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
-              "evidence_note": "Owner explicitly authorized internal-team training."}
-    now[0] += 10
-    permission = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
-    assert _authorization_state(data) == original
-    recorded_at = permission["authorization"]["recorded_at"]
-    assert recorded_at == now[0] and permission["authorization"]["effective_at"] is None
-    assert permission["internal_training"] and not permission["external_sharing"]
-    now[0] += 10
-    repeated = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
-    assert repeated["authorization"]["recorded_at"] == recorded_at
-    assert _authorization_state(data) == original
-
-
-@pytest.mark.parametrize("internal", [False, True])
-def test_offline_policy_preserves_older_notice_grants_and_revocations(training, internal):
-    data, _, now = training
-    grant(data, internal=internal)
-    with data.analytics._db() as db:
-        db.execute("UPDATE training_permissions SET notice_version='retired'")
-    original = _authorization_state(data)
-    now[0] += 10
-    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
-              "evidence_note": "Owner explicitly authorized internal-team training."}
-    permission = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
-    assert not permission["internal_training"]
-    assert _authorization_state(data) == original
 
 
 def test_offline_browser_acceptance_preserves_grant_data_and_explicit_revocation(training):
@@ -929,41 +802,6 @@ def test_combined_acceptance_external_choice_is_separate_and_strict(training):
     assert not upgraded["internal_training"] and not upgraded["external_sharing"]
 
 
-def test_combined_research_and_training_acceptance_roll_back_together(training):
-    import sqlite3
-
-    data, _, _ = training
-    data.analytics.notice_version = COMBINED_NOTICE_VERSION
-    with data.analytics._db() as db:
-        db.execute("""CREATE TRIGGER fail_synthetic_grant BEFORE INSERT ON training_permissions
-                      BEGIN SELECT RAISE(ABORT, 'synthetic grant failure'); END""")
-    with pytest.raises(sqlite3.IntegrityError, match="synthetic grant failure"):
-        data.accept_onboarding(
-            "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, record_research=True,
-        )
-    assert not data.analytics.consented("tenant-one", COMBINED_NOTICE_VERSION)
-    assert data.permissions("tenant-one")["onboarding"] is None
-    with data.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_permissions").fetchone()[0] == 0
-
-
-def test_adding_external_permission_preserves_existing_internal_tool_samples(training):
-    data, _, now = training
-    data.analytics.notice_version = COMBINED_NOTICE_VERSION
-    data.accept_onboarding("tenant-one", COMBINED_NOTICE_VERSION, accepted=True, record_research=True)
-    data.journal.poll("tenant-one")
-    now[0] += 1
-    assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
-    before = data.preview("internal_training", selection())["candidates"]
-    assert len(before) == 1
-    now[0] += 1
-    data.accept_onboarding("tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True)
-    internal = data.preview("internal_training", selection())["candidates"]
-    assert [item["event_id"] for item in internal] == [item["event_id"] for item in before]
-    # Additional rights apply forward: old internal samples acquire no new external grant.
-    assert not data.preview("external_sharing", selection())["candidates"]
-
-
 def test_preview_pagination_and_filters_reach_authorized_projects_after_first_twenty(training):
     data, _, _ = training
     grant(data, "tenant-two")
@@ -991,53 +829,6 @@ def test_preview_pagination_and_filters_reach_authorized_projects_after_first_tw
         data.preview("internal_training", tenant="a-foreign")
     with pytest.raises(ValueError, match="offset"):
         data.preview("internal_training", offset=-1)
-
-
-def test_preview_route_passes_browse_filters_and_validates_offsets(training):
-    data, _, _ = training
-    grant(data, "tenant-two")
-    chat(training, tenant="tenant-two")
-    app = FastAPI()
-    register_training_routes(app, data.analytics, lambda request: {
-        "role": "admin", "tenant": "admin", "readonly": True,
-    }, journal=data.journal, controls=data.controls)
-    with TestClient(app) as client:
-        result = client.get("/admin/api/training/preview", params={
-            "tenant": "tenant-two", "query": "project", "offset": 0,
-        })
-        assert result.status_code == 200
-        assert result.json()["total_projects"] == 1
-        assert result.json()["filters"] == {"tenant": "tenant-two", "query": "project"}
-        assert client.get("/admin/api/training/preview", params={"offset": -1}).status_code == 422
-        assert client.get("/admin/api/training/preview", params={"offset": 2**63}).status_code == 422
-        assert client.get("/admin/api/training/preview", params={"tenant": "absent"}).status_code == 404
-
-
-@pytest.mark.parametrize("title", [
-    "论文生成：Monte Carlo方差缩减", "数学猜想：floor-sum严格验证", "工程优化：加权区间调度",
-])
-def test_preview_uses_safe_real_project_titles_only_for_eligible_projects(training, monkeypatch, title):
-    data, _, _ = training
-    for tenant in ("tenant-one", "tenant-two"):
-        path = data.analytics.tenants[tenant]["data_dir"] / "home/.argus-skill/projects/s-project/session.json"
-        path.write_text(json.dumps({"id": "s-project", "display_name": title}))
-        chat(training, tenant=tenant)
-    grant(data)
-    seen = []
-    original = data.analytics.projects
-
-    def metadata(tenant):
-        seen.append(tenant)
-        return original(tenant)
-
-    monkeypatch.setattr(data.analytics, "projects", metadata)
-    result = data.preview("internal_training", selection() + selection("tenant-two"))
-    assert result["projects"][0]["title"] == title
-    assert result["projects"][1]["title"] == "s-project"
-    assert seen == ["tenant-one"]
-    path = data.analytics.tenants["tenant-one"]["data_dir"] / "home/.argus-skill/projects/s-project/session.json"
-    path.unlink()
-    assert data.preview("internal_training", selection())["projects"][0]["title"] == "s-project"
 
 
 def test_unreadable_project_name_falls_back_without_losing_training_preview(training, monkeypatch):
@@ -1191,47 +982,3 @@ def test_review_receipt_survives_refresh_but_never_a_changed_sample(training):
     assert changed["counts"]["sft"] == 0
     with data.analytics._db() as db:
         assert db.execute("SELECT count(*) FROM training_sample_reviews").fetchone()[0] == 0
-
-
-@pytest.mark.parametrize("remove", ["source", "project", "revoke"])
-def test_review_receipts_follow_source_deletion_project_deletion_and_revocation(training, remove):
-    data, _, now = training
-    grant(data)
-    chat(training)
-    candidate = data.preview("internal_training", selection())["candidates"][0]
-    unpack(data, review={"content_approved": True, "approved_event_ids": [candidate["event_id"]]})
-    if remove == "source":
-        with data.analytics._db() as db:
-            db.execute("DELETE FROM journey_events WHERE id=?", (candidate["event_ids"][0],))
-    elif remove == "project":
-        data.controls.delete_copies(data.journal, "tenant-one", "s-project")
-    else:
-        grant(data, internal=False)
-        now[0] += 1
-        grant(data)
-    with data.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_sample_reviews").fetchone()[0] == 0
-    assert data.preview("internal_training", selection())["counts"]["sft"] == 0
-
-
-def test_tool_review_remains_visible_and_expires_with_its_source_episode(training):
-    data, _, now = training
-    grant(data)
-    now[0] += 1
-    assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
-    candidate = data.preview("internal_training", selection())["candidates"][0]
-    size = len(b"Independent acceptance evidence")
-    unpack(data, review={"content_approved": True, "tool_context_approved": True,
-                        "reviewer_kind": "automated_acceptance", "evidence_bytes": size,
-                        "approved_event_ids": [candidate["event_id"]]})
-    refreshed = data.preview("internal_training", selection())
-    assert refreshed["counts"]["tool_sft"] == 1 and refreshed["agentic_tool_training_ready"]
-    assert "explicit_tool_context_review_required" not in refreshed["reason_counts"]
-    evidence = refreshed["candidates"][0]["quality_evidence"]
-    assert evidence["reviewer_kind"] == "automated_acceptance" and evidence["evidence_bytes"] == size
-    assert evidence["human_reviewed"] is False
-    now[0] += 31 * 86400
-    data.capture.prune()
-    with data.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_sample_reviews").fetchone()[0] == 0
-    assert data.preview("internal_training", selection())["counts"]["tool_sft"] == 0

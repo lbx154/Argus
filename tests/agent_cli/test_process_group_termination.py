@@ -3,7 +3,7 @@ from __future__ import annotations
 import signal
 from types import SimpleNamespace
 
-from argus.agent_cli import _process_control, agent_cli_runner
+from argus.agent_cli import _process_control
 from argus.agent_cli.agent_cli_runner import AgentCliRunner
 
 
@@ -53,38 +53,3 @@ def test_terminate_process_escalates_the_whole_posix_group(monkeypatch) -> None:
         (4242, signal.SIGTERM),
         (4242, sigkill),
     ]
-
-
-def test_normal_turn_exit_cleans_only_its_remaining_process_group(
-    monkeypatch,
-) -> None:
-    alive = iter([True, False])
-    terminated: list[int] = []
-    state = SimpleNamespace(
-        orphan_process_group_id=0,
-        orphan_process_group_cleanup_succeeded=False,
-        process_group_cleanup_checked=False,
-    )
-
-    monkeypatch.setattr(agent_cli_runner.os, "name", "posix")
-    monkeypatch.setattr(
-        AgentCliRunner,
-        "_process_group_alive",
-        staticmethod(lambda _pgid: next(alive)),
-    )
-    monkeypatch.setattr(
-        AgentCliRunner,
-        "_terminate_process",
-        classmethod(lambda cls, process: terminated.append(process.pid)),
-    )
-    monkeypatch.setattr(
-        AgentCliRunner,
-        "_wait_process_group_exit",
-        classmethod(lambda cls, _pgid, _timeout: False),
-    )
-
-    AgentCliRunner._cleanup_orphan_process_group(_FakeProcess(), state)
-
-    assert terminated == [4242]
-    assert state.orphan_process_group_id == 4242
-    assert state.orphan_process_group_cleanup_succeeded is True

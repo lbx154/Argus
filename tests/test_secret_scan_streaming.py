@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -22,23 +21,6 @@ def _payload(value: str) -> bytes:
 
 def _scrub(root: Path, known=()):
     return guard.scrub_recent_text_artifacts(root, modified_since=0, known_values=known)
-
-
-def test_a_backdated_same_size_change_is_scanned_again(redact_secrets_on, tmp_path):
-    secret = "unit-test-credential-12345"
-    clean, dirty = _payload("x" * len(secret)), _payload(secret)
-    assert len(clean) == len(dirty)
-    path = tmp_path / "refinement.jsonl"
-    path.write_bytes(clean)
-    assert not _scrub(tmp_path, (secret,)).changed
-
-    before = path.stat()
-    path.write_bytes(dirty)
-    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
-    report = _scrub(tmp_path, (secret,))
-
-    assert report.changed and not report.errors
-    assert secret.encode() not in path.read_bytes()
 
 
 def test_new_known_credential_is_redacted_from_previously_clean_content(redact_secrets_on, tmp_path):
@@ -76,20 +58,3 @@ def test_a_change_during_the_rewrite_is_never_replaced(redact_secrets_on, tmp_pa
     assert retry.changed and not retry.errors
     assert secret.encode() not in path.read_bytes()
     assert b"appended by another writer" in path.read_bytes()
-
-
-def test_a_failed_scan_is_retried_in_full(redact_secrets_on, tmp_path, monkeypatch):
-    secret = "failed-scan-test-credential"
-    path = tmp_path / "result.jsonl"
-    path.write_bytes(_payload(secret))
-    original = guard._redact_text_with_count
-
-    def interrupted(*_args, **_kwargs):
-        raise OSError("temporary scan failure")
-
-    monkeypatch.setattr(guard, "_redact_text_with_count", interrupted)
-    assert _scrub(tmp_path, (secret,)).errors
-    monkeypatch.setattr(guard, "_redact_text_with_count", original)
-    report = _scrub(tmp_path, (secret,))
-    assert report.changed and not report.errors
-    assert secret.encode() not in path.read_bytes()

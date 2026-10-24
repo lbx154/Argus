@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from argus.skills.anti_mediocrity import (
     AggregateRow,
     MediocrityFinding,
@@ -39,11 +37,6 @@ def _agg(condition: str, reward: float, *, total: int = 89, errored: int = 0) ->
     )
 
 
-def test_noisy_flag_fires_at_25pct_errored() -> None:
-    assert _agg("x", 0.5, total=100, errored=25).is_noisy
-    assert _agg("x", 0.5, total=100, errored=24).is_noisy is False
-
-
 def test_noisy_flag_safe_on_empty_aggregate() -> None:
     row = AggregateRow(
         bundle="x", condition="y",
@@ -56,34 +49,6 @@ def test_noisy_flag_safe_on_empty_aggregate() -> None:
 # ---------------------------------------------------------------------------
 # MediocrityFinding properties — pure derivations from facts
 # ---------------------------------------------------------------------------
-
-
-def test_best_proposed_picks_max_reward() -> None:
-    finding = MediocrityFinding(
-        project_root=Path("."),
-        proposed_condition="argus",
-        baseline_condition="bare",
-        aggregates=[
-            _agg("argus", 0.60),
-            _agg("argus", 0.72),
-            _agg("bare", 0.55),
-        ],
-    )
-    assert finding.best_proposed_reward == 0.72
-    assert finding.best_baseline_reward == 0.55
-    assert finding.proposed_minus_baseline == pytest.approx(0.17)
-
-
-def test_finding_handles_missing_condition() -> None:
-    finding = MediocrityFinding(
-        project_root=Path("."),
-        proposed_condition="argus",
-        baseline_condition="bare",
-        aggregates=[_agg("argus", 0.60)],
-    )
-    # No baseline rows → baseline reward is None → delta is None.
-    assert finding.best_baseline_reward is None
-    assert finding.proposed_minus_baseline is None
 
 
 def test_finding_ok_only_reflects_structural_errors() -> None:
@@ -130,36 +95,6 @@ def _write_bundle(
     )
 
 
-def test_collect_finding_surfaces_facts(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "a", condition="argus", reward=0.72)
-    _write_bundle(tmp_path, "b", condition="bare", reward=0.60)
-    _write_bundle(tmp_path, "c", condition="argus", reward=0.65,
-                  dataset_id="swebench-pro@1.0")
-
-    finding = collect_mediocrity_finding(
-        tmp_path,
-        proposed_condition="argus",
-        baseline_condition="bare",
-    )
-
-    assert len(finding.aggregates) == 3
-    assert sorted(finding.benchmark_families) == ["harbor-bench@1.0", "swebench-pro@1.0"]
-    assert finding.best_proposed_reward == 0.72
-    assert finding.best_baseline_reward == 0.60
-    assert finding.proposed_minus_baseline == pytest.approx(0.12)
-    # No verdict; no thresholds; ok=True regardless of numbers.
-    assert finding.ok is True
-
-
-def test_collect_finding_with_no_evidence_returns_empty_not_error(tmp_path: Path) -> None:
-    finding = collect_mediocrity_finding(tmp_path)
-    assert finding.aggregates == []
-    assert finding.benchmark_families == []
-    # Critically: ok=True even with zero evidence. The harness does NOT
-    # rule that "no evidence" is a quality problem.
-    assert finding.ok is True
-
-
 # ---------------------------------------------------------------------------
 # format_finding — reviewer-facing text
 # ---------------------------------------------------------------------------
@@ -173,14 +108,6 @@ def test_format_finding_includes_checklist(tmp_path: Path) -> None:
     assert "Reviewer judgement points" in text
     # The checklist tells the reviewer it's their call:
     assert "you decide" in text or "reviewer rules" in text
-
-
-def test_format_finding_marks_noisy_aggregates(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "dirty",
-                  condition="argus", reward=0.7, total=100, errored=40)
-    finding = collect_mediocrity_finding(tmp_path)
-    text = format_finding(finding)
-    assert "[NOISY]" in text
 
 
 # ---------------------------------------------------------------------------

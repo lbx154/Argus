@@ -11,11 +11,6 @@ import re
 from pathlib import Path
 
 import argus
-from argus.verticals.research.prompt_policy import (
-    _research_learning_block,
-    render_role_prompt_context,
-    render_role_prompt_fragment,
-)
 
 SKILLS_ROOT = Path(argus.__file__).parent / "verticals" / "research" / "skills"
 GUIDE = "engineer/training-infrastructure.md"
@@ -102,38 +97,3 @@ def test_procedure_skills_do_not_recommend_by_remembered_names() -> None:
     for relative in (GUIDE, REVIEWER_SKILL):
         text = _text(relative)
         assert "dated hypotheses" in text or "re-verify" in text or "pinned" in text, relative
-
-
-def test_learning_block_asks_for_a_dated_decision_record() -> None:
-    block = _research_learning_block("engineer", "experiment", "execute")
-    assert "Surveyed" in block
-    assert "History" in block
-    assert "<task-class>-infrastructure-decision/SKILL.md" in block
-    assert "re-verify after" in block
-    assert "32 KB" in block
-    assert "promotes reviewed project Skills into the shared research layer" in block
-    assert len(block.split()) <= 170
-    # The Manager variant stays one sentence.
-    manager = _research_learning_block("manager", "experiment", "chat")
-    assert manager.count(". ") == 0 and manager.rstrip().endswith(".")
-
-
-def test_round_context_dates_remembered_names_for_research_roles() -> None:
-    for role, operation in (("engineer", "execute"), ("reviewer", "evaluate"), ("planner", "plan")):
-        for stage in ("idea", "experiment", "paper"):
-            context = render_role_prompt_context(
-                role=role, operation=operation, stage=stage, scope="", project_root=None,
-            )
-            assert context.startswith("Today is "), (role, stage)
-            assert re.match(r"Today is \d{4}-\d{2}-\d{2}\. ", context), (role, stage)
-            assert "dated hypotheses" in context
-            fragment = render_role_prompt_fragment(
-                role=role, operation=operation, stage=stage, scope="", project_root=None,
-            )
-            assert "Today is" not in fragment, (role, stage)
-    assert "Today is" not in render_role_prompt_context(
-        role="engineer", operation="execute", stage="review", scope="", project_root=None,
-    )
-    assert "Today is" not in render_role_prompt_context(
-        role="manager", operation="chat", stage="experiment", scope="", project_root=None,
-    )

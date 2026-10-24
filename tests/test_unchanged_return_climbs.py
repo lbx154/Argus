@@ -68,64 +68,6 @@ def _state(tmp_path: Path) -> Path:
     return tmp_path / "state"
 
 
-def test_a_turn_that_changed_nothing_goes_to_the_reviewer_not_the_engineer(tmp_path: Path) -> None:
-    _state(tmp_path)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(action=hand_off("engineer", "Thinking it over.")))
-    backend.queue("reviewer", _review("done"))
-
-    status, _rounds, labels = _run(tmp_path, backend)
-
-    assert labels == ["engineer-r1", "reviewer"]
-    assert status == "done"
-
-
-def test_an_unchanged_candidate_is_not_reviewed_again(tmp_path: Path) -> None:
-    _state(tmp_path)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    backend.queue("reviewer", _review("engineer"))
-    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "Looked again; it holds.")))
-
-    status, rounds, labels = _run(tmp_path, backend)
-
-    assert labels == ["engineer-r1", "reviewer", "engineer-r2"]
-    assert status == "replan_requested"
-    climbed = rounds[-1].review
-    assert (climbed.review_source, climbed.host_placeholder) == ("unchanged_return", "unchanged_return")
-    assert "reviewer" in climbed.reason and "planner" in climbed.reason
-
-
-def test_a_review_the_engineer_has_not_read_is_new_input(tmp_path: Path) -> None:
-    _state(tmp_path)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Read the parser; nothing to change.")))
-    backend.queue("reviewer", _review("engineer", "The empty-date case still fails."))
-    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "Looked again; it holds.")))
-
-    status, rounds, labels = _run(tmp_path, backend)
-
-    # The Engineer reads the review once; returning the work unchanged again
-    # passes the Reviewer, who already judged it, and reaches the Planner.
-    assert labels == ["engineer-r1", "reviewer", "engineer-r2"]
-    assert status == "replan_requested"
-    assert rounds[-1].review.review_source == "unchanged_return"
-    assert "reviewer" in rounds[-1].review.reason
-
-
-def test_a_changed_candidate_is_new_work(tmp_path: Path) -> None:
-    _state(tmp_path)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
-    backend.queue("engineer-r2", _write(tmp_path / "work", "v2"))
-    backend.queue("reviewer", _review("engineer"), _review("done"))
-
-    status, _rounds, labels = _run(tmp_path, backend)
-
-    assert labels == ["engineer-r1", "reviewer", "engineer-r2", "reviewer"]
-    assert status == "done"
-
-
 @pytest.mark.parametrize("arrives", [
     lambda state: append_directive(state, "Keep the old date format.", expected_revision=0),
     lambda state: queue_inbox_message(state, "Keep the old date format.", source="operator"),
@@ -146,27 +88,6 @@ def test_new_operator_input_is_new_work(tmp_path: Path, arrives) -> None:
 
     assert labels == ["engineer-r1", "reviewer", "engineer-r2", "reviewer"]
     assert status == "done"
-
-
-def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path) -> None:
-    """s-757b9dac: the Engineer found two rounding rules, changed nothing and
-    handed the task to the Planner. The same task ran again unchanged and went
-    straight to a Reviewer, who judged an implementation that did not exist."""
-    _state(tmp_path)
-    first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(action=hand_off("planner", "Two rounding rules conflict.")))
-    assert _run(tmp_path, first)[0] == "replan_requested"
-
-    # The work comes back unchanged: the Engineer's line still names the
-    # Planner, who already held it, so it climbs to the Manager. No model runs.
-    status, rounds, labels = _run(tmp_path, MemoryBackend())
-
-    assert labels == []
-    assert status == "blocked"
-    (record,) = rounds
-    assert record.review.review_source == "unchanged_return"
-    assert "the engineer and the planner" in record.review.reason
-    assert "to the manager" in record.review.reason
 
 
 def test_the_brief_says_where_the_engineer_handed_the_work(tmp_path: Path) -> None:

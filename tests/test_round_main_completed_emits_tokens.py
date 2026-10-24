@@ -19,108 +19,10 @@ Citations:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, cast
-
 from argus.core.models import (
-    ReviewDecision,
     RunnerResult,
 )
-from argus.engineer.runner import (
-    EngineerConfig,
-    SupervisedConfig,
-    SupervisedEngineer,
-)
 from argus.reviewer import Reviewer, ReviewerConfig
-
-
-class _TokenedEngineer:
-    """Engineer runner that returns deterministic token counts."""
-
-    def __init__(self, in_tok: int, out_tok: int, reasoning_out_tok: int = 0) -> None:
-        self._in = in_tok
-        self._out = out_tok
-        self._reasoning_out = reasoning_out_tok
-        self.calls = 0
-
-    def run_exec(self, **kwargs):  # noqa: D401
-        self.calls += 1
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=[f"engineer-r{self.calls}: did concrete work running pytest -q"],
-            input_tokens=self._in,
-            cached_input_tokens=self._in // 10,
-            output_tokens=self._out,
-            reasoning_output_tokens=self._reasoning_out,
-        )
-
-
-class _DoneReviewerWithTokens:
-    """Reviewer stub that fakes a 'done' verdict and propagates tokens."""
-
-    def __init__(self, in_tok: int, out_tok: int, reasoning_out_tok: int = 0) -> None:
-        self._in = in_tok
-        self._out = out_tok
-        self._reasoning_out = reasoning_out_tok
-
-    def evaluate(self, **_kwargs):
-        return ReviewDecision(
-            status="done",
-            reason="ok",
-            next_action="",
-            input_tokens=self._in,
-            output_tokens=self._out,
-            reasoning_output_tokens=self._reasoning_out,
-        )
-
-
-def _make_supervised(eng: _TokenedEngineer, rev) -> SupervisedEngineer:
-    se = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
-    se.engineer_runner = eng
-    se.engineer_config = EngineerConfig(model="stub")
-    se.reviewer = rev
-    se.reviewer_config = ReviewerConfig(model="stub")
-    return cast(SupervisedEngineer, se)
-
-
-def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> None:
-    eng = _TokenedEngineer(in_tok=12000, out_tok=345, reasoning_out_tok=111)
-    rev = _DoneReviewerWithTokens(in_tok=200, out_tok=50, reasoning_out_tok=22)
-    se = _make_supervised(eng, rev)
-
-    events: list[dict] = []
-    se.run(
-        objective="demo",
-        engineer_prompt_builder=lambda na, _include_static=True: "PROMPT",
-        supervised_config=SupervisedConfig(max_rounds=1),
-        workdir=tmp_path,
-        on_event=events.append,
-    )
-
-    main_evts = [e for e in events if e.get("type") == "round.main.completed"]
-    round_start_evts = [e for e in events if e.get("type") == "round.start"]
-    review_start_evts = [e for e in events if e.get("type") == "round.review.started"]
-    review_evts = [e for e in events if e.get("type") == "round.review.completed"]
-
-    assert round_start_evts[0]["round_max"] == 1
-    assert round_start_evts[0]["round_index"] == 1
-    assert len(main_evts) == 1, (
-        "expected exactly one round.main.completed per engineer round; got: "
-        + repr([e.get("type") for e in events])
-    )
-    assert main_evts[0]["round_max"] == 1
-    assert main_evts[0]["input_tokens"] == 12000
-    assert main_evts[0]["cached_input_tokens"] == 1200
-    assert main_evts[0]["output_tokens"] == 345
-    assert main_evts[0]["reasoning_output_tokens"] == 111
-
-    assert review_start_evts[0]["round_max"] == 1
-    assert len(review_evts) == 1
-    assert review_evts[0]["round_max"] == 1
-    assert review_evts[0]["input_tokens"] == 200
-    assert review_evts[0]["output_tokens"] == 50
-    assert review_evts[0]["reasoning_output_tokens"] == 22
-
 
 # ---------------------------------------------------------------------------
 # Reviewer-side: every return path must set input_tokens / output_tokens

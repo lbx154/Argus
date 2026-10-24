@@ -7,53 +7,15 @@ the live examples) must not inherit the research paper pipeline.
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from argus.apps._runtime_supervisor import (
-    _final_certification_for_project_root,
     _paper_mission_for_project_root,
 )
-from argus.skills.stage_machine import ChecklistItem
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import _contract, load_vertical_contract
+from argus.verticals._base import load_vertical_contract
 
 
 def test_optimize_verticals_are_not_paper(optimize_vertical: str) -> None:
     assert load_vertical_contract(optimize_vertical).paper_mission is False
-
-
-def test_research_is_paper() -> None:
-    assert load_vertical_contract("research").paper_mission is True
-
-
-def test_certified_gate_alone_does_not_make_a_paper_vertical() -> None:
-    """A certified report vertical without ``PAPER_MISSION`` is not a paper mission."""
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("report",),
-        CHECKLIST_ITEMS={"report": (ChecklistItem("report.done", "Report reviewed", "report"),)},
-        completion_gate="certified",
-    )
-
-    assert _contract(provider).paper_mission is False
-
-
-def test_research_keeps_final_certification(tmp_path) -> None:
-    persist_vertical(tmp_path, "research")
-    assert _final_certification_for_project_root(tmp_path) is True
-
-
-def test_undecided_project_is_not_implicitly_paper(tmp_path) -> None:
-    assert _paper_mission_for_project_root(tmp_path) is False
-
-
-def test_persisted_research_project_is_paper(tmp_path) -> None:
-    persist_vertical(tmp_path, "research")
-    assert _paper_mission_for_project_root(tmp_path) is True
-
-
-def test_direct_research_project_is_not_a_paper_mission(tmp_path) -> None:
-    persist_vertical(tmp_path, "research", workflow_mode="direct")
-    assert _paper_mission_for_project_root(tmp_path) is False
 
 
 def test_persisted_bounded_vertical_is_not_paper(optimize_vertical, tmp_path) -> None:

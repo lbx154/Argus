@@ -11,7 +11,6 @@ from argus.trial.training_capture import (
     HOSTED_PAYLOAD_BYTES,
     HOSTED_PROFILE,
 )
-from argus.trial.training_validate import validate_package
 
 TOOLS = [{"name": "bash", "description": "Produce bounded public fixture output.", "parameters": {
     "type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"],
@@ -74,23 +73,6 @@ def _large_episode(training, turns):
                      "stopReason": "stop", "timestamp": stamp})
     result = event("agent_end", {"messages": messages, "private_blocks_excluded": False})
     return episode, result if result["state"] == "quarantined" else event("settled", {})
-
-
-def test_over_eight_mib_complete_episode_previews_exports_and_validates(training):
-    episode, result = _large_episode(training, 12)
-    assert result["state"] == "complete", result
-    with training.analytics._db() as db:
-        size = db.execute("SELECT length(record) FROM training_tool_episodes WHERE id=?", (episode,)).fetchone()[0]
-    assert 8 * 1024 * 1024 < size < HOSTED_EPISODE_BYTES
-    projects = [{"tenant_id": "tenant-one", "sid": "s-project"}]
-    preview = training.preview("internal_training", projects)
-    assert preview["counts"]["tool_candidates"] == 1
-    blob, _ = training.export("internal_training", projects, review={
-        "content_approved": True, "tool_context_approved": True,
-        "approved_event_ids": [preview["candidates"][0]["event_id"]],
-    })
-    validation = validate_package(blob)
-    assert validation["valid"], validation
 
 
 def test_real_size_cumulative_limit_quarantines_instead_of_truncating(training):

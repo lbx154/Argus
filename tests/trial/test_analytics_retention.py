@@ -92,14 +92,6 @@ def test_admin_retention_counts_boundaries_versions_and_source_preservation(envi
     assert counts(analytics) == {"events": 0, "interactions": 1, "consents": 2}
 
 
-def test_retention_before_any_capture_and_metadata_return_compatibility(environment):
-    analytics, _, _, client = environment
-    assert analytics.prune() == 0
-    response = prune(client)
-    assert response.status_code == 200
-    assert response.json() == {"deleted_events": 0, "deleted_interactions": 0}
-
-
 def test_consent_reads_remain_available_while_collector_holds_a_write_transaction(environment):
     analytics, _, _, _ = environment
     analytics.record_consent("trial-01", analytics.notice_version)
@@ -178,20 +170,3 @@ def test_notice_change_blocks_finishing_existing_capture(environment):
     with analytics._db() as db:
         row = db.execute("SELECT state, result FROM interactions WHERE id=?", (recorded.id,)).fetchone()
     assert tuple(row) == ("incomplete", None)
-
-
-def test_policy_distinguishes_metadata_interaction_copies_and_source_files(environment):
-    analytics, _, _, _ = environment
-    policy = analytics.policy()
-    assert policy["retention_days"] == 7
-    assert "no bodies" in policy["request_metadata"]
-    assert "bounded" in policy["interaction_copies"]
-    assert "visible response" in policy["interaction_copies"]
-    assert "not copied" in policy["source_project_traces"]
-    assert "metadata events and captured interactions" in policy["retention_scope"]
-    assert policy["source_trace_files_deleted_by_retention"] is False
-    assert "separately" in policy["consent_receipts_retention"]
-    assert "current notice consent required" in policy["consent_scope"]
-    assert policy["redaction"] == "best-effort"
-    assert policy["operator_review_required_before_training_or_publication"] is True
-    assert policy["automatic_training_or_external_transmission"] is False

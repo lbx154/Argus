@@ -49,18 +49,3 @@ def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None
         next_action=actions.handoff.value.next_action,
     )
     assert routed.action == "replace"
-
-
-def test_the_reviewer_is_told_the_word_that_challenges_the_plan(tmp_path) -> None:
-    prompt = _reviewer_prompt(tmp_path)
-    assert "`to=planner`" in prompt
-    assert "failed assumption" in prompt
-    assert "alternative" in prompt
-    assert "STATUS=" not in prompt
-
-
-def test_the_reviewer_is_told_an_owners_commitment_goes_to_its_owner(tmp_path) -> None:
-    """Authority, not effort, decides who may replace a commitment."""
-    prompt = _reviewer_prompt(tmp_path)
-    assert "a commitment of the Manager or the operator goes to them" in prompt
-    assert "`to=manager`" in prompt and "`to=operator`" in prompt

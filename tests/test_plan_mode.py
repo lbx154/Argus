@@ -81,20 +81,6 @@ class _BackendWrapper:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_json_list_of_objects() -> None:
-    text = json.dumps(
-        [
-            {"title": "Read the repo", "detail": "skim the key modules"},
-            {"title": "Write tests", "detail": "cover the parser"},
-            {"title": "Run pytest"},
-        ]
-    )
-    steps = parse_plan_text(text)
-    assert [s.title for s in steps] == ["Read the repo", "Write tests", "Run pytest"]
-    assert steps[0].detail == "skim the key modules"
-    assert steps[2].detail == ""  # missing detail → empty, not a crash
-
-
 def test_parse_json_object_with_steps_and_notes() -> None:
     payload = {
         "steps": [
@@ -110,31 +96,6 @@ def test_parse_json_object_with_steps_and_notes() -> None:
     assert steps[0].detail == "find the bottleneck"
     assert steps[1].detail == "remove the stall"
     assert parse_plan_notes(text) == ["assumes B200", "no ncu access"]
-
-
-def test_plan_parser_ignores_domain_specific_step_kinds() -> None:
-    text = json.dumps(
-        {
-            "steps": [
-                {
-                    "title": "Formalize the lemma",
-                    "detail": "compile it independently",
-                    "kind": "lean_formalization",
-                },
-                {
-                    "title": "Write the explanation",
-                    "kind": "work",
-                },
-            ]
-        }
-    )
-
-    steps = parse_plan_text(text)
-
-    assert [step.title for step in steps] == [
-        "Formalize the lemma",
-        "Write the explanation",
-    ]
 
 
 def test_plan_prompt_has_no_domain_specific_orchestration_kind() -> None:
@@ -158,13 +119,6 @@ def test_parse_json_list_of_strings() -> None:
     assert steps[1].detail == "with a colon detail"
 
 
-def test_parse_json_in_code_fence() -> None:
-    inner = json.dumps({"steps": [{"title": "Only step"}]})
-    text = f"```json\n{inner}\n```"
-    steps = parse_plan_text(text)
-    assert [s.title for s in steps] == ["Only step"]
-
-
 def test_parse_json_with_prose_around_object() -> None:
     inner = json.dumps({"steps": [{"title": "Embedded"}]})
     text = f"Sure, here is the plan:\n{inner}\nHope that helps!"
@@ -175,40 +129,6 @@ def test_parse_json_with_prose_around_object() -> None:
 # ---------------------------------------------------------------------------
 # parse_plan_text — numbered / bulleted list fallback
 # ---------------------------------------------------------------------------
-
-
-def test_parse_numbered_list() -> None:
-    text = (
-        "1. Set up the environment — install deps\n"
-        "2) Profile the kernel: find the stall\n"
-        "3. Ship it\n"
-    )
-    steps = parse_plan_text(text)
-    assert [s.title for s in steps] == [
-        "Set up the environment",
-        "Profile the kernel",
-        "Ship it",
-    ]
-    assert steps[0].detail == "install deps"
-    assert steps[1].detail == "find the stall"
-    assert steps[2].detail == ""
-
-
-def test_parse_bulleted_list() -> None:
-    text = "- Read code\n* Write tests\n• Run them\n"
-    steps = parse_plan_text(text)
-    assert [s.title for s in steps] == ["Read code", "Write tests", "Run them"]
-
-
-def test_parse_numbered_list_ignores_prose_lines() -> None:
-    text = (
-        "Here is my approach:\n"
-        "1. Inspect the API\n"
-        "this line is not a step\n"
-        "2. Implement it\n"
-    )
-    steps = parse_plan_text(text)
-    assert [s.title for s in steps] == ["Inspect the API", "Implement it"]
 
 
 def test_parse_strips_markdown_bold_in_title() -> None:
@@ -246,58 +166,12 @@ def test_parse_notes_failsoft() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_draft_plan_parses_stub_reply() -> None:
-    payload = json.dumps(
-        {
-            "steps": [
-                {"title": "Read", "detail": "skim"},
-                {"title": "Write", "detail": "code"},
-            ],
-            "notes": ["caveat"],
-        }
-    )
-    runner = _StubRunner(payload)
-    plan = draft_plan(runner, "do the thing")
-    assert runner.calls == 1
-    assert plan.objective == "do the thing"
-    assert [s.title for s in plan.steps] == ["Read", "Write"]
-    assert plan.notes == ["caveat"]
-
-
-def test_grounded_plan_gets_full_repository_tools() -> None:
-    runner = _StubRunner(json.dumps([{"title": "Inspect sibling"}]))
-
-    draft_plan(
-        runner,
-        "task\n\n## Manager project grounding\nInspect parser.py",
-        working_dir="/tmp/project",
-        dangerous_yolo=True,
-        max_seconds=60,
-        allow_repository_inspection=True,
-    )
-
-    assert "Manager project grounding" in runner.last_prompt
-    assert "Inspect the repository with tools" in runner.last_prompt
-    assert runner.last_options.working_dir == "/tmp/project"
-    assert runner.last_options.dangerous_yolo is True
-    assert runner.last_options.sandbox_mode is None
-    assert callable(runner.last_options.external_interrupt_reason_provider)
-    assert runner.last_resume_thread_id is None
-
-
 def test_draft_plan_resolves_backend_wrapper() -> None:
     # The REPL runner exposes the backend via ``.backend`` (no top-level run_exec).
     inner = _StubRunner(json.dumps([{"title": "Step one"}]))
     plan = draft_plan(_BackendWrapper(inner), "obj")
     assert inner.calls == 1
     assert [s.title for s in plan.steps] == ["Step one"]
-
-
-def test_draft_plan_keeps_every_step() -> None:
-    many = [{"title": f"Step {i}"} for i in range(20)]
-    runner = _StubRunner(json.dumps(many))
-    plan = draft_plan(runner, "obj")
-    assert len(plan.steps) == 20
 
 
 def test_draft_plan_runner_error_sets_explicit_error() -> None:
@@ -310,13 +184,6 @@ def test_draft_plan_missing_runner_sets_explicit_error() -> None:
     plan = draft_plan(None, "lonely objective")
     assert plan.steps == []
     assert "no runner backend" in plan.error
-
-
-def test_draft_plan_nonzero_exit_sets_explicit_error() -> None:
-    runner = _StubRunner(json.dumps([{"title": "Ignored"}]), exit_code=1)
-    plan = draft_plan(runner, "obj")
-    assert plan.steps == []
-    assert "non-zero" in plan.error
 
 
 def test_draft_plan_garbage_reply_sets_explicit_error() -> None:

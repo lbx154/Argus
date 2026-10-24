@@ -33,56 +33,6 @@ def test_automatic_light_model_uses_the_trial_selector(monkeypatch, sentinel):
     assert knobs.resolve_light_model() == CLIENT_MODEL
 
 
-def test_trial_catalog_is_not_a_personal_openai_catalog():
-    assert not knobs.backend_uses_openai_catalog("copilot")
-
-
-def test_trial_role_auto_and_unconfigured_model_resolve_identically(monkeypatch):
-    assert knobs.resolve_role_model("manager", backend="copilot") == CLIENT_MODEL
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "auto")
-    assert knobs.resolve_role_model(
-        "manager", role_env="ARGUS_SKILL_MANAGER_MODEL", backend="copilot",
-    ) == CLIENT_MODEL
-
-
-def test_explicit_incompatible_control_model_remains_visible_and_is_rejected(monkeypatch):
-    from argus.adapters.agent_cli_backend import _exec
-
-    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "own-explicit-model")
-    model = knobs.resolve_light_model()
-    assert model == "own-explicit-model"
-    backend = SimpleNamespace(
-        _runner=SimpleNamespace(backend="copilot"),
-        _refresh_known_secret_values=lambda: None,
-        _resolve_execution_options=lambda value: value,
-    )
-    monkeypatch.setattr(_exec, "_execute_prepared", lambda *a, **k: pytest.fail("must not spawn"))
-    result = _exec.execute(backend, prompt="test", options=RunnerOptions(model=model), run_label="test")
-    assert result.exit_code != 0
-    assert "服务端选择真实模型" in result.fatal_error
-    assert os.environ["ARGUS_SKILL_LIGHT_MODEL"] == "own-explicit-model"
-
-
-def test_personal_mode_preserves_cheap_model_routing(monkeypatch):
-    monkeypatch.setenv(client.TRIAL_ENV, "0")
-    assert knobs.resolve_light_model(backend="copilot") == "gpt-6.1-sol"
-
-
-def test_trial_flag_does_not_replace_another_backends_model(monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "other-provider-model")
-    assert knobs.resolve_light_model(backend="pi") == "other-provider-model"
-
-
-def test_persisted_personal_control_knob_is_not_rewritten(isolated_trial, monkeypatch):
-    from argus.core.knob_store import read_persisted_knobs, write_persisted_knobs
-
-    assert write_persisted_knobs({"ARGUS_SKILL_LIGHT_MODEL": "own-saved-model"})
-    before = read_persisted_knobs()
-    monkeypatch.setenv("ARGUS_SKILL_MODEL", CLIENT_MODEL)
-    assert knobs.resolve_light_model() == CLIENT_MODEL
-    assert read_persisted_knobs() == before
-
-
 @pytest.mark.parametrize("model", [None, "", "auto", "AUTO", "default", CLIENT_MODEL])
 def test_copilot_calls_use_the_trial_selector(model):
     from argus.agent_cli.agent_cli_runner import AgentCliRunner

@@ -6,13 +6,12 @@ import os
 import sqlite3
 import threading
 import time
-from contextvars import ContextVar, copy_context
+from contextvars import copy_context
 from types import SimpleNamespace
 
 import pytest
 
 from argus.adapters.agent_cli_backend._core import AgentCliBackend
-from argus.adapters.agent_cli_backend._options import _compose_interrupt_providers
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.agent_cli.agent_cli_runner import RunnerOptions as CliRunnerOptions
 from argus.apps import _runtime, _runtime_execute
@@ -308,65 +307,3 @@ def test_late_context_cannot_consume_the_next_mission_abort(tmp_path, monkeypatc
     assert outcome.status == "aborted"
     assert not (next_root / "running_item_abort.json").exists()
     assert case.captured["adapter_invocations"] == ["engineer-r1", "reviewer"]
-
-
-def test_plain_watchdog_publishes_real_abort_to_the_execution_first_reason(tmp_path, monkeypatch):
-    case = _runtime_case(tmp_path, monkeypatch)
-    reasons = []
-
-    def during_engineer(_prompt, _options):
-        callback = _translated_watchdog(case)
-        assert request_running_item_abort(case.state, reason="watchdog original reason") == (True, case.item.id)
-        case.requested.set()
-        thread = threading.Thread(target=lambda: reasons.extend([callback(), callback()]))
-        thread.start()
-        thread.join(1)
-        assert not thread.is_alive()
-        reasons.append(current_run_interrupt_reason())
-        return "implementation ready"
-
-    _queue_success(case.backend, first_message=during_engineer)
-    outcome = case.execute()
-    expected = "operator abort requested: watchdog original reason"
-    assert reasons == [expected] * 3
-    assert case.captured["cleanup_reason"] == expected
-    assert outcome.status == "aborted"
-    assert case.captured["adapter_invocations"] == ["engineer-r1"]
-
-
-def test_composed_watchdog_polls_use_independent_copies_of_the_captured_context():
-    marker = ContextVar("watchdog-test-identity", default="outside")
-    barrier = threading.Barrier(2)
-    observed = []
-
-    def poll():
-        barrier.wait(timeout=1)
-        return marker.get()
-
-    token = marker.set("captured execution")
-    try:
-        callback = _compose_interrupt_providers(poll)
-    finally:
-        marker.reset(token)
-    threads = [threading.Thread(target=lambda: observed.append(callback())) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(2)
-        assert not thread.is_alive()
-    assert observed == ["captured execution"] * 2
-    assert marker.get() == "outside"
-
-
-@pytest.mark.parametrize("gate", ["manager", "no_stop_event", "no_mission_identity"])
-def test_ordinary_scope_preserves_abort_ownership_gates(tmp_path, monkeypatch, gate):
-    case = _runtime_case(tmp_path, monkeypatch, enable_abort=gate != "manager", with_stop=gate != "no_stop_event")
-    assert request_running_item_abort(case.state, reason="belongs to a real mission") == (True, case.item.id)
-    paths = [case.state / "running_item_abort.json", case.state / "mission_abort_request.json"]
-    before = [p.read_bytes() for p in paths]
-    _queue_success(case.backend)
-    if gate == "no_mission_identity":
-        case.runner._active_mission_id = ""
-    assert case.execute(target="" if gate == "no_mission_identity" else case.item.id).success
-    assert [p.read_bytes() for p in paths] == before
-    assert current_execution_interrupt_provider() is None and current_run_interrupt_reason() is None

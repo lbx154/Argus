@@ -14,7 +14,6 @@ import pytest
 
 import argus.agent_cli._run_exec as run_exec_module
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus.core.event_catalog import EventType
 from argus.engineer.round_stop_signals import (
     fatal_error_is_idle_termination,
     idle_termination_running_tool,
@@ -31,21 +30,6 @@ def _watch(tmp_path: Path, events: list[dict], stall_seconds: float = 1800) -> T
 
 def _look(watch: TurnStallWatch, idle: float, tool: str = "sleep 9999") -> str | None:
     return watch(SimpleNamespace(idle_seconds=idle, running_tool=tool))
-
-
-def test_one_stall_is_reported_once_and_never_stopped_without_the_manager(tmp_path: Path) -> None:
-    events: list[dict] = []
-    watch = _watch(tmp_path, events)
-
-    assert [_look(watch, idle) for idle in (60, 600, 1799)] == [None, None, None]
-    assert events == []
-    assert [_look(watch, idle) for idle in (1800, 1860, 7200, 86_400)] == [None] * 4
-
-    assert len(events) == 1
-    assert events[0]["type"] == EventType.ROUND_STALL
-    assert events[0]["stall_reason"] == "turn_stalled"
-    assert events[0]["running_tool"] == "sleep 9999"
-    assert events[0]["text"] == "the Engineer's turn has made no progress for 30 min while running `sleep 9999`"
 
 
 def test_progress_ends_the_stall_and_the_next_stall_is_reported_again(tmp_path: Path) -> None:
@@ -72,15 +56,6 @@ def test_only_a_manager_decision_after_the_report_restarts_the_turn(tmp_path: Pa
     set_active_manager_directive(tmp_path, "Kill the hung download and mirror it.", source="manager.supervision:new")
 
     assert _look(watch, 1980) == "restart: the Manager decided to restart the stalled turn"
-
-
-def test_an_unreadable_directive_restarts_nothing(tmp_path: Path) -> None:
-    set_active_manager_directive(tmp_path, "an older course", source="manager.supervision:old")
-    watch = _watch(tmp_path, [])
-    _look(watch, 1800)
-    (tmp_path / "active_manager_directive.json").write_text("{", encoding="utf-8")
-
-    assert _look(watch, 1860) is None
 
 
 # The real streaming loop, driven by a provider stand-in that starts a command

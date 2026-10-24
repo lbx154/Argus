@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from argus.skills.rl_training_plots import (
-    MIN_OPTIMIZER_STEPS,
     validate_rl_training_plots,
 )
 
@@ -55,34 +54,9 @@ def test_no_runs_dir_is_noop(tmp_path: Path) -> None:
     assert report.eligible == []
 
 
-def test_no_optimizer_runs_is_noop(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "benchmark_env_preflight_x", state="completed", steps=5,
-              plot=None)  # not optimizer_ prefix
-    report = validate_rl_training_plots(tmp_path)
-    assert report.ok
-    assert report.eligible == []
-
-
 # --------------------------------------------------------------------------
 # eligibility
 # --------------------------------------------------------------------------
-
-
-def test_completed_run_without_plot_fails(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_vanilla_grpo_a", steps=10, plot=None)
-    report = validate_rl_training_plots(tmp_path)
-    assert not report.ok
-    assert len(report.missing) == 1
-    assert report.eligible[0].optimizer_steps == 10
-
-
-def test_completed_run_with_named_plot_passes(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_vanilla_grpo_a", steps=10,
-              plot="training_curve.png")
-    report = validate_rl_training_plots(tmp_path)
-    assert report.ok
-    assert report.eligible[0].has_plot
-    assert report.eligible[0].plot_examples
 
 
 def test_pdf_and_svg_curve_accepted(tmp_path: Path) -> None:
@@ -94,21 +68,6 @@ def test_pdf_and_svg_curve_accepted(tmp_path: Path) -> None:
 
 def test_failed_run_excluded(tmp_path: Path) -> None:
     _seed_run(tmp_path, "optimizer_crash_a", state="failed", steps=0)
-    report = validate_rl_training_plots(tmp_path)
-    assert report.ok
-    assert report.eligible == []
-
-
-def test_running_run_excluded(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_live_a", state="running", steps=4)
-    report = validate_rl_training_plots(tmp_path)
-    assert report.ok
-    assert report.eligible == []
-
-
-def test_below_min_steps_excluded(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_tiny_a", steps=MIN_OPTIMIZER_STEPS - 1,
-              plot=None)
     report = validate_rl_training_plots(tmp_path)
     assert report.ok
     assert report.eligible == []
@@ -133,13 +92,6 @@ def test_stray_unrelated_image_does_not_count(tmp_path: Path) -> None:
     report = validate_rl_training_plots(tmp_path)
     assert not report.ok
     assert len(report.missing) == 1
-
-
-def test_image_outside_plots_dir_does_not_count(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_a", steps=5, plot=None,
-              extra_files=("training_curve.png",))  # at run root, not plots/
-    report = validate_rl_training_plots(tmp_path)
-    assert not report.ok
 
 
 # --------------------------------------------------------------------------

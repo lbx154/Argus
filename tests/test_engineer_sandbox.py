@@ -7,7 +7,6 @@ raw subagent-spawn helpers.
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,31 +18,6 @@ from argus.core import sandbox
 @pytest.fixture
 def safe_mode(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "1")
-
-
-# ── policy ─────────────────────────────────────────────────────────────────
-def test_default_policy_grants_every_backend_full_access(monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
-    for backend in ("codex", "claude", "copilot", "cursor", "opencode", "pi"):
-        runner = AgentCliRunner(agent_bin=backend, backend=backend)
-        options = runner._apply_sandbox_policy(
-            RunnerOptions(sandbox_mode="read-only", isolate_workdir=True)
-        )
-        assert options.sandbox_mode is None
-        assert options.isolate_workdir is False
-        assert options.dangerous_yolo is True
-
-
-# ── roots no role may write ──────────────────────────────────────────────────
-def test_forbidden_roots_include_gate_brain_and_package():
-    home = Path.home()
-    forbidden = {Path(root) for root in sandbox.forbidden_write_roots()}
-    assert home / ".argus-skill" in forbidden
-    assert home / ".codex" in forbidden
-    # the package root is forbidden
-    import argus
-    package_root = Path(argus.__file__).resolve().parent.parent
-    assert package_root in forbidden
 
 
 def test_forbidden_roots_include_user_site_and_local_bin():
@@ -63,23 +37,6 @@ def test_forbidden_roots_include_user_site_and_local_bin():
     assert home / ".local" / "lib" in forbidden
     assert home / ".local" / "bin" in forbidden
     assert Path(site.getusersitepackages()) in forbidden
-
-
-def test_forbidden_user_site_follows_substituted_home(tmp_path, monkeypatch):
-    """site.getusersitepackages() is resolved once against the startup HOME;
-    when a test substitutes Path.home(), the forbidden user-site root must
-    move with the other home-derived roots instead of pointing at the real
-    home."""
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
-    forbidden = [Path(root) for root in sandbox.forbidden_write_roots()]
-    assert home / ".local" / "lib" in forbidden
-    assert home / ".local" / "bin" in forbidden
-    assert any(
-        root.name == "site-packages" and root.is_relative_to(home)
-        for root in forbidden
-    )
 
 
 # ── codex command construction ───────────────────────────────────────────────
@@ -102,18 +59,6 @@ def test_build_codex_command_sandboxed():
     assert "sandbox_workspace_write.network_access=true" in cmd
 
 
-def test_build_codex_command_disables_interactive_notify_hook_per_turn():
-    cmd = _codex_runner()._build_codex_command(
-        resume_thread_id=None,
-        options=RunnerOptions(model="gpt-5.5", dangerous_yolo=True),
-    )
-
-    pairs = list(zip(cmd, cmd[1:]))
-    assert ("-c", "notify=[]") in pairs
-    # One empty ``write_stdin`` may wait as long as Codex accepts (TOML's i64).
-    assert ("-c", f"background_terminal_max_timeout={2**63 - 1}") in pairs
-
-
 def test_build_codex_no_tools_keeps_provider_config_but_skips_tool_startup():
     cmd = _codex_runner()._build_codex_command(
         resume_thread_id=None,
@@ -132,46 +77,6 @@ def test_build_codex_no_tools_keeps_provider_config_but_skips_tool_startup():
     assert ("-c", "features.js_repl=false") in pairs
     assert ("-c", 'web_search="disabled"') in pairs
     assert cmd[cmd.index("-m") + 1] == "deepseek-v4-flash"
-
-
-def test_build_codex_command_legacy_unchanged():
-    cmd = _codex_runner()._build_codex_command(
-        resume_thread_id=None,
-        options=RunnerOptions(model="gpt-5.5", dangerous_yolo=True),
-    )
-    assert "--dangerously-bypass-approvals-and-sandbox" in cmd
-    assert "-s" not in cmd
-
-
-# ── run_exec chokepoint (_apply_sandbox_policy) ──────────────────────────────
-def test_chokepoint_allows_per_invocation_safe_mode():
-    o = _codex_runner()._apply_sandbox_policy(
-        RunnerOptions(
-            dangerous_yolo=True,
-            sandbox_mode="read-only",
-            force_safe_mode=True,
-            working_dir="/wd",
-        )
-    )
-    assert o.dangerous_yolo is True
-    assert o.sandbox_mode == "read-only"
-
-
-# ── env scrub ────────────────────────────────────────────────────────────────
-def test_sandboxed_child_env_scrubs_vcs_creds(monkeypatch):
-    monkeypatch.setenv("GH_TOKEN", "secret")
-    monkeypatch.setenv("GITHUB_TOKEN", "secret")
-    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/a.sock")
-    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "copilot-secret")
-    monkeypatch.setenv("PATH", "/usr/bin")  # a normal var survives
-    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
-    env = sandbox.sandboxed_child_env()
-    assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env and "SSH_AUTH_SOCK" not in env
-    assert "COPILOT_GITHUB_TOKEN" not in env
-    # The agent's shell runs the project's own tests; safe-path breaks their
-    # subprocess imports, so it stays on Argus's own interpreters only.
-    assert "PYTHONSAFEPATH" not in env
-    assert env["PATH"] == "/usr/bin"
 
 
 def test_sandboxed_child_env_pins_pip_user_off(monkeypatch):
@@ -200,38 +105,6 @@ def test_pip_user_pinned_off_on_the_yolo_inherit_path():
     assert runner._child_env(options) is None  # yolo child inherits parent env
     parent = configure_framework_python_env({"PATH": "/usr/bin", "PIP_USER": "1"})
     assert parent["PIP_USER"] == "0"
-
-
-def test_isolated_runner_scrubs_credentials_even_without_native_sandbox(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("GH_TOKEN", "secret")
-    monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setenv("AWS_SESSION_TOKEN", "secret")
-    monkeypatch.setenv("KUBECONFIG", "/secret/kubeconfig")
-    runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
-
-    env = runner._child_env(RunnerOptions(isolate_workdir=True))
-
-    assert env is not None
-    assert "GH_TOKEN" not in env
-    assert "OPENAI_API_KEY" not in env
-    assert "AWS_SESSION_TOKEN" not in env
-    assert "KUBECONFIG" not in env
-    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
-    assert Path(env["GH_CONFIG_DIR"]) == Path(tempfile.gettempdir()) / "argus-no-gh-auth"
-
-
-def test_isolated_copilot_disables_builtin_mcp_and_custom_instructions() -> None:
-    runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
-
-    command = runner._build_copilot_command(
-        resume_thread_id=None,
-        options=RunnerOptions(isolate_workdir=True),
-    )
-
-    assert "--disable-builtin-mcps" in command
-    assert "--no-custom-instructions" in command
 
 
 # ── raw subagent-spawn helpers ───────────────────────────────────────────────

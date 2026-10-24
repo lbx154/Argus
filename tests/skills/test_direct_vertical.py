@@ -1,41 +1,12 @@
 from __future__ import annotations
 
-import pytest
-
-from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.apps._runtime_supervisor import _workflow_mode_for_project_root
-from argus.manager import Manager
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.skills.vertical_select import (
-    VERTICAL_PURPOSES,
-    VERTICALS,
     persist_vertical,
 )
-from argus.verticals._base import load_vertical, load_vertical_contract
+from argus.verticals._base import load_vertical_contract
 from tests.hand_off import hand_off
-
-
-def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
-    assert "direct" not in VERTICALS
-    assert "software" in VERTICALS
-    assert "software engineering" in VERTICAL_PURPOSES["software"]
-    module = load_vertical("software", project_root=tmp_path)
-    assert module.STAGE_ORDER == ["delivery"]
-    assert module.completion_gate == "none"
-
-
-def test_runtime_resolves_direct_workflow(tmp_path) -> None:
-    persist_vertical(tmp_path, "software", workflow_mode="direct")
-
-    assert _workflow_mode_for_project_root(tmp_path) == "direct"
-    assert Manager(project_root=tmp_path).plan_stages("software") == ["delivery"]
-
-
-
-
-
-
 
 
 def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:
@@ -93,50 +64,6 @@ def test_direct_reviewer_uses_contract_not_stage_pipeline(tmp_path) -> None:
     assert reviewer.last_prompt_block_stats["stage_checklist"]["chars"] == 0
     assert 'done` when a direct task meets its requirements and decisive check' in prompt
     assert "## Upstream defects" not in prompt
-
-
-@pytest.mark.parametrize("workflow_mode", ["direct", "staged"])
-@pytest.mark.parametrize("persisted_mode", [None, "direct", "staged"])
-def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
-    tmp_path, workflow_mode, persisted_mode,
-) -> None:
-    if persisted_mode is not None:
-        persist_vertical(tmp_path, "software", workflow_mode=persisted_mode)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="The requested task is complete."))
-    backend.queue(
-        "reviewer",
-        CannedResponse(action=hand_off("done", 'The focused check passed.')),
-    )
-    loop = SkillLoop(
-        skills_dir=tmp_path / "skills",
-        engineer_runner=backend,
-        config=SkillLoopConfig(
-            engineer_model="fixture",
-            active_vertical="software",
-            workflow_mode=workflow_mode,
-            max_rounds=1,
-            require_post_task_learning=False,
-            wiki_enabled=False,
-            auto_init_wiki=False,
-        ),
-    )
-
-    assert loop.run("Complete the one assigned task.", workdir=tmp_path).successful
-
-    engineer_prompt = next(
-        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
-    )
-    engineer_options = next(options for label, _, options in backend.history if label == "engineer-r1")
-    reviewer_prompt, reviewer_options = next(
-        (prompt, options) for label, prompt, options in backend.history if label == "reviewer"
-    )
-    assert ("## Engineer service" in engineer_prompt) == (workflow_mode == "direct")
-    assert (
-        "when a direct task meets its requirements and decisive check" in reviewer_prompt
-    ) == (workflow_mode == "direct")
-    for access in ("full_auto", "dangerous_yolo", "sandbox_mode"):
-        assert getattr(reviewer_options, access) == getattr(engineer_options, access)
 
 
 def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None:

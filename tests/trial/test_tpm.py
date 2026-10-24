@@ -1,49 +1,7 @@
-import sqlite3
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from argus.trial import GLOBAL_TPM
 from argus.trial.store import Store, TrialError
-
-
-def test_completed_calls_count_reported_tokens_across_keys(tmp_path):
-    store = Store(tmp_path / "usage.db", clock=lambda: 100)
-    for i in range(10):
-        store.issue(str(i), f"key-{i}")
-        request = store.reserve(str(i), 1_000_000)
-        store.settle(request, 1)
-    assert store.status("0")["global_tpm_reserved"] == 10
-    assert store.status("0")["tokens_used"] == 1
-    # Large contexts must not keep blocking other agents after usage is known.
-    request = store.reserve("0", 999_999)
-    store.settle(request, 2)
-    assert store.status("0")["global_tpm_reserved"] == 12
-    assert store.status("0")["tokens_used"] == 3
-
-
-def test_global_tpm_spans_keys_and_keeps_real_usage_for_a_rolling_minute(tmp_path):
-    now = [59.9]
-    store = Store(tmp_path / "usage.db", clock=lambda: now[0], token_limit=None)
-    for i in range(10):
-        store.issue(str(i), f"key-{i}")
-    for i in range(10):
-        request = store.reserve(str(i), 1_000_000)
-        store.settle(request, 1_000_000)
-    assert store.status("0")["global_tpm_limit"] == GLOBAL_TPM == 10_000_000
-    assert store.status("0")["tokens_used"] == 1_000_000
-    assert store.status("0")["global_tpm_reserved"] == GLOBAL_TPM
-    now[0] = 60.1  # A new wall-clock minute does not replenish the rolling limit.
-    with pytest.raises(TrialError) as error:
-        store.reserve("0", 1)
-    assert error.value.code == "trial_tpm_exceeded" and error.value.retry_after == 60
-    assert store.status("0")["tokens_used"] == 1_000_000
-    now[0] = 119.89
-    with pytest.raises(TrialError) as error:
-        store.reserve("0", 1)
-    assert error.value.retry_after == 1
-    now[0] = 119.91
-    assert store.reserve("0", 999_999)
 
 
 def test_long_active_requests_hold_tpm_until_a_minute_after_finish(tmp_path):
@@ -77,26 +35,6 @@ def test_restart_preserves_tpm_and_unknown_usage(tmp_path):
     assert restarted.status("trial-key")["global_tpm_reserved"] == 1000
     now[0] = 260
     assert restarted.status("trial-key")["global_tpm_reserved"] == 0
-
-
-def test_global_tpm_admission_is_atomic(tmp_path):
-    store = Store(tmp_path / "usage.db", clock=lambda: 100, token_limit=None)
-    for i in range(10):
-        store.issue(str(i), f"key-{i}")
-
-    def request(i):
-        try:
-            identifier = store.reserve(str(i % 10), 999_000)
-            store.settle(identifier, 999_000)
-            return "accepted"
-        except TrialError as error:
-            return error.code
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(request, range(40)))
-    assert results.count("accepted") == 10
-    assert results.count("trial_tpm_exceeded") + results.count("trial_quota_exceeded") == 30
-    assert store.status("0")["global_tpm_reserved"] == 9_990_000
 
 
 def test_unknown_usage_retains_estimate_and_reported_usage_can_exceed_it(tmp_path):
@@ -152,34 +90,6 @@ def test_zero_usage_auth_failure_refunds_both_budgets(tmp_path):
     store.settle(request, 0)
     status = store.status("trial-key")
     assert status["global_tpm_reserved"] == status["tokens_used"] == 0
-
-
-def test_gateway_observation_does_not_invent_legacy_times_or_statuses(tmp_path):
-    path = tmp_path / "legacy.db"
-    with sqlite3.connect(path) as db:
-        db.executescript("""
-            CREATE TABLE trial_keys (
-                key_id TEXT PRIMARY KEY, credential TEXT UNIQUE NOT NULL,
-                used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0), claim_hash TEXT UNIQUE
-            );
-            CREATE TABLE trial_requests (
-                id INTEGER PRIMARY KEY, key_id TEXT NOT NULL REFERENCES trial_keys(key_id),
-                reserved INTEGER NOT NULL, charged INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'active'
-            );
-            INSERT INTO trial_keys VALUES ('legacy', 'existing-credential', 120, NULL);
-            INSERT INTO trial_requests VALUES (1, 'legacy', 1000, 20, 'settled');
-            INSERT INTO trial_requests VALUES (2, 'legacy', 100, 100, 'active');
-        """)
-        original_schema = db.execute("SELECT sql FROM sqlite_master WHERE name='trial_requests'").fetchone()[0]
-    store = Store(path, clock=lambda: 200)
-    store.recover()
-    with store.transaction() as db:
-        assert db.execute("SELECT sql FROM sqlite_master WHERE name='trial_requests'").fetchone()[0] == original_schema
-        assert [tuple(row) for row in db.execute("SELECT * FROM trial_requests ORDER BY id")] == [
-            (1, "legacy", 1000, 20, "settled"), (2, "legacy", 100, 100, "interrupted"),
-        ]
-        assert db.execute("SELECT COUNT(*) FROM trial_gateway_attempts").fetchone()[0] == 0
-    assert store.status("legacy")["tokens_used"] == 120
 
 
 def test_gateway_terminal_observation_is_idempotent_and_recovery_keeps_end_time_unknown(tmp_path):

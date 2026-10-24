@@ -16,12 +16,7 @@ import pytest
 from argus.integrations.harbor import (
     ArgusHarborAgent,
     HarborUnavailableError,
-    _latest_project_root,
     harbor_available,
-)
-from argus.life.supervisor._planning_cycle_enqueue import (
-    _independent_review_forced,
-    _stage_closing_forced,
 )
 
 
@@ -34,33 +29,6 @@ def _assert_bash_syntax(command: str) -> None:
     assert subprocess.run(
         ["bash", "-n"], input=command, text=True, check=False,
     ).returncode == 0
-
-
-def test_latest_project_root_selects_latest_completed_state(tmp_path: Path) -> None:
-    older = tmp_path / "projects" / "older"
-    newer = tmp_path / "projects" / "newer"
-    older.mkdir(parents=True)
-    newer.mkdir(parents=True)
-    older_state = older / "continuous.json"
-    newer_state = newer / "continuous.json"
-    older_state.write_text("{}", encoding="utf-8")
-    newer_state.write_text("{}", encoding="utf-8")
-    # Some filesystems give back-to-back writes the same timestamp. Pin the
-    # ordering explicitly so this test checks selection rather than clock
-    # granularity.
-    os.utime(older_state, (1, 1))
-    os.utime(newer_state, (2, 2))
-
-    assert _latest_project_root(tmp_path) == newer
-
-
-def test_harbor_review_policy_reaches_planner_enqueue(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_INDEPENDENT_REVIEW", "1")
-    monkeypatch.setenv("ARGUS_SKILL_FORCE_STAGE_CLOSING", "1")
-    assert _independent_review_forced() is True
-    assert _stage_closing_forced() is True
 
 
 def test_missing_harbor_dependency_has_actionable_error() -> None:

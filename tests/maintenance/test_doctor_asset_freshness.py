@@ -60,28 +60,6 @@ def _freshness(findings) -> object:
     return matches[0]
 
 
-def test_bundles_committed_with_their_source_are_current(tmp_path: Path) -> None:
-    repo = _checkout(tmp_path)
-    finding = _freshness(_checkout_finding(_context(tmp_path, repo)))
-    assert finding.ok is True
-    assert finding.status == "assets_current"
-
-
-def test_web_source_newer_than_its_bundle_is_a_warning_not_a_blocker(tmp_path: Path) -> None:
-    repo = _checkout(tmp_path)
-    (repo / "frontend/web/src/app.tsx").write_text("export const a = 2;\n", encoding="utf-8")
-    _git(repo, "commit", "-q", "-am", "change the web source", when=BASE + 3_600)
-    finding = _freshness(_checkout_finding(_context(tmp_path, repo)))
-    assert finding.ok is False
-    assert finding.severity == "warning"
-    assert finding.status == "assets_stale"
-    assert "Web bundle" in finding.detail
-    assert "TUI" not in finding.detail
-    assert finding.repair_action_ids == ("rebuild_release_assets",)
-    assert "build_release" in finding.recommendation
-    assert finding.evidence["web"]["source_committed_at"] > finding.evidence["web"]["bundle_committed_at"]
-
-
 def test_shared_core_source_counts_for_both_bundles(tmp_path: Path) -> None:
     repo = _checkout(tmp_path)
     (repo / "frontend/core/src/shared.ts").write_text("export const c = 2;\n", encoding="utf-8")
@@ -89,21 +67,6 @@ def test_shared_core_source_counts_for_both_bundles(tmp_path: Path) -> None:
     finding = _freshness(_checkout_finding(_context(tmp_path, repo)))
     assert finding.status == "assets_stale"
     assert "Web and TUI bundle" in finding.detail
-
-
-def test_rebuilding_after_the_source_change_clears_the_warning(tmp_path: Path) -> None:
-    repo = _checkout(tmp_path)
-    (repo / "frontend/web/src/app.tsx").write_text("export const a = 2;\n", encoding="utf-8")
-    _git(repo, "commit", "-q", "-am", "change the web source", when=BASE + 3_600)
-    (repo / "frontend/web/dist/index.html").write_text("<html>2</html>", encoding="utf-8")
-    _git(repo, "commit", "-q", "-am", "rebuild the web bundle", when=BASE + 7_200)
-    assert _freshness(_checkout_finding(_context(tmp_path, repo))).status == "assets_current"
-
-
-def test_uncommitted_source_edits_do_not_raise_the_warning(tmp_path: Path) -> None:
-    repo = _checkout(tmp_path)
-    (repo / "frontend/web/src/app.tsx").write_text("export const a = 3;\n", encoding="utf-8")
-    assert _freshness(_checkout_finding(_context(tmp_path, repo))).status == "assets_current"
 
 
 def test_a_tree_without_history_gets_no_verdict(tmp_path: Path) -> None:

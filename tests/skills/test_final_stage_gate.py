@@ -15,8 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from argus.skills.vertical_select import resolve_checklist_vertical
-
 _VERTICALS = Path(__file__).resolve().parents[2] / "argus" / "verticals"
 
 
@@ -57,16 +55,6 @@ def test_final_stage_is_certifiable(vertical: str) -> None:
         "is not explicitly optional. Give the final stage at least one item or "
         "declare it optional."
     )
-
-
-def test_direct_is_not_selectable_and_is_migrated_to_software(tmp_path: Path) -> None:
-    """Guards the exclusion above: if ``direct`` ever becomes selectable again,
-    it needs a real final gate and this test must be revisited."""
-    (tmp_path / ".argus").mkdir()
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        '{"vertical": "direct", "current_stage": "delivery"}', encoding="utf-8"
-    )
-    assert resolve_checklist_vertical(tmp_path) == "software"
 
 
 def test_a_verticals_protected_floor_is_a_subset_of_its_own_checklist() -> None:

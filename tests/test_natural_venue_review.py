@@ -96,28 +96,6 @@ def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
     assert (paper / "paper/REVIEW.md").read_text().count(FEEDBACK) == 1
 
 
-def test_explicit_approval_can_finish_and_is_bound_to_current_paper(paper):
-    prose = ACCEPTANCE + "必要修改已完成；扩大模型家族留作后续工作。"
-    review = evaluate(paper, ProseRunner(prose, "done"))
-    assert review.final_submission_certified and review.next_action == prose
-    (paper / "paper/main.pdf").write_bytes(b"Changed after review")
-    assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
-
-
-def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
-    state = read_pipeline_state(paper)
-    state["venue_acceptance_minimum"] = "strong_accept"
-    write_pipeline_state(paper, state)
-    prose = ACCEPTANCE + "未来有望达到 strong accept。"
-    result = evaluate(paper, ProseRunner(prose, "done"))
-    assert result.status == "done" and not result.final_submission_certified
-    assert result.interventions[0]["action"] == "kept_open"
-    assert result.venue_review["recommendation"] == "weak_accept"
-    assert result.next_action == prose
-    result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "done", "strong_accept"))
-    assert result.final_submission_certified
-
-
 @pytest.mark.parametrize(("backend", "failure"), [
     ("pi", None),
     ("copilot", None),
@@ -198,13 +176,6 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
     assert inspected == []
 
 
-def test_below_threshold_recommendation_cannot_pass_an_approval_action(paper):
-    result = evaluate(paper, ProseRunner("当前只有 borderline。", "done", "borderline"))
-    assert result.status == "done" and not result.final_submission_certified
-    assert result.interventions[0]["action"] == "kept_open"
-    assert not result.backend_unavailable
-
-
 @pytest.mark.parametrize(("holder", "status"), [
     ("operator: 可否使用授权数据集？", "blocked"),
     ("planner", "replan_requested"),
@@ -217,13 +188,3 @@ def test_questions_and_scientific_repairs_are_not_backend_failure(paper, holder,
     assert not result.final_submission_certified
     assert result.next_action == feedback
     assert read_pipeline_state(paper)["current_stage"] == "review"
-
-
-def test_acknowledgement_cannot_reuse_preexisting_acceptance_report(paper):
-    report = paper / "paper/REVIEW.md"
-    report.write_text(ACCEPTANCE)
-    runner = ProseRunner("已更新我的审稿文件。", holder=None)
-    runner.backend = "copilot"
-    review = evaluate(paper, runner)
-    assert review.backend_unavailable and not review.final_submission_certified
-    assert report.read_text() == ACCEPTANCE

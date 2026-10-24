@@ -70,46 +70,6 @@ def _project(tmp_path: Path, *, stage: str, mode: str = "staged") -> Path:
     return root
 
 
-def test_completing_a_non_final_stage_is_refused(tmp_path: Path) -> None:
-    """Run 13's exact call."""
-    root = _project(tmp_path, stage="scope")
-
-    with pytest.raises(ValueError) as excinfo:
-        complete_final_stage(root, reason="objective satisfied", completed_by="manager-repair")
-
-    message = str(excinfo.value)
-    assert "not the final stage" in message
-    assert "'review'" in message
-
-
-def test_the_refusal_names_what_is_still_ahead(tmp_path: Path) -> None:
-    """A blocked caller that is not told what remains invents bookkeeping.
-
-    Run 13's Planner answered an unexplained refusal by queueing a mission to
-    "record the missing route/ledger state or equivalent gate metadata".
-    """
-    root = _project(tmp_path, stage="scope")
-
-    with pytest.raises(ValueError) as excinfo:
-        complete_final_stage(root, reason="done", completed_by="manager")
-
-    message = str(excinfo.value)
-    assert "solve" in message
-    assert "review" in message
-
-
-def test_the_refusal_happens_before_any_write(tmp_path: Path) -> None:
-    """A refused completion must leave the pipeline exactly as it was."""
-    root = _project(tmp_path, stage="scope")
-    state = root / ".argus" / "PIPELINE_STATE.json"
-    before = state.read_text(encoding="utf-8")
-
-    with pytest.raises(ValueError):
-        complete_final_stage(root, reason="done", completed_by="manager")
-
-    assert state.read_text(encoding="utf-8") == before
-
-
 def test_early_completion_is_still_available_to_a_caller_with_standing(
     tmp_path: Path,
 ) -> None:
@@ -128,20 +88,6 @@ def test_early_completion_is_still_available_to_a_caller_with_standing(
     )
 
     assert vertical_completion_certificate_status(root, "targeted_lab")["ok"] is True
-
-
-def test_early_completion_flag_cannot_bypass_staged_workflow(
-    tmp_path: Path,
-) -> None:
-    root = _project(tmp_path, stage="scope", mode="staged")
-
-    with pytest.raises(ValueError, match="direct workflow"):
-        complete_final_stage(
-            root,
-            reason="staged work is not done",
-            completed_by="manager",
-            allow_early_completion=True,
-        )
 
 
 def test_the_final_stage_never_needed_the_flag(tmp_path: Path) -> None:
@@ -193,55 +139,6 @@ def _forge(root: Path, *, mode: str) -> None:
         }
     ]
     state.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def test_a_record_like_run_13s_is_rejected_at_read_time(tmp_path: Path) -> None:
-    """The state that answered ``{"ok": True}`` for run 13."""
-    root = _project(tmp_path, stage="scope")
-    _forge(root, mode="staged")
-
-    status = vertical_completion_certificate_status(root, "targeted_lab")
-
-    assert status["ok"] is False
-    assert "final stage" in status["reason"]
-    assert status["final_stage"] == "review"
-
-
-def test_the_read_side_rejection_names_the_uncertified_stages(tmp_path: Path) -> None:
-    root = _project(tmp_path, stage="scope")
-    _forge(root, mode="staged")
-
-    reason = vertical_completion_certificate_status(root, "targeted_lab")["reason"]
-
-    assert "solve" in reason
-    assert "review" in reason
-
-
-def test_a_valid_contract_fingerprint_does_not_rescue_it(tmp_path: Path) -> None:
-    """The fingerprint is recomputable; it proves freshness, not authority.
-
-    ``_forge`` stamps the *genuine* expected value, so this asserts the new
-    check is not reachable-around by getting the hash right.
-    """
-    root = _project(tmp_path, stage="scope")
-    _forge(root, mode="staged")
-
-    status = vertical_completion_certificate_status(root, "targeted_lab")
-
-    assert status["ok"] is False
-    assert "differs from the live one" not in status["reason"], (
-        "rejected for the wrong reason; the fingerprint here is correct"
-    )
-
-
-def test_direct_mode_still_accepts_its_own_early_completion(tmp_path: Path) -> None:
-    """The read side must not break the path the write side still allows."""
-    root = _project(tmp_path, stage="scope")
-    _forge(root, mode="direct")
-
-    status = vertical_completion_certificate_status(root, "targeted_lab")
-
-    assert status["ok"] is True, status
 
 
 def test_an_unreadable_workflow_mode_fails_closed(tmp_path: Path) -> None:

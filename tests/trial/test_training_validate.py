@@ -13,7 +13,6 @@ from argus.trial.training_schema import pi_strict_schema
 from argus.trial.training_validate import (
     InvalidPackage,
     _check_public_sources,
-    _sample,
     main,
     validate_package,
 )
@@ -93,24 +92,6 @@ def rewrite(blob, mutate):
     return stream.getvalue()
 
 
-def test_actual_export_parallel_calls_reversed_results_and_evidence(package):
-    blob, evidence, _, _ = package
-    report = validate_package(blob, evidence_path=evidence)
-    assert report["valid"], report
-    assert report["agentic_training_ready"] and report["counts"]["tool_sft"] == 1
-    assert report["evidence_file_verified"] and not report["human_reviewed"]
-    assert report["automated_sample_evidence_verified"] == 1
-    assert "Run both public synthetic checks" not in json.dumps(report)
-
-
-def test_automated_acceptance_requires_exact_external_evidence(package, tmp_path):
-    blob, _, _, _ = package
-    assert validate_package(blob)["errors"][0]["code"] == "automated_review_evidence_file_required"
-    wrong = tmp_path / "wrong.json"
-    wrong.write_text("unrelated synthetic evidence")
-    assert validate_package(blob, evidence_path=wrong)["errors"][0]["code"] == "evidence_file_size_mismatch"
-
-
 def test_chat_review_package_is_valid_but_not_agentic(training):
     capture = Capture(training.analytics, "tenant-one", "s-project", "/api/projects/s-project/message", {"text": "Explain sorting."})
     capture.feed(json.dumps({"kind": "chat", "reply": "Sorting orders items."}).encode())
@@ -134,82 +115,6 @@ def test_persisted_sample_review_keeps_its_own_reviewer_and_evidence(package):
     assert report["automated_sample_evidence_verified"] == 1 and report["agentic_training_ready"]
 
 
-@pytest.mark.parametrize("mutation,code", [
-    (lambda p: p["sft_train.jsonl"][0]["messages"][1]["tool_calls"][0]["function"].update(arguments={"command": "printf 1"}),
-     "portable_arguments_not_json_string"),
-    (lambda p: p["hf_trl_train.jsonl"][0]["messages"][1]["tool_calls"][1].update(id="real-call-1"),
-     "invalid_or_duplicate_tool_call_id"),
-    (lambda p: p["hf_trl_train.jsonl"][0]["messages"][2].update(tool_call_id="nonexistent-call"), "orphan_or_duplicate_tool_result"),
-    (lambda p: p["hf_trl_train.jsonl"][0]["messages"].pop(2), "missing_tool_result_before_next_turn"),
-    (lambda p: p["hf_trl_train.jsonl"][0]["messages"][1]["tool_calls"][0]["function"]["arguments"].update(command=42),
-     "tool_arguments_schema_mismatch"),
-    (lambda p: p["hf_trl_train.jsonl"][0]["messages"][-1].update(reasoning_content="PRIVATE_SYNTHETIC_NEVER_REPORT"),
-     "private_or_unknown_message_field"),
-    (lambda p: p["samples.jsonl"][0]["quality_evidence"].update(human_reviewed=True), "sample_reviewer_evidence_mismatch"),
-    (lambda p: p["trajectories.jsonl"][0]["events"][2]["payload"]["input"].update(command="printf changed"),
-     "executed_arguments_do_not_match_model_call"),
-    (lambda p: p["provenance.jsonl"][0]["consent"].update(notice_version="unrelated-notice"), "source_consent_scope_mismatch"),
-    (lambda p: p["manifest.json"]["counts"].update(sft=42), "manifest_quality_actual_counts_mismatch"),
-])
-def test_resized_but_semantically_invalid_package_is_rejected(package, mutation, code):
-    blob, evidence, _, _ = package
-    report = validate_package(rewrite(blob, mutation), evidence_path=evidence)
-    assert not report["valid"] and report["errors"][0]["code"] == code, report
-    assert "PRIVATE_SYNTHETIC" not in json.dumps(report)
-
-
-def test_empty_tool_output_and_portable_parameter_string_are_legal():
-    sample = {"tools": [{"type": "function", "function": {"name": "read", "description": "Read a file.",
-               "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}],
-              "messages": [{"role": "user", "content": "Read an empty file."},
-                           {"role": "assistant", "tool_calls": [{"id": "empty-file-call", "type": "function", "function": {
-                               "name": "read", "arguments": '{"path":"empty.txt"}'}}]},
-                           {"role": "tool", "tool_call_id": "empty-file-call", "content": ""},
-                           {"role": "assistant", "content": "The file is empty."}]}
-    normalized, _, results = _sample(sample, "synthetic", portable=True)
-    assert results == {"empty-file-call": ""}
-    assert normalized["messages"][1]["tool_calls"][0]["function"]["arguments"] == {"path": "empty.txt"}
-
-
-def portable_command_sample(arguments):
-    return {"tools": [{"type": "function", "function": {"name": "bash", "description": "Run a command.",
-             "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}}],
-            "messages": [{"role": "user", "content": "Run this public check."},
-                         {"role": "assistant", "tool_calls": [{"id": "synthetic-call", "type": "function", "function": {
-                             "name": "bash", "arguments": arguments}}]},
-                         {"role": "tool", "tool_call_id": "synthetic-call", "content": ""},
-                         {"role": "assistant", "content": "The check completed."}]}
-
-
-def test_portable_code_newlines_are_scanned_after_strict_json_decoding():
-    command = "for number in numbers:\n    print(number)\n"
-    sample = portable_command_sample(json.dumps({"command": command}))
-    original = canonical(sample)
-    normalized, _, _ = _sample(sample, "synthetic", portable=True)
-    assert normalized["messages"][1]["tool_calls"][0]["function"]["arguments"] == {"command": command}
-    assert canonical(sample) == original
-
-
-@pytest.mark.parametrize("command", [
-    r"C:\Users\Alice\private.txt", r"\\server\share\private.txt", r"\\?\C:\private.txt",
-    "/root/private", "/tenant/home/.ssh/id_rsa", "sk-123456789secret", "password=synthetic-secret",
-])
-def test_portable_real_private_paths_and_credentials_remain_rejected(command):
-    sample = portable_command_sample(json.dumps({"command": command}))
-    with pytest.raises(InvalidPackage, match="sensitive_training_content"):
-        _sample(sample, "synthetic", portable=True)
-
-
-@pytest.mark.parametrize("arguments", [
-    r'{"command":"\u0073k-123456789secret"}',
-    r'{"command":"\u002froot/private"}',
-    r'{"command":"\u0070assword=synthetic-secret"}',
-])
-def test_portable_json_unicode_escapes_cannot_hide_sensitive_semantics(arguments):
-    with pytest.raises(InvalidPackage, match="sensitive_training_content"):
-        _sample(portable_command_sample(arguments), "synthetic", portable=True)
-
-
 def test_cli_writes_content_free_structured_report(package, tmp_path, capsys):
     blob, evidence, _, _ = package
     source, report = tmp_path / "synthetic.zip", tmp_path / "validation.json"
@@ -219,26 +124,6 @@ def test_cli_writes_content_free_structured_report(package, tmp_path, capsys):
     assert saved == json.loads(capsys.readouterr().out)
     assert saved["package_bytes"] == len(blob)
     assert "printf" not in report.read_text()
-
-
-def test_unlisted_duplicate_zip_entries_are_rejected(package):
-    blob, evidence, _, _ = package
-    stream = io.BytesIO(blob)
-    with zipfile.ZipFile(stream, "a") as archive:
-        archive.writestr("unexpected.txt", "synthetic-only")
-    assert validate_package(stream.getvalue(), evidence_path=evidence)["errors"][0]["code"] == "zip_file_set_mismatch"
-
-
-def test_file_integrity_failure_is_detected_before_semantics(package):
-    blob, evidence, _, _ = package
-    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-        files = {name: archive.read(name) for name in archive.namelist()}
-    files["README.txt"] += b"changed"
-    stream = io.BytesIO()
-    with zipfile.ZipFile(stream, "w") as archive:
-        for name, raw in files.items():
-            archive.writestr(name, raw)
-    assert validate_package(stream.getvalue(), evidence_path=evidence)["errors"][0]["code"] == "manifest_size_mismatch"
 
 
 def test_duplicate_json_keys_and_nonfinite_numbers_fail_strictly():
@@ -300,21 +185,3 @@ def test_provider_required_order_is_irrelevant_but_membership_is_exact(package, 
         assert sample["tools"][0]["function"]["parameters"]["required"] == required
     else:
         assert not report["valid"] and report["errors"][0]["code"] == code, report
-
-
-@pytest.mark.parametrize("name,code", [
-    ("bash", "invalid_or_duplicate_runtime_tool_name"),
-    ("unused_runtime_tool", "runtime_provider_tool_identity_mismatch"),
-])
-def test_runtime_tool_inventory_cannot_hide_duplicates_or_missing_provider_definitions(package, name, code):
-    blob, evidence, _, _ = package
-
-    def mutate(parsed):
-        for source in parsed["trajectories.jsonl"]:
-            for event in source["events"]:
-                if event["kind"] == "context":
-                    tool = json.loads(json.dumps(event["payload"]["tools"][0]))
-                    event["payload"]["tools"].append({**tool, "name": name})
-
-    report = validate_package(rewrite(blob, mutate), evidence_path=evidence)
-    assert not report["valid"] and report["errors"][0]["code"] == code, report

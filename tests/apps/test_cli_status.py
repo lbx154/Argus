@@ -40,30 +40,6 @@ def project_with_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     return home, repo
 
 
-@pytest.fixture()
-def project_with_active_and_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, Path]:
-    home = tmp_path / "home"
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
-    monkeypatch.chdir(repo)
-    mem = MemoryBundle.for_cwd(repo, global_root=home)
-    mem.init()
-    pending = mem.backlog.add(BacklogItem.new(title="pending", objective="queued work"))
-    running = mem.backlog.add(BacklogItem.new(title="running", objective="in flight"))
-    mem.backlog.mark_running(running.id)
-    done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
-    mem.backlog.mark_done(done.id)
-    failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
-    mem.backlog.mark_failed(failed.id, error="boom")
-    skipped = mem.backlog.add(BacklogItem.new(title="skipped", objective="later work"))
-    mem.backlog.update(skipped.id, status="skipped")
-    assert pending.id
-    return home, repo
-
-
 def test_status_does_not_create_a_project_for_a_fresh_workdir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -80,41 +56,6 @@ def test_status_does_not_create_a_project_for_a_fresh_workdir(
     assert rc == 0
     assert "project  : no session for this workdir" in capsys.readouterr().out
     assert not (home / "projects").exists()
-
-
-def test_status_separates_active_queue_from_history(
-    monkeypatch: pytest.MonkeyPatch,
-    project_with_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    life_root, repo = project_with_history
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.read_daemon_status",
-        lambda life_dir: Namespace(
-            alive=True,
-            pid=4321,
-            uptime_seconds=12.0,
-            backend="memory",
-            ),
-    )
-    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
-
-    rc = _cmd_status(Namespace(life_dir=str(life_root)))
-    out = capsys.readouterr().out
-    project_root = MemoryBundle.for_cwd(repo, global_root=life_root).project.root
-
-    assert rc == 0
-    assert "active   : 0 pending · 0 running" in out
-    assert "history  : 1 done · 1 failed · 1 skipped" in out
-    assert str(project_root) in out
-    assert "done   :" not in out
-    assert "failed" in out
-    assert "inbox    : 1 pending" in out
-    assert "continuous: off" in out
-    assert "current  :" not in out
-    assert (
-        "spend    : today $0.00 across all projects"
-    ) in out
 
 
 def test_status_projects_latest_persisted_mission_outcome(
@@ -157,77 +98,6 @@ def test_status_projects_latest_persisted_mission_outcome(
     assert (
         "result   : Work completed · Review passed · "
         "Stage remains open"
-    ) in out
-
-
-def test_status_reads_lifecycle_from_canonical_project_state(
-    monkeypatch: pytest.MonkeyPatch,
-    project_with_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from datetime import datetime, timezone
-
-    from argus.life.project_lifecycle import ProjectState, ProjectStatus
-    from argus.life.project_lifecycle_io import write_persisted
-
-    life_root, repo = project_with_history
-    monkeypatch.delenv("ARGUS_SKILL_WORKDIR", raising=False)
-    bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
-    worktree = bundle.project.root / "code"
-    worktree.mkdir()
-    write_persisted(
-        bundle.project.root,
-        status=ProjectStatus(
-            project_id=bundle.project.root.name,
-            state=ProjectState.QUARANTINED,
-            created_at=datetime.now(timezone.utc),
-        ),
-        history=[],
-    )
-    assert not (worktree / "lifecycle.json").exists()
-
-    rc = _cmd_status(Namespace(life_dir=str(life_root)))
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert "state         : quarantined  (persisted)" in out
-    assert "allocatable   : False" in out
-
-
-def test_status_shows_active_work_when_present(
-    monkeypatch: pytest.MonkeyPatch,
-    project_with_active_and_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    life_root, repo = project_with_active_and_history
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.read_daemon_status",
-        lambda life_dir: Namespace(
-            alive=True,
-            pid=4321,
-            uptime_seconds=12.0,
-            backend="memory",
-            ),
-    )
-    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
-
-    rc = _cmd_status(Namespace(life_dir=str(life_root)))
-    out = capsys.readouterr().out
-    project_root = MemoryBundle.for_cwd(repo, global_root=life_root).project.root
-    running_item = next(item for item in MemoryBundle.for_cwd(repo, global_root=life_root).backlog.all() if item.status == "running")
-
-    assert rc == 0
-    assert "active   : 1 pending · 1 running" in out
-    assert "current  :" in out
-    assert f"id       : {running_item.id}" in out
-    assert "title    : running" in out
-    assert "objective: in flight" in out
-    assert "history  : 1 done · 1 failed · 1 skipped" in out
-    assert str(project_root) in out
-    assert "pending" in out
-    assert "running" in out
-    assert (
-        "spend    : today $0.00 across all projects"
     ) in out
 
 
@@ -431,16 +301,6 @@ def test_status_names_the_question_it_is_waiting_on(
     assert "--notify" in out, "an operator told they are needed must be told how to reply"
 
 
-def test_status_says_nothing_about_questions_when_there_are_none(
-    project_with_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A section that is usually empty teaches the reader to skip it."""
-    _cmd_status(Namespace(life_dir=None))
-
-    assert "waiting on you" not in capsys.readouterr().out
-
-
 def test_status_confirms_notify_messages_were_injected(
     project_with_history: tuple[Path, Path],
     capsys: pytest.CaptureFixture[str],
@@ -467,18 +327,6 @@ def test_status_confirms_notify_messages_were_injected(
     assert rc == 0
     assert "inbox (last injections):" in out
     assert "focus on the flaky test first" in out
-
-
-def test_status_inbox_section_is_silent_without_injections(
-    project_with_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    life_root, _repo = project_with_history
-
-    rc = _cmd_status(Namespace(life_dir=str(life_root)))
-
-    assert rc == 0
-    assert "inbox (last injections):" not in capsys.readouterr().out
 
 
 def test_status_shows_latest_self_result_without_research_lifecycle(

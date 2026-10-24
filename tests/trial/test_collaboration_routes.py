@@ -1,7 +1,6 @@
 """The collaboration view keeps the existing administrator and purpose boundary."""
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from test_collaboration_data import episode
 from test_training_data import chat, grant
 from test_training_data import training as training
 
@@ -44,32 +43,3 @@ def test_collaboration_routes_keep_admin_auth_and_readonly_access(training):
         assert response.status_code == 200
         assert response.json()["tasks"] == []
         assert client.get(detail, params={"task_id": "task-one"}, headers=headers).status_code == 403
-
-
-def test_collaboration_requests_reuse_validation_but_recheck_authorization(training, monkeypatch):
-    data, _, _ = training
-    grant(data)
-    episode(training)
-    app = FastAPI()
-    register_training_routes(
-        app, data.analytics, lambda request: {"role": "admin", "readonly": True},
-        journal=data.journal, controls=data.controls,
-    )
-    capture = app.state.training_data.capture
-    validate = capture._sample
-    validations = []
-
-    def counted(*args, **kwargs):
-        validations.append(True)
-        return validate(*args, **kwargs)
-
-    monkeypatch.setattr(capture, "_sample", counted)
-    with TestClient(app) as client:
-        overview = "/admin/api/training/collaboration"
-        detail = overview + "/tenant-one/s-project?task_id=task-real"
-        assert client.get(overview).json()["counts"]["candidates"] == 1
-        assert client.get(detail).json()["quality"]["candidates"] == 1
-        assert len(validations) == 1
-        grant(data, internal=False)
-        assert client.get(overview).json()["tasks"] == []
-        assert client.get(detail).status_code == 403

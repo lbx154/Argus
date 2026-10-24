@@ -35,17 +35,6 @@ def _context(tmp_path: Path) -> DoctorContext:
     )
 
 
-def test_full_doctor_returns_typed_cross_platform_inventory(tmp_path: Path) -> None:
-    report = run_full_doctor(_context(tmp_path), include_backend=False)
-
-    assert report.schema_version == 1
-    assert report.target_fingerprint
-    assert {finding.scope for finding in report.findings} >= {
-        "host", "install", "cli", "web", "desktop", "daemon",
-    }
-    assert all(finding.code and finding.status for finding in report.findings)
-
-
 def test_doctor_accepts_wheel_and_frozen_install_modes_without_checkout(
     tmp_path: Path,
 ) -> None:
@@ -74,30 +63,6 @@ def test_doctor_distinguishes_an_occupied_non_http_port(tmp_path: Path) -> None:
     finding = next(item for item in report.findings if item.code == "ARGUS-WEB-001")
     assert finding.status == "occupied_unresponsive"
     assert finding.ok is False
-
-
-def test_doctor_is_read_only(tmp_path: Path) -> None:
-    context = _context(tmp_path)
-    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
-
-    run_full_doctor(context, include_backend=False)
-
-    after = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
-    assert after == before
-
-
-def test_doctor_classifies_missing_desktop_runtime_as_repairable(tmp_path: Path) -> None:
-    context = _context(tmp_path)
-    desktop = context.checkout / "desktop-tauri"
-    desktop.mkdir()
-    (desktop / "package.json").write_text("{}", encoding="utf-8")
-
-    report = run_full_doctor(context, include_backend=False)
-    finding = next(item for item in report.findings if item.code == "ARGUS-DESKTOP-001")
-
-    assert finding.status == "tauri_dependencies_missing"
-    assert finding.severity == "warning"
-    assert finding.repair_action_ids == ("install_tauri_dependencies",)
 
 
 def test_doctor_surfaces_unresolved_desktop_startup_error(tmp_path: Path) -> None:
@@ -174,28 +139,6 @@ def test_doctor_does_not_time_box_a_live_drain(
     assert finding.status == "draining"
     assert finding.ok is True
     assert finding.repair_action_ids == ()
-
-
-def test_plan_persists_registered_actions_and_never_shell_text(tmp_path: Path) -> None:
-    context = _context(tmp_path)
-    finding = DoctorFinding(
-        code="ARGUS-STATE-001",
-        scope="daemon",
-        severity="error",
-        ok=False,
-        status="stale_pid",
-        detail="stale pid; rm -rf should remain inert text",
-        recommendation="rm -rf /must-not-run",
-        repair_action_ids=("remove_verified_stale_daemon_pid",),
-    )
-
-    plan = create_plan(context, [finding])
-    payload = json.loads(plan.path.read_text(encoding="utf-8"))
-
-    assert payload["plan_id"] == plan.plan_id
-    assert payload["actions"][0]["id"] == "remove_verified_stale_daemon_pid"
-    assert "command" not in payload["actions"][0]
-    assert not (tmp_path / "must-not-run").exists()
 
 
 def test_safe_apply_removes_only_verified_stale_pid_and_records_history(

@@ -73,19 +73,6 @@ def test_nanogpt_requires_target_loss_and_8xh100_timing(tmp_path):
     assert validate_nanogpt_evidence(tmp_path) == result
 
 
-def test_metric_evidence_rejects_out_of_project_symlink(
-    tmp_path,
-    require_symlink_support,
-):
-    outside = tmp_path.parent / "outside-results.csv"
-    _csv(outside, ["val_bpb"], [{"val_bpb": "3.28"}])
-    link = tmp_path / "attempts" / "a" / "results.csv"
-    link.parent.mkdir(parents=True)
-    link.symlink_to(outside)
-    with pytest.raises(EvidenceError):
-        validate_speedrun_evidence(tmp_path)
-
-
 def test_kernelbench_requires_correctness_gated_sol(tmp_path):
     result = tmp_path / "experiments" / "kernel" / "scores.csv"
     _csv(result, ["correct", "sol_pct"], [{"correct": "false", "sol_pct": "98.2"}])

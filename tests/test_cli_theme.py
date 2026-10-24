@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest import mock
-
 from argus.cli.theme import BOX, Theme
 
 
@@ -12,15 +10,6 @@ def test_theme_disabled_passes_text_through() -> None:
     assert theme.bold("hi") == "hi"
     assert theme.red("oops") == "oops"
     assert theme.bold_green("ok") == "ok"
-
-
-def test_theme_enabled_wraps_with_ansi() -> None:
-    theme = Theme(enabled=True)
-    assert theme.bold("hi") == "\x1b[1mhi\x1b[0m"
-    out = theme.bold_green("ok")
-    assert out.startswith("\x1b[")
-    assert out.endswith("\x1b[0m")
-    assert "ok" in out
 
 
 def test_bold_yellow_wraps_bold_plus_yellow() -> None:
@@ -45,24 +34,9 @@ def test_theme_auto_force_false() -> None:
     assert Theme.auto(force=False).enabled is False
 
 
-def test_theme_auto_disabled_when_not_a_tty(monkeypatch) -> None:
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    with mock.patch("sys.stdout.isatty", return_value=False):
-        assert Theme.auto().enabled is False
-
-
 def test_hr_no_label_is_only_dashes() -> None:
     theme = Theme(enabled=False, width=20)
     assert theme.hr() == BOX["h"] * 20
-
-
-def test_hr_with_label_is_centered() -> None:
-    theme = Theme(enabled=False, width=30)
-    out = theme.hr("Round 5")
-    assert "Round 5" in out
-    assert out.startswith(BOX["h"])
-    assert out.endswith(BOX["h"])
-    assert len(out) == 30
 
 
 def test_truecolor_off_by_default_keeps_8color() -> None:

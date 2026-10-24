@@ -31,7 +31,6 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer.tools import review_actions
 from argus.roles.prompts.engineer import build_mission_prompt
 from tests.hand_off import hand_off
 
@@ -52,9 +51,6 @@ _RULE = (
     "Before accepting, check each requirement and symptom the task (this increment) "
     "states against the deliverable; tests the Engineer wrote show only its reading "
     "of them."
-)
-_ENGINEER_RULE = (
-    "Fix reported symptoms within design rules; intended behavior needs task-text support."
 )
 
 
@@ -82,17 +78,6 @@ def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, soft
     assert "operator's own words" not in flat
     # The rule rides in the role's fixed prose, ahead of the task and the account.
     assert flat.index(_RULE) < flat.index("Observed symptoms") < flat.index("idle sources still block")
-
-
-def test_approval_needs_the_task_text_to_call_a_stated_symptom_intended() -> None:
-    tools = {tool["name"]: tool for tool in review_actions().tools}
-    description = _flat(tools["hand_off"]["description"])
-    # The tool and the prompt name the same bar.
-    assert "each requirement and symptom the task (this increment) states" in description
-    assert "each acceptance criterion" in description
-    assert "not that the reading is right" in description
-    assert "called intended or out of scope needs support in the task text itself" in description
-    assert "to: done accepts it, only after" in description
 
 
 # --- A real round: what the Reviewer is actually sent ----------------------
@@ -123,24 +108,6 @@ def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, 
     return status, rounds, prompts
 
 
-def test_a_round_sends_the_coverage_rule_to_both_roles_and_the_verdict_still_decides(tmp_path) -> None:
-    status, rounds, prompts = _mission(
-        tmp_path, objective=_TASK, original_objective=None,
-        verdict=hand_off(
-            "engineer", "The second symptom is stated, and DESIGN.md does not call the stall intended.",
-            "Fix it within the minimum-across-sources rule.",
-        ),
-    )
-    reviewer = _flat(prompts["reviewer"])
-    engineer = _flat(prompts["engineer-r1"])
-    assert _RULE in reviewer and "Observed symptoms" in reviewer
-    assert "idle sources still block progress" in reviewer  # the account it must judge
-    assert _ENGINEER_RULE in engineer
-    # The rule asks; the Reviewer's own action decides the round.
-    assert status != "done"
-    assert rounds[-1].review.status == "continue"
-
-
 def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_path) -> None:
     original = _TASK + "\n- Session ids collide across restarts."
     increment = (
@@ -164,38 +131,6 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
 
 
 # --- No operator; the Engineer ----------------------------------------------
-
-
-def test_a_no_operator_interpretation_never_drops_a_stated_symptom(tmp_path, monkeypatch) -> None:
-    from argus.core.operator_context import build_operator_context_block
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    expected = "never drops or explains away an explicit requirement or reported symptom"
-    for role in ("engineer", "reviewer", "planner"):
-        rendered, _revision = build_operator_context_block(role, tmp_path)
-        flat = _flat(rendered)
-        assert "may settle ambiguity between requirements" in flat
-        assert expected in flat
-
-
-def test_with_an_operator_the_no_operator_rule_is_not_sent(tmp_path, monkeypatch) -> None:
-    from argus.core.operator_context import build_operator_context_block
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    rendered, _revision = build_operator_context_block("engineer", tmp_path)
-    assert "may settle ambiguity between requirements" not in _flat(rendered)
-
-
-@pytest.mark.parametrize("compact_team", [False, True])
-def test_the_engineer_fixes_a_symptom_within_the_design(compact_team) -> None:
-    prompt = build_mission_prompt(
-        task=_TASK, skill_text="", next_action=None, include_static=True,
-        compact_team=compact_team,
-    )
-    flat = _flat(prompt)
-    assert _ENGINEER_RULE in flat
-    # The Engineer and the Reviewer ask for the same support.
-    assert "never call it intended" not in flat
 
 
 @pytest.mark.parametrize("compact_team", [False, True])

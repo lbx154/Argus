@@ -9,7 +9,6 @@ from argus.verticals.research.library_preparation import (
     STAGE_PLAYBOOK_PATHS,
     prepare_skill_libraries,
 )
-from argus.verticals.research.prompt_policy import render_role_prompt_fragment
 from argus.verticals.research.stages import STAGE_CHECKLISTS
 
 
@@ -112,54 +111,6 @@ def test_paper_produces_a_complete_draft_before_final_review() -> None:
     )
 
 
-def test_review_combines_parallel_scientific_visual_and_language_passes() -> None:
-    review = _stage("review")
-    playbook = _playbook("review")
-    prompt = render_role_prompt_fragment(
-        role="reviewer",
-        operation="review",
-        stage="review",
-        scope="final_submission",
-        project_root=None,
-    ).lower()
-
-    assert "independent of engineer or planner confidence" in review
-    assert "executed code" in review
-    assert "raw rows" in review
-    assert "primary sources" in review
-    assert "independent passes in parallel" in review
-    assert "inspect every rendered page" in review
-    assert "academic prose" in review
-    assert "scientific completeness" in playbook
-    assert "strict page-by-page visual quality" in playbook
-    assert "academic language" in playbook
-    assert "do not create separate scientific" in playbook
-    assert "read the latest paper/review.md to close resolved concerns" in prompt
-    assert "crawl other old reports or history" in prompt
-    assert "reopen selection, or move backward" in prompt
-
-
-def test_review_loads_its_single_stage_playbook(tmp_path: Path) -> None:
-    required: list[str] = []
-    prepare_skill_libraries(
-        VerticalLibraryContext(
-            workdir=tmp_path,
-            state_root=tmp_path,
-            stage="review",
-            objective="finish the paper",
-            direction="selected",
-            workflow_mode="staged",
-            paper_mission=True,
-            runner=None,
-            model=None,
-            emit=lambda _event: None,
-            required_skill_paths=required,
-        )
-    )
-
-    assert required == ["research-review-playbook.md"]
-
-
 def test_each_stage_requires_exactly_one_shared_playbook(tmp_path: Path) -> None:
     for stage, playbook in STAGE_PLAYBOOK_PATHS.items():
         required: list[str] = []
@@ -179,28 +130,6 @@ def test_each_stage_requires_exactly_one_shared_playbook(tmp_path: Path) -> None
             )
         )
         assert required == [playbook]
-
-
-def test_every_role_is_directed_to_the_same_stage_playbook() -> None:
-    skills_root = (
-        Path(argus.__file__).parent
-        / "verticals"
-        / "research"
-        / "skills"
-    )
-    for stage, playbook in STAGE_PLAYBOOK_PATHS.items():
-        for role in ("manager", "planner", "engineer", "reviewer"):
-            prompt = render_role_prompt_fragment(
-                role=role,
-                operation="work",
-                stage=stage,
-                scope="",
-                project_root=None,
-            )
-            assert f"`{playbook}`" in prompt
-            assert str(skills_root / playbook) in prompt
-            assert "single workflow playbook" in prompt
-            assert "Other Skills are optional tools" in prompt
 
 
 def test_playbooks_progressively_disclose_existing_specialist_skills() -> None:

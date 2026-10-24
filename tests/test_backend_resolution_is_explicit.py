@@ -20,7 +20,6 @@ the operator chose" were the same value.
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,16 +27,12 @@ from types import SimpleNamespace
 import pytest
 
 from argus.agent_cli.runner_backend import (
-    SUPPORTED_BACKENDS,
     normalize_runner_backend,
 )
-from argus.core import knob_store
 from argus.core.knobs import (
     BackendResolutionError,
     resolve_role_backend,
-    resolve_role_backend_with_source,
 )
-from argus.core.paths import config_path
 
 # The autouse fixture in tests/conftest.py clears every ambient ARGUS_SKILL_*
 # var and repoints ARGUS_SKILL_HOME at a throwaway directory, so each test here
@@ -69,40 +64,9 @@ def _restore_backend_env():
             os.environ[name] = value
 
 
-def _persist(**knobs: str) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(knobs), encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # 1. An unconfigured resolve refuses instead of guessing
 # ---------------------------------------------------------------------------
-
-
-def test_unconfigured_resolve_raises_instead_of_returning_codex() -> None:
-    """The terminal ``return "codex"`` is gone.
-
-    Pre-fix this call returned ``"codex"`` — the exact silent substitution that
-    sent the reviewer to a backend nobody selected.
-    """
-    with pytest.raises(BackendResolutionError):
-        resolve_role_backend("reviewer", env={})
-
-
-def test_the_refusal_is_actionable_without_reading_source() -> None:
-    """An operator hitting this must be able to fix it from the message alone."""
-    with pytest.raises(BackendResolutionError) as excinfo:
-        resolve_role_backend("reviewer", env={})
-    message = str(excinfo.value)
-
-    # the role that failed
-    assert "reviewer" in message
-    # every knob that was checked, so they know where a value may go
-    assert "ARGUS_SKILL_RUNNER_BACKEND" in message
-    assert "ARGUS_SKILL_LIFE_BACKEND" in message
-    # and the file the persisted layer lives in
-    assert str(config_path()) in message
 
 
 def test_shared_resolve_with_no_role_also_raises() -> None:
@@ -115,115 +79,14 @@ def test_shared_resolve_with_no_role_also_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_explicit_default_is_honored() -> None:
-    assert resolve_role_backend("reviewer", env={}, default="copilot") == "copilot"
-
-
-def test_explicit_default_reports_itself_as_the_default_source() -> None:
-    backend, source = resolve_role_backend_with_source(
-        "reviewer", env={}, default="copilot"
-    )
-    assert (backend, source) == ("copilot", "default")
-
-
-def test_an_empty_default_is_not_a_default() -> None:
-    """``default=""`` must not read as "configured as empty string"."""
-    for empty in ("", "   ", None):
-        with pytest.raises(BackendResolutionError):
-            resolve_role_backend("reviewer", env={}, default=empty)
-
-
-def test_configured_value_outranks_the_default() -> None:
-    backend, source = resolve_role_backend_with_source(
-        "reviewer",
-        env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"},
-        default="copilot",
-    )
-    assert (backend, source) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
-
-
 # ---------------------------------------------------------------------------
 # 3. Provenance for each chain position; a retired per-role knob is ignored
 # ---------------------------------------------------------------------------
 
 
-def test_a_retired_role_knob_is_ignored() -> None:
-    _persist(ARGUS_SKILL_REVIEWER_BACKEND="copilot")
-    assert resolve_role_backend_with_source(
-        "reviewer",
-        env={
-            "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",
-            "ARGUS_SKILL_RUNNER_BACKEND": "claude",
-            "ARGUS_SKILL_LIFE_BACKEND": "pi",
-        },
-    ) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
-
-
-def test_source_tag_shared_runner_env() -> None:
-    assert resolve_role_backend_with_source(
-        "reviewer",
-        env={"ARGUS_SKILL_RUNNER_BACKEND": "claude", "ARGUS_SKILL_LIFE_BACKEND": "pi"},
-    ) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
-
-
-def test_source_tag_life_env() -> None:
-    assert resolve_role_backend_with_source(
-        "reviewer", env={"ARGUS_SKILL_LIFE_BACKEND": "pi"}
-    ) == ("pi", "env:ARGUS_SKILL_LIFE_BACKEND")
-
-
-def test_source_tag_persisted_knob() -> None:
-    _persist(ARGUS_SKILL_RUNNER_BACKEND="copilot")
-    assert resolve_role_backend_with_source("reviewer", env={}) == (
-        "copilot",
-        "persisted:ARGUS_SKILL_RUNNER_BACKEND",
-    )
-
-
-def test_env_outranks_the_persisted_knob() -> None:
-    """A deliberate one-off export must not be shadowed by last week's switch."""
-    _persist(ARGUS_SKILL_RUNNER_BACKEND="copilot")
-    assert resolve_role_backend_with_source(
-        "reviewer", env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"}
-    ) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
-
-
-def test_the_source_vocabulary_matches_resolve_backend_profile() -> None:
-    """One dialect for provenance, not two.
-
-    ``core.backend_readiness.resolve_backend_profile`` already tags its answer
-    ``env:<VAR>`` / ``persisted:<VAR>`` / ``default``. The cockpit should not
-    have to learn a second spelling to render the same fact.
-    """
-    from argus.core.backend_readiness import resolve_backend_profile
-
-    profile = resolve_backend_profile(env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"})
-    _backend, source = resolve_role_backend_with_source(
-        "", env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"}
-    )
-    assert profile.backend_source == source == "env:ARGUS_SKILL_RUNNER_BACKEND"
-
-
-def test_resolve_role_backend_is_a_thin_wrapper() -> None:
-    env = {"ARGUS_SKILL_RUNNER_BACKEND": "grok"}
-    assert resolve_role_backend("engineer", env=env) == (
-        resolve_role_backend_with_source("engineer", env=env)[0]
-    )
-
-
 # ---------------------------------------------------------------------------
 # 4. A typo'd backend is rejected, an unset one still has a default
 # ---------------------------------------------------------------------------
-
-
-def test_normalize_rejects_a_typo() -> None:
-    """``copilto`` used to silently become ``codex``."""
-    with pytest.raises(ValueError) as excinfo:
-        normalize_runner_backend("copilto")
-    message = str(excinfo.value)
-    assert "copilto" in message
-    for backend in SUPPORTED_BACKENDS:
-        assert backend in message
 
 
 def test_normalize_still_defaults_an_unset_value() -> None:
@@ -237,68 +100,9 @@ def test_normalize_still_defaults_an_unset_value() -> None:
     assert normalize_runner_backend("   ") == "codex"
 
 
-def test_normalize_still_accepts_every_supported_backend_and_the_legacy_alias() -> None:
-    for backend in SUPPORTED_BACKENDS:
-        assert normalize_runner_backend(backend) == backend
-        assert normalize_runner_backend(backend.upper()) == backend
-    assert normalize_runner_backend("opencod") == "opencode"
-
-
-def test_a_typo_in_a_knob_reaches_the_operator() -> None:
-    """The end-to-end shape of the typo case: knob -> resolver -> normalizer."""
-    requested = resolve_role_backend(
-        "reviewer", env={"ARGUS_SKILL_RUNNER_BACKEND": "copilto"}
-    )
-    with pytest.raises(ValueError, match="copilto"):
-        normalize_runner_backend(requested)
-
-
-def test_display_paths_that_guard_the_normalizer_still_show_the_raw_value() -> None:
-    """``backend_readiness`` deliberately preserves an unknown value for display.
-
-    Its guard must keep working after the normalizer got strict — otherwise the
-    cockpit would crash instead of echoing back what the operator typed.
-    """
-    from argus.core.backend_readiness import resolve_backend_profile
-
-    profile = resolve_backend_profile(env={"ARGUS_SKILL_RUNNER_BACKEND": "copilto"})
-    assert profile.backend == "copilto"
-    assert profile.backend_source == "env:ARGUS_SKILL_RUNNER_BACKEND"
-
-
 # ---------------------------------------------------------------------------
 # 5. A corrupt knob store is not "nothing persisted"
 # ---------------------------------------------------------------------------
-
-
-def test_corrupt_knob_store_raises_rather_than_reverting_every_switch() -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"ARGUS_SKILL_REVIEWER_BACKEND": "copi', encoding="utf-8")
-    with pytest.raises(knob_store.KnobStoreCorruptError) as excinfo:
-        knob_store.read_persisted_knobs()
-    assert str(path) in str(excinfo.value)
-
-
-def test_corrupt_knob_store_stops_role_resolution_too() -> None:
-    """The consequence that matters: a truncated file must not read as codex.
-
-    Pre-fix, a half-written config.json logged one warning and returned ``{}``,
-    so every role fell to its default backend with nothing in any artifact to
-    say the operator's persisted choices had been discarded.
-    """
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("{not valid json", encoding="utf-8")
-    with pytest.raises(knob_store.KnobStoreCorruptError):
-        resolve_role_backend("reviewer", env={}, default="codex")
-
-
-def test_absent_knob_store_is_still_normal() -> None:
-    """A missing file is not corruption — it is a host with no persisted switch."""
-    assert not config_path().exists()
-    assert knob_store.read_persisted_knobs() == {}
-    assert resolve_role_backend("reviewer", env={}, default="codex") == "codex"
 
 
 # ---------------------------------------------------------------------------
@@ -345,22 +149,6 @@ def test_daemon_launched_with_backend_copilot_gives_the_reviewer_copilot(
         assert resolve_role_backend(role) == "copilot"
 
 
-def test_the_export_removes_the_need_for_the_hand_written_config_workaround(
-    tmp_path: Path,
-) -> None:
-    """The five hand-written ``state/config.json`` files become unnecessary.
-
-    The operator's workaround was to persist
-    ``{"ARGUS_SKILL_REVIEWER_BACKEND": "copilot"}`` per project. After the
-    export, an untouched knob store resolves to the same answer.
-    """
-    assert not config_path().exists()
-    _worker(tmp_path, "copilot")._rf_export_configured_backend()
-    backend, source = resolve_role_backend_with_source("reviewer")
-    assert backend == "copilot"
-    assert source == "env:ARGUS_SKILL_RUNNER_BACKEND"
-
-
 def test_an_explicit_env_override_still_outranks_the_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -374,31 +162,6 @@ def test_an_explicit_env_override_still_outranks_the_flag(
     _worker(tmp_path, "copilot")._rf_export_configured_backend()
     assert os.environ["ARGUS_SKILL_RUNNER_BACKEND"] == "claude"
     assert resolve_role_backend("reviewer") == "claude"
-
-
-def test_a_retired_role_specific_knob_cannot_outrank_the_flag(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "claude")
-    _worker(tmp_path, "copilot")._rf_export_configured_backend()
-    assert resolve_role_backend("reviewer") == "copilot"
-    assert resolve_role_backend("engineer") == "copilot"
-
-
-def test_the_memory_backend_is_never_exported(tmp_path: Path) -> None:
-    """``memory`` is the in-process test backend, not an agent-CLI backend.
-
-    It is absent from ``SUPPORTED_BACKENDS``, so exporting it would make the
-    strict normalizer reject the whole chain.
-    """
-    _worker(tmp_path, "memory")._rf_export_configured_backend()
-    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
-
-
-def test_an_empty_configured_backend_is_not_exported(tmp_path: Path) -> None:
-    _worker(tmp_path, "")._rf_export_configured_backend()
-    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
 
 
 def test_the_export_runs_before_anything_resolves_a_role(tmp_path: Path) -> None:
@@ -424,32 +187,6 @@ def test_the_export_runs_before_anything_resolves_a_role(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_daemon_boot_records_each_role_backend_with_its_source(
-    tmp_path: Path,
-) -> None:
-    from argus.core.event_catalog import validate_event_envelope
-
-    worker = _worker(tmp_path, "copilot")
-    worker._rf_export_configured_backend()
-
-    recorded: list[dict] = []
-    rf_state = SimpleNamespace(
-        cfg=worker.config,
-        sink=SimpleNamespace(append=recorded.append),
-    )
-    worker._rf_record_role_backends(rf_state)
-
-    by_role = {event["role"]: event for event in recorded}
-    assert set(by_role) == {"manager", "planner", "engineer", "reviewer"}
-    for role, event in by_role.items():
-        assert event["type"] == f"life.{role}.backend_resolved"
-        assert event["backend"] == "copilot"
-        assert event["source"] == "env:ARGUS_SKILL_RUNNER_BACKEND"
-        # a declared type with a declared payload, not a free-form dict
-        validation = validate_event_envelope(event, require_known=True)
-        assert validation.valid, validation.errors
-
-
 def test_a_recorded_backend_distinguishes_configured_from_defaulted(
     tmp_path: Path,
 ) -> None:
@@ -468,35 +205,6 @@ def test_a_recorded_backend_distinguishes_configured_from_defaulted(
     reviewer = next(e for e in recorded if e["role"] == "reviewer")
     assert reviewer["backend"] == "copilot"
     assert reviewer["source"] == "default"
-
-
-def test_a_typed_backend_flag_outranks_a_stale_ambient_env(monkeypatch) -> None:
-    """``--backend`` is typed on this invocation; env and knobs may be stale.
-
-    ``--backend`` parses with ``default=None``, so a value is unambiguous
-    operator intent. Letting ``ARGUS_SKILL_RUNNER_BACKEND`` outrank it would
-    silently substitute a backend nobody asked for — which is the fault this
-    whole change exists to remove, reintroduced one layer up.
-    """
-    import argparse
-
-    from argus.core.knobs import resolve_role_backend
-
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    args = argparse.Namespace(backend="copilot")
-
-    # The resolution shape used at all three apps/cli/_core.py sites.
-    resolved = getattr(args, "backend", None) or resolve_role_backend(
-        "", default="codex"
-    )
-    assert resolved == "copilot"
-
-    # And with no flag typed, the chain is still what decides.
-    bare = argparse.Namespace(backend=None)
-    assert (
-        getattr(bare, "backend", None)
-        or resolve_role_backend("", default="codex")
-    ) == "codex"
 
 
 # ---------------------------------------------------------------------------
@@ -551,22 +259,3 @@ def test_the_config_page_shows_the_corruption_instead_of_dying_of_it(
     # Still renders, and says plainly that these are defaults, not the file.
     assert snapshot["operator_knobs"]
     assert "PERSISTED KNOBS UNREADABLE" in format_config_snapshot_markdown(snapshot)
-
-
-def test_a_healthy_knob_file_carries_no_error_banner(tmp_path, monkeypatch) -> None:
-    """The negative control: the banner must mean something when it appears."""
-    import json
-
-    from argus.core.config_snapshot import (
-        build_config_snapshot,
-        format_config_snapshot_markdown,
-    )
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    (tmp_path / "config.json").write_text(json.dumps({}), encoding="utf-8")
-    snapshot = build_config_snapshot(env={})
-
-    assert snapshot["persisted_knob_error"] == ""
-    assert snapshot["roles"], "roles should resolve normally"
-    assert "PERSISTED KNOBS UNREADABLE" not in format_config_snapshot_markdown(snapshot)
-

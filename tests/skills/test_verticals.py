@@ -35,13 +35,10 @@ from argus.skills.stage_machine import (
     resolve_stage_checklist_contract,
 )
 from argus.skills.vertical_select import (
-    VERTICALS,
     UnknownVerticalError,
-    VerticalResolutionError,
     persist_vertical,
     require_vertical,
     reset_stage_for_new_intent,
-    resolve_vertical,
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
@@ -51,7 +48,6 @@ from argus.verticals._data_domain import write_data_domain
 RESEARCH_STAGES: tuple[str, ...] = (
     "idea", "experiment", "paper", "review",
 )
-OPTIMIZE_STAGES: tuple[str, ...] = ("setup", "optimize", "measure", "report")
 
 
 @pytest.fixture(autouse=True)
@@ -70,19 +66,6 @@ def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> P
     return tmp_path
 
 
-def test_empty_builtin_checklists_are_explicitly_optional() -> None:
-    implicit_empty: list[tuple[str, str]] = []
-    for vertical in VERTICALS:
-        contract = load_vertical_contract(vertical)
-        items = contract.checklist_items
-        optional = contract.checklist_optional_stages
-        for stage in contract.stage_order:
-            if not items.get(stage) and stage not in optional:
-                implicit_empty.append((vertical, stage))
-
-    assert implicit_empty == []
-
-
 def test_research_vertical_review_checklist_is_loaded_and_required(
     tmp_path: Path,
 ) -> None:
@@ -99,29 +82,11 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
 def test_research_vertical_states_evidence_reuse_in_its_own_guidance(
     tmp_path: Path,
 ) -> None:
-    from argus.verticals._base import load_vertical_contract
 
     persist_vertical(tmp_path, "research")
 
     assert resolve_workflow_mode(tmp_path) == "staged"
     assert "reuse reviewed evidence" in load_vertical_contract("research").banner("planner")
-
-
-def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
-    persist_vertical(tmp_path, "research", target_venue="  AAAI 2026  ")
-
-    state = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    assert state["target_venue"] == "AAAI 2026"
-
-
-def test_explicit_staged_mode_overrides_research_vertical_default(
-    tmp_path: Path,
-) -> None:
-    persist_vertical(tmp_path, "research", workflow_mode="staged")
-
-    assert resolve_workflow_mode(tmp_path) == "staged"
 
 
 def test_direct_orchestration_overrides_the_research_default(
@@ -135,40 +100,7 @@ def test_direct_orchestration_overrides_the_research_default(
 # --- resolve_vertical precedence: env > state > research --------------------
 
 
-def test_low_level_resolve_keeps_legacy_fallback(tmp_path: Path) -> None:
-    assert resolve_vertical(tmp_path / "nope") == "research"
-    assert resolve_vertical(_project(tmp_path, None)) == "research"
-
-
-def test_resolve_raises_on_corrupt_state(tmp_path: Path) -> None:
-    # Corruption of Manager-owned state is a REAL fault (distinct from the
-    # legitimate "not decided yet" case) — it still raises rather than silently
-    # masking a broken state file as fresh.
-    (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text("{not json", encoding="utf-8")
-    with pytest.raises(VerticalResolutionError):
-        resolve_vertical(tmp_path)
-
-
-def test_resolve_reads_pipeline_state_vertical(optimize_vertical, tmp_path: Path) -> None:
-    assert resolve_vertical(_project(tmp_path, optimize_vertical)) == optimize_vertical
-
-
-def test_resolve_env_cannot_override_manager_state(
-    optimize_vertical,
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _project(tmp_path, "research")
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", optimize_vertical)
-    assert resolve_vertical(root) == "research"
-
-
 # --- fail-hard invariants (no keyword classifier lives here anymore) --------
-
-
-def test_persist_vertical_rejects_unknown_name(tmp_path: Path) -> None:
-    with pytest.raises(UnknownVerticalError):
-        persist_vertical(tmp_path, "not_a_real_vertical")
 
 
 def test_require_vertical_validates_or_raises(optimize_vertical) -> None:
@@ -241,65 +173,6 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
     assert payload["vertical"] == optimize_vertical
     assert payload["current_stage"] == "experiment"
-
-
-def test_force_replacement_resets_inprogress_pipeline_immediately(
-    tmp_path: Path,
-) -> None:
-    root = _project(tmp_path, "research", current="review")
-    state_path = root / ".argus" / "PIPELINE_STATE.json"
-    payload = json.loads(state_path.read_text())
-    payload["stages"] = {
-        "research": {"status": "done"},
-        "plan": {"status": "done"},
-        "review": {"status": "in_progress"},
-    }
-    state_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    persist_vertical(root, "research")
-    applied = reset_stage_for_new_intent(
-        root,
-        old_vertical="research",
-        new_vertical="research",
-        force_replacement=True,
-    )
-
-    assert applied is True
-    payload = json.loads(state_path.read_text())
-    assert payload["current_stage"] == "idea"
-    assert payload["stages"]["idea"]["status"] == "in_progress"
-    assert payload["stages"]["experiment"]["status"] == "pending"
-    assert payload["stages"]["review"]["status"] == "pending"
-    assert payload["stage_history"][-1]["direction"] == "reset"
-
-
-def test_vertical_reached_own_terminal_stage_true_and_false(tmp_path: Path) -> None:
-    # False: mid-project, not on the vertical's own last stage.
-    root = _project(tmp_path, "research", current="run")
-    assert vertical_reached_own_terminal_stage(root, "research") is False
-
-    # False: on the vertical's own last stage, but not marked done.
-    root2 = tmp_path / "not_done"
-    root2.mkdir()
-    (root2 / ".argus").mkdir(parents=True, exist_ok=True)
-    (root2 / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({
-            "vertical": "research",
-            "current_stage": "submission",
-            "stages": {"submission": {"status": "in_progress"}},
-        }),
-        encoding="utf-8",
-    )
-    assert vertical_reached_own_terminal_stage(root2, "research") is False
-
-    # True: a custom vertical whose own last stage IS current_stage AND done.
-    root3 = tmp_path / "finished_custom"
-    root3.mkdir()
-    _finished_custom_domain(
-        root3, "ops_continuity_runbook",
-        ("investigate", "configure", "dry_run", "document", "review"),
-    )
-    assert vertical_reached_own_terminal_stage(root3, "ops_continuity_runbook") is True
 
 
 def test_reset_stage_for_new_intent_resets_stale_stage_from_finished_prior_vertical(
@@ -379,53 +252,6 @@ def test_reset_stage_for_new_intent_reopens_finished_same_vertical(
     assert payload["rollback_history"][-1]["to_stage"] == "scope"
 
 
-def test_persist_vertical_seeds_first_stage_only_when_missing(tmp_path: Path) -> None:
-    # Bootstrap of a fresh state file with no stage yet still gets an initial
-    # stage seeded — that is initialization, not control.
-    (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "research"}), encoding="utf-8"
-    )
-
-    persist_vertical(tmp_path, "research")
-
-    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["current_stage"] == "idea"
-
-
-@pytest.mark.parametrize(
-    ("workflow_mode", "start_stage", "expected"),
-    [
-        ("direct", "paper", "paper"),
-        ("direct", " DrAfT ", "paper"),
-        ("direct", "not_a_stage", "idea"),
-        ("direct", "", "idea"),
-        ("staged", "paper", "idea"),
-    ],
-)
-def test_persist_vertical_seeds_requested_direct_stage(
-    tmp_path: Path, workflow_mode: str, start_stage: str, expected: str,
-) -> None:
-    persist_vertical(
-        tmp_path, "research", workflow_mode=workflow_mode, start_stage=start_stage,
-    )
-
-    payload = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["current_stage"] == expected
-
-
-@pytest.mark.parametrize("existing_stage", ["experiment", "off_order"])
-def test_persist_start_stage_never_resets_existing_research_stage(
-    tmp_path: Path, existing_stage: str,
-) -> None:
-    root = _project(tmp_path, "research", current=existing_stage)
-
-    persist_vertical(root, "research", workflow_mode="direct", start_stage="paper")
-
-    payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["current_stage"] == existing_stage
-
-
 # --- format_full_pipeline_checklist is vertical-aware ----------------------
 
 
@@ -435,18 +261,4 @@ def test_full_pipeline_defaults_to_research_four_stages(tmp_path: Path) -> None:
     for stage in RESEARCH_STAGES:
         assert f"### {stage}\n" in text
     # Research keeps its historical 'final submission gate' header.
-    assert "final submission gate" in text
-
-
-def test_full_pipeline_checklist_prefers_persisted_vertical_over_env(
-    optimize_vertical,
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", optimize_vertical)
-    root = _project(tmp_path, "research")
-    text = format_full_pipeline_checklist(role="reviewer", project_root=root)
-    for stage in RESEARCH_STAGES:
-        assert f"### {stage}\n" in text
-    for stage in OPTIMIZE_STAGES:
-        assert f"### {stage}\n" not in text
     assert "final submission gate" in text

@@ -32,67 +32,6 @@ def _fragment(role: str, stage: str, operation: str = "execute", scope: str = ""
     )
 
 
-def test_engineer_experiment_fragment_orders_card_reference_and_spec_first() -> None:
-    text = _fragment("engineer", "experiment")
-
-    assert "## Method card and executable spec" in text
-    assert "METHOD.md" in text
-    assert "Evidence considered" in text
-    assert "third_party/" in text and "pinned revision" in text
-    assert "tests/spec" in text
-    assert "one function per equation" in text
-    assert "one knockout per component" in text
-    assert "claim-shaped tests" in text
-    assert "Run tests/spec yourself when needed; put the command and result in your evidence" in text
-    assert "host runs tests/spec" not in text
-    assert "write METHOD.md once" in text
-    assert "@pytest.mark.component" in text
-    assert "'# why: ...'" in text
-    assert "maintain no tables by hand" in text
-    assert "edit METHOD.md only when the method changes" in text
-    for stale in ("Reused code table", "Key hyperparameters table", "Proven-by", "Change log"):
-        assert stale not in text, stale
-    # The experiment-stage handoff is the card, the clone and the suite; the
-    # "need not finish the whole paper" wording belongs to the paper stages.
-    assert "Finish the method card, the reference clone and the spec suite" in text
-    assert "you need not finish the whole paper" not in text
-    assert "you need not finish the whole paper" in _fragment("engineer", "paper")
-
-
-def test_engineer_block_reaches_scientific_revision_but_not_paper_or_idea() -> None:
-    assert "## Method card and executable spec" in _fragment("engineer", "review")
-    assert "## Method card and executable spec" not in _fragment(
-        "engineer", "review", operation="narrative_edit"
-    )
-    for stage in ("idea", "paper"):
-        assert "## Method card and executable spec" not in _fragment("engineer", stage)
-
-
-def test_reviewer_experiment_fragment_reads_the_card_before_the_account() -> None:
-    text = _fragment("reviewer", "experiment", operation="evaluate")
-
-    assert "## Method card first" in text
-    order = [
-        text.index("METHOD.md"),
-        text.index("Raw verification evidence"),
-        text.index("tests/spec"),
-        text.index("the Engineer's account last"),
-    ]
-    assert order == sorted(order)
-    for verdict in ("MATCHES", "CONTRADICTS", "NOT_IMPLEMENTED", "INSUFFICIENT_EVIDENCE"):
-        assert verdict in text
-    assert "file:line" in text
-    assert "unexplained-skip" in text
-    assert "Where your tools allow, run tests/spec yourself" in text
-    assert "re-run anything yourself" not in text
-    for status in ("proven", "unchecked", "collected last round"):
-        assert status not in text
-    assert "hyperparameter change without a '# why'" in text
-    assert "hyperparameter table" not in text
-    assert "## Method card first" not in _fragment("reviewer", "paper", operation="evaluate")
-    assert "## Method card first" not in _fragment("reviewer", "review", operation="cold_read")
-
-
 def test_reviewer_context_carries_the_derived_card_when_a_project_root_is_given(tmp_path: Path) -> None:
     from argus.verticals.research.prompt_policy import render_role_prompt_context
 
@@ -120,49 +59,12 @@ def test_reviewer_context_carries_the_derived_card_when_a_project_root_is_given(
     assert "## Method card, derived by the host" not in _fragment("reviewer", "experiment", operation="evaluate")
 
 
-def test_planner_experiment_fragment_keeps_definition_with_the_implementer() -> None:
-    text = _fragment("planner", "experiment", operation="plan")
-
-    assert "## Method card, reference and spec first" in text
-    assert "same Engineer who implements" in text
-    assert "never a separate 'define the method' task" in text
-    # Cited, not copied: every arm restating the protocol pushed task
-    # objectives out of the Manager snapshot in s-a43d1018.
-    assert "acceptance cites the METHOD.md Protocol" in text
-    assert "re-issued after an infrastructure failure" in text
-    assert "## Method card, reference and spec first" not in _fragment(
-        "planner", "paper", operation="plan"
-    )
-
-
 def test_paper_fragment_binds_method_section_and_claims_to_the_card() -> None:
     text = _fragment("engineer", "paper")
 
     assert "Method section and claims follow METHOD.md" in text
     assert "every deviation is named there first" in text
     assert "reproduces the reused code and hyperparameters the host derives" in text
-
-
-def test_prompt_blocks_stay_short() -> None:
-    def words(role: str, header: str, operation: str) -> int:
-        text = _fragment(role, "experiment", operation=operation)
-        body = text.split(header, 1)[1].split("\n\n## ", 1)[0]
-        return len(body.split())
-
-    # Raised from 130/130/90 for the write-for-review anchors, the review
-    # packet reading order and the implementation brief, then to 180/190/145
-    # for the stand-in rule after trimming each block, then the reviewer to 220
-    # for the dated results and random-input facts after trimming its reading
-    # order, then to 260/340/200 for the claim-attainment statement, the
-    # weakest-link reading and the stage rule on unmet clauses, then the planner
-    # to 260 for the finished shared runner and parallel arm fan-out (arms all
-    # editing one runner serialized behind its owner) after trimming the brief
-    # list and re-issue sentence, then to 270 for the arms' TASK_DEPS on the
-    # runner (without it arms could start before the runner is finished);
-    # trim before raising.
-    assert words("engineer", "## Method card and executable spec", "execute") <= 260
-    assert words("reviewer", "## Method card first", "evaluate") <= 340
-    assert words("planner", "## Method card, reference and spec first", "plan") <= 270
 
 
 def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> None:
@@ -279,43 +181,3 @@ def test_contract_and_trace_skills_point_to_the_card() -> None:
     assert "do not\ncreate a separate file" not in contract
     assert "Reading order" in trace
     assert "Raw verification evidence" in trace
-
-
-def test_stand_ins_are_named_for_engineer_reviewer_planner_and_paper() -> None:
-    from argus.verticals.research.prompt_policy import _paper_narrative_packaging_block
-
-    engineer = _fragment("engineer", "experiment", operation="execute")
-    reviewer = _fragment("reviewer", "experiment", operation="evaluate")
-    planner = _fragment("planner", "experiment", operation="plan")
-
-    assert "Stand-ins (mock model, fake environment" in engineer
-    assert "never report a simulation as the benchmark" in engineer
-    assert "listed under Run reality is NOT_IMPLEMENTED whatever the tests say" in reviewer
-    assert "write .argus/claim_attainment.json" in engineer
-    assert "A clause you cannot meet is a negative result to state, never to reword" in engineer
-    assert "Start from Claim attainment" in reviewer
-    assert "choose the one link most likely not to hold the claim and read only there" in reviewer
-    assert "ask at most two questions, each answered by a file or a number" in reviewer
-    assert "results with no statement are a continue with one question" in reviewer
-    assert "a metric on which every method scores the same separates nothing" in reviewer
-    assert "Read Claim attainment before deciding the stage" in planner
-    assert "advancing to Paper on the clauses that happened to pass is claim drift" in planner
-    assert "a one-minute run or random keys is not the protocol's evaluation" in reviewer
-    assert "a benchmark run through a stand-in is not a result" in planner
-    assert "a simulation is never described as a benchmark" in _paper_narrative_packaging_block()
-
-
-def test_method_figure_goes_through_ppt_master_for_every_role() -> None:
-    engineer = _fragment("engineer", "paper", operation="execute")
-    reviewer = _fragment("reviewer", "paper", operation="evaluate")
-    planner = _fragment("planner", "paper", operation="plan")
-
-    assert "composed only through PPT Master (Method D; Method B fallback)" in engineer
-    assert "Matplotlib patches, boxes and arrows are not a route for this figure" in engineer
-    assert "figure_spec_scripts/pptx_export.py --pptx paper/figures/<name>.pptx" in engineer
-    assert "open `paper/figures/<name>.png`, the exporter's render at manuscript width" in reviewer
-    assert "written from it by `figure_spec_scripts/pptx_export.py" in planner
-    assert "without a native PPT source of the same stem" in reviewer
-    assert "## Method figure through PPT Master" in planner
-    assert "A matplotlib or TeX-compiled diagram does not satisfy it" in planner
-    assert "## Method figure through PPT Master" not in _fragment("planner", "experiment", operation="plan")

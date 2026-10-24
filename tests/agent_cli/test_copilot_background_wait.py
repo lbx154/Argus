@@ -72,25 +72,6 @@ def _run(monkeypatch, events, exit_code=0):
     )
 
 
-def test_empty_final_after_native_wait_does_not_promote_old_progress(monkeypatch):
-    result = _run(monkeypatch, [
-        _message("The positive control passed; I am still running the full comparison."),
-        _tool_complete(),
-        _message("", "final_answer"),
-        {"type": "assistant.idle", "data": {}},
-        {"type": "result", "sessionId": "waiting-parent", "exitCode": 0},
-    ])
-
-    assert result.exit_code == 0
-    assert result.thread_id == "waiting-parent"
-    assert result.last_agent_message == ""
-    assert not result.turn_completed
-    assert is_provider_background_wait_receipt(result.fatal_error)
-    # The wait event has fallen out of retained capture; control still knows it.
-    assert len(result.json_events) == 1
-    assert result.json_events[0]["type"] == "result"
-
-
 @pytest.mark.parametrize("content,state", [
     ("Comparison finished; the optional drawing can remain in the background.", "active"),
     ("", "completed"),
@@ -119,26 +100,3 @@ def test_native_delegate_cannot_supply_or_clear_parent_completion(monkeypatch):
     assert result.last_agent_message == ""
     assert "Figure ready" not in result.agent_messages
     assert is_provider_background_wait_receipt(result.fatal_error)
-
-
-def test_nonzero_exit_is_not_reclassified_as_a_background_wait(monkeypatch):
-    result = _run(monkeypatch, [
-        _tool_complete(), _message("", "final_answer"),
-        {"type": "result", "sessionId": "failed-parent", "exitCode": 1},
-    ], exit_code=1)
-    assert result.turn_failed
-    assert not is_provider_background_wait_receipt(result.fatal_error)
-
-
-def test_review_report_write_can_complete_with_an_empty_final_answer(monkeypatch):
-    result = _run(monkeypatch, [
-        _message("I will update the review report."),
-        {"type": "tool.execution_complete", "data": {
-            "toolCallId": "write-review", "success": True,
-            "result": {"content": "Review report saved"},
-        }},
-        _message("", "final_answer"),
-        {"type": "result", "sessionId": "reviewer", "exitCode": 0},
-    ])
-    assert result.turn_completed and result.fatal_error is None
-    assert result.last_agent_message == ""

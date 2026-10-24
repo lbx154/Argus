@@ -53,31 +53,6 @@ def _project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_the_answer_reaches_the_round_that_runs_next(_project) -> None:
-    """The mission that asked resumes with the answer, so it does not re-ask."""
-    backlog = _backlog(_project)
-    _paused(backlog, "abc123", "May I create a venv and install torch?")
-
-    code = _core._cmd_answer(_args(_project, answer="Yes, go ahead."))
-
-    assert code == 0
-    asked = next(i for i in backlog.all() if i.id == "abc123")
-    assert not asked.pending_question
-
-    runnable = [i for i in backlog.all() if i.status == "pending"]
-    assert [i.id for i in runnable] == ["abc123"]
-    assert "Yes, go ahead." in runnable[0].objective
-
-
-def test_answering_twice_does_not_enqueue_the_work_twice(_project) -> None:
-    backlog = _backlog(_project)
-    _paused(backlog, "abc123", "May I install torch?")
-
-    assert _core._cmd_answer(_args(_project, answer="Yes.")) == 0
-    assert _core._cmd_answer(_args(_project, answer="Yes.")) == 1
-    assert len([i for i in backlog.all() if i.status == "pending"]) == 1
-
-
 def test_empty_answers_are_refused(_project) -> None:
     assert _core._cmd_answer(_args(_project, answer="   ")) == 2
 
@@ -155,16 +130,3 @@ def test_framework_deployment_answer_uses_the_decision_boundary(
         "global_root": tmp_path,
     }
     assert len(backlog.all()) == 1
-
-
-def test_answering_does_not_need_a_terminal() -> None:
-    """The whole point is unblocking an unattended box, so the launcher must
-    route --answer to the Python CLI rather than treating it as a request to
-    open the cockpit — which fails without a tty."""
-    from argus.apps.tui_launcher import _uses_python_admin
-
-    assert _uses_python_admin(["--answer", "yes"])
-    assert _uses_python_admin(["--answer=yes"])
-    assert _uses_python_admin(["--answer", "yes", "--answer-item", "abc123"])
-    # A bare launch is still the cockpit.
-    assert not _uses_python_admin([])

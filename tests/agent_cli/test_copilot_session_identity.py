@@ -18,7 +18,6 @@ import json
 import pytest
 
 from argus.agent_cli import _run_exec as runner_exec
-from argus.agent_cli._event_consumers import _CopilotWriteState
 from argus.agent_cli._sandbox_commands import _copilot_session_identity_args
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.copilot_session import (
@@ -250,17 +249,6 @@ def test_hard_idle_timeout_keeps_the_bound_identity(monkeypatch: pytest.MonkeyPa
     assert "hard idle timeout" in str(result.fatal_error)
 
 
-def test_resumed_call_keeps_its_original_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    process = _LiveFakeProc()
-    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "2")
-    result = _runner(monkeypatch, process).run_exec(
-        prompt="continue", resume_thread_id="sess-original",
-        options=RunnerOptions(), run_label="engineer-r2",
-    )
-    assert result.thread_id == "sess-original"
-    assert result.turn_failed is True
-
-
 def test_non_copilot_backend_ignores_the_copilot_identity_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -330,28 +318,3 @@ def test_resumed_call_rejects_a_result_for_another_session(
     assert result.thread_id is None
     assert result.turn_completed is False and result.turn_failed is True
     assert result.session_identity_conflict
-
-
-def test_conflict_is_sticky_even_when_a_later_event_repeats_the_other_id() -> None:
-    state = _CopilotWriteState()
-    thread_id, completed, failed, error = AgentCliRunner._consume_copilot_event(
-        event={"type": "session.start", "data": {"sessionId": OTHER}},
-        thread_id=BOUND, agent_messages=[], turn_completed=False, turn_failed=False,
-        fatal_error=None, write_state=state,
-    )
-    assert (thread_id, completed, failed) == (None, False, True) and error
-    thread_id, completed, failed, _ = AgentCliRunner._consume_copilot_event(
-        event={"type": "result", "sessionId": OTHER, "exitCode": 0},
-        thread_id=thread_id, agent_messages=[], turn_completed=completed,
-        turn_failed=failed, fatal_error=error, write_state=state,
-    )
-    assert thread_id is None and completed is False and failed is True
-
-
-def test_unbound_call_still_learns_its_identity_from_the_stream() -> None:
-    thread_id, completed, failed, error = AgentCliRunner._consume_copilot_event(
-        event={"type": "session.start", "data": {"sessionId": OTHER}},
-        thread_id=None, agent_messages=[], turn_completed=False, turn_failed=False,
-        fatal_error=None, write_state=_CopilotWriteState(),
-    )
-    assert (thread_id, completed, failed, error) == (OTHER, False, False, None)

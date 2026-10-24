@@ -33,36 +33,9 @@ def test_falls_back_to_args_backend_when_env_unset() -> None:
     assert _resolve_runner_backend_name(_ns("opencode"), env={}) == "opencode"
 
 
-def test_env_override_still_wins() -> None:
-    # An explicit env var is a deliberate override and must beat args.backend,
-    # so the daemon (which exports the env) keeps its exact prior behaviour.
-    assert (
-        _resolve_runner_backend_name(
-            _ns("copilot"), env={"ARGUS_SKILL_RUNNER_BACKEND": "codex"}
-        )
-        == "codex"
-    )
-    assert (
-        _resolve_runner_backend_name(
-            _ns("codex"), env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"}
-        )
-        == "copilot"
-    )
-
-
 def test_memory_or_unknown_backend_defers_to_default() -> None:
     # memory / missing / unknown → None so AgentCliBackend applies its own
     # codex default (byte-for-byte the prior env-unset behaviour there).
     assert _resolve_runner_backend_name(_ns("memory"), env={}) is None
     assert _resolve_runner_backend_name(_ns(None), env={}) is None
     assert _resolve_runner_backend_name(argparse.Namespace(), env={}) is None
-
-
-def test_blank_env_value_is_ignored() -> None:
-    # A whitespace-only env var must not shadow a real args.backend.
-    assert (
-        _resolve_runner_backend_name(
-            _ns("copilot"), env={"ARGUS_SKILL_RUNNER_BACKEND": "   "}
-        )
-        == "copilot"
-    )

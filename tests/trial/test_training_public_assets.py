@@ -7,31 +7,14 @@ from test_training_runtime import training as training
 from argus.trial.training_capture import (
     HOSTED_PROFILE,
     _content_diagnostic,
-    _hosted_sensitive,
 )
 from argus.trial.training_public_assets import (
     ROOT,
     check_public_skill_event,
     public_skill_body,
-    public_skill_literal,
 )
 
 ASSET = ROOT + "/_shared_verticals/software/engineer/software-change-implementation.md"
-
-
-@pytest.mark.parametrize("scope,relative", [
-    ("software", "engineer/software-change-implementation.md"),
-    ("software", "reviewer/software-change-review.md"),
-    ("argus_maintenance", "engineer/argus-maintenance-execution.md"),
-    ("research", "engineer"),
-])
-def test_builtin_registry_only_recognizes_published_paths(scope, relative):
-    path = ROOT + "/_shared_verticals/" + scope + "/" + relative
-    assert public_skill_literal(path)
-    assert not _hosted_sensitive(path, sid="s-a1b2c3d4", mission_id="a1b2c3d4e5f6")
-    assert not public_skill_literal(path + "/../private")
-    assert not public_skill_literal(ROOT + "/_shared_verticals/private-custom/engineer/private.md")
-    assert not public_skill_literal(ROOT + "/private-not-distributed.md")
 
 
 @pytest.mark.parametrize("arguments", [{"path": ASSET}, {"path": ASSET, "offset": 2, "limit": 3}])

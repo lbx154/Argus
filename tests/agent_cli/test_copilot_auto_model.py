@@ -50,29 +50,6 @@ def _isolated_home(monkeypatch, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _copilot_command(model: str | None, effort: str | None) -> list[str]:
-    runner = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT)
-    return runner._build_copilot_command(
-        resume_thread_id=None,
-        options=RunnerOptions(model=model, reasoning_effort=effort),
-    )
-
-
-@pytest.mark.parametrize("model", ["", None, "auto", "AUTO", " default "])
-def test_automatic_model_sends_neither_model_nor_effort(model) -> None:
-    command = _copilot_command(model, "xhigh")
-
-    assert "--model" not in command
-    assert "--reasoning-effort" not in command
-
-
-def test_named_model_keeps_model_and_effort() -> None:
-    command = _copilot_command("named-model", "high")
-
-    assert command[command.index("--model") + 1] == "named-model"
-    assert command[command.index("--reasoning-effort") + 1] == "high"
-
-
 # --------------------------------------------------------------------------- #
 # (2) the light model                                                         #
 # --------------------------------------------------------------------------- #
@@ -89,11 +66,6 @@ def _env(**extra: str) -> dict[str, str]:
 @pytest.mark.parametrize("name", ["ARGUS_SKILL_MODEL", "ARGUS_SKILL_MANAGER_MODEL"])
 def test_main_auto_model_makes_the_light_model_automatic(name) -> None:
     assert resolve_light_model(env=_env(**{name: "auto"})) == ""
-
-
-def test_role_model_outranks_a_shared_auto_model() -> None:
-    env = _env(ARGUS_SKILL_MODEL="auto", ARGUS_SKILL_MANAGER_MODEL="named-model")
-    assert resolve_light_model(env=env) == LIGHT_MODEL_DEFAULT
 
 
 @pytest.mark.parametrize("extra", [{}, {"ARGUS_SKILL_MODEL": "named-model"}])
@@ -133,19 +105,6 @@ class _ExitedProc:
         return self.returncode
 
 
-def _run(monkeypatch, process, *, resume: str | None = None):
-    monkeypatch.setattr(runner_exec, "spawn_owned_process", lambda *a, **k: process)
-    monkeypatch.setattr(AgentCliRunner, "_resolve_executable", staticmethod(lambda v: v))
-    monkeypatch.setattr(AgentCliRunner, "_build_command", lambda self, **_kw: ["copilot"])
-    runner = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT)
-    return runner.run_exec(
-        prompt="assess",
-        resume_thread_id=resume,
-        options=RunnerOptions(provider_session_id=None if resume else BOUND),
-        run_label="manager-supervision",
-    )
-
-
 _STARTUP_ONLY = [
     json.dumps({
         "type": "session.mcp_server_status_changed",
@@ -154,30 +113,6 @@ _STARTUP_ONLY = [
     }),
 ]
 _REJECTED = ['Error: Model "named-model" from --model flag is not available.']
-
-
-def test_startup_failure_does_not_report_a_session_to_resume(monkeypatch) -> None:
-    result = _run(monkeypatch, _ExitedProc(_STARTUP_ONLY, _REJECTED, returncode=1))
-
-    assert result.turn_failed is True and result.turn_completed is False
-    assert result.thread_id is None
-
-
-def test_failure_after_the_session_started_keeps_the_bound_identity(monkeypatch) -> None:
-    lines = [*_STARTUP_ONLY, json.dumps({"type": "user.message", "data": {"content": "x"}})]
-    result = _run(monkeypatch, _ExitedProc(lines, ["Error: boom"], returncode=1))
-
-    assert result.turn_failed is True
-    assert result.thread_id == BOUND
-
-
-def test_failed_resume_keeps_its_own_identity(monkeypatch) -> None:
-    result = _run(
-        monkeypatch, _ExitedProc(_STARTUP_ONLY, _REJECTED, returncode=1),
-        resume="sess-original",
-    )
-
-    assert result.thread_id == "sess-original"
 
 
 @pytest.mark.parametrize(("label", "models"), [

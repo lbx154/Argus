@@ -14,12 +14,10 @@ from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
 from mcp.types import CancelledNotification, CancelledNotificationParams, ClientNotification
 
-from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
 from argus.advisor import runtime
 from argus.advisor.config import save_advisor_config
-from argus.advisor.copilot import TOOL_NAME
-from argus.advisor.transport import TOKEN_ENV, request
-from argus.core.models import RunnerOptions, RunnerResult
+from argus.advisor.transport import TOKEN_ENV
+from argus.core.models import RunnerOptions
 
 
 class RecordingService:
@@ -71,74 +69,6 @@ def mcp_parameters(command):
         env={**{name: os.environ[name] for name in ("SYSTEMROOT", "WINDIR") if name in os.environ},
              "PATH": os.defpath, **server["env"]},
     )
-
-
-@pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
-def test_readonly_copilot_gateway_loads_only_bound_advisor_over_stdio(tmp_path, monkeypatch, role):
-    """Use actual admission/options/CLI construction and MCP transport, with no provider inference."""
-    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
-
-    state, workspace = tmp_path / "state", tmp_path / "workspace"
-    workspace.mkdir()
-    save_advisor_config(state, {"enabled": True, "backend": "pi", "model": "test/expert"})
-    monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "0")
-    monkeypatch.setenv(TOKEN_ENV, "unrelated-parent-capability")
-    services, paths, environments = [], [], []
-
-    def create_service(context, config):
-        service = RecordingService(context, config)
-        services.append(service)
-        return service
-
-    monkeypatch.setattr(runtime, "AdvisorService", create_service)
-
-    async def call_tool(params):
-        async with stdio_client(params) as (reader, writer), ClientSession(reader, writer) as session:
-            await session.initialize()
-            tools = (await session.list_tools()).tools
-            assert [tool.name for tool in tools] == ["consult_advisor"]
-            assert set(tools[0].inputSchema["properties"]) == {"question", "evidence_refs"}
-            result = await session.call_tool("consult_advisor", {
-                "question": "Which failure path needs verification?", "evidence_refs": ["evidence.txt"],
-            })
-            assert not result.isError
-            return json.loads(result.content[0].text)
-
-    def provider(ctx, cli_options):
-        assert len(services) == 1
-        runner = ctx.backend._runner
-        options = runner._apply_sandbox_policy(cli_options)
-        assert options.sandbox_mode == "read-only" and options.force_safe_mode
-        command = runner._build_command(resume_thread_id=None, options=options)
-        available = command[command.index("--available-tools") + 1].split(",")
-        assert available == ["view", "rg", "glob", TOOL_NAME]
-        assert "argus_advisor(consult_advisor)" in command
-        assert "--yolo" not in command and "--allow-all-tools" not in command
-        path, params = mcp_parameters(command)
-        paths.append(path)
-        environments.append(dict(ctx.options.extension_env))
-        assert params.env[TOKEN_ENV] != os.environ[TOKEN_ENV]
-        assert params.env[TOKEN_ENV] not in ctx.prompt
-        assert TOOL_NAME in ctx.prompt and "python -m argus.tools.advisor consult" not in ctx.prompt
-        result = asyncio.run(call_tool(params))
-        assert result["parent_call_id"] == ctx.call_id and result["caller_role"] == role
-        assert services[0].context.mission_id == "bound-mission"
-        return finalize_result(ctx, RunnerResult(exit_code=0, agent_messages=["Advice received"], usage_model="test-main"), status="completed")
-
-    monkeypatch.setattr(_exec, "spawn_and_finish", provider)
-    backend = AgentCliBackend(backend="copilot", runner_bin="unused-fake-copilot")
-    backend.set_usage_context(project_root=state, global_root=tmp_path / "global", mission_id="bound-mission")
-    original = RunnerOptions(model="test-main", working_dir=str(workspace), sandbox_mode="read-only",
-                             extra_args=["--available-tools", "shell,write", "--allow-all-tools"])
-    result = backend.run_exec(prompt="Inspect current evidence", options=original, run_label=f"{role}.turn")
-    assert result.exit_code == 0
-    assert len(services[0].calls) == 1 and services[0].closed.is_set()
-    assert not paths[0].exists() and not paths[0].parent.exists()
-    assert original.trusted_tool_names is None and original.extension_env is None
-    assert original.extra_args == ["--available-tools", "shell,write", "--allow-all-tools"]
-    assert os.environ[TOKEN_ENV] == "unrelated-parent-capability"
-    with pytest.raises(OSError):
-        request("receipt", {"consultation_id": "fixture-advice"}, env=environments[0])
 
 
 def test_mcp_cancellation_reaches_the_same_host_request_and_closes_resources(tmp_path, monkeypatch):

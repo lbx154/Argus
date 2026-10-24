@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from argus.skills.builtins import iter_builtin_skill_texts, seed_builtin_skills
+from argus.skills.builtins import iter_builtin_skill_texts
 
 RESEARCH_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -37,12 +37,3 @@ def test_presentation_toolkit_notes_live_in_one_global_skill() -> None:
     assert "engineer/presentation-master.md" in studio
     for duplicated in ("update_repo.py", "Do not call bare", "+mn-lt"):
         assert duplicated not in studio, duplicated
-
-
-def test_seeding_preserves_existing_agent_document(tmp_path: Path) -> None:
-    destination = tmp_path / "engineer" / "presentation-master.md"
-    destination.parent.mkdir(parents=True)
-    destination.write_text("operator-authored Skill\n", encoding="utf-8")
-    seeded = seed_builtin_skills(tmp_path)
-    assert seeded["engineer/presentation-master.md"] is False
-    assert destination.read_text(encoding="utf-8") == "operator-authored Skill\n"

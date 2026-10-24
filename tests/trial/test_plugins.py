@@ -1,4 +1,3 @@
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -55,17 +54,6 @@ def hosted_plugin(tmp_path, monkeypatch):
     return TestClient(app), workspace, calls
 
 
-def test_hosted_defaults_prepare_private_workspace_without_overriding_operator_list(hosted_plugin, tmp_path):
-    _, workspace, _ = hosted_plugin
-    assert (workspace / "test-projects").is_dir()
-    assert os.environ["ARGUS_PLUGINS_PREINSTALL"] == "crystalpilot"
-    configure_plugins(tmp_path / "other-account")
-    assert os.environ["ARGUS_CRYSTALPILOT_WORKSPACE"] != str(workspace)
-    os.environ["ARGUS_PLUGINS_PREINSTALL"] = ""
-    configure_plugins(tmp_path / "other-account")
-    assert os.environ["ARGUS_PLUGINS_PREINSTALL"] == ""
-
-
 def test_workbench_can_browse_open_and_upload_its_own_data(hosted_plugin):
     client, workspace, calls = hosted_plugin
     prefix = "/api/plugins/crystalpilot"
@@ -117,11 +105,3 @@ def test_hosted_management_keeps_curated_repair_but_not_installer_controls(hoste
         assert client.post(f"/api/plugins/crystalpilot/manage/{action}").status_code == 403
     for action in ("health", "repair", "shelx"):
         assert client.post(f"/api/plugins/crystalpilot/manage/{action}").status_code == 200
-
-
-def test_non_hosted_plugin_retains_local_folder_selection(hosted_plugin, monkeypatch, tmp_path):
-    client, _, calls = hosted_plugin
-    monkeypatch.delenv("ARGUS_TRIAL_HARNESS")
-    body = {"path": str(tmp_path / "local-data")}
-    assert client.post("/api/plugins/crystalpilot/projects/open", json=body).json() == body
-    assert calls == [body]

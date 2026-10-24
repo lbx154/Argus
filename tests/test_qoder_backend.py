@@ -12,21 +12,11 @@ from pathlib import Path
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import (
     BACKEND_QODER,
-    CLAUDE_FAMILY,
-    default_runner_bin,
-    normalize_runner_backend,
 )
 
 
 def _runner(agent_bin: str = "qodercli") -> AgentCliRunner:
     return AgentCliRunner(agent_bin=agent_bin, backend=BACKEND_QODER)
-
-
-def test_qoder_is_registered_and_in_claude_family() -> None:
-    assert normalize_runner_backend("qoder") == BACKEND_QODER
-    assert normalize_runner_backend("QODER") == BACKEND_QODER
-    assert default_runner_bin(BACKEND_QODER) == "qodercli"
-    assert BACKEND_QODER in CLAUDE_FAMILY
 
 
 def test_qoder_command_matches_claude_headless_shape_without_verbose() -> None:

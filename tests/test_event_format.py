@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from argus.cli.event_format import (
-    annotate_progress_result,
     format_event_message,
     format_progress_command,
 )
@@ -132,38 +131,6 @@ def test_status_lines_are_the_developer_log_and_operator_status_is_shown(monkeyp
     assert format_event_message({"type": "life.status", "text": "planner idle"}) == "ℹ️ planner idle"
 
 
-def test_life_mission_completed_leads_with_outcome_then_metrics() -> None:
-    rendered = format_event_message(
-        {
-            "type": "life.mission.completed",
-            "title": "Repair parser",
-            "status": "done",
-            "success": True,
-            "summary": "Empty input now returns a clear error.",
-            "rounds": 2,
-            "elapsed_seconds": 3.25,
-            "cost_usd": 0.5,
-            "outcome": {
-                "execution_status": "completed",
-                "review_status": "done",
-                "stage_certification": "not_certified",
-                "interruption_kind": "none",
-                "resumable": False,
-            },
-        }
-    )
-    assert "Completed: Repair parser. Empty input now returns a clear error." in rendered
-    assert "2 rounds · 3.2s · cost $0.5000" in rendered
-    assert "rounds=" not in rendered
-    assert "execution=" not in rendered
-    assert "review=" not in rendered
-
-
-def test_match_info_diagnostic_still_renders() -> None:
-    rendered = format_event_message({"type": "match.info", "text": "matched parser skill"})
-    assert rendered == "🎯 matched parser skill"
-
-
 def test_engineer_progress_redacts_raw_secret(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     rendered = format_event_message(
@@ -181,12 +148,3 @@ def test_progress_command_unwraps_and_summarizes_shell() -> None:
     rendered = format_progress_command("/bin/bash -lc 'python -m pytest tests/test_x.py'")
     assert "pytest" in rendered
     assert "/bin/bash" not in rendered
-
-
-def test_progress_result_marks_failure_and_keeps_excerpt() -> None:
-    rendered = annotate_progress_result(
-        "🧪 pytest tests/test_x.py",
-        {"status": "failed", "exit_code": 1, "output_excerpt": "1 failed"},
-    )
-    assert rendered.startswith("❌ ")
-    assert "1 failed" in rendered

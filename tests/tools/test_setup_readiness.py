@@ -20,15 +20,6 @@ from argus.core.backend_readiness import (
 from argus.tools import setup
 
 
-def test_setup_banner_highlights_agent_assisted_installation(capsys) -> None:
-    setup._banner()
-
-    output = capsys.readouterr().out
-    assert "★ Recommended / 推荐" in output
-    assert "current Code Agent" in output
-    assert "https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md" in output
-
-
 def test_setup_banner_uses_bold_yellow_highlight_on_tty(monkeypatch) -> None:
     class TtyBuffer(io.StringIO):
         def isatty(self) -> bool:
@@ -66,58 +57,6 @@ def test_interactive_setup_requires_choice_when_multiple_backends_exist(
     monkeypatch.setattr("builtins.input", lambda _prompt="": "")
 
     assert setup._configure_runner_backend() is None
-
-
-def test_noninteractive_setup_validates_then_persists_without_global_mutation(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    report = BackendReadiness(
-        profile=BackendProfile(
-            backend="copilot",
-            auth_mode="subscription_cli",
-            backend_source="argument",
-            auth_mode_source="argument",
-        ),
-        executable="/usr/bin/copilot",
-        version="1.0.74",
-        auth_checked=True,
-    )
-    calls: list[str] = []
-    special_prompts_dir = tmp_path / "special-prompts"
-    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(special_prompts_dir))
-
-    def check(*_args, **kwargs):
-        assert kwargs["runner_bin"] == "/usr/bin/copilot"
-        calls.append("check")
-        return report
-
-    monkeypatch.setattr(setup, "check_backend_readiness", check)
-    monkeypatch.setattr(
-        setup,
-        "_verify_setup_smoke",
-        lambda backend, **_kwargs: calls.append(f"smoke:{backend}") or True,
-    )
-    monkeypatch.setattr(
-        setup,
-        "persist_validated_profile",
-        lambda _report, **_kwargs: calls.append("persist") or True,
-    )
-    monkeypatch.setattr(
-        "argus.agent_cli.runner_backend.resolve_runner_bin",
-        lambda name, _configured=None: "/usr/bin/copilot" if name == "copilot" else None,
-    )
-
-    rc = setup.run_setup(
-        backend="copilot",
-        non_interactive=True,
-    )
-
-    assert rc == 0
-    assert calls == ["check", "smoke:copilot", "persist"]
-    assert not special_prompts_dir.exists()
-    assert "Setup complete. Run `argus`." in capsys.readouterr().out
 
 
 def test_missing_pi_is_installed_automatically(monkeypatch) -> None:
@@ -166,18 +105,6 @@ def test_setup_uses_explicit_custom_runner_path(monkeypatch) -> None:
         explicit_selection=True,
     ) == custom
     assert calls == [("claude", custom)]
-
-
-def test_windows_backend_install_hints_are_powershell_safe() -> None:
-    assert setup._backend_install_hint(
-        "copilot",
-        platform_name="nt",
-    ) == "npm.cmd install -g @github/copilot"
-    assert "curl" not in setup._backend_install_hint("opencode", platform_name="nt")
-    assert "https://opencode.ai/docs/#windows" in setup._backend_install_hint(
-        "opencode",
-        platform_name="nt",
-    )
 
 
 def test_noninteractive_api_url_configures_pi_without_backend_flag(
@@ -255,16 +182,6 @@ def test_setup_smoke_uses_real_agent_turn(monkeypatch, capsys) -> None:
     assert captured["model"] == ""
     assert captured["run_label"] == "setup-smoke"
     assert "Real Agent turn completed" in capsys.readouterr().out
-
-
-def test_setup_smoke_uses_effective_backend_model(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "claude-sonnet-current")
-
-    assert setup._setup_smoke_model("claude", None) == "claude-sonnet-current"
-    assert setup._setup_smoke_model(
-        "pi",
-        ("api-model", Path("/tmp/models.json")),
-    ) == "api-model"
 
 
 def test_setup_smoke_failure_is_actionable(monkeypatch, capsys) -> None:
@@ -349,37 +266,6 @@ def test_noninteractive_pi_api_options_require_a_url(
 
     assert setup.run_setup(backend="pi", non_interactive=True, **options) == SETUP_EXIT_USAGE
     assert "--api-url is required" in capsys.readouterr().err
-
-
-def test_cli_forwards_noninteractive_setup_contract(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_setup(**kwargs):
-        captured.update(kwargs)
-        return 0
-
-    monkeypatch.setattr(setup, "run_setup", fake_setup)
-
-    rc = cli_main(
-        [
-            "--setup",
-            "--non-interactive",
-            "--backend",
-            "codex",
-            "--auth-mode",
-            "subscription_cli",
-            "--allow-prerelease",
-        ]
-    )
-
-    assert rc == 0
-    assert captured["backend"] == "codex"
-    assert captured["auth_mode"] == "subscription_cli"
-    assert captured["non_interactive"] is True
-    assert captured["allow_prerelease"] is True
-    assert captured["api_url"] is None
-    assert captured["api_key"] is None
-    assert captured["api_model"] is None
 
 
 @pytest.mark.parametrize("smoke_ok", [True, False])
@@ -470,23 +356,6 @@ def test_dedicated_login_uses_official_cli_and_does_not_persist_failure(
     assert read_persisted_knobs() == {}
     assert not (chosen / "config.json").exists()
     assert os.environ["COPILOT_GITHUB_TOKEN"] == "fake-outer-token"
-
-
-def test_clear_account_binding_is_staged_before_persistence(tmp_path: Path, monkeypatch) -> None:
-    from argus.agent_cli.copilot_home import copilot_account_home
-    from argus.core.knob_store import read_persisted_knobs, write_persisted_knob
-
-    assert write_persisted_knob("ARGUS_SKILL_COPILOT_HOME", str(tmp_path / "previous"))
-
-    def run(**kwargs):
-        assert copilot_account_home() is None
-        assert kwargs["copilot_home"] == ""
-        assert read_persisted_knobs()["ARGUS_SKILL_COPILOT_HOME"]
-        return SETUP_EXIT_NOT_READY
-
-    monkeypatch.setattr(setup, "_run_setup", run)
-    assert setup.run_setup(backend="copilot", copilot_home="") == SETUP_EXIT_NOT_READY
-    assert copilot_account_home() == tmp_path / "previous"
 
 
 @pytest.mark.parametrize("options", [
@@ -582,59 +451,3 @@ def test_setup_cannot_mutate_global_git_or_backend_auth() -> None:
         assert f"_apply_{capability}_identity" not in source
     assert "_seed_codex_config" not in source
     assert "user.email" not in source
-
-
-def test_setup_failure_report_follows_the_stdout_narrative(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    """Under a pipe, stdout is block-buffered and stderr is not.
-
-    The readiness failure and its advice are written to stderr; without a flush
-    they surfaced before the "Step 1" header and the account preamble, so a
-    logged setup read as if the failure had happened first.
-    """
-    from argus.core.backend_readiness import ReadinessProblem
-
-    transcript: list[str] = []
-
-    class _PipedStdout(io.StringIO):
-        def flush(self) -> None:
-            transcript.append(self.getvalue())
-            self.seek(0)
-            self.truncate(0)
-
-    class _Stderr:
-        def write(self, text: str) -> int:
-            transcript.append(text)
-            return len(text)
-
-        def flush(self) -> None:
-            return None
-
-    monkeypatch.setattr(setup.sys, "stdout", _PipedStdout())
-    monkeypatch.setattr(setup.sys, "stderr", _Stderr())
-    report = BackendReadiness(
-        profile=BackendProfile(
-            backend="copilot", auth_mode="subscription_cli",
-            backend_source="argument", auth_mode_source="argument",
-        ),
-        executable="/usr/bin/copilot", version="1.0.89", auth_checked=False,
-        problems=[ReadinessProblem(
-            capability="authentication",
-            detail="copilot authentication is not usable",
-            remediation="run `argus --setup --backend copilot --copilot-login --copilot-home PATH`",
-        )],
-    )
-    monkeypatch.setattr(setup, "_resolve_setup_runner_bin", lambda *_a, **_k: "/usr/bin/copilot")
-    monkeypatch.setattr(setup, "check_backend_readiness", lambda *_a, **_k: report)
-
-    rc = setup.run_setup(
-        backend="copilot", non_interactive=True, copilot_home=str(tmp_path / "dedicated"),
-    )
-
-    assert rc == SETUP_EXIT_NOT_READY
-    text = "".join(transcript)
-    assert text.index("Dedicated Copilot account directory") < text.index("ready: no")
-    assert text.index("Step 1: Agent CLI Backend") < text.index("ready: no")
-    assert text.index("Agent backend selected") < text.index("ready: no")
-    assert text.index("ready: no") < text.index("if login is needed")

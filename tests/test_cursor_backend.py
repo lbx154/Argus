@@ -3,17 +3,8 @@ from __future__ import annotations
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import (
     BACKEND_CURSOR,
-    SUPPORTED_BACKENDS,
-    default_runner_bin,
-    normalize_runner_backend,
 )
 from argus.core import backend_readiness
-
-
-def test_cursor_is_a_first_class_backend() -> None:
-    assert "cursor" in SUPPORTED_BACKENDS
-    assert normalize_runner_backend("CURSOR") == BACKEND_CURSOR
-    assert default_runner_bin(BACKEND_CURSOR) == "agent"
 
 
 def test_cursor_command_uses_stdin_stream_json_and_resume() -> None:

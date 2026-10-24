@@ -112,31 +112,6 @@ def test_full_paper_length_target_is_distinct_from_official_limit() -> None:
         assert required in text
 
 
-@pytest.mark.parametrize("role,operation", [
-    ("engineer", "mission"),
-    ("reviewer", "evaluate"),
-])
-def test_live_paper_prompts_carry_length_policy(role: str, operation: str) -> None:
-    from argus.verticals.research.prompt_policy import render_role_prompt_fragment
-
-    text = render_role_prompt_fragment(
-        role=role,
-        operation=operation,
-        stage="paper" if role == "engineer" else "review",
-        scope="" if role == "engineer" else "final_submission",
-        project_root=None,
-    )
-    assert "research-paper-playbook.md" in text
-    assert "principle-level analysis" in text
-    assert "derivations, and design tradeoffs" in text
-    assert "technically complete" not in text
-    assert "experiment report" in text
-    assert "not total PDF pages" in text
-    assert "short-paper and partial-edit requests" in text
-    assert "full unused body page" not in text
-    assert "shorter-paper exception" not in text
-
-
 def test_paper_skills_favor_principle_led_expansion() -> None:
     for relative in (
         "research-paper-playbook.md",

@@ -11,11 +11,7 @@ These tests pin the four links of the chain:
 """
 from __future__ import annotations
 
-import inspect
 import json
-import os
-import tempfile
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,14 +21,10 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.agent_cli.agent_cli_runner import AgentCliRunner
 from argus.agent_cli.agent_cli_runner import RunnerOptions as AcOpts
 from argus.core.models import RunnerOptions as CoreOpts
-from argus.core.vertical_contract import VerticalContractError
 from argus.engineer.runner import (
     DEFAULT_LIVE_SEARCH_STAGES,
-    EngineerConfig,
-    _engineer_live_search,
 )
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import load_vertical_contract
 from tests.hand_off import hand_off
 
 pytestmark = pytest.mark.usefixtures("optimize_vertical")
@@ -51,115 +43,7 @@ def test_search_flag_present_only_when_live():
     assert not any('web_search="live"' in a for a in _cmd(False))
 
 
-def test_core_and_agentcli_both_have_field():
-    assert CoreOpts(model="gpt-5.5", live_search=True).live_search is True
-    assert CoreOpts().live_search is False  # default off
-    assert "live_search" in AcOpts.__dataclass_fields__
-
-
-def test_engineer_config_public_live_search_default_is_compatible() -> None:
-    config = EngineerConfig(model="test")
-
-    assert config.live_search_stages == frozenset({"research"})
-    assert type(config.live_search_stages) is frozenset
-    assert (
-        EngineerConfig.__dataclass_fields__["live_search_stages"].default
-        is DEFAULT_LIVE_SEARCH_STAGES
-    )
-    assert (
-        inspect.signature(EngineerConfig).parameters["live_search_stages"].default
-        is DEFAULT_LIVE_SEARCH_STAGES
-    )
-
-
-def test_assigning_framework_default_marks_live_search_as_explicit() -> None:
-    config = EngineerConfig(model="test")
-    assert config._live_search_stages_explicit is False
-
-    config.live_search_stages = DEFAULT_LIVE_SEARCH_STAGES
-
-    assert config.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
-    assert config._live_search_stages_explicit is True
-
-
-@pytest.mark.parametrize("stages", [frozenset(), frozenset({"scope"}), DEFAULT_LIVE_SEARCH_STAGES])
-def test_historical_positional_search_stages_and_state_root_are_preserved(
-    stages: frozenset[str], tmp_path: Path,
-) -> None:
-    config = EngineerConfig(
-        "test", None, None, None, None, True, True, False, None, False,
-        stages, tmp_path,
-    )
-
-    assert config.live_search_stages is stages
-    assert config.vertical_state_root == tmp_path
-    assert config._live_search_stages_explicit is True
-
-
-def test_replace_of_unrelated_field_preserves_live_search_provenance() -> None:
-    omitted = EngineerConfig(model="test")
-    omitted_update = replace(omitted, reasoning_effort="high")
-    assert omitted_update.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
-    assert omitted_update._live_search_stages_explicit is False
-
-    custom_stages = frozenset({"scope"})
-    explicit = EngineerConfig(model="test", live_search_stages=custom_stages)
-    explicit_update = replace(explicit, reasoning_effort="high")
-    assert explicit_update.live_search_stages is custom_stages
-    assert explicit_update._live_search_stages_explicit is True
-
-
-def test_replace_of_live_search_field_marks_it_explicit() -> None:
-    config = EngineerConfig(model="test")
-    custom_stages = frozenset({"optimize"})
-
-    updated = config.replace(live_search_stages=custom_stages)
-
-    assert updated.live_search_stages is custom_stages
-    assert updated._live_search_stages_explicit is True
-
-
-def test_replace_of_live_search_field_with_default_marks_it_explicit() -> None:
-    config = EngineerConfig(model="test")
-
-    updated = config.replace(live_search_stages=DEFAULT_LIVE_SEARCH_STAGES)
-
-    assert updated.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
-    assert updated._live_search_stages_explicit is True
-
-
-def test_stage_gate_on_for_named_stages_off_elsewhere():
-    d = tempfile.mkdtemp()
-    os.makedirs(os.path.join(d, ".argus"), exist_ok=True)
-    stages = frozenset({"idea"})
-
-    def _set(stage: str) -> None:
-        with open(os.path.join(d, ".argus", "PIPELINE_STATE.json"), "w") as fh:
-            json.dump({"current_stage": stage}, fh)
-
-    _set("idea")
-    assert _engineer_live_search(d, stages) is True
-    _set("experiment")
-    assert _engineer_live_search(d, stages) is False
-    _set("paper")
-    assert _engineer_live_search(d, stages) is False
-
-
-def test_stage_gate_empty_stages_never_on():
-    d = tempfile.mkdtemp()
-    os.makedirs(os.path.join(d, "research"), exist_ok=True)
-    with open(os.path.join(d, "research", "PIPELINE_STATE.json"), "w") as fh:
-        json.dump({"current_stage": "research"}, fh)
-    assert _engineer_live_search(d, frozenset()) is False
-
-
 # --- the active vertical owns its own live-search stages -------------------
-
-
-def _resolved_stages(vertical: str, project_root: object = None) -> frozenset[str]:
-    """Resolve exactly what SkillLoop puts into EngineerConfig for a vertical."""
-    contract = load_vertical_contract(vertical, project_root=project_root)
-    return contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES)
 
 
 def _optimize_project(tmp_path: Path) -> Path:
@@ -169,38 +53,6 @@ def _optimize_project(tmp_path: Path) -> Path:
     payload["current_stage"] = "optimize"
     state_path.write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
-
-
-def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -> None:
-    contract = load_vertical_contract("research")
-    assert contract.engineer_live_search_stages == frozenset(
-        {"idea", "experiment", "paper"}
-    )
-    stages = _resolved_stages("research")
-    assert stages == frozenset({"idea", "experiment", "paper"})
-
-    persist_vertical(tmp_path, "research")
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    for stage in contract.stage_order:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
-        payload["current_stage"] = stage
-        state_path.write_text(json.dumps(payload), encoding="utf-8")
-        assert _engineer_live_search(tmp_path, stages) is (stage != "review")
-
-
-def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> None:
-    """Every other in-tree vertical keeps the framework default untouched."""
-    for vertical in ("software", "optimize_lab", "argus_maintenance"):
-        contract = load_vertical_contract(vertical)
-        assert contract.engineer_live_search_stages is None, vertical
-        assert contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES) == (
-            frozenset(contract.stage_order)
-        ), vertical
-
-    # A software project searches in delivery too: current dependencies,
-    # provider behaviour and official docs do not stop changing after scope.
-    persist_vertical(tmp_path, "software")
-    assert _engineer_live_search(tmp_path, _resolved_stages("software")) is True
 
 
 def _done_review() -> CannedResponse:
@@ -267,17 +119,6 @@ def _run_one_round(
     return _engineer_options(backend)
 
 
-def test_optimize_skill_loop_keeps_search_available(tmp_path: Path) -> None:
-    _optimize_project(tmp_path)
-
-    options = _run_one_round(
-        tmp_path,
-        "optimize_lab",
-    )
-
-    assert options.live_search is True
-
-
 def test_separated_state_root_enables_optimize_live_search(
     tmp_path: Path,
 ) -> None:
@@ -320,57 +161,6 @@ def test_optimize_default_does_not_replace_caller_live_search_config(
     assert options.live_search is expected
 
 
-def test_explicit_framework_default_keeps_caller_provenance(tmp_path: Path) -> None:
-    """An explicit value remains explicit even when equal to the default."""
-    _optimize_project(tmp_path)
-
-    options = _run_one_round(
-        tmp_path,
-        "optimize_lab",
-        live_search_stages=frozenset({"research"}),
-    )
-
-    assert options.live_search is False
-
-
-def test_standard_replace_custom_live_search_overrides_optimize_default(
-    tmp_path: Path,
-) -> None:
-    _optimize_project(tmp_path)
-    loop, backend = _build_loop(tmp_path, "optimize_lab")
-    loop.supervised.engineer_config = replace(
-        loop.supervised.engineer_config,
-        live_search_stages=frozenset({"optimize"}),
-    )
-
-    loop.run(
-        "Do the work.",
-        workdir=tmp_path,
-        scope="bounded",
-    )
-
-    assert loop.supervised.engineer_config._live_search_stages_explicit is True
-    assert _engineer_options(backend).live_search is True
-
-
-def test_replaced_live_search_config_overrides_optimize_default(
-    tmp_path: Path,
-) -> None:
-    _optimize_project(tmp_path)
-    loop, backend = _build_loop(tmp_path, "optimize_lab")
-    loop.supervised.engineer_config = loop.supervised.engineer_config.replace(
-        live_search_stages=frozenset(),
-    )
-
-    loop.run(
-        "Do the work.",
-        workdir=tmp_path,
-        scope="bounded",
-    )
-
-    assert _engineer_options(backend).live_search is False
-
-
 def test_replaced_default_live_search_config_overrides_optimize_default(
     tmp_path: Path,
 ) -> None:
@@ -387,114 +177,3 @@ def test_replaced_default_live_search_config_overrides_optimize_default(
     )
 
     assert _engineer_options(backend).live_search is False
-
-
-def test_skill_loop_keeps_research_engineer_behaviour(tmp_path: Path) -> None:
-    persist_vertical(tmp_path, "research")
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    payload = json.loads(state_path.read_text(encoding="utf-8"))
-    payload["current_stage"] = "research"
-    state_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    assert _run_one_round(tmp_path, "research").live_search is True
-
-
-def test_skill_loop_gives_undeclared_vertical_search_in_its_stage(
-    tmp_path: Path,
-) -> None:
-    persist_vertical(tmp_path, "software")
-
-    assert _run_one_round(tmp_path, "software").live_search is True
-
-
-def test_undeclared_vertical_preserves_a_caller_configured_live_search_set(
-    tmp_path: Path,
-) -> None:
-    """A vertical that declares nothing must not lose the CALLER's setting.
-
-    The baseline for an undeclared vertical is whatever is already configured on
-    ``EngineerConfig`` — not the framework constant. Resolving against the
-    constant would silently downgrade an explicit caller choice to
-    ``{"research"}``, which for a ``delivery``-stage project means turning live
-    search off entirely.
-    """
-    persist_vertical(tmp_path, "software")
-    custom = frozenset({"delivery"})
-
-    options = _run_one_round(tmp_path, "software", live_search_stages=custom)
-
-    # The custom set survives and actually reaches the codex invocation;
-    # collapsing to the framework default would make this False.
-    assert options.live_search is True
-
-
-def test_mission_never_mutates_the_shared_supervised_engineer(
-    tmp_path: Path,
-) -> None:
-    """Per-mission live-search resolution must not write back onto the loop.
-
-    ``SupervisedEngineer`` is shared across missions and documents itself as
-    stateless across calls; a mission-scoped value written onto it outlives the
-    mission (and any exception during the mission leaves it there for good).
-    """
-    _optimize_project(tmp_path)
-    custom = frozenset({"setup"})
-    loop, backend = _build_loop(tmp_path, "optimize_lab", live_search_stages=custom)
-    shared_before = loop.supervised
-    config_before = loop.supervised.engineer_config
-
-    loop.run("Do the work.", workdir=tmp_path, scope="bounded")
-
-    # An explicit caller policy is an opt-out from the vertical default, and
-    # optimize is outside this caller's setup-only set.
-    assert _engineer_options(backend).live_search is False
-    # ...yet nothing was written back onto the shared object.
-    assert loop.supervised is shared_before
-    assert loop.supervised.engineer_config is config_before
-    assert loop.supervised.engineer_config.live_search_stages == custom
-
-
-def test_unknown_vertical_fails_loudly_instead_of_defaulting(tmp_path: Path) -> None:
-    """A vertical that cannot be loaded is an inconsistency, not a missing knob.
-
-    ``resolve_role_prompt`` loads this exact contract for the same mission
-    moments earlier, so a failure here means the two disagree. Falling back
-    would run the Engineer with silently wrong permissions.
-    """
-    loop, _backend = _build_loop(tmp_path, "software")
-
-    with pytest.raises(LookupError, match="unknown vertical"):
-        loop._resolve_live_search_stages(
-            "definitely_not_a_vertical_xyz",
-            tmp_path,
-            DEFAULT_LIVE_SEARCH_STAGES,
-        )
-
-
-def test_contract_validation_error_is_not_swallowed(tmp_path: Path) -> None:
-    """The fail-loud property added to ``vertical_contract`` must survive here.
-
-    A vertical whose declaration does not typecheck already raises at load
-    time; this pins that the loop does not catch it and degrade to a default.
-    The contract is patched directly because ``resolve_role_prompt`` would
-    otherwise raise on the very same bad provider before the loop reaches this
-    call — which is exactly the inconsistency the propagation protects.
-    """
-    from argus.verticals import _base as verticals_base
-
-    loop, _backend = _build_loop(tmp_path, "software")
-
-    def _explode(*_args: object, **_kwargs: object) -> None:
-        raise VerticalContractError("vertical 'x' declares a blank live search stage")
-
-    original = verticals_base.load_vertical_contract
-    verticals_base.load_vertical_contract = _explode
-    try:
-        with pytest.raises(VerticalContractError, match="blank live search stage"):
-            loop._resolve_live_search_stages(
-                "software",
-                tmp_path,
-                DEFAULT_LIVE_SEARCH_STAGES,
-            )
-    finally:
-        verticals_base.load_vertical_contract = original

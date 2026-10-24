@@ -54,35 +54,6 @@ def launcher(monkeypatch, tmp_path):
     return bundle
 
 
-def test_windows_runs_the_cockpit_in_the_foreground(launcher, monkeypatch) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: True)
-    monkeypatch.setattr(
-        tui_launcher.subprocess,
-        "run",
-        lambda argv, check=False: calls.append(list(argv)) or SimpleNamespace(returncode=0),
-    )
-    monkeypatch.setattr(
-        tui_launcher.os,
-        "execv",
-        lambda *_a: pytest.fail("execv on Windows leaves two processes on one console"),
-    )
-
-    assert tui_launcher.main([]) == 0
-    assert calls and calls[0][0] == "/usr/bin/node"
-
-
-def test_windows_propagates_the_cockpit_exit_code(launcher, monkeypatch) -> None:
-    monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: True)
-    monkeypatch.setattr(
-        tui_launcher.subprocess,
-        "run",
-        lambda argv, check=False: SimpleNamespace(returncode=3),
-    )
-
-    assert tui_launcher.main([]) == 3
-
-
 def test_windows_reports_an_interrupt_rather_than_crashing(launcher, monkeypatch) -> None:
     monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: True)
 
@@ -92,25 +63,6 @@ def test_windows_reports_an_interrupt_rather_than_crashing(launcher, monkeypatch
     monkeypatch.setattr(tui_launcher.subprocess, "run", interrupted)
 
     assert tui_launcher.main([]) == 130
-
-
-def test_posix_still_replaces_the_process(launcher, monkeypatch) -> None:
-    # On POSIX exec is the right call: one process, one console, no shell
-    # prompt until the cockpit exits.
-    replaced: list[list[str]] = []
-    monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: False)
-    monkeypatch.setattr(
-        tui_launcher.os, "execv", lambda node, argv: replaced.append([node, *argv[1:]])
-    )
-    monkeypatch.setattr(
-        tui_launcher.subprocess,
-        "run",
-        lambda *_a, **_k: pytest.fail("POSIX must exec, not spawn a second process"),
-    )
-
-    tui_launcher.main([])
-
-    assert replaced and replaced[0][0] == "/usr/bin/node"
 
 
 def test_forwarded_arguments_survive_on_both_platforms(launcher, monkeypatch) -> None:

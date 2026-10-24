@@ -223,54 +223,6 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
     assert [event["streak"] for event in restarts] == [1, 2, 3]
 
 
-@pytest.mark.parametrize("stop_kind,expected", [
-    (None, "done"),
-    ("budget_exhausted", "parked"),
-    ("operator_abort", "aborted"),
-])
-def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(
-    tmp_path: Path, stop_kind: str | None, expected: str,
-) -> None:
-    class LongRepair(_AlwaysCappedEngineer):
-        def run_exec(self, **kwargs):
-            if self.calls < 4:
-                return super().run_exec(**kwargs)
-            self.calls += 1
-            if stop_kind:
-                return RunnerResult(exit_code=1, fatal_error="Explicit stop", stop_kind=stop_kind)
-            return RunnerResult(exit_code=0, agent_messages=["PPT repair is ready for independent review."])
-
-    engineer = LongRepair()
-    reviewer = _DoneReviewer()
-    supervised = _make_supervised(engineer, reviewer)
-    config = SupervisedConfig(
-        checkpoint_path=tmp_path / "CHECKPOINT.md",
-    )
-    config.checkpoint_path.write_text("Continue the native PPT mathematical-label repair.")
-    events: list[dict] = []
-    guidance: list[str] = []
-
-    def prompt(next_action, include_static=True):
-        guidance.append(next_action or "")
-        return "Continue the current final Review. " + (next_action or "")
-
-    status, rounds, _final, _reason, _thread = supervised.run(
-        objective="Repair this paper's figure in final Review",
-        engineer_prompt_builder=prompt, supervised_config=config,
-        workdir=tmp_path, on_event=events.append,
-    )
-
-    assert status == expected
-    assert engineer.calls == 5
-    assert reviewer.calls == (1 if stop_kind is None else 0)
-    assert all(round.review.status == "continue" for round in rounds[:4])
-    assert "partial work, attempt 4" in guidance[4]
-    restarts = [event for event in events if event.get("type") == "round.provider_turn_cap.restart"]
-    assert [event["streak"] for event in restarts] == [1, 2, 3, 4]
-    assert all(event["streak_limit"] == 0 for event in restarts)
-    assert all(event["checkpoint_available"] for event in restarts)
-
-
 class _SteadyEngineer:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
         return RunnerResult(

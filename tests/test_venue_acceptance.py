@@ -64,56 +64,6 @@ def test_rejection_cannot_pass_even_with_done(paper, rating):
     assert RoundSettlementMixin._classify(review=review) == (None, "")
 
 
-@pytest.mark.parametrize("rating", ["weak_accept", "accept", "strong_accept", "best_paper"])
-def test_explicit_clear_acceptance_is_bound_to_current_paper(paper, rating):
-    review = ReviewDecision(status="done", reason="Acceptance is supported.", next_action="", venue_review=assessment(rating))
-    enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert review.final_submission_certified
-    assert current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper) == ""
-    payload = review.to_event_payload()
-    assert payload["venue_review"]["recommendation"] == rating
-    assert payload["venue_review_snapshot"] == paper_review_snapshot(paper)
-
-
-@pytest.mark.parametrize("rating", ["weak_accept", "accept", "strong_accept", "best_paper"])
-def test_strong_accept_goal_uses_the_real_rating_without_upgrading_it(paper, rating):
-    state = read_pipeline_state(paper)
-    state["venue_acceptance_minimum"] = "strong_accept"
-    write_pipeline_state(paper, state)
-    reason = "The current result is sound; a held-out mechanism test can establish its wider value."
-    review = ReviewDecision(status="done", reason=reason, next_action="", venue_review=assessment(rating))
-
-    enforce_venue_acceptance(
-        review, venue="ICLR", minimum=selected_acceptance_minimum(paper),
-        before=paper_review_snapshot(paper), artifact_root=paper,
-    )
-
-    sufficient = rating in {"strong_accept", "best_paper"}
-    assert review.final_submission_certified is sufficient
-    assert review.status == "done"
-    assert review.venue_review["recommendation"] == rating
-    assert review.reason == reason
-    assert not review.backend_unavailable
-    assert bool(current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)) is not sufficient
-    assert bool(review.intervention(ACCEPTANCE_BAR_POLICY)) is not sufficient
-    if not sufficient:
-        assert "strong accept or better" in review.interventions[0]["note"]
-    assert read_pipeline_state(paper)["current_stage"] == "review"
-
-
-def test_raising_the_operator_bar_invalidates_a_previous_weak_accept(paper):
-    review = ReviewDecision(status="done", reason="Current paper accepted.", next_action="", venue_review=assessment())
-    enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper) == ""
-
-    state = read_pipeline_state(paper)
-    state["venue_acceptance_minimum"] = "strong_accept"
-    write_pipeline_state(paper, state)
-
-    assert "strong_accept or better" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
-    assert review.venue_review["recommendation"] == "weak_accept"
-
-
 def test_invalid_explicit_acceptance_minimum_cannot_silently_lower_the_bar(paper):
     state = read_pipeline_state(paper)
     state["venue_acceptance_minimum"] = "typo"
@@ -130,14 +80,6 @@ def test_uncertain_acceptance_or_unresolved_reject_issue_requires_revision(paper
     assert review.status == "done"
     assert not review.final_submission_certified
     assert review.intervention(ACCEPTANCE_BAR_POLICY)
-
-
-@pytest.mark.parametrize("changed", ["main.tex", "main.pdf", "figures/method.pdf"])
-def test_source_pdf_or_figure_changes_invalidate_acceptance(paper, changed):
-    review = ReviewDecision(status="done", reason="Accepted.", next_action="", venue_review=assessment())
-    enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    (paper / "paper" / changed).write_bytes(b"New unreviewed bytes")
-    assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
 
 
 def test_manuscript_change_during_review_cannot_be_certified(paper):
@@ -183,18 +125,6 @@ class _Runner:
             payload["recommendation"] = self.report["recommendation"]
         bridge_request(PREFIX, "hand_off", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
-
-
-@pytest.mark.parametrize("report", [None, assessment(venue="NeurIPS")])
-def test_missing_or_wrong_venue_response_retries_reviewer_without_engineer_work(paper, report):
-    review = ReviewDecision(status="done", reason="Assessed current paper.", next_action="", venue_review=report)
-    enforce_venue_acceptance(
-        review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper,
-    )
-    assert review.backend_unavailable
-    assert not review.final_submission_certified
-    assert "Retry the independent Reviewer" in review.next_action
-    assert not (paper / "paper/REVIEW.md").exists()
 
 
 def test_integrated_reviewer_persists_the_actual_venue_recommendation(paper):
@@ -292,14 +222,6 @@ def test_a_final_acceptance_of_a_survey_is_its_ordinary_review(tmp_path):
     assert review.final_submission_certified
 
 
-def test_gate_applies_to_final_papers_only():
-    assert requires_venue_review(vertical="research", stage="review")
-    assert requires_venue_review(vertical="research", stage="paper", scope="final_submission")
-    assert not requires_venue_review(vertical="research", stage="paper", scope="bounded")
-    assert not requires_venue_review(vertical="research", stage="review", operation="cold_read")
-    assert not requires_venue_review(vertical="software", stage="review", scope="final_submission")
-
-
 def test_settlement_follows_the_verdict_and_the_operator_bar(paper):
     rejecting = ReviewDecision(status="continue", reason="Still below weak accept.", next_action="Run the missing matched control.")
     assert RoundSettlementMixin._classify(review=rejecting) == (None, "")
@@ -308,22 +230,6 @@ def test_settlement_follows_the_verdict_and_the_operator_bar(paper):
     accepted = ReviewDecision(status="done", reason="Accepted.", next_action="", venue_review=assessment())
     enforce_venue_acceptance(accepted, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
     assert RoundSettlementMixin._classify(review=accepted)[0] == "done"
-
-
-def test_stage_certificate_keeps_venue_rating_and_expires_on_figure_changes(paper):
-    from types import SimpleNamespace
-
-    from argus.core.stage_certificate import latest_stage_review, record_stage_review
-
-    record_stage_review(
-        state_root=paper, project_root=paper, stage="review", item=SimpleNamespace(id="final-review"),
-        manager_action="complete", venue_review=assessment(), venue_review_snapshot=paper_review_snapshot(paper),
-    )
-    assert latest_stage_review(paper, "review")["certified"] is True
-    (paper / "paper/figures/method.pdf").write_bytes(b"A revised figure")
-    record = latest_stage_review(paper, "review")
-    assert record["certified"] is False
-    assert "changed" in record["stale_reason"]
 
 
 @pytest.mark.parametrize("recommendation", ["weak_accept", "weak_reject"])

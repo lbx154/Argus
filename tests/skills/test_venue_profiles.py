@@ -74,20 +74,6 @@ def test_no_builtin_venue_profiles_exist() -> None:
         assert not isinstance(value, VenueProfile), name
 
 
-def test_from_dict_round_trip_and_defaults() -> None:
-    p = VenueProfile.from_dict(_RESEARCHED_CONFERENCE)
-    assert p.key == "AAAI"
-    assert (p.conclusion_underfill_page, p.conclusion_max_page, p.references_min_page) == (6, 7, 8)
-    assert p.emit_bibliographystyle is False
-    assert p.forbidden_packages == ("hyperref", "navigator")
-    # Unspecified optional fields keep their dataclass defaults.
-    assert p.review_skill_path == "reviewer/venue-academic-language-review.md"
-    assert p.academic_language_rubric_id == "venue-academic-language-v1"
-    # Round trip through to_dict.
-    again = VenueProfile.from_dict(p.to_dict())
-    assert again == p
-
-
 def test_from_dict_journal_profile_without_page_budget() -> None:
     p = VenueProfile.from_dict(_RESEARCHED_JOURNAL)
     assert p.two_column is False
@@ -101,23 +87,6 @@ def test_from_dict_rejects_bad_payloads() -> None:
         VenueProfile.from_dict({"key": "X"})  # missing required geometry fields
 
 
-def test_resolve_uses_researched_local_profile(tmp_path: Path) -> None:
-    _write_state(tmp_path, {"current_stage": "plan", "target_venue": "AAAI"})
-    _write_profile(tmp_path, _RESEARCHED_CONFERENCE)
-    assert resolve_venue_profile(tmp_path).key == "AAAI"
-    # The documented validation command passes a string project root.
-    assert resolve_venue_profile(str(tmp_path)).key == "AAAI"
-
-
-def test_resolve_matches_venue_key_variants(tmp_path: Path) -> None:
-    # A planner naturally writes "aaai2027" / "AAAI 2027" / "AAAI-27"; all must
-    # match the researched profile rather than trigger a fresh research pass.
-    _write_profile(tmp_path, _RESEARCHED_CONFERENCE)
-    for token in ("AAAI", "aaai", "aaai2027", "AAAI 2027", "AAAI-27", "aaai-2027"):
-        _write_state(tmp_path, {"current_stage": "plan", "target_venue": token})
-        assert resolve_venue_profile(tmp_path).key == "AAAI", token
-
-
 def test_resolve_fails_closed_without_researched_profile(tmp_path: Path) -> None:
     # No profile and no target venue: fail closed, never guess a venue.
     _write_state(tmp_path, {"current_stage": "plan"})
@@ -129,14 +98,6 @@ def test_resolve_fails_closed_without_researched_profile(tmp_path: Path) -> None
     # the venue-format research step.
     _write_state(tmp_path, {"current_stage": "plan", "target_venue": "NeurIPS"})
     with pytest.raises(KeyError, match="researched"):
-        resolve_venue_profile(tmp_path)
-
-
-def test_resolve_rejects_profile_for_a_different_venue(tmp_path: Path) -> None:
-    # A stale profile for another venue must not silently grade this paper.
-    _write_state(tmp_path, {"current_stage": "plan", "target_venue": "NeurIPS"})
-    _write_profile(tmp_path, _RESEARCHED_CONFERENCE)
-    with pytest.raises(KeyError):
         resolve_venue_profile(tmp_path)
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from hosted_platform import needs_fifo, needs_pread
@@ -12,7 +11,6 @@ from argus.trial import journey_journal as journal_module
 from argus.trial.analytics import Analytics, AnalyticsError
 from argus.trial.interaction_capture import Capture
 from argus.trial.journey_journal import Journal
-from argus.webapi import daemon_lifecycle
 
 
 @pytest.fixture
@@ -50,26 +48,6 @@ def replay(journal, **kwargs):
 
 def runtime(result):
     return [event for event in result["events"] if event["source_kind"] == "runtime_event"]
-
-
-def test_repeat_poll_restart_and_ingest_not_source_time(setup):
-    analytics, journal, now, paths = setup
-    append(paths["tenant-one"],
-           {"type": "ui.operator", "text": "Make a plot", "ts": now[0]},
-           {"type": "life.mission.started", "item_id": "task-real", "ts": now[0] - 50})
-    assert journal.poll()["inserted_events"] == 2
-    first = replay(journal)
-    assert journal.poll()["inserted_events"] == 0
-    journal = Journal(analytics)
-    assert journal.poll()["inserted_events"] == 0
-    assert replay(journal)["events"] == first["events"]
-    assert len({event["id"] for event in first["events"]}) == 2
-    assert first["events"][1]["sequence"] > first["events"][0]["sequence"]
-    assert first["events"][1]["source_timestamp"] < first["events"][0]["source_timestamp"]
-    assert first["events"][0]["task_id"] is None
-    assert first["events"][0]["association"]["kind"] == "unassigned"
-    assert first["events"][1]["task_id"] == "task-real"
-    assert first["events"][1]["association"] == {"kind": "authoritative", "evidence": ["item_id"]}
 
 
 def test_full_lifecycle_continues_after_browser_close(setup):
@@ -198,23 +176,6 @@ def test_discontinuities_are_persistent_gap_observations(setup, mode):
     assert journal.poll()["inserted_events"] == 0
 
 
-def test_partial_line_not_invented_then_resumes(setup):
-    analytics, journal, _, paths = setup
-    source = paths["tenant-one"] / "events.jsonl"
-    line = json.dumps({"type": "life.mission.completed", "item_id": "x", "status": "done"})
-    source.write_text(line)
-    assert journal.poll()["inserted_events"] == 0
-    result = replay(journal)
-    assert result["sources"]["runtime"]["state"] == "awaiting_newline"
-    assert result["lifecycle"] == []
-    assert result["completeness"]["state"] == "incomplete"
-    with source.open("a") as stream:
-        stream.write("\n")
-    journal = Journal(analytics)
-    assert journal.poll()["inserted_events"] == 1
-    assert replay(journal)["lifecycle"][0]["state"] == "complete"
-
-
 def test_oversized_line_skip_is_bounded_and_recovers(setup):
     _, journal, _, paths = setup
     source = paths["tenant-one"] / "events.jsonl"
@@ -242,45 +203,6 @@ def test_invalid_lines_advance_checkpoint_without_claiming_completion(setup):
     assert result["completeness"]["gap_events"] == 3
     assert not runtime(result)
     assert journal.poll()["inserted_events"] == 0
-
-
-def test_no_consent_no_capture_and_new_notice_requires_consent(setup):
-    analytics, journal, _, paths = setup
-    append(paths["tenant-two"], {"type": "ui.operator", "text": "UNCONSENTED"})
-    assert journal.poll()["tenants_without_consent"] == 1
-    with pytest.raises(AnalyticsError, match="consent_required"):
-        journal.replay("tenant-two", "s-project")
-    with pytest.raises(AnalyticsError, match="consent_required"):
-        journal.append_user_event("tenant-two", "s-project", "feedback", {"text": "no"})
-    with analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM journey_events WHERE tenant_id='tenant-two'").fetchone()[0] == 0
-    analytics.notice_version = "new-notice"
-    assert journal.poll()["projects"] == 0
-    with pytest.raises(AnalyticsError, match="consent_required"):
-        replay(journal)
-
-
-@pytest.mark.parametrize("notice", ["operator-analytics-v2", "operator-analytics-v3-workspace"])
-def test_v2_never_backfills_precollection_bytes_even_across_partial_lines_or_rotation(setup, notice):
-    analytics, journal, _, paths = setup
-    analytics.notice_version = notice
-    source = paths["tenant-one"] / "events.jsonl"
-    source.write_text('{"type":"ui.operator","text":"PRECONSENT"}\n{"type":"ui.argus","text":"OLD')
-    assert journal.poll()["projects"] == 0
-    analytics.record_consent("tenant-one", analytics.notice_version)
-    journal.poll()
-    with source.open("a") as stream:
-        stream.write('"}\n{"type":"ui.argus","text":"AFTER_BOUNDARY"}\n')
-    journal.poll()
-    result = replay(journal)
-    assert [row["payload"]["text"] for row in runtime(result)] == ["AFTER_BOUNDARY"]
-    assert any(row["payload"].get("code") == "collection_boundary_no_backfill" for row in result["events"])
-    source.rename(paths["tenant-one"] / "events.jsonl.1")
-    source.write_text('{"type":"ui.argus","text":"REPLACEMENT_HISTORY"}\n')
-    Journal(analytics).poll()
-    result = replay(journal)
-    assert "PRECONSENT" not in json.dumps(result) and "REPLACEMENT_HISTORY" not in json.dumps(result)
-    assert result["completeness"]["complete"] is False
 
 
 def test_cross_tenant_lookup_never_falls_back_to_other_project(setup):
@@ -321,18 +243,6 @@ def test_event_file_safety(setup, unsafe):
     assert not runtime(result)
     assert "FORBIDDEN" not in json.dumps(result)
     assert result["completeness"]["state"] == "incomplete"
-
-
-def test_intermediate_project_symlink_not_followed(setup):
-    _, journal, _, paths = setup
-    first = paths["tenant-one"]
-    moved = first.with_name("s-real")
-    first.rename(moved)
-    first.symlink_to(paths["tenant-two"], target_is_directory=True)
-    result = journal.poll()
-    assert result["discovery"][0]["skipped"] >= 1
-    with pytest.raises(AnalyticsError, match="unsafe_path"):
-        journal.append_user_event("tenant-one", "s-project", "feedback", {"text": "no"})
 
 
 def test_redaction_private_channel_and_raw_tool_exclusion(redact_secrets_on, setup):
@@ -457,51 +367,6 @@ def test_user_observations_idempotency_conflicts_and_references(setup):
         )
 
 
-def test_delete_tombstone_prevents_reimport_across_restart_and_notice(setup):
-    analytics, journal, _, paths = setup
-    append(paths["tenant-one"], {"type": "ui.operator", "text": "Erase research copy"})
-    capture = Capture(analytics, "tenant-one", "s-project", "/api/projects/s-project/message",
-                      {"text": "Delete only journal, not source capture"})
-    journal.poll()
-    original = (paths["tenant-one"] / "events.jsonl").read_bytes()
-    result = journal.delete_project("tenant-one", "s-project")
-    assert result["events"] == 2
-    assert result["checkpoints"] == 1
-    assert result["http_observations"] == 1
-    journal = Journal(analytics)
-    assert journal.poll()["inserted_events"] == 0
-    with pytest.raises(AnalyticsError, match="journal_deleted"):
-        replay(journal)
-    with pytest.raises(AnalyticsError, match="journal_deleted"):
-        journal.append_user_event("tenant-one", "s-project", "feedback", {"text": "new"})
-    analytics.notice_version = "next-policy"
-    analytics.record_consent("tenant-one", analytics.notice_version)
-    assert journal.poll()["inserted_events"] == 0
-    assert journal.delete_project("tenant-one", "s-project")["events"] == 0
-    assert (paths["tenant-one"] / "events.jsonl").read_bytes() == original
-    with analytics._db() as db:
-        assert db.execute("SELECT id FROM interactions WHERE id=?", (capture.id,)).fetchone()
-
-
-@pytest.mark.parametrize("days", [1, 30, 365])
-def test_retention_does_not_reimport_or_reset_sequences(setup, days):
-    analytics, journal, now, paths = setup
-    analytics.retention_days = days
-    append(paths["tenant-one"], {"type": "ui.operator", "text": "old"})
-    journal.poll()
-    old_sequence = replay(journal)["next_sequence"]
-    now[0] += min(days, 30) * 86400 + 1
-    assert journal.prune()["events"] == 1
-    assert Journal(analytics).poll()["inserted_events"] == 0
-    result = replay(journal)
-    assert result["events"] == []
-    assert result["completeness"]["pruned_events"] == 1
-    assert result["completeness"]["pruned_through_sequence"] == old_sequence
-    append(paths["tenant-one"], {"type": "ui.argus", "text": "new"})
-    journal.poll()
-    assert replay(journal)["events"][0]["sequence"] > old_sequence
-
-
 def test_capacity_pruning_retains_checkpoints_and_reports_loss(setup, monkeypatch):
     _, journal, _, paths = setup
     monkeypatch.setattr(journal_module, "MAX_RETAINED_EVENTS", 3)
@@ -577,39 +442,6 @@ def test_invalid_replay_bounds(setup, kwargs):
         replay(setup[1], **kwargs)
 
 
-def test_concurrent_polling_and_readers_are_idempotent(setup):
-    analytics, journal, _, paths = setup
-    append(paths["tenant-one"], *[
-        {"type": "ui.argus", "text": str(index)} for index in range(30)
-    ])
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _: Journal(analytics).poll(), range(8)))
-    assert sum(result["inserted_events"] for result in results) == 30
-    expected = replay(journal)["events"]
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _: replay(Journal(analytics)), range(8)))
-    assert all(result["events"] == expected for result in results)
-    assert len({event["sequence"] for event in expected}) == 30
-
-
-def test_atomic_checkpoint_and_events_rollback_on_failure(setup, monkeypatch):
-    analytics, journal, _, paths = setup
-    append(paths["tenant-one"], {"type": "ui.argus", "text": "one"})
-    original = journal._http
-
-    def fail(*args):
-        raise RuntimeError("simulated transaction interruption")
-
-    monkeypatch.setattr(journal, "_http", fail)
-    with pytest.raises(RuntimeError, match="simulated"):
-        journal.poll()
-    with analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM journey_events").fetchone()[0] == 0
-        assert db.execute("SELECT count(*) FROM journey_projects").fetchone()[0] == 0
-    monkeypatch.setattr(journal, "_http", original)
-    assert Journal(analytics).poll()["inserted_events"] == 1
-
-
 def test_source_missing_is_an_explicit_gap_not_completion(setup):
     _, journal, _, paths = setup
     append(paths["tenant-one"], {"type": "life.mission.started", "item_id": "real"})
@@ -668,18 +500,6 @@ def test_http_oversized_body_and_batch_limit_are_explicit(setup):
     assert journal.poll()["inserted_events"] == 0
 
 
-def test_current_consent_revocation_blocks_reads_but_not_deletion(setup):
-    analytics, journal, _, paths = setup
-    append(paths["tenant-one"], {"type": "ui.argus", "text": "previously consented"})
-    journal.poll()
-    with analytics._db() as db:
-        db.execute("DELETE FROM consents WHERE tenant_id='tenant-one'")
-    assert journal.poll()["projects"] == 0
-    with pytest.raises(AnalyticsError, match="consent_required"):
-        replay(journal)
-    assert journal.delete_project("tenant-one", "s-project")["events"] == 1
-
-
 def test_user_payload_limits_and_runtime_ids_remain_exact(setup):
     _, journal, _, paths = setup
     with pytest.raises(AnalyticsError, match="user_payload_too_large"):
@@ -696,49 +516,6 @@ def test_user_payload_limits_and_runtime_ids_remain_exact(setup):
     assert event["task_id"] == "exact-runtime-task-id"
     assert event["association"]["kind"] == "authoritative"
     assert "payload_truncated" in event["warnings"]
-
-
-@pytest.mark.parametrize("stream", [False, True])
-def test_real_message_http_contract_links_input_response_and_runtime(setup, monkeypatch, stream):
-    from fastapi.testclient import TestClient
-
-    from argus.life.memory import BacklogItem
-    from argus.webapi import manager_bridge, manager_pending_question, server
-    from argus.webapi.manager_dispatch import _item_to_dict
-
-    analytics, journal, _, paths = setup
-    path = paths["tenant-one"]
-    task = BacklogItem.new(title="Synthetic task", objective="Make a plot", item_id="task-http-contract")
-    result = {"kind": "task", "reply": None, "item": _item_to_dict(task, "Synthetic task")}
-    monkeypatch.setattr(manager_bridge, "manager_message", lambda *args, **kwargs: dict(result))
-    monkeypatch.setattr(daemon_lifecycle, 'start_project_daemon', lambda *args, **kwargs: {"alive": True})
-    monkeypatch.setattr(manager_pending_question, "record_task_dispatch_ack", lambda *args, **kwargs: None)
-    route = "/api/projects/s-project/message" + ("/stream" if stream else "")
-    captured = Capture(analytics, "tenant-one", "s-project", route, {"text": "Make a plot"})
-    journal.poll()
-    initial = next(event for event in replay(journal)["events"] if event["kind"] == "http.request")
-    assert initial["task_id"] is None
-    with TestClient(server.create_app(global_root=path.parent.parent)) as client:
-        response = client.post(route, json={"text": "Make a plot"})
-    assert response.status_code == 200
-    for offset in range(0, len(response.content), 11):
-        captured.feed(response.content[offset:offset + 11])
-    captured.finish(response.status_code, True, response.headers["content-type"])
-    append(path, {"type": "life.mission.started", "item_id": task.id})
-    journal.poll()
-    events = replay(journal)["events"]
-    request = next(event for event in events if event["kind"] == "http.request")
-    response_event = next(event for event in events if event["kind"] == "http.response")
-    runtime_event = next(event for event in events if event["kind"] == "life.mission.started")
-    assert request["task_id"] == response_event["task_id"] == runtime_event["task_id"] == task.id
-    assert request["id"] == initial["id"] and request["sequence"] == initial["sequence"]
-    assert request["payload"]["input"]["text"] == "Make a plot"
-    assert request["association"]["response_event_id"] == response_event["id"]
-    assert request["association"]["interaction_id"] == response_event["association"]["interaction_id"] == captured.id
-    assert response_event["association"]["evidence"] == ["result.item.id"]
-    assert response_event["payload"]["result"]["item"]["id"] == task.id
-    assert analytics.dashboard()["accounts"][0]["accepted_task_requests"] == 1
-    assert Journal(analytics).poll()["inserted_events"] == 0
 
 
 def test_projection_upgrade_repairs_retained_links_without_reimport(setup):

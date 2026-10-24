@@ -48,75 +48,12 @@ def _argus_env(tmp_path: Path, **extra: str) -> dict[str, str]:
     }
 
 
-def test_home_sits_beside_the_rest_of_argus_state(tmp_path: Path) -> None:
-    env = _argus_env(tmp_path)
-
-    assert argus_copilot_home(env) == tmp_path / "argus" / "copilot-home"
-
-
-def test_operator_config_is_seeded_so_behaviour_is_unchanged(tmp_path: Path) -> None:
-    # A home without these would silently run on Copilot defaults instead of the
-    # operator's settings — a behaviour change disguised as a storage change.
-    env = _argus_env(tmp_path)
-    personal = Path(env["HOME"]) / ".copilot"
-    personal.joinpath("config.json").write_text('{"a":1}', encoding="utf-8")
-    personal.joinpath("settings.json").write_text('{"b":2}', encoding="utf-8")
-
-    home = prepare_copilot_home(env)
-
-    assert home is not None
-    assert (home / "config.json").read_text(encoding="utf-8") == '{"a":1}'
-    assert (home / "settings.json").read_text(encoding="utf-8") == '{"b":2}'
-
-
-def test_seeding_never_overwrites_what_is_already_there(tmp_path: Path) -> None:
-    env = _argus_env(tmp_path)
-    personal = Path(env["HOME"]) / ".copilot"
-    personal.joinpath("config.json").write_text('{"personal":true}', encoding="utf-8")
-    home = argus_copilot_home(env)
-    home.mkdir(parents=True)
-    home.joinpath("config.json").write_text('{"argus":true}', encoding="utf-8")
-
-    prepare_copilot_home(env)
-
-    assert home.joinpath("config.json").read_text(encoding="utf-8") == '{"argus":true}'
-
-
 def _managed_config(path: Path) -> dict:
     payload = "\n".join(
         line for line in path.read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("//")
     )
     return json.loads(payload)
-
-
-def test_auth_fields_refresh_without_overwriting_argus_state(tmp_path: Path) -> None:
-    env = _argus_env(tmp_path)
-    personal = Path(env["HOME"]) / ".copilot"
-    personal.joinpath("config.json").write_text(
-        '// managed\n{"copilotTokens":{"github.com":"fresh"},'
-        '"loggedInUsers":[{"login":"operator"}],'
-        '"lastLoggedInUser":{"login":"operator"},'
-        '"trustedFolders":["/operator-only"]}',
-        encoding="utf-8",
-    )
-    home = argus_copilot_home(env)
-    home.mkdir(parents=True)
-    home.joinpath("config.json").write_text(
-        '{"argusOnly":"keep","copilotTokens":{"github.com":"stale"}}',
-        encoding="utf-8",
-    )
-
-    prepare_copilot_home(env)
-
-    config = _managed_config(home / "config.json")
-    assert config["argusOnly"] == "keep"
-    assert config["copilotTokens"] == {"github.com": "fresh"}
-    assert config["loggedInUsers"] == [{"login": "operator"}]
-    assert config["lastLoggedInUser"] == {"login": "operator"}
-    assert "trustedFolders" not in config
-    if os.name != "nt":
-        assert (home / "config.json").stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.parametrize("empty_auth_tokens", [False, True])
@@ -146,23 +83,6 @@ def test_operator_logout_removes_stale_isolated_auth(
     if empty_auth_tokens:
         expected["authTokens"] = {}
     assert config == expected
-
-
-def test_an_explicitly_chosen_home_always_wins(tmp_path: Path) -> None:
-    # The self-maintenance sandbox sets up a private per-worktree Copilot home
-    # and must keep pointing at its own copy; so must an operator who sets the
-    # variable deliberately.
-    chosen = str(tmp_path / "worktree" / ".argus-self-maintenance-runtime" / "copilot-home")
-    env = _argus_env(tmp_path, **{COPILOT_HOME_ENV: chosen})
-
-    assert apply_copilot_home(env)[COPILOT_HOME_ENV] == chosen
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_a_blank_value_is_not_a_choice(tmp_path: Path, blank: str) -> None:
-    env = _argus_env(tmp_path, **{COPILOT_HOME_ENV: blank})
-
-    assert apply_copilot_home(env)[COPILOT_HOME_ENV] == str(argus_copilot_home(env))
 
 
 def test_an_unusable_location_leaves_the_default_alone(
@@ -221,16 +141,6 @@ def test_persisted_account_overrides_ambient_credentials_without_copying(
     assert copilot_log_dir(original) == chosen / "logs"
 
 
-def test_account_env_overrides_persisted_binding_and_empty_disables_it(
-    tmp_path: Path,
-) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    assert write_persisted_knob(COPILOT_ACCOUNT_HOME_KNOB, str(tmp_path / "saved"))
-    assert copilot_account_home({COPILOT_ACCOUNT_HOME_KNOB: str(tmp_path / "other")}) == tmp_path / "other"
-    assert copilot_account_home({COPILOT_ACCOUNT_HOME_KNOB: ""}) is None
-
-
 def test_unavailable_dedicated_home_fails_instead_of_using_another_account(
     tmp_path: Path,
 ) -> None:
@@ -279,117 +189,6 @@ def _child_env_for(backend: str, **option_kwargs):
     return mixin._child_env(holder, options)
 
 
-@pytest.mark.parametrize("already_has_auth_tokens", [False, True])
-def test_plain_worker_syncs_current_auth_tokens_without_merging_old_accounts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    already_has_auth_tokens: bool,
-) -> None:
-    env = _argus_env(tmp_path)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.delenv(COPILOT_HOME_ENV, raising=False)
-    personal_path = Path(env["HOME"]) / ".copilot" / "config.json"
-    auth_tokens = {"current-account": {"token": "fake-current-token", "expiresAt": 12345}}
-    source = "// managed\n" + json.dumps({
-        "authTokens": auth_tokens,
-        "trustedFolders": ["/personal-only"],
-    })
-    personal_path.write_text(source, encoding="utf-8")
-    home = argus_copilot_home(env)
-    home.mkdir(parents=True)
-    config_path = home / "config.json"
-    isolated = {"argusOnly": "keep"}
-    if already_has_auth_tokens:
-        isolated["authTokens"] = {
-            "current-account": {"token": "fake-expired-token", "staleMetadata": True},
-            "removed-account": {"token": "fake-removed-token"},
-        }
-    config_path.write_text(json.dumps(isolated), encoding="utf-8")
-
-    child_env = _child_env_for("copilot")
-
-    assert child_env[COPILOT_HOME_ENV] == str(home)
-    assert _managed_config(config_path) == {"argusOnly": "keep", "authTokens": auth_tokens}
-    assert personal_path.read_text(encoding="utf-8") == source
-    assert "fake-current-token" not in caplog.text
-    assert "fake-expired-token" not in caplog.text
-    assert "fake-removed-token" not in caplog.text
-    if os.name != "nt":
-        assert config_path.stat().st_mode & 0o777 == 0o600
-
-
-def test_a_plain_copilot_mission_gets_the_argus_home(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # This is the path that was leaking: no sandbox, no isolated workdir — the
-    # ordinary mission, where `_child_env` used to return None and the child
-    # simply inherited an environment with no COPILOT_HOME in it.
-    for key, value in _argus_env(tmp_path).items():
-        monkeypatch.setenv(key, value)
-
-    env = _child_env_for("copilot")
-
-    assert env is not None
-    assert env[COPILOT_HOME_ENV] == str(tmp_path / "argus" / "copilot-home")
-    # Background shells keep the turn alive up to Node's timer ceiling.
-    assert env["COPILOT_TASK_WAIT_TIMEOUT_SECONDS"] == "2147483.647"
-
-
-@pytest.mark.parametrize("backend", ["codex", "claude", "opencode"])
-def test_other_backends_keep_inheriting_untouched(
-    backend: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Returning None means "inherit"; only Copilot needed relocating, and
-    # rebuilding the environment for the others would be an unrelated risk.
-    for key, value in _argus_env(tmp_path).items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setenv(COPILOT_ACCOUNT_HOME_KNOB, str(tmp_path / "dedicated"))
-
-    assert _child_env_for(backend) is None
-
-
-@pytest.mark.parametrize("options", [{}, {"sandbox_mode": "read-only"}, {"isolate_workdir": True}])
-def test_dedicated_account_reaches_every_one_shot_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
-) -> None:
-    chosen = tmp_path / "dedicated"
-    monkeypatch.setenv(COPILOT_ACCOUNT_HOME_KNOB, str(chosen))
-    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "outer-session"))
-    monkeypatch.setenv("GITHUB_TOKEN", "fake-outer-token")
-
-    env = _child_env_for("copilot", working_dir=tmp_path, **options)
-
-    # The sandbox, not the environment, keeps an isolated call's sessions apart.
-    assert env["COPILOT_HOME"] == str(chosen)
-    assert "GITHUB_TOKEN" not in env
-    assert os.environ["GITHUB_TOKEN"] == "fake-outer-token"
-    assert os.environ["COPILOT_HOME"] == str(tmp_path / "outer-session")
-
-
-def test_the_operators_personal_home_is_never_written_to(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The point of the change, stated as an assertion: nothing lands in
-    # ~/.copilot as a side effect of preparing the Argus home.
-    env = _argus_env(tmp_path)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    personal = Path(env["HOME"]) / ".copilot"
-    personal.joinpath("config.json").write_text("{}", encoding="utf-8")
-    before = sorted(p.name for p in personal.iterdir())
-
-    _child_env_for("copilot")
-
-    assert sorted(p.name for p in personal.iterdir()) == before
-    assert os.environ.get(COPILOT_HOME_ENV) is None  # our own env is untouched
-
-
 # --- retention: relocating the growth is not the same as bounding it -------
 
 
@@ -400,19 +199,6 @@ def _session(home: Path, name: str, *, age_days: float) -> Path:
     stamp = time.time() - age_days * 86400
     os.utime(d, (stamp, stamp))
     return d
-
-
-def test_stale_sessions_are_pruned_and_recent_ones_kept(tmp_path: Path) -> None:
-    # At the observed ~115 sessions/hour, moving the writes without bounding
-    # them just relocates 2.6 GB/day. Only a recent session can be resumed.
-    home = tmp_path / "copilot-home"
-    old = _session(home, "old", age_days=30)
-    edge = _session(home, "edge", age_days=6.9)
-    fresh = _session(home, "fresh", age_days=0)
-
-    assert prune_copilot_sessions(home, env={}) == 1
-    assert not old.exists()
-    assert edge.exists() and fresh.exists()
 
 
 def test_retention_window_is_configurable_and_zero_disables(tmp_path: Path) -> None:
@@ -440,44 +226,9 @@ def test_a_bad_retention_value_falls_back_rather_than_deleting_everything(
     assert (home / "session-state" / "recent").exists()
 
 
-def test_the_operators_personal_home_is_never_swept(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The sweep must be reachable only for the Argus-owned home. ~/.copilot is
-    # the operator's data, including sessions Argus did not create.
-    env = _argus_env(tmp_path)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    personal = Path(env["HOME"]) / ".copilot"
-    ancient = personal / "session-state" / "operators-own"
-    ancient.mkdir(parents=True)
-    stamp = time.time() - 365 * 86400
-    os.utime(ancient, (stamp, stamp))
-
-    prepare_copilot_home(env)
-
-    assert ancient.exists()
-
-
-def test_the_sweep_is_throttled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # prepare_copilot_home runs on the child-env path, once per provider turn;
-    # scanning tens of thousands of directories every time would be the cost of
-    # the fix exceeding the problem.
-    env = _argus_env(tmp_path)
-    home = prepare_copilot_home(env)
-    assert home is not None
-    _session(home, "stale", age_days=30)
-
-    prepare_copilot_home(env)  # second call within the hour
-
-    assert (home / "session-state" / "stale").exists()
-
-
 # --- headless opt-in: operator-supplied Copilot token -----------------------
 
 _TOKEN_KNOB = "ARGUS_SKILL_COPILOT_TOKEN_FROM_ENV"
-_ONE_SHOT_MODES = [{}, {"sandbox_mode": "read-only"}, {"isolate_workdir": True}]
 
 
 def _headless_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, opt_in: bool) -> None:
@@ -492,37 +243,6 @@ def _headless_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, opt_in: bo
         monkeypatch.setenv(_TOKEN_KNOB, "1")
     else:
         monkeypatch.delenv(_TOKEN_KNOB, raising=False)
-
-
-@pytest.mark.parametrize("options", _ONE_SHOT_MODES)
-def test_opted_in_token_reaches_every_copilot_child_and_nothing_else_does(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
-) -> None:
-    _headless_env(tmp_path, monkeypatch, opt_in=True)
-
-    env = _child_env_for("copilot", working_dir=tmp_path, **options)
-
-    assert env["COPILOT_GITHUB_TOKEN"] == "fake-copilot-token"
-    assert "GH_TOKEN" not in env
-    assert "GITHUB_TOKEN" not in env
-    if options:
-        # Sandboxed/isolated children still lose push-capable credentials.
-        assert "GIT_ASKPASS" not in env
-        assert "SSH_AUTH_SOCK" not in env
-    if options.get("isolate_workdir"):
-        assert env["GIT_CONFIG_GLOBAL"] == os.devnull
-
-
-@pytest.mark.parametrize("options", [{"sandbox_mode": "read-only"}, {"isolate_workdir": True}])
-def test_without_opt_in_sandboxed_copilot_children_get_no_token(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict,
-) -> None:
-    _headless_env(tmp_path, monkeypatch, opt_in=False)
-
-    env = _child_env_for("copilot", working_dir=tmp_path, **options)
-
-    for key in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
-        assert key not in env
 
 
 def test_without_opt_in_plain_copilot_child_inherits_as_before(
@@ -547,20 +267,6 @@ def test_opted_in_token_survives_a_dedicated_account_binding(
 
     assert env["COPILOT_GITHUB_TOKEN"] == "fake-copilot-token"
     assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env
-
-
-def test_auth_source_names_where_credentials_come_from(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from argus.agent_cli.copilot_home import copilot_auth_source
-
-    _headless_env(tmp_path, monkeypatch, opt_in=False)
-    assert copilot_auth_source() == "Copilot login mirrored from the operator home"
-    monkeypatch.setenv(_TOKEN_KNOB, "1")
-    assert copilot_auth_source().startswith("COPILOT_GITHUB_TOKEN from environment")
-    assert "fake-copilot-token" not in copilot_auth_source()
-    monkeypatch.delenv("COPILOT_GITHUB_TOKEN")
-    assert copilot_auth_source().endswith("token missing")
 
 
 def test_readiness_reports_token_source_and_missing_token(

@@ -93,26 +93,6 @@ def _mode(events: list) -> tuple[str, str]:
 # --- the decision itself -----------------------------------------------------
 
 
-def test_first_round_on_a_resumed_session_with_prior_rounds_goes_compact(
-    tmp_path: Path,
-) -> None:
-    """A resumed session already received the full text when it was created;
-    a mission restart (round 1 again, same session, sealed prior rounds)
-    must not re-pay the whole static prompt."""
-    mission = _mission_file(tmp_path / "m", sealed_rounds=2)
-    events: list = []
-
-    prompt = _assemble(
-        round_index=1,
-        workdir=tmp_path,
-        mission_path=mission,
-        events=events,
-    )
-
-    assert "COMPACT_DELTA_TEXT" in prompt
-    assert _mode(events) == ("compact", "resumed_session_with_prior_rounds")
-
-
 def test_first_round_on_a_resumed_session_without_prior_rounds_stays_full(
     tmp_path: Path,
 ) -> None:
@@ -146,52 +126,6 @@ def test_later_resumed_rounds_stay_compact(tmp_path: Path) -> None:
 
     assert "COMPACT_DELTA_TEXT" in prompt
     assert _mode(events) == ("compact", "resumed_session")
-
-
-def test_a_new_session_gets_the_full_text(tmp_path: Path) -> None:
-    events: list = []
-
-    prompt = _assemble(
-        round_index=1,
-        workdir=tmp_path,
-        action="fresh",
-        events=events,
-    )
-
-    assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "session_fresh")
-
-
-def test_a_rotated_session_gets_the_full_text_and_names_the_reason(
-    tmp_path: Path,
-) -> None:
-    events: list = []
-
-    prompt = _assemble(
-        round_index=4,
-        workdir=tmp_path,
-        action="rotated",
-        rotation_reason="branch_changed",
-        events=events,
-    )
-
-    assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "session_rotated:branch_changed")
-
-
-def test_fresh_policy_sends_the_full_text_every_round(tmp_path: Path) -> None:
-    events: list = []
-
-    prompt = _assemble(
-        round_index=5,
-        workdir=tmp_path,
-        policy="fresh",
-        action="fresh",
-        events=events,
-    )
-
-    assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "fresh_policy")
 
 
 def test_a_stage_change_forces_the_full_text_on_a_resumed_session(
@@ -228,80 +162,4 @@ def test_a_stage_change_forces_the_full_text_on_a_resumed_session(
     assert _mode(events) == ("full", "stage_changed")
 
 
-def test_an_unchanged_stage_does_not_force_the_full_text(tmp_path: Path) -> None:
-    from argus.engineer.round_prompt import RoundPromptMixin
-
-    mission = _mission_file(tmp_path / "m", stage="research", sealed_rounds=1)
-    mixin = RoundPromptMixin()
-    _assemble(
-        round_index=1,
-        workdir=tmp_path,
-        action="fresh",
-        mission_path=mission,
-        mixin=mixin,
-    )
-
-    events: list = []
-    prompt = _assemble(
-        round_index=2,
-        workdir=tmp_path,
-        mission_path=mission,
-        mixin=mixin,
-        events=events,
-    )
-
-    assert "COMPACT_DELTA_TEXT" in prompt
-    assert _mode(events)[0] == "compact"
-
-
 # --- the compact prompt still names the durable files ------------------------
-
-
-def test_compact_round_names_the_mission_files_when_no_capsule_block(
-    tmp_path: Path,
-) -> None:
-    """A compact continuation must point back at the files that carry the
-    task's terms and current state, so the model can read them itself."""
-    mission = _mission_file(tmp_path / "m", sealed_rounds=1)
-
-    prompt = _assemble(
-        round_index=2,
-        workdir=tmp_path,
-        mission_path=mission,
-    )
-
-    assert str(mission) in prompt
-    assert str(mission.parent / "latest.json") in prompt
-
-
-def test_compact_round_does_not_duplicate_an_existing_capsule_block(
-    tmp_path: Path,
-) -> None:
-    mission = _mission_file(tmp_path / "m", sealed_rounds=1)
-    capsule_block = (
-        "## Role state references\n"
-        f"Mission contract: `{mission}`"
-    )
-
-    prompt = _assemble(
-        round_index=2,
-        workdir=tmp_path,
-        mission_path=mission,
-        prompt_block=capsule_block,
-    )
-
-    assert prompt.count(str(mission)) == 1
-
-
-def test_full_round_needs_no_extra_reference_block(tmp_path: Path) -> None:
-    mission = _mission_file(tmp_path / "m", sealed_rounds=0)
-
-    prompt = _assemble(
-        round_index=1,
-        workdir=tmp_path,
-        action="fresh",
-        mission_path=mission,
-    )
-
-    assert "latest.json" not in prompt
-

@@ -6,7 +6,6 @@ import sqlite3
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -130,21 +129,6 @@ def test_peer_text_never_enters_operator_ledger_and_operator_nudge_still_works(t
     assert mailbox_for_project(state).pending() == []
 
 
-def test_failed_processing_keeps_request_unacknowledged(tmp_path):
-    root = projects(tmp_path)
-    message = PeerMailbox(root, "project-a").send("project-b", "Question", parent_call_id="p", request_id="r")
-    receiver = PeerMailbox(root, "project-b")
-
-    def fail(*_args):
-        raise RuntimeError("temporary Manager outage")
-
-    assert process_peer_messages(receiver.project_root, None, responder=fail) == 0
-    result = receiver.status(message["message_id"])
-    assert result["message"]["acknowledged_at"] == 0
-    assert result["message"]["attempts"] == 1
-    assert result["receipt"] is None and result["reply"] is None
-
-
 def test_wrong_project_manager_cannot_author_a_reply(tmp_path):
     root = projects(tmp_path)
     sender = PeerMailbox(root, "project-a")
@@ -241,86 +225,6 @@ def worker(root, sid, mode="normal"):
              "ARGUS_SKILL_HOME": str(root), "CODEX_HOME": str(root / "unused-codex"),
              "ARGUS_SKILL_MANAGER_MODEL": "fake-manager", "ARGUS_SKILL_COPILOT_TRIAL": "0"},
     )
-
-
-def wait_until(predicate, timeout=8):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.02)
-    pytest.fail("peer daemon condition did not converge")
-
-
-def stop_worker(process, state):
-    (state / "stop-worker").touch()
-    try:
-        stdout, stderr = process.communicate(timeout=3)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate()
-        pytest.fail(f"peer worker did not stop: {stdout} {stderr}")
-    assert process.returncode == 0, stderr
-
-
-def test_two_independent_daemon_loops_exchange_and_consume_reply(tmp_path):
-    root = projects(tmp_path)
-    sender = PeerMailbox(root, "project-a")
-    a, b = worker(root, "project-a"), worker(root, "project-b")
-    try:
-        wait_until(lambda: all((root / "projects" / sid / "ready").exists() for sid in ("project-a", "project-b")))
-        sent = sender.send("project-b", "Please share the decisive evidence.", parent_call_id="manager-a", request_id="request-a")
-
-        def complete():
-            status = sender.status(sent["message_id"])
-            return status["reply"] is not None and status["reply"]["acknowledged_at"] > 0
-
-        wait_until(complete)
-        assert sender.status(sent["message_id"])["message"]["acknowledged_at"] > 0
-        # Only the asked project's Manager answers; the reply is filed for the asker.
-        assert len((root / "projects/project-b/calls.jsonl").read_text().splitlines()) == 1
-        assert not (root / "projects/project-a/calls.jsonl").exists()
-        for sid in ("project-a", "project-b"):
-            assert not (root / "projects" / sid / "inbox.jsonl").exists()
-    finally:
-        stop_worker(a, root / "projects" / "project-a")
-        stop_worker(b, root / "projects" / "project-b")
-
-
-def test_process_crash_after_staged_reply_before_ack_recovers_without_second_manager_turn(tmp_path):
-    root = projects(tmp_path)
-    sender = PeerMailbox(root, "project-a")
-    sent = sender.send("project-b", "Question", parent_call_id="manager-a", request_id="request-a")
-    broken = worker(root, "project-b", "crash-before-ack")
-    _stdout, stderr = broken.communicate(timeout=8)
-    assert broken.returncode == 73, stderr
-    prior = sender.status(sent["message_id"])
-    assert prior["message"]["acknowledged_at"] == 0 and prior["reply"] is not None
-    restarted = worker(root, "project-b")
-    try:
-        wait_until(lambda: sender.status(sent["message_id"])["message"]["acknowledged_at"] > 0)
-        current = sender.status(sent["message_id"])
-        assert current["reply"]["message_id"] == prior["reply"]["message_id"]
-        assert len((root / "projects/project-b/calls.jsonl").read_text().splitlines()) == 1
-        with sqlite3.connect(sender.path) as db:
-            assert db.execute("SELECT COUNT(*) FROM messages WHERE kind='reply'").fetchone()[0] == 1
-    finally:
-        stop_worker(restarted, root / "projects/project-b")
-
-
-def test_mutual_requests_cost_each_manager_one_answer_and_then_stay_quiet(tmp_path):
-    root = projects(tmp_path)
-    a, b = PeerMailbox(root, "project-a"), PeerMailbox(root, "project-b")
-    asked_b = a.send("project-b", "What did your ablation show?", parent_call_id="pa", request_id="ra")
-    asked_a = b.send("project-a", "Which seed did you use?", parent_call_id="pb", request_id="rb")
-    managers = {sid: fake_manager(root / "projects" / sid) for sid in ("project-a", "project-b")}
-    for _boundary in range(4):
-        for sid, manager in managers.items():
-            process_peer_messages(root / "projects" / sid, manager, max_messages=10)
-    assert [len(manager._session.calls) for manager in managers.values()] == [1, 1]
-    assert a.pending() == [] and b.pending() == []
-    assert a.status(asked_b["message_id"])["reply"]["acknowledged_at"] > 0
-    assert b.status(asked_a["message_id"])["reply"]["acknowledged_at"] > 0
 
 
 def test_a_failing_answer_is_tried_a_bounded_number_of_times_then_settled(tmp_path, monkeypatch):

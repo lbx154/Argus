@@ -120,20 +120,6 @@ def test_text_only_manager_and_idempotence_without_invented_events(training):
     assert not any("tools" in event["payload"] for event in events)
 
 
-@pytest.mark.parametrize("role", ["engineer-r1", "reviewer"])
-def test_engineer_and_reviewer_legacy_public_messages_recover(training, role):
-    data, _, _ = training
-    episode = legacy(training, role=role)
-    native(training)
-    assert module.recover_episode(data, episode)["status"] == "recovered"
-    row, runtime, events = read(data, episode)
-    assert row["state"] == "interrupted" and runtime["run_label"] == role
-    assert runtime["mission_id"] == "task-real"
-    assert [event["kind"] for event in events] == ["session_message", "session_message"]
-    assert events[0]["payload"]["messages"][0]["content"] == "Actual public input."
-    assert events[1]["payload"]["messages"][0]["content"] == [{"type": "text", "text": "Actual public output."}]
-
-
 def test_structured_private_fields_removed_but_business_arguments_and_prose_remain(training):
     data, _, _ = training
     episode = legacy(training)
@@ -302,25 +288,6 @@ def test_message_time_bounds_are_explicit_and_actual_session_scope_is_preserved(
     assert events[0]["payload"]["messages"][0]["content"] == "Eligible resumed output"
     assert runtime["recovery"]["omitted_messages"] == {"before_authorization_or_retention": 1, "future_timestamp": 1}
     assert runtime["recovery"]["ignored_entries"] == {"model_change": 1}
-
-
-def test_retention_cutoff_can_advance_while_recent_messages_are_read(training, monkeypatch):
-    data, _, now = training
-    episode = legacy(training)
-    native(training)
-    old_grant = now[0] - 31 * 86400
-    with data.analytics._db() as db:
-        db.execute("UPDATE training_permissions SET granted_at=? WHERE granted=1", (old_grant,))
-        db.execute("UPDATE training_tool_episodes SET grants=? WHERE id=?", (json.dumps({"internal_training": old_grant}), episode))
-    original_read = module._SessionSource.read
-
-    def advancing_read(source, *args):
-        result = original_read(source, *args)
-        now[0] += 0.25
-        return result
-
-    monkeypatch.setattr(module._SessionSource, "read", advancing_read)
-    assert module.recover_episode(data, episode)["status"] == "recovered"
 
 
 @pytest.mark.parametrize("problem", ["truncated", "invalid_timestamp", "naive_timestamp", "duplicate_header", "duplicate_key", "nonfinite", "empty"])

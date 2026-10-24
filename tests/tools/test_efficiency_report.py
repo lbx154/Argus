@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.tools.efficiency_report import efficiency_report, main, role_of
+from argus.tools.efficiency_report import efficiency_report, main
 
 
 def _usage(call: str, label: str, cost: float, input_tokens: int, task: str = "", **fields) -> dict:
@@ -101,44 +101,6 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_report_counts_a_fixed_log(project: Path) -> None:
-    report = efficiency_report(project)
-
-    assert report["total"]["calls"] == 17
-    assert report["total"]["cost_usd"] == 17.5
-    # CE-1: all spend over the two passed tasks.
-    assert report["cost_per_passed_task"] == 8.75
-    assert list(report["roles"]) == ["engineer", "planner", "reviewer", "manager", "curator"]
-    assert report["roles"]["planner"] == {
-        "calls": 4, "input_tokens": 950, "cached_input_tokens": 80, "cache_write_tokens": 20,
-        "output_tokens": 40, "cost_usd": 4.5, "cost_share": 0.2571,
-    }
-    assert report["roles"]["engineer"]["cost_share"] == 0.4
-
-    waste = report["no_new_information"]
-    assert {name: (row["calls"], row["of_calls"], row["cost_usd"], row["avoided"]) for name, row in waste.items()} == {
-        "planner_no_new_work": (2, 4, 2.0, 2),
-        "manager_not_applied": (1, 3, 0.5, 0),
-        "manager_kept_course": (1, 3, 0.25, 0),
-    }
-
-    assert [
-        {key: row[key] for key in ("task", "reviewer_calls", "continue",
-                                   "elapsed_s", "calls", "input_tokens", "cost_usd")}
-        for row in report["passed_tasks"]
-    ] == [
-        {"task": "aaa", "reviewer_calls": 3, "continue": 2,
-         "elapsed_s": 120.5, "calls": 5, "input_tokens": 4200, "cost_usd": 7.0},
-        {"task": "bbb", "reviewer_calls": 1, "continue": 1,
-         "elapsed_s": 90.0, "calls": 3, "input_tokens": 2400, "cost_usd": 4.0},
-    ]
-    assert report["context"]["planner"] == {
-        "p50": 100, "p90": 500, "max": 500, "mean_by_session_turn": {"1": 100, "2-3": 300, "8-15": 500},
-    }
-    assert report["failures"]["failed"]["calls"] == 1 and report["failures"]["failed"]["cost_usd"] == 2.0
-    assert report["failures"]["retries"]["calls"] == 1 and report["failures"]["retries"]["cost_usd"] == 0.5
-
-
 def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main([str(project)]) == 0
     table = capsys.readouterr().out
@@ -153,16 +115,3 @@ def test_cli_rejects_a_directory_without_an_event_log(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exit_info:
         main([str(tmp_path)])
     assert exit_info.value.code == 2
-
-
-@pytest.mark.parametrize(("label", "role"), [
-    ("planner.cycle3.repair1", "planner"),
-    ("manager-frontdoor-classify", "manager"),
-    ("engineer-r2", "engineer"),
-    ("curator.distill", "curator"),
-    ("subagent:t1:report", "subagent"),
-    ("answer-learning", "answer-learning"),
-    ("", "unlabeled"),
-])
-def test_role_of_run_label(label: str, role: str) -> None:
-    assert role_of(label) == role

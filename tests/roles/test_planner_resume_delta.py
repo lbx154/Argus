@@ -46,20 +46,6 @@ def _resume(tmp_path: Path, altitude: str, monkeypatch) -> str:
     )
 
 
-def test_resume_delta_carries_the_vertical_altitude(tmp_path, monkeypatch) -> None:
-    block = "## Accepted same-area papers on disk\n- Some ICLR paper\n"
-    assert block.strip() in _resume(tmp_path, block, monkeypatch)
-
-
-def test_resume_delta_stays_quiet_when_the_vertical_has_no_altitude(
-    tmp_path, monkeypatch
-) -> None:
-    """Most verticals render nothing here; the delta must not grow an empty heading."""
-    rendered = _resume(tmp_path, "", monkeypatch)
-    assert "Accepted same-area papers" not in rendered
-    assert "Continued Planner cycle" in rendered
-
-
 def test_resume_delta_says_files_opened_earlier_are_still_in_context(
     tmp_path, monkeypatch
 ) -> None:

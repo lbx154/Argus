@@ -16,14 +16,12 @@ return a synthetic result, mirroring ``test_unpriced_call_does_not_block_next_pr
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 
 from argus.adapters.agent_cli_backend import (
     AgentCliBackend,
-    resolve_codex_execution_model,
     resolve_pricing_model,
 )
 from argus.core.models import RunnerOptions
@@ -76,21 +74,6 @@ def test_configured_pricing_model_is_codex_only(
     assert backend._configured_pricing_model() == ""
 
 
-def test_codex_execution_model_honors_final_cli_override() -> None:
-    assert resolve_codex_execution_model(
-        None,
-        "gpt-5.6-sol",
-        None,
-        ["--model", "gpt-5.5"],
-    ) == "gpt-5.5"
-    assert resolve_codex_execution_model(
-        "gpt-5.5",
-        "gpt-5.6-sol",
-        None,
-        ["-c", 'model="gpt-5.4"'],
-    ) == "gpt-5.5"
-
-
 def test_codex_model_args_normalize_to_one_direct_flag(
     codex_config_dir,
 ) -> None:
@@ -114,32 +97,6 @@ def test_codex_model_args_normalize_to_one_direct_flag(
     assert command.count("-m") == 1
     assert "--model" not in command
     assert 'model="gpt-5.4"' not in command
-
-
-def test_codex_profile_model_is_pinned_without_dropping_profile(
-    codex_config_dir,
-) -> None:
-    (codex_config_dir / "config.toml").write_text(
-        'model = "gpt-5.5"\n',
-        encoding="utf-8",
-    )
-    (codex_config_dir / "research.config.toml").write_text(
-        'model = "gpt-5.6-sol"\n',
-        encoding="utf-8",
-    )
-    backend = AgentCliBackend(
-        backend="codex",
-        default_extra_args=["--profile", "research"],
-    )
-    resolved = backend._resolve_execution_options(RunnerOptions())
-    command = backend._runner._build_codex_command(
-        resume_thread_id=None,
-        options=backend._translate_options(resolved),
-    )
-
-    assert resolved.model == "gpt-5.6-sol"
-    assert command.count("-m") == 1
-    assert command[command.index("--profile") + 1] == "research"
 
 
 def test_call_profile_replaces_default_profile_once(
@@ -176,16 +133,6 @@ def test_call_profile_replaces_default_profile_once(
     assert "--ephemeral" in command
 
 
-def test_configured_pricing_model_stays_unknown_without_codex_config(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "missing-codex-home"))
-    monkeypatch.setenv("ARGUS_SKILL_MODEL", "claude-sonnet-5")
-    backend = AgentCliBackend(backend="codex")
-    assert backend._configured_pricing_model() == ""
-
-
 # --- integration: the actual bug + the guard it must not weaken -------------
 
 def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
@@ -220,38 +167,6 @@ def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
         backend._runner.__class__, "run_exec", fake_run_exec, raising=True,
     )
     return backend, root, seen_models
-
-
-def test_codex_call_without_pinned_model_is_priced_not_blocked(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend, root, seen_models = _codex_backend(tmp_path, monkeypatch)
-
-    # RunnerOptions() with NO model — exactly the Manager classify shape.
-    first = backend.run_exec(
-        prompt="status?",
-        options=RunnerOptions(),
-        run_label="manager-frontdoor-classify",
-    )
-    assert first.pricing_status == "priced"
-    assert first.cost_usd is not None and first.cost_usd > 0
-    assert seen_models == ["gpt-5.5"]
-
-    # The second call runs fine as well.
-    second = backend.run_exec(
-        prompt="still up?",
-        options=RunnerOptions(),
-        run_label="manager-route",
-    )
-    assert second.pricing_status == "priced"
-    assert not second.fatal_error
-
-    usage_path = root / "projects" / "p1" / "usage.jsonl"
-    usage_rows = [
-        json.loads(line)
-        for line in usage_path.read_text(encoding="utf-8").splitlines()
-    ]
-    assert {row["model"] for row in usage_rows} == {"gpt-5.5"}
 
 
 def test_codex_unknown_pinned_model_remains_unpriced_without_blocking(

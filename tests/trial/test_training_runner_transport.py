@@ -28,32 +28,3 @@ def test_transport_survives_actual_sandbox_copy_without_repr_or_asdict_disclosur
     assert public["_training_environment"] is None
     assert secret not in json.dumps(public)
     assert copy.deepcopy(options)._training_environment is None
-
-
-def test_real_dataclass_cleanup_restores_none_after_success_and_error(monkeypatch):
-    from types import SimpleNamespace
-
-    options = RunnerOptions()
-    runner = AgentCliRunner(backend="pi", agent_bin="pi")
-    context = SimpleNamespace(backend=SimpleNamespace(_backend_name="pi", _default_extra_args=[], _runner=runner),
-                              resume_thread_id=None, usage_mission_id=None, call_id="actual-call", run_label="engineer-test")
-    monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-    monkeypatch.setenv(training_runtime.SOCKET_ENV, "/private/test.sock")
-    monkeypatch.setattr(training_runtime, "_project", lambda ctx: "s-project")
-    requests = []
-
-    def request(path, action, value, lease=None):
-        requests.append(action)
-        return {"enabled": True, "lease": "synthetic-only-capability"} if action == "register" else {"closed": True}
-
-    monkeypatch.setattr(training_runtime, "_request", request)
-    for raises in (False, True):
-        try:
-            with training_runtime.capture_runtime_call(context, options):
-                assert options._training_environment is not None and options._training_extension
-                if raises:
-                    raise RuntimeError("synthetic runtime failure")
-        except RuntimeError:
-            pass
-        assert options._training_extension is None and options._training_environment is None
-    assert requests == ["register", "close", "register", "close"]

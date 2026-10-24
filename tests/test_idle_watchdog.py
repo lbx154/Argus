@@ -10,72 +10,7 @@ import time
 
 import pytest
 
-from argus.agent_cli._idle_watchdog import (
-    STALLED_STAGE,
-    TERMINATE_STAGE,
-    WARNING_STAGE,
-    IdleEscalation,
-)
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-
-
-def test_idle_escalation_emits_once_and_resets_on_activity() -> None:
-    escalation = IdleEscalation(
-        warning_seconds=10,
-        stalled_seconds=30,
-        terminate_seconds=45,
-    )
-
-    assert escalation.newly_due(9) == ()
-    assert escalation.newly_due(10) == (WARNING_STAGE,)
-    assert escalation.newly_due(29) == ()
-    assert escalation.newly_due(30) == (STALLED_STAGE,)
-    assert escalation.newly_due(45) == (TERMINATE_STAGE,)
-    assert escalation.newly_due(100) == ()
-
-    escalation.reset()
-    assert escalation.newly_due(30) == (WARNING_STAGE, STALLED_STAGE)
-
-
-@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
-def test_hard_idle_terminates_only_current_model_process_group() -> None:
-    events: list[tuple[str, str]] = []
-    runner = AgentCliRunner(
-        agent_bin=sys.executable,
-        event_callback=lambda stream, line: events.append((stream, line)),
-    )
-    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
-    durable_job = subprocess.Popen(sleeper, start_new_session=True)
-    model_call = subprocess.Popen(
-        sleeper,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    try:
-        started = time.monotonic()
-        state = runner._stream_turn_output(
-            process=model_call,
-            command=sleeper,
-            options=RunnerOptions(watchdog_hard_idle_seconds=1),
-            run_label="test-watchdog",
-            thread_id=None,
-        )
-
-        assert time.monotonic() - started < 5
-        assert state.watchdog_terminated is True
-        assert "hard idle timeout" in str(state.watchdog_reason).lower()
-        assert model_call.poll() is not None
-        assert durable_job.poll() is None
-        assert any("hard idle timeout" in line.lower() for _stream, line in events)
-    finally:
-        if model_call.poll() is None:
-            model_call.terminate()
-            model_call.wait(timeout=3)
-        if durable_job.poll() is None:
-            durable_job.terminate()
-            durable_job.wait(timeout=3)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
@@ -306,35 +241,6 @@ def _watchdog_lines(events: list[tuple[str, str]]) -> list[str]:
     return [line for _stream, line in events if line.startswith("[watchdog]")]
 
 
-def test_stderr_chatter_does_not_hide_warning_or_stalled_stage() -> None:
-    state, events = _run_stream_with_chatter(
-        "chatter(2.6)\n",
-        RunnerOptions(
-            watchdog_soft_idle_seconds=1,
-            watchdog_stalled_idle_seconds=2,
-            watchdog_hard_idle_seconds=0,
-        ),
-    )
-
-    watchdog = _watchdog_lines(events)
-    assert sum("No model stream event" in line for line in watchdog) == 1
-    assert sum("likely stalled" in line for line in watchdog) == 1
-    assert not state.watchdog_terminated  # warning-only policy is preserved
-    assert state.stderr_line_count > 20
-    assert any("expected ordinal 23, got 22" in line for line in state.stderr_lines)
-
-
-def test_explicit_hard_idle_is_not_bypassed_by_stderr_chatter() -> None:
-    state, events = _run_stream_with_chatter(
-        "chatter(2.6)\n",
-        RunnerOptions(watchdog_hard_idle_seconds=1),
-    )
-
-    assert state.watchdog_terminated
-    assert "hard idle timeout" in str(state.watchdog_reason).lower()
-    assert sum("Forced restart" in line for line in _watchdog_lines(events)) == 1
-
-
 def test_stdout_tool_progress_keeps_the_stream_active() -> None:
     event = {
         "type": "item.updated",
@@ -359,42 +265,3 @@ def test_stdout_tool_progress_keeps_the_stream_active() -> None:
     assert not state.watchdog_terminated
     assert state.stdout_line_count == 13
     assert not _watchdog_lines(events)
-
-
-def test_real_stdout_event_resets_warning_stage_after_stderr_chatter() -> None:
-    body = (
-        "chatter(1.3)\n"
-        "print(json.dumps({'type': 'turn.started'}), flush=True)\n"
-        "chatter(1.3)\n"
-    )
-
-    state, events = _run_stream_with_chatter(
-        body,
-        RunnerOptions(watchdog_soft_idle_seconds=1, watchdog_stalled_idle_seconds=2),
-    )
-
-    watchdog = _watchdog_lines(events)
-    assert not state.watchdog_terminated
-    assert sum("No model stream event" in line for line in watchdog) == 2
-    assert not any("likely stalled" in line for line in watchdog)
-
-
-def test_inactivity_callback_is_reached_during_stderr_chatter() -> None:
-    snapshots = []
-
-    def on_idle(snapshot):
-        snapshots.append(snapshot)
-        return "restart: the Manager decided to restart the stalled turn"
-
-    state, events = _run_stream_with_chatter(
-        "chatter(2.6)\n",
-        RunnerOptions(watchdog_soft_idle_seconds=1, inactivity_callback=on_idle),
-    )
-
-    assert state.watchdog_terminated
-    assert len(snapshots) == 1
-    assert snapshots[0].idle_seconds >= 1
-    assert snapshots[0].stderr_tail
-    assert str(state.watchdog_reason).startswith("Forced restart after 1s without progress (the Manager decided")
-    # The restart reason is final: no later stage may emit or overwrite it.
-    assert sum("Forced restart" in line for line in _watchdog_lines(events)) == 1

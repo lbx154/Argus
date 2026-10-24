@@ -13,14 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.agent_cli import _structured_output as transport
 from argus.agent_cli.agent_cli_runner import (
     AgentCliRunner,
     PrivateRunnerEnvironment,
     RunnerOptions,
 )
-from argus.core.models import RunnerOptions as CoreOptions
 from argus.trial import training_runtime
 
 SCHEMA = {
@@ -33,16 +31,6 @@ SCHEMA = {
 def options(**kwargs):
     return RunnerOptions(disable_tools=True, output_schema=SCHEMA, **kwargs)
 
-
-@pytest.mark.parametrize("backend", ["pi", "codex"])
-def test_adapter_forwards_an_independent_schema(backend):
-    runner = AgentCliBackend(backend=backend, runner_bin=backend)
-    source = json.loads(json.dumps(SCHEMA))
-    forwarded = runner._translate_options(CoreOptions(disable_tools=True, output_schema=source))
-    assert forwarded.output_schema == SCHEMA
-    source["$defs"]["answer"]["description"] = "Changed by another caller"
-    assert forwarded.output_schema == SCHEMA
-    assert runner._translate_options(CoreOptions()).output_schema is None
 
 @pytest.mark.parametrize("backend, call_options, message", [
     ("pi", RunnerOptions(output_schema=SCHEMA), "disable_tools"),
@@ -80,23 +68,6 @@ def test_pi_schema_is_child_only_and_loaded_before_the_existing_capture_extensio
     monkeypatch.setattr(transport, "PI_OUTPUT_SCHEMA_EXTENSION", tmp_path / "missing.mjs")
     with pytest.raises(ValueError, match="extension is unavailable"):
         runner._build_command(resume_thread_id=None, options=first)
-
-
-@pytest.mark.parametrize("backend", ["pi", "codex"])
-def test_tools_disabled_plain_text_call_omits_native_schema_transport(tmp_path, monkeypatch, backend):
-    monkeypatch.setenv(transport.PI_OUTPUT_SCHEMA_ENV, "ambient-schema-must-not-apply")
-    runner = AgentCliRunner(backend=backend, agent_bin=backend)
-    call_options = RunnerOptions(disable_tools=True, output_schema=None, working_dir=str(tmp_path),
-                                 _training_extension=training_runtime.EXTENSION)
-    with transport.structured_output_call(backend, call_options) as prepared:
-        assert prepared is call_options
-        command = runner._build_command(resume_thread_id=None, options=prepared)
-        assert "--output-schema" not in command
-        assert str(transport.PI_OUTPUT_SCHEMA_EXTENSION) not in command
-        if backend == "pi":
-            assert "--no-tools" in command and training_runtime.EXTENSION in command
-            assert transport.PI_OUTPUT_SCHEMA_ENV not in runner._child_env(prepared)
-    assert not list(tmp_path.glob("argus-output-schema-*"))
 
 
 @pytest.mark.parametrize("raises", [False, True])

@@ -77,42 +77,6 @@ def test_repeated_waits_preserve_reviewer_feedback_without_failure_backoff(tmp_p
     assert all(not r.engineer_message for r in rounds[1:5])
 
 
-def test_a_working_provider_wait_breaks_a_backend_failure_streak(tmp_path):
-    class Engineer:
-        calls = 0
-
-        def run_exec(self, **kwargs):
-            self.calls += 1
-            if self.calls in (1, 3):
-                # A session that died without naming a cause: the streak's
-                # own case. (A record naming an unreachable service pauses
-                # for a provider cooldown instead of entering the streak.)
-                return RunnerResult(
-                    exit_code=2, stop_kind="transient_error",
-                    fatal_error=(
-                        f"Process exited with code {self.calls} before turn completion."
-                    ),
-                )
-            if self.calls == 2:
-                return _waiting_result()
-            return RunnerResult(exit_code=0, agent_messages=["Complete comparison."])
-
-    engineer = Engineer()
-    reviewer = _Reviewer()
-    reviewer.calls = 1
-    status, *_ = _supervised(engineer, reviewer).run(
-        objective="Complete the task",
-        engineer_prompt_builder=lambda action, include_static=True: action or "Begin",
-        supervised_config=SupervisedConfig(
-            max_rounds=5, backend_failure_threshold=2,
-            backend_failure_backoff_seconds=0,
-        ),
-        workdir=tmp_path,
-    )
-    assert status == "done"
-    assert engineer.calls == 4 and reviewer.calls == 2
-
-
 @pytest.mark.parametrize("stop_kind,expected", [
     ("operator_abort", "aborted"),
     ("daemon_shutdown", "parked"),

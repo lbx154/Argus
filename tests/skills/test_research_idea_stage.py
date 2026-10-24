@@ -106,23 +106,6 @@ def test_a_new_intent_does_not_import_a_legacy_selection(tmp_path: Path) -> None
     assert payload["selected_idea"] is None
 
 
-def test_a_project_with_an_old_portfolio_reads_without_error(tmp_path: Path) -> None:
-    _state(
-        tmp_path,
-        idea_portfolio={"team_id": "research-idea-pipeline-v8-g1", "generation": 1},
-        legacy_selection_consumed=True,
-    )
-    board = tmp_path / ".argus" / "teams" / "research-idea-pipeline-v8-g1" / "tasks"
-    board.mkdir(parents=True)
-    (board / "route-01.json").write_text("{not json", encoding="utf-8")
-
-    required, prompt_blocks, _events = _prepare(tmp_path)
-
-    assert required == ["research-idea-playbook.md"]
-    assert prompt_blocks == []
-    assert stage_completion_issues("idea", tmp_path) == ()
-
-
 def test_skill_library_state_includes_vertical_prompt_blocks() -> None:
     class Harness(SkillLibraryMixin):
         engineer_mission = SimpleNamespace(

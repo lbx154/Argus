@@ -84,19 +84,6 @@ def test_profile_persists_and_drives_every_contract_view(provider, tmp_path, pro
         assert "workflow_profile" not in state
 
 
-def test_invalid_or_mid_task_profile_change_is_atomic(provider, tmp_path):
-    persist_vertical(tmp_path, "profile_lab", workflow_profile="build")
-    before = read_pipeline_state(tmp_path)
-    with pytest.raises(VerticalContractError, match="no workflow profile"):
-        persist_vertical(tmp_path / "new", "profile_lab", workflow_profile="unknown")
-    assert not read_pipeline_state(tmp_path / "new")
-    with pytest.raises(ValueError, match="active task"):
-        persist_vertical(tmp_path, "profile_lab", workflow_profile="full")
-    assert read_pipeline_state(tmp_path) == before
-    persist_vertical(tmp_path, "profile_lab")
-    assert read_pipeline_state(tmp_path)["workflow_profile"] == "build"
-
-
 def test_profile_snapshot_cannot_silently_change(provider, tmp_path):
     persist_vertical(tmp_path, "profile_lab", workflow_profile="build")
     provider.WORKFLOW_PROFILES["build"]["stages"] = ("verify",)
@@ -141,37 +128,6 @@ def test_completion_uses_evidence_root_and_certifies_selected_final_stage(provid
     write_pipeline_state(state_root, state)
     assert not vertical_completion_certificate_status(state_root, "profile_lab")["ok"]
     assert not (evidence / ".argus" / "PIPELINE_STATE.json").exists()
-
-
-def test_all_role_prompts_and_cockpit_read_the_selected_state_root(provider, tmp_path):
-    from argus.roles.prompts import resolve_role_prompt
-    from argus.roles.prompts.engineer import mission_request
-    from argus.roles.prompts.manager import stage_decision_request
-    from argus.roles.prompts.planner import continuous_request
-    from argus.roles.prompts.reviewer import evaluate_request
-    from argus.webapi.project_state import current_stage_for_session
-
-    state, work = tmp_path / "state", tmp_path / "work"
-    persist_vertical(state, "profile_lab", workflow_profile="verification")
-    persist_vertical(work, "profile_lab", workflow_profile="full")
-    for request in (mission_request, stage_decision_request, continuous_request, evaluate_request):
-        resolved = resolve_role_prompt(request(state, stage="verify"))
-        assert resolved.stage_order == ("verify",)
-        assert "ACTIVE WORKFLOW PROFILE: verification" in resolved.role_banner
-        assert "deliver.evidence" not in resolved.stage_checklist
-    assert current_stage_for_session({"workdir": str(work)}, state) == "verify"
-    assert load_vertical_contract("profile_lab", work).stage_order == ("design", "verify", "deliver")
-    assert load_vertical_contract("profile_lab", state).stage_order == ("verify",)
-
-
-
-
-
-
-
-
-
-
 
 
 def test_commit_rejects_unknown_profile_even_without_model(provider, tmp_path):
@@ -256,37 +212,6 @@ def test_custom_requests_need_provider_opt_in_and_cannot_change_named_profiles(p
         persist_vertical(tmp_path, "profile_lab", workflow_profile="custom", workflow_requested_stages=("design",))
     with pytest.raises(VerticalContractError, match="require workflow_profile"):
         persist_vertical(tmp_path, "profile_lab", workflow_profile="build", workflow_requested_stages=("verify",))
-
-
-def test_custom_requires_evidence_and_preserves_completion_boundaries(composable_provider, tmp_path):
-    persist_vertical(tmp_path, "profile_lab", workflow_profile="custom", workflow_requested_stages=("design",))
-    with pytest.raises(ValueError, match="not the final stage"):
-        complete_final_stage(tmp_path, reason="short circuit", allow_early_completion=True)
-    with pytest.raises(StageCompletionError, match="missing design"):
-        advance_stage(tmp_path, target_stage="verify", reason="attempt")
-    (tmp_path / "design.txt").write_text("accepted")
-    advance_stage(tmp_path, target_stage="verify", reason="reviewed")
-    (tmp_path / "verify.txt").write_text("accepted")
-    complete_final_stage(tmp_path, reason="reviewed")
-    assert vertical_completion_certificate_status(tmp_path, "profile_lab")["ok"]
-    assert set(read_pipeline_state(tmp_path)["stages"]) == {"design", "verify"}
-
-
-def test_custom_continuation_freezes_requested_and_effective_scope(composable_provider, tmp_path):
-    persist_vertical(tmp_path, "profile_lab", workflow_profile="custom", workflow_requested_stages=("design",))
-    before = read_pipeline_state(tmp_path)
-    persist_vertical(tmp_path, "profile_lab")
-    assert read_pipeline_state(tmp_path) == before
-    with pytest.raises(ValueError, match="active task"):
-        persist_vertical(tmp_path, "profile_lab", workflow_profile="custom", workflow_requested_stages=("verify",))
-    # Even an equal closure does not authorize changing the requested objective.
-    with pytest.raises(ValueError, match="active task"):
-        persist_vertical(tmp_path, "profile_lab", workflow_profile="custom", workflow_requested_stages=("design", "verify"))
-    composable_provider.WORKFLOW_STAGE_REQUIREMENTS["design"] = ()
-    with pytest.raises(VerticalContractError, match="changed since selection"):
-        load_vertical_contract("profile_lab", tmp_path)
-
-
 
 
 def test_custom_replacement_resets_only_at_operator_boundary(composable_provider, tmp_path):

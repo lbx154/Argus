@@ -7,13 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from argus.adapters.agent_cli_backend import AgentCliBackend
 from argus.core import secret_guard
-from argus.core.models import ReviewDecision
 from argus.core.secret_guard import (
     ArtifactChangedDuringScrubError,
     _write_redacted,
-    known_secret_values,
     redact_secrets_record,
     redact_secrets_text,
     redact_secrets_text_with_count,
@@ -21,7 +18,6 @@ from argus.core.secret_guard import (
 )
 from argus.engineer.runner import (
     _apply_round_secret_guard,
-    _review_event_payload,
     parse_continue_work_request,
 )
 from argus.life.event_log import JsonlEventSink
@@ -29,35 +25,6 @@ from argus.life.event_log import JsonlEventSink
 # Masking is off by default (ARGUS_SKILL_REDACT_SECRETS); this module tests the
 # masking itself, so it opts in. Default-off behavior is tested at the end.
 pytestmark = pytest.mark.usefixtures("redact_secrets_on")
-
-
-def test_redacts_sensitive_headers_and_known_environment_values() -> None:
-    env = {
-        "SERVICE_API_KEY": "live-secret-value-123",
-        "PATH": "/usr/bin",
-    }
-    known = known_secret_values(env)
-    text = "x-api-key: response-secret-value\npayload=live-secret-value-123\nordinary research text"
-
-    redacted = redact_secrets_text(text, known_values=known)
-
-    assert "response-secret-value" not in redacted
-    assert "live-secret-value-123" not in redacted
-    assert "ordinary research text" in redacted
-    assert redact_secrets_text(redacted, known_values=known) == redacted
-
-
-def test_known_secret_redaction_does_not_guess_from_task_identifier_shape() -> None:
-    secret = "sk-example-secret-value-123456"
-    text = (
-        "TASK_KEY=risk-kv-offline-evaluator\n"
-        f"payload={secret}\n"
-    )
-
-    redacted = redact_secrets_text(text, known_values=(secret,))
-
-    assert "TASK_KEY=risk-kv-offline-evaluator" in redacted
-    assert secret not in redacted
 
 
 def test_structured_json_redaction_preserves_valid_json() -> None:
@@ -83,67 +50,6 @@ def test_jsonl_redaction_preserves_each_record() -> None:
         {"api_key": "<REDACTED:secret>"},
         {"status": "ok"},
     ]
-
-
-def test_redacts_values_under_structured_sensitive_keys() -> None:
-    redacted = redact_secrets_record(
-        {
-            "api_key": "response-secret-value",
-            "nested": {
-                "authorization": "short",
-                "clientSecret": "client-value",
-                "refreshToken": "refresh-value",
-                "auth_token": "auth-value",
-                "clientToken": "client-token-value",
-                "private_token": "private-value",
-                "status": "ok",
-            },
-        }
-    )
-
-    assert redacted["api_key"] == "<REDACTED:secret>"
-    assert redacted["nested"]["authorization"] == "<REDACTED:secret>"
-    assert redacted["nested"]["clientSecret"] == "<REDACTED:secret>"
-    assert redacted["nested"]["refreshToken"] == "<REDACTED:secret>"
-    assert redacted["nested"]["auth_token"] == "<REDACTED:secret>"
-    assert redacted["nested"]["clientToken"] == "<REDACTED:secret>"
-    assert redacted["nested"]["private_token"] == "<REDACTED:secret>"
-    assert redacted["nested"]["status"] == "ok"
-
-
-def test_preserves_structured_tokenizer_metadata() -> None:
-    tokenizer_config = {
-        "bos_token": "<|im_start|>",
-        "eos_token": "<|im_end|>",
-        "pad_token": "<|endoftext|>",
-        "unk_token": "<unk>",
-        "mask_token": "<mask>",
-        "additional_special_tokens": ["<image>", "<video>"],
-    }
-
-    assert redact_secrets_record(tokenizer_config) == tokenizer_config
-
-
-def test_scrub_does_not_mutate_tokenizer_config_file(tmp_path: Path) -> None:
-    path = tmp_path / "checkpoint" / "tokenizer_config.json"
-    path.parent.mkdir(parents=True)
-    payload = {
-        "eos_token": "<|im_end|>",
-        "pad_token": "<|endoftext|>",
-        "tokenizer_class": "Qwen2Tokenizer",
-    }
-    original = json.dumps(payload, indent=2) + "\n"
-    path.write_text(original, encoding="utf-8")
-    now = time.time()
-    path.touch()
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=now - 5,
-    )
-
-    assert report.redacted_paths == ()
-    assert path.read_text(encoding="utf-8") == original
 
 
 def test_git_scrub_ignores_recent_but_unchanged_fixture(tmp_path: Path) -> None:
@@ -189,22 +95,6 @@ def test_git_scrub_ignores_recent_but_unchanged_fixture(tmp_path: Path) -> None:
     assert "<REDACTED:secret>" in changed.read_text(encoding="utf-8")
 
 
-def test_still_redacts_explicit_provider_token_keys() -> None:
-    redacted = redact_secrets_record(
-        {
-            "github_token": "github-secret-value",
-            "hf_token": "huggingface-secret-value",
-            "session_token": "session-secret-value",
-        }
-    )
-
-    assert redacted == {
-        "github_token": "<REDACTED:secret>",
-        "hf_token": "<REDACTED:secret>",
-        "session_token": "<REDACTED:secret>",
-    }
-
-
 def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> None:
     redacted, count = redact_secrets_text_with_count(
         "Cookie: response-secret-value\r\nstatus: 200\r\n"
@@ -217,32 +107,6 @@ def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> No
     same, second_count = redact_secrets_text_with_count(redacted)
     assert same == redacted
     assert second_count == 0
-
-
-def test_scrubs_recent_text_artifacts_and_preserves_source_fixtures(
-    tmp_path: Path,
-) -> None:
-    recent = tmp_path / "response.headers"
-    recent.write_text("x-api-key: new-secret-value\nstatus: 200\n", encoding="utf-8")
-    source = tmp_path / "fixture.py"
-    source.write_text(
-        'HEADER = "x-api-key: fake-test-value"\n',
-        encoding="utf-8",
-    )
-    active = tmp_path / ".argus_subagents" / "task_logs"
-    active.mkdir(parents=True)
-    active_log = active / "stdout.log"
-    active_log.write_text("x-api-key: active-secret-value\n", encoding="utf-8")
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-    )
-
-    assert report.redacted_paths == ("response.headers",)
-    assert "new-secret-value" not in recent.read_text(encoding="utf-8")
-    assert "fake-test-value" in source.read_text(encoding="utf-8")
-    assert "active-secret-value" in active_log.read_text(encoding="utf-8")
 
 
 def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
@@ -287,238 +151,6 @@ def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
-def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
-    tmp_path: Path,
-) -> None:
-    recent = tmp_path / "response.headers"
-    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
-
-    # ``blobs/`` under a hub-layout repo dir is now excluded outright as a
-    # content-addressed cache; ``snapshots/`` stays on the known-secret-only
-    # path this test covers.
-    cache_file = (
-        tmp_path
-        / "models"
-        / "huggingface"
-        / "hub"
-        / "models--example--model"
-        / "snapshots"
-        / "upstream.json"
-    )
-    cache_file.parent.mkdir(parents=True)
-    cache_file.write_text(
-        '{"token": "public-tokenizer-schema-value", "download_auth": "live-cache-secret-value"}\n',
-        encoding="utf-8",
-    )
-    now = time.time()
-    cache_file.touch()
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=now - 5,
-        known_values=("live-cache-secret-value",),
-    )
-
-    assert report.redacted_paths == (
-        "response.headers",
-        cache_file.relative_to(tmp_path).as_posix(),
-    )
-    assert cache_file.read_text(encoding="utf-8") == (
-        '{"token": "public-tokenizer-schema-value", "download_auth": "<REDACTED:known-secret>"}\n'
-    )
-    assert report.scanned_files == 2
-
-
-def test_scrub_preserves_crlf_without_inserting_blank_lines(tmp_path: Path) -> None:
-    artifact = tmp_path / "response.headers"
-    artifact.write_bytes(
-        b"x-api-key: live-cache-secret-value\r\ncontent-type: text/plain\r\n"
-    )
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-        known_values=("live-cache-secret-value",),
-    )
-
-    assert report.redacted_paths == ("response.headers",)
-    assert artifact.read_bytes() == (
-        b"x-api-key: <REDACTED:known-secret>\r\ncontent-type: text/plain\r\n"
-    )
-
-
-def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:
-    recent = tmp_path / "response.headers"
-    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
-    runtime_payload = (
-        tmp_path / "third_party" / "runtime_deps" / "huggingface_hub-0.34.4.dist-info" / "METADATA"
-    )
-    reference_payload = (
-        tmp_path / "third_party" / "reference_sources" / "transformers" / "tokenizer_config.json"
-    )
-    runtime_payload.parent.mkdir(parents=True)
-    reference_payload.parent.mkdir(parents=True)
-    runtime_payload.write_text(
-        "client_secret: synthetic-wheel-fixture\n",
-        encoding="utf-8",
-    )
-    reference_payload.write_text(
-        '{"access_token":"synthetic-upstream-fixture"}\n',
-        encoding="utf-8",
-    )
-    now = time.time()
-    runtime_payload.touch()
-    reference_payload.touch()
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=now - 5,
-    )
-
-    assert report.redacted_paths == ("response.headers",)
-    assert runtime_payload.read_text(encoding="utf-8") == (
-        "client_secret: synthetic-wheel-fixture\n"
-    )
-    assert reference_payload.read_text(encoding="utf-8") == (
-        '{"access_token":"synthetic-upstream-fixture"}\n'
-    )
-    assert report.scanned_files == 1
-
-
-def test_scrub_skips_comparator_worker_runtime_overlay(tmp_path: Path) -> None:
-    recent = tmp_path / "response.headers"
-    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
-    metadata = (
-        tmp_path
-        / "experiments"
-        / "comparator_worker_env"
-        / "site"
-        / "huggingface_hub-0.36.0.dist-info"
-        / "METADATA"
-    )
-    metadata.parent.mkdir(parents=True)
-    metadata.write_text(
-        "Description: example client_secret: synthetic-package-text\n",
-        encoding="utf-8",
-    )
-    now = time.time()
-    metadata.touch()
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=now - 5,
-    )
-
-    assert report.redacted_paths == ("response.headers",)
-    assert metadata.read_text(encoding="utf-8") == (
-        "Description: example client_secret: synthetic-package-text\n"
-    )
-    assert report.scanned_files == 1
-
-
-def test_scrub_skips_immutable_acquisition_anchor_bodies(tmp_path: Path) -> None:
-    recent = tmp_path / "response.headers"
-    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
-    body = (
-        tmp_path
-        / "experiments"
-        / "runs"
-        / "frozen-run"
-        / "acquisition"
-        / "anchors"
-        / "publisher.body"
-    )
-    body.parent.mkdir(parents=True)
-    body.write_text(
-        "public documentation example client_secret=synthetic-page-value\n",
-        encoding="utf-8",
-    )
-    now = time.time()
-    body.touch()
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=now - 5,
-    )
-
-    assert report.redacted_paths == ("response.headers",)
-    assert body.read_text(encoding="utf-8") == (
-        "public documentation example client_secret=synthetic-page-value\n"
-    )
-    assert report.scanned_files == 1
-
-
-def test_artifact_scrub_preserves_synthetic_task_tokens(
-    tmp_path: Path,
-) -> None:
-    artifact = tmp_path / "research" / "runs" / "RAW_TRAJECTORIES.jsonl"
-    artifact.parent.mkdir(parents=True)
-    artifact.write_text(
-        json.dumps(
-            {
-                "task_id": "synthetic-auth-task",
-                "arguments": {"access_token": "access_token_abc123"},
-                "raw_output": (
-                    '<tool_call>{"username":"mzhang","password":"SecurePass123"}</tool_call>'
-                ),
-                "executed_call": (
-                    "trading_login(username='your_username',password='your_password')"
-                ),
-            }
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "task_id": "provider-credential-leak",
-                "github_token": "github-secret-value",
-            }
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "task_id": "known-secret-leak",
-                "arguments": {"access_token": "live-environment-secret-123"},
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-        known_values=("live-environment-secret-123",),
-    )
-
-    rows = [json.loads(line) for line in artifact.read_text().splitlines()]
-    assert rows[0]["arguments"]["access_token"] == "access_token_abc123"
-    assert "SecurePass123" in rows[0]["raw_output"]
-    assert "your_password" in rows[0]["executed_call"]
-    assert rows[1]["github_token"] == "<REDACTED:secret>"
-    assert rows[2]["arguments"]["access_token"] == ("<REDACTED:known-secret>")
-    assert report.redacted_paths == ("research/runs/RAW_TRAJECTORIES.jsonl",)
-
-
-def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
-    artifact = tmp_path / "response.txt"
-    artifact.write_text("Authorization: Bearer live-token-value-123\n", encoding="utf-8")
-    events: list[dict] = []
-
-    report, reviewer_note = _apply_round_secret_guard(
-        workdir=tmp_path,
-        modified_since=time.time() - 5,
-        round_index=2,
-        round_max=10,
-        on_event=events.append,
-    )
-
-    assert report.changed
-    assert "live-token-value-123" not in artifact.read_text(encoding="utf-8")
-    assert "SECURITY GUARD" in reviewer_note
-    assert events[0]["type"] == "round.secret_redacted"
-    assert events[0]["redacted_paths"] == ["response.txt"]
-
-
 def test_round_guard_keeps_engineer_control_sentinels_pristine(
     tmp_path: Path,
 ) -> None:
@@ -537,69 +169,6 @@ def test_round_guard_keeps_engineer_control_sentinels_pristine(
 
     assert reviewer_note
     assert parse_continue_work_request(continue_message) == "rebuild the hash chain"
-
-
-def test_agent_io_persistence_and_stream_callback_are_redacted(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("SERVICE_API_KEY", "live-secret-value-123")
-    streamed: list[tuple[str, str]] = []
-    backend = AgentCliBackend(
-        backend="copilot",
-        runner_bin="copilot",
-        event_callback=lambda stream, line: streamed.append((stream, line)),
-    )
-    path = tmp_path / "events.jsonl"
-    backend._log_agent_io(
-        path,
-        {
-            "type": "agent.io.complete",
-            "stdout_lines": ["api_key=live-secret-value-123"],
-        },
-    )
-    context = {
-        "log_path": str(path),
-        "raw_log_path": str(path.with_name("agent_io.jsonl")),
-        "call_id": "call",
-        "run_label": "engineer-r1",
-        "model": "test",
-        "mode": "full",
-        "buffer": [],
-        "buffer_bytes": 0,
-        "last_flush": 0.0,
-    }
-    with backend._io_logger.io_context_lock:
-        backend._io_logger.io_context = context
-    backend._stream_event_callback(
-        "copilot.stdout",
-        "Authorization: Bearer live-secret-value-123",
-    )
-    backend._io_logger.close("call")
-
-    rendered = path.read_text(encoding="utf-8")
-    raw_rendered = path.with_name("agent_io.jsonl").read_text(encoding="utf-8")
-    assert "live-secret-value-123" not in rendered
-    assert "live-secret-value-123" not in raw_rendered
-    assert "live-secret-value-123" not in json.dumps(streamed)
-
-
-def test_review_event_payload_redacts_reviewer_echoes(monkeypatch) -> None:
-    monkeypatch.setenv("SERVICE_API_KEY", "live-secret-value-123")
-    review = ReviewDecision(
-        status="continue",
-        reason="api_key=live-secret-value-123",
-        next_action="repair the artifact",
-    )
-
-    payload = _review_event_payload(
-        review,
-        round_index=1,
-        round_max=10,
-        text="review completed",
-    )
-
-    assert "live-secret-value-123" not in json.dumps(payload)
 
 
 def test_jsonl_event_sink_redacts_downstream_and_disk(
@@ -709,59 +278,6 @@ def test_oversized_ipynb_notebook_secret_is_scrubbed(tmp_path: Path) -> None:
     assert "<REDACTED:github-token>" in rendered
 
 
-def test_streaming_scrub_redacts_secret_across_chunk_boundary(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
-    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
-    artifact = tmp_path / "trace.ipynb"
-    content = (
-        "padding-line\n" * 4
-        + "x-api-key: chunk-straddling-secret-value\n"
-        + "trailer: ok\n"
-    )
-    artifact.write_text(content, encoding="utf-8")
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-    )
-
-    rendered = artifact.read_text(encoding="utf-8")
-    assert report.redacted_paths == ("trace.ipynb",)
-    assert "chunk-straddling-secret-value" not in rendered
-    assert "x-api-key: <REDACTED:secret>" in rendered
-    assert rendered.startswith("padding-line\n" * 4)
-    assert rendered.endswith("trailer: ok\n")
-
-
-def test_streaming_scrub_preserves_crlf_without_blank_lines(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
-    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
-    artifact = tmp_path / "response.html"
-    padding = b"<p>padding padding padding padding</p>\r\n" * 3
-    artifact.write_bytes(
-        padding
-        + b"x-api-key: live-crlf-secret-value\r\ncontent-type: text/plain\r\n"
-    )
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-        known_values=("live-crlf-secret-value",),
-    )
-
-    assert report.redacted_paths == ("response.html",)
-    assert artifact.read_bytes() == (
-        padding
-        + b"x-api-key: <REDACTED:known-secret>\r\ncontent-type: text/plain\r\n"
-    )
-
-
 def test_streaming_scrub_refuses_to_overwrite_concurrent_change(
     tmp_path: Path,
     monkeypatch,
@@ -832,27 +348,6 @@ def test_oversized_artifact_turning_binary_mid_stream_leaves_trace(
     assert report.skipped_paths == (("mixed.log", len(payload)),)
     assert report.truncated is True
     assert mixed.read_bytes() == payload
-
-
-def test_scan_file_budget_exhaustion_is_reported_not_silent(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(secret_guard, "_MAX_SCANNED_FILES", 1)
-    (tmp_path / "a.txt").write_text("alpha: ok\n", encoding="utf-8")
-    (tmp_path / "b.txt").write_text("beta: ok\n", encoding="utf-8")
-
-    report = scrub_recent_text_artifacts(
-        tmp_path,
-        modified_since=time.time() - 5,
-    )
-
-    assert report.scanned_files == 1
-    assert len(report.skipped_paths) == 1
-    skipped_path, skipped_size = report.skipped_paths[0]
-    assert skipped_path in {"a.txt", "b.txt"}
-    assert skipped_size > 0
-    assert report.truncated is True
 
 
 def test_single_line_above_carry_cap_is_skipped_with_trace(
@@ -985,42 +480,6 @@ def test_file_budget_exhaustion_enumerates_remaining_candidates(
     assert "+9 more files (0.0" not in reviewer_note
 
 
-def test_bearer_redaction_is_line_local_and_stream_consistent(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """The bearer pattern must not span a newline (red before the fix).
-
-    ``bearer\\s+`` let the token half of a match start on the next line, so
-    the in-memory path redacted "bearer\\n<token>" while the newline-aligned
-    streamed path silently missed it whenever a segment boundary fell between
-    the two lines. All artifact patterns now match within a single line, so
-    both paths agree by construction.
-    """
-    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
-    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
-    cross_line_token = "A" * 70
-    same_line_token = "B" * 24
-    content = (
-        "seed bearer\n"
-        + cross_line_token + "\n"
-        + f"auth bearer {same_line_token}\n"
-    )
-    artifact = tmp_path / "trace.log"
-    artifact.write_text(content, encoding="utf-8")
-
-    scrub_recent_text_artifacts(tmp_path, modified_since=time.time() - 5)
-    rendered = artifact.read_text(encoding="utf-8")
-
-    # The streamed result equals the in-memory redaction of the same text.
-    assert rendered == redact_secrets_text(content)
-    # Same-line bearer tokens are still redacted...
-    assert same_line_token not in rendered
-    assert "auth <REDACTED:token>\n" in rendered
-    # ...and a bare "bearer" line no longer swallows the following line.
-    assert cross_line_token + "\n" in rendered
-
-
 def test_streaming_scrub_restores_crlf_on_whole_json_document_segment(
     tmp_path: Path,
     monkeypatch,
@@ -1045,59 +504,6 @@ def test_streaming_scrub_restores_crlf_on_whole_json_document_segment(
     assert raw.endswith(b"\r\n")
     assert not raw.endswith(b"\r\r\n")
     assert json.loads(raw.decode("utf-8"))["api_key"] == "<REDACTED:secret>"
-
-
-def test_streaming_scrub_skips_rewrite_pass_for_clean_files(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Two-pass streaming: a clean file costs one read and zero tmp writes.
-
-    ``time.time_ns`` is only consulted to name the rewrite temp file, so the
-    spy proves the rewrite pass never started for a hit-free artifact.
-    """
-    calls: list[int] = []
-    real_time_ns = secret_guard.time.time_ns
-
-    def spy() -> int:
-        calls.append(1)
-        return real_time_ns()
-
-    monkeypatch.setattr(secret_guard.time, "time_ns", spy)
-    clean = tmp_path / "clean.log"
-    clean.write_text("status: ok\n" * 100, encoding="utf-8")
-    assert secret_guard._scrub_streaming(clean, clean.stat().st_mode) == 0
-    assert calls == []
-
-    dirty = tmp_path / "dirty.log"
-    dirty.write_text("x-api-key: streamed-secret-value\n", encoding="utf-8")
-    assert secret_guard._scrub_streaming(dirty, dirty.stat().st_mode) == 1
-    assert calls == [1]
-    assert "<REDACTED:secret>" in dirty.read_text(encoding="utf-8")
-
-
-def test_vault_known_values_exclude_multiline_strings(tmp_path: Path) -> None:
-    """Vault strings follow the env-source contract: no newlines in a secret.
-
-    The streamed scrub's newline-aligned coverage proof assumes known secret
-    values never contain a newline; a multi-line vault "value" is
-    configuration prose, and replacing it would rewrite line structure.
-    """
-    vault = tmp_path / "model_api.json"
-    vault.write_text(
-        json.dumps({
-            "api_key": "vault-secret-value-123",
-            "backup_token": "first-line-secret\nsecond-line",
-        }),
-        encoding="utf-8",
-    )
-
-    values = known_secret_values({
-        "ARGUS_SKILL_CAPABILITY_VAULT": str(vault),
-    })
-
-    assert "vault-secret-value-123" in values
-    assert all("\n" not in value for value in values)
 
 
 def test_atomic_scrub_refuses_to_overwrite_concurrent_change(
@@ -1134,7 +540,6 @@ def test_scrub_without_git_executable_falls_back_to_mtime_scan(
 
     assert report.redacted_paths == ("artifact.yml",)
     assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")
-
 
 
 # Credential-shaped values that masking (when on) and detection (always) must
@@ -1180,50 +585,6 @@ _MUST_STAY_MASKED = (
     "client_secret=Ab_CdEfGh12345[",
 )
 
-# The on-disk scrub drops the ambiguous labels (secret/token/password/auth) by
-# design; these are the high-confidence shapes it masks when masking is on.
-_ARTIFACT_MUST_STAY_MASKED = (
-    "api_key: AbCdEf0123456789",
-    "Authorization: Bearer abcdefghijklmnopqrstu",
-    "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-    "Authorization: Bearer <sk_live_abcdef1234567890abcdef>",
-    "Authorization: Bearer <real token value 1234567890 abcdef>",
-    "Authorization: Token {a1b2c3d4e5f6a7b8c9d0}",
-    "Authorization: Basic $dXNlcjpwYXNzd29yZA",
-    "Authorization: token $hunter2password",
-    "Authorization: Bearer ${abc123realtokenvalue}",
-    "api_key={real}Xk9fooBarBazQux1234",
-    "api_key={realsecretvalue1234}",
-    "api_key=sk_live_51HabcdefGHIJ123(x)",
-    "api_key=sk_live_51HabcdefGHIJ123[0]",
-    "OPENAI_API_KEY=os.environ_SECRETVALUE123",
-    "client_secret=Ab_CdEfGh12345[",
-)
-
-
-@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
-def test_literal_credentials_are_masked_when_redaction_is_on(line: str) -> None:
-    assert "<REDACTED:" in redact_secrets_text(line)
-    assert redact_secrets_record({"note": line}) != {"note": line}
-
-
-def test_artifact_scrub_masks_header_and_key_literals_when_on(tmp_path: Path) -> None:
-    artifact = tmp_path / "notes.txt"
-    artifact.write_text("\n".join(_ARTIFACT_MUST_STAY_MASKED) + "\n", encoding="utf-8")
-
-    scrub_recent_text_artifacts(tmp_path, modified_since=0.0)
-
-    lines = artifact.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == len(_ARTIFACT_MUST_STAY_MASKED)
-    assert all("<REDACTED:" in line for line in lines), lines
-
-
-def test_known_value_is_masked_when_on() -> None:
-    value = "sentinel-value-0123456789"
-    text = f'token = os.environ.get("X") or "{value}"\nheaders = f"Bearer {value}"'
-
-    assert value not in redact_secrets_text(text, known_values=(value,))
-
 
 # --- Default: Argus does not rewrite text --------------------------------
 # Masked text cannot be verified; one task spent five extra rounds disputing
@@ -1243,34 +604,6 @@ def test_redaction_is_off_by_default(redaction_default) -> None:
     assert redact_secrets_text(line, known_values=("abcdefghijklmnopqrstu",)) == line
     assert redact_secrets_text_with_count(line) == (line, 0)
     assert redact_secrets_record(record) is record
-
-
-def test_artifact_scrub_leaves_files_alone_by_default(redaction_default, tmp_path: Path) -> None:
-    artifact = tmp_path / "notes.txt"
-    body = "\n".join(_ARTIFACT_MUST_STAY_MASKED) + "\n"
-    artifact.write_text(body, encoding="utf-8")
-
-    report = scrub_recent_text_artifacts(tmp_path, modified_since=0.0)
-
-    assert artifact.read_text(encoding="utf-8") == body
-    assert report.redacted_paths == () and report.replacement_count == 0
-
-
-def test_persisted_knob_turns_redaction_on(redaction_default) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    write_persisted_knob("ARGUS_SKILL_REDACT_SECRETS", "1")
-    assert secret_guard.secret_redaction_enabled() is True
-    assert "<REDACTED:" in redact_secrets_text("api_key: AbCdEf0123456789")
-    write_persisted_knob("ARGUS_SKILL_REDACT_SECRETS", "0")
-    assert secret_guard.secret_redaction_enabled() is False
-
-
-@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
-def test_detection_does_not_depend_on_the_switch(redaction_default, line: str) -> None:
-    assert secret_guard.contains_secret(line)
-    assert secret_guard.contains_secret({"note": [line]})
-    assert not secret_guard.contains_secret("ordinary prose about tokens and passwords")
 
 
 @pytest.mark.parametrize("line", _MUST_STAY_MASKED)

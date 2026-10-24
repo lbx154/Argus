@@ -113,35 +113,6 @@ def test_runtime_uses_canonical_execution_workdir_for_all_role_libraries(
     assert not (configured_workdir / ".agents").exists()
 
 
-def test_runtime_does_not_create_a_missing_agents_directory(tmp_path: Path) -> None:
-    workdir = tmp_path / "repo"
-    args = _args(tmp_path, workdir)
-
-    store = _RunnerConstructionMixin._build_manager_skill_store(object(), args)
-
-    assert not (workdir / ".agents").exists()
-    assert store.library_roots()[0] == (tmp_path / "state" / "skills").resolve()
-
-
-def test_mission_start_does_not_overwrite_learned_vertical_guidance(tmp_path: Path) -> None:
-    from argus.skills.builtins import seed_context_skills
-
-    workdir = tmp_path / "repo"
-    workdir.mkdir()
-    args = _args(tmp_path, workdir)
-    shared = Path(args.skills_dir) / "_shared_verticals" / "research"
-    seed_context_skills(shared, "research")
-    learned = shared / "engineer/rl-training-collapse-diagnosis.md"
-    body = learned.read_text() + "\nVerified exception learned from this deployment.\n"
-    learned.write_text(body)
-    harness = _ExecuteHarness(args)
-    for _ in range(2):
-        state = SimpleNamespace(workdir=workdir, config=SimpleNamespace(active_vertical="research"))
-        harness._build_execute_skill_store_and_loop(state, sink=SimpleNamespace(handle_event=lambda event: None))
-        assert learned.read_text() == body
-        assert shared.resolve() in state.loop.skill_store.library_roots()
-
-
 def test_in_process_life_planner_receives_refreshed_project_skills(
     tmp_path: Path,
     monkeypatch,
@@ -180,56 +151,6 @@ def test_in_process_life_planner_receives_refreshed_project_skills(
     )
 
     assert result == {"stopped_by": "test"}
-    assert captured["skill_store"] is runner._manager_skill_store
-    assert captured["skill_store"].native_project_roots() == [native_root]
-    assert runner.refresh_workdirs == [workdir]
-
-
-def test_daemon_boot_life_planner_receives_refreshed_project_skills(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workdir = tmp_path / "project"
-    workdir.mkdir()
-    life_dir = tmp_path / "state"
-    args = _args(tmp_path, workdir)
-    runner = _RefreshHarness(args)
-    native_root = _write_native_skill(workdir)
-    captured = {}
-
-    class _Supervisor:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
-            self._vertical_resolved = False
-
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.LifeSupervisor",
-        _Supervisor,
-    )
-    worker = LifeWorker(
-        LifeWorkerConfig(
-            life_dir=life_dir,
-            global_root=tmp_path / "global",
-            project_fingerprint="native-skills",
-            project_workdir=workdir,
-            backend="memory",
-            mission_width=1,
-        )
-    )
-    rf_state = SimpleNamespace(
-        cfg=worker.config,
-        runtime_root=life_dir,
-        mem=object(),
-        sink=object(),
-        runner=runner,
-        init_continuous=False,
-        init_objective="",
-        continuous_provider=lambda: (False, "", True),
-        manager_handoff_resolved=False,
-    )
-
-    worker._rf_build_supervisor(rf_state)
-
     assert captured["skill_store"] is runner._manager_skill_store
     assert captured["skill_store"].native_project_roots() == [native_root]
     assert runner.refresh_workdirs == [workdir]

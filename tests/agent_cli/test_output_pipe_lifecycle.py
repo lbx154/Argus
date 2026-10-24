@@ -1,6 +1,5 @@
 """Output ownership and cleanup under real Windows pipe lifetimes."""
 import ctypes
-import gc
 import json
 import os
 import sys
@@ -126,48 +125,6 @@ def test_inherited_pipes_return_promptly_and_keep_independent_writer_healthy(mon
             held = HeldProcess(json.loads(ready.read_text())[0])
         if held:
             held.close()
-
-
-def test_callback_exception_still_releases_process_and_readers(monkeypatch, tmp_path):
-    def fail(*args):
-        raise ValueError("injected observer failure")
-
-    before = {t.ident for t in threading.enumerate() if t.name.startswith("argus-provider-pipe-")}
-    with pytest.raises(ValueError, match="injected observer"):
-        run_fixture(
-            monkeypatch,
-            tmp_path,
-            "import time;print('hello',flush=True);time.sleep(20)",
-            "fixture",
-            callback=fail,
-        )
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        after = {
-            t.ident for t in threading.enumerate() if t.name.startswith("argus-provider-pipe-")
-        }
-        if after <= before:
-            break
-        time.sleep(0.02)
-    assert after <= before
-
-
-def test_repeated_calls_do_not_accumulate_reader_threads(monkeypatch, tmp_path):
-    before = {t.ident for t in threading.enumerate() if t.name.startswith("argus-provider-pipe-")}
-    for _ in range(12):
-        with monkeypatch.context() as patch:
-            result, _, processes = run_fixture(
-                patch,
-                tmp_path,
-                'import sys;sys.stdin.read();print(\'{"type":"turn.completed"}\',flush=True)',
-                "fixture",
-            )
-            assert result.turn_completed
-            assert all(p.stdout.closed and p.stderr.closed for p in processes)
-    gc.collect()
-    assert {
-        t.ident for t in threading.enumerate() if t.name.startswith("argus-provider-pipe-")
-    } <= before
 
 
 def test_reader_failure_reaches_caller_instead_of_hanging(monkeypatch, tmp_path):

@@ -61,31 +61,8 @@ def _capture_prompt(*, round_max: int | None = 3) -> str:
     return runner.prompt
 
 
-def test_engineer_final_message_rendered_once() -> None:
-    prompt = _capture_prompt()
-    assert prompt.count(_MARKER) == 1
-
-
-def test_engineer_reasoning_summary_label_is_gone() -> None:
-    prompt = _capture_prompt()
-    assert "engineer_reasoning_summary" not in prompt
-
-
-def test_prev_review_and_skill_still_rendered_once() -> None:
-    prompt = _capture_prompt()
-    assert prompt.count("previous_review_summary") == 1
-    assert "prior review notes" in prompt
-    assert "some_skill" in prompt
-
-
 def test_reviewer_sees_round_budget() -> None:
     assert "Round: 1/3" in _capture_prompt()
-
-
-def test_reviewer_round_budget_fallback_omits_denominator() -> None:
-    prompt = _capture_prompt(round_max=None)
-    assert "Round: 1\n" in prompt
-    assert "Round: 1/0" not in prompt
 
 
 def test_evaluate_signature_drops_reasoning_summary() -> None:

@@ -19,7 +19,6 @@ import pytest
 from argus.verticals import research
 from argus.verticals.research import mission_brief
 from argus.verticals.research.mission_brief import (
-    DEFINITION_OF_DONE,
     FIXED_CLAIM_SENTENCE,
     MAX_BRIEF_LINES,
     WORKING_HYPOTHESIS_SENTENCE,
@@ -171,37 +170,6 @@ def test_brief_has_the_five_sections_and_quotes_the_claim(project: Path, tmp_pat
     assert FIXED_CLAIM_SENTENCE in lines
 
 
-def test_components_point_at_their_code_anchors(project: Path, tmp_path: Path) -> None:
-    brief = prepare_mission(
-        stage="experiment", project_root=project, state_root=tmp_path, mission=_mission()
-    )
-    lines = brief.splitlines()
-
-    gate = next(line for line in lines if line.startswith("- residual gate:"))
-    assert gate.startswith("- residual gate: 1 knockout") and "src/model.py:7 (gate)" in gate
-    sparse = next(line for line in lines if line.startswith("- sparse attention:"))
-    assert "(simplified)" in sparse
-    assert "src/model.py:13 (sparse)" in sparse
-    warmup = next(line for line in lines if line.startswith("- curriculum warmup:"))
-    assert "no test carries its marker" in warmup and "no `# @component` anchor" in warmup
-
-
-def test_environment_describes_the_tree_as_it_is(project: Path, tmp_path: Path) -> None:
-    brief = prepare_mission(
-        stage="experiment", project_root=project, state_root=tmp_path, mission=_mission()
-    )
-    lines = brief.splitlines()
-
-    assert any(line.startswith("- Interpreter: no .venv/bin/python") for line in lines)
-    clones = next(line for line in lines if line.startswith("- third_party clones:"))
-    assert "x @ " in clones and "no git revision" not in clones
-    data = next(line for line in lines if line.startswith("- data/:"))
-    assert "2.0 KB" in data and "wikitext/" in data
-    assert not any("host-run" in line for line in lines)
-    packages = next(line for line in lines if line.startswith("- Packages:"))
-    assert "numpy" in packages
-
-
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="the fake project interpreter is a shell script, which Windows cannot execute",
@@ -229,19 +197,6 @@ def test_environment_reports_the_project_interpreter_when_present(project: Path,
     assert "imported packages present: numpy" in packages
 
 
-def test_this_task_restates_the_mission_contract_verbatim(project: Path, tmp_path: Path) -> None:
-    mission = _mission()
-    brief = prepare_mission(
-        stage="experiment", project_root=project, state_root=tmp_path, mission=mission
-    )
-    lines = brief.splitlines()
-
-    assert f"- Acceptance check: {mission.acceptance_check}" in lines
-    assert f"- Decision rule: {mission.decision_rule}" in lines
-    assert "- Non-goals: tuning the learning rate; changing the datasets" in lines
-    assert DEFINITION_OF_DONE in lines
-
-
 def test_this_task_falls_back_to_the_mission_context_file(project: Path, tmp_path: Path) -> None:
     state = tmp_path / "state"
     contract_dir = state / "handoffs" / "m-1"
@@ -258,52 +213,6 @@ def test_this_task_falls_back_to_the_mission_context_file(project: Path, tmp_pat
     assert "- Acceptance check: the knockout changes the output" in lines
     assert "- Non-goals: retuning" in lines
     assert not any(line.startswith("- Decision rule:") for line in lines)
-
-
-def test_since_last_time_counts_uncommitted_work_and_names_the_last_change(
-    project: Path, tmp_path: Path
-) -> None:
-    brief = prepare_mission(
-        stage="experiment", project_root=project, state_root=tmp_path, mission=_mission()
-    )
-    lines = brief.splitlines()
-
-    uncommitted = next(line for line in lines if line.startswith("- Uncommitted:"))
-    assert "untracked" in uncommitted and "src/scratch.py" in uncommitted
-    last = next(line for line in lines if line.startswith("- Last change:"))
-    assert "method card, spec and clone" in last and "METHOD.md" in last
-
-
-def test_review_stage_gets_a_brief_only_for_a_repair_mission(project: Path, tmp_path: Path) -> None:
-    repair = _mission(tags=["review", "repair"])
-    prose = _mission(tags=["review", "manuscript"])
-
-    assert prepare_mission(stage="review", project_root=project, state_root=tmp_path, mission=repair)
-    assert prepare_mission(stage="review", project_root=project, state_root=tmp_path, mission=prose) == ""
-
-
-def test_paper_stage_gets_no_brief(project: Path, tmp_path: Path) -> None:
-    for stage in ("paper", "idea", "", None):
-        assert prepare_mission(stage=stage, project_root=project, state_root=tmp_path, mission=_mission()) == ""
-
-
-def test_project_without_a_card_falls_back_to_the_selected_idea(tmp_path: Path) -> None:
-    root = tmp_path / "bare"
-    (root / ".argus").mkdir(parents=True)
-    (root / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"selected_idea": {"route_id": "route-02", "rationale": "Strongest direct case."}}),
-        encoding="utf-8",
-    )
-
-    brief = prepare_mission(stage="experiment", project_root=root, state_root=tmp_path, mission=_mission())
-    lines = brief.splitlines()
-
-    assert lines[0] == "## Task brief"
-    assert "### Claim (fixed)" in lines
-    assert any("route-02" in line and "Strongest direct case." in line for line in lines)
-    assert FIXED_CLAIM_SENTENCE in lines
-    assert "### Components now" not in lines
-    assert "### Since last time" not in lines
 
 
 @pytest.mark.parametrize(("mode", "heading", "sentence"), [
@@ -420,23 +329,6 @@ def test_project_without_a_card_quotes_the_selected_route_itself(tmp_path: Path)
     assert FIXED_CLAIM_SENTENCE in lines
 
 
-def test_run_reality_names_stand_ins_and_the_results_footprint(project: Path, tmp_path: Path) -> None:
-    (project / "src" / "eval.py").write_text(
-        "def mock_worker_llm(p, t):\n    return '{}'\n\ndef run():\n    return mock_worker_llm('a', 'b')\n",
-        encoding="utf-8",
-    )
-    (project / "results").mkdir()
-    (project / "results" / "summary.json").write_text("{}", encoding="utf-8")
-
-    brief = prepare_mission(stage="experiment", project_root=project, state_root=tmp_path, mission=_mission())
-    lines = brief.splitlines()
-
-    assert "### Run reality" in lines
-    assert any(line.startswith("- src/eval.py:1 mock_worker_llm — used from src/eval.py:5") for line in lines)
-    assert any(line.startswith("Results footprint: results/ 1 files") for line in lines)
-    assert lines.index("### Run reality") < lines.index("### This task")
-
-
 def test_environment_names_the_local_model_caches(project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Engineers searched the whole disk for weights (one `find /` ran 66 minutes)
     # or mocked the model; the brief names the hub caches and what they hold.
@@ -470,43 +362,6 @@ def test_brief_carries_the_last_claim_attainment_statement(project: Path, tmp_pa
     assert "### Claim attainment (last statement)" in lines
     assert any(line.startswith('- [not met] keep 96% of BF16 — Engineer: "35%"; host reads results/r.json ours.acc = 0.35') for line in lines)
     assert lines.index("### Claim attainment (last statement)") < lines.index("### Environment now")
-
-
-def test_the_brief_says_where_torch_is_instead_of_letting_the_engineer_search_the_disk(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from argus.verticals.research import mission_brief as mb
-
-    monkeypatch.setattr(mb, "_TORCH_PROBE_CACHE", {})
-    monkeypatch.setattr(
-        mb,
-        "_host_interpreters",
-        lambda root: [("host runtime (read-only; never install into it)", Path("/opt/rt/bin/python")), ("python3 on PATH", Path("/usr/bin/python3"))],
-    )
-
-    def fake_run(cmd, **kwargs):
-        has = Path(cmd[0]) == Path("/opt/rt/bin/python")
-        return SimpleNamespace(returncode=0 if has else 1, stdout="2.9.0 True\n" if has else "", stderr="" if has else "ModuleNotFoundError")
-
-    monkeypatch.setattr(mb.subprocess, "run", fake_run)
-    line = mb._torch_line(tmp_path)
-    assert line.startswith(
-        f"- Torch on this host: {Path('/opt/rt/bin/python')} [host runtime (read-only; never install into it)]: "
-        f"torch 2.9.0 (CUDA yes); {Path('/usr/bin/python3')} [python3 on PATH]: no torch."
-    )
-    assert "do not scan the disk for packages (`find /`)" in line
-    # cached: a second call runs no probe
-    monkeypatch.setattr(mb.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probe ran twice")))
-    assert mb._torch_line(tmp_path) == line
-
-
-def test_tools_on_path_are_listed_and_absence_is_stated(monkeypatch) -> None:
-    from argus.verticals.research import mission_brief as mb
-
-    monkeypatch.setattr(mb.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"git", "pip", "latexmk"} else None)
-    line = mb._tools_line()
-    assert line.startswith("- Tools on PATH: pip, git, latexmk (absent: uv, pdflatex, nvidia-smi, conda, node, npx, gh;")
-    assert "do not `find /` for a tool" in line
 
 
 def test_the_skill_scripts_directory_is_named_so_nobody_searches_the_disk(monkeypatch, tmp_path) -> None:

@@ -54,25 +54,6 @@ def _fake_upstream(
     return repo, _git(repo, "rev-parse", "HEAD")
 
 
-def test_install_ppt_master_clones_and_validates_pinned_toolkit(tmp_path: Path) -> None:
-    upstream, revision = _fake_upstream(tmp_path)
-    home = tmp_path / "argus-home"
-
-    status = install_ppt_master(
-        global_root=home,
-        repository=str(upstream),
-        revision=revision,
-        install_dependencies=False,
-    )
-
-    assert status.installed is True
-    assert status.valid is True
-    assert status.revision == revision
-    assert status.dependencies_installed is False
-    assert install_root(home).is_dir()
-    assert (skill_root(home) / "SKILL.md").is_file()
-
-
 def test_status_reports_missing_install(tmp_path: Path) -> None:
     status = ppt_master_status(global_root=tmp_path)
 

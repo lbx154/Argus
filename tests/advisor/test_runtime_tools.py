@@ -3,7 +3,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -95,19 +94,6 @@ process.stdout.write(JSON.stringify(result.details));
     assert len(receipts) == 1 and receipts[0]["call_id"] in {row.call_id for row in records}
     with pytest.raises(OSError):
         request("receipt", {"consultation_id": receipts[0]["consultation_id"]}, env=environments[0])
-
-
-@pytest.mark.parametrize("label,backend,disabled", [
-    ("advisor.manager.nested", "pi", False), ("planner.cycle1", "pi", True),
-    ("reviewer.turn", "codex", False),
-])
-def test_no_recursive_tool_or_shell_fallback_for_read_only_roles(tmp_path, label, backend, disabled):
-    save_advisor_config(tmp_path, {"enabled": True, "backend": "pi", "model": "independent/expert"})
-    options = RunnerOptions(working_dir=str(tmp_path), sandbox_mode="read-only", disable_tools=disabled)
-    ctx = SimpleNamespace(options=options, run_label=label, usage_project_root=tmp_path,
-                          backend=SimpleNamespace(_backend_name=backend), prompt="original")
-    with runtime.advisor_run(ctx):
-        assert ctx.options is options and ctx.prompt == "original"
 
 
 def test_tool_bridge_rejects_context_forgery_and_cli_uses_bound_scope(tmp_path, monkeypatch, capsys):

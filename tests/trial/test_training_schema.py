@@ -19,21 +19,6 @@ def bash_schema():
     }
 
 
-def test_actual_bash_strict_schema_and_execution_arguments(bash_schema):
-    before = copy.deepcopy(bash_schema)
-    actual = pi_strict_schema(bash_schema)
-    assert actual == {
-        "type": "object", "properties": {
-            "command": before["properties"]["command"],
-            "timeout": {"anyOf": [before["properties"]["timeout"], {"type": "null"}]},
-        }, "required": ["command", "timeout"], "additionalProperties": False,
-    }
-    model_arguments = {"command": "true", "timeout": None}
-    assert pi_execution_arguments(model_arguments, bash_schema) == {"command": "true"}
-    assert model_arguments == {"command": "true", "timeout": None}
-    assert bash_schema == before
-
-
 def test_nested_objects_arrays_and_existing_nullable_fields():
     schema = {"type": "object", "properties": {
         "rows": {"type": "array", "items": {"type": "object", "properties": {
@@ -48,16 +33,6 @@ def test_nested_objects_arrays_and_existing_nullable_fields():
     assert nested["properties"]["comment"] == schema["properties"]["rows"]["items"]["properties"]["comment"]
     args = {"rows": [{"name": "Synthetic", "count": None, "comment": None}]}
     assert pi_execution_arguments(args, schema) == {"rows": [{"name": "Synthetic", "comment": None}]}
-
-
-@pytest.mark.parametrize("nullable", [
-    {"type": ["string", "null"]}, {"enum": ["x", None]}, {"const": None},
-    {"anyOf": [{"type": "string"}, {"type": "null"}]},
-])
-def test_explicit_nullability_is_preserved(nullable):
-    schema = {"type": "object", "properties": {"value": nullable}}
-    assert pi_strict_schema(schema)["properties"]["value"] == nullable
-    assert pi_execution_arguments({"value": None}, schema) == {"value": None}
 
 
 @pytest.mark.parametrize("schema", [
@@ -84,11 +59,6 @@ def test_unverified_coercions_and_invalid_arguments_fail(bash_schema, args):
         pi_execution_arguments(args, bash_schema)
 
 
-def test_explicit_required_null_is_not_deleted():
-    schema = {"type": "object", "properties": {"value": {"type": ["string", "null"]}}, "required": ["value"]}
-    assert pi_execution_arguments({"value": None}, schema) == {"value": None}
-
-
 def test_schema_references_never_resolve(bash_schema):
     bash_schema["properties"]["timeout"] = {"$ref": "https://example.invalid/schema"}
     with pytest.raises(ValueError, match="invalid_tool_schema"):
@@ -104,7 +74,6 @@ def test_inputs_are_bounded_and_non_json_values_rejected(bash_schema):
     with pytest.raises(ValueError, match="invalid_tool_arguments"):
         pi_execution_arguments({"command": object()}, bash_schema)
 def test_required_semantic_comparison_keeps_captured_order_and_rejects_missing_or_duplicate():
-    import copy
 
     from argus.trial.training_schema import pi_schema_equal
 

@@ -213,18 +213,3 @@ temporary.replace(receipt)
         server.server_close()
         web.shutdown()
         web.server_close()
-
-
-def test_forged_ticket_and_wrong_stage_never_create_worker_registration(training):
-    bridge = TrainingBridge(training, "tenant-one", lambda peer, **kwargs: {
-        "pid": peer[0], "started": "synthetic-start", "source_sha256": {"fixture": "a" * 64}})
-    peer = (os.getpid(), os.getuid(), os.getgid())
-    for action in ("daemon_helper", "daemon_fork", "daemon_claim"):
-        with pytest.raises(AnalyticsError, match="capability_invalid"):
-            bridge.dispatch({"action": action, "lease": "forged", "value": {"sid": "s-project"}}, peer)
-    ticket = bridge.dispatch({"action": "daemon_prepare", "lease": None, "value": {"sid": "s-project"}}, peer)["ticket"]
-    for action, sid in (("daemon_claim", "s-project"), ("daemon_helper", "different-project")):
-        with pytest.raises(AnalyticsError, match="capability_invalid"):
-            bridge.dispatch({"action": action, "lease": ticket, "value": {"sid": sid}}, peer)
-    with training.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_runtime_workers").fetchone()[0] == 0

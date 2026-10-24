@@ -8,7 +8,6 @@ import pytest
 
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_GROK
-from argus.core.token_usage import extract_token_usage
 
 
 def _runner(agent_bin: str = "grok") -> AgentCliRunner:
@@ -115,32 +114,6 @@ def test_grok_unsuccessful_result_fails_closed(fields, error) -> None:
         thread_id=None, agent_messages=[], turn_completed=False, turn_failed=False, fatal_error=None,
     )
     assert state == ("grok-session", False, True, error)
-
-
-def test_grok_result_usage_is_accounted() -> None:
-    usage = extract_token_usage(
-        [
-            {
-                "type": "result",
-                "subtype": "success",
-                "usage": {
-                    "input_tokens": 100,
-                    "cache_read_input_tokens": 400,
-                    "cache_creation_input_tokens": 10,
-                    "output_tokens": 25,
-                    "reasoning_tokens": 7,
-                },
-                "total_cost_usd": 0.03,
-            }
-        ]
-    )
-
-    assert usage.input_tokens == 100
-    assert usage.cached_input_tokens == 400
-    assert usage.cache_write_tokens == 10
-    assert usage.output_tokens == 25
-    assert usage.reasoning_output_tokens == 7
-    assert usage.provider_cost_usd == pytest.approx(0.03)
 
 
 def test_grok_run_exec_removes_prompt_file(

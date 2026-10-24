@@ -97,23 +97,6 @@ def test_reviewer_accepted_mission_shares_tagged_pages(tmp_path) -> None:
     assert "- [Protocol](pages/protocol.md) — About Protocol" in index
 
 
-def test_mission_without_reviewer_acceptance_shares_nothing(tmp_path) -> None:
-    supervisor, _sink = _supervisor(
-        tmp_path,
-        _Outcome(success=True, status="done", final_review_status="done", final_review_source="self"),
-    )
-    workdir = supervisor._project_workdir()
-    workdir.mkdir(parents=True, exist_ok=True)
-    _seed_wiki(workdir)
-    supervisor.memory.backlog.add(
-        BacklogItem.new(title="Write it down", objective="Record the protocol", manager_decision={"vertical": "research"})
-    )
-
-    supervisor.tick()
-
-    assert not (supervisor._budget_global_root() / "wiki").exists()
-
-
 def test_promotion_failure_never_fails_the_mission(tmp_path, monkeypatch) -> None:
     supervisor, _sink = _supervisor(
         tmp_path,

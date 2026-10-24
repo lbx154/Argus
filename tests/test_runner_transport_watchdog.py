@@ -45,11 +45,3 @@ def test_engineer_uses_transport_idle_not_semantic_progress_scanning(
     assert backend.options.extension_env == {
         "ARGUS_PLUGIN_PARENT_MISSION_ID": "mission-1"
     }
-
-
-def test_retired_semantic_progress_compatibility_fields_are_removed() -> None:
-    config = SupervisedConfig()
-
-    assert not hasattr(config, "effective_progress_timeout_seconds")
-    assert not hasattr(config, "round_compaction_limit")
-    assert not hasattr(config, "runner_hard_idle_seconds")

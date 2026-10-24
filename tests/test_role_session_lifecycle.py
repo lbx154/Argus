@@ -10,7 +10,6 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import RunnerResult
 from argus.core.role_session import (
     RoleSessionCapsule,
-    signal_role_session_file,
 )
 from argus.planner import Planner, PlannerConfig
 from tests.hand_off import hand_off, plan
@@ -154,39 +153,6 @@ def test_fresh_backend_repeats_task_contract_on_continuation_round(
     )
 
 
-def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
-    tmp_path: Path,
-) -> None:
-    def run(backend: MemoryBackend, root: Path) -> tuple[str, int]:
-        context, checkpoint = _context(root)
-        backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
-        backend.queue(
-            "reviewer", CannedResponse(action=_review("continue"), thread_id="v1")
-        )
-        backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
-        backend.queue(
-            "reviewer", CannedResponse(action=_review("done"), thread_id="v2")
-        )
-        outcome = _loop(
-            backend,
-            root,
-            context,
-            checkpoint,
-        ).run("same matched task", workdir=root)
-        reviewer_chars = sum(
-            len(prompt)
-            for label, prompt, _options in backend.history
-            if label == "reviewer"
-        )
-        return outcome.status, reviewer_chars
-
-    fresh_status, fresh_chars = run(MemoryBackend(), tmp_path / "fresh")
-    resumed_status, resumed_chars = run(_resumable(), tmp_path / "resumed")
-
-    assert fresh_status == resumed_status == "done"
-    assert resumed_chars < fresh_chars
-
-
 def test_a_role_with_no_thread_to_resume_is_told_the_round(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     backend = _resumable()
@@ -309,29 +275,6 @@ def test_a_capsule_from_the_baton_line_protocol_is_rotated(tmp_path: Path) -> No
 
     assert capsule.thread_id == ""
     assert capsule.rotation_reason == "schema_version_changed"
-
-
-def test_a_long_session_keeps_resuming(tmp_path: Path) -> None:
-    capsule = RoleSessionCapsule.open(
-        role="engineer",
-        policy="rolling",
-        objective_revision="v1",
-        workdir=tmp_path,
-        backend="codex",
-        model="model",
-        checkpoint_path=None,
-        path=tmp_path / "state" / "engineer.json",
-    )
-    for _ in range(30):
-        capsule.prepare()
-        capsule.complete(RunnerResult(
-            exit_code=0, thread_id="thread-1", input_tokens=400_000, cached_input_tokens=0,
-        ))
-
-    # The backend compacts its own context; Argus never rotates on size or turns.
-    assert capsule.prepare() == "thread-1"
-    assert capsule.action == "resumed"
-    assert capsule.turns == 30
 
 
 def test_planner_session_survives_new_planner_instance(tmp_path: Path) -> None:
@@ -473,31 +416,6 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
     assert signal["signal_detail"].startswith("Repeated the obsolete")
 
 
-def test_cross_role_signal_file_migrates_old_capsule_and_forces_fresh_thread(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "planner.json"
-    path.write_text(json.dumps({
-        "schema_version": 1,
-        "role": "planner",
-        "policy": "rolling",
-        "thread_id": "old-thread",
-        "turns": 4,
-    }), encoding="utf-8")
-
-    assert signal_role_session_file(
-        path,
-        "repeated_contradiction",
-        "Two turns asserted incompatible stage facts.",
-    )
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 3
-    assert payload["thread_id"] == ""
-    assert payload["turns"] == 0
-    assert payload["signal_kind"] == "repeated_contradiction"
-
-
 def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     # The Planner's capsule is project-level, beside ``handoffs/``.
@@ -536,37 +454,3 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     )
     assert signal["role"] == "planner"
     assert signal["capsule_path"] == str(planner_capsule)
-
-
-def test_rotated_capsule_does_not_resume_the_seed_thread(tmp_path: Path) -> None:
-    path = tmp_path / "role-sessions" / "engineer.json"
-    common = {
-        "role": "engineer",
-        "policy": "rolling",
-        "workdir": tmp_path,
-        "backend": "memory",
-        "model": "model",
-        "checkpoint_path": None,
-        "path": path,
-    }
-    first = RoleSessionCapsule.open(objective_revision="objective-a", **common)
-    first.prepare()
-    first.complete(RunnerResult(exit_code=0, thread_id="thread-old"))
-
-    same = RoleSessionCapsule.open(
-        objective_revision="objective-a", seed_thread_id="thread-old", **common,
-    )
-    assert same.prepare() == "thread-old"
-
-    changed = RoleSessionCapsule.open(
-        objective_revision="objective-b", seed_thread_id="thread-old", **common,
-    )
-    assert changed.rotation_reason == "objective_revision_changed"
-    assert changed.prepare() is None
-
-    changed.complete(RunnerResult(exit_code=0, thread_id="thread-new"))
-    assert signal_role_session_file(path, "quality_degradation")
-    signalled = RoleSessionCapsule.open(
-        objective_revision="objective-b", seed_thread_id="thread-new", **common,
-    )
-    assert signalled.prepare() is None

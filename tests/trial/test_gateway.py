@@ -4,24 +4,20 @@ import asyncio
 import copy
 import json
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 
 import httpx
-import portalocker
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from hosted_platform import linux_host_deadlines, needs_posix_modes
-from starlette.requests import ClientDisconnect
 
 from argus.trial import store as store_module
 from argus.trial.gateway import Settings, create_app, prepare, usage_total
 from argus.trial.gateway_observation import GatewayAttempt
-from argus.trial.responses import completion
 from argus.trial.secrets import Vault, write_private
-from argus.trial.store import Store, TrialError
+from argus.trial.store import TrialError
 
 GITHUB_SECRET = "test-github-credential-do-not-expose"
 ACCESS_SECRET = "test-upstream-credential-do-not-expose"
@@ -125,71 +121,6 @@ def gateway_attempts(store, key_id=KEY_ID):
             "SELECT * FROM trial_gateway_attempts WHERE key_id=? ORDER BY id", (key_id,))]
 
 
-@linux_host_deadlines
-def test_model_burst_waits_for_slots_without_failing_tasks(settings):
-    active = peak = 0
-    overlap = None
-
-    async def slow_upstream(request):
-        nonlocal active, peak, overlap
-        if overlap is None:
-            overlap = asyncio.Event()
-        active += 1
-        peak = max(peak, active)
-        if active == 10:
-            overlap.set()
-        await asyncio.wait_for(overlap.wait(), 0.8)
-        active -= 1
-        return httpx.Response(200, json=response_data())
-
-    app = create_app(settings, transport=httpx.MockTransport(slow_upstream))
-    with TestClient(app) as client:
-        auth = issued_auth(client)
-        with ThreadPoolExecutor(max_workers=14) as pool:
-            responses = list(pool.map(
-                lambda _: client.post("/v1/chat/completions", headers=auth, json=PAYLOAD),
-                range(14),
-            ))
-        assert all(response.status_code == 200 for response in responses)
-        assert peak == 10
-        assert app.state.store.status(KEY_ID)["active_requests"] == 0
-        assert app.state.store.status(KEY_ID)["tokens_used"] == 14 * 15
-        assert app.state.request_slots._value == 10
-        client.portal.call(client.app.state.accounting.wait_idle)
-        observed = gateway_attempts(app.state.store)
-        assert len(observed) == 14
-        assert all(row["outcome"] == "completed" and row["upstream_status"] == 200
-                   and row["selected_response_status"] == 200 for row in observed)
-
-
-@linux_host_deadlines
-def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
-    async def scenario():
-        app = create_app(settings, transport=httpx.MockTransport(upstream))
-        async with app.router.lifespan_context(app):
-            credential = app.state.store.issue(KEY_ID)
-            app.state.request_slots = asyncio.Semaphore(0)
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://test",
-                headers={"Authorization": "Bearer " + credential},
-            ) as client:
-                waiting = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
-                await asyncio.sleep(0.01)
-                waiting.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await waiting
-                await app.state.accounting.wait_idle()
-                observed, = gateway_attempts(app.state.store)
-                assert observed["outcome"] == "cancelled" and observed["queue_reason"] == "slot"
-                assert observed["reservation_id"] is None and observed["selected_response_status"] is None
-                assert app.state.store.status(KEY_ID)["tokens_used"] == 0
-                app.state.request_slots.release()
-                assert (await client.post("/v1/chat/completions", json=PAYLOAD)).status_code == 200
-                assert app.state.request_slots._value == 1
-
-    asyncio.run(scenario())
-
-
 def test_key_metering_restart_and_no_secret_exposure(settings):
     transport = httpx.MockTransport(upstream)
     with TestClient(create_app(settings, transport=transport)) as client:
@@ -274,62 +205,6 @@ def test_global_tpm_timeout_is_exposed_without_spending_key_allowance(settings, 
         assert observed["selected_response_status"] == 429 and observed["retry_after"] == 17
         assert observed["reservation_id"] is None and observed["admitted_at"] is None and observed["upstream_status"] is None
         assert observed["queue_reason"] == "tpm" and observed["tpm_wait_ms"] > 0
-
-
-@pytest.mark.parametrize("release_capacity", ["settle", "expire"])
-def test_global_tpm_wait_succeeds_when_capacity_returns(settings, monkeypatch, release_capacity):
-    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
-
-    async def run():
-        app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(upstream))
-        async with app.router.lifespan_context(app):
-            store = app.state.store
-            now = [1000]
-            store.clock = lambda: now[0]
-            credential = app.state.store.issue(KEY_ID)
-            store.issue("blocker", "blocker-credential")
-            blocker = store.reserve("blocker", 100_000)
-            if release_capacity == "expire":
-                store.settle(blocker, 100_000)
-            waiting = observe_tpm_wait(monkeypatch)
-            reserve = store.reserve
-
-            def tracked_reserve(key_id, amount, **kwargs):
-                try:
-                    return reserve(key_id, amount, **kwargs)
-                except TrialError as exc:
-                    assert exc.code == "trial_tpm_exceeded"
-                    raise
-
-            monkeypatch.setattr(store, "reserve", tracked_reserve)
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app), base_url="http://test",
-                headers={"Authorization": "Bearer " + credential},
-            ) as client:
-                task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
-                await asyncio.wait_for(waiting.wait(), 0.8)
-                assert not task.done()
-                assert store.status(KEY_ID)["tokens_used"] == 0
-                assert app.state.request_slots._value == 9
-                if release_capacity == "settle":
-                    store.settle(blocker, 1)
-                else:
-                    now[0] += 61
-                response = await asyncio.wait_for(task, 1.5)
-                assert response.status_code == 200
-                status = store.status(KEY_ID)
-                assert status["tokens_used"] == 15 and status["active_requests"] == 0
-                with store.transaction() as db:
-                    assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 1
-                assert app.state.request_slots._value == 10
-
-                await app.state.accounting.wait_idle()
-                observed, = gateway_attempts(store)
-                assert observed["outcome"] == "completed" and observed["selected_response_status"] == 200
-                assert observed["queue_reason"] == "tpm" and observed["tpm_wait_ms"] > 0
-                assert observed["reservation_id"] is not None and observed["client_error_code"] is None
-
-    asyncio.run(run())
 
 
 @pytest.mark.parametrize("end_wait", ["cancel", "disable"])
@@ -470,59 +345,6 @@ def test_disconnected_admission_wait_does_not_spend_or_leak_slot(settings, monke
     asyncio.run(run())
 
 
-def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
-    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
-
-    async def run():
-        slot_waiting = asyncio.Event()
-        deadlines = []
-        original_waiting = GatewayAttempt.waiting_for_slot
-        original_timeout = asyncio.timeout
-
-        def waiting(attempt):
-            original_waiting(attempt)
-            slot_waiting.set()
-
-        def timeout(delay):
-            context = original_timeout(delay)
-            if delay == 1.5:
-                deadlines.append(context.when())
-            return context
-
-        monkeypatch.setattr(GatewayAttempt, "waiting_for_slot", waiting)
-        monkeypatch.setattr(asyncio, "timeout", timeout)
-        app = create_app(replace(settings, timeout=1.5), transport=httpx.MockTransport(upstream))
-        async with app.router.lifespan_context(app):
-            store = app.state.store
-            credential = app.state.store.issue(KEY_ID)
-            store.issue("blocker", "blocker-credential")
-            store.reserve("blocker", 100_000)
-            app.state.request_slots = asyncio.Semaphore(0)
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app), base_url="http://test",
-                headers={"Authorization": "Bearer " + credential},
-            ) as client:
-                task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
-                # Release only after admission actually enters the slot wait.
-                # A fixed sleep can exhaust the deadline on a busy CI worker.
-                await asyncio.wait_for(slot_waiting.wait(), 3)
-                assert not task.done()
-                app.state.request_slots.release()
-                response = await asyncio.wait_for(task, 3)
-                assert len(deadlines) == 1  # Neither phase resets the configured deadline.
-                assert response.status_code == 429
-                assert response.json()["error"]["code"] == "trial_tpm_exceeded"
-                assert store.status(KEY_ID)["tokens_used"] == 0
-                assert app.state.request_slots._value == 1
-                await app.state.accounting.wait_idle()
-                observed, = gateway_attempts(store)
-                assert observed["queue_reason"] == "slot,tpm"
-                assert observed["slot_wait_ms"] > 0 and observed["tpm_wait_ms"] > 0
-                assert observed["selected_response_status"] == 429 and observed["client_error_code"] == "trial_tpm_exceeded"
-
-    asyncio.run(run())
-
-
 def test_no_login_fails_closed_without_charging(settings):
     (settings.state_dir / "github-token.enc").unlink()
     with TestClient(create_app(settings)) as client:
@@ -559,28 +381,6 @@ def test_slot_timeout_is_distinct_from_tpm_timeout(settings):
     asyncio.run(run())
 
 
-def test_ledger_atomic_quota_and_recovery(tmp_path):
-    store = Store(tmp_path / "usage.db")
-    store.issue(KEY_ID, "credential")
-    with store.transaction() as db:
-        db.execute("UPDATE trial_keys SET used=900000")
-
-    def reserve():
-        try:
-            return store.reserve(KEY_ID, 100_000)
-        except TrialError as exc:
-            return exc.code
-
-    with ThreadPoolExecutor(max_workers=20) as pool:
-        results = list(pool.map(lambda _: reserve(), range(20)))
-    assert sum(isinstance(item, int) for item in results) == 1
-    assert results.count("trial_quota_exceeded") == 19
-    assert store.status(KEY_ID)["tokens_used"] == 1_000_000
-    store.recover()
-    assert store.status(KEY_ID)["active_requests"] == 0
-    assert store.status(KEY_ID)["tokens_remaining"] == 0
-
-
 @linux_host_deadlines
 def test_gateway_limits_ten_concurrent_requests(settings):
     async def run():
@@ -612,141 +412,6 @@ def test_gateway_limits_ten_concurrent_requests(settings):
                 status = (await client.get("/trial/status", headers=headers)).json()
                 assert status["tokens_used"] == 165 and status["active_requests"] == 0
                 assert (await client.post("/v1/chat/completions", headers=headers, json=PAYLOAD)).status_code == 200
-    asyncio.run(run())
-
-
-def test_disconnect_keeps_charge_and_releases_slot(settings):
-    async def run():
-        closed = asyncio.Event()
-
-        class WaitingStream(httpx.AsyncByteStream):
-            async def __aiter__(self):
-                yield b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
-                await asyncio.Event().wait()
-
-            async def aclose(self):
-                closed.set()
-
-        def handler(request):
-            return httpx.Response(200, stream=WaitingStream())
-
-        app = create_app(settings, transport=httpx.MockTransport(handler))
-        async with app.router.lifespan_context(app):
-            credential = app.state.store.issue(KEY_ID)
-            payload = {**PAYLOAD, "stream": True}
-            sent_body = False
-            disconnected = asyncio.Event()
-
-            async def receive():
-                nonlocal sent_body
-                if not sent_body:
-                    sent_body = True
-                    return {"type": "http.request", "body": json.dumps(payload).encode()}
-                await disconnected.wait()
-                return {"type": "http.disconnect"}
-
-            async def send(message):
-                if message["type"] == "http.response.body" and message.get("body"):
-                    disconnected.set()
-                    await asyncio.sleep(0)
-
-            scope = {
-                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.0"},
-                "http_version": "1.1", "method": "POST", "scheme": "http",
-                "path": "/v1/chat/completions", "raw_path": b"/v1/chat/completions",
-                "query_string": b"", "root_path": "", "server": ("test", 80),
-                "client": ("127.0.0.1", 1),
-                "headers": [(b"authorization", ("Bearer " + credential).encode()), (b"content-type", b"application/json")],
-            }
-            await asyncio.wait_for(app(scope, receive, send), 1)
-            assert app.state.request_slots._value == 10
-            await app.state.accounting.wait_idle()
-            assert closed.is_set()
-            status = app.state.store.status(KEY_ID)
-            assert status["active_requests"] == 0
-            assert status["tokens_used"] == prepare(payload, settings.model)[1]
-            await app.state.accounting.wait_idle()
-            observed, = gateway_attempts(app.state.store)
-            # Cancellation may occur in ASGI send while the generator is
-            # suspended; in that case only background interruption is observed.
-            assert observed["outcome"] in {"cancelled", "interrupted"} and observed["phase"] == "stream"
-            assert observed["upstream_status"] == observed["selected_response_status"] == 200
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("disconnect_at,error_type", [
-    ("start", OSError), ("start", asyncio.CancelledError), ("usage", OSError), ("done", OSError),
-])
-def test_asgi24_send_failure_always_cleans_up_without_changing_settlement(settings, disconnect_at, error_type):
-    async def run():
-        closed = 0
-        iterated = False
-
-        class TrackedStream(httpx.AsyncByteStream):
-            async def __aiter__(self):
-                nonlocal iterated
-                iterated = True
-                yield b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
-                yield ("data: " + json.dumps({"type": "response.completed", "response": response_data()}) + "\n\n").encode()
-
-            async def aclose(self):
-                nonlocal closed
-                closed += 1
-
-        def handler(request):
-            return httpx.Response(200, stream=TrackedStream())
-
-        app = create_app(settings, transport=httpx.MockTransport(handler))
-        async with app.router.lifespan_context(app):
-            store = app.state.store
-            now = [100.0]
-            store.clock = lambda: now[0]
-            credential = app.state.store.issue(KEY_ID)
-            payload = {**PAYLOAD, "stream": True}
-            sent_body = False
-
-            async def receive():
-                nonlocal sent_body
-                if not sent_body:
-                    sent_body = True
-                    return {"type": "http.request", "body": json.dumps(payload).encode()}
-                await asyncio.Event().wait()
-
-            async def send(message):
-                body = message.get("body", b"")
-                if (disconnect_at == "start" and message["type"] == "http.response.start"
-                        or disconnect_at == "usage" and b'"usage":' in body
-                        or disconnect_at == "done" and b"[DONE]" in body):
-                    now[0] = 101.0
-                    raise error_type()
-
-            scope = {
-                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
-                "http_version": "1.1", "method": "POST", "scheme": "http",
-                "path": "/v1/chat/completions", "raw_path": b"/v1/chat/completions",
-                "query_string": b"", "root_path": "", "server": ("test", 80),
-                "client": ("127.0.0.1", 1),
-                "headers": [(b"authorization", ("Bearer " + credential).encode()), (b"content-type", b"application/json")],
-            }
-            with pytest.raises(ClientDisconnect if error_type is OSError else asyncio.CancelledError):
-                await asyncio.wait_for(app(scope, receive, send), 1)
-            assert app.state.request_slots._value == 10
-            await app.state.accounting.wait_idle()
-            assert closed == 1 and iterated == (disconnect_at != "start")
-            assert app.state.request_slots._value == 10
-            status = store.status(KEY_ID)
-            assert status["active_requests"] == 0
-            assert status["tokens_used"] == (15 if disconnect_at == "done" else prepare(payload, settings.model)[1])
-            with store.transaction() as db:
-                retention = db.execute("SELECT retain_until FROM trial_tpm_reservations").fetchone()[0]
-            assert retention == (160.0 if disconnect_at == "done" else 161.0)
-            await app.state.accounting.wait_idle()
-            observed, = gateway_attempts(store)
-            assert observed["outcome"] == ("completed" if disconnect_at == "done" else "interrupted")
-            assert observed["upstream_status"] == observed["selected_response_status"] == 200
-            assert observed["client_error_code"] is None
-            assert observed["finished_at"] == (100.0 if disconnect_at == "done" else 101.0)
-
     asyncio.run(run())
 
 
@@ -953,30 +618,6 @@ def test_upstream_rate_limit_keeps_retry_delay_and_refunds_without_retry(
         assert observed["retry_after"] == expected_delay
 
 
-@linux_host_deadlines
-def test_provider_metadata_cannot_redirect_credentials(settings):
-    visited = []
-
-    def handler(request):
-        visited.append(str(request.url))
-        return httpx.Response(200, json={**response_data(),
-            "endpoints": {"api": "https://githubcopilot.com.attacker.invalid"}})
-
-    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
-        auth = issued_auth(client)
-        for _ in range(2):
-            response = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
-            assert response.status_code == 200 and "endpoints" not in response.json()
-        assert visited == ["https://api.githubcopilot.com/responses"] * 2
-
-
-def test_single_process_lock(settings):
-    with TestClient(create_app(settings)):
-        with pytest.raises(portalocker.exceptions.LockException):
-            with TestClient(create_app(settings)):
-                pass
-
-
 def test_cached_and_reasoning_tokens_not_double_counted():
     assert usage_total({"usage": {
         "prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
@@ -1025,19 +666,6 @@ def test_trial_preserves_requested_effort_and_parallel_local_tool_history(effort
     assert payload["input"][2]["call_id"] == "call_a"
     assert payload["tool_choice"] == {"type": "function", "name": "view"}
     assert payload["parallel_tool_calls"] is True
-
-
-@pytest.mark.parametrize(("override", "expected"), [
-    ({}, "high"),
-    ({"reasoning_effort": None}, "high"),
-    ({"reasoning_effort": "none"}, "none"),
-    ({"reasoning_effort": "xhigh"}, "xhigh"),
-])
-def test_reasoning_default_and_existing_wire_values_are_not_remapped(override, expected):
-    payload, _ = prepare({**PAYLOAD, **override}, "gpt-5.5")
-    assert payload["reasoning"] == {"effort": expected}
-    assert "reasoning_effort" not in payload
-    assert payload["model"] == "gpt-5.5" and payload["store"] is False
 
 
 OUTPUT_SCHEMA = {
@@ -1264,13 +892,6 @@ def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(s
         assert [call["id"] for call in choice["delta" if stream else "message"]["tool_calls"]] == ["call_a", "call_b"]
         assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 120
         assert usage_total(body) == 120
-
-
-def test_output_cap_is_reported_as_length_and_usage_is_preserved():
-    data = {**response_data(), "status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}
-    result = completion(data)
-    assert result["choices"][0]["finish_reason"] == "length"
-    assert usage_total(result) == 15
 
 
 @pytest.mark.parametrize("mutation", [

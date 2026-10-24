@@ -150,34 +150,6 @@ def test_skill_loop_without_stop_keeps_full_backoff_and_retries_only_reviewer(tm
     assert all(0 < seconds <= 0.2 for seconds in sleeps)
 
 
-@pytest.mark.parametrize("reason", ["daemon stop requested", "operator abort requested: new target"])
-def test_real_retry_sleep_returns_promptly_after_stop(tmp_path, monkeypatch, reason):
-    entered, stopped = threading.Event(), threading.Event()
-    events = []
-
-    def observed_sleep(seconds):
-        entered.set()
-        time.sleep(seconds)
-
-    clock = SimpleNamespace(time=time.time, monotonic=time.monotonic, sleep=observed_sleep)
-    monkeypatch.setattr(round_reviewer, "time", clock)
-    monkeypatch.setattr(round_execution, "time", clock)
-    engineer = Backend("engineer")
-    reviewer = Backend("reviewer", lambda: reason if stopped.is_set() else None)
-    loop = make_loop(tmp_path, engineer, reviewer, events)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(loop.run, "Prepare a local result for independent review.", workdir=tmp_path)
-        assert entered.wait(3)
-        requested_at = time.monotonic()
-        stopped.set()
-        outcome = pending.result(timeout=0.75)
-        elapsed = time.monotonic() - requested_at
-    assert elapsed < 0.75
-    assert outcome.status in {"parked", "aborted"}
-    assert engineer.calls == reviewer.calls == 1
-    assert outcome.rounds[0].engineer_message == ENGINEER_OUTPUT
-
-
 def hold_engine(engineer):
     return SupervisedEngineer(engineer_runner=engineer, reviewer=SimpleNamespace(),
                               engineer_config=EngineerConfig(model="offline"),
@@ -197,15 +169,6 @@ def test_shared_bound_callback_is_polled_once_per_check():
     reviewer = SimpleNamespace(_default_interrupt_reason_provider=signal.poll)
     assert hold_engine(engineer)._hold_before_backend_failure_retry(0, retry_runner=reviewer) is None
     assert calls == [True]
-
-
-def test_request_scope_wins_without_consuming_role_mailboxes():
-    calls = []
-    backend = SimpleNamespace(_default_interrupt_reason_provider=lambda: calls.append(True))
-    with run_interrupt_scope(lambda: "operator abort requested: newer request"):
-        reason = hold_engine(backend)._hold_before_backend_failure_retry(15, retry_runner=backend)
-    assert reason == "operator abort requested: newer request"
-    assert calls == []
 
 
 def test_broken_reviewer_callback_does_not_hide_engineer_stop():

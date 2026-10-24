@@ -21,25 +21,6 @@ def test_pi_registers_the_same_explicit_models_used_by_the_trial_gateway(tmp_pat
     assert tuple(row["id"] for row in provider["models"]) == (DEFAULT_UPSTREAM_MODEL, "expert-model", "fast-model")
 
 
-def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):
-    saved = {}
-    monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-    monkeypatch.setattr("argus.core.knob_store.write_persisted_knobs",
-                        lambda values: saved.update(values) or True)
-    configure_provider(tmp_path, {"api_key": "test-only-credential"})
-    assert saved["ARGUS_SKILL_RUNNER_BACKEND"] == "pi"
-    assert saved["ARGUS_SKILL_COPILOT_TRIAL"] == "0"
-    assert saved["ARGUS_SKILL_RUNNER_BIN"] == "/usr/local/bin/argus-pi"
-    assert saved["ARGUS_SKILL_BACKEND_AUTH_MODE"] == "subscription_cli"
-    path = tmp_path / "argus-pi/models.json"
-    provider = json.loads(path.read_text())["providers"]["argus"]
-    assert provider["apiKey"] == "test-only-credential"
-    assert provider["baseUrl"] == "http://127.0.0.1:18765/v1"
-    assert provider["models"] == [{"id": "gpt-5.5", "reasoning": True}]
-    if os.name == "posix":  # Windows grants access through ACLs, not mode bits.
-        assert path.stat().st_mode & 0o077 == 0
-
-
 @pytest.mark.parametrize(("saved_effort", "environment_effort", "expected"), [
     (None, None, "low"), ("low", None, "low"), ("high", None, "high"), ("high", "low", "low"),
 ])

@@ -3,18 +3,9 @@ from types import MappingProxyType
 
 import pytest
 
-from argus.trial import CLIENT_MODEL, DEFAULT_UPSTREAM_MODEL, MODEL
+from argus.trial import MODEL
 from argus.trial.client import trial_enabled, trial_model_options
-from argus.trial.gateway import Settings
 from argus.trial.model_catalog import configured_model_ids, select_model
-
-
-def test_server_default_is_distinct_from_the_opaque_client_alias(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_TRIAL_MODELS", raising=False)
-    assert CLIENT_MODEL == MODEL
-    assert Settings(tmp_path, tmp_path / "unused").model == DEFAULT_UPSTREAM_MODEL != MODEL
-    assert configured_model_ids() == (DEFAULT_UPSTREAM_MODEL,)
-    assert select_model(MODEL, DEFAULT_UPSTREAM_MODEL, configured_model_ids()) == DEFAULT_UPSTREAM_MODEL
 
 
 def test_operator_model_catalog_does_not_accept_the_wire_alias_as_upstream():

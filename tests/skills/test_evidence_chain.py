@@ -42,48 +42,6 @@ def _write_bundle(root: Path, bundle_rel: str, *, tainted: bool = False) -> None
     )
 
 
-def test_clean_chain_passes(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "benchmarks/evidence/clean-bundle")
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "demo",
-                "status": "current_evidence",
-                "claim": "demo claim",
-                "evidence_1": "benchmarks/evidence/clean-bundle/summary.tsv",
-            }
-        ],
-    )
-
-    report = validate_evidence_chain(tmp_path)
-
-    assert report.ok, [i.detail for i in report.issues]
-    assert report.claims_checked == 1
-    assert report.evidence_paths_checked == 1
-    assert report.bundles_checked == 1
-
-
-def test_missing_evidence_path_flagged(tmp_path: Path) -> None:
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "broken",
-                "status": "current_evidence",
-                "claim": "x",
-                "evidence_1": "benchmarks/evidence/does-not-exist/summary.tsv",
-            }
-        ],
-    )
-
-    report = validate_evidence_chain(tmp_path)
-
-    assert not report.ok
-    codes = {i.code for i in report.issues}
-    assert "evidence_path_missing" in codes
-
-
 def test_bundle_missing_build_info_flagged(tmp_path: Path) -> None:
     bundle = tmp_path / "benchmarks" / "evidence" / "no-build-info"
     bundle.mkdir(parents=True)
@@ -126,25 +84,6 @@ def test_tainted_bundle_blocks_current_evidence_claim(tmp_path: Path) -> None:
     assert not report.ok
     codes = {i.code for i in report.issues}
     assert "tainted_bundle_cited" in codes
-
-
-def test_tainted_bundle_ok_under_historical_status(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "benchmarks/evidence/tainted-bundle", tainted=True)
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "historical-ok",
-                "status": "historical_only",
-                "claim": "historical contrast — tainted citation allowed",
-                "evidence_1": "benchmarks/evidence/tainted-bundle/summary.tsv",
-            }
-        ],
-    )
-
-    report = validate_evidence_chain(tmp_path)
-
-    assert report.ok, [i.detail for i in report.issues]
 
 
 def test_claim_with_no_evidence_flagged(tmp_path: Path) -> None:

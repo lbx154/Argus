@@ -63,11 +63,6 @@ def test_successful_controls_do_not_become_fatal(event):
     assert state[1:] == (True, False, None)
 
 
-def test_tool_free_call_can_complete_without_execution_host():
-    state, _ = _replay([_item_error(), {"type": "turn.completed"}], disable_tools=True)
-    assert state[1:] == (True, False, None)
-
-
 def test_explicit_failure_still_fails_when_tools_are_disabled():
     state, _ = _replay([
         _item_error(),

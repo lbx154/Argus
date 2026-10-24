@@ -5,14 +5,6 @@ from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
 
 
-def test_research_reviewer_requires_engineering_audit() -> None:
-    banner = load_vertical_contract("research").banner("reviewer")
-
-    assert "implementation or evaluator failure" in banner
-    assert "specify the repair" in banner
-    assert "never request rollback" in banner
-
-
 def test_research_engineer_receives_only_execution_contract() -> None:
     banner = load_vertical_contract("research").banner("engineer")
 

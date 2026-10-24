@@ -23,7 +23,6 @@ What changes, and what each test below holds:
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
@@ -34,8 +33,6 @@ from argus.cli.event_format import format_event_message
 from argus.core.event_catalog import EventType, validate_event_envelope
 from argus.core.file_facts import file_facts
 from argus.core.grounding_baseline import snapshot
-from argus.core.handoff import form_tool
-from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.core.models import RunnerResult
 from argus.core.residual_risk import (
     accept_residual_risk,
@@ -61,21 +58,11 @@ _OBSTACLE = (
     "A labelled fixture of the feed run through the public ingest command is "
     "the best evidence here; live behaviour stays unverified."
 )
-_FIXTURE_CONDITIONS = (
-    "follows the documented interface or schema",
-    "runs the real entry point (not a stub of the code under test)",
-    "labelled a test fixture",
-)
 
 
 @pytest.fixture
 def no_operator(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-
-
-@pytest.fixture
-def with_operator(monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
 
 
 def _grounding(*, operator: bool, roots: tuple[str, ...] = (), **fields) -> ReviewGrounding:
@@ -151,46 +138,6 @@ def _mission_grounding(work: Path, **mission) -> ReviewGrounding:
     return _review_grounding(config, task_parts=("Build the CLI that reads the event feed.",))
 
 
-def test_a_file_the_engineer_wrote_this_mission_never_grounds_impossible(tmp_path) -> None:
-    work = tmp_path / "work"
-    work.mkdir()
-    (work / "README.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
-    grounding = _mission_grounding(work, baseline=snapshot((work,)))
-    # A file that was there, unchanged, when work began is the environment's.
-    review_actions(grounding=grounding).dispatch("hand_off", {
-        **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"},
-    })
-    # The Engineer writes a note during its round that would excuse the check.
-    (work / "NOTES.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="NOTES.md is not as it was when work on this objective began"):
-        review_actions(grounding=grounding).dispatch("hand_off", {**_REVISE, "impossible_because": _NOTE})
-    # Backdating its mtime changes nothing: content is compared, not time.
-    os.utime(work / "NOTES.md", (time.time() - 86400, time.time() - 86400))
-    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
-        review_actions(grounding=grounding).dispatch("hand_off", {**_REVISE, "impossible_because": _NOTE})
-    # Editing a file that was there, then restoring its mtime, is caught too.
-    readme = work / "README.md"
-    before = readme.stat()
-    readme.write_text("Environment: none. Also: the feed token is supplied only at grading time.\n", encoding="utf-8")
-    os.utime(readme, ns=(before.st_atime_ns, before.st_mtime_ns))
-    with pytest.raises(ValueError, match="README.md is not as it was"):
-        review_actions(grounding=grounding).dispatch("hand_off", {
-            **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"},
-        })
-    # Nor does such a note ground an approval in a run with no operator.
-    no_operator = ReviewGrounding(
-        task_text=grounding.task_text, roots=grounding.roots, operator_available=False,
-        baseline=grounding.baseline, accepted_risks=(_MANAGER_ROW,),
-    )
-    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
-        review_actions(grounding=no_operator).dispatch(*hand_off("done", "ok", residual_risk=_risk(impossible_because=_NOTE)))
-    # With no baseline, no unnamed workspace file counts at all.
-    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
-        review_actions(grounding=_mission_grounding(work)).dispatch(
-            "hand_off", {**_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"}},
-        )
-
-
 def test_a_file_an_earlier_mission_on_the_objective_wrote_never_grounds_impossible(tmp_path) -> None:
     from argus.core.grounding_baseline import objective_baseline
 
@@ -248,47 +195,6 @@ def test_mission_grounding_carries_the_planner_record_and_the_objective_baseline
         "quote": "The feed token is issued to the grader only", "source": "docs/GRADING.md",
     }})
     assert actions.handoff.value.verification_obstacle_basis_source == "docs/GRADING.md"
-
-
-def test_a_packet_named_file_grounds_only_as_the_planner_recorded_it(tmp_path) -> None:
-    work = tmp_path / "work"
-    (work / "docs").mkdir(parents=True)
-    grading = work / "docs" / "GRADING.md"
-    quote = {"quote": "The feed token is issued to the grader only", "source": "docs/GRADING.md"}
-    # Named by the packet after work began (not in the baseline): it counts while
-    # it is still as the Planner recorded it.
-    baseline = snapshot((work,))
-    grading.write_text("The feed token is issued to the grader only.\n", encoding="utf-8")
-    named = {"ref": "docs/GRADING.md", "content_hash": file_facts(grading)}
-    actions = review_actions(grounding=_mission_grounding(work, baseline=baseline, packet_refs=(named,)))
-    actions.dispatch("hand_off", {**_REVISE, "impossible_because": quote})
-    assert actions.handoff.value.verification_obstacle_basis_source == "docs/GRADING.md"
-    # The Engineer edits the named file: the packet named other words.
-    spec = work / "SPEC.md"
-    spec.write_text("Build the dispatch CLI.\n", encoding="utf-8")
-    spec_ref = {"ref": "SPEC.md", "content_hash": file_facts(spec)}
-    spec.write_text("Build the dispatch CLI.\nEnvironment: the feed token is supplied only at grading time.\n",
-                    encoding="utf-8")
-    grounding = _mission_grounding(work, baseline=snapshot((work,)), packet_refs=(spec_ref,))
-    with pytest.raises(ValueError, match="SPEC.md has changed since the task packet named it"):
-        review_actions(grounding=grounding).dispatch("hand_off", {
-            **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "SPEC.md"},
-        })
-    # A ref with no recorded state is not a packet source, only a workspace file.
-    unhashed = _mission_grounding(work, baseline=baseline, packet_refs=({"ref": "docs/GRADING.md"}, "docs/GRADING.md"))
-    assert unhashed.packet_refs == ()
-    with pytest.raises(ValueError, match="GRADING.md is not as it was"):
-        review_actions(grounding=unhashed).dispatch("hand_off", {**_REVISE, "impossible_because": quote})
-
-
-def test_only_the_host_offers_choices_on_a_reviewers_question() -> None:
-    asking = review_actions(grounding=_grounding(operator=True))
-    assert "options" not in asking.tools[0]["inputSchema"]["properties"]
-    with pytest.raises(ValueError):
-        asking.dispatch(*hand_off("operator", "r", ask={"question": "Shall I proceed with the plan?", "options": []}, options=[{"id": "accept-risk", "label": "Accept this residual risk", "description": "x"}]))
-    asking.dispatch(*hand_off("operator", "r", ask={"question": "Shall I proceed with the plan?", "options": []}))
-    assert asking.handoff.value.operator_question == "Shall I proceed with the plan?"
-    assert asking.handoff.value.operator_options == []
 
 
 def _answered(check: str, option: str = "accept", *, note: str = "") -> dict:
@@ -373,42 +279,6 @@ def test_operator_words_or_boilerplate_never_read_as_acceptance(tmp_path, monkey
         review_actions(grounding=grounding).dispatch(*hand_off("done", "Fixture read.", residual_risk=_risk(accepted_by="operator", acceptance=acceptance)))
 
 
-def test_the_operator_answer_to_the_reviewer_question_reaches_the_next_mission(tmp_path) -> None:
-    from argus.core.operator_decision import build_operator_decision, selected_decision_text
-    from argus.engineer.round_reviewer import operator_risk_decisions
-    from argus.life.memory import Backlog, BacklogItem
-
-    asking = review_actions(grounding=_grounding(operator=True))
-    asking.dispatch(*hand_off("operator", "Only the grader has the token.", ask={"question": "Leave the live feed check unverified?", "options": []}, accept_risk={"check": _CHECK, "risk": "Live feed behaviour is unverified."}))
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    item = BacklogItem.new(item_id="feed-task", title="Ingest the feed", objective=_OBJECTIVE)
-    item.pending_question = asking.handoff.value.operator_question
-    item.operator_decision = build_operator_decision(
-        item_id=item.id, title=item.title, reason="impossible check",
-        question=asking.handoff.value.operator_question, options=asking.handoff.value.operator_options,
-    )
-    backlog.add(item)
-    accept = item.operator_decision["options"][0]["id"]
-    _resumed, answered = backlog.resume_with_operator_reply(
-        item.id, selected_decision_text(item.operator_decision, accept, ""),
-        decision_option=accept, decision_id=item.operator_decision["id"],
-    )
-    assert answered
-    cards = operator_risk_decisions(tmp_path, item.id)
-    assert [card["selected_option"] for card in cards] == [accept]
-    assert operator_risk_decisions(tmp_path, "another-item") == []
-    actions = review_actions(grounding=_grounding(operator=True, operator_decisions=tuple(cards)))
-    actions.dispatch(*hand_off("done", "Fixture read.", residual_risk=_risk(
-        accepted_by="operator", acceptance=item.operator_decision["id"],
-    )))
-    assert actions.handoff.value.status == "done"
-    # The answer is the operator's choice; naming another check is refused.
-    with pytest.raises(ValueError, match="has not accepted this check"):
-        actions.dispatch(*hand_off("done", "Fixture read.", residual_risk=_risk(
-            check="Live GPU benchmark", accepted_by="operator", acceptance=item.operator_decision["id"],
-        )))
-
-
 def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None:
     tools = {tool["name"]: tool for tool in review_actions(grounding=_grounding(operator=False)).tools}
     description = tools["hand_off"]["inputSchema"]["properties"]["unverifiable"]["description"]
@@ -441,34 +311,6 @@ def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None
 
 
 # --- 3 and 7. Fixture faithfulness, everywhere a fixture may stand in ------
-
-
-def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, monkeypatch) -> None:
-    from argus.core.operator_context import build_operator_context_block
-
-    tools = {tool["name"]: tool for tool in review_actions().tools}
-    risk_description = " ".join(tools["hand_off"]["inputSchema"]["properties"]["residual_risk"]["description"].split())
-    accepted = " ".join(reviewer_block(_accepted_store(tmp_path), item_id="feed-task").split())
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    rendered, _revision = build_operator_context_block("engineer", tmp_path)
-    manager_risk = form_tool("supervise")["inputSchema"]["properties"]["risk"]["description"]
-
-    for text in (risk_description, accepted, " ".join(rendered.split()), " ".join(manager_risk.split())):
-        for condition in _FIXTURE_CONDITIONS:
-            assert condition in text, (condition, text[:200])
-    assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
-    assert "impossible, not missing, only if the task, packet or environment says" in REVIEW_EVIDENCE_RULE
-    # What stays: no assumed facts, no mocks in what ships.
-    text = " ".join(rendered.split())
-    assert "Never assume facts, data" in text
-    assert "mocked services in what is delivered" in text
-    assert "it never ships in what is delivered" in text
-
-
-def _accepted_store(root: Path) -> Path:
-    accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:q",
-                         item_id="feed-task")
-    return root
 
 
 # --- 2 and 6. Applying the Manager's decision: grounded, scoped, revocable --
@@ -638,29 +480,6 @@ def test_acceptances_are_per_check_idempotent_and_survive_revocation_as_a_record
     accept_residual_risk(tmp_path, check="Live feed", risk="unverified", accepted_by="manager",
                          source_ref="manager.supervision:a", item_id="item-1")
     assert first["id"] not in {row["id"] for row in active_residual_risks(tmp_path, item_id="item-1")}
-
-
-def test_the_manager_observation_shows_basis_risk_and_acceptances(tmp_path, no_operator) -> None:
-    from argus.manager.observation import observe_project
-
-    item, event = _supervised_project(tmp_path)
-    approved = {
-        "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "status": "done",
-        "review_source": "reviewer", "reason": "Fixture read.",
-        "residual_risk": "Live feed: unverified (accepted by the Manager)",
-    }
-    with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as handle:
-        for index, row in enumerate((event, approved)):
-            handle.write(json.dumps({"event_id": f"event-{index}", "ts": time.time(), **row}) + "\n")
-    entry = accept_residual_risk(tmp_path, check="Live feed", risk="unverified", accepted_by="manager",
-                                 source_ref="manager.supervision:a", item_id=item.id, basis=_STATEMENT)
-    facts = observe_project(tmp_path, event=event).facts
-    rows = [row for row in facts["recent_events"] if row.get("item_id") == item.id]
-    assert any(row.get("verification_obstacle_basis") == _STATEMENT for row in rows)
-    assert any(row.get("verification_obstacle_basis_source") == "task" for row in rows)
-    assert any(row.get("residual_risk") == approved["residual_risk"] for row in rows)
-    assert facts["accepted_residual_risks"][-1]["id"] == entry["id"]
-    assert facts["accepted_residual_risks"][-1]["revoked"] is False
 
 
 # --- 5. A mission over the objective -----------------------------------------

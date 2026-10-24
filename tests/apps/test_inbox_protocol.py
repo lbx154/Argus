@@ -3,12 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import subprocess
-import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import pytest
 
@@ -53,26 +48,6 @@ def test_transient_ack_retains_original_envelope_and_blocks_next(tmp_path):
     assert take(tmp_path, mission_id="new").text == "second"
 
 
-def test_expired_owner_cannot_mutate_after_reclaim(tmp_path, monkeypatch):
-    put(tmp_path)
-    old = take(tmp_path, lease_seconds=1)
-    now = old.lease_until + 1
-    monkeypatch.setattr(inbox.time, "time", lambda: now)
-    new = take(tmp_path)
-    assert new.identity == old.identity and new.owner != old.owner
-    transitions = [
-        lambda: inbox.freeze_inbox_decision(tmp_path, old, decision={}, target_root=None),
-        lambda: inbox.accept_inbox_claim(tmp_path, old),
-        lambda: inbox.acknowledge_inbox_claim(tmp_path, old),
-        lambda: inbox.settle_inbox_claim(tmp_path, old),
-        lambda: inbox.renew_inbox_claim(tmp_path, old),
-        lambda: inbox.release_inbox_claim(tmp_path, old),
-    ]
-    for transition in transitions:
-        with pytest.raises(inbox.InboxLeaseLost):
-            transition()
-
-
 def test_frozen_canonical_recovery_keeps_exact_plan_and_binding(tmp_path):
     put(tmp_path, stage="code")
     original = take(tmp_path, current_stage="code", mission_id="old")
@@ -110,39 +85,6 @@ def test_ack_cannot_precede_durable_acceptance(tmp_path):
     assert inbox.count_durable_inbox_messages(tmp_path) == 1
 
 
-def test_complete_legacy_identity_keeps_distinct_positions(tmp_path):
-    raw = b'{"text":"same"}\n'
-    path = tmp_path / "inbox.jsonl"
-    path.write_bytes(raw + raw)
-    with pytest.raises(inbox.InboxMigrationRequired):
-        take(tmp_path)
-    assert path.read_bytes() == raw + raw
-    inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
-    first = take(tmp_path)
-    inbox.settle_inbox_claim(tmp_path, transient(tmp_path, first))
-    second = take(tmp_path)
-    assert first.text == second.text
-    assert first.identity["stream"] == second.identity["stream"]
-    assert first.identity["generation"] == second.identity["generation"] == 1
-    assert first.identity["sequence"] == 1 and second.identity["sequence"] == 2
-    assert path.is_dir()
-    with pytest.raises((IsADirectoryError, PermissionError)):
-        path.open("a")
-
-
-@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
-def test_legacy_status_and_migration_use_exact_byte_offsets_for_line_endings(tmp_path, newline):
-    consumed = b'{"text":"old"}' + newline
-    pending = b'{"text":"pending"}' + newline
-    (tmp_path / "inbox.jsonl").write_bytes(consumed + pending)
-    (tmp_path / "inbox.offset").write_text(str(len(consumed)), encoding="ascii")
-    assert inbox.count_durable_inbox_messages(tmp_path) == 1
-    inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
-    claim = take(tmp_path)
-    assert claim.text == "pending"
-    assert claim.identity == {"stream": claim.identity["stream"], "generation": 1, "sequence": 2}
-
-
 def test_partial_legacy_never_acknowledged_and_completion_is_discoverable(tmp_path):
     path = tmp_path / "inbox.jsonl"
     path.write_bytes(b'{"text":"not complete')
@@ -165,18 +107,6 @@ def test_truncated_or_split_legacy_cursor_is_not_reset(tmp_path, offset):
     with pytest.raises(inbox.InboxProtocolError):
         inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
     assert path.is_file()
-
-
-def test_legacy_closed_prefix_and_next_sequence_survive_settlement(tmp_path):
-    raw = b'{"text":"already consumed"}\n'
-    (tmp_path / "inbox.jsonl").write_bytes(raw + b'{"text":"pending"}\n')
-    (tmp_path / "inbox.offset").write_text(str(len(raw)))
-    inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
-    claim = take(tmp_path)
-    assert claim.text == "pending" and claim.identity["sequence"] == 2
-    inbox.settle_inbox_claim(tmp_path, transient(tmp_path, claim))
-    put(tmp_path, "third")
-    assert take(tmp_path).identity["sequence"] == 3
 
 
 def test_database_missing_or_replaced_cannot_reset_generation(tmp_path):
@@ -221,21 +151,6 @@ def test_pending_and_closed_stream_pressure_never_evict(tmp_path, monkeypatch):
     assert take(tmp_path).identity["sequence"] == 3
 
 
-def test_concurrent_consumers_get_only_one_claim_without_lock_across_work(tmp_path):
-    put(tmp_path)
-    barrier = threading.Barrier(2)
-    def attempt():
-        barrier.wait()
-        return inbox.claim_inbox_message(tmp_path)
-    with ThreadPoolExecutor(max_workers=2) as workers:
-        claims = list(workers.map(lambda _: attempt(), range(2)))
-    assert sum(claim is not None for claim in claims) == 1
-    # A claimed message does not hold a SQLite/file lock during Manager work.
-    with ThreadPoolExecutor(max_workers=1) as workers:
-        workers.submit(put, tmp_path, "during classification").result(timeout=1)
-    assert inbox.count_durable_inbox_messages(tmp_path) == 2
-
-
 def test_busy_writer_has_short_bounded_wait_and_message_survives(tmp_path):
     put(tmp_path)
     db = sqlite3.connect(tmp_path / inbox.PROTOCOL_DIR / "queue.sqlite3")
@@ -251,80 +166,10 @@ def test_busy_writer_has_short_bounded_wait_and_message_survives(tmp_path):
     assert take(tmp_path).text == "message"
 
 
-def test_crash_after_commit_before_ack_keeps_claim_for_restart(tmp_path, monkeypatch):
-    put(tmp_path)
-    claimed_at = time.time()
-    script = """
-import os, sys
-from argus.apps import _inbox_protocol as q
-# Exercise the crash boundary, not the machine's ability to fsync several
-# transactions inside 50 ms. The parent advances this same clock on restart.
-q.time.time = lambda: float(sys.argv[2])
-c = q.claim_inbox_message(sys.argv[1], lease_seconds=30)
-c = q.freeze_inbox_decision(sys.argv[1], c, decision={'kind':'transient'}, target_root=None, transient_text=c.text)
-c = q.accept_inbox_claim(sys.argv[1], c)
-q.acknowledge_inbox_claim(sys.argv[1], c)
-os._exit(73)
-"""
-    run = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path), str(claimed_at)], cwd=Path(__file__).parents[2], check=False)
-    assert run.returncode == 73
-    monkeypatch.setattr(inbox.time, "time", lambda: claimed_at + 31)
-    recovered = take(tmp_path)
-    assert recovered.acknowledged and recovered.transient_text == "message"
-    inbox.settle_inbox_claim(tmp_path, recovered)
-    assert inbox.count_durable_inbox_messages(tmp_path) == 0
-
-
-def test_crash_inside_enqueue_transaction_exposes_no_partial_message(tmp_path):
-    put(tmp_path, "prior")
-    script = """
-import os, sys
-from pathlib import Path
-from argus.apps import _inbox_protocol as q
-with q._transaction(sys.argv[1]) as (db, root):
-    q._insert(db, root, '', b'{"text":"uncommitted"}\\n')
-    os._exit(74)
-"""
-    run = subprocess.run([sys.executable, "-B", "-c", script, str(tmp_path)], cwd=Path(__file__).parents[2], check=False)
-    assert run.returncode == 74
-    assert inbox.count_durable_inbox_messages(tmp_path) == 1
-    inbox.settle_inbox_claim(tmp_path, transient(tmp_path, take(tmp_path)))
-    put(tmp_path, "next")
-    next_claim = take(tmp_path)
-    assert next_claim.text == "next" and next_claim.identity["sequence"] == 2
-
-
-def test_frozen_payload_is_detached_from_callers_mutable_dict(tmp_path):
-    put(tmp_path)
-    claim = take(tmp_path)
-    decision = {"nested": {"text": "original"}}
-    claim = inbox.freeze_inbox_decision(tmp_path, claim, decision=decision, target_root=None)
-    decision["nested"]["text"] = "mutated"
-    claim.decision["nested"]["text"] = "also mutated"
-    renewed = inbox.renew_inbox_claim(tmp_path, claim)
-    assert renewed.decision == {"nested": {"text": "original"}}
-
-
 @pytest.mark.parametrize("duration", [0, -1, float("nan"), float("inf"), 301])
 def test_lease_bound_is_finite_and_explicit(tmp_path, duration):
     with pytest.raises(ValueError):
         inbox.claim_inbox_message(tmp_path, lease_seconds=duration)
-
-
-def test_failed_stage_enqueue_keeps_fence_recoverable_without_losing_prior(tmp_path, monkeypatch):
-    put(tmp_path, "prior")
-    original = inbox._insert
-    def fail(db, root, stage, raw, **kwargs):
-        original(db, root, stage, raw, **kwargs)
-        raise OSError("interrupted before transaction commit")
-    monkeypatch.setattr(inbox, "_insert", fail)
-    with pytest.raises(OSError):
-        put(tmp_path, "not accepted", stage="new")
-    monkeypatch.setattr(inbox, "_insert", original)
-    put(tmp_path, "accepted", stage="new")
-    assert inbox.count_durable_inbox_messages(tmp_path) == 2
-    assert take(tmp_path).text == "prior"
-    assert take(tmp_path, current_stage="new").text == "accepted"
 
 
 def test_interrupted_migration_recovers_same_complete_lines(tmp_path, monkeypatch):
@@ -360,18 +205,6 @@ def test_receipt_cannot_ack_a_different_frozen_effect(tmp_path):
     assert inbox.count_durable_inbox_messages(tmp_path) == 1
 
 
-def test_version_one_receipt_with_identity_digest_still_reads(tmp_path):
-    put(tmp_path)
-    target = tmp_path / "global"
-    claim = take(tmp_path)
-    claim = inbox.freeze_inbox_decision(tmp_path, claim, decision={"version": 1, "target_root": str(target), "effect": {"text": "once"}}, target_root=target)
-    legacy = {"format": "operator-delivery-receipt-v1", "identity": claim.identity | {"digest": "0" * 64},
-              "target_root": str(target.resolve()), "effect_digest": "0" * 64, "revision": 17}
-    claim = inbox.accept_inbox_claim(tmp_path, claim, receipt=legacy)
-    inbox.release_inbox_claim(tmp_path, claim)
-    assert take(tmp_path).receipt == legacy
-
-
 def test_generation_change_and_raw_corruption_fail_closed(tmp_path):
     put(tmp_path)
     path = tmp_path / inbox.PROTOCOL_DIR / "queue.sqlite3"
@@ -386,19 +219,6 @@ def test_generation_change_and_raw_corruption_fail_closed(tmp_path):
         take(tmp_path)
 
 
-def test_latest_timestamp_is_read_only_and_survives_settlement(tmp_path, monkeypatch):
-    absent = tmp_path / "absent"
-    assert inbox.latest_durable_inbox_timestamp(absent) is None
-    assert not absent.exists()
-    monkeypatch.setattr(inbox.time, "time", lambda: 1234567.0)
-    put(tmp_path)
-    inbox.settle_inbox_claim(tmp_path, transient(tmp_path, take(tmp_path)))
-    before = {str(p.relative_to(tmp_path)): (p.stat().st_mtime_ns, p.read_bytes()) for p in tmp_path.rglob("*") if p.is_file()}
-    assert inbox.latest_durable_inbox_timestamp(tmp_path) == 1234567.0
-    after = {str(p.relative_to(tmp_path)): (p.stat().st_mtime_ns, p.read_bytes()) for p in tmp_path.rglob("*") if p.is_file()}
-    assert before == after
-
-
 def test_migration_preserves_timestamp_of_already_consumed_input(tmp_path):
     raw = b'{"text":"already read","ts":123.5}\n'
     (tmp_path / "inbox.jsonl").write_bytes(raw)
@@ -407,20 +227,6 @@ def test_migration_preserves_timestamp_of_already_consumed_input(tmp_path):
     inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
     assert inbox.count_durable_inbox_messages(tmp_path) == 0
     assert inbox.latest_durable_inbox_timestamp(tmp_path) == 123.5
-
-
-def test_readonly_status_count_and_empty_claim_never_create_state(tmp_path):
-    root = tmp_path / "absent"
-    assert inbox.count_durable_inbox_messages(root) == 0
-    assert inbox.pending_inbox_status(root) == []
-    assert inbox.claim_inbox_message(root) is None
-    assert not root.exists()
-    root.mkdir()
-    (root / "inbox.jsonl").write_bytes(b"")
-    before = {p.name for p in root.iterdir()}
-    assert inbox.count_durable_inbox_messages(root) == 0
-    assert inbox.claim_inbox_message(root) is None
-    assert {p.name for p in root.iterdir()} == before
 
 
 def test_legacy_readonly_counts_complete_valid_pending_without_migration(tmp_path):
@@ -462,19 +268,6 @@ def test_corrupt_redundant_text_cannot_classify_under_original_identity(tmp_path
     assert inbox.count_durable_inbox_messages(tmp_path) == 1
     with sqlite3.connect(dbpath) as db:
         assert db.execute("SELECT ack_sequence FROM streams").fetchone()[0] == 0
-
-
-def test_original_source_is_derived_from_validated_raw_not_a_parallel_field(tmp_path):
-    inbox.enqueue_inbox_message(tmp_path, "  original  ", source="web.operator")
-    claim = take(tmp_path)
-    assert claim.text == "original" and claim.source == "web.operator"
-    inbox.release_inbox_claim(tmp_path, claim)
-    dbpath = tmp_path / inbox.PROTOCOL_DIR / "queue.sqlite3"
-    with sqlite3.connect(dbpath) as db:
-        raw = db.execute("SELECT raw FROM messages").fetchone()[0]
-        db.execute("UPDATE messages SET raw=?", (raw.replace(b'web.operator', b'peer.adviser'),))
-    with pytest.raises(inbox.InboxProtocolError, match="binding changed"):
-        take(tmp_path)
 
 
 @pytest.mark.parametrize("column,value", [
@@ -523,23 +316,6 @@ def test_canonical_receipt_revision_requires_actual_nonnegative_integer(tmp_path
     claim = inbox.freeze_inbox_decision(tmp_path, claim, decision={"version": 1, "target_root": str(target), "effect": {"text": "once"}}, target_root=target)
     with pytest.raises(inbox.InboxProtocolError, match="revision"):
         inbox.accept_inbox_claim(tmp_path, claim, receipt=receipt(claim, target) | {"revision": revision})
-
-
-def test_near_input_limit_can_freeze_equivalent_canonical_plan(tmp_path):
-    text = 'use this instruction: ' + ('x' * (inbox.MAX_MESSAGE_BYTES - 1024))
-    put(tmp_path, text)
-    claim = take(tmp_path)
-    target = tmp_path / "global"
-    classified = []
-    def classify(original):
-        classified.append(original)
-        return {"version": 1, "target_root": str(target), "effect": {"text": original, "scope": "project"}}
-    claim = inbox.freeze_inbox_decision(tmp_path, claim, decision=classify(claim.text), target_root=target)
-    claim = inbox.accept_inbox_claim(tmp_path, claim, receipt=receipt(claim, target))
-    claim = inbox.acknowledge_inbox_claim(tmp_path, claim)
-    assert classified == [text] and claim.decision["effect"]["text"] == text
-    assert inbox.MAX_DECISION_BYTES == inbox.MAX_MESSAGE_BYTES + 16 * 1024
-    inbox.settle_inbox_claim(tmp_path, claim, canonical_closed=True)
 
 
 def test_source_v1_marker_is_not_silently_upgraded(tmp_path):

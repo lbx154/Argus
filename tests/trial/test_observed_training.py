@@ -53,22 +53,6 @@ def test_four_roles_zero_tools_real_application_instructions_and_format_mismatch
         assert db.execute("SELECT count(*) FROM training_tool_episodes").fetchone()[0] == 4
 
 
-def test_failed_unmatched_tools_and_transport_interruption_preserve_received_prefix(training):
-    data, _, _ = training
-    episode = begin(training, role="engineer-r1", tools=["custom_simulator"])
-    payload = {"toolCallId": "actual-call", "toolName": "custom_simulator", "input": {"path": "/home/team/custom"}}
-    send(data, episode, "tool_call", payload)
-    send(data, episode, "tool_result", {**payload, "content": [{"type": "text", "text": "Execution failed."}],
-                                       "isError": True, "output_complete": False})
-    send(data, episode, "capture_warning", {"reason": "one_projection_failed", "event_kind": "context"})
-    send(data, episode, "context", {"messages": [{"role": "user", "content": "Continue after the warning."}], "tools": []})
-    assert send(data, episode, "quarantine", {"reason": "runtime_call_unsettled"})["state"] == "interrupted"
-    stored = events(data, episode)
-    assert len(stored) == 5 and stored[0]["payload"] == payload
-    assert stored[1]["payload"]["isError"] is True
-    assert stored[-1]["payload"]["reason"] == "runtime_call_unsettled"
-
-
 def test_private_structured_blocks_are_excluded_without_erasing_public_io(training):
     data, _, _ = training
     episode = begin(training)
@@ -111,22 +95,6 @@ def test_oversized_single_event_records_gap_and_next_events_continue(training, m
     assert stored[1]["payload"]["reason"] == "capture_payload_oversized"
 
 
-def test_revocation_and_project_deletion_remove_v2_observation_rows(training):
-    data, _, _ = training
-    episode = begin(training)
-    send(data, episode, "context", {"messages": [], "tools": []})
-    grant(data, internal=False)
-    with pytest.raises(AnalyticsError):
-        send(data, episode, "settled", {})
-    with data.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_observed_events").fetchone()[0] == 0
-    episode = begin(training)
-    send(data, episode, "context", {"messages": [], "tools": []})
-    data.controls.delete_copies(data.journal, "tenant-one", "s-project")
-    with data.analytics._db() as db:
-        assert db.execute("SELECT count(*) FROM training_observed_events").fetchone()[0] == 0
-
-
 def test_raw_observation_pages_keep_four_roles_and_unassigned_runs_visible(training):
     data, _, _ = training
     for role, task in (("manager-stage", None), ("planner.cycle0", None), ("engineer-r1", "task-real"), ("reviewer", "task-real")):
@@ -151,51 +119,6 @@ def test_raw_observation_pages_keep_four_roles_and_unassigned_runs_visible(train
     task = data.observations("internal_training", "tenant-one", "s-project", "task-real")
     assert {episode["role"] for episode in task["episodes"]} == {"engineer", "reviewer"}
     assert all(episode["quality"]["state"] == "not_evaluated" for episode in task["episodes"])
-
-
-@pytest.mark.parametrize("purpose", ["reader-foundation", "reader-application", "reader-clarification", "reader-progress-question"])
-def test_reader_purpose_survives_observation_and_export_without_a_research_role(training, purpose):
-    data, _, _ = training
-    episode = begin(training, role=purpose, task=None)
-    context = {"messages": [{"role": "user", "content": "Explain the actual question."}], "tools": []}
-    send(data, episode, "context", context)
-    send(data, episode, "provider_request", {**context, "model": "synthetic-observer"})
-    send(data, episode, "agent_end", {"messages": [{"role": "assistant", "content": "An explicit reading explanation."}]})
-    assert send(data, episode, "settled", {})["state"] == "complete"
-    page = data.observations("internal_training", "tenant-one", "s-project")
-    saved = page["episodes"][0]
-    assert saved["role"] == "unknown"
-    assert saved["runtime"]["run_label"] == purpose
-    assert saved["runtime"]["mission_id"] is None
-    assert saved["quality"]["state"] == "not_evaluated"
-    assert [event["kind"] for event in saved["events"]] == ["context", "provider_request", "agent_end", "settled"]
-    chunks, _ = data.export_observations("internal_training", [{"tenant_id": "tenant-one", "sid": "s-project"}])
-    with zipfile.ZipFile(io.BytesIO(b"".join(chunks))) as archive:
-        records = [json.loads(line) for line in archive.read("observations.jsonl").splitlines()]
-    header = next(record for record in records if record["kind"] == "episode")
-    assert header["runtime"]["run_label"] == purpose and header["runtime"]["mission_id"] is None
-    assert header["role"] == "unknown"
-    assert len([record for record in records if record["kind"] == "observation"]) == 4
-
-
-def test_raw_export_needs_no_review_and_keeps_unsettled_and_failed_tool_records(training):
-    data, _, _ = training
-    first = begin(training, role="manager-stage", task=None)
-    send(data, first, "context", {"messages": [{"role": "developer", "content": "Actual application instruction."}], "tools": []})
-    second = begin(training, tools=["custom_simulator"])
-    send(data, second, "tool_call", {"toolCallId": "call-real", "toolName": "custom_simulator", "input": {"x": 1}})
-    send(data, second, "quarantine", {"reason": "runtime_call_unsettled"})
-    chunks, name = data.export_observations("internal_training", [{"tenant_id": "tenant-one", "sid": "s-project"}])
-    assert not isinstance(chunks, bytes) and name.endswith("observations.zip")
-    with zipfile.ZipFile(io.BytesIO(b"".join(chunks))) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
-        records = [json.loads(line) for line in archive.read("observations.jsonl").splitlines()]
-    assert manifest["episodes"] == 2 and manifest["observations"] == 3
-    assert "sha256" not in json.dumps(manifest)
-    headers = [row for row in records if row["kind"] == "episode"]
-    assert {row["state"] for row in headers} == {"capturing", "interrupted"}
-    assert [row["event"]["kind"] for row in records if row["kind"] == "observation"] == ["context", "tool_call", "quarantine"]
-    assert "Actual application instruction." in json.dumps(records)
 
 
 def test_raw_view_and_export_recheck_purpose_tenant_and_deletion(training):

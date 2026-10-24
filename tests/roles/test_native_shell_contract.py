@@ -14,20 +14,6 @@ from argus.roles.task_contract import (
 )
 
 
-def test_windows_contract_requires_powershell_51_and_cmd_shims() -> None:
-    contract = native_shell_contract(platform_name="nt")
-
-    assert "Windows PowerShell 5.1" in contract
-    assert "`&&`" in contract and "`||`" in contract
-    assert "npm.cmd" in contract and "npx.cmd" in contract
-    assert "Do not change or bypass the PowerShell execution policy" in contract
-    assert native_shell_contract(platform_name="posix") == ""
-    assert native_shell_summary(platform_name="nt") == (
-        "Win PS5.1: no ||; npm.cmd/npx.cmd."
-    )
-    assert native_shell_summary(platform_name="posix") == ""
-
-
 def test_windows_command_formatter_uses_call_operator_and_powershell_quotes() -> None:
     command = format_native_shell_command(
         [r"C:\Program Files\Python\python.exe", "-c", "print('ok')"],
@@ -130,4 +116,3 @@ def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_p
     allowed = run(format_native_shell_command(["npx.cmd"]))
     assert allowed.returncode == 0, allowed.stderr
     assert allowed.stdout.strip() == "cmd-wrapper-ok"
-

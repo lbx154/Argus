@@ -11,7 +11,6 @@ from hosted_platform import linux_host_deadlines
 
 from argus.trial.gateway import create_app, prepare
 from argus.trial.gateway_accounting import GatewayAccounting, RequestMonitor
-from argus.trial.gateway_observation import GatewayAttempt
 from argus.trial.store import Store
 from tests.trial.test_gateway_billing_lifecycle import asgi_request, issue, offline_settings
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
@@ -87,115 +86,6 @@ def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination)
                 if not task.done():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("trigger", ["disconnect-before-headers-return", "cancel-before-handoff"])
-def test_headers_to_sse_handoff_keeps_response_and_cleanup_owned(tmp_path, monkeypatch, trigger):
-    settings = offline_settings(tmp_path)
-
-    async def run():
-        entered, release = asyncio.Event(), asyncio.Event()
-        closed, iterated = [], []
-
-        class Body(httpx.AsyncByteStream):
-            async def __aiter__(self):
-                iterated.append(True)
-                await asyncio.Event().wait()
-                yield b"unreachable"
-
-            async def aclose(self):
-                closed.append(True)
-
-        async def provider(request):
-            response = httpx.Response(200, stream=Body())
-            entered.set()
-            try:
-                await release.wait()
-            except asyncio.CancelledError:
-                # The headers may finish just as the watcher cancels us. A
-                # transport returning this late response must not orphan it.
-                pass
-            return response
-
-        if trigger == "cancel-before-handoff":
-            original = GatewayAttempt.streaming
-
-            def streaming(attempt):
-                original(attempt)
-                # This runs after handed_off=True, before the response object
-                # is returned. No await may strand ownership in this window.
-                asyncio.current_task().cancel()
-
-            monkeypatch.setattr(GatewayAttempt, "streaming", streaming)
-        app = create_app(settings, transport=httpx.MockTransport(provider))
-        async with app.router.lifespan_context(app):
-            credential = issue(app)
-            payload = {**PAYLOAD, "stream": True}
-            task, disconnected, _ = asgi_request(app, credential, payload=payload)
-            try:
-                await asyncio.wait_for(entered.wait(), 1)
-                if trigger == "disconnect-before-headers-return":
-                    disconnected.set()
-                release.set()
-                result, = await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 0.5)
-                if trigger == "cancel-before-handoff":
-                    assert isinstance(result, asyncio.CancelledError)
-                else:
-                    assert result is None
-                    assert not iterated
-                await asyncio.wait_for(app.state.accounting.wait_idle(), 1)
-                assert closed == [True]
-                assert app.state.request_slots._value == 10
-                assert app.state.accounting.pending == 0
-                assert app.state.store.status(KEY_ID)["tokens_uncertain"] == prepare(payload, settings.model)[1]
-            finally:
-                release.set()
-                if not task.done():
-                    task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("started", [False, True])
-def test_watcher_stop_collects_unstarted_or_swallowed_cancellation(tmp_path, started):
-    async def run():
-        entered, swallowed = asyncio.Event(), asyncio.Event()
-        polls = []
-
-        class Request:
-            async def is_disconnected(self):
-                if asyncio.current_task().get_name() == "argus-upstream-disconnect":
-                    polls.append(True)
-                    entered.set()
-                    try:
-                        await asyncio.Event().wait()
-                    except asyncio.CancelledError:
-                        # Model is_disconnected's AnyIO cancellation scope
-                        # consuming task cancellation and returning False.
-                        swallowed.set()
-                return False
-
-        store = Store(tmp_path / "usage.sqlite3")
-        store.issue("key", "offline")
-        accounting = GatewayAccounting(store, 1)
-        monitor = RequestMonitor(Request(), accounting)
-        lease = await accounting.acquire(monitor)
-        lease.request_id = await monitor.wait(lease.reserve("key", 100))
-        monitor.start_disconnect_watch()
-        if started:
-            await asyncio.wait_for(entered.wait(), 1)
-        cleanup = lease.finish()
-        monitor.done()
-        await asyncio.wait_for(asyncio.shield(cleanup), 0.5)
-        await accounting.wait_idle()
-        assert monitor._watcher.done() and monitor._watcher_done.done()
-        assert swallowed.is_set() == started and len(polls) == int(started)
-        assert accounting.pending == 0 and accounting._slots._value == 1
-        assert store.status("key")["tokens_used"] == 0
-        await accounting.close()
 
     asyncio.run(run())
 

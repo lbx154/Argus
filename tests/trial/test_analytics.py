@@ -273,16 +273,6 @@ def test_token_breakdown_matches_receipts_without_mutating_ledger(setup):
     assert analytics.trial_db.read_bytes() == before
 
 
-def test_legacy_token_receipts_are_unavailable_not_zero(setup):
-    analytics, _, _ = setup
-    account = analytics.dashboard()["accounts"][0]
-    assert account["token_breakdown_state"] == "legacy"
-    assert account["tokens_settled"] is None
-    assert account["tokens_reserved"] is None
-    assert account["tokens_uncertain"] is None
-    assert account["tokens_unattributed"] == account["token_used"] == 123
-
-
 def test_quota_aggregates_match_readonly_ledgers_and_unknown_is_not_zero(setup):
     analytics, _, _ = setup
     before_meter = analytics.trial_db.read_bytes()

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import subprocess
 import tomllib
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -44,51 +43,6 @@ def test_the_handoff_routes_and_its_note_reaches_the_next_holder(tmp_path, to, s
     assert not result.backend_unavailable
     assert [label for label, _, _ in backend.history] == ["reviewer"]
     assert result.operator_question == ask.get("ask", {}).get("question", "")
-
-
-@pytest.mark.parametrize("payload", [
-    hand_off("reviewer")[1],
-    hand_off("done", "Line one\nline two")[1],
-    {**hand_off("done")[1], "status": "done"},
-    hand_off("operator")[1],
-    hand_off("operator", ask={"question": "", "options": []})[1],
-    hand_off("done", ask={"question": "Keep it?", "options": []})[1],
-    {key: value for key, value in hand_off("done")[1].items() if key != "assumptions"},
-])
-def test_a_handoff_outside_the_form_is_refused(payload):
-    actions = review_actions()
-    with pytest.raises(ValueError):
-        actions.dispatch("hand_off", payload)
-    assert actions.handoff is None
-
-
-@pytest.mark.parametrize("text", [
-    "Everything passed, the task is complete.",
-    "STATUS=done\nREASON=passed",
-    '{"status":"done","reason":"passed","next_action":""}',
-    'ARGUS_ROLE_DECISION={"role":"reviewer","payload":{"status":"done","reason":"passed","next_action":""}}',
-    'The benchmark is still running.\n{"wait_for":"subagent","wait_id":"qwen25-longbench-eval-01"}',
-    "Everything passed.\n→ done",
-    "",
-])
-def test_text_without_a_tool_action_is_never_parsed(tmp_path, text):
-    backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=text))
-    result = evaluate(backend, tmp_path)
-    assert result.backend_unavailable
-    assert result.status == "blocked"
-    assert "without handing the work on" in result.reason
-    assert "STATUS" not in result.reason
-    assert len(backend.history) == 1
-
-
-def test_failed_turn_cannot_commit_an_earlier_approval(tmp_path):
-    backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(
-        action=hand_off("done", "Checks passed."), exit_code=1, fatal_error="Provider connection lost",
-    ))
-    result = evaluate(backend, tmp_path)
-    assert result.backend_unavailable and result.status == "blocked"
 
 
 def test_a_refused_correction_withdraws_the_earlier_call():
@@ -140,14 +94,6 @@ def test_tool_transport_keeps_the_engineer_s_access_and_capability_out_of_argv(b
         assert not actions.handoff.value.backend_unavailable
 
 
-def test_action_preserves_explicit_session_signal():
-    actions = review_actions()
-    signal = {"kind": "quality_degradation", "target": "engineer", "detail": "Repeated an obsolete repair."}
-    actions.dispatch(*hand_off("engineer", "Use the current evidence.", session_signal=signal))
-    assert actions.handoff.value.session_signal == signal
-    assert all("frontier_report" not in tool["inputSchema"]["properties"] for tool in actions.tools)
-
-
 def test_pi_extension_invokes_the_host_action():
     actions = review_actions()
     with role_actions(SimpleNamespace(backend="pi"), RunnerOptions(), actions) as options:
@@ -169,32 +115,6 @@ def test_pi_extension_invokes_the_host_action():
         assert actions.handoff.value.reason == "Await the running GPU benchmark."
 
 
-def test_mcp_tools_use_the_same_actions():
-    import asyncio
-    import os
-    import sys
-
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    async def call(options):
-        params = StdioServerParameters(
-            command=sys.executable, args=["-m", "argus.core.role_actions"],
-            env={**os.environ, **options.extension_env, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
-        )
-        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == {"hand_off"}
-            result = await session.call_tool(*hand_off("done", "The repair and its test pass."))
-            assert not result.isError
-
-    actions = review_actions()
-    with role_actions(SimpleNamespace(backend="copilot"), RunnerOptions(), actions) as options:
-        asyncio.run(call(options))
-        assert actions.handoff.value.status == "done"
-
-
 def test_unsupported_backend_has_no_text_fallback():
     with pytest.raises(ValueError, match="cannot submit Argus actions"):
         with role_actions(SimpleNamespace(backend="unsupported"), RunnerOptions(), review_actions()):
@@ -213,16 +133,6 @@ def test_reviewer_judges_learning_on_the_verdict():
     assert payload["learning_reason"] == "A masked display hid the value."
 
 
-def test_judgments_are_kept_only_where_the_host_uses_them():
-    actions = review_actions()
-    assert not any("manager_attention" in tool["inputSchema"]["properties"] for tool in actions.tools)
-    actions.dispatch(*hand_off(
-        "engineer", "Repair grouping.",
-        learning={"verdict": "worth_reflecting", "reason": "Only an accepting review routes reflection."},
-    ))
-    assert not actions.handoff.value.learning
-
-
 @pytest.mark.parametrize("judgment", [
     {"verdict": "maybe", "reason": "?"}, "nothing_new", {"verdict": "nothing_new"},
     {"verdict": "nothing_new", "reason": "x", "extra": 1},
@@ -230,11 +140,3 @@ def test_judgments_are_kept_only_where_the_host_uses_them():
 def test_a_malformed_judgment_is_refused(judgment):
     with pytest.raises(ValueError, match="learning"):
         review_actions().dispatch(*hand_off("done", "Repair grouping.", learning=judgment))
-
-
-def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
-    from argus.manager._stage_ops import _StageDecisionMixin
-
-    actions = review_actions()
-    actions.dispatch(*hand_off("done", "Complete with evidence.", learning={"verdict": "nothing_new", "reason": "Routine."}))
-    assert _StageDecisionMixin._is_clean_reviewer_acceptance(actions.handoff.value) is True

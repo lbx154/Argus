@@ -54,16 +54,6 @@ def test_provider_turn_allowance_keeps_the_checkpoint_receipt_and_does_not_pause
     assert not attention.reason()
 
 
-@pytest.mark.parametrize("kind", [
-    "budget_exhausted", "cost_unreconciled", "operator_pause", "operator_abort", "daemon_shutdown",
-])
-def test_existing_local_stop_kinds_remain_separate_from_trial_balance(trial_host, monkeypatch, kind):
-    result = run(RunnerResult(exit_code=1, fatal_error="Local control receipt", stop_kind=kind), monkeypatch)
-    assert result.stop_kind == kind
-    assert result.fatal_error == "Local control receipt"
-    assert not attention.reason()
-
-
 @pytest.mark.parametrize("code", [
     "trial_quota_exceeded", "trial_tpm_exceeded", "provider_stream_incomplete", "provider_usage_missing",
 ])

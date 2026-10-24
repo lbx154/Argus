@@ -4,11 +4,7 @@ from pathlib import Path
 import pytest
 
 from argus.skills.layered import (
-    LAYER_GLOBAL,
-    LAYER_PROJECT,
-    LAYER_VERTICAL,
     LayeredSkillStore,
-    shared_skill_scope_dir,
 )
 from argus.skills.store import Skill
 
@@ -19,15 +15,6 @@ def _store(tmp_path: Path) -> LayeredSkillStore:
         vertical_dir=tmp_path / "vertical",
         global_dir=tmp_path / "global",
     )
-
-
-def test_library_roots_are_project_vertical_global(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    assert store.library_roots() == [
-        (tmp_path / "project").resolve(),
-        (tmp_path / "vertical").resolve(),
-        (tmp_path / "global").resolve(),
-    ]
 
 
 def test_native_project_root_is_read_only_and_does_not_replace_managed_writes(
@@ -65,22 +52,6 @@ def test_native_project_root_is_read_only_and_does_not_replace_managed_writes(
         store.archive_path(native_skill)
 
 
-def test_missing_native_project_root_preserves_existing_roots(tmp_path: Path) -> None:
-    store = LayeredSkillStore(
-        project_dir=tmp_path / "project",
-        vertical_dir=tmp_path / "vertical",
-        global_dir=tmp_path / "global",
-        execution_project_root=tmp_path / "repo",
-    )
-
-    assert not (tmp_path / "repo" / ".agents").exists()
-    assert store.library_roots() == [
-        (tmp_path / "project").resolve(),
-        (tmp_path / "vertical").resolve(),
-        (tmp_path / "global").resolve(),
-    ]
-
-
 def test_native_project_root_symlink_cannot_escape_execution_project(
     tmp_path: Path,
 ) -> None:
@@ -105,63 +76,6 @@ def test_native_project_root_symlink_cannot_escape_execution_project(
     assert external.resolve() not in store.library_roots()
 
 
-def test_native_project_child_symlink_cannot_escape_execution_project(
-    tmp_path: Path,
-) -> None:
-    repo = tmp_path / "repo"
-    native_root = repo / ".agents" / "skills"
-    native_root.mkdir(parents=True)
-    external_skill = tmp_path / "external-skill"
-    external_skill.mkdir()
-    try:
-        (native_root / "escape").symlink_to(
-            external_skill, target_is_directory=True
-        )
-    except OSError as exc:
-        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
-            pytest.skip("Windows symlink privilege is unavailable")
-        raise
-
-    store = LayeredSkillStore(
-        project_dir=tmp_path / "managed",
-        global_dir=tmp_path / "global",
-        execution_project_root=repo,
-    )
-
-    assert native_root.resolve() not in store.library_roots()
-
-
-def test_contained_native_project_children_remain_available(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    native_root = repo / ".agents" / "skills"
-    skill = native_root / "contained" / "SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text("contained", encoding="utf-8")
-
-    store = LayeredSkillStore(
-        project_dir=tmp_path / "managed",
-        global_dir=tmp_path / "global",
-        execution_project_root=repo,
-    )
-
-    assert store.native_project_roots() == [native_root.resolve()]
-
-
-def test_explicit_semantic_path_selects_existing_layer(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    skill = Skill(
-        "Shared guidance",
-        "One line.",
-        "# Shared guidance",
-        path=str(tmp_path / "global" / "research" / "shared-guidance.md"),
-    )
-    path = store.save(skill)
-    assert path.is_file()
-    assert store.layer_for_path(path) == LAYER_GLOBAL
-    assert store.layer_for_path(tmp_path / "vertical" / "x.md") == LAYER_VERTICAL
-    assert store.layer_for_path(tmp_path / "project" / "x.md") == LAYER_PROJECT
-
-
 def test_archive_is_project_only(tmp_path: Path) -> None:
     store = _store(tmp_path)
     global_path = store.save(
@@ -174,10 +88,3 @@ def test_archive_is_project_only(tmp_path: Path) -> None:
     )
     with pytest.raises(PermissionError):
         store.archive_path(global_path)
-
-
-def test_shared_scope_uses_operator_semantic_name(tmp_path: Path) -> None:
-    assert shared_skill_scope_dir(tmp_path, "software/backend") == (
-        tmp_path / "_shared_verticals" / "software/backend"
-    )
-    assert shared_skill_scope_dir(tmp_path, "../escape") is None

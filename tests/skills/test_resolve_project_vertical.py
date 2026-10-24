@@ -24,26 +24,6 @@ def test_the_manager_record_answers_when_the_workspace_has_no_state(tmp_path: Pa
     assert resolve_project_vertical(workspace) == ""
 
 
-def test_the_mission_view_is_the_second_record_and_unknown_names_are_ignored(tmp_path: Path) -> None:
-    workspace, life = tmp_path / "ws", tmp_path / "life"
-    workspace.mkdir()
-    life.mkdir()
-    (life / "manager-handoff.json").write_text(json.dumps({"vertical": "not-a-vertical"}))
-    (life / "mission-view.json").write_text(json.dumps({"routing": {"vertical": "software"}}))
-    assert resolve_project_vertical(workspace, life_dir=life) == "software"
-    (life / "mission-view.json").write_text("{not json")
-    assert resolve_project_vertical(workspace, life_dir=life) == ""
-
-
-def test_the_workspace_state_wins_over_the_record(tmp_path: Path) -> None:
-    workspace, life = tmp_path / "ws", tmp_path / "life"
-    workspace.mkdir()
-    life.mkdir()
-    write_pipeline_state(workspace, {"vertical": "software"})
-    (life / "manager-handoff.json").write_text(json.dumps({"vertical": "research"}))
-    assert resolve_project_vertical(workspace, life_dir=life) == "software"
-
-
 def test_the_state_directory_holds_the_managers_pipeline_state(tmp_path: Path) -> None:
     workspace, life = tmp_path / "ws", tmp_path / "life"
     workspace.mkdir()

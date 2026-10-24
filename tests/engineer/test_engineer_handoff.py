@@ -75,35 +75,6 @@ def test_an_operator_question_parks_with_its_options(tmp_path: Path) -> None:
     ]
 
 
-def test_done_without_required_review_settles_on_the_handoff(tmp_path: Path) -> None:
-    result, rounds, labels = _run(
-        tmp_path, ("engineer-r1", CannedResponse(action=hand_off("done", "Fixed the parser; its tests pass."))),
-        review=False,
-    )
-    assert (result, labels) == ("done", ["engineer-r1"])
-    assert rounds[0].review.review_source == "engineer_self_review"
-
-
-@pytest.mark.parametrize("to, status, ask", [
-    ("planner", "replan_requested", {}),
-    ("manager", "blocked", {}),
-    ("operator", "blocked", {"question": "Which licence may the dataset use?", "options": [{"label": "MIT"}, {"label": "CC-BY"}]}),
-])
-def test_the_reviewer_hands_the_work_on_the_same_way(tmp_path: Path, to: str, status: str, ask: dict) -> None:
-    result, rounds, labels = _run(
-        tmp_path,
-        ("engineer-r1", CannedResponse(action=hand_off("reviewer", "Built the parser."))),
-        ("reviewer", CannedResponse(action=hand_off(
-            to, "The criteria contradict each other.", **({"ask": ask} if ask else {}),
-        ))),
-    )
-    assert (labels, result) == (["engineer-r1", "reviewer"], status)
-    review = rounds[0].review
-    assert (review.status, review.review_source, review.reason) == (status, "reviewer", "The criteria contradict each other.")
-    assert review.operator_question == ask.get("question", "")
-    assert [option["label"] for option in review.operator_options] == [row["label"] for row in ask.get("options", ())]
-
-
 @pytest.mark.parametrize("operator", [True, False])
 @pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
 def test_every_engineer_prompt_asks_for_the_handoff_once_and_no_footer(

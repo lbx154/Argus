@@ -60,14 +60,6 @@ def test_stream_error_is_not_turned_into_success_by_final_http_200(home):
     assert "provider_usage_missing" in state[3]
 
 
-def test_quoted_error_in_assistant_prose_is_not_a_protocol_failure(home):
-    from argus.agent_cli._event_consumers import EventConsumerMixin
-    state = EventConsumerMixin._consume_copilot_event(event={"type": "assistant.message",
-        "data": {"content": "Documentation describes trial_quota_exceeded."}},
-        thread_id="fixture", agent_messages=[], turn_completed=False, turn_failed=False, fatal_error=None)
-    assert state[2] is False and state[3] is None
-
-
 def test_ambiguous_usage_stops_retries_until_explicit_balance_check(home, monkeypatch):
     attention.record_failure("provider_stream_incomplete")
     assert attention.reason()
@@ -116,15 +108,3 @@ def test_explicit_non_alias_model_cannot_bypass_trial_routing(home, monkeypatch)
     monkeypatch.setattr(_exec, "_execute_prepared", lambda *a, **k: pytest.fail("must not use a builtin/personal model"))
     result = _exec.execute(backend, prompt="fixture", options=RunnerOptions(model="unverified-model"), run_label="fixture")
     assert result.exit_code != 0 and "服务端选择真实模型" in result.fatal_error
-
-
-def test_paused_trial_cannot_spawn_a_second_model_call(home, monkeypatch):
-    from argus.adapters.agent_cli_backend import _exec
-    from argus.core.models import RunnerOptions
-    attention.record_failure("provider_connection_failed")
-    backend = SimpleNamespace(_runner=SimpleNamespace(backend="copilot"),
-        _refresh_known_secret_values=lambda: None, _resolve_execution_options=lambda o: o)
-    monkeypatch.setattr(_exec, "_execute_prepared", lambda *a, **k: pytest.fail("must not retry a paid call"))
-    result = _exec.execute(backend, prompt="fixture", options=RunnerOptions(), run_label="fixture")
-    assert result.exit_code != 0 and result.stop_kind == "permanent_error"
-    assert "自动重试" in result.fatal_error

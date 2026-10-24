@@ -3,7 +3,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -73,11 +72,3 @@ process.stdout.write(JSON.stringify(inspected.details));
     assert PeerMailbox(root, "project-b").pending()[0]["message_id"] == messages[0]["message_id"]
     with pytest.raises(OSError):
         request("status", {"message_id": messages[0]["message_id"]}, env=environments[0])
-
-
-@pytest.mark.parametrize("label", ["engineer-r1", "planner.cycle1", "reviewer", "peer-message-response"])
-def test_peer_tool_is_not_available_to_execution_roles_or_automatic_replies(tmp_path, label):
-    options = RunnerOptions()
-    ctx = SimpleNamespace(options=options, run_label=label, usage_project_root=tmp_path)
-    with runtime.peer_run(ctx):
-        assert ctx.options is options

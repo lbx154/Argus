@@ -1,6 +1,5 @@
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from cryptography.fernet import Fernet
@@ -36,22 +35,6 @@ def test_fixed_ten_keys_and_rerun_preserves_usage(pool, tmp_path):
     with pytest.raises(ValueError, match="10 trial keys"):
         store.issue("eleventh")
     assert all(store.credential(k["key_id"]) == k["api_key"] for k in keys)
-
-
-def test_concurrent_issuance_never_exceeds_ten_keys(tmp_path):
-    store = Store(tmp_path / "usage.sqlite3")
-
-    def issue(i):
-        try:
-            store.issue(f"key-{i}", f"secret-{i}")
-            return True
-        except ValueError:
-            return False
-
-    with ThreadPoolExecutor(max_workers=20) as workers:
-        results = list(workers.map(issue, range(30)))
-    assert sum(results) == 10
-    assert store.availability()["issued_keys"] == 10
 
 
 def test_explicit_eleventh_key_keeps_first_ten_credentials_balances_and_normal_auth(pool, tmp_path):

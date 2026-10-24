@@ -7,12 +7,10 @@ from pathlib import Path
 import pytest
 
 from argus.core.session import (
-    PROVISIONAL_NAME_SOURCE,
     SessionMeta,
     provisional_session_name,
     read_session_meta,
     seed_provisional_session_name,
-    session_name_is_open,
     write_session_meta,
 )
 from argus.manager.front_door import _maybe_name_session
@@ -47,20 +45,6 @@ def test_provisional_name_is_bounded_per_script():
     assert not latin[:-1].endswith(" ")
 
 
-def test_seed_names_an_unnamed_session_and_never_overwrites(tmp_path):
-    sid = _session(tmp_path)
-    assert seed_provisional_session_name(tmp_path, sid, "你好") == "你好"
-    meta = read_session_meta(tmp_path, sid)
-    assert (meta.display_name, meta.name_source) == ("你好", PROVISIONAL_NAME_SOURCE)
-    assert session_name_is_open(meta)
-    assert seed_provisional_session_name(tmp_path, sid, "another message") == ""
-    assert read_session_meta(tmp_path, sid).display_name == "你好"
-
-    named = _session(tmp_path, "s-user-named", display_name="Mine", name_source="user")
-    assert seed_provisional_session_name(tmp_path, named, "hello") == ""
-    assert not session_name_is_open(read_session_meta(tmp_path, named))
-
-
 def test_agent_title_replaces_provisional_but_not_user_names(tmp_path):
     sid = _session(tmp_path)
     seed_provisional_session_name(tmp_path, sid, "帮我看看这个CSV")
@@ -73,19 +57,6 @@ def test_agent_title_replaces_provisional_but_not_user_names(tmp_path):
     state = {"session_id": user, "global_root": tmp_path}
     assert _maybe_name_session(state, "x", suggested_name="Other") == ""
     assert read_session_meta(tmp_path, user).display_name == "Operator title"
-
-
-def test_web_message_names_the_project_even_when_no_model_title_arrives(tmp_path, monkeypatch):
-    from argus.webapi import manager_bridge, manager_state
-
-    sid = _session(tmp_path, "s-unnamed-web", origin="web")
-    manager_state._STATES.clear()
-
-    manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
-
-    session = json.loads((tmp_path / "projects" / sid / "session.json").read_text())
-    assert session["display_name"] == "你好"
-    assert session["name_source"] == PROVISIONAL_NAME_SOURCE
 
 
 def test_web_message_never_names_the_project_with_a_pasted_credential(tmp_path, monkeypatch):

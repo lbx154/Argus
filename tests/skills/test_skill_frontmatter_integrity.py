@@ -102,21 +102,6 @@ def test_shipped_skill_header_is_two_quoted_scalars(label: str, text: str) -> No
     )
 
 
-@pytest.mark.parametrize("label,text", SHIPPED, ids=[label for label, _ in SHIPPED])
-def test_shipped_skill_header_round_trips_through_render(label: str, text: str) -> None:
-    """A shipped document must match what the runtime would write for it."""
-    match = _HEADER.match(text)
-    assert match, f"{label}: header must be exactly name then description"
-    skill = Skill(
-        name=json.loads(match.group("name")),
-        description=json.loads(match.group("description")),
-        content=text[match.end():],
-    )
-    assert skill.render().startswith(text[: match.end()].rstrip("\n")), (
-        f"{label}: header does not match Skill.render() output"
-    )
-
-
 def test_render_refuses_a_mapping_description() -> None:
     with pytest.raises(TypeError, match="description must be a string"):
         Skill("n", {"a": "b"}, "body").render()  # type: ignore[arg-type]

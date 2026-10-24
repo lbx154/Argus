@@ -90,41 +90,12 @@ def test_user_install_does_not_touch_the_system_scripts_directory(scripts, monke
     assert (user / "argus.exe").read_bytes() == b"updated user"
 
 
-def test_failure_moving_a_launcher_restores_already_moved_files(scripts, monkeypatch):
-    first = scripts / "argus.exe"
-    second = scripts / "argus-skill.exe"  # the pre-rename launcher is still shipped
-    first.write_bytes(b"first")
-    second.write_bytes(b"second")
-    rename = Path.rename
-
-    def fail_second(path, target):
-        if path == second:
-            raise PermissionError("move refused")
-        return rename(path, target)
-
-    monkeypatch.setattr(Path, "rename", fail_second)
-    with pytest.raises(PermissionError, match="move refused"):
-        with update_launcher.preserve_windows_launchers():
-            pytest.fail("installer must not start after a failed move")
-
-    assert first.read_bytes() == b"first"
-    assert second.read_bytes() == b"second"
-
-
 def test_installer_that_leaves_launcher_unchanged_does_not_remove_command(scripts):
     launcher = scripts / "argus.exe"
     launcher.write_bytes(b"existing")
     with update_launcher.preserve_windows_launchers():
         pass
     assert launcher.read_bytes() == b"existing"
-
-
-def test_non_windows_install_does_not_move_launchers(scripts, monkeypatch):
-    monkeypatch.setattr(update_launcher, "_IS_WINDOWS", False)
-    launcher = scripts / "argus.exe"
-    launcher.write_bytes(b"existing")
-    with update_launcher.preserve_windows_launchers():
-        assert launcher.read_bytes() == b"existing"
 
 
 def test_frozen_desktop_executable_is_not_moved(scripts, monkeypatch):

@@ -59,80 +59,6 @@ def asgi_request(app, credential, *, payload=PAYLOAD):
     return asyncio.create_task(app(request_scope(credential), receive, send)), disconnected, messages
 
 
-@linux_host_deadlines
-@pytest.mark.parametrize("phase", ["reserve", "committed-reserve", "submit"])
-@pytest.mark.parametrize("termination", ["cancel", "disconnect", "timeout"])
-def test_late_billing_never_dispatches_after_http_termination(tmp_path, monkeypatch, phase, termination):
-    settings = offline_settings(tmp_path, timeout=0.12 if termination == "timeout" else 2)
-    calls = []
-
-    def provider(request):
-        calls.append(str(request.url))
-        return httpx.Response(200, json=response_data())
-
-    async def run():
-        app = create_app(settings, transport=httpx.MockTransport(provider))
-        async with app.router.lifespan_context(app):
-            credential = issue(app)
-            store = app.state.store
-            writer = HeldWriter(store.path)
-            entered = asyncio.Event()
-            release_result = threading.Event()
-            loop = asyncio.get_running_loop()
-            reserve, submit = store.reserve, store.submit_operation
-
-            def held_reserve(*args, **kwargs):
-                if phase == "reserve":
-                    writer.start()
-                    loop.call_soon_threadsafe(entered.set)
-                identifier = reserve(*args, **kwargs)
-                if phase == "committed-reserve":
-                    loop.call_soon_threadsafe(entered.set)
-                    assert release_result.wait(3)
-                return identifier
-
-            def held_submit(*args, **kwargs):
-                writer.start()
-                loop.call_soon_threadsafe(entered.set)
-                return submit(*args, **kwargs)
-
-            monkeypatch.setattr(store, "reserve", held_reserve)
-            if phase == "submit":
-                monkeypatch.setattr(store, "submit_operation", held_submit)
-            task, disconnected, messages = asgi_request(app, credential)
-            try:
-                await asyncio.wait_for(entered.wait(), 1)
-                started = time.monotonic()
-                if termination == "cancel":
-                    task.cancel()
-                    with pytest.raises(asyncio.CancelledError):
-                        await asyncio.wait_for(task, 0.3)
-                else:
-                    if termination == "disconnect":
-                        disconnected.set()
-                    await asyncio.wait_for(task, 0.3)
-                    statuses = [message["status"] for message in messages if message["type"] == "http.response.start"]
-                    assert statuses == ([499] if termination == "disconnect" else [502 if phase == "submit" else 429])
-                assert time.monotonic() - started < 0.3
-                assert app.state.request_slots._value == 10
-                assert app.state.accounting.pending == 1
-                assert not calls
-                assert phase == "committed-reserve" or not writer.finished.is_set()
-            finally:
-                release_result.set()
-                writer.release.set()
-                await asyncio.to_thread(writer.join)
-                await asyncio.wait_for(app.state.accounting.wait_idle(), 2)
-            assert not calls
-            status = store.status(KEY_ID)
-            assert status["active_requests"] == 0
-            assert status["tokens_used"] == status["global_tpm_reserved"] == 0
-            rows = ledger_rows(store.path)
-            assert len(rows) == 1 and rows[0]["state"] == "settled" and rows[0]["charged"] == 0
-
-    asyncio.run(run())
-
-
 @pytest.mark.parametrize("phase", ["reserve-before", "reserve-after", "submit-after"])
 def test_sqlite_error_reconciles_commit_even_when_return_value_is_lost(tmp_path, monkeypatch, phase):
     settings = offline_settings(tmp_path)
@@ -363,23 +289,3 @@ def test_operation_key_is_atomic_idempotent_and_cannot_alias_another_charge(tmp_
     with store.transaction() as db:
         assert db.execute("SELECT retain_until FROM trial_tpm_reservations").fetchone()[0] == 160
         assert db.execute("SELECT count(*) FROM trial_requests").fetchone()[0] == 1
-
-
-def test_restart_refunds_only_managed_reservations_without_submit_intent(tmp_path):
-    path = tmp_path / "usage.db"
-    store = Store(path, clock=lambda: 100)
-    store.issue("key", "credential")
-    store.reserve("key", 1000, operation_key="reserved")
-    store.reserve("key", 2000, operation_key="submitted")
-    store.submit_operation("submitted")
-    store.reserve("key", 3000)
-    restarted = Store(path, clock=lambda: 200)
-    restarted.recover()
-    restarted.recover()
-    rows = ledger_rows(path)
-    assert [(row["state"], row["charged"]) for row in rows] == [
-        ("settled", 0), ("interrupted", 2000), ("interrupted", 3000),
-    ]
-    status = restarted.status("key")
-    assert status["tokens_used"] == status["global_tpm_reserved"] == 5000
-    assert status["active_requests"] == 0

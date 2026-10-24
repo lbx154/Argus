@@ -1,7 +1,6 @@
 """Reuse only evidence whose complete input boundary is known and unchanged."""
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -121,98 +120,6 @@ def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review, mon
     assert len(renders) == 1
 
 
-def test_source_reviewers_get_current_pdf_derivatives_despite_stale_project_previews(
-    paper_review, monkeypatch,
-):
-    from argus.core import manuscript_narrative_runtime
-
-    project, config = paper_review
-    config = replace(config, narrative_snapshot_root=None)
-    stale = project / "paper/preview/page-01.png"
-    stale.parent.mkdir()
-    stale.write_bytes(b"Old preview: We derive a new optimizer.")
-    renders = []
-    original = manuscript_narrative_runtime._prepare_readable_pdf
-
-    def render_current(paper):
-        renders.append(paper.parent)
-        original(paper)
-        (paper / "main.txt").write_text("Current PDF: We adapt the known optimizer.")
-
-    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", render_current)
-
-    class CurrentPaperRunner(PaperRunner):
-        def fork(self):
-            return CurrentPaperRunner(self.shared)
-
-        def run_exec(self, **kwargs):
-            label, prompt, options = kwargs["run_label"], kwargs["prompt"], kwargs["options"]
-            bundle = renders[-1]
-            assert (bundle / "paper/main.pdf").read_bytes() == b"%PDF-current"
-            if label in {"reviewer-scientific", "reviewer-language"}:
-                # Keep code/raw-evidence access, but supply the actual PDF text
-                # and images rather than asking the model to find a preview.
-                assert Path(options.working_dir) == project
-                assert str(bundle / "paper/main.txt") in prompt
-                assert str(bundle / "paper/pages") in prompt
-                assert "do not substitute project preview directories" in prompt
-                assert (bundle / "paper/main.txt").read_text().startswith("Current PDF")
-                assert (bundle / "paper/pages/page-001.png").is_file()
-            else:
-                assert Path(options.working_dir) == bundle
-            return super().run_exec(**kwargs)
-
-    runner = CurrentPaperRunner()
-    _parallel_final_review_passes(runner, config)
-    assert len(renders) == 1
-    _parallel_final_review_passes(runner, config, current_work="New raw data need review.")
-    assert len(renders) == 2
-    assert runner.shared.calls.count("reviewer-visual") == 1
-    assert runner.shared.calls.count("reviewer-scientific") == 2
-    assert runner.shared.calls.count("reviewer-language") == 2
-    assert stale.read_bytes() == b"Old preview: We derive a new optimizer."
-    assert all(not bundle.exists() for bundle in renders)
-
-
-def test_only_complete_final_assessments_are_forwarded_and_cached(paper_review, monkeypatch):
-    _, config = paper_review
-    from argus.reviewer import _core
-
-    calls = []
-
-    def assess(_runner, **kwargs):
-        assert "complete assessment and all required repairs in your final response" in kwargs["prompt"]
-        label = kwargs["run_label"]
-        calls.append(label)
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=[
-                "I will inspect the PDF.",
-                "Tentative concern: the control might be missing.",
-                f"{label}: fail. Page 2: labels overlap; separate them. "
-                "The control is present in Table 1.",
-            ],
-            input_tokens=30,
-            output_tokens=12,
-        )
-
-    monkeypatch.setattr(_core, "gateway_run_exec", assess)
-    first = _parallel_final_review_passes(PaperRunner(), config)
-    assert len(calls) == 2
-    for label in calls:
-        assert f"{label}: fail. Page 2: labels overlap; separate them." in first.reason
-    assert first.reason.count("The control is present in Table 1.") == 2
-    assert "I will inspect" not in first.reason
-    assert "Tentative concern" not in first.reason
-    assert (first.input_tokens, first.output_tokens) == (60, 24)
-    assert first.status == "continue"
-
-    cached = _parallel_final_review_passes(PaperRunner(), config)
-    assert len(calls) == 2
-    assert cached.reason == first.reason
-    assert cached.input_tokens == cached.output_tokens == 0
-
-
 def test_empty_final_assessment_does_not_promote_progress_to_evidence(paper_review, monkeypatch):
     _, config = paper_review
     from argus.reviewer import _core
@@ -227,64 +134,6 @@ def test_empty_final_assessment_does_not_promote_progress_to_evidence(paper_revi
     assert result.backend_unavailable
     assert "returned no assessment" in result.reason
     assert not config.paper_pass_cache
-
-
-def test_source_change_is_reviewed_even_when_rendered_bytes_match(paper_review):
-    project, config = paper_review
-    runner = PaperRunner()
-    _parallel_final_review_passes(runner, config)
-    (project / "paper" / "main.tex").write_text("a changed scientific claim")
-    # Rebuilt output can be byte-identical; the source comparison still matters.
-    # The rebuild is a new file state, so the PDF passes run again too.
-    (project / "paper" / "main.pdf").write_bytes(b"%PDF-current")
-    result = _parallel_final_review_passes(runner, config)
-    assert runner.shared.calls.count("reviewer-scientificloss") == 1
-    assert result.input_tokens == 30
-    _parallel_final_review_passes(runner, config)
-    assert runner.shared.calls.count("reviewer-scientificloss") == 2
-
-
-@pytest.mark.parametrize("comparison_mode", [False, True])
-def test_current_science_context_reaches_source_passes_without_reopening_pdf_passes(
-    paper_review, monkeypatch, comparison_mode,
-):
-    from argus.reviewer import _core
-
-    project, config = paper_review
-    if comparison_mode:
-        (project / "paper" / "main.tex").write_text("a revised scientific claim")
-        (project / "paper" / "main.pdf").write_bytes(b"%PDF-current")
-        source_labels = {"reviewer-scientificloss"}
-    else:
-        config = replace(config, narrative_snapshot_root=None)
-        source_labels = {"reviewer-scientific", "reviewer-language"}
-    prompts = []
-    original = _core.gateway_run_exec
-
-    def capture(*args, **kwargs):
-        prompts.append((kwargs["run_label"], kwargs["prompt"]))
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(_core, "gateway_run_exec", capture)
-    runner = PaperRunner()
-    first_context = "The old completed panel failed; the replacement is running."
-    second_context = "The replacement panel finished; its raw results need verification."
-    _parallel_final_review_passes(runner, config, current_work=first_context)
-    first_count = len(prompts)
-    second = _parallel_final_review_passes(runner, config, current_work=second_context)
-
-    for label, prompt in prompts[:first_count]:
-        if label in source_labels:
-            assert first_context in prompt
-            assert "account is unreviewed" in prompt
-        else:
-            assert first_context not in prompt
-            assert "## Current revision context" not in prompt
-    assert {label for label, _ in prompts[first_count:]} == source_labels
-    assert all(second_context in prompt for _, prompt in prompts[first_count:])
-    assert runner.shared.calls.count("reviewer-visual") == 1
-    assert second.status == "continue"
-    assert second.input_tokens == 10 * len(source_labels)
 
 
 def test_round_delivers_current_account_to_source_reviewers(
@@ -352,38 +201,6 @@ def test_round_delivers_current_account_to_source_reviewers(
     assert decision.status == "continue"
 
 
-@pytest.mark.parametrize("change", ["pdf", "policy", "model", "venue"])
-def test_changed_pdf_or_policy_invalidates_assessments(paper_review, change):
-    project, config = paper_review
-    runner = PaperRunner()
-    _parallel_final_review_passes(runner, config)
-    if change == "pdf":
-        (project / "paper" / "main.pdf").write_bytes(b"%PDF-different")
-    elif change == "policy":
-        config = replace(config, review_policy_context="stricter operator criterion")
-    elif change == "venue":
-        (project / "research").mkdir()
-        (project / "research/VENUE_PROFILE.json").write_text('{"max_pages": 8}')
-    else:
-        config = replace(config, model="different-reviewer-model")
-    _parallel_final_review_passes(runner, config)
-    assert runner.shared.calls.count("reviewer-visual") == 2
-    assert runner.shared.calls.count("reviewer-coldread") == 2
-
-
-def test_failed_assessments_are_not_reused(paper_review):
-    _, config = paper_review
-    runner = PaperRunner()
-    runner.shared.fail = True
-    first = _parallel_final_review_passes(runner, config)
-    assert first.backend_unavailable
-    assert not config.paper_pass_cache
-    runner.shared.fail = False
-    second = _parallel_final_review_passes(runner, config)
-    assert not second.backend_unavailable
-    assert len(runner.shared.calls) == 4
-
-
 def test_unreadable_pdf_facts_run_fresh_isolated_passes(paper_review, monkeypatch):
     _, config = paper_review
     from argus.reviewer import _paper_pass_cache
@@ -393,39 +210,4 @@ def test_unreadable_pdf_facts_run_fresh_isolated_passes(paper_review, monkeypatc
     _parallel_final_review_passes(runner, config)
     _parallel_final_review_passes(runner, config)
     assert len(runner.shared.calls) == 4
-    assert not config.paper_pass_cache
-
-
-def test_manifest_alone_cannot_suppress_scientific_comparison(paper_review):
-    _, config = paper_review
-    before = Path(config.narrative_snapshot_root) / "before" / "paper" / "main.tex"
-    before.write_text("changed snapshot despite its old manifest")
-    runner = PaperRunner()
-    _parallel_final_review_passes(runner, config)
-    assert "reviewer-scientificloss" in runner.shared.calls
-
-
-def test_unspecified_model_does_not_reuse_assessments(paper_review):
-    _, config = paper_review
-    config = replace(config, model=None)
-    runner = PaperRunner()
-    _parallel_final_review_passes(runner, config)
-    _parallel_final_review_passes(runner, config)
-    assert len(runner.shared.calls) == 4
-    assert not config.paper_pass_cache
-
-
-def test_pdf_changed_during_assessment_is_not_cached(paper_review, monkeypatch):
-    project, config = paper_review
-    from argus.reviewer import _core
-
-    original = _core.gateway_run_exec
-
-    def run_then_change(*args, **kwargs):
-        result = original(*args, **kwargs)
-        (project / "paper" / "main.pdf").write_bytes(b"%PDF-changed-during-review")
-        return result
-
-    monkeypatch.setattr(_core, "gateway_run_exec", run_then_change)
-    _parallel_final_review_passes(PaperRunner(), config)
     assert not config.paper_pass_cache

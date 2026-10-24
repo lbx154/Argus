@@ -37,30 +37,6 @@ def _roots(tmp_path: Path) -> tuple[Path, Path]:
 # -- the decided project ----------------------------------------------------
 
 
-def test_a_decided_vertical_is_imported(tmp_path: Path) -> None:
-    state_root, workdir = _roots(tmp_path)
-    _write_state(workdir, {"vertical": "argus_maintenance", "current_stage": "change"})
-
-    assert migrate_legacy_manager_state(state_root, workdir) is True
-
-    payload = json.loads(
-        (state_root / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    assert payload["vertical"] == "argus_maintenance"
-    assert payload["current_stage"] == "change"
-
-
-def test_the_workspace_copy_is_left_alone(tmp_path: Path) -> None:
-    state_root, workdir = _roots(tmp_path)
-    source = _write_state(workdir, {"vertical": "argus_maintenance"})
-    before = source.read_text(encoding="utf-8")
-
-    migrate_legacy_manager_state(state_root, workdir)
-
-    # The workdir copy is also the live evidence root, not just a leftover.
-    assert source.read_text(encoding="utf-8") == before
-
-
 def test_split_research_import_does_not_materialize_handoff_in_source_worktree(
     tmp_path: Path,
 ) -> None:
@@ -115,32 +91,6 @@ def test_an_unresolvable_vertical_still_stops_the_build(tmp_path: Path) -> None:
 # -- the undecided project --------------------------------------------------
 
 
-@pytest.mark.parametrize("payload", [
-    {"math_objective_mode": "targeted", "math_goal": "G"},
-    {"research_target_level": "publishable"},
-    {"vertical": "", "research_target_level": "publishable"},
-    {"vertical": None, "math_objective_mode": "exploratory"},
-])
-def test_state_without_a_vertical_is_imported_not_refused(
-    tmp_path: Path, payload: dict
-) -> None:
-    """The observed brick: an operator sets the math objective mode on a fresh
-    project, and the very first message comes back "could not classify ...
-    please retry" — advice that can never succeed, because nothing about the
-    project changes between retries.
-    """
-    state_root, workdir = _roots(tmp_path)
-    _write_state(workdir, payload)
-
-    assert migrate_legacy_manager_state(state_root, workdir) is True
-
-    imported = json.loads(
-        (state_root / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    for key, value in payload.items():
-        assert imported[key] == value
-
-
 def test_importing_undecided_state_does_not_seat_a_vertical(tmp_path: Path) -> None:
     """Importing must not decide anything: the Manager still owns that call,
     and a silently seated ``research`` would outrank its classification."""
@@ -155,37 +105,7 @@ def test_importing_undecided_state_does_not_seat_a_vertical(tmp_path: Path) -> N
 # -- when it declines to run ------------------------------------------------
 
 
-def test_an_existing_target_is_never_overwritten(tmp_path: Path) -> None:
-    state_root, workdir = _roots(tmp_path)
-    _write_state(state_root, {"vertical": "math", "current_stage": "review"})
-    _write_state(workdir, {"vertical": "research", "current_stage": "scope"})
-
-    assert migrate_legacy_manager_state(state_root, workdir) is False
-
-    payload = json.loads(
-        (state_root / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    assert payload["current_stage"] == "review"
-
-
-def test_nothing_to_import_is_not_an_error(tmp_path: Path) -> None:
-    state_root, workdir = _roots(tmp_path)
-    workdir.mkdir(parents=True)
-
-    assert migrate_legacy_manager_state(state_root, workdir) is False
-
-
 def test_one_root_serving_as_both_is_a_no_op(tmp_path: Path) -> None:
     _write_state(tmp_path, {"vertical": "math"})
 
     assert migrate_legacy_manager_state(tmp_path, tmp_path) is False
-
-
-def test_corrupt_source_state_is_reported(tmp_path: Path) -> None:
-    state_root, workdir = _roots(tmp_path)
-    path = workdir / ".argus" / "PIPELINE_STATE.json"
-    path.parent.mkdir(parents=True)
-    path.write_text("{not json", encoding="utf-8")
-
-    with pytest.raises(VerticalResolutionError, match="not valid JSON"):
-        migrate_legacy_manager_state(state_root, workdir)

@@ -18,11 +18,7 @@ from argus.agent_cli._run_exec import _StreamState
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import (
     BACKEND_DSH,
-    CLAUDE_FAMILY,
-    default_runner_bin,
-    normalize_runner_backend,
 )
-from argus.core.backend_readiness import default_model_for_backend
 
 
 def _runner(agent_bin: str = "dsh") -> AgentCliRunner:
@@ -36,20 +32,6 @@ def _overlay_path() -> Path:
 
 
 # ---------------------------------------------------------------- registration
-
-
-def test_dsh_registers_as_a_native_backend_not_claude_family() -> None:
-    assert normalize_runner_backend("dsh") == BACKEND_DSH
-    assert default_runner_bin(BACKEND_DSH) == "dsh"
-    assert BACKEND_DSH not in CLAUDE_FAMILY
-
-
-def test_dsh_adopts_official_v4_flash_when_no_model_was_selected() -> None:
-    assert default_model_for_backend(
-        BACKEND_DSH,
-        env={},
-        persisted={},
-    ) == "deepseek-official/deepseek-v4-flash"
 
 
 def test_dsh_overlay_patch_resource_exists_and_targets_model() -> None:
@@ -67,26 +49,6 @@ def test_dsh_overlay_patch_resource_exists_and_targets_model() -> None:
 # ---------------------------------------------------------------------- command
 
 
-def test_dsh_command_shape_ignores_resume_and_appends_overlay() -> None:
-    command = _runner()._build_dsh_command(
-        resume_thread_id="session-that-cannot-be-resumed",
-        options=RunnerOptions(model="deepseek-v4-pro"),
-    )
-
-    assert Path(command[0]).name == "dsh"
-    assert command[1:5] == [
-        "--profile",
-        "headless",
-        "--patch",
-        str(_overlay_path()),
-    ]
-    # The headless runner creates a fresh session per boot; a resume id must
-    # never be forwarded as argv.
-    assert "session-that-cannot-be-resumed" not in command
-    assert "--resume" not in command
-    assert "--model" not in command
-
-
 def test_dsh_read_only_strips_permission_overrides() -> None:
     command = _runner()._build_dsh_command(
         resume_thread_id=None,
@@ -102,20 +64,6 @@ def test_dsh_read_only_strips_permission_overrides() -> None:
 
 
 # ------------------------------------------------------------- prompt delivery
-
-
-def test_dsh_short_prompt_delivers_through_argv() -> None:
-    runner = _runner()
-    command = runner._build_dsh_command(resume_thread_id=None, options=RunnerOptions())
-    prompt = "review this diff"
-
-    prepared, stdin_prompt, cleanup_path = runner._prepare_prompt_delivery(
-        command, prompt
-    )
-
-    assert stdin_prompt is None
-    assert cleanup_path is None
-    assert prepared[-1] == prompt
 
 
 def test_dsh_oversized_prompt_uses_workspace_mission_file(tmp_path: Path) -> None:

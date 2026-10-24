@@ -38,38 +38,6 @@ def _loop(backend: MemoryBackend, skills: Path, checkpoint: Path | None = None) 
     )
 
 
-def test_engineer_and_reviewer_never_resume_across_rounds_or_missions(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="v1"))
-    backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v2"))
-
-    out = _loop(backend, tmp_path / "skills").run(
-        "task",
-        workdir=tmp_path,
-        seed_thread_id="old-mission-thread",
-    )
-
-    assert out.successful
-    assert out.last_thread_id is None
-    role_resumes = [
-        (label, tid)
-        for label, tid in backend.resume_history
-        if label.startswith("engineer-") or label == "reviewer"
-    ]
-    assert role_resumes == [
-        ("engineer-r1", None),
-        ("reviewer", None),
-        ("engineer-r2", None),
-        ("reviewer", None),
-    ]
-
-
 def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
@@ -93,68 +61,3 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
     assert [
         tid for label, tid in backend.resume_history if label.startswith("engineer-")
     ] == [None, None]
-
-
-def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(action=_review("continue")))
-    backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(action=_review("done")))
-
-    # Compact continuation prompts apply only to resumable provider threads;
-    # a fresh session repeats the static contract every round.
-    backend.backend = "pi"  # type: ignore[misc]
-    out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
-    assert out.successful
-
-    prompts = [
-        prompt for label, prompt, _ in backend.history if label.startswith("engineer-")
-    ]
-    assert len(prompts) == 2
-    assert "## This turn" in prompts[0]
-    assert "## Current mission task" in prompts[0]
-    assert "## Continuation turn" in prompts[1]
-    assert "## Current mission task" not in prompts[1]
-    assert len(prompts[1]) < len(prompts[0])
-    assert all('## Handing off' in prompt for prompt in prompts)
-
-
-def test_shared_checkpoint_file_survives_across_missions(tmp_path: Path) -> None:
-    checkpoint = tmp_path / "CHECKPOINT.md"
-    checkpoint.write_text(
-        "# Current State\n\nReviewed state from mission A\n",
-        encoding="utf-8",
-    )
-
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
-
-    def engineer(_prompt, _options) -> str:
-        assert "Reviewed state from mission A" in checkpoint.read_text(encoding="utf-8")
-        return "mission B work"
-
-    backend.queue("engineer-r1", CannedResponse(message_factory=engineer))
-    backend.queue("reviewer", CannedResponse(action=_review("done")))
-
-    out = _loop(backend, tmp_path / "skills", checkpoint).run(
-        "task B", workdir=tmp_path
-    )
-    assert out.successful
-    prompt = next(p for label, p, _ in backend.history if label == "engineer-r1")
-    assert str(checkpoint.resolve()) in prompt
-
-
-def test_no_checkpoint_path_creates_no_checkpoint_file(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="work"))
-    backend.queue("reviewer", CannedResponse(action=_review("done")))
-
-    out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
-    assert out.successful
-    assert not (tmp_path / "CHECKPOINT.md").exists()

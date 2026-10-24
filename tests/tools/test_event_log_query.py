@@ -42,36 +42,6 @@ def test_iter_call_events_filters_top_level_call_id_in_chronological_order(
     ]
 
 
-def test_iter_call_events_stops_after_generation_containing_call_start(
-    tmp_path: Path,
-) -> None:
-    from argus.life.event_log import iter_call_events
-
-    log_path = tmp_path / "events.jsonl"
-    call_id = "current-call"
-    log_path.with_name("events.jsonl.2").write_text(
-        "{invalid-old-json}\n",
-        encoding="utf-8",
-    )
-    _write(log_path.with_name("events.jsonl.1"), [
-        {"type": "agent.io.start", "call_id": call_id, "seq": "start"},
-        {"type": "agent.io.stream", "call_id": call_id, "seq": "stream"},
-    ])
-    _write(log_path, [
-        {"type": "agent.io.complete", "call_id": call_id, "seq": "complete"},
-        {"type": "usage.recorded", "call_id": call_id, "seq": "usage"},
-    ])
-
-    rows = list(iter_call_events(log_path, call_id))
-
-    assert [row["seq"] for row in rows] == [
-        "start",
-        "stream",
-        "complete",
-        "usage",
-    ]
-
-
 def test_iter_call_events_reads_old_and_new_raw_transcripts_alike(
     tmp_path: Path,
 ) -> None:

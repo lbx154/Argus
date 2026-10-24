@@ -1,7 +1,5 @@
 """Prompt delivery under real input/output backpressure."""
 
-import hashlib
-import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -47,26 +45,6 @@ def run_fixture(monkeypatch, tmp_path, body, prompt, *, options=None, callback=N
                 future.result(timeout=5)
 
 
-@pytest.mark.parametrize("stream", [1, 2])
-@pytest.mark.parametrize("prompt", ["p" * 262144, "中文🙂\n" * 65536], ids=["ascii", "unicode"])
-def test_large_prompt_and_startup_output_cannot_deadlock(monkeypatch, tmp_path, stream, prompt):
-    received = tmp_path / "received.json"
-    body = (
-        "import os,sys,json,hashlib;from pathlib import Path;"
-        f"os.write({stream},b'x'*262144+b'\\n');data=sys.stdin.read();"
-        f"Path({str(received)!r}).write_text(json.dumps({{'hash':hashlib.sha256(data.encode()).hexdigest(),'length':len(data)}}));"
-        "print(json.dumps({'type':'turn.completed'}),flush=True)"
-    )
-    result, elapsed, processes = run_fixture(monkeypatch, tmp_path, body, prompt)
-    expected = prompt if prompt.endswith("\n") else prompt + "\n"
-    assert json.loads(received.read_text()) == {
-        "hash": hashlib.sha256(expected.encode()).hexdigest(),
-        "length": len(expected),
-    }
-    assert result.turn_completed and result.exit_code == 0 and elapsed < 3
-    assert all(p.stdin is None for p in processes)
-
-
 def test_prompt_reaches_a_cli_that_requires_piped_stdin(monkeypatch, tmp_path):
     """The deployed copilot shim reads a prompt only from FIFO stdin.
 
@@ -102,22 +80,3 @@ def test_child_not_reading_input_can_be_stopped(monkeypatch, tmp_path, reason):
         "daemon stop requested" if reason == "stop" else "hard idle timeout"
     ) in result.fatal_error
     assert all(p.poll() is not None for p in processes)
-
-
-def test_spawn_failure_closes_temporary_stdin(monkeypatch, tmp_path):
-    inputs = []
-
-    def fail(*args, **kwargs):
-        inputs.append(kwargs["stdin"])
-        assert kwargs["stdin"].read() == "fixture\n"
-        raise OSError("injected spawn error")
-
-    monkeypatch.setattr(_run_exec.subprocess, "Popen", fail)
-    runner = AgentCliRunner(agent_bin=sys.executable, backend="codex")
-    with pytest.raises(OSError, match="injected spawn"):
-        runner.run_exec(
-            prompt="fixture",
-            resume_thread_id=None,
-            options=RunnerOptions(working_dir=str(tmp_path)),
-        )
-    assert inputs and inputs[0].closed

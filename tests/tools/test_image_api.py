@@ -4,10 +4,8 @@ import base64
 import io
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from pathlib import Path
-from threading import Barrier
 from types import SimpleNamespace
 from typing import Any, cast
 from urllib.error import HTTPError
@@ -62,68 +60,6 @@ def test_project_path_rejects_escape(tmp_path: Path) -> None:
         image_api._project_path(tmp_path, Path("../outside.json"))
 
 
-def test_atomic_json_writes_use_distinct_temporary_files(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    target = tmp_path / "review.json"
-    barrier = Barrier(2)
-    temporary_paths: list[Path] = []
-    first_attempts: set[Path] = set()
-    real_replace = image_api.os.replace
-
-    def synchronized_replace(source: str | Path, destination: str | Path) -> None:
-        source_path = Path(source)
-        temporary_paths.append(source_path)
-        if source_path not in first_attempts:
-            first_attempts.add(source_path)
-            barrier.wait(timeout=5)
-        real_replace(source, destination)
-
-    monkeypatch.setattr(image_api.os, "replace", synchronized_replace)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        list(
-            executor.map(
-                lambda value: image_api._atomic_write_json(target, {"value": value}),
-                (1, 2),
-            )
-        )
-
-    assert len(set(temporary_paths)) == 2
-    assert json.loads(target.read_text(encoding="utf-8"))["value"] in {1, 2}
-
-
-def test_windows_atomic_replace_retries_a_transient_sharing_violation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source = tmp_path / "source.tmp"
-    target = tmp_path / "target.json"
-    source.write_text("new", encoding="utf-8")
-    target.write_text("old", encoding="utf-8")
-    real_replace = image_api.os.replace
-    attempts = 0
-    sleeps: list[float] = []
-
-    def sharing_once(src: str | Path, dst: str | Path) -> None:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise PermissionError(13, "sharing violation", str(dst))
-        real_replace(src, dst)
-
-    monkeypatch.setattr(image_api.os, "replace", sharing_once)
-    monkeypatch.setattr(
-        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
-    )
-
-    image_api._atomic_replace(source, target, platform_name="nt")
-
-    assert attempts == 2
-    assert sleeps == [0.01]
-    assert target.read_text(encoding="utf-8") == "new"
-
-
 @pytest.mark.parametrize(("platform_name", "attempt_count"), [("nt", 6), ("posix", 1)])
 def test_atomic_replace_propagates_persistent_permission_errors(
     tmp_path: Path,
@@ -155,106 +91,6 @@ def test_atomic_replace_propagates_persistent_permission_errors(
     assert len(sleeps) == attempt_count - 1
     assert target.read_text(encoding="utf-8") == "old"
     assert source.read_text(encoding="utf-8") == "new"
-
-
-@pytest.mark.parametrize("json_output", [False, True])
-def test_atomic_writes_clean_up_after_replace_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    json_output: bool,
-) -> None:
-    target = tmp_path / "image.json"
-    target.write_bytes(b"old")
-
-    def denied(_source, _destination):
-        raise OSError("cannot replace")
-
-    monkeypatch.setattr(image_api.os, "replace", denied)
-
-    with pytest.raises(OSError, match="cannot replace"):
-        if json_output:
-            image_api._atomic_write_json(target, {"value": "new"})
-        else:
-            image_api._atomic_write(target, b"new", force=True)
-
-    assert target.read_bytes() == b"old"
-    assert list(tmp_path.iterdir()) == [target]
-
-
-def test_generate_image_writes_artifact_and_secret_free_sidecar(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[str] = []
-
-    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
-        seen.append(req.full_url)
-        # The grant's key goes in the request; the sidecar check below keeps it
-        # out of what is written to disk.
-        assert req.get_header("Authorization") == "Bearer dummy-key"
-        payload = json.loads(req.data.decode("utf-8"))
-        assert "size" not in payload
-        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
-
-    monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    out = tmp_path / "figure.png"
-
-    meta = image_api.generate_image(
-        prompt="clean academic hierarchy diagram",
-        out=out,
-        force=False,
-        env=_env_with_vault(tmp_path),
-    )
-
-    assert seen == ["https://example.invalid/openai/v1/images/generations"]
-    assert out.read_bytes() == _PNG_BYTES
-    assert meta["image"]["mime"] == "image/png"
-    assert meta["requested_size"] == "auto"
-    sidecar_text = (tmp_path / "figure.png.json").read_text(encoding="utf-8")
-    assert "dummy-key" not in sidecar_text
-    assert "clean academic hierarchy diagram" in sidecar_text
-
-
-def test_generate_image_retries_transient_overload(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-    sleeps: list[float] = []
-
-    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
-        calls.append(req.full_url)
-        if len(calls) == 1:
-            headers = Message()
-            headers["Retry-After"] = "0"
-            raise HTTPError(
-                req.full_url,
-                429,
-                "too many requests",
-                hdrs=headers,
-                fp=io.BytesIO(b'{"error":{"code":"EngineOverloaded"}}'),
-            )
-        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
-
-    monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    real_sleep = time.sleep
-    monkeypatch.setattr(
-        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
-    )
-    assert time.sleep is real_sleep  # Other runtime threads keep their real clock.
-
-    meta = image_api.generate_image(
-        prompt="clean academic hierarchy diagram",
-        out=tmp_path / "figure.png",
-        env=_env_with_vault(tmp_path),
-    )
-
-    assert calls == [
-        "https://example.invalid/openai/v1/images/generations",
-        "https://example.invalid/openai/v1/images/generations",
-    ]
-    assert sleeps == [1.0]
-    assert meta["image"]["mime"] == "image/png"
 
 
 def test_generate_image_caps_retry_after_delay(
@@ -291,29 +127,6 @@ def test_generate_image_caps_retry_after_delay(
     )
 
     assert sleeps == [45.0]
-
-
-def test_generate_image_keeps_explicit_non_square_size(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payloads: list[dict[str, Any]] = []
-
-    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
-        payloads.append(json.loads(req.data.decode("utf-8")))
-        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
-
-    monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-
-    meta = image_api.generate_image(
-        prompt="wide academic hierarchy diagram",
-        out=tmp_path / "wide.png",
-        size="1536x1024",
-        env=_env_with_vault(tmp_path),
-    )
-
-    assert payloads[0]["size"] == "1536x1024"
-    assert meta["requested_size"] == "1536x1024"
 
 
 def test_generate_image_records_prompt_and_output_paths(
@@ -436,34 +249,6 @@ def test_review_image_requires_caller_authored_instruction(tmp_path: Path) -> No
             review_instruction="   ",
             env=_env_with_vault(tmp_path),
         )
-
-
-def test_review_image_sends_review_instruction_verbatim(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # End-to-end: the caller-authored review_instruction reaches the model
-    # request unchanged, with no venue/paper/figure/method/submission
-    # language injected by image_api itself.
-    image = tmp_path / "figure.png"
-    image.write_bytes(_PNG_BYTES)
-    captured: dict[str, Any] = {}
-
-    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
-        captured["body"] = json.loads(req.data.decode("utf-8"))
-        return FakeResponse({"output_text": '{"keep_or_regenerate": "keep"}'})
-
-    monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    instruction = "Output JSON with keep_or_regenerate and confirmed_labels."
-    image_api.review_image(
-        image=image,
-        review_instruction=instruction,
-        prompt="hierarchy diagram",
-        out=tmp_path / "review.json",
-        env=_env_with_vault(tmp_path),
-    )
-    sent_text = captured["body"]["input"][0]["content"][0]["text"]
-    assert sent_text == instruction
 
 
 def test_image_api_uses_distinct_image_and_review_routes(

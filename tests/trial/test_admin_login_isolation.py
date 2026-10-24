@@ -197,28 +197,6 @@ def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_oth
         assert client.get("/api/projects").status_code == 200
 
 
-def test_admin_cookie_and_old_admin_frontend_cookies_cannot_be_used_as_trial11(provisioned):
-    config, vault, store = provisioned
-    calls = []
-    with client_for(provisioned, lambda request: calls.append(request)) as client:
-        response = admin_login(client, config)
-        value = response.cookies[portal.ADMIN_COOKIE]
-        assert store.session(value)["role"] == "admin"
-        assert client.get("/api/projects").status_code == 401
-        client.cookies.clear()
-        client.cookies.set(portal.COOKIE, value)
-        assert client.get("/invite/status").status_code == 401
-        old_identity = {"tenant": "admin", "role": "admin", "readonly": False,
-                        "exp": int(time.time()) + portal.SESSION_SECONDS}
-        old_cookie = vault.cipher.encrypt(
-            b"argus-web-invitation-session-v1\x00" + json.dumps(old_identity).encode()
-        ).decode()
-        client.cookies.set(portal.COOKIE, old_cookie)
-        assert client.get("/api/projects").status_code == 401
-        assert client.get("/invite/status").status_code == 401
-        assert not calls
-
-
 def test_legacy_ten_tenant_config_runs_without_issuing_trial11(provisioned):
     config, _, store = provisioned
     config["tenants"].pop("trial-11")

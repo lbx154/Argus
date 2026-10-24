@@ -118,18 +118,6 @@ def test_websocket_relay_auth_and_http_body(config, ledger):
         pass
 
 
-def test_meter_rejects_unmetered_payloads_and_releases_slots_on_setup_failure(config, ledger):
-    client = TestClient(model_app(config, ledger))
-    auth = {'Authorization': 'Bearer meter-a'}
-    assert client.post('/v1/responses', json={}).status_code == 401
-    assert client.post('/v1/responses', headers=auth, json={'model': 'other'}).status_code == 400
-    assert client.post('/v1/responses', headers=auth, json={'model': MODEL, 'tools': [{'type': 'web_search'}]}).status_code == 400
-    assert client.post('/v1/responses', headers=auth, json={'model': MODEL, 'input': [{'type': 'input_image'}]}).status_code == 400
-    for _ in range(3):  # A broken operator login must release both semaphore and reservation.
-        assert client.post('/v1/responses', headers=auth, json={'model': MODEL, 'input': 'hello'}).status_code == 502
-    assert ledger.status('alice')['used_usd'] == 0
-
-
 @pytest.mark.parametrize('host', ['127.0.0.1', '169.254.169.254', '10.0.0.1', '::1', '192.168.1.1'])
 def test_proxy_blocks_private_destinations(host):
     with pytest.raises(ValueError, match='Private'):

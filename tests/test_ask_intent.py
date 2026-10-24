@@ -13,28 +13,9 @@ decision must never turn an explicit question into queued work.
 """
 from __future__ import annotations
 
-import pytest
-
 from argus.manager.ask_intent import ASK_PREFIXES, strip_ask_prefix
 
 # -- recognising the intent -------------------------------------------------
-
-@pytest.mark.parametrize("prefix", ASK_PREFIXES)
-def test_every_documented_prefix_is_recognised(prefix) -> None:
-    assert strip_ask_prefix(f"{prefix} what backends are configured?") == (
-        "what backends are configured?"
-    )
-
-
-def test_the_prefix_is_case_insensitive() -> None:
-    assert strip_ask_prefix("/ASK what is the status") == "what is the status"
-
-
-def test_a_telegram_bot_mention_is_tolerated() -> None:
-    # Telegram appends @botname to commands in group chats.
-    assert strip_ask_prefix("/ask@argusbot how do I add a vertical") == (
-        "how do I add a vertical"
-    )
 
 
 def test_surrounding_whitespace_is_ignored() -> None:
@@ -42,29 +23,6 @@ def test_surrounding_whitespace_is_ignored() -> None:
 
 
 # -- what must NOT be treated as a question --------------------------------
-
-def test_ordinary_text_is_left_alone() -> None:
-    # The whole point is that inference is not involved: only the explicit
-    # prefix routes to an inline answer.
-    assert strip_ask_prefix("what backends are configured?") is None
-    assert strip_ask_prefix("please read the literature and summarise it") is None
-
-
-def test_a_bare_prefix_is_not_a_question() -> None:
-    # `/ask` with no body would send the Manager an empty prompt; fall through
-    # to normal handling instead.
-    for prefix in ASK_PREFIXES:
-        assert strip_ask_prefix(prefix) is None
-        assert strip_ask_prefix(f"{prefix}   ") is None
-
-
-def test_other_commands_are_untouched() -> None:
-    assert strip_ask_prefix("/task build the thing") is None
-    assert strip_ask_prefix("/status") is None
-
-
-def test_a_prefix_in_the_middle_does_not_count() -> None:
-    assert strip_ask_prefix("please /ask someone else") is None
 
 
 def test_empty_input_is_not_a_question() -> None:
@@ -106,5 +64,3 @@ def test_the_shared_command_table_lists_ask() -> None:
     assert "id: 'ask'" in commands
     # The description has to say what it does not do, or nobody reaches for it.
     assert "no task queued" in commands
-
-

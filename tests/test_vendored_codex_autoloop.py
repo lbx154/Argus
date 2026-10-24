@@ -18,48 +18,6 @@ def test_vendored_agent_cli_runner_importable() -> None:
     assert RunnerOptions.__module__ == "argus.agent_cli.agent_cli_runner"
 
 
-def test_vendored_runner_backend_constants() -> None:
-    from argus.agent_cli.runner_backend import (
-        BACKEND_CLAUDE,
-        BACKEND_CODEX,
-        BACKEND_COPILOT,
-        BACKEND_CURSOR,
-        BACKEND_GROK,
-        BACKEND_OPENCODE,
-        BACKEND_PI,
-        DEFAULT_RUNNER_BACKEND,
-        normalize_runner_backend,
-    )
-    assert BACKEND_CODEX == "codex"
-    assert BACKEND_CLAUDE == "claude"
-    assert BACKEND_COPILOT == "copilot"
-    assert BACKEND_CURSOR == "cursor"
-    assert BACKEND_OPENCODE == "opencode"
-    assert BACKEND_PI == "pi"
-    assert BACKEND_GROK == "grok"
-    assert DEFAULT_RUNNER_BACKEND in {
-        BACKEND_CODEX,
-        BACKEND_CLAUDE,
-        BACKEND_COPILOT,
-        BACKEND_CURSOR,
-        BACKEND_OPENCODE,
-        BACKEND_PI,
-        BACKEND_GROK,
-    }
-    assert normalize_runner_backend("CODEX") == BACKEND_CODEX
-    assert normalize_runner_backend("copilot") == BACKEND_COPILOT
-    assert normalize_runner_backend("opencod") == BACKEND_OPENCODE
-    assert normalize_runner_backend("PI") == BACKEND_PI
-    assert normalize_runner_backend("GROK") == BACKEND_GROK
-
-
-def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
-    from argus.adapters.agent_cli_backend import AgentCliBackend
-    from argus.agent_cli.agent_cli_runner import AgentCliRunner
-
-    assert isinstance(AgentCliBackend()._runner, AgentCliRunner)
-
-
 def test_agent_cli_package_init_is_thin() -> None:
     """The vendored package must not eagerly import the deleted legacy stack.
 

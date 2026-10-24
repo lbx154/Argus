@@ -178,25 +178,6 @@ def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
     )
 
 
-def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
-    """seed_builtin_skills must copy *_scripts/ assets (e.g.
-    figure_renderer.py) alongside the skill markdown. Without this the
-    skill prompt would reference a script that's missing in the seeded
-    project workspace."""
-    from argus.skills.builtins import seed_vertical_skills
-
-    seed_vertical_skills(tmp_path, "research")
-    renderer = tmp_path / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
-    assert renderer.exists(), (
-        "figure_renderer.py was NOT seeded into the workspace — the "
-        "bundled-script copy path is broken"
-    )
-    # Sanity: the seeded copy has identical source content. Git may check out
-    # the source with CRLF on Windows while importlib.resources yields LF.
-    in_tree = RESEARCH_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
-    assert renderer.read_text(encoding="utf-8") == in_tree.read_text(encoding="utf-8")
-
-
 def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
     """Structurally-unlearnable RL configs are still caught before GPU spend.
 

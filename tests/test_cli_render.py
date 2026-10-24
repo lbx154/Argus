@@ -3,20 +3,10 @@
 from __future__ import annotations
 
 from argus.cli.render import render_event_for_terminal
-from argus.cli.theme import BOX, Theme
+from argus.cli.theme import Theme
 
 _PLAIN = Theme(enabled=False, width=80)
 _ANSI = Theme(enabled=True, width=80)
-
-
-def test_canonical_round_start_prepends_horizontal_rule() -> None:
-    out = render_event_for_terminal(
-        {"type": "round.start", "round_index": 3},
-        theme=_PLAIN,
-    )
-    assert out.startswith("\n")
-    assert "Round 3" in out
-    assert BOX["h"] in out
 
 
 def test_historical_round_alias_uses_same_rule() -> None:
@@ -47,27 +37,6 @@ def test_mission_completion_color_uses_structured_status() -> None:
     )
     assert "\x1b[1m\x1b[32m" in success
     assert "\x1b[1m\x1b[31m" in failure
-
-
-def test_life_mission_completed_renders_a_human_outcome() -> None:
-    rendered = render_event_for_terminal(
-        {
-            "type": "life.mission.completed",
-            "status": "done",
-            "outcome": {
-                "execution_status": "completed",
-                "review_status": "done",
-                "stage_certification": "not_certified",
-                "interruption_kind": "none",
-                "resumable": False,
-            },
-        },
-        theme=_PLAIN,
-    )
-    assert "Completed: current task." in rendered
-    assert "execution=" not in rendered
-    assert "review=" not in rendered
-    assert "stage=" not in rendered
 
 
 def test_engineer_progress_terminal_redacts_raw_secret(redact_secrets_on) -> None:

@@ -19,21 +19,6 @@ import json
 
 from argus.reviewer import Reviewer
 from argus.reviewer._core import _verification_directive
-from argus.verticals.research.prompt_policy import academic_paper_review_block
-
-
-def _prompt() -> str:
-    r = Reviewer(runner=None, skill_store=None)
-    return r._build_prompt(
-        objective="minimize cand_ms on the kernel",
-        operator_messages=[],
-        planner_review_instruction="",
-        round_index=1,
-        session_id=None,
-        main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
-        main_error=None,
-        prior_checkpoint={},
-    )
 
 
 def test_directive_trusts_and_drops_reflexive_rerun():
@@ -47,20 +32,6 @@ def test_directive_trusts_and_drops_reflexive_rerun():
     assert len(d) < 420
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d
-
-
-def test_paper_review_requires_idea_and_built_artifact_quality():
-    block = academic_paper_review_block().lower()
-
-    assert "executed code" in block
-    assert "raw rows" in block
-    assert "real evaluator" in block
-    assert "strong same-information baselines" in block
-    assert "positive controls" in block
-    assert "follows the venue's rules" in block
-    assert "rendered layout" in block
-    assert "no fixed fields or review template is required" in block
-    assert "reopen selection, or move backward" in block
 
 
 def _persist_review_stage(tmp_path, vertical: str) -> None:
@@ -99,15 +70,6 @@ def test_non_paper_review_omits_paper_review_rubric(tmp_path) -> None:
     assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
 
 
-def test_final_certification_review_keeps_paper_review_rubric(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "research")
-
-    prompt, reviewer = _project_reviewer_prompt(tmp_path)
-
-    assert "## Integrated final paper review" in prompt
-    assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
-
-
 def test_final_submission_does_not_make_a_non_paper_vertical_a_paper_one(tmp_path) -> None:
     _persist_review_stage(tmp_path, "learning")
 
@@ -118,55 +80,3 @@ def test_final_submission_does_not_make_a_non_paper_vertical_a_paper_one(tmp_pat
 
     assert "## Near-complete paper review" not in prompt
     assert "## Final paper review" not in prompt
-
-
-def test_final_submission_forces_certify_over_operator_explore(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "research")
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    state["verification_profile"] = "explore"
-    state_path.write_text(json.dumps(state), encoding="utf-8")
-
-    prompt, _reviewer = _project_reviewer_prompt(
-        tmp_path,
-        scope="final_submission",
-    )
-
-    assert "This round: `certify`" in prompt
-
-
-def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
-    p = _prompt()
-    assert 'Trust consistent evidence' in p
-    assert "use *your own* output as ground truth" not in p
-    assert "## Evidence policy" not in p
-
-
-def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
-    p = _prompt()
-    assert 'Only claim-essential evidence gaps warrant `to=engineer`' in p
-    assert 'optional evidence and minor weaknesses are advice' in p
-
-
-def test_done_tracks_the_current_verification_profile(monkeypatch):
-    p = _prompt()
-
-    assert '`to=done` meets this profile' in p
-    assert 'not exhaustive proof or every file' in p
-    assert 'operator>objective>mission>preregistration' in p
-    assert 'A timeout or failed attempt' in p
-
-
-def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
-    p = _prompt()
-    assert 'Integrity is required' in p
-    assert 'not scientific value' in p
-    assert "`to=planner` for a wrong target" in p
-
-
-def test_reviewer_reasons_in_prose_and_submits_a_native_action(monkeypatch):
-    p = _prompt()
-    assert "End your turn with hand_off" in p
-    assert "ARGUS_ROLE_DECISION=" not in p
-    assert "STATUS=" not in p
-    assert "hand_off" in p

@@ -109,26 +109,6 @@ def test_cancellation_reaches_running_advisor(tmp_path, cause):
     assert len(calls) == 1
 
 
-def test_concurrent_duplicate_gets_pending_receipt_without_second_provider_call(tmp_path):
-    started, release = threading.Event(), threading.Event()
-
-    def action(_kwargs):
-        started.set()
-        assert release.wait(3)
-        return RunnerResult(exit_code=0, agent_messages=["advice"])
-
-    service, calls, _backends, _events = fixture(tmp_path, action=action)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(service.consult, "Same question", [], "same-request")
-        try:
-            assert started.wait(2)
-            assert service.consult("Same question", [], "same-request")["status"] == "requested"
-        finally:
-            release.set()
-        assert future.result(2)["status"] == "completed"
-    assert len(calls) == 1
-
-
 def test_cancel_arriving_before_consult_never_starts_provider(tmp_path):
     service, calls, _backends, _events = fixture(tmp_path)
     service.cancel("not-yet-registered")

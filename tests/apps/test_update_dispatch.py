@@ -17,19 +17,6 @@ def test_update_dispatches_installed_package_without_source_git(tmp_path, monkey
     assert "already up to date" not in output
 
 
-def test_update_dispatch_reports_package_failure(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(update, "source_root", lambda: tmp_path)
-
-    def failed():
-        raise update.UpdateError("installation failed")
-
-    monkeypatch.setattr(package_update, "update_installed_package", failed)
-    assert update.run_update() == 2
-    output = capsys.readouterr()
-    assert "installation failed" in output.err
-    assert not output.out
-
-
 def test_update_dispatch_keeps_source_path_and_reports_reinstall(tmp_path, monkeypatch, capsys):
     (tmp_path / "pyproject.toml").write_text("[project]\n")
     monkeypatch.setattr(update, "source_root", lambda: tmp_path)

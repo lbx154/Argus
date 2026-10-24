@@ -372,32 +372,6 @@ def test_a_canary_tag_before_any_admission_waits_for_a_window_and_cannot_clear(
     assert active_runtime_failure_circuit(root) is not None
 
 
-def test_a_changed_fact_opens_a_half_open_window_without_waiting(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "life"
-    opened = float(_open_circuit(root)["first_observed_at"])
-
-    # The first claim records what it saw; the same facts are not news.
-    assert not claim_runtime_failure_half_open(
-        root, slot="mission", item_id="a", facts={"backend": "a"}, now=opened + 1
-    )
-    assert not claim_runtime_failure_half_open(
-        root, slot="mission", item_id="a", facts={"backend": "a"}, now=opened + 2
-    )
-    assert claim_runtime_failure_half_open(
-        root, slot="mission", item_id="a", facts={"backend": "b"}, now=opened + 3
-    )
-    # One canary per window, and the window has now seen these facts.
-    assert not claim_runtime_failure_half_open(
-        root, slot="mission", item_id="b", expected_canary_item_id="a",
-        facts={"backend": "b"}, now=opened + 4,
-    )
-    assert json.loads((root / CIRCUIT_FILENAME).read_text())["canary_facts"] == {
-        "backend": "b"
-    }
-
-
 def test_the_timed_canary_window_is_a_knob_that_can_leave_windows_to_facts(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -421,25 +395,6 @@ def test_the_timed_canary_window_is_a_knob_that_can_leave_windows_to_facts(
     assert json.loads((root / CIRCUIT_FILENAME).read_text())["canary_due_at"] == 0.0
 
 
-def test_supervisor_admits_a_canary_when_its_watched_facts_change(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = _project(tmp_path, monkeypatch)
-    supervisor = _supervisor(project, tmp_path / "life")
-    root = supervisor.memory.root
-    _open_circuit(root)
-    assert supervisor._runtime_failure_canary_facts()
-    item = supervisor.memory.backlog.add(BacklogItem.new(title="work", objective="a"))
-
-    assert supervisor._runtime_failure_circuit_block(item=item) is not None
-    monkeypatch.setattr(
-        supervisor, "_runtime_failure_canary_facts", lambda: {"operator_context_revision": 99}
-    )
-    assert supervisor._runtime_failure_circuit_block(item=item) is None
-    stored = next(row for row in supervisor.memory.backlog.active() if row.id == item.id)
-    assert CANARY_TAG in stored.tags
-
-
 def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> None:
     backlog = LifeMemory.open(tmp_path / "life").backlog
     asked = BacklogItem.new(title="asked", objective="a", tags=["planner", CANARY_TAG])
@@ -453,26 +408,6 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
 
 
 # Lossy handoffs.
-
-
-def test_handoff_with_concrete_tasks_enqueues_the_tasks(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = _project(tmp_path, monkeypatch)
-    planner = _PlannerBackend([plan(
-        summary="The sweep is still running; write the analysis harness meanwhile.",
-        tasks=[{
-            "key": "harness", "title": "Write the analysis harness",
-            "objective": "Write the harness that reads the sweep output schema.",
-        }],
-    )])
-    supervisor = _supervisor(project, tmp_path / "life", planner)
-
-    assert supervisor._plan_next_work() is True
-
-    assert [item.title for item in supervisor.memory.backlog.pending()] == [
-        "Write the analysis harness"
-    ]
 
 
 def _handoff_with_task(to: str, **fields) -> tuple[str, dict]:

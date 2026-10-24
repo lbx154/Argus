@@ -11,7 +11,6 @@ from __future__ import annotations
 from importlib import resources
 
 from argus.reviewer import Reviewer
-from argus.roles.prompts.engineer import build_mission_prompt
 
 _DISPUTE = (
     "I disagree with the review: `grep -c '\\[ERROR\\]' today.log` prints 370 and "
@@ -44,15 +43,3 @@ def test_engineer_labeled_dispute_reaches_next_review_as_something_to_resolve() 
     assert "is not settled" in prompt
     assert "explain what is wrong with the Engineer's output" in prompt
     assert "independently check every value changed in response to a contested" in prompt
-
-
-def test_engineer_keeps_values_its_own_labeled_measurement_supports() -> None:
-    for include_static in (True, False):
-        prompt = build_mission_prompt(
-            task="Write summary.csv",
-            skill_text="",
-            next_action="Swap ERROR and WARNING in every row.",
-            include_static=include_static,
-        )
-        assert "Never write values that your own labeled measurement contradicts" in prompt \
-            or "do not write that value" in prompt

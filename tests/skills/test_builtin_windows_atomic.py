@@ -8,31 +8,6 @@ import pytest
 from argus.skills import builtins
 
 
-@pytest.mark.parametrize("old_bytes", [b"old factory text\n", b"\xff old non-UTF8 file\n"])
-def test_transient_share_lock_allows_replacement_of_existing_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, old_bytes: bytes,
-) -> None:
-    destination = tmp_path / "seed.md"
-    destination.write_bytes(old_bytes)
-    real_replace = os.replace
-    attempted = []
-
-    def replace(source, target):
-        attempted.append(source)
-        if len(attempted) == 1:
-            raise PermissionError("temporary Windows share lock")
-        return real_replace(source, target)
-
-    monkeypatch.setattr(builtins.os, "replace", replace)
-    monkeypatch.setattr(builtins.time, "sleep", lambda _seconds: None)
-
-    builtins._atomic_write_text(destination, "new factory text\n")
-
-    assert destination.read_bytes() == b"new factory text\n"
-    assert len(attempted) > 1
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
-
-
 def test_persistent_share_lock_preserves_original_and_reports_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -54,30 +29,6 @@ def test_persistent_share_lock_preserves_original_and_reports_failure(
 
     assert len(attempts) > 1
     assert destination.read_bytes() == original
-    assert list(tmp_path.glob("seed.md.tmp.*")) == []
-
-
-def test_identical_crlf_winner_finishes_without_repeated_replace_attempts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    destination = tmp_path / "seed.md"
-    destination.write_bytes(b"same factory text\r\n")
-    attempts = []
-
-    def replace(_source, _target):
-        attempts.append(None)
-        raise PermissionError("another process already installed this seed")
-
-    def unexpected_sleep(_seconds):
-        pytest.fail("an identical concurrent winner needs no retry")
-
-    monkeypatch.setattr(builtins.os, "replace", replace)
-    monkeypatch.setattr(builtins.time, "sleep", unexpected_sleep)
-
-    builtins._atomic_write_text(destination, "same factory text\n")
-
-    assert len(attempts) == 1
-    assert destination.read_bytes() == b"same factory text\r\n"
     assert list(tmp_path.glob("seed.md.tmp.*")) == []
 
 

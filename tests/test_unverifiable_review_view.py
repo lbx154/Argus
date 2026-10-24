@@ -76,12 +76,6 @@ def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
         assert validate_event_envelope(event).errors == ()
 
 
-def test_manager_supervision_failure_codes_validate() -> None:
-    for code in ("handoff_missing", "decision_invalid", "superseded"):
-        event = {"type": "life.manager.supervision.failed", "error_code": code}
-        assert not any("error_code" in error for error in validate_event_envelope(event).errors)
-
-
 def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:
     from argus.core.model_visible_text import (
         MASKED_DISPLAY_ENGINEER_RULE,

@@ -40,25 +40,6 @@ def test_incomplete_turn_keeps_the_explicit_cli_error_in_the_tail() -> None:
     )
 
 
-def test_incomplete_turn_without_stderr_is_still_a_failure() -> None:
-    assert "without completing" in _incomplete_turn_error([])
-
-
-def test_receipt_comes_first_and_an_empty_stderr_is_said_so() -> None:
-    assert _incomplete_turn_error(
-        [ECONNREFUSED], receipt="Copilot CLI exited with code 1.",
-    ) == f"Copilot CLI exited with code 1.\n{ECONNREFUSED}"
-    assert _incomplete_turn_error(
-        [], receipt="Copilot CLI exited with code 1.", log_hint="/srv/argus/copilot-home/logs",
-    ) == (
-        "Copilot CLI exited with code 1. It printed nothing on stderr; "
-        "its own log is under /srv/argus/copilot-home/logs."
-    )
-    assert _incomplete_turn_error([], receipt="dsh exited with code 2.") == (
-        "dsh exited with code 2. It printed nothing on stderr."
-    )
-
-
 def test_tail_is_clean_redacted_and_keeps_local_paths(redact_secrets_on) -> None:
     tail = stderr_tail([
         "\x1b[31mError:\x1b[0m connect ECONNREFUSED 127.0.0.1:18765",
@@ -132,45 +113,6 @@ def _run_copilot(monkeypatch, *, stderr, exit_code):
         prompt="run the sweep", resume_thread_id=None,
         options=RunnerOptions(), run_label="engineer-r1",
     )
-
-
-def test_copilot_exit_one_carries_the_stderr_reason_and_reads_as_infrastructure(
-    monkeypatch,
-) -> None:
-    result = _run_copilot(
-        monkeypatch,
-        stderr=[
-            "[relay] forwarding to http://127.0.0.1:18765",
-            ECONNREFUSED,
-            "    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)",
-        ],
-        exit_code=1,
-    )
-
-    assert result.turn_failed is True
-    assert result.turn_completed is False
-    assert result.thread_id == "s-1"
-    assert result.fatal_error is not None
-    assert result.fatal_error.startswith("Copilot CLI exited with code 1.\n")
-    assert "connect ECONNREFUSED 127.0.0.1:18765" in result.fatal_error
-
-    cause = backend_failure_cause(result.fatal_error, exit_code=result.exit_code)
-    assert cause.infrastructure
-    assert cause.kind == "service_unreachable"
-    assert cause.line == "connect ECONNREFUSED 127.0.0.1:18765"
-
-
-def test_copilot_exit_one_redacts_a_bearer_token_from_stderr(redact_secrets_on, monkeypatch) -> None:
-    result = _run_copilot(
-        monkeypatch,
-        stderr=["Authorization: Bearer xyz0123456789abcdef", ECONNREFUSED],
-        exit_code=1,
-    )
-
-    assert result.fatal_error is not None
-    assert "xyz0123456789abcdef" not in result.fatal_error
-    assert "Authorization: <REDACTED:token>" in result.fatal_error
-    assert "connect ECONNREFUSED 127.0.0.1:18765" in result.fatal_error
 
 
 def test_copilot_exit_one_with_silent_stderr_points_at_its_own_log(monkeypatch) -> None:

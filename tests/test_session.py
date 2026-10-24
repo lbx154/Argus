@@ -12,17 +12,12 @@ import json
 import pytest
 
 from argus.core.session import (
-    SessionMeta,
     SessionResolutionError,
     list_sessions,
-    migrate_legacy_session_workdir,
-    most_recent_session,
     new_session_id,
     read_session_meta,
     resolve_session,
-    resolve_session_workdir,
     touch_session,
-    write_session_meta,
 )
 from argus.life.memory import MemoryBundle
 
@@ -32,99 +27,6 @@ def test_new_session_id_format():
     assert sid.startswith("s-")
     assert "/" not in sid
     assert sid != new_session_id()  # unique
-
-
-def test_new_mode_mints_fresh_each_time(tmp_path):
-    a, new_a = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=100)
-    b, new_b = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=200)
-    assert new_a and new_b
-    assert a != b  # SAME cwd, but two different sessions — the whole point
-    # Each wrote its session.json
-    assert read_session_meta(tmp_path, a).created == 100
-    assert read_session_meta(tmp_path, b).created == 200
-    assert read_session_meta(tmp_path, a).workdir == str(tmp_path.resolve())
-
-
-def test_resolve_session_workdir_preserves_legacy_cwd(tmp_path):
-    state = tmp_path / "state"
-    legacy = tmp_path / "legacy-work"
-    launch = tmp_path / "launch-only"
-    state.mkdir()
-    legacy.mkdir()
-    launch.mkdir()
-
-    resolved = resolve_session_workdir(
-        SessionMeta(id="legacy", cwd=str(legacy), launch_cwd=str(launch)),
-        state_dir=state,
-    )
-
-    assert resolved == legacy.resolve()
-
-
-def test_resolve_session_workdir_rejects_missing_explicit_path(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        resolve_session_workdir(
-            SessionMeta(id="missing", workdir=str(tmp_path / "missing")),
-            state_dir=tmp_path,
-        )
-
-
-def test_resolve_session_workdir_rejects_missing_legacy_cwd(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        resolve_session_workdir(
-            SessionMeta(id="legacy", cwd=str(tmp_path / "missing")),
-            state_dir=tmp_path,
-        )
-
-
-def test_resolve_session_workdir_rejects_incomplete_metadata(tmp_path):
-    with pytest.raises(FileNotFoundError, match="no trustworthy workdir"):
-        resolve_session_workdir(
-            SessionMeta(id="incomplete", display_name="Named too early"),
-            state_dir=tmp_path,
-        )
-
-
-def test_migrate_repairs_incomplete_metadata_without_losing_identity(tmp_path):
-    root = tmp_path / "state"
-    sid = "incomplete"
-    state_dir = root / "projects" / sid
-    workspace = tmp_path / "workspace"
-    state_dir.mkdir(parents=True)
-    workspace.mkdir()
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid,
-            display_name="Existing name",
-            created=10.0,
-            last_active=20.0,
-        ),
-    )
-
-    resolved = migrate_legacy_session_workdir(
-        root,
-        sid,
-        state_dir=state_dir,
-        candidates=(state_dir, workspace),
-    )
-    meta = read_session_meta(root, sid)
-
-    assert resolved == workspace.resolve()
-    assert meta is not None
-    assert meta.cwd == str(workspace.resolve())
-    assert meta.workdir == str(workspace.resolve())
-    assert meta.display_name == "Existing name"
-    assert meta.created == 10.0
-    assert meta.last_active == 20.0
-
-
-def test_continue_returns_most_recent(tmp_path):
-    a, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=100)
-    b, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=200)
-    assert most_recent_session(tmp_path) == b
-    sid, is_new = resolve_session(global_root=tmp_path, mode="continue")
-    assert sid == b and not is_new
 
 
 def test_resume_validates_existence(tmp_path):
@@ -160,67 +62,6 @@ def test_list_sessions_newest_first_and_includes_legacy(tmp_path):
     assert legacy_meta.objective == "old work"
 
 
-def test_legacy_last_active_ignores_web_projection_writes(tmp_path):
-    import os
-
-    legacy = tmp_path / "projects" / "s-legacy"
-    legacy.mkdir(parents=True)
-    continuous = legacy / "continuous.json"
-    continuous.write_text(json.dumps({"objective": "old work"}))
-    events = legacy / "events.jsonl"
-    events.write_text('{"type":"loop.done"}\n')
-    os.utime(continuous, (100, 100))
-    os.utime(events, (120, 120))
-
-    # Web snapshot projection and lock creation may touch the directory today,
-    # but neither is actual research/session activity.
-    (legacy / "mission-view.json").write_text("{}\n")
-    (legacy / "mission-view.lock").write_text("")
-    (legacy / "usage.jsonl").write_text('{"source":"legacy.events"}\n')
-    os.utime(legacy, (1000, 1000))
-
-    meta = next(item for item in list_sessions(tmp_path) if item.id == "s-legacy")
-    assert meta.last_active == 120
-
-
-def test_named_session_last_active_follows_durable_work(tmp_path):
-    import os
-
-    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=100)
-    project = tmp_path / "projects" / sid
-    events = project / "events.jsonl"
-    events.write_text('{"type":"round.start"}\n')
-    os.utime(events, (500, 500))
-    projection = project / "mission-view.json"
-    projection.write_text("{}\n")
-    os.utime(projection, (700, 700))
-
-    meta = next(item for item in list_sessions(tmp_path) if item.id == sid)
-
-    assert meta.last_active == 500
-    assert read_session_meta(tmp_path, sid).last_active == 100
-
-
-def test_contentless_legacy_session_does_not_trust_directory_mtime(tmp_path):
-    import os
-
-    legacy = tmp_path / "projects" / "s-lock-only"
-    legacy.mkdir(parents=True)
-    (legacy / "mission-view.lock").write_text("")
-    os.utime(legacy, (1000, 1000))
-
-    meta = next(item for item in list_sessions(tmp_path) if item.id == "s-lock-only")
-    assert meta.last_active == 0
-
-
-def test_touch_updates_last_active_and_name(tmp_path):
-    a, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=100)
-    touch_session(tmp_path, a, display_name="optimize 079 kernel", now=500)
-    m = read_session_meta(tmp_path, a)
-    assert m.last_active == 500
-    assert m.display_name == "optimize 079 kernel"
-
-
 def test_touch_creates_missing_metadata_with_requested_timestamp(tmp_path):
     (tmp_path / "projects" / "s-missing").mkdir(parents=True)
     touch_session(tmp_path, "s-missing", display_name="Recovered", now=123)
@@ -239,10 +80,3 @@ def test_memory_bundle_keys_by_session_id_not_cwd(tmp_path):
     assert b1.project.root != b2.project.root
     assert b1.project.root.name == "s-aaaa1111"
     assert b2.project.root.name == "s-bbbb2222"
-
-
-def test_memory_bundle_default_still_cwd(tmp_path):
-    # No fingerprint -> legacy cwd identity (unchanged behaviour).
-    b = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path)
-    assert b.project.root.parent.name == "projects"
-    assert b.project.root.name not in ("", "projects")

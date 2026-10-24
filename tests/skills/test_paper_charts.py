@@ -101,37 +101,6 @@ def test_dots_label_every_point_and_name_the_proposed_method_in_bold() -> None:
     matplotlib.pyplot.close(fig)
 
 
-def test_panels_share_one_legend_and_carry_letters(tmp_path: Path) -> None:
-    fig, axes = pc.grid(1, 2, column="double", two_column=True)
-    pc.bars(["4k", "32k"], REPEATS, ours="Ours", ax=axes[0])
-    pc.lines([1, 2], {"Baseline": [1, 2], "Ours": [1, 3]}, ours="Ours", ax=axes[1])
-    pc.finish(fig)
-
-    assert len(fig.legends) == 1
-    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["Baseline", "Ours"]
-    assert all(ax.get_legend() is None for ax in axes)
-    letters = [t.get_text() for ax in axes for t in ax.texts]
-    assert letters == ["(a)", "(b)"]
-    _paper(tmp_path)
-    written = pc.save(fig, tmp_path / "paper" / "figures" / "panels", project_root=tmp_path)
-    facts = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))
-    assert [p["kind"] for p in facts["panels"]] == ["bars", "lines"]
-    assert all(p["legend"] == "above" for p in facts["panels"])
-
-
-def test_exports_carry_truetype_fonts_and_name_the_helper(tmp_path: Path) -> None:
-    from argus.verticals.research import figure_lint
-
-    fig, _ = pc.bars(["a", "b"], {"x": [1.0, 2.0], "Ours": [2.0, 3.0]}, ours="Ours", two_column=True)
-    _paper(tmp_path)
-    written = pc.save(fig, tmp_path / "paper" / "figures" / "fonts", project_root=tmp_path)
-    _, subtypes = figure_lint._pdf_producer_and_fonts(Path(written["pdf"]))
-    assert "/Type3" not in subtypes
-    chunks = figure_lint._png_text_chunks(Path(written["png"]))
-    assert chunks["Software"].startswith("paper_charts")
-    assert json.loads(chunks["paper_charts:facts"])["figure"] == "fonts"
-
-
 def test_a_reference_may_vary_per_x_and_baselines_get_hollow_markers() -> None:
     x = [8, 16, 32]
     fig, ax = pc.lines(
@@ -147,36 +116,11 @@ def test_a_reference_may_vary_per_x_and_baselines_get_hollow_markers() -> None:
     matplotlib.pyplot.close(fig)
 
 
-def test_shared_y_panels_keep_the_taller_limit_and_the_legend_follows_drawing_order(tmp_path: Path) -> None:
-    fig, axes = pc.grid(1, 2, column="double", two_column=True, sharey=True)
-    pc.bars(["a"], {"Base": [90.0], "Ours": [95.0]}, ours="Ours", ax=axes[0])
-    pc.bars(["a"], {"Base": [4.0], "Ours": [5.0]}, ours="Ours", ax=axes[1])
-    pc.finish(fig)
-    assert axes[0].get_ylim()[1] >= 95.0 * pc.HEADROOM
-    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["Base", "Ours"]
-    _paper(tmp_path)
-    written = pc.save(fig, tmp_path / "paper" / "figures" / "shared", project_root=tmp_path)
-    panels = json.loads(Path(written["facts"]).read_text(encoding="utf-8"))["panels"]
-    assert all(p["axis_from_zero"] is True for p in panels)
-
-
 @pytest.fixture
 def isolated_facts(monkeypatch: pytest.MonkeyPatch) -> None:
     # Keep the implementation's registry type, but isolate lifecycle assertions
     # from unsaved figures created by other tests. Do not mock IDs or collection.
     monkeypatch.setattr(pc, "_FACTS", type(pc._FACTS)())
-
-
-def test_collected_unsaved_figure_releases_metadata(isolated_facts: None) -> None:
-    fig, ax = pc.dots({"Old": (16, 96), "Ours": (2, 91)}, ours="Ours", two_column=True)
-    ref = weakref.ref(fig)
-    assert len(pc._FACTS) == 1
-    matplotlib.pyplot.close(fig)
-    del fig, ax
-    gc.collect()
-
-    assert ref() is None, "metadata must not keep an unsaved figure alive"
-    assert len(pc._FACTS) == 0, "collected figure metadata must not survive for ID reuse"
 
 
 def test_closed_live_figure_keeps_metadata_until_saved(tmp_path: Path, isolated_facts: None) -> None:

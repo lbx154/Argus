@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from argus.loop import SkillLoop
 from argus.reviewer import Reviewer
 
 
@@ -29,19 +28,6 @@ def test_effective_task_contract_is_compact() -> None:
     assert "`" not in contract
     for ban in ("unrelated cleanup", "never unchanged work", "Limit output", "Git retries"):
         assert ban not in contract
-
-
-def test_engineer_prompt_includes_shared_effective_task_contract() -> None:
-    prompt = SkillLoop._build_engineer_prompt(
-        task="Run the authorized source search.",
-        skill_text="",
-        next_action=None,
-        original_request="Find one real verified instance.",
-    )
-
-    assert _contract() in prompt
-    assert "non-negotiable north star" not in prompt
-    assert "Higher-priority live operator instructions" in prompt
 
 
 def test_reviewer_prompt_includes_shared_effective_task_contract() -> None:

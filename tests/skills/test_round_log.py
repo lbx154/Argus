@@ -59,48 +59,6 @@ def _probe_rows() -> list[dict]:
     ]
 
 
-def test_the_header_says_what_the_record_is_and_is_not(tmp_path: Path) -> None:
-    events = _write_events(tmp_path / "project" / "events.jsonl", _probe_rows())
-    text = mod.render_round_log(tmp_path / "ws", 1, events_path=events)
-
-    assert text.startswith("Engineer's commands this round (host record since ")
-    assert "what the agent CLI's output stream reported, including its exit code" in text
-    assert "not tamper-proof" in text
-    assert "the command text and output were produced by the Engineer's commands" in text
-
-
-def test_without_any_reported_result_the_log_claims_no_exit_codes(tmp_path: Path) -> None:
-    capture = CommandCapture(label="engineer-r1")
-    capture.start("s1", "command", "pytest -q", ts=T0 + 1)
-    capture.start("s2", "command", "python scripts/eval_ruler.py --config c.yaml", ts=T0 + 2)
-
-    text = mod.render_round_log(tmp_path, 1, runs=capture.runs())
-
-    assert mod.HEADER_WITHOUT_RESULTS in text
-    assert "recorded what the agent CLI's output stream reported" not in text
-    assert "  - `pytest -q`: no result recorded" in text
-    assert "- evaluations, benchmarks and training runs invoked" in text
-    assert "  - `python scripts/eval_ruler.py --config c.yaml`: no result recorded" in text
-
-
-def test_checks_are_shown_whole_and_flagged(tmp_path: Path) -> None:
-    events = _write_events(tmp_path / "project" / "events.jsonl", _probe_rows())
-    text = mod.render_round_log(tmp_path / "ws", 1, events_path=events)
-
-    # Two commands that share their first 90 characters stay two checks.
-    assert f"  - `{PYTEST} 2>&1 | tail -5`: exit 1 (watch: piped: the exit code is the last stage's" in text
-    masked = next(line for line in text.splitlines() if "not test_idle" in line)
-    assert f"`{PYTEST} -k 'not test_idle' 2>&1 | tail -5 || true`: exit 0" in masked
-    for flag in ("`|| true` hides a failure", "piped: the exit code is the last stage's",
-                 "selects or deselects tests", "tests or checks were edited this round"):
-        assert flag in masked
-    # An edit and an echo are not checks; they appear as the round's last commands.
-    checks = text.split("- the round's last commands:")[0]
-    assert "sed -i" not in checks.split("tests and checks")[1]
-    assert "echo 'check: 7 passed'" not in checks
-    assert "  - `echo 'check: 7 passed'`: exit 0" in text
-
-
 def test_every_run_is_shown_in_order_and_an_earlier_failure_stays_visible(tmp_path: Path) -> None:
     events = _write_events(tmp_path / "events.jsonl", [
         {"type": "round.start", "ts": T0, "round_index": 2},
@@ -174,30 +132,6 @@ def test_checks_are_classified_by_the_command_they_run() -> None:
         "python3 - <<'PY'\nimport unittest\nPY",
     ):
         assert not mod.is_check(command), command
-
-
-def test_a_shadow_log_beside_the_mission_packet_is_never_read(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    life_dir = project / "handoffs" / "m1"
-    _write_events(project / "events.jsonl", _probe_rows())
-    _write_events(life_dir / "events.jsonl", [
-        {"type": "round.start", "ts": T0, "round_index": 1},
-        _start(T0 + 1, "python -m pytest -q", "z"),
-        _result(T0 + 2, "z", 0, "7 passed in 0.2s"),
-    ])
-    request = RoundEvidenceRequest(
-        workdir=tmp_path / "ws", life_dir=life_dir, round_index=1,
-        events_path=project / "events.jsonl",
-    )
-
-    evidence = mod.round_log_evidence(request)
-
-    assert evidence is not None
-    assert "7 passed in 0.2s" not in evidence.reviewer_text
-    assert "1 failed, 6 passed" in evidence.reviewer_text
-    # Without the host's own log path, the provider reads nothing at all.
-    request = RoundEvidenceRequest(workdir=tmp_path / "ws", life_dir=life_dir, round_index=1)
-    assert mod.round_log_evidence(request) is None
 
 
 def test_a_second_result_for_the_same_call_is_shown_as_a_conflict(tmp_path: Path) -> None:

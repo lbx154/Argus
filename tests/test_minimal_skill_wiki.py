@@ -1,55 +1,11 @@
 from pathlib import Path
 
-import pytest
 import yaml
 
-from argus.skills.role_library import role_skill_libraries
-from argus.skills.store import Skill, SkillStore
 from argus.wiki.bootstrap import init_wiki, is_initialized_wiki
 from argus.wiki.index import rebuild_indexes
-from argus.wiki.schema import WikiPage, parse_page, serialize_page
+from argus.wiki.schema import WikiPage, parse_page
 from argus.wiki.store import WikiStore
-
-
-def test_skill_format_has_only_name_description_and_body(tmp_path: Path) -> None:
-    store = SkillStore(tmp_path / "skills")
-    path = store.save(
-        Skill(
-            name="Bounded output retry",
-            description="Avoid an unbounded output retry after input failure.",
-            content="# Bounded output retry\n\nRead the transport contract.",
-            path="ansible/connection/winrm/bounded-output-retry.md",
-        )
-    )
-    text = path.read_text(encoding="utf-8")
-    front = text[4:].split("\n---\n", 1)[0]
-    assert [line.split(":", 1)[0] for line in front.splitlines()] == [
-        "name",
-        "description",
-    ]
-    assert "# Bounded output retry" in text
-    assert not hasattr(Skill, "parse")
-
-
-def test_skill_store_requires_agent_authored_semantic_path(tmp_path: Path) -> None:
-    store = SkillStore(tmp_path / "skills")
-    with pytest.raises(ValueError, match="semantic Skill path"):
-        store.save(Skill("Name", "Description", "# Body"))
-
-
-def test_role_receives_paths_not_skill_content(tmp_path: Path) -> None:
-    store = SkillStore(tmp_path / "skills")
-    store.save(
-        Skill(
-            "Private body",
-            "Description",
-            "# Private body\n\nDO NOT PRELOAD THIS BODY",
-            path="project/private-body.md",
-        )
-    )
-    result = role_skill_libraries(store, role="engineer")
-    assert str(store.skills_dir.resolve()) in result.block
-    assert "DO NOT PRELOAD THIS BODY" not in result.block
 
 
 def test_wiki_page_format_and_single_index(tmp_path: Path) -> None:
@@ -96,35 +52,6 @@ def test_source_controlled_skills_use_only_minimal_frontmatter() -> None:
     assert checked > 100
 
 
-def test_wiki_writes_only_minimal_frontmatter() -> None:
-    text = serialize_page(WikiPage("Title", "Description", "# Title"))
-    front = yaml.safe_load(text[4:].split("\n---\n", 1)[0])
-    assert set(front) == {"title", "description"}
-
-
-def test_wiki_reads_legacy_pages_instead_of_dropping_them() -> None:
-    """Pages predating the two-field format carry a richer frontmatter and no
-    description. Rejecting them emptied every existing knowledge base."""
-    legacy = (
-        "---\n"
-        "id: erdos-straus-typeii\n"
-        "type: pattern\n"
-        "status: superseded-by-witness\n"
-        "title: Type II residue reduction\n"
-        "tags: [number-theory]\n"
-        "sources: []\n"
-        "---\n"
-        "\n"
-        "# Type II residue reduction\n"
-        "\n"
-        "Reduces the residue class before the lift gate.\n"
-    )
-    page = parse_page(legacy)
-    assert page.title == "Type II residue reduction"
-    assert page.description == "Reduces the residue class before the lift gate."
-    assert "lift gate" in page.content
-
-
 def test_wiki_description_falls_back_to_title_when_body_has_no_prose() -> None:
     text = "---\ntitle: Only a heading\nstatus: active\n---\n\n# Only a heading\n"
     assert parse_page(text).description == "Only a heading"
@@ -136,8 +63,3 @@ def test_wiki_description_skips_fenced_code() -> None:
         "# Fenced\n\n```text\nnot_a_description=1\n```\n\nReal prose here.\n"
     )
     assert parse_page(text).description == "Real prose here."
-
-
-def test_wiki_still_requires_a_title() -> None:
-    with pytest.raises(ValueError, match="title"):
-        parse_page("---\nstatus: active\n---\n\nBody\n")

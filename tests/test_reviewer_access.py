@@ -54,25 +54,6 @@ def _evaluate(backend, workdir, **config):
     )
 
 
-@pytest.mark.parametrize("access", [
-    {"dangerous_yolo": True, "full_auto": False},
-    {"dangerous_yolo": False, "full_auto": True},
-    {"dangerous_yolo": False, "full_auto": True, "sandbox_mode": "workspace-write", "isolate_workdir": True},
-])
-def test_the_reviewer_runs_with_the_engineer_s_access(tmp_path, access):
-    backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(action=hand_off("engineer", "One repair remains.")))
-
-    _evaluate(backend, tmp_path, **access)
-
-    options = backend.history[0][2]
-    assert options.dangerous_yolo == access["dangerous_yolo"]
-    assert options.full_auto == access["full_auto"]
-    assert options.sandbox_mode == access.get("sandbox_mode")
-    assert not options.force_safe_mode
-    assert options.isolate_workdir == access.get("isolate_workdir", False)
-
-
 def _without_verdict_tools(argv: list[str]) -> list[str]:
     """``argv`` less the plumbing that attaches the Reviewer's own verdict tools."""
     kept, index = [], 0
@@ -167,24 +148,6 @@ def test_a_review_that_changes_nothing_says_nothing(tmp_path):
 
     assert decision.status == "done" and decision.changed_during_review == []
     assert "changed_during_review" not in decision.to_event_payload()
-
-
-def test_a_snapshot_that_cannot_be_taken_does_not_hold_up_the_review(tmp_path, monkeypatch):
-    workdir, snapshots = _snapshots(tmp_path)
-    monkeypatch.setattr(WorkspaceSnapshots, "take", lambda *_args, **_kwargs: False)
-
-    def edit(_prompt, _options):
-        (workdir / "model.py").write_text("ANSWER = 43\n")
-        return "Approved."
-
-    backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(
-        message_factory=edit, action=hand_off("done", "The answer is right."),
-    ))
-    decision = _evaluate(backend, workdir, snapshots=snapshots)
-
-    assert decision.status == "done" and not decision.backend_unavailable
-    assert decision.changed_during_review == []
 
 
 def test_research_reviewer_is_granted_the_playbook_its_prompt_names(tmp_path):

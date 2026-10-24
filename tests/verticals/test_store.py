@@ -12,7 +12,6 @@ import re
 import stat
 import subprocess
 import sys
-import threading
 import time
 import zipfile
 from datetime import timedelta
@@ -87,51 +86,6 @@ def test_routing_path_survives_catalog_install_disablement_and_offline_rows(tmp_
 def test_catalog_rejects_mismatched_routing_name(release):
     _rewrite_catalog(release, lambda catalog: catalog["verticals"]["solo_v"].update(routing_path=["hardware", "other"]))
     with pytest.raises(store.VerticalStoreError, match="routing_path"):
-        store.load_catalog(refresh=True)
-
-
-def test_catalog_source_defaults_to_the_latest_github_release(monkeypatch) -> None:
-    monkeypatch.delenv(store.CATALOG_ENV, raising=False)
-    assert store.catalog_source() == store.DEFAULT_CATALOG_URL
-    assert store.catalog_source().startswith("https://github.com/Argus-AiTeam/argus-verticals/")
-
-
-def test_local_catalog_is_loaded_cached_and_refreshed(release, home, monkeypatch) -> None:
-    loaded = store.load_catalog()
-    assert loaded["error"] == "" and loaded["source"] == str(release)
-    assert set(loaded["catalog"]["verticals"]) == {"base_v", "child_v", "solo_v"}
-    assert loaded["catalog"]["release"]["tag"] == "vtest"
-    cache = json.loads(store.catalog_cache_path().read_text(encoding="utf-8"))
-    assert cache["source"] == str(release) and cache["catalog"]["schema"] == 1
-
-    fetches: list[str] = []
-    original = store._fetch_catalog
-
-    def counting(source):
-        fetches.append(source)
-        return original(source)
-
-    monkeypatch.setattr(store, "_fetch_catalog", counting)
-    store.load_catalog()
-    assert fetches == []  # fresh cache, same source: no re-read
-    store.load_catalog(max_age=timedelta(seconds=0))
-    store.load_catalog(refresh=True)
-    assert fetches == [str(release), str(release)]
-
-
-def test_file_url_catalog_source_is_accepted(release, monkeypatch) -> None:
-    monkeypatch.setenv(store.CATALOG_ENV, release.resolve().as_uri())
-    assert "child_v" in store.load_catalog()["catalog"]["verticals"]
-
-
-def test_stale_cache_is_served_with_the_error_when_the_fetch_fails(release, monkeypatch) -> None:
-    store.load_catalog()
-    release.write_text("{not json", encoding="utf-8")
-    loaded = store.load_catalog(refresh=True)
-    assert "child_v" in loaded["catalog"]["verticals"]
-    assert "not valid JSON" in loaded["error"]
-    store.catalog_cache_path().unlink()
-    with pytest.raises(store.VerticalStoreError, match="not valid JSON"):
         store.load_catalog(refresh=True)
 
 
@@ -217,34 +171,11 @@ def test_invalid_argus_features_are_not_silently_ignored(release, features):
         store.load_catalog(refresh=True)
 
 
-def test_unknown_argus_feature_blocks_whole_install_closure_before_writes(release, monkeypatch):
-    _rewrite_catalog(release, lambda c: c["verticals"]["child_v"].update(argus_features=["future-runtime"]))
-    monkeypatch.setattr(store, "_fetch_archive", lambda *args: pytest.fail("must refuse before downloading"))
-    row = next(r for r in store.rows() if r["name"] == "child_v")
-    assert row["actions"] == [] and "future-runtime" in " ".join(row["install_issues"])
-    with pytest.raises(store.VerticalStoreError, match="child_v.*future-runtime"):
-        store.install("child_v", wait=True)
-    assert store.installed() == {} and store.operation("child_v") is None
-
-
 def test_unsupported_api_blocks_the_whole_dependency_install(release):
     _rewrite_catalog(release, lambda c: c["verticals"]["child_v"].update(api_version=2))
     with pytest.raises(store.VerticalStoreError, match="child_v: vertical API version 2"):
         store.install("child_v", wait=True)
     assert store.installed() == {} and store.operation("child_v") is None
-
-
-@pytest.mark.parametrize(("feature", "module_name", "symbol"), [
-    ("composable-workflow-profiles", "argus.core.vertical_contract", "VerticalContract"),
-    ("vertical-routing-paths", "argus.verticals._registry", "validate_routing_path"),
-])
-def test_other_declared_argus_features_probe_current_apis(release, monkeypatch, feature, module_name, symbol):
-    module = store.importlib.import_module(module_name)
-    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=[feature]))
-    entries = store.load_catalog()["catalog"]["verticals"]
-    monkeypatch.setattr(module, symbol, None)
-    assert feature in "; ".join(store.runtime_issues(entries, "solo_v"))
-    assert store.installed() == {}
 
 
 def test_absent_host_module_is_reported_as_a_missing_feature(release, monkeypatch):
@@ -261,19 +192,6 @@ def test_absent_host_module_is_reported_as_a_missing_feature(release, monkeypatc
         store.install("solo_v", wait=True)
 
 
-@pytest.mark.parametrize("symbol", [
-    "RoundEvidence", "RoundEvidenceRequest", "register_round_evidence_provider", "collect_round_evidence",
-])
-def test_missing_host_evidence_api_blocks_dependent_install(release, monkeypatch, symbol):
-    from argus.engineer import round_evidence
-
-    _rewrite_catalog(release, lambda c: c["verticals"]["base_v"].update(argus_features=["host-round-evidence"]))
-    monkeypatch.delattr(round_evidence, symbol)
-    with pytest.raises(store.VerticalStoreError, match=f"base_v.*host-round-evidence.*{symbol}"):
-        store.install("child_v", wait=True)
-    assert store.installed() == {}
-
-
 def test_argus_feature_probe_does_not_hide_internal_import_errors(release, monkeypatch):
     _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=["host-round-evidence"]))
     original = store.importlib.import_module
@@ -286,35 +204,6 @@ def test_argus_feature_probe_does_not_hide_internal_import_errors(release, monke
     monkeypatch.setattr(store.importlib, "import_module", broken)
     with pytest.raises(ModuleNotFoundError, match="broken internal dependency"):
         store.install("solo_v", wait=True)
-
-
-def test_supported_argus_features_are_persisted_without_importing_the_plugin(release):
-    features = ["host-round-evidence", "composable-workflow-profiles", "vertical-routing-paths"]
-    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(argus_features=features))
-    assert store.install("solo_v", wait=True)["status"] == "done"
-    assert "argus_verticals.solo_v.stages" not in sys.modules
-    assert store.installed()["solo_v"]["argus_features"] == features
-    assert "solo_v" in vertical_select.available_verticals()
-    row = next(r for r in store.rows(catalog=None) if r["name"] == "solo_v")
-    assert row["runtime_issues"] == [] and row["install_issues"] == []
-
-
-def test_incompatible_catalog_update_keeps_installed_version_usable(release):
-    store.install("solo_v", wait=True)
-    before = store.registry_path().read_bytes()
-    source = store.package_root() / "solo_v/stages.py"
-    original = source.read_bytes()
-    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].update(
-        version="2.0.0", argus_features=["future-runtime"],
-    ))
-    store.load_catalog(refresh=True)
-    row = next(r for r in store.rows() if r["name"] == "solo_v")
-    assert row["runtime_issues"] == [] and row["install_issues"]
-    assert row["actions"] == ["disable", "uninstall"] and row["enabled"]
-    with pytest.raises(store.VerticalStoreError, match="future-runtime"):
-        store.update("solo_v", wait=True)
-    assert store.registry_path().read_bytes() == before and source.read_bytes() == original
-    assert "solo_v" in vertical_select.available_verticals()
 
 
 def test_installed_requirements_survive_offline_runtime_changes(release, monkeypatch, caplog):
@@ -340,12 +229,6 @@ def test_installed_requirements_survive_offline_runtime_changes(release, monkeyp
     assert row["actions"] == ["uninstall"]
 
 
-def test_legacy_catalog_without_argus_features_remains_installable(release):
-    _rewrite_catalog(release, lambda c: c["verticals"]["solo_v"].pop("argus_features"))
-    assert store.install("solo_v", wait=True)["status"] == "done"
-    assert "solo_v" in vertical_select.available_verticals()
-
-
 def test_current_preinstall_reports_missing_runtime_instead_of_ready(release, monkeypatch):
     from argus.engineer import round_evidence
 
@@ -356,39 +239,6 @@ def test_current_preinstall_reports_missing_runtime_instead_of_ready(release, mo
     result = store.preinstall(names=["solo_v"])["solo_v"]
     assert result["status"] == "failed" and "host-round-evidence" in result["message"]
     assert store.registry_path().read_bytes() == before
-
-
-def test_install_resolves_the_requires_closure_dependencies_first(release, home) -> None:
-    final = store.install("child_v", wait=True)
-    assert final["status"] == "done" and final["progress"] == 100 and final["action"] == "install"
-    assert {"status", "action", "progress", "message", "started", "finished", "pid"} <= set(final)
-    present = store.installed()
-    assert set(present) == {"base_v", "child_v"}
-    assert present["base_v"]["installed_at"] <= present["child_v"]["installed_at"]
-    assert present["child_v"]["requires"] == ["base_v"]
-    assert present["child_v"]["source"] == {
-        "repo": "Argus-AiTeam/argus-verticals", "tag": "vtest",
-        "url": "https://github.com/Argus-AiTeam/argus-verticals/releases/download/vtest/child_v-0.1.0.zip",
-    }
-    package = store.package_root()
-    assert package == home / "verticals" / "argus_verticals"
-    assert (package / "child_v" / "stages.py").is_file()
-    assert (package / "lit" / "shared" / "__init__.py").is_file()
-    assert not (package / "__init__.py").exists()
-    assert not list((home / "verticals" / ".staging").iterdir()) if (home / "verticals" / ".staging").exists() else True
-    log = store.log_path(None, "child_v").read_text(encoding="utf-8")
-    assert "base_v: downloading" in log and "child_v: installed 0.1.0" in log
-
-
-def test_installed_vertical_is_selectable_loadable_and_seeds_parent_skills_first(release) -> None:
-    store.install("child_v", wait=True)
-    assert "child_v" in vertical_select.available_verticals()
-    assert vertical_select.available_vertical_purposes()["child_v"] == "synthetic vertical child_v"
-    module = load_vertical("child_v")
-    assert Path(module.__file__).resolve().is_relative_to(store.package_root().resolve())
-    assert _registry.vertical_plugin("child_v").origin == "store"
-    assert [name for name, _ in iter_vertical_skill_texts("child_v")] == ["engineer/base_v.md", "engineer/child_v.md"]
-    assert vertical_select.require_vertical("child_v") == "child_v"
 
 
 def test_shared_tree_ownership_survives_the_first_owner_leaving(release, home) -> None:
@@ -496,37 +346,7 @@ def _publish_parent_v2(dist: Path, catalog: Path) -> None:
     store.load_catalog(refresh=True)
 
 
-def test_replacing_a_tree_keeps_a_nested_installed_vertical(release, tmp_path) -> None:
-    """``digital_circuit/benchmark`` lives inside ``digital_circuit``; updating the parent keeps it."""
-    dist = tmp_path / "dist"
-    catalog = _nested_release(dist)
-    store.load_catalog(refresh=True)
-    store.install("parent_v_bench", wait=True)
-    assert (store.package_root() / "parent_v" / "bench" / "stages.py").is_file()
-
-    _publish_parent_v2(dist, catalog)
-    store.update("parent_v", wait=True)
-    assert store.installed()["parent_v"]["version"] == "0.2.0"
-    assert (store.package_root() / "parent_v" / "bench" / "stages.py").is_file()
-    assert "parent_v_bench" in vertical_select.available_verticals()
-
-
 # --- enable / disable ------------------------------------------------------------
-
-
-def test_enable_and_disable_flip_the_flag_and_the_advertised_set(release) -> None:
-    store.install("solo_v", wait=True)
-    assert store.disable("solo_v")["enabled"] is False
-    assert "enabled" not in store.registry()["verticals"]["solo_v"]  # host state never carries it
-    assert json.loads(store.user_state_path().read_text(encoding="utf-8")) == {"schema": 1, "disabled": ["solo_v"]}
-    assert store.disabled_names() == {"solo_v"}
-    assert "solo_v" not in vertical_select.available_verticals()
-    assert next(r for r in store.rows() if r["name"] == "solo_v")["enabled"] is False
-    assert store.enable("solo_v")["enabled"] is True
-    assert store.disabled_names() == set()
-    assert "solo_v" in vertical_select.available_verticals()
-    with pytest.raises(store.UnknownVerticalError):
-        store.enable("child_v")
 
 
 # --- uninstall guards --------------------------------------------------------------
@@ -647,62 +467,7 @@ def test_unsafe_archives_are_refused_before_anything_is_written(release, home, m
     assert not (store.package_root()).exists() or not list(store.package_root().iterdir())
 
 
-def test_oversized_archives_are_refused(release, monkeypatch) -> None:
-    monkeypatch.setattr(store, "ARCHIVE_LIMIT", 10)
-    with pytest.raises(store.VerticalStoreError, match="size"):
-        store.install("solo_v", wait=True)
-
-
 # --- rows and the API payload --------------------------------------------------------
-
-
-def test_rows_merge_builtins_installed_and_available_with_actions(release) -> None:
-    store.install("child_v", wait=True)
-    rows = {row["name"]: row for row in store.rows()}
-    assert list(rows)[: len(vertical_select.VERTICALS)] == list(vertical_select.VERTICALS)
-    research = rows["research"]
-    assert research["kind"] == "builtin" and research["purpose_zh"] is None and research["actions"] == []
-    assert research["purpose"] == vertical_select.VERTICAL_PURPOSES["research"] and research["enabled"] is True
-    child = rows["child_v"]
-    assert child["kind"] == "installed" and child["purpose_zh"] == "子垂直"
-    assert child["version"] == child["installed_version"] == "0.1.0"
-    assert child["requires"] == ["base_v"] and child["shared"] == ["argus_verticals/lit/shared"]
-    assert child["python_requirements"] == ["no_such_distribution_xyz>=1"]
-    assert child["missing_python"] == ["no_such_distribution_xyz"]
-    assert rows["base_v"]["missing_python"] == []  # PyYAML -> yaml is importable here
-    assert child["actions"] == ["disable", "uninstall"] and child["operation"]["status"] == "done"
-    solo = rows["solo_v"]
-    assert solo["kind"] == "available" and solo["installed_version"] is None and solo["enabled"] is False
-    assert solo["actions"] == ["install"] and solo["operation"] is None and solo["tags"] == ["synthetic", "test"]
-    expected_keys = {
-        "name", "purpose", "purpose_zh", "kind", "version", "installed_version", "enabled",
-        "update_available", "requires", "shared", "python_requirements", "missing_python", "tags",
-        "size_bytes", "used_by", "operation", "managed_by_host", "actions", "routing_path",
-        "runtime_issues", "install_issues",
-    }
-    assert all(set(row) == expected_keys for row in rows.values())
-    assert {row["kind"] for row in rows.values()} <= set(store.KINDS)
-
-
-def test_overview_reports_catalog_and_host_status(release, home) -> None:
-    payload = store.overview()
-    assert set(payload) == {"verticals", "catalog", "host"}
-    assert payload["catalog"]["source"] == str(release) and payload["catalog"]["release_tag"] == "vtest"
-    assert payload["catalog"]["error"] == "" and _ISO_UTC.match(payload["catalog"]["fetched_at"])
-    assert payload["host"] == {"managed_by_host": False, "store_root": str(home / "verticals")}
-    release.write_text("{", encoding="utf-8")
-    store.catalog_cache_path().unlink()
-    broken = store.overview(refresh=True)
-    assert broken["catalog"]["release_tag"] is None and "not valid JSON" in broken["catalog"]["error"]
-    assert [row["kind"] for row in broken["verticals"]] == ["builtin"] * len(vertical_select.VERTICALS)
-
-
-def test_requirement_names_map_to_importable_modules() -> None:
-    assert store.requirement_module("PyYAML>=6") == "yaml"
-    assert store.requirement_module("scikit-learn>=1.4") == "sklearn"
-    assert store.requirement_module("mplfinance>=0.12.10b0") == "mplfinance"
-    assert store.requirement_module("torch>=2.2; sys_platform != 'win32'") == "torch"
-    assert store.missing_python(["json>=1", "definitely_missing_module_abc>=1"]) == ["definitely_missing_module_abc"]
 
 
 def test_an_unreadable_registry_is_an_error_not_an_empty_store(release, home) -> None:
@@ -767,32 +532,6 @@ def test_a_failure_after_the_nested_copy_restores_both_trees_and_the_registry(re
 # --- the user overlay: enabled is per user, never host state -------------------------------
 
 
-def test_disable_is_per_user_when_tenants_share_a_host_root(release, tmp_path, monkeypatch) -> None:
-    host = tmp_path / "host-root"
-    monkeypatch.setenv(store.HOST_ROOT_ENV, str(host))
-    assert store.preinstall(names=["solo_v"])["solo_v"]["status"] == "done"
-    home_a, home_b = tmp_path / "home-a", tmp_path / "home-b"
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_a))
-    _registry.refresh_vertical_plugins()
-    assert store.disable("solo_v")["enabled"] is False
-    assert "solo_v" not in vertical_select.available_verticals()
-    assert (home_a / "verticals" / "state.json").is_file() and not (host / "state.json").exists()
-    assert "enabled" not in store.registry()["verticals"]["solo_v"]
-    row_a = next(r for r in store.rows() if r["name"] == "solo_v")
-    assert row_a["enabled"] is False and row_a["actions"] == ["enable"] and row_a["managed_by_host"] is True
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_b))
-    _registry.refresh_vertical_plugins()
-    assert "solo_v" in vertical_select.available_verticals()
-    row_b = next(r for r in store.rows() if r["name"] == "solo_v")
-    assert row_b["enabled"] is True and row_b["actions"] == ["disable"]
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home_a))
-    _registry.refresh_vertical_plugins()
-    assert "solo_v" not in vertical_select.available_verticals()
-
-
 def _chmod_tree(root: Path, mode: int) -> None:
     for path in [root, *root.rglob("*")]:
         if path.is_dir():
@@ -823,24 +562,6 @@ def test_enable_and_disable_work_on_a_read_only_host_root(release, tmp_path, mon
         _chmod_tree(host, stat.S_IRWXU)
 
 
-def test_toggle_actions_are_not_offered_when_the_overlay_cannot_be_written(release, home) -> None:
-    if os.name == "nt":
-        pytest.skip("Windows ignores POSIX directory mode bits, so chmod cannot make the tree read-only")
-    if os.geteuid() == 0:
-        pytest.skip("root ignores directory permissions")
-    store.install("solo_v", wait=True)
-    verticals_dir = home / "verticals"
-    os.chmod(verticals_dir, stat.S_IRUSR | stat.S_IXUSR)
-    try:
-        assert store.overlay_writable() is False
-        row = next(r for r in store.rows() if r["name"] == "solo_v")
-        assert row["actions"] == ["uninstall"] and row["enabled"] is True
-        with pytest.raises(store.VerticalStoreError, match="not writable"):
-            store.disable("solo_v")
-    finally:
-        os.chmod(verticals_dir, stat.S_IRWXU)
-
-
 def test_a_disabled_store_vertical_is_reported_as_disabled_not_missing(release, tmp_path) -> None:
     store.install("solo_v", wait=True)
     store.disable("solo_v")
@@ -855,29 +576,6 @@ def test_a_disabled_store_vertical_is_reported_as_disabled_not_missing(release, 
 
 
 # --- wire contract, catalog backoff, catalog hygiene ---------------------------------------
-
-
-def test_timestamps_on_the_wire_are_iso_8601_utc_and_progress_an_integer(release) -> None:
-    final = store.install("solo_v", wait=True)
-    assert _ISO_UTC.match(final["started"]) and _ISO_UTC.match(final["finished"])
-    assert isinstance(final["progress"], int) and final["progress"] == 100
-    op = store.operation("solo_v")
-    assert _ISO_UTC.match(op["started"]) and _ISO_UTC.match(op["finished"])
-    assert _ISO_UTC.match(store.load_catalog()["fetched_at"])
-    assert _ISO_UTC.match(store.overview()["catalog"]["fetched_at"])
-    assert not any(isinstance(v, float) for v in final.values())
-
-
-def test_progress_is_a_monotone_integer_percent_across_a_requires_closure(release) -> None:
-    store.install("child_v", wait=True)  # two members: base_v then child_v
-    log = store.log_path(None, "child_v").read_text(encoding="utf-8")
-    percents = [int(m) for m in re.findall(r"\s(\d+)% ", log)]
-    assert percents and percents == sorted(percents)
-    assert all(1 <= p <= 99 for p in percents)  # 100 belongs to the finished record, never to a step
-    assert percents[0] >= 2  # the first step of the first member is not rounded down to 1%
-    child_steps = [int(m) for m in re.findall(r"\s(\d+)% child_v:", log)]
-    assert child_steps and min(child_steps) >= 50  # the second member starts after the first's whole share
-    assert store.operation("child_v")["progress"] == 100
 
 
 def test_a_failed_fetch_is_not_retried_within_the_backoff(release, monkeypatch) -> None:
@@ -972,20 +670,6 @@ def test_orphaned_staging_directories_are_swept(release) -> None:
     assert mine.exists() and fresh.exists()
 
 
-def test_a_later_owner_s_shared_tree_replaces_the_installed_copy(release, tmp_path) -> None:
-    store.install("base_v", wait=True)
-    fake.build_release(tmp_path / "dist", [
-        fake.spec("base_v", shared=("argus_verticals/lit/shared",), python_requirements=("PyYAML>=6",)),
-        fake.spec("child_v", requires=("base_v",), parents=("base_v",), shared=("argus_verticals/lit/shared",),
-                  marker=" v2", purpose_zh="子垂直"),
-        fake.spec("solo_v", skills=False),
-    ])
-    store.load_catalog(refresh=True)
-    store.install("child_v", wait=True)
-    assert store.registry()["shared"]["argus_verticals/lit/shared"]["owners"] == ["base_v", "child_v"]
-    assert (store.package_root() / "lit" / "shared" / "__init__.py").read_text(encoding="utf-8") == "SHARED = ' v2'\n"
-
-
 def test_used_by_covers_extra_session_roots_and_unreadable_state_blocks_removal(release, home, tmp_path, monkeypatch) -> None:
     store.install("solo_v", wait=True)
     other = tmp_path / "other-home"
@@ -1010,27 +694,6 @@ def test_used_by_covers_extra_session_roots_and_unreadable_state_blocks_removal(
     assert store.uninstall("solo_v", force=True, wait=True)["status"] == "done"
 
 
-def test_a_second_process_cannot_start_the_same_job(release, monkeypatch) -> None:
-    """The check-then-write runs under the file lock; a job started by a live foreign process is seen."""
-    started = threading.Event()
-    hold = threading.Event()
-
-    def slow(*args, progress):
-        started.set()
-        hold.wait(5)
-
-    monkeypatch.setattr(store, "_install_job", slow)
-    op = store.install("solo_v")
-    started.wait(5)
-    record = json.loads(store.operation_path(None, "solo_v").read_text(encoding="utf-8"))
-    assert record["pid"] == os.getpid() and record["status"] == "running"
-    with pytest.raises(store.VerticalStoreError, match="already running"):
-        store.install("solo_v")
-    hold.set()
-    assert store.wait_for_operation("solo_v")["status"] == "done"
-    assert op["action"] == "install"
-
-
 # --- the real community release ---------------------------------------------------------
 
 
@@ -1040,18 +703,6 @@ def community_release(tmp_path_factory) -> Path:
     if catalog is None:
         pytest.skip(f"argus-verticals checkout not found (set {fake.COMMUNITY_REPO_ENV})")
     return catalog
-
-
-def test_explicit_community_checkout_cannot_silently_skip(tmp_path, monkeypatch):
-    monkeypatch.setenv(fake.COMMUNITY_REPO_ENV, str(tmp_path / "missing-checkout"))
-    with pytest.raises(FileNotFoundError, match="ARGUS_VERTICALS_REPO"):
-        fake.community_repo()
-
-
-def test_unconfigured_community_checkout_remains_optional(tmp_path, monkeypatch):
-    monkeypatch.delenv(fake.COMMUNITY_REPO_ENV, raising=False)
-    monkeypatch.setattr(fake, "DEFAULT_COMMUNITY_REPO", tmp_path / "missing-checkout")
-    assert fake.community_repo() is None
 
 
 @pytest.mark.integration

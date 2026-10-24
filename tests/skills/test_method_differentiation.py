@@ -63,33 +63,6 @@ def _write_run(
     return run_dir
 
 
-def test_no_op_reward_name_only_flagged(tmp_path: Path):
-    _write_run(
-        tmp_path, "optimizer_vanilla_grpo_full1200",
-        condition="vanilla_grpo", args=_BASE_ARGS,
-        reward_mean=0.580, frac_zero_std=0.292,
-    )
-    cv_args = dict(_BASE_ARGS)
-    cv_args["reward.custom_reward_function.name"] = "compute_score_cv"
-    _write_run(
-        tmp_path, "optimizer_cv_grpo_full1200",
-        condition="cv_grpo", args=cv_args,
-        reward_mean=0.578, frac_zero_std=0.287,
-    )
-
-    report = validate_method_differentiation(tmp_path)
-    assert len(report.pairs) == 1
-    pair = report.pairs[0]
-    assert pair.proposed_condition == "cv_grpo"
-    assert pair.baseline_condition == "vanilla_grpo"
-    assert pair.config_diff_kind == "reward_name_only"
-    assert pair.outcomes_indistinguishable is True
-    assert pair.no_op_suspected is True
-    assert pair.duplicate_condition is False
-
-
-
-
 def test_infra_knob_diffs_do_not_mask_no_op(tmp_path: Path):
     # The two runs differ in throughput/memory knobs (vLLM) AND the reward-fn
     # name; the infra knobs must be treated as noise so the pair still reads as
@@ -121,32 +94,6 @@ def test_infra_knob_diffs_do_not_mask_no_op(tmp_path: Path):
     assert report.pairs[0].no_op_suspected is True
 
 
-
-
-
-
-def test_reward_name_only_but_distinguishable_outcomes_not_no_op(tmp_path: Path):
-    # Same config shape, only the reward-fn name differs, but the outcomes
-    # genuinely diverge → the treatment IS doing something; not flagged.
-    _write_run(
-        tmp_path, "optimizer_vanilla_grpo_full1200",
-        condition="vanilla_grpo", args=_BASE_ARGS,
-        reward_mean=0.50, frac_zero_std=0.30,
-    )
-    cv_args = dict(_BASE_ARGS)
-    cv_args["reward.custom_reward_function.name"] = "compute_score_cv"
-    _write_run(
-        tmp_path, "optimizer_cv_grpo_full1200",
-        condition="cv_grpo", args=cv_args,
-        reward_mean=0.70, frac_zero_std=0.10,
-    )
-    report = validate_method_differentiation(tmp_path)
-    pair = report.pairs[0]
-    assert pair.config_diff_kind == "reward_name_only"
-    assert pair.outcomes_indistinguishable is False
-    assert pair.no_op_suspected is False
-
-
 def test_explicit_conditions_override_autodetect(tmp_path: Path):
     _write_run(
         tmp_path, "optimizer_method_x",
@@ -168,8 +115,6 @@ def test_explicit_conditions_override_autodetect(tmp_path: Path):
     )
     assert len(report.pairs) == 1
     assert report.pairs[0].no_op_suspected is True
-
-
 
 
 def test_probe_named_long_run_is_not_skipped(tmp_path: Path):

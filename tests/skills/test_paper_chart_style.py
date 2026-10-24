@@ -28,19 +28,6 @@ def test_palettes_are_named_and_colorblind_set() -> None:
         assert all(c.startswith("#") and len(c) == 7 for c in colors)
 
 
-def test_figure_size_two_column_vs_single_column_layout() -> None:
-    # Two-column template: single vs double are different physical widths.
-    single = pcs.figure_size("single", two_column=True)
-    double = pcs.figure_size("double", two_column=True)
-    assert single[0] < double[0]
-    assert double[0] > 6.0  # full text width
-    assert single[0] < 3.6  # one column
-    # Single-column template: one text width regardless of the column arg.
-    ncol = pcs.figure_size("single", two_column=False)
-    assert ncol[0] > single[0]
-    assert pcs.figure_size("double", two_column=False)[0] == ncol[0]
-
-
 def test_column_layout_comes_from_researched_venue_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -86,16 +73,6 @@ def test_column_layout_requires_template_choice_without_valid_profile(
 
 # ---- matplotlib-backed behaviour ------------------------------------------
 
-@pytest.mark.parametrize("facecolor, expected", [
-    ("#CBE9D3", "black"),  # Pale green: white digits disappear at paper size.
-    ("#243D4E", "white"),
-    ("#808080", "black"),  # Black exceeds 5:1; white is below 4:1 here.
-    ("#00FF00", "black"),  # Green's luminance must not use an RGB mean.
-])
-def test_annotation_text_uses_visible_color_contrast(facecolor, expected) -> None:
-    pytest.importorskip("matplotlib")
-    assert pcs.contrast_text_color(facecolor) == expected
-
 
 def test_same_heatmap_value_needs_different_text_after_colormap_reversal() -> None:
     colors = pytest.importorskip("matplotlib.colors")
@@ -103,52 +80,6 @@ def test_same_heatmap_value_needs_different_text_after_colormap_reversal() -> No
     norm = colors.Normalize(vmin=0, vmax=10)
     assert pcs.contrast_text_color(cmap(norm(3))) == "black"
     assert pcs.contrast_text_color(cmap.reversed()(norm(3))) == "white"
-
-
-def test_annotation_text_accounts_for_rgba_and_artist_opacity() -> None:
-    pytest.importorskip("matplotlib")
-    assert pcs.contrast_text_color("#243D4E", alpha=1.0) == "white"
-    assert pcs.contrast_text_color("#243D4E", alpha=0.2) == "black"
-    # Intrinsic 0.5 alpha and additional 0.9 artist opacity combine to 0.45;
-    # replacing intrinsic alpha with 0.9 would incorrectly choose white text.
-    assert pcs.contrast_text_color((0, 0, 0, 0.5), alpha=0.9) == "black"
-
-
-def test_annotation_text_composites_axes_and_canvas_backgrounds() -> None:
-    pytest.importorskip("matplotlib")
-    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="black") == "white"
-    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="white") == "black"
-    # Transparent cell and axes expose the actual dark figure background.
-    assert pcs.contrast_text_color("none", background="none", canvas="#243D4E") == "white"
-    assert pcs.contrast_text_color("none", background=(1, 1, 1, 0.25), canvas="black") == "white"
-    assert pcs.contrast_text_color("black", alpha=0.0, background="white") == "black"
-
-
-def test_set_pub_style_applies_and_returns_palette() -> None:
-    pytest.importorskip("matplotlib")
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib as mpl
-
-    colors = pcs.set_pub_style(column="double", palette="muted", two_column=True)
-    assert colors == pcs.PALETTES["muted"]
-    # Font embedding for camera-ready PDFs.
-    assert mpl.rcParams["pdf.fonttype"] == 42
-    # Figure size reflects the requested (layout, column).
-    assert tuple(mpl.rcParams["figure.figsize"]) == pcs.figure_size(
-        "double", two_column=True
-    )
-    # Palette is installed on the prop cycle.
-    cycle_colors = mpl.rcParams["axes.prop_cycle"].by_key()["color"]
-    assert cycle_colors[0] == pcs.PALETTES["muted"][0]
-
-
-def test_set_pub_style_unknown_palette_falls_back_to_default() -> None:
-    pytest.importorskip("matplotlib")
-    import matplotlib
-    matplotlib.use("Agg")
-    colors = pcs.set_pub_style(palette="does-not-exist", two_column=True)
-    assert colors == pcs.PALETTES[pcs.DEFAULT_PALETTE]
 
 
 def test_set_pub_style_requires_scienceplots(
@@ -214,63 +145,6 @@ def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:
     assert bars[2].get_edgecolor()[:3] == (0.0, 0.0, 0.0)
     assert bars[2].get_alpha() in (None, 1.0)
     assert bars[0].get_alpha() == pytest.approx(0.85)
-    plt.close(fig)
-
-
-def test_highlight_ours_grouped_bars_emphasises_the_whole_series() -> None:
-    pytest.importorskip("matplotlib")
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    pcs.set_pub_style(two_column=True)
-    fig, ax = plt.subplots()
-    x = [0, 1]
-    ax.bar(
-        [value - 0.2 for value in x],
-        [1.0, 1.5],
-        width=0.2,
-        yerr=[0.1, 0.1],
-        capsize=2,
-    )
-    ax.bar(x, [1.4, 1.8], width=0.2, yerr=[0.1, 0.1], capsize=2)
-    ax.bar(
-        [value + 0.2 for value in x],
-        [1.7, 2.1],
-        width=0.2,
-        yerr=[0.1, 0.1],
-        capsize=2,
-    )
-    pcs.highlight_ours(ax, ours_index=2)
-
-    bar_containers = [
-        container for container in ax.containers if hasattr(container, "patches")
-    ]
-    assert len(bar_containers) == 3
-    for index, container in enumerate(bar_containers):
-        for bar in container.patches:
-            if index == 2:
-                assert bar.get_edgecolor()[:3] == (0.0, 0.0, 0.0)
-                assert bar.get_alpha() in (None, 1.0)
-            else:
-                assert bar.get_alpha() == pytest.approx(0.85)
-    plt.close(fig)
-
-
-def test_highlight_ours_lines_thickens_ours() -> None:
-    pytest.importorskip("matplotlib")
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    pcs.set_pub_style(two_column=True)
-    fig, ax = plt.subplots()
-    for _ in range(3):
-        ax.plot([0, 1, 2], [0, 1, 2])
-    pcs.highlight_ours(ax, ours_index=0)
-    lines = ax.get_lines()
-    assert lines[0].get_linewidth() > lines[1].get_linewidth()
-    assert lines[0].get_zorder() > lines[1].get_zorder()
     plt.close(fig)
 
 

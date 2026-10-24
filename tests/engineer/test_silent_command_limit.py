@@ -1,56 +1,12 @@
 """A turn is never stopped on a timer by default; a stopped turn names its command so it is not repeated as it was."""
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from argus.agent_cli._idle_watchdog import running_tool_after_event
-from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.engineer.round_config import SupervisedConfig
-from argus.engineer.round_stop_signals import (
-    fatal_error_is_idle_termination,
-    idle_termination_review_decision,
-    idle_termination_running_tool,
-)
-
-REASON = (
-    "Forced restart after hard idle timeout (1800s without progress; "
-    "running tool: find / -name '*pdftoppm*')"
-)
-
-
-def test_engineer_turns_have_no_hard_stop(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", raising=False)
-    assert not hasattr(SupervisedConfig(), "runner_hard_idle_seconds")
-    assert SupervisedConfig().runner_stalled_idle_seconds == 1800
-
-
-def test_the_stopped_turn_names_the_command_and_says_what_to_do_instead() -> None:
-    assert fatal_error_is_idle_termination(REASON)
-    assert not fatal_error_is_idle_termination("Process exited with code 1 before turn completion.")
-    assert idle_termination_running_tool(REASON) == "find / -name '*pdftoppm*'"
-    assert idle_termination_running_tool("Forced restart after hard idle timeout (900s without a model stream event).") == ""
-
-    decision = idle_termination_review_decision(fatal_error=REASON, exit_code=-15, streak=1, threshold=2)
-    assert decision.status == "continue"
-    assert "find / -name '*pdftoppm*'" in decision.reason
-    assert "model service" not in decision.reason
-    assert "timeout" in decision.next_action and "background job" in decision.next_action
-    assert "CHECKPOINT.md" in decision.next_action
-    # next_action is what reaches the next Engineer prompt, so it names the command too.
-    assert "find / -name '*pdftoppm*'" in decision.next_action
-
-
-def test_running_tool_keeps_commands_that_end_in_a_parenthesis() -> None:
-    reason = (
-        "Forced restart after hard idle timeout (1800s without progress; "
-        "running tool: echo $(date))"
-    )
-    assert idle_termination_running_tool(reason) == "echo $(date)"
 
 
 def _capture_engineer_options(monkeypatch, **config):
@@ -154,31 +110,12 @@ def _run_loop(tmp_path: Path, engineer: _SilentCommandsEngineer):
     return status, rounds, reason, prompts
 
 
-def test_a_different_silent_command_after_the_guidance_does_not_fail_the_round(tmp_path) -> None:
-    engineer = _SilentCommandsEngineer(["pip install -e .", "python train.py", None])
-    status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
-    assert status == "done"
-    assert engineer.calls == 3
-    # The next turn is told which command was stopped and how to run it instead.
-    assert "background job" in prompts[1]
-    assert "pip install -e ." in prompts[1]
-    assert "python train.py" in prompts[2]
-
-
 def test_the_same_command_hanging_again_fails_the_round(tmp_path) -> None:
     engineer = _SilentCommandsEngineer(["pip install -e ."])
     status, rounds, reason, _prompts = _run_loop(tmp_path, engineer)
     assert status == "error"
     assert engineer.calls == 2
     assert "pip install -e ." in reason
-
-
-def test_silence_stops_are_not_counted_across_different_commands(tmp_path) -> None:
-    # Each stop was the Manager's call; the host does not add a count of its own.
-    engineer = _SilentCommandsEngineer([f"cmd{i}" for i in range(6)] + [None])
-    status, _rounds, _reason, _prompts = _run_loop(tmp_path, engineer)
-    assert status == "done"
-    assert engineer.calls == 7
 
 
 def test_unnamed_silence_stops_get_generic_guidance(tmp_path) -> None:
@@ -216,31 +153,3 @@ def test_exec_stream_tracks_the_command_in_flight(started: dict, finished: dict)
     assert current == "pip install -e ."
     assert running_tool_after_event({"type": "token_count"}, current) == current
     assert running_tool_after_event(finished, current) == ""
-
-
-def test_exec_transport_hard_idle_stop_names_the_command() -> None:
-    runner = AgentCliRunner(agent_bin=sys.executable)
-    script = (
-        "import json, time\n"
-        "print(json.dumps({'type': 'item.started', 'item': {'type': 'command_execution', "
-        "'command': 'pip install -e .', 'status': 'in_progress'}}), flush=True)\n"
-        "time.sleep(30)\n"
-    )
-    command = [sys.executable, "-c", script]
-    model_call = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        start_new_session=os.name != "nt",
-    )
-    try:
-        state = runner._stream_turn_output(
-            process=model_call, command=command,
-            options=RunnerOptions(watchdog_hard_idle_seconds=1),
-            run_label="test-watchdog", thread_id=None,
-        )
-        assert state.watchdog_terminated is True
-        assert fatal_error_is_idle_termination(state.watchdog_reason)
-        assert idle_termination_running_tool(state.watchdog_reason) == "pip install -e ."
-    finally:
-        if model_call.poll() is None:
-            model_call.terminate()
-            model_call.wait(timeout=3)

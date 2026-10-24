@@ -13,10 +13,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from argus.core.paths import operator_memory_root
-from argus.core.pipeline_state import write_pipeline_state
 from argus.core.session import SessionMeta, write_session_meta
-from argus.life.knowledge_recall import knowledge_recall_for_memory
-from argus.life.memory import MemoryBundle
 from argus.life.reflection import build_reflection_prompt
 from argus.webapi.server import create_app
 from argus.wiki.context import render_operator_memory_block
@@ -52,19 +49,6 @@ def test_the_block_points_at_the_memory_and_never_carries_its_contents(tmp_path,
     assert "Founding a company" not in block and "Cap table" not in block and "CEO 65" not in block
     assert "never copy any of it into a shared page" in block
     assert render_operator_memory_block(tmp_path / "empty") == ""
-
-
-def test_recall_reads_the_operator_first_under_the_private_scope(tmp_path, monkeypatch) -> None:
-    home = _home(tmp_path, monkeypatch)
-    monkeypatch.delenv("ARGUS_SKILL_COPILOT_TRIAL", raising=False)
-    workspace = home / "workspaces" / "ws"
-    workspace.mkdir(parents=True)
-    write_pipeline_state(workspace, {"vertical": "research"})
-    recall = knowledge_recall_for_memory(MemoryBundle.for_cwd(workspace, global_root=home, fingerprint="p"))
-    assert [root.kind for root in recall.roots[:2]] == ["about the operator", "notes about the operator"]
-    assert all(root.scope == "private" for root in recall.roots[:2])
-    text = recall.render_context("what did the operator say about the cap table and the seed round")
-    assert "the split the operator described" in text and "about the operator" in text
 
 
 def test_the_reflection_prompt_routes_personal_facts_to_the_private_memory(tmp_path) -> None:

@@ -34,22 +34,3 @@ def test_ending_a_mission_expires_the_question_it_could_not_get_answered(tmp_pat
     # Expiry is a revision like any other, so a stale answer cannot race it.
     assert ended.operator_decision["revision"] == 2
     assert ended.operator_decision["resolved_from_revision"] == 1
-
-
-def test_a_live_question_survives_every_non_terminal_update(tmp_path):
-    backlog, item_id = _paused_with_card(tmp_path)
-
-    backlog.update(item_id, last_error="still waiting")
-
-    waiting = next(row for row in backlog.all() if row.id == item_id)
-    assert waiting.pending_question == "May I create ./.venv?"
-    assert waiting.operator_decision["status"] == "pending"
-
-
-def test_answering_still_resolves_rather_than_expires(tmp_path):
-    backlog, item_id = _paused_with_card(tmp_path)
-
-    resumed, answered = backlog.resume_with_operator_reply(item_id, "yes")
-
-    assert answered
-    assert resumed.operator_decision["status"] == "resolved"

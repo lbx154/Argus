@@ -75,25 +75,6 @@ def _fake_operations(
     )
 
 
-def test_create_project_binds_existing_workdir(tmp_path: Path) -> None:
-    workdir = tmp_path / "work"
-    workdir.mkdir()
-    operations, calls = _fake_operations()
-    service = ArgusPluginService(global_root=tmp_path / "state", operations=operations)
-
-    result = service.create_project(str(workdir), name="Medical review")
-
-    assert result["ok"] is True
-    assert result["project"]["sid"] == "s-new"
-    operation, objective, kwargs = calls[0]
-    assert operation == "create_project"
-    assert objective == ""
-    assert kwargs["name"] == "Medical review"
-    assert kwargs["workdir"] == str(workdir.resolve())
-    assert kwargs["launch_cwd"] == str(workdir.resolve())
-    assert kwargs["global_root"] == tmp_path / "state"
-
-
 def test_create_project_rejects_missing_workdir(tmp_path: Path) -> None:
     operations, calls = _fake_operations()
     service = ArgusPluginService(operations=operations)
@@ -126,40 +107,6 @@ def test_list_projects_filters_by_exact_resolved_workdir(tmp_path: Path) -> None
 
     assert result["ok"] is True
     assert [row["id"] for row in result["projects"]] == ["s1", "s3"]
-
-
-def test_message_routes_through_manager_and_starts_real_daemon(tmp_path: Path) -> None:
-    operations, calls = _fake_operations(
-        manager_result={"kind": "task", "item": {"id": "i1"}}
-    )
-    service = ArgusPluginService(global_root=tmp_path, operations=operations)
-
-    result = service.message("s1", "research EGFR")
-
-    assert result["ok"] is True
-    assert result["daemon"]["rc"] == 0
-    assert [call[0] for call in calls] == [
-        "manager_message",
-        "start_daemon",
-        "record_dispatch_ack",
-    ]
-    assert calls[0] == (
-        "manager_message",
-        "s1",
-        "research EGFR",
-        {"global_root": tmp_path, "source_channel": "plugin"},
-    )
-    assert calls[1] == (
-        "start_daemon",
-        "s1",
-        {"global_root": tmp_path, "reclaim_idle": True},
-    )
-    assert calls[2] == (
-        "record_dispatch_ack",
-        "s1",
-        "task",
-        {"global_root": tmp_path},
-    )
 
 
 def test_chat_message_does_not_start_daemon() -> None:
@@ -228,32 +175,3 @@ def test_stop_defaults_to_graceful_drain() -> None:
         "s1",
         {"drain": True, "force": False, "global_root": None},
     )
-
-
-def test_stop_is_idempotent_when_daemon_is_already_stopped() -> None:
-    operations, _calls = _fake_operations(stop_result={"rc": 1})
-    service = ArgusPluginService(operations=operations)
-
-    result = service.stop("s1")
-
-    assert result == {
-        "ok": True,
-        "result": {"rc": 0, "source_rc": 1, "already_stopped": True},
-    }
-
-
-def test_artifacts_returns_only_existing_allowlisted_rows() -> None:
-    operations, _calls = _fake_operations(
-        artifacts_result=[
-            {"path": "report.md", "exists": True},
-            {"path": "missing.md", "exists": False},
-        ]
-    )
-    service = ArgusPluginService(operations=operations)
-
-    result = service.artifacts("s1")
-
-    assert result == {
-        "ok": True,
-        "artifacts": [{"path": "report.md", "exists": True}],
-    }

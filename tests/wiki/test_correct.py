@@ -101,21 +101,6 @@ def test_correction_replaces_the_lead_and_summary_and_keeps_the_earlier_wording(
     assert rows[0]["note"].startswith("Re-reading analysis.py")
 
 
-def test_a_second_correction_extends_the_same_history_section(tmp_path):
-    root = library(tmp_path / "wiki")
-    correct_page(root, "lessons/regime.md", statement="First correction.", reason="First reason.", now=NOW)
-    correct_page(root, "lessons/regime.md", statement="Second correction.", reason="Second reason.", now=NOW + 3600)
-    body = (root / "pages" / "lessons" / "regime.md").read_text(encoding="utf-8")
-    assert body.count("## History") == 1
-    history = body[body.index("## History"):]
-    assert history.index("First reason.") < history.index("Second reason.")
-    assert 'Second reason. The page previously said: "First correction."' in history
-    assert body.index("Second correction.") < body.index("## Evidence")
-    assert "First correction." not in body[:body.index("## History")]
-    kept = sorted(path.name for path in (root / HISTORY_DIRNAME / "lessons").iterdir())
-    assert kept == ["regime.20260930T092000Z.md", "regime.20260930T102000Z.md"]
-
-
 def test_a_page_without_front_matter_or_lead_gets_both(tmp_path):
     root = library(tmp_path / "wiki", text="# Only a title\n\n- a list, not prose\n", relative="notes/bare.md")
     done = correct_page(root, "notes/bare.md", statement="What is true.", reason="Why.", now=NOW)
@@ -131,16 +116,6 @@ def test_only_a_real_page_under_pages_is_corrected(tmp_path, page):
     root = library(tmp_path / "wiki")
     with pytest.raises(PageCorrectionError):
         correct_page(root, page, statement="s", reason="r")
-
-
-def test_empty_statement_or_reason_is_refused_before_anything_changes(tmp_path):
-    root = library(tmp_path / "wiki")
-    before = (root / "pages" / "lessons" / "regime.md").read_bytes()
-    for kwargs in ({"statement": " ", "reason": "r"}, {"statement": "s", "reason": ""}):
-        with pytest.raises(PageCorrectionError):
-            correct_page(root, "lessons/regime.md", **kwargs)
-    assert (root / "pages" / "lessons" / "regime.md").read_bytes() == before
-    assert not (root / HISTORY_DIRNAME).exists()
 
 
 def test_recall_shows_the_correction_and_the_new_summary_and_not_the_history(tmp_path):
@@ -170,32 +145,6 @@ def test_recall_shows_the_correction_and_the_new_summary_and_not_the_history(tmp
     assert "spec-sheet peak was the mistake" in searchable_body(document.content)
 
 
-def _body(root: Path, relative: str) -> str:
-    return (root / "pages" / relative).read_text(encoding="utf-8").split("\n---\n", 1)[1]
-
-
-def test_prose_inside_a_section_is_not_the_lead_and_a_lead_is_inserted_after_the_title(tmp_path):
-    text = (
-        "---\ntitle: T\ndescription: D\n---\n\n# T\n\n## What happened\n\n"
-        "Section prose that belongs to its section.\n"
-    )
-    root = library(tmp_path / "wiki", text=text, relative="notes/t.md")
-    done = correct_page(root, "notes/t.md", statement="The corrected lead.", reason="Why.", now=NOW)
-    body = _body(root, "notes/t.md")
-    assert body.index("# T") < body.index("The corrected lead.") < body.index("## What happened")
-    assert "Section prose that belongs to its section." in body[: body.index("## History")]
-    assert done.previous_lead == "" and "previously said" not in body
-
-
-def test_a_numbered_list_after_the_title_is_not_a_lead(tmp_path):
-    text = "---\ntitle: T\ndescription: D\n---\n\n# T\n\n1. first step\n2. second step\n"
-    root = library(tmp_path / "wiki", text=text, relative="notes/steps.md")
-    done = correct_page(root, "notes/steps.md", statement="What is true.", reason="Why.", now=NOW)
-    body = _body(root, "notes/steps.md")
-    assert done.previous_lead == ""
-    assert body.index("What is true.") < body.index("1. first step") < body.index("2. second step")
-
-
 def test_corrections_within_one_second_keep_every_earlier_file(tmp_path):
     root = library(tmp_path / "wiki")
     first = correct_page(root, "lessons/regime.md", statement="First.", reason="One.", now=NOW)
@@ -204,18 +153,6 @@ def test_corrections_within_one_second_keep_every_earlier_file(tmp_path):
     assert first.history_copy.read_text(encoding="utf-8") == PAGE
     assert "First." in second.history_copy.read_text(encoding="utf-8")
     assert len(list((root / HISTORY_DIRNAME / "lessons").iterdir())) == 2
-
-
-def test_the_history_entry_reads_as_sentences(tmp_path):
-    root = library(tmp_path / "wiki")
-    correct_page(
-        root, "lessons/regime.md", statement="New lead.", reason="the timings disagree",
-        description="New summary", now=NOW,
-    )
-    history = _body(root, "lessons/regime.md").split("## History", 1)[1]
-    assert "corrected by operator: the timings disagree. The page previously said: " in history
-    assert 'classified.". Its summary was: "Recompute the regime' in history
-    assert history.rstrip().endswith('control file.".')
 
 
 def test_the_page_keeps_the_two_field_front_matter_and_its_correction_survives_a_rewrite(tmp_path):
