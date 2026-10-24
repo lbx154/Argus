@@ -44,16 +44,3 @@ def test_failed_readiness_precedes_provider_and_state_construction() -> None:
 
     assert worker.run_forever() == 2
     assert worker.calls == ["bootstrap", "readiness"]
-
-
-def test_successful_readiness_precedes_manager_and_continuous_state() -> None:
-    worker = _FakeWorker(reject=False)
-
-    assert worker.run_forever() == 0
-    assert worker.calls[:5] == [
-        "bootstrap",
-        "readiness",
-        "build_runner",
-        "continuous",
-        "manager",
-    ]

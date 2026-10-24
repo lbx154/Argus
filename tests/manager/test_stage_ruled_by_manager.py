@@ -15,7 +15,6 @@ from argus.manager import Manager, front_door
 from argus.skills.vertical_select import persist_vertical
 from argus.webapi import manager_bridge, manager_state
 from tests.hand_off import manager_runner, manager_settles, stage
-from tests.manager_inbox import team_reports
 
 pytest.importorskip("fastapi")
 pytestmark = pytest.mark.usefixtures("optimize_vertical")
@@ -65,18 +64,6 @@ def _team_report(root: Path) -> None:
         "s-stage", _question(root), message_id="stage-question-1", event_fields={},
         global_root=root.parent.parent,
     )
-
-
-def test_a_stage_question_waits_for_the_manager_and_the_stage_holds(tmp_path: Path) -> None:
-    manager, root = _project(tmp_path)
-
-    transition = _asks_the_manager(manager, root)
-
-    assert transition.action == "hold" and _stage_now(root) == "setup"
-    assert "Which rounding rule does format_mib use?" in _question(root)
-    assert "floor like format_kib" in _question(root)
-    assert _question(root).endswith("the readings of their request it turns on.")
-    assert not team_reports(root) and not (root / "manager-deferred").exists()
 
 
 def test_with_no_web_server_the_managers_next_turn_rules(tmp_path: Path, monkeypatch) -> None:

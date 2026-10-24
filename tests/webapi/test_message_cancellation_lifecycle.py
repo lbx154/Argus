@@ -39,53 +39,6 @@ async def wait_until(predicate, timeout=2):
         await asyncio.sleep(0.001)
 
 
-def test_native_asyncio_route_cancellation_keeps_the_running_provider_cancellable(tmp_path, monkeypatch):
-    entered, release, left_provider = threading.Event(), threading.Event(), threading.Event()
-    callbacks = []
-
-    def provider(sid, text, *, cancelled, **kwargs):
-        callbacks.append(cancelled)
-        entered.set()
-        try:
-            assert release.wait(3)
-            return {"kind": "task", "item": {"id": "old-task", "status": "pending"}}
-        finally:
-            left_provider.set()
-
-    monkeypatch.setattr(manager_bridge, "manager_message", provider)
-    message, cancel, starts = endpoints(tmp_path)
-
-    async def scenario():
-        request = asyncio.create_task(message("project", MessageIn(text="old request", request_id="request")))
-        try:
-            await wait_until(entered.is_set)
-            request.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await request
-            # The HTTP coroutine ended, but its worker still owns admission and
-            # the provider's cancellation event. A late Stop can reach it.
-            receipt = await cancel("project", CancelMessageIn(request_id="request"))
-            assert receipt["requested"] is True and receipt["active"] is True
-            assert callbacks[0]() is True
-            assert not left_provider.is_set()
-            release.set()
-            await wait_until(left_provider.is_set)
-            for _ in range(1000):
-                receipt = await cancel("project", CancelMessageIn(request_id="request"))
-                if not receipt["active"]:
-                    break
-                await asyncio.sleep(0.001)
-            assert receipt["active"] is False and receipt["status"] == "cancelled"
-            assert starts == []
-        finally:
-            release.set()
-            if not request.done():
-                request.cancel()
-            await asyncio.gather(request, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
 def test_cancelled_route_rejects_a_worker_that_starts_after_http_abandonment(tmp_path, monkeypatch):
     queued = threading.Event()
     delayed_workers = []

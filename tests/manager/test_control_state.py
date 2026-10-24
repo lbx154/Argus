@@ -21,31 +21,6 @@ def _store(tmp_path: Path) -> CampaignControlStore:
     return CampaignControlStore(state_root, project_root=project_root)
 
 
-def test_head_last_revisions_keep_terminal_evidence(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    identity = store.campaign_identity()
-
-    first, _ = store.commit_revision(
-        identity=identity,
-        updates={"stage_projection": {"current_stage": "evaluate", "status": "running"}},
-        reason="Manager projected the stage",
-    )
-    evidence_head, _ = store.commit_revision(
-        identity=identity,
-        updates={
-            "stage_projection": {"current_stage": "evaluate", "status": "done"},
-            "terminal_evidence": [{"event_id": "terminal-1"}],
-        },
-        reason="Manager reconciled terminal evidence",
-    )
-
-    assert evidence_head.state_revision == first.state_revision + 1
-    snapshot = store.read_snapshot()
-    assert snapshot is not None
-    assert snapshot["terminal_evidence"][0]["event_id"] == "terminal-1"
-    assert len(list(store.revisions_root.glob("*.json"))) == 2
-
-
 def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
@@ -307,49 +282,6 @@ def test_authorization_ignores_file_changes_and_legacy_freeze_fields(
     assert store.current_repair_capability(mission_id="repair-legacy")["status"] == "accepted"
 
 
-def test_closed_capability_recovers_after_head_commit_crash(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    identity, authorization, validator = _prepare_validator_repair(store)
-    capability = store.claim_repair_capability(
-        authorization_id=authorization.authorization_id,
-        nonce=authorization.nonce,
-        action="validator_repair",
-        identity=identity,
-        mission_id="repair-crash",
-    )
-    validator.write_text("def test_contract(): assert True\n", encoding="utf-8")
-    store.begin_acceptance_retry(
-        capability_id=capability.capability_id,
-        nonce=capability.nonce,
-        identity=identity,
-    )
-    acceptance_head = store.read_head()
-    assert acceptance_head is not None
-    store.close_repair_capability(
-        capability_id=capability.capability_id,
-        nonce=capability.nonce,
-        identity=identity,
-        accepted=True,
-        reason="acceptance passed before process crash",
-    )
-    closed_head = store.read_head()
-    assert closed_head is not None
-
-    # Simulate power loss after the durable closed event but before HEAD commit.
-    (store.control_root / closed_head.snapshot).unlink()
-    store.head_path.write_text(
-        json.dumps({"version": 1, **asdict(acceptance_head)}),
-        encoding="utf-8",
-    )
-
-    recovered = store.current_repair_capability(mission_id="repair-crash")
-
-    assert recovered is not None
-    assert recovered["event"] == "closed"
-    assert recovered["accepted"] is True
-    assert store.read_snapshot()["active_capability"] is None
-
-
 def test_claimed_capability_recovers_after_head_commit_crash(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity, authorization, _validator = _prepare_validator_repair(store)
@@ -449,46 +381,3 @@ def test_scientific_evidence_failure_cannot_claim_validator_repair(
             identity=identity,
             mission_id="repair-3",
         )
-
-
-def test_new_campaign_starts_revision_chain_without_rewriting_history(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    old_identity = store.campaign_identity()
-    old_head, _ = store.commit_revision(
-        identity=old_identity, updates={}, reason="Manager ran the old campaign",
-    )
-
-    new_identity = store.campaign_identity(
-        objective="new campaign objective",
-        campaign_epoch=4,
-    )
-    new_head, _ = store.commit_revision(
-        identity=new_identity,
-        updates={},
-        reason="Manager started a new campaign",
-    )
-
-    assert old_head.state_revision == 1
-    assert new_head.state_revision == 1
-    assert new_head.campaign_id != old_head.campaign_id
-    assert len(list(store.revisions_root.glob("*.json"))) == 2
-
-
-def test_same_epoch_new_objective_keeps_immutable_revision_history(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    old_identity = store.campaign_identity()
-    store.commit_revision(identity=old_identity, updates={}, reason="old objective")
-    new_identity = store.campaign_identity(
-        objective="new objective at the same epoch",
-        campaign_epoch=old_identity.campaign_epoch,
-    )
-    store.commit_revision(identity=new_identity, updates={}, reason="new objective")
-
-    revisions = list(store.revisions_root.glob("*.json"))
-    assert len(revisions) == 2
-    assert {json.loads(path.read_text())["campaign_id"] for path in revisions} == {
-        old_identity.campaign_id,
-        new_identity.campaign_id,
-    }

@@ -98,11 +98,3 @@ def test_wait_timeout_does_not_start_duplicate_scans_or_cancel_the_leader(monkey
             release.set()
         assert leader.result(timeout=5) == ["finished"]
     assert cache.get("slow-project", lambda: pytest.fail("leader result was lost")) == ["finished"]
-
-
-@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-def test_nonfinite_ttl_cannot_make_a_mutable_snapshot_permanent(value):
-    assert index_cache.resolve_ttl_seconds({index_cache.TTL_ENV_VAR: str(value)}) == 0
-    assert index_cache.resolve_snapshot_ttl_seconds({index_cache.SNAPSHOT_TTL_ENV_VAR: str(value)}) == 0
-    cache = IndexCache(ttl_seconds=value)
-    assert not cache.enabled

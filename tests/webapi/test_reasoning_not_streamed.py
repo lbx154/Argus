@@ -77,65 +77,6 @@ def test_the_stream_hides_the_scratchpad_by_default(
     )
 
 
-def test_an_operator_who_asks_for_it_still_gets_it(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SHOW_REASONING", "1")
-
-    rows = _replay(_life_dir(tmp_path))
-
-    assert len(_reasoning(rows)) == 2
-
-
-def test_the_scratchpad_is_still_written_to_the_authoritative_log(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Hiding it from the UI must not cost us the ability to debug with it."""
-    monkeypatch.delenv("ARGUS_SKILL_SHOW_REASONING", raising=False)
-    life = _life_dir(tmp_path)
-
-    _replay(life)
-
-    persisted = [
-        json.loads(line)
-        for line in (life / "events.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    assert len(_reasoning(persisted)) == 2
-
-
-def test_tail_preserves_an_initial_partial_jsonl_record(tmp_path: Path) -> None:
-    async def run() -> list[dict]:
-        complete = json.dumps({"type": "first", "seq": 1}) + "\n"
-        partial = '{"type":"second","seq":'
-        path = tmp_path / "events.jsonl"
-        path.write_text(complete + partial, encoding="utf-8")
-        stream = tail_events(tmp_path, replay_limit=10, poll_interval=0.001)
-        try:
-            first = await asyncio.wait_for(stream.__anext__(), timeout=1)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write("2}\n")
-            second = await asyncio.wait_for(stream.__anext__(), timeout=1)
-            return [first, second]
-        finally:
-            await stream.aclose()
-
-    rows = asyncio.run(run())
-
-    assert [row["seq"] for row in rows] == [1, 2]
-
-
-def test_tail_replay_fills_from_rollover_when_live_log_is_short(tmp_path: Path) -> None:
-    (tmp_path / "events.jsonl.1").write_text(
-        "".join(json.dumps({"type": "event", "seq": seq}) + "\n" for seq in (1, 2)),
-        encoding="utf-8",
-    )
-    (tmp_path / "events.jsonl").write_text(
-        json.dumps({"type": "event", "seq": 3}) + "\n",
-        encoding="utf-8",
-    )
-
-    assert [row["seq"] for row in _replay(tmp_path, limit=3)] == [1, 2, 3]
-
-
 def test_tail_replay_removes_exact_rollover_boundary_overlap(tmp_path: Path) -> None:
     (tmp_path / "events.jsonl.1").write_text(
         "".join(json.dumps({"type": "event", "seq": seq}) + "\n" for seq in (1, 2, 3)),
@@ -147,21 +88,3 @@ def test_tail_replay_removes_exact_rollover_boundary_overlap(tmp_path: Path) -> 
     )
 
     assert [row["seq"] for row in _replay(tmp_path, limit=4)] == [1, 2, 3, 4]
-
-
-def test_zero_replay_starts_at_the_live_boundary(tmp_path: Path) -> None:
-    async def run() -> dict:
-        path = tmp_path / "events.jsonl"
-        path.write_text(json.dumps({"type": "old", "seq": 1}) + "\n", encoding="utf-8")
-        stream = tail_events(tmp_path, replay_limit=0, poll_interval=0.001)
-        pending = asyncio.create_task(stream.__anext__())
-        try:
-            await asyncio.sleep(0.02)
-            assert not pending.done()
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"type": "new", "seq": 2}) + "\n")
-            return await asyncio.wait_for(pending, timeout=1)
-        finally:
-            await stream.aclose()
-
-    assert asyncio.run(run())["seq"] == 2

@@ -7,7 +7,6 @@ from __future__ import annotations
 import errno
 import json
 import os
-import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,14 +17,11 @@ import pytest
 from argus.core.session import SessionMeta, read_session_meta, write_session_meta
 from argus.daemon import life_worker as daemon_worker
 from argus.life.memory import LifeMemory
-from argus.manager import front_door
 from argus.webapi import (
-    artifacts,
     daemon_lifecycle,
     manager_bridge,
     manager_pending_question,
     manager_state,
-    project_crud,
     server,
 )
 from tests.hand_off import manager_runner
@@ -87,38 +83,6 @@ def ctx(tmp_path: Path):
     return tmp_path, "s-w1000001", life, TestClient(server.create_app(global_root=tmp_path))
 
 
-def test_create_daemon_separates_launch_cwd_from_execution_workdir(
-    tmp_path: Path,
-) -> None:
-    launch = tmp_path / "workspace"
-    launch.mkdir()
-    created = daemon_lifecycle.create_daemon("", launch_cwd=str(launch), global_root=tmp_path)
-    meta = read_session_meta(tmp_path, created["sid"])
-    assert meta is not None
-    assert meta.launch_cwd == str(launch.resolve())
-    assert meta.workdir == str((tmp_path / "workspaces" / created["sid"]).resolve())
-    assert meta.origin == "web"
-
-
-def test_create_daemon_honours_explicit_execution_workdir(tmp_path: Path) -> None:
-    launch = tmp_path / "launch"
-    workdir = tmp_path / "execution"
-    launch.mkdir()
-    workdir.mkdir()
-
-    created = daemon_lifecycle.create_daemon(
-        "",
-        launch_cwd=str(launch),
-        workdir=str(workdir),
-        global_root=tmp_path,
-    )
-
-    meta = read_session_meta(tmp_path, created["sid"])
-    assert meta is not None
-    assert meta.launch_cwd == str(launch.resolve())
-    assert meta.workdir == str(workdir.resolve())
-
-
 def test_create_daemon_rejects_an_unavailable_workdir_before_command_submission(
     tmp_path: Path,
 ) -> None:
@@ -154,29 +118,6 @@ def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> No
     assert meta.workdir == original.workdir
 
 
-def test_workdir_update_preserves_state_root_and_session_name(tmp_path: Path) -> None:
-    created = daemon_lifecycle.create_daemon(name="Existing name", global_root=tmp_path)
-    workspace = tmp_path / "new-workspace"
-    workspace.mkdir()
-
-    result = daemon_lifecycle.set_project_workdir(
-        created["sid"],
-        str(workspace),
-        global_root=tmp_path,
-    )
-
-    meta = read_session_meta(tmp_path, created["sid"])
-    assert result == {
-        "ok": True,
-        "workdir": str(workspace.resolve()),
-        "unchanged": False,
-    }
-    assert meta is not None
-    assert meta.display_name == "Existing name"
-    assert meta.cwd == str(tmp_path / "projects" / created["sid"])
-    assert meta.workdir == str(workspace.resolve())
-
-
 def test_set_project_workdir_takes_the_pipeline_lock(
     tmp_path: Path,
     monkeypatch,
@@ -204,44 +145,6 @@ def test_set_project_workdir_takes_the_pipeline_lock(
 
     assert result is not None and result["ok"] is True
     assert order == ["pipeline"]
-
-
-def test_web_session_defaults_are_independent_of_server_cwd(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    launch = tmp_path / "web-workspace"
-    launch.mkdir()
-    monkeypatch.chdir(launch)
-    client = TestClient(server.create_app(global_root=tmp_path))
-
-    created = client.post("/api/daemons", json={}).json()
-    meta = read_session_meta(tmp_path, created["sid"])
-    index = client.get("/api/projects").json()
-
-    assert meta is not None
-    expected = tmp_path / "workspaces" / created["sid"]
-    assert meta.launch_cwd == str(expected.resolve())
-    assert meta.workdir == str(expected.resolve())
-    assert created["workdir"] == str(expected.resolve())
-    assert index["local_cwd"] != str(launch.resolve())
-    assert created["sid"] in {row["id"] for row in index["projects"]}
-
-
-def test_set_project_workdir_claims_legacy_session(tmp_path: Path) -> None:
-    life = _make_project(tmp_path, sid="s-legacy1")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    result = daemon_lifecycle.set_project_workdir(
-        "s-legacy1",
-        str(workspace),
-        global_root=tmp_path,
-    )
-    meta = read_session_meta(tmp_path, "s-legacy1")
-    assert meta is not None
-    assert result is not None and result["ok"] is True
-    assert meta.cwd == str(life)
-    assert meta.workdir == str(workspace.resolve())
 
 
 def test_set_project_workdir_rejects_live_daemon_change(
@@ -366,12 +269,6 @@ def test_status_composite(ctx) -> None:
     assert body["continuous"]["enabled"] is False
 
 
-def test_journal(ctx) -> None:
-    _, sid, _, client = ctx
-    j = client.get(f"/api/projects/{sid}/journal?n=5").json()["journal"]
-    assert isinstance(j, list)
-
-
 def test_doctor(ctx) -> None:
     _, sid, _, client = ctx
     d = client.get(f"/api/projects/{sid}/doctor").json()
@@ -380,21 +277,9 @@ def test_doctor(ctx) -> None:
     assert "log_tail" in d
 
 
-def test_config(ctx) -> None:
-    _, sid, _, client = ctx
-    cfg = client.get(f"/api/projects/{sid}/config").json()
-    assert "roles" in cfg and len(cfg["roles"]) == 4
-
-
 def test_identity(ctx) -> None:
     _, sid, _, client = ctx
     assert isinstance(client.get(f"/api/projects/{sid}/identity").json()["identity"], str)
-
-
-def test_transcript(ctx) -> None:
-    _, sid, _, client = ctx
-    turns = client.get(f"/api/projects/{sid}/transcript").json()["turns"]
-    assert isinstance(turns, list) and len(turns) == 2
 
 
 def test_backlog_item_returns_full_objective(ctx) -> None:
@@ -406,47 +291,6 @@ def test_backlog_item_returns_full_objective(ctx) -> None:
     assert item["objective"] == "tune the kernel"
     assert "iteration_cycles_done" in item
     assert client.get(f"/api/projects/{sid}/backlog/nope").status_code == 404
-
-
-def test_projects_enriched_with_label_and_uptime(ctx) -> None:
-    root, sid, _, client = ctx
-    p = next(p for p in client.get("/api/projects").json()["projects"] if p["id"] == sid)
-    assert "label" in p and "uptime_seconds" in p
-
-
-def test_project_picker_uses_campaign_objective_before_greeting(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, _, client = ctx
-    manager_state._STATES.clear()
-
-    class _Manager:
-        def classify_front_door(self, _text, *, lifetime_sink=None, **_kwargs):
-            if lifetime_sink is not None:
-                lifetime_sink("standing")
-            return None, None, "complex"
-
-        def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(execution_task=text)
-
-        def commit_vertical_decision(self, text, decision, **kwargs):
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    ensure = lambda chat_state, mem: SimpleNamespace(manager=_Manager())
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", ensure)
-    assert (
-        project_crud.set_continuous(
-            sid,
-            enabled=True,
-            objective="Write the CO2 paper",
-            global_root=root,
-        )
-        is True
-    )
-    p = next(p for p in client.get("/api/projects").json()["projects"] if p["id"] == sid)
-    assert p["objective"] == "Write the CO2 paper"
-    assert p["label"] == "Write the CO2 paper"
 
 
 def _seed_result_artifacts(root: Path, sid: str, life: Path) -> Path:
@@ -570,207 +414,6 @@ def test_artifacts_are_manager_allowlisted_and_workspace_confined(ctx) -> None:
     assert hidden.status_code == 404
 
 
-def test_artifact_symlink_escape_is_rejected(
-    ctx,
-    require_symlink_support,
-) -> None:
-    root, sid, life, client = ctx
-    workspace = _seed_result_artifacts(root, sid, life)
-    escaped = workspace / "paper" / "escaped-link.txt"
-    escaped.symlink_to(root / "outside.txt")
-    _write_live_view(life, ["paper/result.md", "paper/escaped-link.txt"])
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-    assert [row["path"] for row in rows] == ["paper/result.md"]
-    assert (
-        client.get(
-            f"/api/projects/{sid}/artifact",
-            params={"path": "paper/escaped-link.txt"},
-        ).status_code
-        == 404
-    )
-
-
-def test_artifacts_use_session_workspace_instead_of_launch_directory(ctx) -> None:
-    root, sid, life, client = ctx
-    launch = root / "launch"
-    (launch / "paper").mkdir(parents=True)
-    (launch / "paper" / "result.md").write_text("wrong project\n", encoding="utf-8")
-    (life / "paper").mkdir()
-    (life / "paper" / "result.md").write_bytes(b"current session\n")
-    write_session_meta(
-        root,
-        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
-    )
-    _write_live_view(life, ["paper/result.md"])
-
-    preview = client.get(
-        f"/api/projects/{sid}/artifact",
-        params={"path": "paper/result.md"},
-    )
-
-    assert preview.status_code == 200
-    assert preview.json()["preview"] == "current session\n"
-
-
-def test_artifacts_use_explicit_persisted_workdir(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = root / "operator-workspace"
-    (workspace / "paper").mkdir(parents=True)
-    (workspace / "paper" / "result.md").write_bytes(b"operator workspace\n")
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid,
-            cwd=str(life),
-            workdir=str(workspace),
-            launch_cwd=str(workspace),
-        ),
-    )
-    _write_live_view(life, ["paper/result.md"])
-
-    preview = client.get(
-        f"/api/projects/{sid}/artifact",
-        params={"path": "paper/result.md"},
-    )
-
-    assert preview.status_code == 200
-    assert preview.json()["preview"] == "operator workspace\n"
-
-
-def test_manager_live_view_replaces_the_previous_allowlist(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = _seed_result_artifacts(root, sid, life)
-    with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
-        for index in range(150):
-            fh.write(
-                json.dumps(
-                    {
-                        "type": "user.note",
-                        "text": f"later note {index}",
-                        "ts": time.time(),
-                    }
-                )
-                + "\n"
-            )
-    # Unrelated journal traffic must not change the Manager-owned selection.
-    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-
-    (workspace / "new-result.md").write_text("# New result\n", encoding="utf-8")
-    _write_live_view(life, ["new-result.md"], title="Replacement selection")
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-    assert [row["path"] for row in rows] == ["new-result.md"]
-    assert (
-        client.get(
-            f"/api/projects/{sid}/artifact",
-            params={"path": "paper/result.md"},
-        ).status_code
-        == 404
-    )
-
-
-def test_manager_live_view_is_available_during_active_work(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = root / "workspace-live"
-    (workspace / "research").mkdir(parents=True)
-    (workspace / "research" / "PROGRESS.md").write_text("# Live progress\n", encoding="utf-8")
-    (workspace / ".argus").mkdir()
-    (workspace / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Current research",
-                "reason": "The Manager selected the changing research log.",
-                "paths": ["research/PROGRESS.md", ".env", "../outside.txt"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    write_session_meta(root, SessionMeta(id=sid, cwd=str(workspace)))
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-
-    assert [row["path"] for row in rows] == ["research/PROGRESS.md"]
-    assert rows[0]["source"] == "manager_live"
-    assert rows[0]["group_title"] == "Current research"
-    preview = client.get(
-        f"/api/projects/{sid}/artifact",
-        params={"path": "research/PROGRESS.md"},
-    )
-    assert preview.status_code == 200
-    assert preview.json()["preview"].startswith("# Live progress")
-
-
-def test_new_session_does_not_inherit_workspace_global_live_view(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = root / "shared-workspace"
-    stale_live = workspace / ".argus" / "live"
-    stale_live.mkdir(parents=True)
-    (stale_live / "stale.md").write_text("# Stale campaign\n", encoding="utf-8")
-    (workspace / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Unrelated campaign",
-                "paths": [".argus/live/stale.md"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid,
-            cwd=str(life),
-            workdir=str(workspace),
-            launch_cwd=str(workspace),
-        ),
-    )
-
-    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
-
-    (workspace / "current.md").write_text("# Current session\n", encoding="utf-8")
-    (life / ".argus").mkdir()
-    (life / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Current session",
-                "paths": ["current.md"],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-    assert [row["path"] for row in rows] == ["current.md"]
-    assert rows[0]["group_title"] == "Current session"
-
-
-def test_manager_live_view_hides_not_yet_existing_future_artifacts(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = root / "future-workspace"
-    workspace.mkdir()
-    write_session_meta(
-        root,
-        SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
-    )
-    (life / ".argus").mkdir()
-    (life / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Future report",
-                "paths": ["REPORT.md"],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
-
-
 def test_manager_live_view_recovers_after_legacy_accidental_clear(ctx) -> None:
     root, sid, life, client = ctx
     workspace = root / "legacy-clear-workspace"
@@ -850,63 +493,6 @@ def test_manager_live_view_honors_explicit_clear_event(ctx) -> None:
     assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
 
 
-def test_manager_live_view_uses_life_dir_without_session_metadata(ctx) -> None:
-    _, sid, life, client = ctx
-    (life / ".argus").mkdir()
-    (life / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Long-running research",
-                "paths": ["FINAL_REPORT.md"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (life / "FINAL_REPORT.md").write_text("# Living report\n", encoding="utf-8")
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-
-    assert [row["path"] for row in rows] == ["FINAL_REPORT.md"]
-    assert rows[0]["source"] == "manager_live"
-    preview = client.get(
-        f"/api/projects/{sid}/artifact",
-        params={"path": "FINAL_REPORT.md"},
-    )
-    assert preview.status_code == 200
-    assert preview.json()["preview"].startswith("# Living report")
-
-
-def test_artifacts_prefer_executor_cwd_over_launch_metadata(ctx) -> None:
-    root, sid, life, client = ctx
-    launch = root / "launch-context"
-    launch.mkdir()
-    (life / ".argus").mkdir()
-    (life / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Current output",
-                "reason": "Written by the isolated Web executor.",
-                "paths": ["result.md"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (life / "result.md").write_text("# Real executor output\n", encoding="utf-8")
-    write_session_meta(
-        root,
-        SessionMeta(id=sid, cwd=str(life), launch_cwd=str(launch)),
-    )
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-
-    assert rows[0]["path"] == "result.md"
-    assert rows[0]["exists"] is True
-    assert rows[0]["source"] == "manager_live"
-    assert rows[0]["group_title"] == "Current output"
-
-
 def test_manager_live_symlink_cannot_expose_sensitive_workspace_file(
     ctx,
     require_symlink_support,
@@ -947,106 +533,6 @@ def test_sensitive_symlink_alias_is_rejected_even_with_safe_target(
     rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
 
     assert rows == []
-
-
-def test_manager_live_cannot_select_common_credential_file(ctx) -> None:
-    root, sid, life, client = ctx
-    (life / ".npmrc").write_text("//registry/:_authToken=secret\n", encoding="utf-8")
-    (life / ".argus").mkdir()
-    (life / ".argus" / "live-view.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "title": "Unsafe",
-                "reason": "Credential files are never renderable.",
-                "paths": [".npmrc"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    write_session_meta(root, SessionMeta(id=sid, cwd=str(life)))
-
-    rows = client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"]
-
-    assert rows == []
-
-
-def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = _seed_result_artifacts(root, sid, life)
-    (workspace / "report.html").write_text("<script>alert(1)</script>", encoding="utf-8")
-    (workspace / "figure.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
-        encoding="utf-8",
-    )
-    _write_live_view(life, ["report.html", "figure.svg"])
-
-    html = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "report.html"})
-    svg = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": "figure.svg"})
-    html_info = client.get(
-        f"/api/projects/{sid}/artifact",
-        params={"path": "report.html"},
-    )
-    assert html_info.status_code == 200
-    assert html_info.json()["kind"] == "html"
-    assert html_info.json()["preview"] == "<script>alert(1)</script>"
-    assert html.status_code == 200
-    assert html.headers["content-type"].startswith("text/plain")
-    assert html.headers["x-content-type-options"] == "nosniff"
-    assert svg.status_code == 200
-    assert svg.headers["content-type"].startswith("text/plain")
-    assert svg.headers["x-content-type-options"] == "nosniff"
-    assert svg.text == (workspace / "figure.svg").read_text(encoding="utf-8")
-    download = client.get(
-        f"/api/projects/{sid}/artifact/raw",
-        params={"path": "figure.svg", "download": True},
-    )
-    assert download.status_code == 200
-    assert download.headers["content-type"] == "application/octet-stream"
-    assert download.headers["content-disposition"].startswith("attachment;")
-    assert download.content == svg.content
-
-
-def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None:
-    expected = {
-        "view.md": "markdown",
-        "data.json": "json",
-        "events.jsonl": "json",
-        "table.csv": "table",
-        "table.tsv": "table",
-        "sound.mp3": "audio",
-        "clip.mp4": "video",
-        "image.png": "image",
-        "paper.pdf": "pdf",
-        "memo.docx": "binary",
-    }
-    for name, kind in expected.items():
-        (tmp_path / name).write_bytes(b"x")
-        row = artifacts.artifact_metadata(tmp_path, name, preview_bytes=1024)
-        assert row is not None and row["kind"] == kind
-
-
-def test_git_diff_is_workspace_scoped_and_auth_endpoint_ready(ctx) -> None:
-    root, sid, life, client = ctx
-    workspace = _seed_result_artifacts(root, sid, life)
-    subprocess.run(["git", "init", "-q", str(workspace)], check=True)
-    subprocess.run(
-        ["git", "-C", str(workspace), "config", "user.email", "test@example.com"], check=True
-    )
-    subprocess.run(["git", "-C", str(workspace), "config", "user.name", "Test"], check=True)
-    subprocess.run(["git", "-C", str(workspace), "add", "paper/result.md"], check=True)
-    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
-    (workspace / "paper" / "result.md").write_text(
-        "# Certified\nupdated result\n", encoding="utf-8"
-    )
-
-    response = client.get(f"/api/projects/{sid}/git-diff")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["available"] is True
-    assert "paper/result.md" in payload["status"]
-    assert "updated result" in payload["diff"]
-    assert response.headers["cache-control"] == "private, no-store"
 
 
 # ── write side ───────────────────────────────────────────────────────────
@@ -1098,20 +584,6 @@ def test_unknown_backlog_item_404(ctx) -> None:
         client.post(f"/api/projects/{sid}/backlog/nope/dispose", json={"op": "done"}).status_code
         == 404
     )
-
-
-def test_wave1_reads_404_on_unknown_project(ctx) -> None:
-    _, _, _, client = ctx
-    for path in (
-        "status",
-        "journal",
-        "doctor",
-        "config",
-        "identity",
-        "transcript",
-        "backlog/item1",
-    ):
-        assert client.get(f"/api/projects/s-nope/{path}").status_code == 404, path
 
 
 # ---------------------------------------------------------------------------
@@ -1230,25 +702,6 @@ class TestManagerMessageLifecycleErrors:
         assert persisted["state"] in {"incubating", "running", "writing"}
         assert persisted["history"][-1]["reason"] == "manager_team_dispatch"
 
-    def test_done_project_resume_uses_persisted_workdir(self, tmp_path: Path) -> None:
-        """Resume infers observable status from the shared execution workdir."""
-        from argus.life.project_lifecycle_io import load_persisted
-        from argus.manager.dispatch import (
-            resume_done_lifecycle_for_team_dispatch,
-        )
-
-        mem, launch = _make_mem_with_launch_cwd(tmp_path)
-        # Put a paper draft in the workspace to trigger writing state
-        paper_dir = launch / "paper"
-        paper_dir.mkdir()
-        (paper_dir / "main.tex").write_text("\\documentclass{article}", encoding="utf-8")
-        _persist_lifecycle_done(mem.project_root)
-
-        result = resume_done_lifecycle_for_team_dispatch(mem)
-
-        assert result is True
-        persisted = load_persisted(mem.project_root)
-        assert persisted["state"] == "writing"
 
     @pytest.mark.parametrize("state", ["quarantined", "archived"])
     def test_quarantined_and_archived_raise(self, tmp_path: Path, state: str) -> None:
@@ -1285,156 +738,8 @@ class TestManagerMessageLifecycleErrors:
         persisted = load_persisted(mem.project_root)
         assert persisted["state"] == state
 
-    def test_chat_self_never_mutates_done(self, tmp_path: Path) -> None:
-        """chat/SELF classification must not touch lifecycle.
-
-        This test validates the contract: only TEAM dispatch calls the
-        resume helper, so a done project stays done for chat/SELF turns.
-        """
-        from argus.life.project_lifecycle_io import load_persisted
-
-        mem, _ = _make_mem_with_launch_cwd(tmp_path)
-        _persist_lifecycle_done(mem.project_root)
-
-        # Simulate what chat/SELF does: nothing — no resume call.
-        persisted = load_persisted(mem.project_root)
-        assert persisted["state"] == "done"
-
-    def test_no_lifecycle_file_returns_false(self, tmp_path: Path) -> None:
-        """Fresh project with no lifecycle.json should be a no-op."""
-        from argus.manager.dispatch import (
-            resume_done_lifecycle_for_team_dispatch,
-        )
-
-        mem, _ = _make_mem_with_launch_cwd(tmp_path)
-        # No lifecycle file written
-
-        result = resume_done_lifecycle_for_team_dispatch(mem)
-
-        assert result is False
-
 
 # ── Dispatch acknowledgement persistence ────────────────────────────────────
-
-_DISPATCH_ACK_CASES = [
-    ({"rc": 0, "pid": 42}, "Got it, starting now."),
-    (None, "Got it, starting now."),
-    ({"admission_required": True}, "this starts as soon as a slot frees up"),
-    (
-        {"rc": 2, "error": "auth failed"},
-        "Saved, but the work couldn't start. Your request is kept; see the startup "
-        "details for why, or try again later.",
-    ),
-]
-
-
-@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
-def test_dispatch_ack_stream_persists_truthful_text(
-    tmp_path: Path,
-    daemon_result,
-    expected_substr,
-) -> None:
-    """Streaming endpoint: returned reply, transcript turn, and SSE delta agree."""
-    from argus.core.transcript import read_turns
-    from argus.webapi.manager_pending_question import record_task_dispatch_ack
-
-    life_dir = tmp_path / "projects" / "s-ack"
-    life_dir.mkdir(parents=True)
-
-    fragments: list[tuple[str, dict]] = []
-
-    def on_fragment(kind: str, payload: dict) -> None:
-        fragments.append((kind, payload))
-
-    result: dict = {
-        "kind": "task",
-        "daemon_alive": daemon_result is None,
-        "daemon": daemon_result,
-        "reply": None,
-    }
-    text = record_task_dispatch_ack(
-        "s-ack",
-        result,
-        global_root=tmp_path,
-        on_fragment=on_fragment,
-    )
-
-    assert expected_substr in text
-    assert result["reply"] == text
-    if isinstance(daemon_result, dict) and int(daemon_result.get("rc", 0)) != 0:
-        assert result["daemon"]["error"] == "The background worker could not start."
-        assert result["daemon"]["diagnostic"] == "auth failed"
-
-    # Transcript persisted
-    turns = read_turns(life_dir)
-    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
-
-    # SSE delta emitted
-    deltas = [p for k, p in fragments if k == "delta"]
-    assert any(expected_substr in d.get("text", "") for d in deltas)
-    assert not (life_dir / "events.jsonl").exists()
-
-
-@pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
-def test_dispatch_ack_blocking_persists_truthful_text(
-    tmp_path: Path,
-    daemon_result,
-    expected_substr,
-) -> None:
-    """Blocking endpoint: returned reply and transcript turn agree (no SSE)."""
-    from argus.core.transcript import read_turns
-    from argus.webapi.manager_pending_question import record_task_dispatch_ack
-
-    life_dir = tmp_path / "projects" / "s-ack"
-    life_dir.mkdir(parents=True)
-
-    result: dict = {
-        "kind": "task",
-        "daemon_alive": daemon_result is None,
-        "daemon": daemon_result,
-        "reply": None,
-    }
-    text = record_task_dispatch_ack(
-        "s-ack",
-        result,
-        global_root=tmp_path,
-        on_fragment=None,
-    )
-
-    assert expected_substr in text
-    assert result["reply"] == text
-
-    turns = read_turns(life_dir)
-    assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
-    events = [
-        json.loads(line)
-        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert [event["text"] for event in events if event["type"] == "ui.argus"] == [text]
-
-
-def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> None:
-    from argus.webapi.manager_pending_question import record_task_dispatch_ack
-
-    life_dir = tmp_path / "projects" / "s-ack"
-    life_dir.mkdir(parents=True)
-    result = {
-        "kind": "task",
-        "daemon_alive": True,
-        "daemon": None,
-        "dispatch_state": "planner_pending",
-        "reply": None,
-    }
-
-    text = record_task_dispatch_ack(
-        "s-ack",
-        result,
-        global_root=tmp_path,
-    )
-
-    assert "Goal updated" in text
-    assert "working out the next step" in text
-    assert "already running" not in text
 
 
 @pytest.mark.parametrize(

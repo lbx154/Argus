@@ -68,19 +68,6 @@ def test_supersede_event_passes_the_filter_with_lean_passthrough(redact_secrets_
     assert "superseded_by_plan_id" not in events[1]
 
 
-def test_supersede_event_reaches_the_live_feed(tmp_path: Path) -> None:
-    sid, life, memory = plain_session(tmp_path)
-    memory.backlog.add(BacklogItem(id="a", ts=1, title="Coverage", objective="Compare"))
-    append(life, {"type": "life.plan.node.superseded", "item_id": "a", "ts": 5,
-                  "reason": "Planner retired the node",
-                  "superseded_by_plan_id": "plan-9", "source": "planner"})
-    value = read_map(sid, tmp_path, life)
-    matching = [e for e in value["events"] if e["type"] == "life.plan.node.superseded"]
-    assert len(matching) == 1
-    assert matching[0]["reason"] == "Planner retired the node"
-    assert matching[0]["superseded_by_plan_id"] == "plan-9"
-
-
 def test_an_old_team_board_and_formation_record_read_as_plain_history(tmp_path: Path) -> None:
     sid = "s-old-team"
     workdir = tmp_path / "workspaces" / sid

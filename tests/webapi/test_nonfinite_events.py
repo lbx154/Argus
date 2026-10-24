@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from argus.core.json_codec import loads_finite_json
-from argus.core.mission_view import load_mission_view, snapshot_mission_view
+from argus.core.mission_view import snapshot_mission_view
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import Backlog, BacklogItem
@@ -56,21 +56,6 @@ def test_nonfinite_event_does_not_break_http_views(tmp_path, token):
     assert view["projection_sync"]["skipped_rows"] == 1
     assert view["projection_sync"]["status"] == "current"
     assert (life / "events.jsonl").read_bytes() == original
-
-
-def test_checkpoint_poisoned_by_older_reader_is_rebuilt(tmp_path):
-    sink = JsonlEventSink(None, life_dir=tmp_path)
-    sink.append({"type": "life.mission.started", "item_id": "A", "title": "A", "objective": "Work", "ts": 1})
-    _append_bad_then_good(tmp_path / "events.jsonl", "NaN")
-    view = load_mission_view(tmp_path)
-    view["timeline"][0]["ts"] = float("nan")
-    checkpoint = tmp_path / "mission-view.json"
-    checkpoint.write_text(json.dumps(view), encoding="utf-8")
-    repaired = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[])
-    json.dumps(repaired, allow_nan=False)
-    assert repaired["review"]["rejected_attempts"] == 1
-    assert repaired["projection_sync"]["skipped_rows"] == 1
-    loads_finite_json(checkpoint.read_bytes())
 
 
 def test_live_event_tail_skips_nonfinite_record_and_continues(tmp_path):

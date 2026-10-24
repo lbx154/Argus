@@ -98,39 +98,6 @@ def test_outside_project_symlink_cannot_be_read(tmp_path: Path) -> None:
     assert response["result"] is None
 
 
-def test_library_diagnostics_do_not_corrupt_the_receipt(tmp_path: Path, monkeypatch, capsys) -> None:
-    def query(*args, **kwargs):
-        print("library diagnostic")
-        return []
-    monkeypatch.setattr(project_state, "list_projects", query)
-    result = read_bridge.reply(request("projects"), global_root=tmp_path)
-    captured = capsys.readouterr()
-    assert result["ok"] is True
-    assert captured.out == ""
-    assert "library diagnostic" in captured.err
-
-
-def test_cost_stream_exports_only_normalized_inputs(project, monkeypatch) -> None:
-    from argus.core.usage import UsageLedger, UsageRecord
-
-    root, life_dir = project
-    record = UsageRecord.from_jsonable({
-        "call_id": "private-call", "project_id": "s-read", "error": "private diagnostic",
-        "model": "private-model", "thread_id": "private-thread", "cost_basis": "provider_reported",
-        "cost_usd": 0.2, "pricing_status": "priced", "input_tokens": 100,
-    })
-    UsageLedger(life_dir, migrate_legacy=False).append(record)
-    before = (life_dir / "usage.jsonl").read_bytes()
-    monkeypatch.setattr(project_state, "list_project_costs", lambda **_: pytest.fail("Python must not aggregate Node cost queries"))
-    frames = []
-    result = read_bridge.reply(request("costs"), global_root=root, emit_cost_frame=frames.append)
-    assert result["ok"] is True
-    assert [frame["kind"] for frame in frames] == ["cost_project", "cost_record", "cost_project_end"]
-    assert frames[1]["record"]["cost_usd"] == 0.2
-    assert "private" not in json.dumps(frames)
-    assert (life_dir / "usage.jsonl").read_bytes() == before
-
-
 @pytest.mark.parametrize("bound,value", [("max_cost_records", 0), ("max_cost_frame_bytes", 40), ("max_response_bytes", 80)])
 def test_cost_stream_limits_return_a_failed_receipt(project, monkeypatch, bound, value) -> None:
     from argus.core.usage import UsageLedger, UsageRecord

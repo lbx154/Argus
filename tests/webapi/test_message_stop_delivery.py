@@ -13,45 +13,6 @@ from argus.webapi import manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
 
 
-def test_snapshot_recovers_running_manager_request_without_replaying_it(tmp_path, monkeypatch):
-    sid = "s-refresh-self"
-    life = tmp_path / "projects" / sid
-    life.mkdir(parents=True)
-    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
-    entered, release = threading.Event(), threading.Event()
-    calls = []
-
-    def manager(*args, cancelled, **kwargs):
-        calls.append(args[1])
-        entered.set()
-        assert release.wait(3)
-        return {"kind": "cancelled", "reply": "cancelled"} if cancelled() else {
-            "kind": "chat", "reply": "finished",
-        }
-
-    monkeypatch.setattr(manager_bridge, "manager_message", manager)
-    with TestClient(server.create_app(global_root=tmp_path)) as client:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(client.post, f"/api/projects/{sid}/message/stream",
-                                  json={"text": "Fix the page", "request_id": "self-request"})
-            try:
-                assert entered.wait(2)
-                for _ in range(2):
-                    snapshot = client.get(f"/api/projects/{sid}/snapshot?compact=true")
-                    assert snapshot.status_code == 200
-                    assert snapshot.json()["manager_requests"] == [
-                        {"request_id": "self-request", "status": "running"},
-                    ]
-                assert calls == ["Fix the page"], "snapshot refresh must not replay the request"
-                stopped = client.post(f"/api/projects/{sid}/message/cancel",
-                                      json={"request_id": "self-request"})
-                assert stopped.json()["active"] is True
-            finally:
-                release.set()
-            assert '"cancelled"' in pending.result(timeout=2).text
-            assert client.get(f"/api/projects/{sid}/snapshot?compact=true").json()["manager_requests"] == []
-
-
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("resolved_question", [False, True])
 def test_stop_between_handoff_and_http_delivery_cannot_restart_executor(

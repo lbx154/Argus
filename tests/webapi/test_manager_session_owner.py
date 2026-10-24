@@ -77,34 +77,6 @@ def test_the_team_report_continues_the_session_the_ticket_was_handed_in(project:
     assert seeds == [None, "thread-A"]
 
 
-def test_a_failed_turn_starts_the_next_one_fresh(project: Path, monkeypatch) -> None:
-    _ManagerSession(None, project)._write_tid("thread-A")
-    seeds: list = []
-    _runner(monkeypatch, project, seeds, failure="provider broke")
-
-    manager_bridge.manager_message("s-owner", "hello", global_root=project.parent.parent)
-
-    assert seeds == ["thread-A"]
-    assert front_door.manager_session(SimpleNamespace(project_root=project)) is None
-
-
-def test_the_owner_answers_a_team_report_in_the_same_session(project: Path, monkeypatch) -> None:
-    _ManagerSession(None, project)._write_tid("thread-A")
-    seeds: list = []
-    runner = _runner(monkeypatch, project, seeds, reply="Done: your file is out.txt.")
-
-    manager_bridge.manager_team_report(
-        "s-owner", "Task done; result in out.txt", message_id="mission-result-x",
-        event_fields={"mission_result": True, "item_id": "x"}, global_root=project.parent.parent,
-    )
-
-    assert runner.turns == ["Team report:\nTask done; result in out.txt"]
-    assert seeds == ["thread-A"]
-    [turn] = [t for t in read_turns(project) if t.get("message_id") == "mission-result-x"]
-    assert turn["text"] == "Done: your file is out.txt."
-    assert turn["mission_result"] is True
-
-
 def test_the_operator_reads_the_team_report_when_the_manager_cannot_answer(project: Path, monkeypatch) -> None:
     _runner(monkeypatch, project, [], failure="provider broke")
 

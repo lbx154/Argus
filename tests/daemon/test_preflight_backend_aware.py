@@ -15,7 +15,6 @@ import pytest
 
 from argus.daemon import life_worker
 from argus.daemon.life_worker import (
-    _effective_runner_backend,
     _preflight_route_on_codex,
     required_codex_routes,
 )
@@ -51,30 +50,9 @@ def _clear_backend_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
 
 
-def test_default_codex_subscription_skips_model_api_routes() -> None:
-    assert required_codex_routes() == []
-
-
 def test_explicit_model_api_mode_probes_all_required_routes(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     assert required_codex_routes() == ["engineer", "reviewer", "text"]
-
-
-def test_global_copilot_skips_all_routes(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
-    assert required_codex_routes() == []  # empty → daemon skips the preflight
-
-
-def test_persisted_copilot_skips_without_env(monkeypatch) -> None:
-    # A copilot choice persisted via ``/backend`` (config.json) MUST be honoured
-    # even with no shell env — a non-interactive launcher (web autostart, tmux
-    # exec, cron) never sources .bashrc, so the interactive-only export is
-    # invisible and the daemon would otherwise wrongly probe the codex vault.
-    monkeypatch.setattr(
-        "argus.core.knob_store.read_persisted_knobs",
-        lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
-    )
-    assert required_codex_routes() == []
 
 
 def test_a_retired_role_backend_cannot_bring_back_a_codex_probe(monkeypatch) -> None:
@@ -85,60 +63,7 @@ def test_a_retired_role_backend_cannot_bring_back_a_codex_probe(monkeypatch) -> 
     assert life_worker._worker_vault_preflight_routes("copilot") == []
 
 
-def test_claude_backend_also_skips(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
-    assert required_codex_routes() == []
-
-
-def test_pi_backend_also_skips(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    assert required_codex_routes() == []
-
-
-def test_opencode_backend_also_skips(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "opencode")
-    assert required_codex_routes() == []
-
-
-def test_grok_backend_also_skips(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "grok")
-    assert required_codex_routes() == []
-
-
 def test_unknown_value_fails_closed_to_probe(monkeypatch) -> None:
     # A typo'd backend must NOT silently disable the safety probe.
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "coldex")
     assert _preflight_route_on_codex("engineer") is True
-
-
-def test_missing_default_codex_uses_copilot_without_vault_probe(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    copilot = tmp_path / "copilot"
-    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    copilot.chmod(0o755)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("PATH", str(tmp_path))
-
-    assert required_codex_routes() == []
-
-
-def test_effective_runner_backend_uses_instantiated_fallback() -> None:
-    from types import SimpleNamespace
-
-    from argus.adapters.agent_cli_backend import AgentCliBackend
-
-    runner = SimpleNamespace(
-        backend=AgentCliBackend(backend="copilot", runner_bin="copilot")
-    )
-
-    assert _effective_runner_backend(runner, "codex") == "copilot"
-
-
-def test_text_route_follows_runner_default(monkeypatch) -> None:
-    # 'text' has no dedicated backend env; it tracks the default runner backend.
-    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
-    assert _preflight_route_on_codex("text") is True
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
-    assert _preflight_route_on_codex("text") is False

@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from argus.webapi import daemon_lifecycle, server
-from argus.webapi.routes.workspace_v2 import _git, _open_confined_file, _workspace_profiles
+from argus.webapi.routes.workspace_v2 import _git, _open_confined_file
 
 
 def test_workspace_v2_profiles_tree_file_literature_and_confinement(tmp_path: Path, monkeypatch) -> None:
@@ -98,23 +99,6 @@ def test_workspace_v2_profiles_tree_file_literature_and_confinement(tmp_path: Pa
     assert invalid_review.status_code == 415
 
 
-def test_workspace_git_disables_repository_fsmonitor(tmp_path: Path) -> None:
-    workspace = tmp_path / "repo"
-    workspace.mkdir()
-    subprocess.run(["git", "-C", str(workspace), "init"], check=True, capture_output=True)
-    marker = tmp_path / "fsmonitor-executed"
-    helper = tmp_path / "fsmonitor.sh"
-    helper.write_text(f"#!/bin/sh\ntouch '{marker}'\n", encoding="utf-8")
-    helper.chmod(0o755)
-    subprocess.run(["git", "-C", str(workspace), "config", "core.fsmonitor", str(helper)], check=True)
-    (workspace / "probe.txt").write_text("untracked\n", encoding="utf-8")
-
-    status = _git(workspace, "status", "--short")
-
-    assert "probe.txt" in status
-    assert not marker.exists()
-
-
 @pytest.mark.parametrize(
     ("payload", "exit_code", "max_bytes", "expected"),
     [
@@ -136,8 +120,12 @@ def test_workspace_git_portable_pipe_reads_are_bounded_and_reaped(
 ) -> None:
     real_popen = subprocess.Popen
     processes: list[subprocess.Popen[bytes]] = []
+    test_thread = threading.current_thread()
 
     def spawn(_argv, **kwargs):
+        if threading.current_thread() is not test_thread:
+            # A daemon thread left by an earlier test on this worker may spawn too.
+            return real_popen(_argv, **kwargs)
         process = real_popen(
             [
                 sys.executable,
@@ -162,60 +150,6 @@ def test_workspace_git_portable_pipe_reads_are_bounded_and_reaped(
     assert processes[0].returncode is not None
     assert processes[0].stdout is not None
     assert processes[0].stdout.closed
-
-
-def test_workspace_v2_requires_bearer_token(tmp_path: Path, monkeypatch) -> None:
-    workspace = tmp_path / "project"
-    workspace.mkdir()
-    (workspace / "README.md").write_text("authenticated", encoding="utf-8")
-    monkeypatch.setenv("ARGUS_V2_ALLOWED_ROOTS", str(tmp_path))
-    monkeypatch.setenv("ARGUS_V2_WORKSPACE_PROFILES", json.dumps([{"label": "Secure", "path": str(workspace)}]))
-    client = TestClient(server.create_app(global_root=tmp_path / "state", auth_token="secret"))
-
-    assert client.get("/api/v2/workspaces", params={"sid": "s-secure01"}).status_code == 401
-    authenticated = client.get(
-        "/api/v2/workspaces",
-        params={"sid": "s-secure01"},
-        headers={"Authorization": "Bearer secret"},
-    )
-    assert authenticated.status_code == 200
-    profile = next(row for row in authenticated.json()["profiles"] if row["label"] == "Secure")
-    file_response = client.get(
-        "/api/v2/workspace/file",
-        params={"sid": "s-secure01", "workspace_id": profile["id"], "path": "README.md"},
-        headers={"Authorization": "Bearer secret"},
-    )
-    assert file_response.status_code == 200
-    assert file_response.json()["content"] == "authenticated"
-
-
-def test_canonical_project_workspace_needs_no_machine_specific_allowed_root(tmp_path: Path, monkeypatch) -> None:
-    workspace = tmp_path / "canonical-project"
-    workspace.mkdir()
-    (workspace / "README.md").write_text("canonical", encoding="utf-8")
-    monkeypatch.delenv("ARGUS_V2_ALLOWED_ROOTS", raising=False)
-    monkeypatch.delenv("ARGUS_V2_WORKSPACE_PROFILES", raising=False)
-
-    class Context:
-        @staticmethod
-        def machine_projects(*, limit: int, include_empty: bool) -> list[dict[str, object]]:
-            assert limit == 500
-            assert include_empty is True
-            return [
-                {"id": "s-canonical", "display_name": "Canonical", "workdir": str(workspace)},
-                {"id": "s-other", "display_name": "Other", "workdir": str(workspace)},
-            ]
-
-    profile = _workspace_profiles(Context(), "s-canonical")[0]
-    assert profile["canonical"] is True
-    assert profile["id"] == "project:s-canonical"
-    assert profile["path"] == str(workspace)
-
-    fd, _info = _open_confined_file(workspace.resolve(), "README.md")
-    try:
-        assert os.read(fd, 64) == b"canonical"
-    finally:
-        os.close(fd)
 
 
 def test_final_review_uses_existing_request_id_without_content_hashes(

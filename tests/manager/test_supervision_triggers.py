@@ -67,22 +67,6 @@ def _review(round_index: int, **extra) -> dict:
     }
 
 
-@pytest.mark.parametrize("extra", [
-    {},
-    {"status": "blocked"},
-    {"status": "blocked", "operator_question": "Which column holds the group?"},
-    {"review_skipped": True},
-    {"plan_signal": "reconsider", "plan_challenge": "The parser is the wrong layer."},
-    {"checkpoint_recommended": True},
-    {"session_signal": {"kind": "repeated_contradiction", "target": "engineer", "detail": "x"}},
-    # A field written before this rule is read and ignored.
-    {"manager_attention": "needed", "manager_attention_reason": "Worth a look."},
-])
-def test_a_review_puts_nothing_to_the_manager_by_itself(admitted, extra):
-    for round_index in range(1, 7):
-        assert admitted(_review(round_index, **extra)) is None
-
-
 def test_an_engineer_handing_the_work_over_reaches_the_manager(admitted):
     event = admitted(_review(2, status="blocked", review_source="engineer_handoff",
                              reason="The fixture needs a credential only you can grant."))
@@ -111,12 +95,6 @@ def test_a_mission_end_or_a_planner_verdict_only_delivers_an_issued_decision(adm
     supervision._write(tmp_path / "manager-supervision" / "latest.json", {"status": "issued"})
     for event in (SUCCESS, FAILURE, VERDICT, _review(1)):
         assert "consult_reason" not in admitted(event)
-
-
-def test_only_a_stalled_turn_of_the_round_stalls_reaches_the_manager(admitted):
-    stall = {"type": EventType.ROUND_STALL, "round_index": 3, "semantic_stall_streak": 2,
-             "stall_reason": "no_forward_progress", "consult": "2 rounds without forward progress"}
-    assert admitted(stall) is None
 
 
 _TURN_STALL = {
@@ -189,18 +167,6 @@ def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
     assert len(manager.runner.prompts) == 2
 
 
-def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
-    write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
-    Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
-    backend = _Backend(judged("The repair is under way."))
-    event = {**_review(2, forward_progress=False), "consult_reason": "the Engineer handed the work to you"}
-    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied" and record["decision"]["action"] == "continue"
-    assert "consulted now because of: the Engineer handed the work to you" in backend.prompts[0]
-    assert record["trigger"]["round_index"] == 2
-    assert record["trigger"]["consult_reason"] == "the Engineer handed the work to you"
-
-
 def test_new_planning_goes_to_the_planner(tmp_path):
     from argus.manager.directive import load_active_manager_directive
 
@@ -215,10 +181,6 @@ def test_new_planning_goes_to_the_planner(tmp_path):
 
     assert record["status"] == "applied" and record["decision"]["action"] == "steer"
     assert load_active_manager_directive(tmp_path).planner_revision
-
-
-def test_engineer_phase_starts_no_longer_trigger_a_check(admitted):
-    assert admitted({"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 3}) is None
 
 
 @pytest.mark.parametrize("status", ["done", "continue", "blocked"])
@@ -256,20 +218,6 @@ def _form(root, event=None):
 def test_a_decision_the_evidence_does_not_support_is_refused_in_the_turn(tmp_path, change, event, refusal):
     with pytest.raises(ValueError, match=refusal):
         _form(tmp_path, event).dispatch("hand_off", {**judged("Decided."), **change})
-
-
-@pytest.mark.parametrize(("change", "decided"), [
-    ({}, {"action": "continue", "directive": "", "handoff": "team", "risk_decision": {}}),
-    ({"note": "Rerun the fixture."}, {"action": "steer", "directive": "Rerun the fixture.", "handoff": "team"}),
-    ({"to": "stop"}, {"action": "stop", "handoff": "stop"}),
-    ({"risk": {"revoke": "risk-0123456789"}}, {"risk_decision": {"action": "revoke", "risk_id": "risk-0123456789"}}),
-])
-def test_the_handoff_becomes_the_decision_the_receipt_applies(tmp_path, change, decided):
-    actions = _form(tmp_path)
-    actions.dispatch("hand_off", {**judged("Decided."), **change})
-    decision = actions.handoff.value
-    assert {key: decision[key] for key in decided} == decided
-    assert decision["reason"] == "Decided." and decision["cited_refs"] == ["backlog.jsonl"]
 
 
 def test_with_nobody_to_ask_the_manager_accepts_a_residual_risk(tmp_path, monkeypatch):

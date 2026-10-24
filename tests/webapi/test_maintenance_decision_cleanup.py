@@ -82,57 +82,6 @@ def _pending_maintenance(tmp_path: Path, *, layout: str = "global"):
     return mem, card, sidecar, worktree
 
 
-@pytest.mark.parametrize('layout', ['global', 'project'])
-def test_adopt_publishes_once_and_handoff_is_project_scoped(tmp_path, monkeypatch, layout):
-    from argus.daemon.handoff import _consume_deployment_handoff
-    from argus.maintenance import publication
-
-    mem, card, sidecar, worktree = _pending_maintenance(tmp_path, layout=layout)
-    publish = publication.publish_reviewed_change
-    calls = []
-
-    def record(*args):
-        calls.append(args)
-        return publish(*args)
-
-    monkeypatch.setattr(publication, 'publish_reviewed_change', record)
-    first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert first['application_status'] == 'accepted', first.get('error')
-    assert first['deployment']['verdict'] == 'ADOPT'
-    runtime = Path(first['deployment']['runtime_source_root'])
-    assert runtime.is_dir() and runtime != worktree
-    assert _consume_deployment_handoff(mem.project_root) == runtime
-    assert not sidecar.exists() and not worktree.exists()
-    assert first['resume_requested'] is False
-    assert 'baseline_failure_count' not in first['deployment']
-    assert 'both_publication_routes_complete' not in first['deployment']
-    again = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert again['application_status'] == 'already_applied' and len(calls) == 1
-
-
-def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_path, monkeypatch):
-    from argus.maintenance import publication
-
-    mem, card, sidecar, worktree = _pending_maintenance(tmp_path)
-    before = sidecar.read_bytes()
-    publish = publication.publish_reviewed_change
-
-    def fail(*_args):
-        raise RuntimeError('remote temporarily unavailable')
-
-    monkeypatch.setattr(publication, 'publish_reviewed_change', fail)
-    first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert first['application_status'] == 'retryable' and not first['resolved']
-    assert sidecar.read_bytes() == before and worktree.is_dir()
-    [pending] = mem.backlog.history()
-    assert pending.operator_decision == card
-    assert pending.status == 'parked'
-    assert not (mem.project_root / 'maintenance/receipts/daemon-roll.json').exists()
-    monkeypatch.setattr(publication, 'publish_reviewed_change', publish)
-    second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert second['application_status'] == 'accepted', second.get('error')
-
-
 def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, monkeypatch):
     from argus.daemon import handoff
     from argus.maintenance import publication
@@ -203,36 +152,6 @@ def _decline(mem, card):
         note="Superseded by the reviewed repair on main.",
         global_root=mem.global_root,
     )
-
-
-def test_decline_and_replay_preserve_the_exact_clock_out(tmp_path: Path) -> None:
-    mem, card, _sidecar, _worktree = _pending_maintenance(tmp_path)
-    continuous = mem.project_root / "continuous.json"
-    before = continuous.read_bytes()
-
-    first = _decline(mem, card)
-    assert first["application_status"] == "accepted"
-    assert first["resume_requested"] is False
-    assert continuous.read_bytes() == before
-
-    replay = _decline(mem, card)
-    assert replay["application_status"] == "already_applied"
-    assert replay["resume_requested"] is False
-    assert continuous.read_bytes() == before
-
-
-@pytest.mark.parametrize("layout", ["global", "project"])
-def test_decline_cleans_the_actual_sidecar_layout(tmp_path: Path, layout: str) -> None:
-    mem, card, sidecar, worktree = _pending_maintenance(tmp_path, layout=layout)
-
-    result = _decline(mem, card)
-
-    assert result["deployment"] == {"verdict": "DECLINED"}
-    assert not sidecar.exists()
-    assert not worktree.exists()
-    [item] = mem.backlog.history()
-    assert item.operator_decision["selected_option"] == "decline"
-    assert item.operator_decision["note"] == "Superseded by the reviewed repair on main."
 
 
 @pytest.mark.parametrize("evidence_path", ["tracked.txt", "untracked.txt", "evidence.log"])

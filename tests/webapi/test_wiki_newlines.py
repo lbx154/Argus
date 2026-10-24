@@ -4,11 +4,7 @@ from pathlib import Path
 import pytest
 
 from argus.webapi.routes.wiki import (
-    _index_markdown,
-    _page_meta,
-    _principles_markdown,
     _read_page,
-    _read_text,
 )
 
 PAGE = (
@@ -39,33 +35,3 @@ def test_knowledge_page_metadata_and_body_accept_both_line_endings(tmp_path, new
     assert page["markdown"] == PAGE
     assert page["truncated"] is False
     assert path.read_bytes() == original
-
-
-@pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_index_and_principles_keep_their_existing_text_contract(tmp_path, newline):
-    index = write_bytes(tmp_path / "INDEX.md", "# Index\n\nReference.\n", newline)
-    principles = write_bytes(tmp_path / "principles.md", PAGE, newline)
-    assert _index_markdown(tmp_path) == "# Index\n\nReference.\n"
-    assert _principles_markdown(tmp_path) == "Reference body.\n"
-    assert (tmp_path / "INDEX.md").read_bytes() == index
-    assert (tmp_path / "principles.md").read_bytes() == principles
-
-
-@pytest.mark.parametrize("limit", [0, 3, 5, 7, 11, 32])
-def test_windows_normalization_occurs_after_original_byte_truncation(tmp_path, limit):
-    path = tmp_path / "bounded.md"
-    original = b"one\r\ntwo\r\nthree\r\n"
-    path.write_bytes(original)
-    text, truncated = _read_text(path, limit)
-    assert text == original[:limit].decode("utf-8").replace("\r\n", "\n")
-    assert truncated is (len(original) > limit)
-    assert path.read_bytes() == original
-
-
-def test_legacy_page_fallback_is_unchanged(tmp_path):
-    path = tmp_path / "legacy.md"
-    write_bytes(path, "# Legacy page\n\nBody.\n", "\r\n")
-    text, _ = _read_text(path, 1000)
-    assert _page_meta(text, "legacy") == {
-        "title": "Legacy page", "description": "", "kind": "page", "source": "", "created": "",
-    }

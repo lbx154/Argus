@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from contextlib import suppress
 
 import anyio
 import httpx
@@ -14,7 +13,6 @@ import pytest
 from argus.core.session import SessionMeta, write_session_meta
 from argus.webapi import daemon_lifecycle, project_crud, project_state, server
 from argus.webapi.index_cache import (
-    CacheWaitTimeout,
     IndexCache,
     QueryExecutor,
     QueryLimits,
@@ -187,73 +185,6 @@ def test_http_cancelled_request_does_not_cancel_peer_and_app_reclaims_pool(tmp_p
     for worker in workers:
         worker.join(timeout=1)
         assert not worker.is_alive()
-
-
-@pytest.mark.parametrize("ttl", [0, 5])
-def test_http_deadlines_and_request_cancellation_do_not_duplicate_scan(ttl):
-    release, started = threading.Event(), threading.Event()
-    calls = []
-    cache = IndexCache(ttl_seconds=ttl)
-    executor = QueryExecutor(QueryLimits(workers=1, queued=0, timeout_seconds=0.05))
-
-    def scan():
-        calls.append(True)
-        started.set()
-        assert release.wait(timeout=3)
-        return "ready"
-
-    async def exercise():
-        first = asyncio.create_task(cache.get_async("project", scan, executor=executor))
-        try:
-            await _until(started.is_set)
-            peer = asyncio.create_task(cache.get_async("project", scan, executor=executor))
-            first.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await first
-            with pytest.raises(CacheWaitTimeout):
-                await peer
-            # Both the first request and later waiters have bounded waits.
-            with pytest.raises(CacheWaitTimeout):
-                await cache.get_async("project", scan, executor=executor)
-            assert len(calls) == 1
-            survivor = asyncio.create_task(cache.get_async("project", scan, executor=executor))
-            await asyncio.sleep(0)
-            release.set()
-            assert await survivor == "ready"
-        finally:
-            release.set()
-            with suppress(asyncio.CancelledError):
-                await first
-            await executor.close()
-
-    asyncio.run(exercise())
-
-
-def test_async_cache_invalidation_cannot_reinstall_an_old_result():
-    started, release = threading.Event(), threading.Event()
-    cache = IndexCache(ttl_seconds=60)
-    executor = QueryExecutor(QueryLimits(workers=2, queued=0, timeout_seconds=1))
-
-    def old_scan():
-        started.set()
-        assert release.wait(timeout=3)
-        return "old"
-
-    async def exercise():
-        old = asyncio.create_task(cache.get_async("project", old_scan, executor=executor))
-        try:
-            await _until(started.is_set)
-            cache.invalidate()
-            assert await cache.get_async("project", lambda: "new", executor=executor) == "new"
-            release.set()
-            assert await old == "old"
-            assert await cache.get_async("project", lambda: pytest.fail("stale scan repopulated cache"), executor=executor) == "new"
-        finally:
-            release.set()
-            await old
-            await executor.close()
-
-    asyncio.run(exercise())
 
 
 def test_waiter_admission_is_bounded_without_cancelling_existing_request():

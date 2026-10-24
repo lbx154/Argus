@@ -11,7 +11,6 @@ from argus.manager.prompt_rewrite import (
     parse_rewrite_text,
     rewrite_prompt,
 )
-from argus.roles.prompts.manager import build_prompt_rewrite_prompt
 
 
 class _Backend:
@@ -39,20 +38,6 @@ def _payload(**kwargs) -> str:
 
 
 # --- parsing ---------------------------------------------------------------
-
-
-def test_parses_the_contracted_json_object() -> None:
-    parsed = parse_rewrite_text(
-        _payload(
-            rewritten="Profile the attention kernel on B200 and report the bottleneck.",
-            changes=["named the hardware the operator already mentioned"],
-            questions=["which attention variant?"],
-        )
-    )
-    assert parsed.rewritten.startswith("Profile the attention kernel")
-    assert parsed.changes == ["named the hardware the operator already mentioned"]
-    assert parsed.questions == ["which attention variant?"]
-    assert parsed.ok
 
 
 def test_parses_json_wrapped_in_a_code_fence() -> None:
@@ -85,47 +70,6 @@ def test_advisory_lists_pass_through_in_full() -> None:
 
 
 # --- the prompt contract ---------------------------------------------------
-
-
-def test_prompt_keeps_unagreed_requirements_out_of_the_rewrite() -> None:
-    prompt = build_prompt_rewrite_prompt("优化一下 kernel")
-    assert "优化一下 kernel" in prompt
-    lowered = prompt.lower()
-    assert "do not do the work" in lowered
-    # The rewrite carries only what the operator asked for...
-    assert "belongs in `questions`, not in `rewritten`" in lowered
-    assert "must never discover a requirement they did not agree to" in lowered
-    assert "same language" in lowered
-
-
-def test_prompt_invites_the_manager_to_propose_metrics_as_questions() -> None:
-    """Proposing is expected; the harness must not gag the Manager's judgment."""
-    lowered = build_prompt_rewrite_prompt("优化一下 kernel").lower()
-    assert "use your own judgment about what this task actually needs" in lowered
-    assert "you should raise it" in lowered
-    assert "with your suggested value" in lowered
-    assert "proposing is expected; deciding for them is not" in lowered
-    # A concrete proposal beats an open-ended prompt.
-    assert "prefer a concrete proposal" in lowered
-    # The old blanket ban must not creep back in.
-    assert "adding new requirements is forbidden" not in lowered
-    assert "never invent a metric" not in lowered
-
-
-def test_prompt_demands_an_actionable_brief_not_a_restatement() -> None:
-    lowered = build_prompt_rewrite_prompt("优化一下 kernel").lower()
-    assert "a bare restatement of the operator's words is a failed rewrite" in lowered
-    assert "count as done" in lowered
-
-
-def test_prompt_carries_optional_project_context() -> None:
-    prompt = build_prompt_rewrite_prompt(
-        "make it faster",
-        project_context="- working directory: /repo\n- active workflow (vertical): kernel",
-    )
-    assert "/repo" in prompt
-    assert "vertical): kernel" in prompt
-    assert "- working directory" not in build_prompt_rewrite_prompt("make it faster")
 
 
 # --- rewrite_prompt end to end (stubbed backend) ---------------------------

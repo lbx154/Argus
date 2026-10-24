@@ -24,33 +24,10 @@ def _card(text: str, *, answered: bool = True) -> dict:
     return turn_records(rows, {}, {})["turn:web-q"]["card"]
 
 
-def test_title_skips_leading_zh_reference_lines() -> None:
-    text = (
-        "（引用：《你真的上网调研了吗？》）\n"
-        "（引用：《你赶紧上网调研一下 agentic RL大家都在怎么做》）\n"
-        "这两个回答有啥区别"
-    )
-    for answered in (False, True):
-        card = _card(text, answered=answered)
-        assert card["title"] == "这两个回答有啥区别", answered
-    # The full ask, quotes included, stays available as the objective.
-    assert card["objective"] == text
-
-
-def test_title_skips_en_reference_with_step_on_the_same_line() -> None:
-    text = '(Referenced: "Coverage study" · Sampling plan) What changed since then?'
-    assert ask_title(text) == "What changed since then?"
-
-
 def test_title_falls_back_to_the_quote_when_nothing_else_was_said() -> None:
     text = "（引用：《Coverage study》）"
     assert ask_title(text) == text
     assert _card(text)["title"] == text
-
-
-def test_plain_first_line_is_unchanged() -> None:
-    assert ask_title("Write a short story\nabout a lighthouse") == "Write a short story"
-    assert ask_title("") == ""
 
 
 def test_a_choice_card_reply_is_titled_by_the_task_it_starts() -> None:

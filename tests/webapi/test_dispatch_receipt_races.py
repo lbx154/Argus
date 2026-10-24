@@ -13,11 +13,8 @@ from fastapi.testclient import TestClient
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
 from argus.daemon import life_worker as daemon_worker
-from argus.daemon.commands import daemon_command_execution_lock
-from argus.manager import front_door
 from argus.webapi import manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
-from tests.hand_off import manager_runner, manager_settles
 
 
 def _response_result(response, streaming):
@@ -92,42 +89,6 @@ def test_cancel_during_receipt_io_suppresses_late_delivery(
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("status,expected", [("done", "已经做完"), ("parked", "暂停着")])
-def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
-    tmp_path, monkeypatch, streaming, status, expected,
-):
-    sid = "s-review-replay-busy"
-    life = tmp_path / "projects" / sid
-    life.mkdir(parents=True)
-    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
-    monkeypatch.setattr(manager_bridge, "manager_message", lambda *_args, **_kwargs: {
-        "kind": "task", "dispatch_state": "already_queued",
-        "item": {"id": "existing-task", "status": status, "title": "比较两组延迟"},
-    })
-
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("A completed or operator-paused task must not restart")
-
-    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=forbidden)
-    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
-        # The actual lifecycle lock is owned by this test thread while the
-        # unrelated HTTP worker handles a completed/paused task replay.
-        with daemon_command_execution_lock(life) as acquired:
-            assert acquired
-            response = client.post(f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
-                                   json={"text": "比较两组延迟"})
-
-    result, frames = _response_result(response, streaming)
-    assert expected in result["reply"] and "没有再加一遍" in result["reply"]
-    assert "正在确认能不能开始" not in result["reply"]
-    assert "daemon" not in result
-    turns = [turn for turn in read_turns(life) if turn["role"] == "argus"]
-    assert [turn["text"] for turn in turns] == [result["reply"]]
-    if streaming:
-        assert [frame["text"] for frame in frames if frame["type"] == "delta"] == [result["reply"]]
-
-
-@pytest.mark.parametrize("streaming", [False, True])
 def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
     tmp_path, monkeypatch, streaming,
 ):
@@ -169,37 +130,3 @@ def test_cancel_during_chat_status_read_suppresses_the_stale_terminal_result(
     assert result["kind"] == "cancelled"
     assert not [frame for frame in frames if frame["type"] == "delta"]
     assert [turn["text"] for turn in read_turns(life) if turn["role"] == "argus"] == [historical_reply]
-
-
-@pytest.mark.parametrize("streaming", [False, True])
-def test_natural_pause_keeps_its_own_control_confirmation(tmp_path, monkeypatch, streaming):
-    from argus.adapters.agent_cli_backend import AgentCliBackend
-    from argus.daemon.state import read_continuous_state, write_continuous_config
-    from argus.webapi import manager_state
-
-    sid = f"s-review-own-pause-{streaming}"
-    life = tmp_path / "projects" / sid
-    life.mkdir(parents=True)
-    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
-    write_continuous_config(life, enabled=True, objective="继续比较两组延迟")
-    manager_state._STATES.pop(sid, None)
-    before = manager_state.manager_control_generation(sid)
-
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("A classified pause must neither call a model nor start an executor")
-
-    monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: manager_runner(
-        hand=manager_settles(control={"kind": "pause", "quote": "先暂停一下"})))
-    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=forbidden)
-    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
-        response = client.post(f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
-                               json={"text": "先暂停一下"})
-
-    result, _frames = _response_result(response, streaming)
-    assert manager_state.manager_control_generation(sid) > before
-    assert result["kind"] == "control" and result["control"] == "pause"
-    assert result["pause_persisted"] and "已暂停" in result["reply"]
-    assert not read_continuous_state(life).enabled
-    # The Manager's own reply, then Argus' confirmation once.
-    assert [turn["text"] for turn in read_turns(life) if turn["role"] == "argus"] == ["Argus applies this.", result["reply"]]

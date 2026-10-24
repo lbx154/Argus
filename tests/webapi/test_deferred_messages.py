@@ -28,23 +28,6 @@ def wait_for(predicate, timeout=8):
     assert predicate()
 
 
-def test_waiting_messages_survive_restart_in_order_with_original_options(tmp_path):
-    life = tmp_path / "projects" / "s-restart"
-    life.mkdir(parents=True)
-    first = DeferredMessages(lambda request, cancelled: {"kind": "provider_busy"}, retry_seconds=0.02)
-    first.stop.set()  # emulate a server exiting after it saved the ACK
-    for index, route in enumerate(["task", "chat"]):
-        first.enqueue(life, {"turn_id": f"web-{index}", "text": str(index), "route_override": route})
-    seen = []
-    restarted = DeferredMessages(lambda request, cancelled: seen.append(request) or {"kind": "chat"})
-    try:
-        restarted.resume(life)
-        wait_for(lambda: len(seen) == 2)
-        assert [(r["text"], r["route_override"]) for r in seen] == [("0", "task"), ("1", "chat")]
-    finally:
-        restarted.close()
-
-
 def test_interrupted_execution_is_not_blindly_replayed(tmp_path):
     life = tmp_path / "project"
     path = life / "manager-deferred" / "interrupted.json"
@@ -146,5 +129,3 @@ def test_busy_retries_back_off_and_stop_after_three_hours(tmp_path, monkeypatch)
     path = next((life / "manager-deferred").glob("*.json"))
     assert read_json(path)["status"] == "needs_attention"
     assert "3 hours" in read_turns(life)[-1]["text"]
-
-

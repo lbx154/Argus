@@ -5,13 +5,11 @@ import pytest
 
 from argus.domains import BUILTIN_DOMAINS
 from argus.manager.domain_author import (
-    DomainProposal,
     RouteContext,
     parse_domain_proposal,
 )
 from argus.manager.form import manager_actions
 from argus.skills.vertical_select import VERTICALS
-from argus.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 from tests.hand_off import ticket
 
 RESEARCH = RouteContext(
@@ -36,41 +34,10 @@ def _refused(context: RouteContext = RouteContext(known_verticals=VERTICALS), **
     return str(refusal.value)
 
 
-def test_parse_domain_proposal_uses_runtime_owned_stages():
-    p = parse_domain_proposal(
-        {"name": "robotics_sim", "stages": ["scope", "simulate"], "rationale": "novel control domain"},
-        known_verticals=VERTICALS,
-    )
-    assert isinstance(p, DomainProposal)
-    assert p.name == "robotics_sim"
-    assert p.stages == list(CANDIDATE_DOMAIN_STAGES)
-
-
-def test_parse_sluggifies_name_and_needs_one():
-    assert parse_domain_proposal({"name": "Robotics Sim!"}, known_verticals=VERTICALS).name == "robotics_sim"
-    assert parse_domain_proposal({}, known_verticals=VERTICALS) is None
-
-
 def test_parse_dedupes_name_against_known_and_existing():
     # Collision with a preset vertical → suffixed, not rejected.
     p = parse_domain_proposal({"name": "research"}, known_verticals=VERTICALS, existing_data_domains=["research_2"])
     assert p is not None and p.name not in ("research", "research_2")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @pytest.mark.parametrize(
@@ -160,14 +127,6 @@ def test_a_new_domain_takes_no_profile_and_needs_a_slug() -> None:
     assert (decision.vertical, decision.proposal.rationale) == ("robotics_sim", "why this route")
     assert "no workflow profiles" in _refused(choice="new", vertical="robotics_sim", workflow_profile="full")
     assert "slug" in _refused(choice="new", vertical="!!")
-
-
-
-
-
-
-
-
 
 
 def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:

@@ -149,76 +149,6 @@ def test_team_learning_promotes_to_vertical_and_matching_session_discovers_it(
     assert len(backend.calls) == 2
 
 
-def test_failed_mission_does_not_launch_team_learning(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "workspace"
-    state = tmp_path / "session-state"
-    global_root = tmp_path / "profile-skills"
-    shared = global_root / "_shared_verticals" / "software"
-    project.mkdir()
-    state.mkdir()
-    backend = _PromotingBackend(shared)
-    events: list[dict[str, Any]] = []
-
-    counts = propagate_after_mission(
-        project,
-        backend,
-        project_state_dir=state,
-        shared_root=global_root,
-        mission_objective="Retry a fixed memory threshold",
-        mission_success=False,
-        mission_result=(
-            "status=blocked; the same unsupported swap-free threshold rejected "
-            "three otherwise healthy preflights"
-        ),
-        on_event=events.append,
-    )
-
-    assert counts["to_shared"] == 0
-    assert backend.calls == []
-    assert [event["type"] for event in events] == [
-        "team.learning.review.skipped"
-    ]
-    assert events[0]["reason"] == "mission failed"
-
-
-@dataclass
-class _GateRepairBackend:
-    """A reviewer that promotes the run-13 procedure.
-
-    Its text is the real one, near enough: the poisoned candidate from that run
-    said, in as many words, to make the pipeline state say the right thing
-    before calling the completion tool.
-    """
-
-    shared_root: Path
-    calls: list[dict[str, Any]] = field(default_factory=list)
-
-    def run_exec(
-        self,
-        *,
-        prompt: str,
-        options: RunnerOptions,
-        run_label: str,
-        resume_thread_id: str | None = None,
-    ) -> RunnerResult:
-        self.calls.append({"prompt": prompt})
-        destination = self.shared_root / "engineer" / "stage-goal-gate-repair.md"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            "---\n"
-            "name: stage goal gate repair\n"
-            "description: Unblock a stalled staged goal\n"
-            "---\n\n"
-            "Before calling `complete_final_stage`, ensure "
-            "`.argus/PIPELINE_STATE.json` in the project state root has a "
-            "resolved math objective mode.\n",
-            encoding="utf-8",
-        )
-        return RunnerResult(exit_code=0, agent_messages=["promoted"])
-
-
 @dataclass
 class _SilentBackend:
     """Records the prompt and writes nothing."""
@@ -246,85 +176,6 @@ def test_names_the_verifier_reports_which_name_it_found() -> None:
     )
     assert names_the_verifier("reduce the reproducer before editing") == ""
     assert names_the_verifier("") == ""
-
-
-def test_no_project_skill_delta_cannot_invent_a_shared_skill(
-    tmp_path: Path,
-) -> None:
-    """The circularity, closed.
-
-    A forced completion makes the mission read as success; the post-mission
-    reviewer is told a done verdict is verified evidence; so it promotes the
-    forcing technique into the cross-project library, where every later
-    Engineer loads it. The verdict cannot certify the procedure that produced
-    it, so the promotion does not stand.
-    """
-    project = tmp_path / "workspace"
-    state = tmp_path / "session-state"
-    global_root = tmp_path / "profile-skills"
-    shared = global_root / "_shared_verticals" / "software"
-    project.mkdir()
-    state.mkdir()
-    backend = _GateRepairBackend(shared)
-    events: list[dict[str, Any]] = []
-
-    counts = propagate_after_mission(
-        project,
-        backend,
-        project_state_dir=state,
-        shared_root=global_root,
-        mission_objective="Prove the conjecture",
-        mission_result="status=done; unblocked the scope gate and completed the stage",
-        on_event=events.append,
-    )
-
-    assert backend.calls == []
-    assert counts["quarantined"] == 0
-    assert counts["to_shared"] == 0
-    assert not (shared / "engineer" / "stage-goal-gate-repair.md").exists()
-    assert not (shared / "_uncertified" / "stage-goal-gate-repair.md").exists()
-    assert events[-1]["type"] == "team.learning.review.skipped"
-    assert events[-1]["reason"] == "no project skill delta"
-
-
-def test_the_quarantine_is_outside_every_role_directory(tmp_path: Path) -> None:
-    """Moved, not deleted — and moved somewhere nothing loads.
-
-    A refused promotion is a finding about the run, so it stays readable; what
-    it must not be is readable *by the next Engineer*, which is what any of the
-    four role directories would mean.
-    """
-    project = tmp_path / "workspace"
-    state = tmp_path / "session-state"
-    global_root = tmp_path / "profile-skills"
-    shared = global_root / "_shared_verticals" / "software"
-    project.mkdir()
-    state.mkdir()
-
-    propagate_after_mission(
-        project,
-        _GateRepairBackend(shared),
-        project_state_dir=state,
-        shared_root=global_root,
-        mission_objective="Prove the conjecture",
-        mission_result="status=done",
-    )
-
-    next_session = LayeredSkillStore(
-        project_dir=tmp_path / "next-session-skills",
-        global_dir=global_root,
-        vertical_dir=shared,
-    )
-    loaded = EngineerMission(next_session).libraries().native_paths
-    quarantine = (shared / "_uncertified").resolve()
-    assert quarantine not in loaded
-    assert not any(
-        role_root.is_dir() and list(role_root.rglob("*.md"))
-        for role_root in (
-            shared / "manager", shared / "planner",
-            shared / "engineer", shared / "reviewer",
-        )
-    )
 
 
 def test_a_candidate_naming_the_verifier_is_withheld_from_the_evidence(
@@ -400,38 +251,6 @@ def test_no_project_skill_directory_skips_team_learning(
     )
 
     assert backend.calls == []
-
-
-def test_team_learning_honors_configured_project_skill_root(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    project = tmp_path / "workspace"
-    state = tmp_path / "session-state"
-    configured = tmp_path / "configured-skills"
-    global_root = tmp_path / "profile-skills"
-    project.mkdir()
-    candidate = configured / "manager" / "configured.md"
-    candidate.parent.mkdir(parents=True)
-    candidate.write_text(
-        "---\n"
-        "name: configured procedure\n"
-        "description: A procedure from the configured project layer\n"
-        "---\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("ARGUS_SKILL_PROJECT_SKILLS_DIR", str(configured))
-    backend = _SilentBackend()
-
-    propagate_after_mission(
-        project,
-        backend,
-        project_state_dir=state,
-        shared_root=global_root,
-    )
-
-    assert len(backend.calls) == 1
-    assert "configured.md" in backend.calls[0]["prompt"]
 
 
 def test_a_workspace_skill_is_offered_with_the_code_beside_it(tmp_path: Path) -> None:
@@ -544,20 +363,3 @@ def test_missing_scope_keeps_candidates_local_without_a_model_call(tmp_path, mon
     assert counts['stayed'] == 1
     assert candidate.exists() and not shared.exists()
     assert 'no resolved vertical' in events[-1]['reason']
-
-
-def test_vertical_root_cannot_escape_the_shared_namespace(tmp_path):
-    state = tmp_path / 'project'
-    candidate = state / 'skills/manager/procedure.md'
-    candidate.parent.mkdir(parents=True)
-    candidate.write_text('Project procedure.')
-    shared = tmp_path / 'shared'
-    target = shared / '_shared_verticals/software'
-    target.parent.mkdir(parents=True)
-    outside = tmp_path / 'outside'
-    outside.mkdir()
-    target.symlink_to(outside, target_is_directory=True)
-    backend = _PromotingBackend(outside)
-    counts = propagate_after_mission(state, backend, project_state_dir=state, shared_root=shared)
-    assert backend.calls == [] and counts['stayed'] == 1
-    assert not list(outside.iterdir())

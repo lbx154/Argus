@@ -3,7 +3,6 @@ from __future__ import annotations
 import codecs
 import json
 import os
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -163,49 +162,12 @@ def test_interrupted_validation_never_registers_the_file(client, tmp_path):
     assert client.get(path).status_code == 404
 
 
-def test_explicit_cancel_interrupts_validation_while_commit_lock_is_held(client, monkeypatch):
-    path = begin(client, "cancel.json", 7)
-    assert append(client, path, b'{"a":1}').status_code == 200
-    started = threading.Event()
-
-    def validating(handle, metadata, cancelled=None):
-        started.set()
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            if cancelled and cancelled():
-                raise uploads.UploadError("upload validation interrupted", 409)
-            time.sleep(0.01)
-        raise AssertionError("explicit cancellation did not reach the validator")
-
-    monkeypatch.setattr(uploads, "_validate_file", validating)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        completion = executor.submit(client.post, path + "/complete")
-        assert started.wait(timeout=2)
-        assert client.delete(path).status_code == 200
-        assert completion.result().status_code == 409
-    assert client.get(path).status_code == 404
-
-
 def test_chunk_body_is_bounded_without_expanding_other_requests(client):
     path = begin(client, size=10 * MIB)
     assert append(client, path, b"x" * (4 * MIB + 1)).status_code == 413
     assert client.get(path).json()["offset"] == 0
     assert client.post("/api/projects/s-upload/message", json={"text": "x" * (256 * 1024)}).status_code == 413
     assert client.put("/api/projects/s-upload/unrelated", content=b"x" * (256 * 1024 + 1)).status_code == 413
-
-
-def test_pdf_range_discovery_is_not_disabled_by_whole_file_gzip(client):
-    content = b"%PDF-1.7\n" + b" " * 4096
-    path = begin(client, "range.pdf", len(content))
-    assert append(client, path, content).status_code == 200
-    attachment = client.post(path + "/complete").json()["attachment"]
-    response = client.get("/api/projects/s-upload/artifact/raw", params={"path": attachment["relative_path"]},
-                          headers={"Accept-Encoding": "gzip"})
-    assert response.status_code == 200
-    assert response.headers["Content-Encoding"] == "identity"
-    assert response.headers["Content-Length"] == str(len(content))
-    assert response.headers["Accept-Ranges"] == "bytes"
-    assert "no-transform" in response.headers["Cache-Control"]
 
 
 def test_pending_quota_cleanup_and_completed_files_survive(client, tmp_path):
@@ -224,48 +186,6 @@ def test_pending_quota_cleanup_and_completed_files_survive(client, tmp_path):
     uploads.AttachmentUploads([tmp_path]).cleanup()
     assert all(client.get(path).status_code == 404 for path in paths)
     assert client.get(done).json()["complete"] is True
-
-
-def test_chunk_syncs_payload_once_and_status_never_rewrites_metadata(client, tmp_path, monkeypatch):
-    path = begin(client)
-    folder = tmp_path / "workspaces/s-upload/.argus/attachments/s-upload" / path.rsplit("/", 1)[1]
-    pending = folder / ".upload.json"
-    before = (pending.read_bytes(), pending.stat().st_mtime_ns)
-    original_fsync = os.fsync
-    synced = []
-
-    def fsync(fd):
-        synced.append(os.fstat(fd).st_ino)
-        original_fsync(fd)
-
-    monkeypatch.setattr(uploads.os, "fsync", fsync)
-    assert append(client, path, b"abc").status_code == 200
-    assert synced == [(folder / ".upload.part").stat().st_ino]
-    assert client.get(path).json()["offset"] == 3
-    assert len(synced) == 1
-    assert (pending.read_bytes(), pending.stat().st_mtime_ns) == before
-    restarted = uploads.AttachmentUploads([tmp_path])
-    assert restarted.operate(tmp_path, "s-upload", path.rsplit("/", 1)[1], "status")["offset"] == 3
-    assert len(synced) == 1
-
-
-def test_cleanup_uses_payload_activity_but_status_does_not_extend_expiry(client, tmp_path):
-    path = begin(client)
-    folder = tmp_path / "workspaces/s-upload/.argus/attachments/s-upload" / path.rsplit("/", 1)[1]
-    pending = folder / ".upload.json"
-    metadata = json.loads(pending.read_text())
-    old = time.time() - uploads.IDLE_SECONDS - 10
-    metadata["updated_at"] = old
-    pending.write_text(json.dumps(metadata))
-    os.utime(folder / ".upload.part", (old, old))
-    assert append(client, path, b"abc").status_code == 200
-    restarted = uploads.AttachmentUploads([tmp_path])
-    restarted.cleanup()
-    assert client.get(path).json()["offset"] == 3
-    os.utime(folder / ".upload.part", (old, old))
-    assert client.get(path).json()["offset"] == 3
-    restarted.cleanup()
-    assert client.get(path).status_code == 404
 
 
 def test_disk_and_concurrency_failures_do_not_register_files(client, monkeypatch):

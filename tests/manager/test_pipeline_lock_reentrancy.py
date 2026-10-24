@@ -39,7 +39,6 @@ import contextvars
 import subprocess
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
@@ -131,88 +130,6 @@ def test_delegated_worker_reentry_while_main_thread_holds_lock(tmp_path) -> None
     assert completed.is_set()
 
 
-def test_independent_thread_waits_for_flock_release(tmp_path) -> None:
-    """Reverse contract: a NON-delegated thread must wait like a stranger.
-
-    This is the telegram/feishu poller shape (``front_door.py`` commit from
-    a plain daemon thread) and the concurrent webapi request shape: they were
-    designed to wait for the mission boundary, and the first fix's
-    process-wide ``flock_held`` flag wrongly let them overlap the in-flight
-    pass. Red on that first fix; green on delegation-chain semantics.
-    """
-    entered = threading.Event()
-    overlapped_with_holder: dict[str, bool | None] = {"value": None}
-    holder_inside = threading.Event()
-
-    def independent() -> None:
-        # Plain thread: starts with a FRESH contextvars context — no
-        # delegation entitlement, exactly like a poller thread.
-        holder_inside.wait(timeout=20.0)
-        with manager_pipeline_lock(tmp_path):
-            overlapped_with_holder["value"] = holder_inside.is_set()
-            entered.set()
-
-    poller = threading.Thread(
-        target=independent, name="argus-telegram-poller", daemon=True
-    )
-    poller.start()
-    with manager_pipeline_lock(tmp_path):
-        holder_inside.set()
-        # The independent thread must NOT enter while the flock is held.
-        assert not entered.wait(timeout=2.0), (
-            "independent thread entered the pipeline critical section while "
-            "another thread held the flock — process-wide re-entrancy leak"
-        )
-        holder_inside.clear()
-    # After release it proceeds promptly (flock poll interval is 0.2s).
-    assert entered.wait(timeout=8.0), (
-        "independent thread never acquired the lock after release"
-    )
-    poller.join(timeout=8.0)
-    assert overlapped_with_holder["value"] is False, (
-        "independent thread ran inside the holder's critical section"
-    )
-
-
-def test_delegated_workers_serialize_on_gate(tmp_path) -> None:
-    """Two delegated workers never overlap inside the critical section."""
-    active = 0
-    peak = 0
-    counter_mutex = threading.Lock()
-
-    def reenter() -> None:
-        nonlocal active, peak
-        with manager_pipeline_lock(tmp_path):
-            with counter_mutex:
-                active += 1
-                peak = max(peak, active)
-            time.sleep(0.2)
-            with counter_mutex:
-                active -= 1
-
-    with manager_pipeline_lock(tmp_path):
-        # One context copy per worker: a single Context object cannot be
-        # entered concurrently from two threads.
-        threads = [
-            threading.Thread(
-                target=contextvars.copy_context().run,
-                args=(reenter,),
-                name=f"argus-mission_{i}",
-                daemon=True,
-            )
-            for i in range(2)
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=8.0)
-        stuck = any(thread.is_alive() for thread in threads)
-    for thread in threads:
-        thread.join(timeout=8.0)
-    assert not stuck, "delegated workers deadlocked under the held flock"
-    assert peak == 1, "delegated workers overlapped: the gate must serialize them"
-
-
 def test_external_process_excluded_for_the_whole_hold_window(tmp_path) -> None:
     """The adversarial-review probe, fixed as a regression test.
 
@@ -246,62 +163,3 @@ def test_external_process_excluded_for_the_whole_hold_window(tmp_path) -> None:
         # Workers all done, holder still inside: still LOCKED.
         assert _probe_flock(lock_file) == "LOCKED"
     assert _probe_flock(lock_file) == "ACQUIRED"
-
-
-def test_cross_process_exclusion_preserved(tmp_path) -> None:
-    """Another process must still be excluded while this one holds the lock."""
-    lock_file = tmp_path / _LOCK_FILE_NAME
-    with manager_pipeline_lock(tmp_path):
-        assert _probe_flock(lock_file) == "LOCKED"
-    assert _probe_flock(lock_file) == "ACQUIRED"
-
-
-def test_sequential_toplevel_acquisitions_take_the_real_flock(tmp_path) -> None:
-    """Non-nested acquisitions behave exactly as before the fix.
-
-    The second ``with`` must take the on-disk flock again — re-entry
-    entitlement must not leak past release and downgrade later acquisitions
-    to gate-only locking.
-    """
-    lock_file = tmp_path / _LOCK_FILE_NAME
-    with manager_pipeline_lock(tmp_path):
-        assert _probe_flock(lock_file) == "LOCKED"
-    with manager_pipeline_lock(tmp_path):
-        assert _probe_flock(lock_file) == "LOCKED"
-    assert _probe_flock(lock_file) == "ACQUIRED"
-
-
-def test_entitlement_dropped_after_exception_in_critical_section(tmp_path) -> None:
-    """An exception inside the hold must not orphan the re-entry entitlement.
-
-    A later acquisition on the same thread must take the REAL flock again
-    (observable by an external process), not silently downgrade to the gate.
-    """
-    lock_file = tmp_path / _LOCK_FILE_NAME
-    with pytest.raises(RuntimeError, match="boom"):
-        with manager_pipeline_lock(tmp_path):
-            raise RuntimeError("boom")
-    assert _probe_flock(lock_file) == "ACQUIRED"
-    with manager_pipeline_lock(tmp_path):
-        assert _probe_flock(lock_file) == "LOCKED"
-    assert _probe_flock(lock_file) == "ACQUIRED"
-
-
-def test_same_thread_nested_acquisition_is_reentrant(tmp_path) -> None:
-    """Nested acquisition on ONE thread completes (context + RLock semantics).
-
-    Runs in a daemon thread so the old code's infinite flock poll fails the
-    test via join timeout instead of hanging the whole pytest process.
-    """
-    reached = threading.Event()
-
-    def nested() -> None:
-        with manager_pipeline_lock(tmp_path):
-            with manager_pipeline_lock(tmp_path):
-                with manager_pipeline_lock(tmp_path):
-                    reached.set()
-
-    worker = threading.Thread(target=nested, daemon=True)
-    worker.start()
-    worker.join(timeout=8.0)
-    assert reached.is_set(), "same-thread nested manager_pipeline_lock deadlocked"

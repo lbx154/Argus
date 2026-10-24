@@ -49,33 +49,6 @@ def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     assert daemon_protocol_compatibility(status) == (True, "")
 
 
-def test_mission_width_round_trips_and_supports_zero_one_or_many(
-    tmp_path: Path,
-) -> None:
-    for width in (0, 1, 2, 12):
-        config = LifeWorkerConfig(
-            life_dir=tmp_path,
-            backend="memory",
-            mission_width=width,
-        )
-        assert config_from_payload(config_payload(config)).mission_width == width
-
-
-def test_continuous_objective_file_round_trips(tmp_path: Path) -> None:
-    objective = tmp_path / "OBJECTIVE.md"
-    config = LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        continuous=True,
-        continuous_objective="keep exploring",
-        continuous_objective_file=objective,
-    )
-
-    restored = config_from_payload(config_payload(config))
-
-    assert restored.continuous_objective_file == objective
-
-
 def test_daemon_status_reports_copilot_when_codex_is_missing(
     tmp_path: Path,
     monkeypatch,

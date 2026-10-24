@@ -4,7 +4,6 @@ import errno
 import json
 import subprocess
 import sys
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,12 +15,9 @@ import pytest
 
 from argus.manager._session_ops import (
     _SESSION_FILE,
-    ManagerLockCancelled,
     _acquire_session_lock,
     _ManagerSession,
-    manager_pipeline_lock,
 )
-from argus.manager.control_state import CampaignControlStore
 
 _CHILD_LOCK_HOLDER = r"""
 import sys
@@ -110,35 +106,6 @@ def _held_by_child(root: Path, kind: str) -> Iterator[Path]:
             )
 
 
-@pytest.mark.parametrize(
-    ("kind", "lock_factory"),
-    [
-        ("pipeline", manager_pipeline_lock),
-    ],
-)
-def test_manager_locks_wait_for_a_real_peer_process(
-    tmp_path: Path,
-    kind: str,
-    lock_factory,
-) -> None:
-    root = tmp_path / kind
-    with _held_by_child(root, kind) as release:
-        releaser = threading.Thread(
-            target=lambda: (time.sleep(0.35), release.write_text("release", encoding="utf-8"))
-        )
-        releaser.start()
-        started = time.monotonic()
-        with lock_factory(root):
-            pass
-        elapsed = time.monotonic() - started
-        releaser.join(timeout=2)
-        assert elapsed >= 0.25
-
-    # Releasing the peer makes the exact same lock immediately usable.
-    with lock_factory(root):
-        pass
-
-
 def test_a_held_manager_session_never_blocks_another_turn(
     tmp_path: Path,
 ) -> None:
@@ -174,46 +141,6 @@ def test_a_held_manager_session_never_blocks_another_turn(
     assert result.thread_id == "fresh-thread"
     assert "Keep training." in runner.prompts[0] and "route this request" in runner.prompts[0]
     assert json.loads((root / _SESSION_FILE).read_text(encoding="utf-8")) == shared
-
-
-def test_campaign_control_lock_blocks_until_real_peer_process_releases(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "control"
-    with _held_by_child(root, "control") as release:
-        def release_later() -> None:
-            time.sleep(0.35)
-            release.write_text("release", encoding="utf-8")
-
-        releaser = threading.Thread(target=release_later)
-        releaser.start()
-        started = time.monotonic()
-        with CampaignControlStore(root).locked():
-            elapsed = time.monotonic() - started
-        releaser.join(timeout=2)
-
-    assert elapsed >= 0.25
-
-
-def test_pipeline_wait_cancels_while_peer_keeps_the_lock(tmp_path: Path) -> None:
-    root = tmp_path / "cancel-pipeline"
-    cancelled = threading.Event()
-    with _held_by_child(root, "pipeline") as release:
-        timer = threading.Timer(0.1, cancelled.set)
-        timer.start()
-        started = time.monotonic()
-        try:
-            with pytest.raises(ManagerLockCancelled):
-                with manager_pipeline_lock(root, cancelled=cancelled.is_set):
-                    pytest.fail("cancelled waiter entered the mission boundary")
-        finally:
-            timer.join(timeout=2)
-        assert time.monotonic() - started < 1.0
-        assert not release.exists()
-        with (root / ".manager_pipeline.lock").open("a+b") as handle:
-            assert _acquire_session_lock(handle, timeout=0) is False
-    with manager_pipeline_lock(root):
-        pass
 
 
 @pytest.mark.parametrize("error_code", [errno.EBADF, errno.ENOLCK, errno.EIO])

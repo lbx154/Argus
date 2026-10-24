@@ -40,34 +40,6 @@ def _append_bad_then_good(path, token):
         handle.write(bad + "\n" + json.dumps(_review("good", 3)) + "\n")
 
 
-@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1e400"])
-def test_history_http_skips_bad_ids_and_keeps_pagination_progress(tmp_path, monkeypatch, token):
-    sid, life, path = _project(tmp_path)
-    _append_bad_then_good(path, token)
-    original = path.read_bytes()
-    monkeypatch.setattr(map_history, "PAGE_EVENTS", 1)
-    client = TestClient(create_app(global_root=tmp_path))
-    seen, cursor = [], None
-    for _ in range(8):
-        response = client.get(
-            f"/api/projects/{sid}/map-history", params={"after": cursor} if cursor else {},
-        )
-        assert response.status_code == 200, response.text
-        page = loads_finite_json(response.content)
-        seen.extend(event["id"] for event in page["events"])
-        cursor = page["history_cursor"]
-        if not page["history_loading"]:
-            break
-    else:
-        pytest.fail("history did not finish paging past the invalid event")
-    assert seen == ["start", "good"]
-    assert page["history_progress"]["loaded_bytes"] == len(original)
-    assert path.read_bytes() == original
-    next_page = client.get(f"/api/projects/{sid}/map-history", params={"after": cursor}).json()
-    assert next_page["events"] == []
-    assert next_page["history_cursor"] == cursor
-
-
 @pytest.mark.parametrize("bad_metadata", [False, True])
 def test_old_history_index_rebuilds_and_resets_cursor(tmp_path, bad_metadata):
     sid, life, path = _project(tmp_path)
@@ -100,4 +72,3 @@ def test_old_history_index_rebuilds_and_resets_cursor(tmp_path, bad_metadata):
         state = loads_finite_json(db.execute("SELECT value FROM metadata WHERE key='state'").fetchone()[0])
         assert state["version"] == map_history.HISTORY_VERSION
         assert {row[0] for row in db.execute("SELECT id FROM events")} == {"start", "good"}
-

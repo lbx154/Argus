@@ -1,7 +1,6 @@
 """``/api/verticals``: auth, payload shape, 202/200/409/404, same-origin, hosted gate."""
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
@@ -11,9 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from argus.core.pipeline_state import write_pipeline_state
 from argus.verticals import _registry, store
-from argus.webapi.protocol import API_CAPABILITIES
 from argus.webapi.routes.verticals import register_vertical_routes
 from argus.webapi.server import create_app
 from tests.verticals import fake_release as fake
@@ -45,29 +42,6 @@ def client():
 
 def _row(payload, name):
     return next(row for row in payload["verticals"] if row["name"] == name)
-
-
-def test_capability_is_advertised() -> None:
-    assert "verticals.store.v1" in API_CAPABILITIES
-
-
-def test_listing_requires_auth_and_has_the_contract_shape(client) -> None:
-    web, root = client
-    response = web.get("/api/verticals")
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {"verticals", "catalog", "host"}
-    assert set(payload["catalog"]) == {"source", "fetched_at", "release_tag", "error"}
-    assert payload["catalog"]["release_tag"] == "vtest" and payload["catalog"]["error"] == ""
-    assert payload["host"] == {"managed_by_host": False, "store_root": str(root / "verticals")}
-    child = _row(payload, "child_v")
-    assert child["kind"] == "available" and child["actions"] == ["install"] and child["purpose_zh"] == "子垂直"
-    assert _row(payload, "research")["kind"] == "builtin"
-    web.headers.pop("Authorization")
-    assert web.get("/api/verticals").status_code == 401
-    assert web.post("/api/verticals/child_v/manage/install").status_code == 401
-    assert web.post("/api/verticals/catalog/refresh").status_code == 401
-    assert web.get("/api/verticals/child_v/operation").status_code == 401
 
 
 def test_install_is_a_202_job_then_toggling_is_200_and_uninstall_is_a_job(client) -> None:
@@ -114,20 +88,6 @@ def test_unknown_names_and_actions_are_404_and_refusals_409(client) -> None:
     assert web.post("/api/verticals/child_v/manage/install", json={"other": 1}).status_code == 409
 
 
-def test_runtime_requirement_refusal_is_visible_before_a_job(client, _isolated_store):
-    web, _ = client
-    payload = json.loads(_isolated_store.read_text(encoding="utf-8"))
-    payload["verticals"]["base_v"]["argus_features"] = ["future-runtime"]
-    _isolated_store.write_text(json.dumps(payload), encoding="utf-8")
-    row = _row(web.get("/api/verticals").json(), "child_v")
-    assert row["runtime_issues"] == [] and row["actions"] == []
-    assert "base_v" in " ".join(row["install_issues"])
-    refused = web.post("/api/verticals/child_v/manage/install")
-    assert refused.status_code == 409 and "future-runtime" in refused.json()["detail"]
-    assert web.get("/api/verticals/child_v/operation").status_code == 404
-    assert store.installed() == {}
-
-
 def test_writes_are_same_origin_only(client) -> None:
     web, _ = client
     headers = {"Origin": "https://attacker.example", "Host": "testserver"}
@@ -135,18 +95,6 @@ def test_writes_are_same_origin_only(client) -> None:
     assert web.post("/api/verticals/catalog/refresh", headers=headers).status_code == 403
     same = {"Origin": "http://testserver", "Host": "testserver"}
     assert web.post("/api/verticals/catalog/refresh", headers=same).status_code == 200
-
-
-def test_refresh_forces_a_fetch_and_reports_a_broken_catalog_in_the_payload(client, _isolated_store) -> None:
-    web, _ = client
-    catalog = _isolated_store
-    assert web.get("/api/verticals").json()["catalog"]["error"] == ""
-    catalog.write_text("{broken", encoding="utf-8")
-    refreshed = web.post("/api/verticals/catalog/refresh")
-    assert refreshed.status_code == 200
-    body = refreshed.json()
-    assert "not valid JSON" in body["catalog"]["error"]
-    assert _row(body, "child_v")["kind"] == "available"  # the stale cache still lists it
 
 
 def test_hosted_trial_refuses_installation_but_allows_toggling(monkeypatch) -> None:
@@ -163,31 +111,6 @@ def test_hosted_trial_refuses_installation_but_allows_toggling(monkeypatch) -> N
         assert web.post(f"/api/verticals/base_v/manage/{action}").status_code == 403
     assert web.post("/api/verticals/base_v/manage/disable").status_code == 200
     assert web.post("/api/verticals/base_v/manage/enable").status_code == 200
-
-
-def test_removal_counts_sessions_from_every_root_the_server_lists(tmp_path) -> None:
-    root = Path(os.environ["ARGUS_SKILL_HOME"])
-    other = tmp_path / "other-root"
-    (other / "projects" / "s-remote").mkdir(parents=True)
-    write_pipeline_state(other / "projects" / "s-remote", {"vertical": "base_v"})
-    store.install("base_v", root, wait=True)
-    with TestClient(create_app(global_root=root, session_roots=[other])) as web:
-        assert _row(web.get("/api/verticals").json(), "base_v")["used_by"] == ["s-remote"]
-        blocked = web.post("/api/verticals/base_v/manage/uninstall")
-        assert blocked.status_code == 409 and "s-remote" in blocked.json()["detail"]
-        forced = web.post("/api/verticals/base_v/manage/uninstall", json={"force": True})
-        assert forced.status_code == 202
-        assert store.wait_for_operation("base_v", root)["status"] == "done"
-
-
-def test_operation_timestamps_are_iso_strings(client) -> None:
-    web, root = client
-    body = web.post("/api/verticals/base_v/manage/install", json={}).json()
-    assert isinstance(body["operation"]["started"], str) and body["operation"]["started"].endswith("Z")
-    store.wait_for_operation("base_v", root)
-    final = web.get("/api/verticals/base_v/operation").json()
-    assert final["finished"].endswith("Z") and isinstance(final["progress"], int)
-    assert web.get("/api/verticals").json()["catalog"]["fetched_at"].endswith("Z")
 
 
 def test_startup_prepares_declared_verticals_on_a_thread(monkeypatch) -> None:

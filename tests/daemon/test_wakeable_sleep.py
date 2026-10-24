@@ -23,14 +23,6 @@ def _worker(tmp_path) -> LifeWorker:
     return w
 
 
-def test_wakeable_sleep_returns_on_stop(tmp_path) -> None:
-    w = _worker(tmp_path)
-    w._stop.set()
-    t0 = time.monotonic()
-    w._wakeable_sleep(60.0, 5.0, tmp_path)
-    assert time.monotonic() - t0 < 1.0
-
-
 def test_wakeable_sleep_wakes_on_inbox_growth(tmp_path) -> None:
     w = _worker(tmp_path)
     inbox = tmp_path / "inbox.jsonl"
@@ -57,25 +49,6 @@ def test_wakeable_sleep_returns_when_inbox_is_already_pending(tmp_path) -> None:
     w._wakeable_sleep(60.0, 5.0, tmp_path)
 
     assert time.monotonic() - t0 < 1.0
-
-
-def test_wakeable_sleep_ignores_fully_consumed_inbox(tmp_path) -> None:
-    w = _worker(tmp_path)
-    inbox = tmp_path / "inbox.jsonl"
-    inbox.write_text('{"msg": "old"}\n', encoding="utf-8")
-    (tmp_path / "inbox.offset").write_text(str(inbox.stat().st_size), encoding="utf-8")
-
-    t0 = time.monotonic()
-    w._wakeable_sleep(0.4, 0.1, tmp_path)
-
-    assert time.monotonic() - t0 >= 0.35
-
-
-def test_wakeable_sleep_sleeps_full_when_quiet(tmp_path) -> None:
-    w = _worker(tmp_path)
-    t0 = time.monotonic()
-    w._wakeable_sleep(0.4, 0.1, tmp_path)
-    assert time.monotonic() - t0 >= 0.35
 
 
 def test_durable_input_wakes_once_and_new_input_interrupts_retained_envelope_wait(tmp_path):

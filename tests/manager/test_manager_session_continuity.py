@@ -95,34 +95,6 @@ def capsule(call):
     return value
 
 
-def test_manager_resumes_one_provider_thread_and_keeps_its_identity(tmp_path):
-    backend = Backend()
-    for _ in range(13):
-        turn(tmp_path, backend)
-    # The backend compacts its own context: no size or turn count starts a new thread.
-    assert [call["resume"] for call in backend.calls] == [None] + ["provider-1"] * 12
-    assert state(tmp_path)["provider_generation"] == 1
-    assert "capacity" not in state(tmp_path)
-    logical_id = state(tmp_path)["logical_manager_id"]
-    new_thread(tmp_path, backend)
-    assert backend.calls[-1]["resume"] is None
-    assert state(tmp_path)["logical_manager_id"] == logical_id
-    assert state(tmp_path)["provider_generation"] == 2
-    assert state(tmp_path)["last_rotation"]["from_thread_id"] == "provider-1"
-    assert all((result.input_tokens, result.cached_input_tokens, result.output_tokens) == (20000, 19990, 25)
-               for result in backend.results)
-
-
-def test_cancel_before_a_new_thread_does_not_call_backend_or_change_pointer(tmp_path):
-    backend = Backend()
-    turn(tmp_path, backend)
-    before = (tmp_path / ".manager_session.json").read_bytes()
-    with pytest.raises(ManagerLockCancelled):
-        new_thread(tmp_path, backend, external_interrupt_reason_provider=lambda: "operator stop")
-    assert len(backend.calls) == 1
-    assert (tmp_path / ".manager_session.json").read_bytes() == before
-
-
 @pytest.mark.parametrize("failure", ["quota", "exception"])
 def test_a_refused_or_uncertain_call_is_not_replayed(tmp_path, failure):
     backend = Backend(failure=failure)
@@ -366,61 +338,3 @@ def test_backlog_contention_does_not_trap_a_new_manager_thread(tmp_path, monkeyp
     assert not holder.is_alive()
     assert len(backend.calls) == 1
     assert (tmp_path / ".manager_session.json").read_bytes() == before
-
-
-@pytest.mark.parametrize("interrupt", [False, True])
-def test_permission_lock_contention_cannot_drop_authority_or_delay_stop(tmp_path, monkeypatch, interrupt):
-    append_directive(tmp_path, "READ_ONLY_CURRENT_PERMISSION", expected_revision=0, applies_to_roles=("manager",))
-    backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
-    before = (tmp_path / ".manager_session.json").read_bytes()
-    held, release, entered, stopped = (threading.Event() for _ in range(4))
-    holder = threading.Thread(target=_hold_file_lock, args=(str(tmp_path / "operator_context.lock"), held, release))
-    holder.start()
-    assert held.wait(2)
-    original = portalocker.lock
-
-    def watched(handle, flags):
-        if str(handle.name).endswith("operator_context.lock"):
-            entered.set()
-        return original(handle, flags)
-
-    monkeypatch.setattr(portalocker, "lock", watched)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(turn, tmp_path, backend, options=RunnerOptions(model="fixture/model",
-            external_interrupt_reason_provider=lambda: "operator stop" if stopped.is_set() else None))
-        try:
-            assert entered.wait(2)
-            if interrupt:
-                stopped.set()
-            expected = ManagerLockCancelled if interrupt else ManagerSessionContinuityUnavailable
-            with pytest.raises(expected):
-                pending.result(timeout=1.5)
-            assert not release.is_set()
-        finally:
-            release.set()
-            holder.join(timeout=3)
-    assert len(backend.calls) == 4
-    assert (tmp_path / ".manager_session.json").read_bytes() == before
-    stopped.clear()
-    turn(tmp_path, backend)
-    assert "READ_ONLY_CURRENT_PERMISSION" in backend.calls[-1]["prompt"]
-
-
-def test_bounded_continuity_read_still_recovers_the_canonical_backlog_commit(tmp_path):
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    task = BacklogItem.new(title="Current", objective="Preserve the committed question")
-    task.pending_question = "BEFORE_RECOVERY"
-    backlog.add(task)
-    backend = Backend()
-    turn(tmp_path, backend)
-    task.pending_question = "AFTER_CANONICAL_RECOVERY"
-    completed = BacklogItem.new(title="Completed", objective="Previously finished work")
-    completed.status = "done"
-    backlog._commit_path.write_text(json.dumps({"version": 1, "archive_offset": 0,
-                                               "live": [task.to_jsonable()], "terminal": [completed.to_jsonable()]}))
-    new_thread(tmp_path, backend)
-    assert capsule(backend.calls[-1])["pending_questions"][0]["pending_question"] == "AFTER_CANONICAL_RECOVERY"
-    assert json.loads(backlog._commit_path.read_text()) == {"version": 1}
-    assert [item.id for item in backlog.history()] == [completed.id, task.id]

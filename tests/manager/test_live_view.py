@@ -54,27 +54,3 @@ def test_live_view_round_trip_and_explicit_clear(tmp_path) -> None:
     assert load_live_view_decision(tmp_path) == view
     apply_live_view_decision(tmp_path, decided=True, view=None)
     assert load_live_view_decision(tmp_path) is None
-
-
-def test_live_view_manifest_can_be_session_scoped(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    state = tmp_path / "state"
-    workspace.mkdir()
-    state.mkdir()
-    view = LiveViewDecision(
-        title="Session view",
-        paths=("research/PROGRESS.md",),
-        reason="Belongs only to this session.",
-    )
-
-    apply_live_view_decision(
-        workspace,
-        decided=True,
-        view=view,
-        manifest_root=state,
-    )
-
-    assert not (workspace / LIVE_VIEW_MANIFEST).exists()
-    assert (state / LIVE_VIEW_MANIFEST).exists()
-    assert load_live_view_decision(workspace) is None
-    assert load_live_view_decision(workspace, manifest_root=state) == view

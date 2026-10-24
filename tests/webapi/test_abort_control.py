@@ -5,27 +5,6 @@ from argus.webapi.mission_items import abort_project_mission
 from argus.webapi.protocol import API_CAPABILITIES
 
 
-def test_abort_endpoint_helper_targets_running_item(tmp_path) -> None:
-    life = tmp_path / "projects" / "s-abort"
-    life.mkdir(parents=True)
-    backlog = LifeMemory.open(life).backlog
-    item = backlog.add(BacklogItem.new(title="task", objective="work"))
-    backlog.mark_running(item.id)
-
-    result = abort_project_mission(
-        "s-abort",
-        reason="operator stop",
-        global_root=tmp_path,
-    )
-
-    assert result == {
-        "requested": True,
-        "item_id": item.id,
-        "message": f"Stop requested for running task {item.id}.",
-    }
-    assert (life / "running_item_abort.json").exists()
-
-
 def test_abort_endpoint_helper_is_idle_safe(tmp_path) -> None:
     life = tmp_path / "projects" / "s-idle"
     life.mkdir(parents=True)

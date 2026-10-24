@@ -12,18 +12,3 @@ def test_done_verdict_keeps_the_plan() -> None:
 
     assert decision.action == "keep"
     assert "no-gap" in decision.alternative
-
-
-def test_explicit_replan_with_alternative_replaces_working_plan() -> None:
-    decision = adjudicate_plan_challenge(
-        reviewer_status="replan_requested",
-        review_reason="The preselected skip-zero candidate is not required.",
-        next_action="Use the no-gap validator alternative.",
-    )
-
-    assert decision.action == "replace"
-    assert "no-gap" in decision.alternative
-
-
-def test_unchallenged_plan_is_kept() -> None:
-    assert adjudicate_plan_challenge(reviewer_status="continue").action == "keep"

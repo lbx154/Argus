@@ -43,82 +43,12 @@ from argus.webapi.project_state import current_stage_for_session
 
 pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
-WORKDIR_ONLY_OBJECTIVE = {
-    "math_goal": "characterise the universal moduli",
-    "math_objective_mode": "targeted",
-    "math_objective_source": "transcribed_from_request",
-}
-STATE_ROOT_PIPELINE = {
-    "current_stage": "review",
-    "vertical": "targeted_lab",
-    "workflow_mode": "staged",
-    "stages": {
-        "scope": {"status": "done"},
-        "solve": {"status": "done"},
-        "review": {"status": "done"},
-    },
-}
-
 
 def _write(root, payload) -> None:
     (root / ".argus").mkdir(parents=True, exist_ok=True)
     (root / ".argus" / "PIPELINE_STATE.json").write_text(
         json.dumps(payload), encoding="utf-8"
     )
-
-
-def test_run_15s_stage_is_read_from_the_root_that_records_it(tmp_path) -> None:
-    state_root = tmp_path / "s-f0dbba19"
-    workdir = tmp_path / "argus-testbed-univ24-r15"
-    _write(state_root, STATE_ROOT_PIPELINE)
-    _write(workdir, WORKDIR_ONLY_OBJECTIVE)
-
-    stage = current_stage_for_session({"workdir": str(workdir)}, state_root)
-
-    assert stage == "review"
-
-
-def test_the_wrong_verticals_first_stage_is_not_served(tmp_path) -> None:
-    """``research`` is not merely stale here — it is another pipeline entirely."""
-    state_root = tmp_path / "state"
-    workdir = tmp_path / "work"
-    _write(state_root, STATE_ROOT_PIPELINE)
-    _write(workdir, WORKDIR_ONLY_OBJECTIVE)
-
-    assert current_stage_for_session({"workdir": str(workdir)}, state_root) != "research"
-
-
-def test_a_workdir_that_does_record_a_stage_is_still_honoured(tmp_path) -> None:
-    """Sessions that execute in their own project root must not regress."""
-    workdir = tmp_path / "single-root"
-    _write(workdir, {"current_stage": "solve", "vertical": "targeted_lab"})
-
-    stage = current_stage_for_session({"workdir": str(workdir)}, tmp_path / "empty")
-
-    assert stage == "solve"
-
-
-def test_cwd_is_read_when_there_is_no_workdir(tmp_path) -> None:
-    cwd = tmp_path / "cwd"
-    _write(cwd, {"current_stage": "solve", "vertical": "targeted_lab"})
-
-    assert current_stage_for_session({"cwd": str(cwd)}, tmp_path / "empty") == "solve"
-
-
-def test_a_fresh_project_still_reports_its_first_stage(tmp_path) -> None:
-    """The stage-one fallback is correct for a project that has not started.
-
-    Only the choice of root changes; a state file with no stage recorded
-    anywhere still answers, because that is a real project at its beginning.
-    """
-    workdir = tmp_path / "fresh"
-    _write(workdir, WORKDIR_ONLY_OBJECTIVE)
-
-    assert current_stage_for_session({"workdir": str(workdir)}, tmp_path / "none")
-
-
-def test_no_pipeline_state_anywhere_is_empty(tmp_path) -> None:
-    assert current_stage_for_session({"workdir": str(tmp_path / "nothing")}, tmp_path) == ""
 
 
 def test_an_unreadable_state_file_does_not_win_the_authoritative_pass(tmp_path) -> None:

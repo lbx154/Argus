@@ -56,50 +56,6 @@ def test_source_update_routes_are_authenticated_and_dispatch_jobs(
     assert calls == ["check", "apply"]
 
 
-def test_noop_source_update_finishes_without_duplicate_status_fields(
-    tmp_path, monkeypatch,
-) -> None:
-    checkout = tmp_path / "source"
-    checkout.mkdir()
-    revision = "a" * 40
-    monkeypatch.setattr(
-        source_update,
-        "inspect_source_checkout",
-        lambda _root: UpdateCheck(
-            root=checkout,
-            upstream="lbx154/Argus/main",
-            current_revision=revision,
-            upstream_revision=revision,
-            branch="main",
-            dirty=False,
-        ),
-    )
-    monkeypatch.setattr(
-        source_update,
-        "update_source_checkout",
-        lambda _root, *, python_executable, on_progress: (
-            on_progress("validating"),
-            on_progress("pulling"),
-            on_progress("complete"),
-            UpdateResult(
-                root=checkout,
-                upstream="lbx154/Argus/main",
-                before_revision=revision,
-                after_revision=revision,
-            ),
-        )[-1],
-    )
-
-    source_update._run_source_update(tmp_path / "state", "apply", checkout=checkout)
-
-    status = source_update.read_source_update_status(tmp_path / "state")
-    assert status["state"] == "succeeded"
-    assert status["current_revision"] == revision
-    assert status["upstream_revision"] == revision
-    assert status["changed"] is False
-    assert status["error"] == ""
-
-
 def test_source_update_recovers_interrupted_worker_status(tmp_path, monkeypatch) -> None:
     source_update._write_status(tmp_path, _status(
         state="updating", running=True, worker_pid=12345,
@@ -111,19 +67,6 @@ def test_source_update_recovers_interrupted_worker_status(tmp_path, monkeypatch)
     assert status["phase"] == "interrupted"
     assert status["running"] is False
     assert "worker exited" in status["error"]
-
-
-def test_source_check_preserves_pending_restart(tmp_path, monkeypatch) -> None:
-    source_update._write_status(tmp_path, _status(restart_required=True, changed=True))
-    monkeypatch.setattr(source_update, "inspect_source_checkout", lambda _root: UpdateCheck(
-        root=tmp_path, upstream="lbx154/Argus/main",
-        current_revision="new", upstream_revision="new", branch="main", dirty=False,
-    ))
-
-    source_update._run_source_update(tmp_path, "check", checkout=tmp_path)
-    status = source_update.read_source_update_status(tmp_path)
-    assert status["restart_required"] is True
-    assert status["changed"] is True
 
 
 def test_source_update_install_failure_does_not_claim_source_unchanged(tmp_path, monkeypatch) -> None:

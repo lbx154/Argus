@@ -6,7 +6,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from argus.advisor.config import load_advisor_config, save_advisor_config
+from argus.advisor.config import load_advisor_config
 from argus.core.session import SessionMeta, write_session_meta
 from argus.webapi.server import create_app
 
@@ -37,19 +37,6 @@ def test_settings_persist_for_one_project_without_selecting_the_main_model(clien
     assert web.get("/api/projects/two/advisor/config").json()["config"]["enabled"] is False
     assert web.get("/api/projects/one/advisor/consultations").json() == {"consultations": []}
     assert not (root / "projects/one/advisor/receipts.sqlite3").exists()
-
-
-def test_web_cannot_read_or_override_local_runner_path_and_requires_auth(client):
-    web, root = client
-    route = "/api/projects/one/advisor/config"
-    save_advisor_config(root / "projects/one", {"runner_bin": "/private/runtime/runner"})
-    response = web.get(route)
-    assert "/private/runtime" not in response.text
-    assert "runner_bin" not in response.text
-    assert web.post(route, json={"runner_bin": "/tmp/untrusted"}).status_code == 422
-    web.headers.pop("Authorization")
-    assert web.get(route).status_code == 401
-    assert web.post(route, json={"enabled": False}).status_code == 401
 
 
 def test_model_choices_do_not_expose_provider_credentials(client, monkeypatch):

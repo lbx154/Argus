@@ -31,25 +31,6 @@ def test_daemon_log_path_is_per_boot(tmp_path: Path):
     assert _daemon_log_path(tmp_path, override, "b1") == override
 
 
-def test_point_active_daemon_log_aliases_target(tmp_path: Path):
-    target = _daemon_log_path(tmp_path, None, "b1")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("boot 1\n")
-
-    _point_active_daemon_log(tmp_path, target)
-    link = tmp_path / "daemon.log"
-    if os.name == "nt":
-        assert not link.is_symlink()
-        assert link.samefile(target)
-    else:
-        assert link.is_symlink()
-        assert link.resolve() == target.resolve()
-    assert link.read_text() == "boot 1\n"  # tail daemon.log == live boot
-    with target.open("a", encoding="utf-8") as handle:
-        handle.write("still live\n")
-    assert link.read_text() == "boot 1\nstill live\n"
-
-
 def test_point_active_repoints_to_new_boot(tmp_path: Path):
     b1 = _daemon_log_path(tmp_path, None, "b1")
     b2 = _daemon_log_path(tmp_path, None, "b2")

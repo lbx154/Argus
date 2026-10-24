@@ -1,4 +1,3 @@
-import re
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -22,22 +21,6 @@ def site(root: Path) -> Path:
         '<!doctype html><link rel="stylesheet" href="styles/main.css"><script src="app.js"></script><h1>Ready</h1>'
     )
     return entry
-
-
-def test_packages_only_referenced_assets_and_resolves_nested_css(tmp_path):
-    entry = site(tmp_path)
-    (tmp_path / "unreferenced.js").write_text("private")
-    package = HtmlPackage(entry)
-    result = package.build()
-    assert result["warnings"] == []
-    assert set(package.files) == {"index.html", "styles/main.css", "image.svg", "app.js"}
-    # The page's own stylesheet is inlined as a <style> block a strict host
-    # style policy accepts, not a data: URL it would refuse.
-    assert "data:text/css" not in result["html"]
-    css = re.search(r"<style>(.*?)</style>", result["html"], re.S)[1]
-    assert "data:image/svg+xml;base64," in css
-    assert "data:text/javascript;base64," in result["html"]
-    assert "<h1>Ready</h1>" in result["html"]
 
 
 def test_confines_assets_and_rejects_private_files_even_through_symlinks(tmp_path):

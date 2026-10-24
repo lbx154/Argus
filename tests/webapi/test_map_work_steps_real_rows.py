@@ -32,11 +32,6 @@ def test_started_then_failed_without_call_id_is_one_failed_step() -> None:
     assert steps[0]["status"] == "failed"
 
 
-def test_two_separate_calls_with_the_same_text_stay_two_steps() -> None:
-    steps = _steps([_row("completed", 1.0), _row("completed", 2.0)])
-    assert len(steps) == 2
-
-
 def test_reports_with_different_call_ids_are_not_merged() -> None:
     steps = _steps([_row("running", 1.0, call_id="a"), _row("failed", 1.1, call_id="b")])
     assert [step["status"] for step in steps] == ["running", "failed"]

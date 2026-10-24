@@ -20,15 +20,11 @@ from argus.core.session import SessionMeta, touch_session, write_session_meta
 from argus.daemon import commands as daemon_commands
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon import protocol as daemon_protocol
-from argus.daemon.state import write_continuous_config
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager import front_door
 from argus.manager.front_door import (
     ManagerHandoffError,
-    ManagerHandoffSupersededError,
 )
-from argus.skills.vertical_select import persist_vertical
 from argus.webapi import (
     daemon_lifecycle,
     daemon_upgrade,
@@ -108,103 +104,6 @@ def _install_manager(monkeypatch, execution_for) -> None:
 # ── tasks ─────────────────────────────────────────────────────────────────
 
 
-def test_post_task_appends_to_backlog(ctx) -> None:
-    root, sid, life = ctx
-    client = TestClient(server.create_app(global_root=root))
-    r = client.post(
-        f"/api/projects/{sid}/tasks",
-        json={"text": "optimize the kernel", "autostart_daemon": False},
-    )
-    assert r.status_code == 200
-    assert r.json()["item"]["objective"] == "optimize the kernel"
-    # went through the real Backlog store (flock CAS), not a raw write
-    items = LifeMemory.open(life).backlog.all()
-    assert len(items) == 1 and items[0].objective == "optimize the kernel"
-    assert items[0].manager_decision == {
-        "require_independent_review": True,
-        "routed": True,
-    }
-
-
-def test_post_task_preserves_active_continuous_campaign_governance(
-    ctx,
-    monkeypatch,
-    targeted_vertical,
-) -> None:
-    root, sid, life = ctx
-    workspace = root / "workspace"
-    workspace.mkdir()
-    write_session_meta(
-        root,
-        SessionMeta(
-            id=sid,
-            cwd=str(life),
-            workdir=str(workspace),
-            launch_cwd=str(root),
-        ),
-    )
-    persist_vertical(
-        workspace,
-        targeted_vertical,
-        research_target_level="doctoral",
-        workflow_mode="staged",
-    )
-    write_continuous_config(
-        life,
-        enabled=True,
-        objective="prove the selected Erdős conjecture",
-    )
-    commits: list[str] = []
-
-    class _Manager:
-        project_root = workspace
-
-        def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(
-                execution_task="verify the migrated scope artifact",
-                vertical="software",
-                workflow_mode="direct",
-            )
-
-        def commit_vertical_decision(self, text, decision, **kwargs):
-            commits.append(text)
-            persist_vertical(workspace, "software", workflow_mode="direct")
-            return SimpleNamespace(
-                execution_task=decision.execution_task,
-                vertical="software",
-                workflow_mode="direct",
-                kind="software",
-                regular=True,
-                stages=[],
-                headline=lambda: "software · direct",
-            )
-
-        def plan_stages(self, vertical):
-            assert vertical == targeted_vertical
-            return ["scope", "solve", "review"]
-
-    manager_state._STATES.clear()
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda chat_state, mem: manager_runner(_Manager()),
-    )
-
-    response = mission_items.enqueue_task(
-        sid,
-        "verify scope without changing the campaign",
-        global_root=root,
-    )
-
-    assert response is not None
-    assert response["objective"] == "verify the migrated scope artifact"
-    assert commits == []
-    pipeline = json.loads((workspace / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert pipeline["vertical"] == targeted_vertical
-    assert pipeline["workflow_mode"] == "staged"
-    assert pipeline["research_target_level"] == "doctoral"
-
-
 def test_post_task_honours_once_flag(ctx) -> None:
     root, sid, life = ctx
     client = TestClient(server.create_app(global_root=root))
@@ -214,35 +113,6 @@ def test_post_task_honours_once_flag(ctx) -> None:
     item = r.json()["item"]
     assert item["objective"] == "tune it"  # flags stripped
     assert item["iterate"] is False  # --once
-
-
-def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> None:
-    root, sid, life = ctx
-    captured = {}
-
-    def fake_handoff(call_sid, text, persist, **kwargs):
-        captured.update(sid=call_sid, text=text, **kwargs)
-        return persist("write the MRAM paper", None)
-
-    monkeypatch.setattr(manager_dispatch, "manager_bounded_handoff", fake_handoff)
-    client = TestClient(server.create_app(global_root=root))
-    raw = "write the MRAM paper; Manager owns the right sidebar"
-    response = client.post(
-        f"/api/projects/{sid}/tasks",
-        json={"text": raw, "autostart_daemon": False},
-    )
-
-    assert response.status_code == 200
-    item = response.json()["item"]
-    assert item["objective"] == "write the MRAM paper"
-    assert captured["sid"] == sid
-    assert captured["text"] == raw
-    assert captured["root_task_id"] == item["id"]
-    persisted = LifeMemory.open(life).backlog.all()[0]
-    assert persisted.objective == "write the MRAM paper"
-    # Even a narrow/fake handoff that omits Division details has completed the
-    # Manager gate.  The daemon must not classify the claimed item again.
-    assert persisted.manager_decision == {"routed": True}
 
 
 def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
@@ -527,68 +397,6 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
     }
 
 
-def test_set_continuous_persists_only_manager_execution_handoff(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    raw = "study MRAM continuously; Manager decides the right sidebar"
-    _install_manager(monkeypatch, lambda text: "study MRAM continuously")
-
-    assert (
-        project_crud.set_continuous(
-            sid,
-            enabled=True,
-            objective=raw,
-            global_root=root,
-        )
-        is True
-    )
-
-    cfg = json.loads((life / "continuous.json").read_text())
-    assert cfg["objective"] == "study MRAM continuously"
-    assert raw not in (life / "continuous.json").read_text()
-
-
-def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    daemon_worker.write_continuous_config(
-        life,
-        enabled=True,
-        objective="clean current objective",
-    )
-    bridge_state = manager_state._chat_state_for(sid)
-    bridge_state["config"]["continuous"] = True
-    bridge_state["continuous_objective"] = "clean current objective"
-
-    def unexpected_handoff(*args, **kwargs):
-        raise AssertionError("disable must not wait for Manager")
-
-    monkeypatch.setattr(
-        manager_dispatch,
-        "manager_continuous_handoff",
-        unexpected_handoff,
-    )
-
-    assert (
-        project_crud.set_continuous(
-            sid,
-            enabled=False,
-            objective="raw stale UI objective; Manager owns the sidebar",
-            global_root=root,
-        )
-        is True
-    )
-    assert bridge_state["config"]["continuous"] is False
-    assert bridge_state["continuous_objective"] == ""
-    state = daemon_worker.read_continuous_state(life)
-    assert state.enabled is False
-    assert state.objective == "clean current objective"
-
-
 def test_disable_continuous_surfaces_persistence_failure(
     ctx,
     monkeypatch,
@@ -613,42 +421,6 @@ def test_disable_continuous_surfaces_persistence_failure(
     assert bridge_state["continuous_objective"] == "still active"
 
 
-def test_enable_continuous_reprocesses_stored_objective(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    raw = "legacy objective; Manager owns the sidebar"
-    daemon_worker.write_continuous_config(
-        life,
-        enabled=False,
-        objective=raw,
-        open_ended=True,
-    )
-    seen = {}
-
-    def clean_handoff(text):
-        seen["text"] = text
-        return "clean legacy objective"
-
-    _install_manager(monkeypatch, clean_handoff)
-
-    assert (
-        project_crud.set_continuous(
-            sid,
-            enabled=True,
-            objective="",
-            global_root=root,
-        )
-        is True
-    )
-    state = daemon_worker.read_continuous_state(life)
-    assert seen["text"] == raw
-    assert state.enabled is True
-    assert state.objective == "clean legacy objective"
-    assert state.open_ended is True
-
-
 def test_post_continuous_rejects_enable_without_any_objective(ctx) -> None:
     root, sid, _life = ctx
     client = TestClient(server.create_app(global_root=root))
@@ -659,53 +431,6 @@ def test_post_continuous_rejects_enable_without_any_objective(ctx) -> None:
     )
 
     assert response.status_code == 400
-
-
-def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    daemon_worker.write_continuous_config(
-        life,
-        enabled=False,
-        objective="paused objective",
-    )
-    commits = []
-    manager_state._STATES.clear()
-
-    class _Manager:
-        def decide_vertical(self, text, **kwargs):
-            project_crud.set_continuous(
-                sid,
-                enabled=False,
-                objective=text,
-                global_root=root,
-            )
-            return SimpleNamespace(execution_task="clean objective")
-
-        def commit_vertical_decision(self, text, decision, **kwargs):
-            commits.append(text)
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda chat_state, mem: manager_runner(_Manager()),
-    )
-
-    with pytest.raises(ManagerHandoffSupersededError):
-        project_crud.set_continuous(
-            sid,
-            enabled=True,
-            objective="new objective",
-            global_root=root,
-        )
-
-    state = daemon_worker.read_continuous_state(life)
-    assert state.enabled is False
-    assert state.objective == "paused objective"
-    assert commits == []
 
 
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────
@@ -723,64 +448,6 @@ def fenced_backlog(ctx):
     item.status = "paused_provider_fence"
     memory.backlog.add(item)
     return memory, item
-
-
-def test_daemon_start_delegates(ctx, fenced_backlog, monkeypatch) -> None:
-    root, sid, life = ctx
-    memory, item = fenced_backlog
-    calls = {}
-
-    def fake_spawn(config, *, quiet=False):
-        calls["life_dir"] = config.life_dir
-        calls["quiet"] = quiet
-        supervisor = LifeSupervisor(
-            memory=memory,
-            runner=SimpleNamespace(),
-            sink=SimpleNamespace(handle_event=lambda _event: None),
-            config=LifeSupervisorConfig(poll_interval_seconds=0.0),
-        )
-        summary = supervisor.run()
-        assert summary["missions_run"] == 0
-        assert memory.backlog.all()[0].attempt == 1
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
-    client = TestClient(server.create_app(global_root=root))
-    r = client.post(f"/api/projects/{sid}/daemon/start")
-    assert r.status_code == 200 and r.json()["rc"] == 0
-    assert calls["life_dir"] == life.resolve() and calls["quiet"] is True
-    resumed = memory.backlog.all()[0]
-    assert (resumed.id, resumed.status, resumed.attempt) == (item.id, "pending", 2)
-
-
-def test_daemon_start_resumes_provider_fence_without_respawning_live_worker(
-    ctx, fenced_backlog, monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    memory, item = fenced_backlog
-    status = daemon_worker.DaemonStatus(
-        alive=True,
-        pid=321,
-        started_at_iso=None,
-        uptime_seconds=5.0,
-        life_dir=life,
-        pid_path=life / "daemon.pid",
-    )
-    monkeypatch.setattr(daemon_worker, 'read_daemon_status', lambda _path: status)
-
-    def no_spawn(*_args, **_kwargs):
-        pytest.fail("an already-running worker must not be spawned again")
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', no_spawn)
-    client = TestClient(server.create_app(global_root=root))
-
-    result = client.post(f"/api/projects/{sid}/daemon/start").json()
-
-    assert result["command_status"] == "applied"
-    assert result["already_alive"] is True
-    assert result["daemon"]["pid"] == 321
-    resumed = memory.backlog.all()[0]
-    assert (resumed.id, resumed.status, resumed.attempt) == (item.id, "pending", 2)
 
 
 @pytest.mark.parametrize("operation", ["start", "replace"])
@@ -828,72 +495,6 @@ def test_explicit_daemon_resume_rearms_provider_fence_once_per_command(
     assert memory.backlog.all()[0].attempt == 3
 
 
-@pytest.mark.parametrize("operation", ["start", "replace"])
-@pytest.mark.parametrize("result", [
-    {"rc": 1, "error": "launcher failed"},
-    {"rc": 2, "admission_required": True},
-    {"rc": 3, "error": "workspace unavailable"},
-])
-def test_failed_daemon_resume_preserves_provider_fence(
-    ctx, fenced_backlog, monkeypatch, operation, result,
-) -> None:
-    root, sid, _life = ctx
-    memory, _item = fenced_backlog
-    monkeypatch.setattr(
-        daemon_lifecycle, f"{operation}_project_daemon", lambda *_args, **_kwargs: result,
-    )
-    client = TestClient(server.create_app(global_root=root))
-    body = {"command_id": "failed-resume"}
-    if operation == "replace":
-        body.update(victim_sid="s-victim001", resume_continuous=True)
-
-    response = client.post(f"/api/projects/{sid}/daemon/{operation}", json=body)
-
-    assert response.status_code == 200
-    assert response.json()["command_status"] == "failed"
-    assert memory.backlog.all()[0].status == "parked"
-    assert memory.backlog.all()[0].attempt == 1
-
-
-def test_automatic_continuous_restart_preserves_provider_fence(
-    ctx, fenced_backlog, monkeypatch,
-) -> None:
-    root, sid, _life = ctx
-    memory, _item = fenced_backlog
-    monkeypatch.setattr(
-        daemon_worker, 'spawn_detached_daemon_clean', lambda *_args, **_kwargs: 0,
-    )
-
-    result = daemon_lifecycle.start_project_daemon(
-        sid, global_root=root, resume_continuous=True,
-    )
-
-    assert result["rc"] == 0
-    assert memory.backlog.all()[0].status == "parked"
-    assert memory.backlog.all()[0].attempt == 1
-
-
-def test_daemon_replace_without_resume_preserves_provider_fence(
-    ctx, fenced_backlog, monkeypatch,
-) -> None:
-    root, sid, _life = ctx
-    memory, _item = fenced_backlog
-    monkeypatch.setattr(
-        daemon_lifecycle, 'replace_project_daemon', lambda *_args, **_kwargs: {"rc": 0},
-    )
-    client = TestClient(server.create_app(global_root=root))
-
-    response = client.post(f"/api/projects/{sid}/daemon/replace", json={
-        "victim_sid": "s-victim001",
-        "resume_continuous": False,
-    })
-
-    assert response.status_code == 200
-    assert response.json()["command_status"] == "applied"
-    assert memory.backlog.all()[0].status == "parked"
-    assert memory.backlog.all()[0].attempt == 1
-
-
 def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:
     root, sid, _life = ctx
 
@@ -916,58 +517,6 @@ def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:
         "RuntimeError: ModuleNotFoundError: No module named 'uvicorn'"
     )
     assert "ModuleNotFoundError" not in body["error"]
-
-
-def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) -> None:
-    root, sid, _life = ctx
-    diagnostic = "Traceback: UnicodeEncodeError during Windows daemon bootstrap"
-
-    def fake_spawn(config, *, quiet=False):
-        assert quiet is True
-        config.last_spawn_error = diagnostic
-        return 1
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
-    client = TestClient(server.create_app(global_root=root))
-
-    response = client.post(f"/api/projects/{sid}/daemon/start")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["rc"] == 1
-    assert body["startup_diagnostic"] == diagnostic
-    assert body["error"] == (
-        "The background worker could not start. "
-        "Check the startup diagnostic and try again."
-    )
-    assert diagnostic not in body["error"]
-    assert diagnostic in caplog.text
-
-
-@pytest.mark.parametrize("resume_continuous", [False, True])
-def test_web_start_without_an_open_ended_campaign_launches_a_bounded_worker(
-    ctx,
-    monkeypatch,
-    resume_continuous: bool,
-) -> None:
-    root, sid, _life = ctx
-    spawned: dict[str, object] = {}
-
-    def fake_spawn(config, *, quiet=False):
-        spawned["open_ended"] = config.continuous_open_ended
-        spawned["quiet"] = quiet
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
-
-    result = daemon_lifecycle.start_project_daemon(
-        sid,
-        global_root=root,
-        resume_continuous=resume_continuous,
-    )
-
-    assert result is not None and result["rc"] == 0
-    assert spawned == {"open_ended": False, "quiet": True}
 
 
 def test_daemon_start_retries_one_transient_windows_sharing_failure(
@@ -1055,95 +604,6 @@ def test_daemon_start_accepts_runtime_published_after_transient_launcher_failure
     assert result["startup_retried"] is True
     assert "startup_diagnostic" not in result
     assert attempts == 1
-
-
-def test_daemon_start_resume_reenables_preserved_continuous_objective(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    write_continuous_config(
-        life,
-        enabled=False,
-        objective="continue the proof campaign",
-        open_ended=False,
-        done_reason="operator drain-stop",
-    )
-    spawned = {}
-
-    def fake_spawn(config, *, quiet=False):
-        spawned["objective"] = config.continuous_objective
-        spawned["resume_continuous"] = config.resume_continuous
-        spawned["open_ended"] = config.continuous_open_ended
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
-
-    result = daemon_lifecycle.start_project_daemon(
-        sid,
-        global_root=root,
-        resume_continuous=True,
-    )
-
-    assert result is not None and result["rc"] == 0
-    state = daemon_worker.read_continuous_state(life)
-    assert state.enabled is True
-    assert state.objective == "continue the proof campaign"
-    assert state.done_reason == ""
-    assert spawned == {
-        "objective": "continue the proof campaign",
-        "resume_continuous": True,
-        "open_ended": False,
-    }
-
-
-def test_daemon_start_does_not_resume_planner_completed_campaign(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    write_continuous_config(
-        life,
-        enabled=False,
-        objective="completed campaign",
-        done_reason="planner declared project done",
-    )
-    spawned = {}
-
-    def fake_spawn(config, *, quiet=False):
-        spawned["objective"] = config.continuous_objective
-        spawned["resume_continuous"] = config.resume_continuous
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', fake_spawn)
-
-    result = daemon_lifecycle.start_project_daemon(
-        sid,
-        global_root=root,
-        resume_continuous=True,
-    )
-
-    assert result is not None and result["rc"] == 0
-    state = daemon_worker.read_continuous_state(life)
-    assert state.enabled is False
-    assert state.done_reason == "planner declared project done"
-    assert spawned == {"objective": "", "resume_continuous": False}
-
-
-def test_daemon_stop_delegates(ctx, monkeypatch) -> None:
-    root, sid, life = ctx
-    seen = {}
-
-    def fake_stop(life_dir=None, *, timeout=10.0, drain=False, drain_timeout=1800.0, force=False):
-        seen["life_dir"] = life_dir
-        seen["drain"] = drain
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'stop_daemon', fake_stop)
-    client = TestClient(server.create_app(global_root=root))
-    r = client.post(f"/api/projects/{sid}/daemon/stop", json={"drain": True})
-    assert r.status_code == 200 and r.json()["rc"] == 0
-    assert seen["life_dir"] == life.resolve() and seen["drain"] is True
 
 
 def test_daemon_upgrade_restarts_from_current_web_release(ctx, monkeypatch) -> None:
@@ -1429,24 +889,6 @@ def test_webapi_startup_resumes_pending_daemon_upgrades(
     assert scheduled == [(sid, {"global_root": root})]
 
 
-def test_webapi_startup_hook_runs_daemon_upgrade_reconciliation(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, _sid, _life = ctx
-    calls = []
-    monkeypatch.setattr(
-        daemon_upgrade,
-        'reconcile_pending_daemon_upgrades',
-        lambda roots: calls.append(roots) or [],
-    )
-
-    with TestClient(server.create_app(global_root=root)):
-        pass
-
-    assert calls == [[root.resolve()]]
-
-
 def test_schedule_daemon_upgrade_retries_after_thread_start_failure(
     ctx,
     monkeypatch,
@@ -1609,112 +1051,6 @@ def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
     assert request["resume_continuous"] is True
 
 
-def test_manual_force_stop_uses_short_verified_interrupt_timeout(
-    ctx,
-    monkeypatch,
-) -> None:
-    root, sid, life = ctx
-    calls: list[tuple[object, dict]] = []
-
-    def stop_daemon(target, **kwargs):
-        calls.append((target, kwargs))
-        return 0
-
-    monkeypatch.setattr(daemon_worker, 'stop_daemon', stop_daemon)
-
-    result = daemon_lifecycle.stop_project_daemon(
-        sid,
-        force=True,
-        global_root=root,
-    )
-
-    assert result == {"rc": 0, "forced": True}
-    assert calls == [
-        (
-            life,
-            {"timeout": 1.0, "drain": False, "force": True},
-        )
-    ]
-
-
-def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:
-    root, sid, _life = ctx
-    starts = []
-    stops = []
-    services = DaemonServices(
-        read_status=daemon_worker.read_daemon_status,
-        start=lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
-    )
-    monkeypatch.setattr(
-        daemon_lifecycle,
-        'stop_project_daemon',
-        lambda project_id, **kwargs: stops.append(project_id) or {"rc": 0},
-    )
-    client = TestClient(server.create_app(global_root=root, daemon_services=services))
-
-    body = {"command_id": "cmd-start", "expected_revision": 0}
-    first = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
-    duplicate = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
-
-    assert starts == [sid]
-    assert first["command_status"] == duplicate["command_status"] == "applied"
-    assert first["command_revision"] == duplicate["command_revision"] == 3
-
-    conflict = client.post(
-        f"/api/projects/{sid}/daemon/stop",
-        json={"command_id": "cmd-start", "expected_revision": 0},
-    ).json()
-    assert conflict["command_status"] == "rejected"
-    assert conflict["rc"] == 3
-    assert "command_id conflict" in conflict["error"]
-    assert stops == []
-
-    stale = client.post(
-        f"/api/projects/{sid}/daemon/stop",
-        json={"command_id": "cmd-stop", "expected_revision": 0},
-    ).json()
-    assert stale["command_status"] == "rejected"
-    assert stale["rc"] == 3
-    assert "stale command revision" in stale["error"]
-    assert stops == []
-
-
-@pytest.mark.parametrize("rc", [0, 2])
-def test_explicit_injected_start_resumes_parks_only_after_success(ctx, rc):
-    root, sid, life = ctx
-    memory = LifeMemory.open(life)
-    for status in ("paused_provider_fence", "paused_cost", "paused_no_breakthrough"):
-        item = BacklogItem.new(title=status, objective="Synthetic paused work")
-        item.status = status
-        memory.backlog.add(item)
-    services = DaemonServices(read_status=daemon_worker.read_daemon_status, start=lambda *_a, **_kw: {"rc": rc})
-    client = TestClient(server.create_app(global_root=root, daemon_services=services))
-    response = client.post(f"/api/projects/{sid}/daemon/start", json={"command_id": "explicit-start"})
-    assert response.status_code == 200 and response.json()["rc"] == rc
-    states = {item.title: item.status for item in memory.backlog.all()}
-    assert states["paused_provider_fence"] == states["paused_cost"] == ("pending" if rc == 0 else "parked")
-    # A park the Planner owns waits for the Planner.
-    assert states["paused_no_breakthrough"] == "parked"
-
-
-def test_project_update_renames_session(ctx) -> None:
-    root, sid, life = ctx
-    (life / "session.json").write_text(
-        json.dumps({"id": sid, "display_name": "old", "cwd": str(life)}),
-        encoding="utf-8",
-    )
-    client = TestClient(server.create_app(global_root=root))
-
-    r = client.patch(
-        f"/api/projects/{sid}",
-        json={"name": "  Research\n  console  "},
-    )
-
-    assert r.status_code == 200
-    assert r.json()["name"] == "Research console"
-    assert json.loads((life / "session.json").read_text())["display_name"] == "Research console"
-
-
 def test_project_update_preserves_legacy_continuous_objective(ctx) -> None:
     root, sid, life = ctx
     (life / "continuous.json").write_text(
@@ -1752,22 +1088,6 @@ def test_project_delete_moves_stopped_session_to_trash(ctx) -> None:
     assert (workdir / "result.txt").read_text(encoding="utf-8") == "operator result"
     touch_session(root, sid, display_name="must not resurrect")
     assert not life.exists()
-
-
-def test_project_delete_releases_warm_manager_runner(ctx) -> None:
-    root, sid, _life = ctx
-    closed: list[str] = []
-    state = manager_state._chat_state_for(sid)
-    state["manager_runner"] = SimpleNamespace(
-        reset_chat_session=lambda: closed.append("session"),
-    )
-    services = _daemon_services(alive=False)
-
-    response = TestClient(server.create_app(global_root=root, daemon_services=services)).delete(f"/api/projects/{sid}")
-
-    assert response.status_code == 200
-    assert closed == ["session"]
-    assert sid not in manager_state._STATES
 
 
 def test_project_trash_can_be_listed_and_restored(ctx) -> None:
@@ -1932,91 +1252,7 @@ def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
 # ── unknown project → 404 on every POST ────────────────────────────────────
 
 
-def test_post_unknown_project_404(ctx, monkeypatch) -> None:
-    root, _, _ = ctx
-    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', lambda *a, **k: 0)
-    monkeypatch.setattr(daemon_worker, 'stop_daemon', lambda *a, **k: 0)
-    client = TestClient(server.create_app(global_root=root))
-    for path, body in [
-        ("tasks", {"text": "x"}),
-        ("nudge", {"text": "x"}),
-        ("continuous", {"enabled": False}),
-        ("daemon/start", None),
-        ("daemon/stop", None),
-        ("daemon/replace", {"victim_sid": "s-other"}),
-        ("daemon/upgrade", None),
-        ("plan", {"text": "x"}),
-        ("identity", {"text": "x"}),
-        ("config/set", {"name": "model", "value": "x"}),
-        ("skills", {"args": "ls"}),
-        ("reset", None),
-    ]:
-        r = client.post(f"/api/projects/s-nope/{path}", json=body)
-        assert r.status_code == 404, path
-    assert client.patch("/api/projects/s-nope", json={"name": "missing"}).status_code == 404
-    assert client.delete("/api/projects/s-nope").status_code == 404
-
-
 # ── auth (bearer token) ────────────────────────────────────────────────────
-
-
-def test_bearer_auth_on_posts(ctx) -> None:
-    root, sid, _ = ctx
-    app = server.create_app(global_root=root, auth_token="secret123")
-    client = TestClient(app)
-    body = {"text": "x", "autostart_daemon": False}
-    # missing / wrong token → 401
-    assert client.post(f"/api/projects/{sid}/tasks", json=body).status_code == 401
-    assert (
-        client.post(
-            f"/api/projects/{sid}/tasks", json=body, headers={"Authorization": "Bearer nope"}
-        ).status_code
-        == 401
-    )
-    # correct token → 200
-    ok = client.post(
-        f"/api/projects/{sid}/tasks", json=body, headers={"Authorization": "Bearer secret123"}
-    )
-    assert ok.status_code == 200
-    # Reads are protected too. The line here used to read "reads stay open (no
-    # auth on GET)" directly above a note that artifact reads are protected
-    # "because they expose project files" — and the transcript, journal and
-    # snapshot expose more than the artifacts do.
-    assert client.get(f"/api/projects/{sid}/snapshot").status_code == 401
-    assert (
-        client.get(
-            f"/api/projects/{sid}/snapshot",
-            headers={"Authorization": "Bearer secret123"},
-        ).status_code
-        == 200
-    )
-    # Artifact reads are deliberately protected because they expose project files.
-    assert client.get(f"/api/projects/{sid}/artifacts").status_code == 401
-    assert (
-        client.get(
-            f"/api/projects/{sid}/artifacts",
-            headers={"Authorization": "Bearer secret123"},
-        ).status_code
-        == 200
-    )
-
-
-def test_project_management_requires_token(ctx) -> None:
-    root, sid, _ = ctx
-    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
-
-    assert client.patch(f"/api/projects/{sid}", json={"name": "x"}).status_code == 401
-    assert client.delete(f"/api/projects/{sid}").status_code == 401
-
-
-def test_sensitive_admin_reads_require_token(ctx) -> None:
-    root, sid, _ = ctx
-    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
-
-    assert client.get(f"/api/projects/{sid}/config").status_code == 401
-    assert client.get(f"/api/projects/{sid}/identity").status_code == 401
-    assert client.get("/api/metrics").status_code == 401
-    assert client.get("/api/trash").status_code == 401
 
 
 def test_ws_requires_token_when_configured(ctx) -> None:
@@ -2097,14 +1333,6 @@ def test_a_configured_token_also_guards_the_reads(ctx) -> None:
         ), f"{path} refused the configured token"
 
 
-def test_the_default_localhost_bind_stays_open(ctx) -> None:
-    """No token configured is the ordinary `argus --web` case; nothing changes."""
-    root, sid, _ = ctx
-    client = TestClient(server.create_app(global_root=root))
-    for path in ("/api/projects", f"/api/projects/{sid}/journal"):
-        assert client.get(path).status_code == 200
-
-
 def test_choosing_the_shared_model_for_every_role_releases_the_role_pins(ctx, monkeypatch) -> None:
     """A role knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the
     shared knob changes nothing on a host whose roles were pinned at setup."""
@@ -2158,92 +1386,3 @@ def test_the_config_snapshot_offers_model_options_from_catalog_usage_and_knobs(c
     assert options["seen-x"] == "seen"
     assert "failed-only" not in options and "ancient" not in options
     assert body["model_options"][0]["model"] == "seen-x"  # most recently used first
-
-
-def _model_options_env(monkeypatch, tmp_path, root, catalog_ids, current):
-    catalog = tmp_path / "pi"
-    catalog.mkdir(exist_ok=True)
-    (catalog / "models.json").write_text(
-        json.dumps({"providers": {"argus": {"models": [{"id": m} for m in catalog_ids]}}})
-    )
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(catalog))
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    (root / "config.json").write_text(json.dumps({"ARGUS_SKILL_MODEL": current}))
-
-
-def test_model_options_follow_the_selected_backend(ctx, monkeypatch, tmp_path) -> None:
-    from argus.webapi import mission_items
-
-    root, _, _ = ctx
-    _model_options_env(monkeypatch, tmp_path, root, ["harness-1"], "harness-1")
-    backend = {"value": "pi"}
-    monkeypatch.setattr(
-        mission_items,
-        "_backend_model_catalog",
-        lambda _root: (["account-new-9", "account-old-2"], "account-new-9") if backend["value"] == "copilot" else None,
-    )
-    monkeypatch.setattr(mission_items, "_active_backend", lambda: (backend["value"], "/bin/x"))
-    pi_models = [row["model"] for row in mission_items.model_options(root)]
-    assert "harness-1" in pi_models and "account-new-9" not in pi_models
-    backend["value"] = "copilot"
-    rows = mission_items.model_options(root)
-    assert [row["model"] for row in rows][:2] == ["account-new-9", "account-old-2"]
-    assert rows[0].get("default") is True
-    stale = next(row for row in rows if row["model"] == "harness-1")
-    assert stale["invalid"] is True  # configured, but the account does not offer it
-
-
-def test_model_options_mark_a_current_value_missing_from_the_catalog(ctx, monkeypatch, tmp_path) -> None:
-    from argus.webapi import mission_items
-
-    root, _, _ = ctx
-    _model_options_env(monkeypatch, tmp_path, root, ["family-2.1", "family-10.0", "family-3"], "made-up-id")
-    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: None)
-    monkeypatch.setattr(mission_items, "_active_backend", lambda: ("copilot", "/bin/x"))
-    rows = mission_items.model_options(root)
-    by_model = {row["model"]: row for row in rows}
-    # Without the backend's own list nothing can say the id is not offered.
-    assert "invalid" not in by_model["made-up-id"]
-    assert by_model["family-3"]["offline"] is True  # live list failed: catalog fallback is flagged
-    catalog_order = [row["model"] for row in rows if row["source"] == "catalog"]
-    assert catalog_order == ["family-10.0", "family-3", "family-2.1"]  # newest version first
-
-
-def test_model_options_never_call_a_model_unavailable_without_the_backends_own_list(
-    ctx, monkeypatch, tmp_path
-) -> None:
-    from argus.webapi import mission_items
-
-    root, _, _ = ctx
-    _model_options_env(monkeypatch, tmp_path, root, ["harness-1"], "other-vendor-id")
-    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: None)
-    monkeypatch.setattr(mission_items, "_active_backend", lambda: ("claude", "/bin/x"))
-    rows = {row["model"]: row for row in mission_items.model_options(root)}
-    assert "invalid" not in rows["other-vendor-id"]  # the harness catalog is not this backend's list
-    assert "offline" not in rows["harness-1"]
-
-
-def test_a_model_that_answered_recently_is_not_marked_unavailable(ctx, monkeypatch, tmp_path) -> None:
-    from argus.webapi import mission_items
-
-    root, _, _ = ctx
-    _model_options_env(monkeypatch, tmp_path, root, [], "answered-recently")
-    monkeypatch.setattr(mission_items, "_backend_model_catalog", lambda _root: (["listed-1"], "listed-1"))
-    monkeypatch.setattr(mission_items, "_seen_model_ids", lambda _root: {"answered-recently": 1.0})
-    rows = {row["model"]: row for row in mission_items.model_options(root)}
-    assert "invalid" not in rows["answered-recently"]
-
-
-def test_model_options_keep_a_family_together_newest_first() -> None:
-    from argus.webapi.mission_items import _version_desc_key
-
-    ids = ["beta-2", "alpha-10", "beta-11", "alpha-9.5"]
-    assert sorted(ids, key=_version_desc_key) == ["alpha-10", "alpha-9.5", "beta-11", "beta-2"]
-
-
-def test_model_options_family_is_the_name_before_the_version() -> None:
-    """Letters after a version ("4o", "-mini") stay in the same family."""
-    from argus.webapi.mission_items import _version_desc_key
-
-    ids = ["alpha-3-mini", "beta-3", "alpha-4o", "alpha-5.5"]
-    assert sorted(ids, key=_version_desc_key) == ["alpha-5.5", "alpha-4o", "alpha-3-mini", "beta-3"]

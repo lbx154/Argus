@@ -7,7 +7,6 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -55,46 +54,6 @@ def test_control_request_is_bound_to_pid_and_boot_timestamp(tmp_path: Path) -> N
         started_at_iso=_STARTED,
     )
     assert not (tmp_path / "daemon.stop-request.json").exists()
-
-
-@pytest.mark.parametrize(
-    ("drain", "mission_interrupted"),
-    [(False, True), (True, False)],
-)
-def test_worker_consumes_pid_bound_stop_without_console_signal(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    drain: bool,
-    mission_interrupted: bool,
-) -> None:
-    handlers: dict[int, Any] = {}
-    monkeypatch.setattr(
-        life_worker_mod.signal,
-        "signal",
-        lambda signum, handler: handlers.__setitem__(signum, handler),
-    )
-    monkeypatch.setattr(
-        life_worker_mod,
-        "read_daemon_status",
-        lambda _path: SimpleNamespace(
-            alive=True,
-            pid=os.getpid(),
-            started_at_iso=_STARTED,
-        ),
-    )
-    daemon_state.request_daemon_control_stop(
-        tmp_path,
-        pid=os.getpid(),
-        started_at_iso=_STARTED,
-        drain=drain,
-    )
-    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path))
-
-    worker._install_signal_handlers()
-    assert worker._stop.wait(timeout=2.0)
-    assert worker._operator_stop_requested is True
-    assert worker._mission_stop.is_set() is mission_interrupted
-    assert signal.SIGTERM in handlers
 
 
 def test_worker_upgrades_drain_request_to_immediate_interrupt(

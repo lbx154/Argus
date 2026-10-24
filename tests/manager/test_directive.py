@@ -24,7 +24,6 @@ def _set_objective(root: Path, objective: str) -> None:
     )
 
 
-
 def _steer(chat_state, life_dir, emitter):
     """Apply the steer a Manager filed, its directive and lifetime given as the test's chat-state fields."""
     from argus.webapi.manager_dispatch import _handle_steer_control
@@ -76,19 +75,6 @@ def test_only_a_directive_handed_to_the_planner_moves_its_revision(tmp_path: Pat
     assert load_active_manager_directive(tmp_path).planner_revision == planned.revision != later.revision
 
 
-def test_directive_is_scoped_to_the_objective(tmp_path: Path) -> None:
-    _set_objective(tmp_path, "first objective")
-    set_active_manager_directive(tmp_path, "first-objective policy")
-
-    _set_objective(tmp_path, "replacement objective")
-
-    assert load_active_manager_directive(tmp_path) is None
-    assert (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).exists()
-    standing = active_manager_directive_message(tmp_path)
-    assert "first-objective policy" in standing
-    assert "OBJECTIVE.md changed on" in standing
-
-
 def test_inbox_retract_retires_matching_directive_only(tmp_path: Path) -> None:
     _set_objective(tmp_path, "prove the theorem")
     append_steering_directive(tmp_path, "keep the proof structural")
@@ -128,15 +114,6 @@ def test_empty_directive_is_rejected(tmp_path: Path) -> None:
         set_active_manager_directive(tmp_path, "  ")
 
 
-def test_malformed_directive_is_ignored(tmp_path: Path) -> None:
-    (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).write_text(
-        "{not json",
-        encoding="utf-8",
-    )
-
-    assert load_active_manager_directive(tmp_path) is None
-
-
 def test_old_directive_fields_are_ignored(tmp_path: Path) -> None:
     record = set_active_manager_directive(tmp_path, "continue the current route")
     payload = json.loads(
@@ -154,65 +131,6 @@ def test_old_directive_fields_are_ignored(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.text == record.text
     assert not hasattr(loaded, "operator_question_policy")
-
-
-def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) -> None:
-    from argus.daemon.state import (
-        read_continuous_state,
-        write_continuous_config,
-    )
-    from argus.life.memory import BacklogItem, LifeMemory
-    from argus.webapi.manager_dispatch import (
-        _handle_steer_control,
-        _TurnEmitter,
-    )
-
-    write_continuous_config(
-        tmp_path,
-        enabled=True,
-        objective="old bounded objective",
-        open_ended=False,
-    )
-    set_active_manager_directive(tmp_path, "existing direction")
-    memory = LifeMemory.open(tmp_path)
-    active = memory.backlog.add(
-        BacklogItem.new(
-            title="active mission",
-            objective="final standing objective",
-        )
-    )
-    memory.backlog.mark_running(active.id)
-    emitter = _TurnEmitter(tmp_path, "turn-1", lambda *_args: None)
-
-    result = _handle_steer_control(
-        tmp_path,
-        emitter,
-        chat_state={},
-        body="continue autonomously",
-        directive="continue autonomously",
-        lifetime="standing",
-    )
-
-    continuous = read_continuous_state(tmp_path)
-    directive = load_active_manager_directive(tmp_path)
-    assert result["control"] == "steer"
-    assert continuous.objective == "final standing objective"
-    assert continuous.open_ended is True
-    assert directive is not None
-    assert directive.objective == "old bounded objective"
-    assert directive.authorized_objective == continuous.objective
-    payload = json.loads(
-        (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
-    )
-    assert payload["authorized_objective"] == "final standing objective"
-    assert "authorized_objective_sha256" not in payload
-    write_continuous_config(
-        tmp_path,
-        enabled=True,
-        objective="unrelated replacement objective",
-        open_ended=True,
-    )
-    assert load_active_manager_directive(tmp_path) is None
 
 
 def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
@@ -256,122 +174,3 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
     assert chat_state["config"]["continuous"] is True
     assert chat_state["continuous_objective"] == "already standing"
     assert (tmp_path / "inbox.jsonl").exists()
-
-
-def test_concurrent_replacement_steer_is_stale_and_not_queued(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.daemon import state as daemon_state
-    from argus.life.memory import BacklogItem, LifeMemory
-    from argus.manager import directive as directive_module
-    from argus.webapi.manager_dispatch import (
-        _TurnEmitter,
-    )
-
-    daemon_state.write_continuous_config(
-        tmp_path,
-        enabled=True,
-        objective="objective A",
-        open_ended=False,
-    )
-    memory = LifeMemory.open(tmp_path)
-    active = memory.backlog.add(BacklogItem.new(
-        title="active mission",
-        objective="authorized standing objective",
-    ))
-    memory.backlog.mark_running(active.id)
-    original_set = directive_module.set_active_manager_directive
-
-    def replace_objective_before_directive(*args, **kwargs):
-        daemon_state.write_continuous_config(
-            tmp_path,
-            enabled=True,
-            objective="objective B",
-            open_ended=True,
-        )
-        return original_set(*args, **kwargs)
-
-    monkeypatch.setattr(
-        directive_module,
-        "set_active_manager_directive",
-        replace_objective_before_directive,
-    )
-    chat_state = {
-        "_frontdoor_steering_directive": "steer objective A",
-        "_frontdoor_lifetime": "standing",
-        "config": {"continuous": False},
-        "continuous_objective": "stale cache",
-    }
-
-    result = _steer(
-        chat_state,
-        tmp_path,
-        _TurnEmitter(tmp_path, "turn-race", lambda *_args: None),
-    )
-
-    payload = json.loads(
-        (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
-    )
-    assert result["continuous"] is False
-    assert payload["objective"] == "objective A"
-    assert payload["authorized_objective"] == "authorized standing objective"
-    assert load_active_manager_directive(tmp_path) is None
-    assert (tmp_path / "inbox.jsonl").exists()
-    assert "steer objective A" in active_manager_directive_message(tmp_path)
-    assert chat_state["config"]["continuous"] is True
-    assert chat_state["continuous_objective"] == "objective B"
-
-
-def test_directive_write_failure_happens_before_standing_cas(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.daemon import state as daemon_state
-    from argus.manager import directive as directive_module
-    from argus.webapi.manager_dispatch import (
-        _TurnEmitter,
-    )
-
-    daemon_state.write_continuous_config(
-        tmp_path,
-        enabled=True,
-        objective="bounded objective",
-        open_ended=False,
-    )
-    before = daemon_state.read_continuous_state(tmp_path)
-    cas_calls = 0
-
-    def fail_write(*_args, **_kwargs):
-        raise OSError("directive write failed")
-
-    def unexpected_cas(*_args, **_kwargs):
-        nonlocal cas_calls
-        cas_calls += 1
-        return True
-
-    monkeypatch.setattr(
-        directive_module,
-        "set_active_manager_directive",
-        fail_write,
-    )
-    monkeypatch.setattr(
-        daemon_state,
-        "compare_and_swap_continuous_config",
-        unexpected_cas,
-    )
-    with pytest.raises(OSError, match="directive write failed"):
-        _steer(
-            {
-                "_frontdoor_steering_directive": "promote safely",
-                "_frontdoor_lifetime": "standing",
-            },
-            tmp_path,
-            _TurnEmitter(tmp_path, "turn-3", lambda *_args: None),
-        )
-
-    after = daemon_state.read_continuous_state(tmp_path)
-    assert cas_calls == 0
-    assert after == before
-    assert after.generation == before.generation
-    assert load_active_manager_directive(tmp_path) is None

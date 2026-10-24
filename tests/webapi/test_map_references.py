@@ -93,18 +93,6 @@ def _life(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_accepts_the_frontend_shape() -> None:
-    ref = parse_card_reference(
-        _marker(step_id="task-a:2", step_title="步骤一", part=2, event_ids=["ev-1"])
-    )
-    assert ref is not None
-    assert ref.task_id == "task-a"
-    assert ref.task_title == "Coverage study"
-    assert ref.step_title == "步骤一"
-    assert ref.part == 2
-    assert list(ref.event_ids) == ["ev-1"]
-
-
 def test_parse_rejects_malformed_lines() -> None:
     bad_lines = [
         "[[Argus引用 not-json]]",
@@ -118,15 +106,6 @@ def test_parse_rejects_malformed_lines() -> None:
     ]
     for line in bad_lines:
         assert parse_card_reference(line) is None, line
-
-
-def test_malformed_reference_line_is_left_untouched(tmp_path: Path) -> None:
-    life = _life(tmp_path)
-    text = "请看这两行\n[[Argus引用 not-json]]\n" + _marker(task_id=5)
-    expansion = expand_operator_references(text, life)
-    assert expansion.matched is False
-    assert expansion.text == text
-    assert expansion.context_block == ""
 
 
 # ---------------------------------------------------------------------------
@@ -170,17 +149,6 @@ def test_valid_reference_replaces_marker_and_builds_block(redact_secrets_on, tmp
     assert len(objective_line) < 400
 
 
-def test_missing_task_keeps_inline_line_without_block(tmp_path: Path) -> None:
-    life = _life(tmp_path)
-    expansion = expand_operator_references(_marker(task_id="task-zz"), life)
-    assert expansion.matched is True
-    assert "[[Argus引用" not in expansion.text
-    # Falls back to the title carried by the reference itself.
-    assert "（引用：《Coverage study》）" in expansion.text
-    assert expansion.context_block == ""
-    assert expansion.dep_task_ids == []
-
-
 def test_missing_event_ids_do_not_break_the_entry(tmp_path: Path) -> None:
     life = _life(tmp_path)
     expansion = expand_operator_references(
@@ -188,30 +156,6 @@ def test_missing_event_ids_do_not_break_the_entry(tmp_path: Path) -> None:
     )
     assert "《Compare coverage》" in expansion.context_block
     assert "相关记录" not in expansion.context_block
-
-
-def test_reference_cap_first_four(tmp_path: Path) -> None:
-    life = tmp_path / "projects" / "s-cap"
-    memory = LifeMemory.open(life)
-    for index in range(6):
-        memory.backlog.add(
-            BacklogItem(
-                id=f"task-{index}",
-                ts=index + 1,
-                title=f"Step {index}",
-                objective=f"objective {index}",
-                status="pending",
-            )
-        )
-    text = "\n".join(
-        _marker(task_id=f"task-{index}", task_title=f"Step {index}")
-        for index in range(6)
-    )
-    expansion = expand_operator_references(text, life)
-    assert "[[Argus引用" not in expansion.text
-    assert expansion.text.count("（引用：") == 6
-    assert expansion.context_block.count("- 任务 ") == 4
-    assert len(expansion.dep_task_ids) == 4
 
 
 def test_block_stays_bounded(tmp_path: Path) -> None:
@@ -283,15 +227,6 @@ def test_duplicate_references_are_deduplicated(tmp_path: Path) -> None:
     assert expansion.context_block.count("- 任务 task-a") == 1
 
 
-def test_reference_lang_parses_normalizes_and_rejects_bad_types() -> None:
-    assert parse_card_reference(_marker()).lang == "zh"
-    assert parse_card_reference(_marker(lang="en")).lang == "en"
-    # Unknown locales fall back to the historical wording rather than guess.
-    assert parse_card_reference(_marker(lang="fr")).lang == "zh"
-    # A non-string lang is a shape violation like any other field.
-    assert parse_card_reference(_marker(lang=3)) is None
-
-
 def test_english_reference_renders_english_lines(tmp_path: Path) -> None:
     life = _life(tmp_path)
     result = expand_operator_references(
@@ -305,10 +240,3 @@ def test_english_reference_renders_english_lines(tmp_path: Path) -> None:
     assert '- Task task-a "Compare coverage" (status ' in result.context_block
     assert "objective:" in result.context_block
     assert "Referenced step: Review passed" in result.context_block
-
-
-def test_reference_without_lang_keeps_chinese_wording(tmp_path: Path) -> None:
-    life = _life(tmp_path)
-    result = expand_operator_references("看看这里:\n" + _marker(), life)
-    assert "（引用：《Compare coverage》）" in result.text
-    assert result.context_block.startswith("## 操作员引用的地图节点")

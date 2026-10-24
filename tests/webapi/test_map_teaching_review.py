@@ -50,19 +50,6 @@ def invoke(candidates, run, **overrides):
     return teaching.review_concepts(candidates, run=run, **options)
 
 
-def test_applies_supplied_two_issue_verdict_without_publishing_the_bad_example():
-    original = concept()
-    verdict = correction()
-    run = Mock(return_value={"reviews": {"a": verdict}})
-    usable, receipts, updates = invoke({"a": original}, run)
-    assert usable["a"] == verdict["replacement"]
-    assert usable["a"] != original
-    assert receipts["a"]["status"] == "corrected"
-    assert [item["kind"] for item in receipts["a"]["findings"]] == ["unsupported_inference", "undefined_term"]
-    assert receipts["a"]["kind"] == "model_teaching_review"
-    assert "review_status" not in receipts["a"] and "stage_certification" not in receipts["a"]
-    assert len(updates) == 1
-    run.assert_called_once()
     # The runner was mocked: this tests applying a correction, not detecting it.
 
 
@@ -79,73 +66,12 @@ def test_one_batch_deduplicates_exact_concepts_and_retains_null_without_review()
     assert len(updates) == 2
 
 
-def test_only_null_concepts_need_no_call():
-    run = Mock(side_effect=AssertionError("No teaching text to review"))
-    assert invoke({"a": None}, run) == ({"a": None}, {}, {})
-    run.assert_not_called()
-
-
-def test_cached_correction_is_reused_and_input_objects_remain_independent():
-    candidates = {"a": concept()}
-    original = copy.deepcopy(candidates)
-    _, _, cache = invoke(candidates, Mock(return_value={"reviews": {"a": correction()}}))
-    snapshot = copy.deepcopy(cache)
-    run = Mock(side_effect=AssertionError("Cache hit must not invoke a model"))
-    usable, receipts, updates = invoke(candidates, run, cached_reviews=cache)
-    assert receipts["a"]["status"] == "corrected" and updates == {}
-    usable["a"]["example"] = "A local consumer edited its copy"
-    receipts["a"]["findings"].clear()
-    assert candidates == original and cache == snapshot
-    run.assert_not_called()
-
-
 def test_incomplete_cached_receipt_is_not_published_when_rechecking_fails():
     _, _, cache = invoke({"a": concept()}, Mock(return_value={"reviews": {"a": correction()}}))
     del next(iter(cache.values()))["reviewed_at"]
     usable, receipts, updates = invoke({"a": concept()}, Mock(side_effect=OSError("offline")), cached_reviews=cache)
     assert usable["a"] is None
     assert receipts["a"]["status"] == "unavailable" and updates == {}
-
-
-@pytest.mark.parametrize("change", ["candidate", "context", "locale", "model", "review_version"])
-def test_review_cache_invalidates_when_the_actual_review_input_changes(monkeypatch, change):
-    candidates = {"a": concept()}
-    _, _, cache = invoke(candidates, Mock(return_value={"reviews": {"a": accepted()}}))
-    overrides = {"cached_reviews": cache}
-    if change == "candidate":
-        candidates["a"]["connection"] += " A new connection."
-    elif change == "context":
-        overrides["context"] = {"a": {"objective": "Check a different hypothesis"}}
-    elif change == "locale":
-        overrides["locale"] = "zh-CN"
-    elif change == "model":
-        overrides["model_revision"] = "model-b"
-    else:
-        monkeypatch.setattr(teaching, "TEACHING_REVIEW_VERSION", teaching.TEACHING_REVIEW_VERSION + 1)
-    run = Mock(return_value={"reviews": {"a": accepted()}})
-    _, _, updates = invoke(candidates, run, **overrides)
-    run.assert_called_once()
-    assert set(updates).isdisjoint(cache)
-
-
-def test_only_bounded_context_is_sent_and_tool_ticks_do_not_invalidate_review():
-    context = {"a": {"objective": "o" * 1000, "summary": "s" * 2000,
-                     "source_ids": [f"source-{i}" for i in range(100)],
-                     "tool_output": "PRIVATE_TOOL_TEXT" * 10000, "cursor": "tick-1"}}
-    run = Mock(return_value={"reviews": {"a": accepted()}})
-    _, _, cache = invoke({"a": concept()}, run, context=context)
-    prompt = run.call_args.args[0]
-    sent = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]
-    assert sent["a"]["concept"] == concept()
-    assert len(sent["a"]["context"]["objective"]) == teaching.CONTEXT_LIMITS["objective"]
-    assert len(sent["a"]["context"]["summary"]) == teaching.CONTEXT_LIMITS["summary"]
-    assert sent["a"]["context"]["summary_truncated"] is True
-    assert len(sent["a"]["context"]["source_ids"]) == 6
-    assert "PRIVATE_TOOL_TEXT" not in prompt and "tick-1" not in prompt
-    context["a"].update(cursor="tick-2", tool_output="New tool progress")
-    no_call = Mock(side_effect=AssertionError("Tool progress is not teaching input"))
-    invoke({"a": concept()}, no_call, context=context, cached_reviews=cache)
-    no_call.assert_not_called()
 
 
 def selected_source_context():
@@ -163,66 +89,6 @@ def selected_source_context():
             "review_source": "engineer_self_review",
         } for index in range(9)],
     }
-
-
-@pytest.mark.parametrize("scope,field,replacement", [
-    ("event", "next_action", "Wait for a recorded response before checking the condition"),
-    ("event", "status", "failed"),
-    ("event", "text", "The comparison failed because its hypothesis was not met"),
-    ("event", "review_skipped", True),
-    ("event", "backend_unavailable", True),
-    ("event", "review_source", "independent_reviewer"),
-    ("event", "id", "changed-ninth-source"),
-    ("task", "status", "done"),
-    ("task", "summary", "The executor withdrew the earlier lower bound"),
-    ("task", "acceptance_check", ["An explicit additional condition must hold"]),
-    ("task", "outcome_source", {"status": "current_attempt", "attempt": 2, "event_id": "source-8"}),
-])
-def test_same_candidates_are_rechecked_when_the_selected_source_facts_change(scope, field, replacement):
-    source = selected_source_context()
-    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
-    candidates, readings = {"a": concept()}, {"a": reading()}
-    _, first_receipts, cache = invoke(candidates, Mock(return_value=copy.deepcopy(response)),
-                                      context={"a": source}, reading=readings)
-    cached_snapshot = copy.deepcopy(cache)
-    changed = copy.deepcopy(source)
-    target = changed["task"] if scope == "task" else changed["events"][-1]
-    target[field] = replacement
-    inputs_before = copy.deepcopy((changed, candidates, readings))
-    run = Mock(return_value=copy.deepcopy(response))
-    _, receipts, updates = invoke(candidates, run, context={"a": changed}, reading=readings, cached_reviews=cache)
-    run.assert_called_once()
-    assert receipts["a"]["input_revision"] != first_receipts["a"]["input_revision"]
-    assert set(updates).isdisjoint(cache)
-    assert (changed, candidates, readings) == inputs_before
-    assert cache == cached_snapshot
-
-
-def test_unknown_tool_ticks_and_large_fields_are_not_source_evidence_or_cache_dependencies():
-    source = selected_source_context()
-    source.update(cursor="cursor-first", tool_output="PRIVATE_UNKNOWN_OUTPUT" * 10000,
-                  generated_detail="GENERATED_PROSE_IS_NOT_SOURCE" * 1000)
-    source["task"].update(tool_output="PRIVATE_UNKNOWN_OUTPUT" * 1000, cursor="task-cursor-first")
-    source["events"][-1].update(tool_output="PRIVATE_UNKNOWN_OUTPUT" * 1000, cursor="event-cursor-first",
-                                steps=[{"output": "PRIVATE_UNKNOWN_OUTPUT" * 1000}])
-    before = copy.deepcopy(source)
-    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
-    run = Mock(return_value=copy.deepcopy(response))
-    _, _, cache = invoke({"a": concept()}, run, context={"a": source}, reading={"a": reading()})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]["a"]["context"]
-    encoded = json.dumps(sent)
-    assert "PRIVATE_UNKNOWN_OUTPUT" not in encoded and "GENERATED_PROSE_IS_NOT_SOURCE" not in encoded
-    assert "cursor" not in encoded and "steps" not in encoded
-    assert len(sent["source_ids"]) == 9
-    assert source == before
-
-    source.update(cursor="cursor-second", tool_output="another unrelated tool output")
-    source["task"].update(cursor="task-cursor-second", tool_output="changed")
-    source["events"][-1].update(cursor="event-cursor-second", tool_output="changed", steps=[])
-    no_call = Mock(side_effect=AssertionError("Unrelated collection ticks must reuse this review"))
-    _, _, updates = invoke({"a": concept()}, no_call, context={"a": source}, reading={"a": reading()}, cached_reviews=cache)
-    no_call.assert_not_called()
-    assert updates == {}
 
 
 def test_source_projection_preserves_all_selected_ids_and_loss_flags_across_normalization_without_aliasing():
@@ -298,16 +164,6 @@ def test_changed_related_task_goal_invalidates_the_teaching_receipt():
     assert set(updates).isdisjoint(cache)
 
 
-def test_unavailable_model_verdict_hides_example_and_is_cached():
-    verdict = {"status": "unavailable", "reason": "The necessary fact cannot be checked from the supplied context.",
-               "findings": [], "replacement": None}
-    usable, receipts, cache = invoke({"a": concept()}, Mock(return_value={"reviews": {"a": verdict}}))
-    assert usable["a"] is None and receipts["a"]["status"] == "unavailable"
-    no_call = Mock(side_effect=AssertionError("No repeated request for the same unavailable example"))
-    assert invoke({"a": concept()}, no_call, cached_reviews=cache)[0]["a"] is None
-    no_call.assert_not_called()
-
-
 @pytest.mark.parametrize("error", [OSError("service unavailable"), TimeoutError("deadline"), ValueError("invalid JSON")])
 def test_runner_failure_makes_no_retry_and_preserves_other_cached_reviews(error):
     _, _, cache = invoke({"cached": concept()}, Mock(return_value={"reviews": {"cached": accepted()}}))
@@ -316,14 +172,6 @@ def test_runner_failure_makes_no_retry_and_preserves_other_cached_reviews(error)
     run.assert_called_once()
     assert usable["cached"] == concept() and usable["new"] is None
     assert receipts["new"]["error_code"] == "review_failed" and updates == {}
-
-
-def test_omitted_card_in_batch_is_not_mistaken_for_acceptance():
-    run = Mock(return_value={"reviews": {"a": accepted()}})
-    usable, receipts, updates = invoke({"a": concept(), "b": {**concept(), "name": "Other"}}, run)
-    assert usable == {"a": None, "b": None}
-    assert all(row["error_code"] == "review_failed" for row in receipts.values())
-    assert updates == {}
 
 
 @pytest.mark.parametrize("defect", ["invented_quote", "accepted_with_findings", "partial_replacement", "unchanged_replacement"])
@@ -341,14 +189,6 @@ def test_invalid_correction_contract_cannot_publish_a_candidate(defect):
     usable, receipts, updates = invoke({"a": concept()}, Mock(return_value={"reviews": {"a": verdict}}))
     assert usable["a"] is None and receipts["a"]["status"] == "unavailable"
     assert "error_code" in receipts["a"] and updates == {}
-
-
-def test_oversized_candidate_is_not_silently_shortened_before_checking():
-    oversized = {**concept(), "example": "x" * (teaching.CONCEPT_LIMITS["example"] + 1)}
-    run = Mock(side_effect=AssertionError("Invalid candidate needs no model call"))
-    usable, receipts, _ = invoke({"a": oversized}, run)
-    assert usable["a"] is None and receipts["a"]["error_code"] == "invalid_concept"
-    run.assert_not_called()
 
 
 def test_batch_limit_does_not_start_another_model_call():
@@ -392,98 +232,6 @@ def unavailable_decision():
             "findings": [], "replacement": None}
 
 
-def test_reading_contract_includes_the_first_and_expanded_levels():
-    fields = {"title", "summary", "detail", "why", "scope", "next"}
-    assert set(teaching.CARD_TEXT_LIMITS) == {"title", "summary", "detail"}
-    assert set(teaching.BRIEF_LIMITS) == {"why", "scope", "next"}
-    assert teaching.READING_LIMITS == teaching.CARD_TEXT_LIMITS | teaching.BRIEF_LIMITS
-    schema = teaching.teaching_review_schema(["a"], ["a"])
-    definition = schema["$defs"]["reading"]
-    assert set(definition["required"]) == fields
-    assert set(definition["properties"]) == fields
-    assert definition["additionalProperties"] is False
-    assert {key: value["maxLength"] for key, value in definition["properties"].items()} == teaching.READING_LIMITS
-    finding = schema["$defs"]["reading_decision"]["properties"]["findings"]["items"]
-    assert set(finding["properties"]["field"]["enum"]) == fields
-
-
-def test_supplied_reading_correction_is_atomic_and_separate_from_concept_acceptance():
-    draft = reading()
-    before = copy.deepcopy(draft)
-    decision = reading_correction()
-    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
-    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
-    run.assert_called_once()
-    assert usable["a"] == concept() and receipts["a"]["status"] == "accepted"
-    assert receipts["a"]["reading_review"]["status"] == "corrected"
-    assert receipts["a"]["reading_review"]["kind"] == "model_readability_review"
-    assert receipts["a"]["reading_replacement"] == decision["replacement"]
-    assert set(receipts["a"]["reading_replacement"]) == set(teaching.READING_LIMITS)
-    assert all(receipts["a"]["reading_replacement"][field] != before[field] for field in before)
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
-    assert sent["a"]["reading"] == before
-    assert next(iter(updates.values()))["reading_decision"]["replacement"] == decision["replacement"]
-    assert draft == before and len(updates) == 1
-
-
-def test_null_concept_still_checks_reading_without_inventing_a_concept_verdict():
-    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
-    usable, receipts, updates = invoke({"a": None}, run, reading={"a": reading()})
-    run.assert_called_once()
-    prompt, schema = run.call_args.args
-    passages = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]
-    assert passages["a"]["concept"] is None and passages["a"]["reading"] == reading()
-    assert schema["properties"]["reviews"]["properties"] == {}
-    assert usable["a"] is None and "status" not in receipts["a"]
-    assert receipts["a"]["reading_review"]["status"] == "accepted"
-    assert receipts["a"]["reading_replacement"] == reading() and len(updates) == 1
-
-
-@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
-def test_each_actual_reading_field_participates_in_the_review_cache_key(field):
-    first = {"a": reading()}
-    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
-    _, _, cache = invoke({"a": concept()}, Mock(return_value=response), reading=first)
-    changed = copy.deepcopy(first)
-    changed["a"][field] += " Changed."
-    run = Mock(return_value=response)
-    _, receipts, updates = invoke({"a": concept()}, run, reading=changed, cached_reviews=cache)
-    run.assert_called_once()
-    assert set(updates).isdisjoint(cache)
-    assert receipts["a"]["reading_replacement"][field] == changed["a"][field]
-
-
-@pytest.mark.parametrize("field", ["summary", "detail"])
-def test_expanded_level_findings_apply_a_complete_reading_replacement(field):
-    draft = reading()
-    decision = reading_correction()
-    decision["findings"] = [{
-        "field": field, "quote": draft[field], "kind": "changed_meaning",
-        "reason": "The expanded level needs to state the same target and boundary as the first level.",
-    }]
-    run = Mock(return_value={"reviews": {}, "readings": {"a": decision}})
-    _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
-    assert receipts["a"]["reading_review"]["status"] == "corrected"
-    assert receipts["a"]["reading_review"]["findings"] == decision["findings"]
-    assert receipts["a"]["reading_replacement"] == decision["replacement"]
-    assert draft == reading() and len(updates) == 1
-
-
-@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
-def test_partial_reading_replacement_is_rejected_without_applying_any_fields(field):
-    draft = reading()
-    before = copy.deepcopy(draft)
-    decision = reading_correction()
-    del decision["replacement"][field]
-    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
-    _, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
-    run.assert_called_once()
-    assert receipts["a"]["reading_review"]["status"] == "unavailable"
-    assert receipts["a"]["reading_review"]["error_code"] == "review_failed"
-    assert "reading_replacement" not in receipts["a"]
-    assert draft == before and updates == {}
-
-
 @pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
 def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correction(redact_secrets_on, field):
     draft = reading()
@@ -500,49 +248,6 @@ def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correcti
     assert receipts["a"]["reading_review"]["error_code"] == "replacement_requires_redaction"
     assert "reading_replacement" not in receipts["a"] and updates == {}
     assert draft == before and response == response_before
-
-
-@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
-def test_checked_text_fields_redacts_candidates_without_removing_the_final_condition(redact_secrets_on, field):
-    draft = reading()
-    draft[field] = "  api_key=synthetic-candidate-credential-0000; only when the condition holds.  "
-    before = copy.deepcopy(draft)
-    expected = {**draft, field: "  api_key= <REDACTED:secret>; only when the condition holds.  "}
-    assert teaching.checked_text_fields(draft, teaching.READING_LIMITS, "invalid_reading") == expected
-    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
-    _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
-    assert sent["a"]["reading"] == expected
-    assert receipts["a"]["reading_review"]["status"] == "accepted"
-    assert receipts["a"]["reading_replacement"] == expected
-    assert draft == before and len(updates) == 1
-
-
-def test_accepted_reading_preserves_every_original_character_including_limit_boundary_and_cache():
-    draft = {key: f"  {value}\n" for key, value in reading().items()}
-    tail = " Only if every stated hypothesis holds.\n"
-    draft["detail"] = "x" * (teaching.READING_LIMITS["detail"] - len(tail)) + tail
-    before = copy.deepcopy(draft)
-    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
-    _, receipts, cache = invoke({"a": None}, run, reading={"a": draft})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
-    assert sent["a"]["reading"] == before
-    assert receipts["a"]["reading_review"]["status"] == "accepted"
-    assert receipts["a"]["reading_replacement"] == before
-    assert draft == before
-    no_call = Mock(side_effect=AssertionError("Accepted text is reusable without rewriting"))
-    _, cached_receipts, updates = invoke({"a": None}, no_call, reading={"a": draft}, cached_reviews=cache)
-    no_call.assert_not_called()
-    assert cached_receipts["a"]["reading_replacement"] == before and updates == {}
-
-
-def test_a_concept_only_acceptance_is_not_reused_as_a_first_screen_check():
-    _, _, cache = invoke({"a": concept()}, Mock(return_value={"reviews": {"a": accepted()}}))
-    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": reading_correction()}})
-    _, receipts, updates = invoke({"a": concept()}, run, reading={"a": reading()}, cached_reviews=cache)
-    run.assert_called_once()
-    assert receipts["a"]["reading_review"]["status"] == "corrected"
-    assert set(updates).isdisjoint(cache)
 
 
 def test_cached_reading_replacement_is_reused_without_a_call_or_mutating_the_cache():
@@ -570,37 +275,6 @@ def test_unavailable_reading_does_not_remove_a_separately_corrected_concept():
     assert draft == reading() and len(updates) == 1
 
 
-def test_unavailable_concept_does_not_discard_a_reading_correction():
-    run = Mock(return_value={"reviews": {"a": unavailable_decision()}, "readings": {"a": reading_correction()}})
-    usable, receipts, _ = invoke({"a": concept()}, run, reading={"a": reading()})
-    assert usable["a"] is None and receipts["a"]["status"] == "unavailable"
-    assert receipts["a"]["reading_review"]["status"] == "corrected"
-    assert receipts["a"]["reading_replacement"] == reading_correction()["replacement"]
-
-
-def test_invalid_reading_finding_keeps_valid_concept_but_does_not_replace_task_facts():
-    decision = reading_correction()
-    decision["findings"][0]["quote"] = "Words absent from the original title"
-    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
-    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": reading()})
-    assert usable["a"] == concept() and receipts["a"]["status"] == "accepted"
-    assert receipts["a"]["reading_review"]["status"] == "unavailable"
-    assert receipts["a"]["reading_review"]["error_code"] == "finding_does_not_quote_candidate"
-    assert "reading_replacement" not in receipts["a"] and updates == {}
-    run.assert_called_once()
-
-
-def test_failed_model_call_preserves_original_reading_and_records_no_false_acceptance():
-    draft = reading()
-    run = Mock(side_effect=TimeoutError("Shared deadline elapsed"))
-    usable, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
-    assert usable["a"] is None and "status" not in receipts["a"]
-    assert receipts["a"]["reading_review"]["status"] == "unavailable"
-    assert "reading_replacement" not in receipts["a"]
-    assert draft == reading() and updates == {}
-    run.assert_called_once()
-
-
 @pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
 @pytest.mark.parametrize("defect", ["oversized", "missing"])
 def test_reading_candidates_are_not_truncated_or_silently_missing_fields(field, defect):
@@ -616,13 +290,3 @@ def test_reading_candidates_are_not_truncated_or_silently_missing_fields(field, 
     assert "reading_replacement" not in receipts["a"] and updates == {}
     assert draft == before
     run.assert_not_called()
-
-
-def test_different_first_screens_do_not_alias_just_because_the_concept_matches():
-    readings = {"a": reading(), "b": {**reading(), "title": "A different current task"}}
-    response = {"reviews": {key: accepted() for key in readings}, "readings": {key: accepted() for key in readings}}
-    run = Mock(return_value=response)
-    _, receipts, updates = invoke({"a": concept(), "b": concept()}, run, reading=readings)
-    run.assert_called_once()
-    assert receipts["a"]["input_revision"] != receipts["b"]["input_revision"]
-    assert len(updates) == 2

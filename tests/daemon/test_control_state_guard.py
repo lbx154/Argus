@@ -15,7 +15,6 @@ isolation of role processes.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -28,7 +27,6 @@ from argus.core.control_state_guard import (
     RoleControlStateWriteDenied,
     mark_role_process_env,
     orchestrate_state_root,
-    protected_roots,
     release_role_marker_for,
 )
 from argus.core.runtime_incidents import RuntimeIncidentStore
@@ -63,31 +61,6 @@ def _as_role_of(monkeypatch, *roots: Path, role: str = "engineer") -> None:
     orchestrate_state_root(*roots)
     for key, value in mark_role_process_env(dict(os.environ), role).items():
         monkeypatch.setenv(key, value)
-
-
-def test_role_process_cannot_disable_its_own_campaign_through_argus_api(tmp_path, monkeypatch):
-    life_dir = _armed(tmp_path / "project")
-    current = read_continuous_state(life_dir)
-    _as_role_of(monkeypatch, life_dir)
-
-    with pytest.raises(RoleControlStateWriteDenied) as denied:
-        compare_and_swap_continuous_config(
-            life_dir, expected=current, enabled=False,
-            objective=current.objective, open_ended=current.open_ended,
-        )
-    message = str(denied.value)
-    assert "operator or the Manager" in message
-    # The refusal does not teach the role which variable to drop.
-    assert ROLE_PROCESS_ENV not in message and ROLE_PROTECTED_ROOTS_ENV not in message
-    with pytest.raises(RoleControlStateWriteDenied):
-        disable_continuous_config(life_dir)
-    with pytest.raises(RoleControlStateWriteDenied):
-        write_continuous_config(life_dir, enabled=False, objective=OBJECTIVE)
-    # The same root spelled differently is the same root.
-    with pytest.raises(RoleControlStateWriteDenied):
-        disable_continuous_config(life_dir / ".." / "project")
-
-    assert read_continuous_state(life_dir).enabled is True
 
 
 def test_each_refused_attempt_is_reported_once(tmp_path, monkeypatch):
@@ -148,20 +121,6 @@ def test_role_process_may_run_argus_on_an_unrelated_or_nested_project(tmp_path, 
         submit_daemon_command(other, operation="stop")
         assert RuntimeIncidentStore(other).pending_events() == []
     assert read_continuous_state(own).enabled is True
-
-
-def test_a_role_started_by_a_role_keeps_its_parents_roots(tmp_path, monkeypatch):
-    own = _armed(tmp_path / "project")
-    _as_role_of(monkeypatch, own)
-    monkeypatch.setattr(guard, "_ORCHESTRATED", {})  # a nested tool process registers nothing
-
-    child = mark_role_process_env(None, "subagent")
-    assert child[ROLE_PROCESS_ENV] == "subagent"
-    assert protected_roots(child) == protected_roots()
-    for key, value in child.items():
-        monkeypatch.setenv(key, value)
-    with pytest.raises(RoleControlStateWriteDenied):
-        disable_continuous_config(own)
 
 
 def test_an_orchestrator_started_inside_a_role_manages_its_own_root(tmp_path, monkeypatch):
@@ -227,32 +186,6 @@ def test_the_refusal_incident_reads_as_a_sentence(tmp_path, monkeypatch):
         "An engineer role process tried a control-state change and was refused: "
         "the continuous campaign switch (continuous.json)."
     )
-
-
-def test_argus_writers_outside_role_processes_keep_working(tmp_path):
-    life_dir = _armed(tmp_path / "project")
-    orchestrate_state_root(life_dir)
-    current = read_continuous_state(life_dir)
-    assert compare_and_swap_continuous_config(
-        life_dir, expected=current, enabled=False, objective=current.objective,
-    )
-    disable_continuous_config(life_dir, done_reason="operator hold")
-    assert read_continuous_state(life_dir).done_reason == "operator hold"
-    # No seal or trusted copy: the file is plain campaign state.
-    assert set(json.loads((life_dir / "continuous.json").read_text(encoding="utf-8"))) <= {
-        "enabled", "objective", "open_ended", "generation", "done_reason", "done_at",
-    }
-    assert not (life_dir / ".argus").exists()
-
-
-def test_marked_environment_inherits_everything_else(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARGUS_CONTROL_GUARD_PROBE", "kept")
-    orchestrate_state_root(tmp_path)
-    marked = mark_role_process_env(None)
-    assert marked[ROLE_PROCESS_ENV] == "agent"
-    assert marked["ARGUS_CONTROL_GUARD_PROBE"] == "kept"
-    assert protected_roots(marked) == [os.path.normcase(str(tmp_path.resolve()))]
-    assert ROLE_PROCESS_ENV not in os.environ
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shell stub")

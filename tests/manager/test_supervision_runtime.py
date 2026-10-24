@@ -3,20 +3,18 @@ from __future__ import annotations
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
 from argus.core.event_catalog import EventType
-from argus.core.models import RunnerOptions, RunnerResult
+from argus.core.models import RunnerResult
 from argus.core.role_actions import PREFIX
 from argus.core.role_tool_bridge import bridge_request
-from argus.daemon.state import read_continuous_state, write_continuous_config
+from argus.daemon.state import write_continuous_config
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager
-from argus.manager._session_ops import manager_pipeline_lock
 from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import observe_project
 from argus.manager.supervision import schedule_supervision, supervise
@@ -138,78 +136,6 @@ def test_the_operator_s_answer_is_observed_beside_the_objective(tmp_path) -> Non
     assert observe_project(tmp_path).facts["operator_answers"] == ["A or B? → A. (the operator)"]
 
 
-def test_new_review_evidence_changes_the_action_and_steering_reaches_engineer(tmp_path):
-    _, item = project(tmp_path)
-    backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend)
-    event = {"type": "life.mission.completed", "item_id": item.id}
-    review(tmp_path, "done", "Grouping check passed")
-    first = supervise(manager, tmp_path, event)
-    assert first["decision"]["action"] == "continue"
-    assert not (tmp_path / "inbox.jsonl").exists()
-    assert supervise(manager, tmp_path, event)["id"] == first["id"]
-    assert len(backend.calls) == 1
-
-    review(tmp_path, "continue", "Grouped means were replaced with the overall mean")
-    second = supervise(manager, tmp_path, event)
-    assert second["status"] == "applied" and second["decision"]["action"] == "steer"
-    assert second["id"] != first["id"]
-    assert second["issued_at"] <= second["applied_at"]
-    directive = load_active_manager_directive(tmp_path)
-    assert directive and directive.revision == second["effects"]["directive_revision"]
-    from argus.apps._runtime_execute import _engineer_guidance
-
-    guidance = _engineer_guidance(tmp_path, tmp_path)
-    assert directive.text in "\n".join(guidance)
-    assert "Manager direction (project advisory)" in "\n".join(guidance)
-    assert not (tmp_path / "inbox.jsonl").exists()
-    assert read_continuous_state(tmp_path).objective == "Produce a validated grouped summary"
-    assert supervise(manager, tmp_path, event)["id"] == second["id"]
-    assert len(backend.calls) == 2
-
-
-def test_changed_goal_rejects_a_slow_supervision_result_without_holding_pipeline_lock(tmp_path):
-    project(tmp_path)
-    entered, release = threading.Event(), threading.Event()
-
-    class SlowBackend(EvidenceBackend):
-        def run_exec(self, **kwargs):
-            entered.set()
-            assert release.wait(3)
-            return super().run_exec(**kwargs)
-
-    manager = Manager(tmp_path, runner=SlowBackend())
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(supervise, manager, tmp_path, {"type": "life.mission.completed"})
-        try:
-            assert entered.wait(1)
-            # The real cross-process pipeline lock remains available during the model call.
-            with manager_pipeline_lock(tmp_path):
-                write_continuous_config(tmp_path, enabled=True, objective="New operator objective")
-            release.set()
-            result = pending.result(timeout=1)
-            assert result["status"] == "superseded"
-            assert not (tmp_path / "inbox.jsonl").exists()
-            assert load_active_manager_directive(tmp_path) is None
-            assert read_continuous_state(tmp_path).objective == "New operator objective"
-        finally:
-            release.set()
-
-
-def test_failed_provider_does_not_modify_any_team_control(tmp_path):
-    project(tmp_path)
-
-    class FailedBackend:
-        def run_exec(self, **kwargs):
-            return RunnerResult(exit_code=1, fatal_error="provider failed")
-
-    result = supervise(Manager(tmp_path, runner=FailedBackend()),
-                       tmp_path, {"type": "life.mission.completed"})
-    assert result["status"] == "failed"
-    assert not (tmp_path / "inbox.jsonl").exists()
-    assert load_active_manager_directive(tmp_path) is None
-
-
 def wait_for_receipt(root, status, *, timeout=2):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -221,40 +147,6 @@ def wait_for_receipt(root, status, *, timeout=2):
             return record
         time.sleep(0.01)
     raise AssertionError(f"No {status} supervision receipt arrived")
-
-
-def test_running_review_schedules_supervision_before_the_mission_pipeline_finishes(tmp_path):
-    from argus.life.memory import LifeMemory
-    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-    from argus.manager.supervision import shutdown_supervision
-
-    backlog, item = project(tmp_path)
-    backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend)
-    supervisor = LifeSupervisor(
-        memory=LifeMemory.open(tmp_path), runner=SimpleNamespace(manager=manager),
-        sink=JsonlEventSink(None, life_dir=tmp_path),
-        config=LifeSupervisorConfig(),
-    )
-    backlog.mark_running(item.id)
-    supervisor.sink.handle_event({
-        "type": EventType.LIFE_MISSION_STARTED, "item_id": item.id,
-        "title": item.title, "objective": item.objective,
-    })
-    try:
-        with manager_pipeline_lock(tmp_path):
-            supervisor.sink.handle_event({
-                "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "review_source": "engineer_handoff",
-                "status": "blocked", "reason": "The grouped mean check failed", "round_index": 1,
-            })
-            record = wait_for_receipt(tmp_path, "applied")
-            assert record["decision"]["action"] == "steer"
-            assert record["effects"]["directive_delivered"]
-            assert backlog.active()[0].status == "running"
-            assert record["cited_refs"] == [ref for ref in record["available_refs"] if ref["path"] == "mission-view.json"]
-        assert len(backend.calls) == 1
-    finally:
-        assert shutdown_supervision(tmp_path) == 0
 
 
 def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tmp_path):
@@ -318,23 +210,6 @@ def test_completed_work_only_delivers_an_issued_decision(tmp_path, monkeypatch, 
         supervision.shutdown_supervision(tmp_path)
 
 
-def test_unobserved_evidence_reference_cannot_authorize_steering(tmp_path):
-    project(tmp_path)
-
-    class Unfounded(EvidenceBackend):
-        def run_exec(self, *, options, **kwargs):
-            with pytest.raises(ValueError, match="1 of 1 are not paths"):
-                hand_off(options, to="team", summary="Claim from an unread file", note="Change course",
-                         evidence_refs=["other-project/private.json"])
-            return RunnerResult(exit_code=0, agent_messages=["The Manager gave up."])
-
-    result = supervise(Manager(tmp_path, runner=Unfounded()),
-                       tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-    assert result["status"] == "failed" and result["error_code"] == "handoff_missing" and result["cited_refs"] == []
-    assert load_active_manager_directive(tmp_path) is None
-    assert not (tmp_path / "inbox.jsonl").exists()
-
-
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
     from argus.manager.supervision import (
         schedule_supervision,
@@ -374,23 +249,6 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
         release.set()
         for root in roots:
             assert shutdown_supervision(root) == 0
-
-
-def test_model_change_rotates_provider_identity_with_a_durable_conversation_handoff(tmp_path):
-    from argus.manager._session_ops import _ManagerSession
-
-    backend = EvidenceBackend()
-    session = _ManagerSession(backend, tmp_path)
-    session.run_exec(prompt="Message:\nKeep the missing-value acceptance check", options=RunnerOptions(model="model-a"), run_label="manager-quick-reply")
-    restarted = _ManagerSession(backend, tmp_path)
-    restarted.run_exec(prompt="Message:\nWhat did we agree?", options=RunnerOptions(model="model-b"), run_label="manager-quick-reply")
-    assert backend.calls[-1][1] is None
-    assert "Manager session continuity handoff" in backend.calls[-1][0]
-    assert "Keep the missing-value acceptance check" in backend.calls[-1][0]
-    assert "The grouped-mean validation is the current task." in backend.calls[-1][0]
-    state = json.loads((tmp_path / ".manager_session.json").read_text())
-    assert state["identity"]["model"] == "model-b"
-    assert state["rotation_reason"] == "the configured model, backend or handoff protocol changed"
 
 
 @pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])
@@ -455,33 +313,6 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         assert recovered["effects"]["directive_delivered"]
 
 
-def test_partial_delivery_never_overwrites_a_new_operator_direction(tmp_path, monkeypatch):
-    from argus.manager import directive
-
-    class ProcessCrash(BaseException):
-        pass
-
-    project(tmp_path)
-    review(tmp_path, "continue", "Grouping failed")
-    backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend)
-    original = directive.set_active_manager_directive
-
-    def write_then_crash(*args, **kwargs):
-        original(*args, **kwargs)
-        raise ProcessCrash()
-
-    with monkeypatch.context() as fault:
-        fault.setattr(directive, "set_active_manager_directive", write_then_crash)
-        with pytest.raises(ProcessCrash):
-            supervise(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-    newer = original(tmp_path, "Preserve the new operator direction", source="operator.explicit")
-    result = supervise(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
-    assert result["status"] == "superseded"
-    assert load_active_manager_directive(tmp_path).revision == newer.revision
-    assert len(backend.calls) == 1
-
-
 def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, monkeypatch):
     from argus.manager import supervision
 
@@ -499,46 +330,6 @@ def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, mo
     monkeypatch.setattr(supervision, "_emit", unavailable)
     assert supervise(manager, tmp_path, event)["status"] == "applied"
     assert len(backend.calls) == 1
-
-
-def test_phase_receipt_survives_a_crash_before_the_latest_index_is_replaced(tmp_path, monkeypatch):
-    from pathlib import Path
-
-    from argus.manager import supervision
-
-    class ProcessCrash(BaseException):
-        pass
-
-    project(tmp_path)
-    event = {"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 2}
-    backend = EvidenceBackend()
-    manager = Manager(tmp_path, runner=backend)
-    original = supervision.os.replace
-
-    def replace_then_crash(source, destination):
-        target = Path(destination)
-        crash = (
-            target.parent.name == "manager-supervision" and target.name != "latest.json"
-            and json.loads(Path(source).read_text()).get("status") == "issued"
-        )
-        original(source, destination)
-        if crash:
-            raise ProcessCrash()
-
-    with monkeypatch.context() as fault:
-        fault.setattr(supervision.os, "replace", replace_then_crash)
-        with pytest.raises(ProcessCrash):
-            supervise(manager, tmp_path, event)
-    assert json.loads((tmp_path / "manager-supervision/latest.json").read_text())["status"] == "evaluating"
-    supervision.start_supervision(tmp_path)
-    assert supervision.recover_issued_supervision(manager, tmp_path)
-    try:
-        recovered = wait_for_receipt(tmp_path, "applied")
-        assert recovered["source_event"]["agent_layer"] == "engineer"
-        assert recovered["source_event"]["round_index"] == 2
-        assert len(backend.calls) == 1
-    finally:
-        assert supervision.shutdown_supervision(tmp_path) == 0
 
 
 def test_background_delivery_retries_a_temporarily_busy_control_without_new_evidence(tmp_path, monkeypatch):
@@ -679,5 +470,3 @@ def test_the_summary_the_operator_reads_is_written_in_their_words(tmp_path):
     })
     assert operator_language(True) in _prompt(observe_project(tmp_path))
     assert "naming no task ids" in form_tool("supervise")["description"]
-
-

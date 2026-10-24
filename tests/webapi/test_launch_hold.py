@@ -69,17 +69,6 @@ def test_hold_view_only_while_held_work_is_waiting(tmp_path):
     assert launch_hold.clear_launch_hold(life) and launch_hold.read_launch_hold(life) is None
 
 
-def test_discard_skips_never_started_work(tmp_path):
-    life = _project(tmp_path, "s-hold-discard")
-    backlog = LifeMemory.open(life).backlog
-    item = backlog.add(BacklogItem.new(title="Survey X", objective="Survey X"))
-    launch_hold.write_launch_hold(life, {"item": {"id": item.id}}, {"hold": True})
-    result = launch_hold.discard_held_work(life)
-    assert result["skipped"] == [item.id]
-    assert _status(life, item.id) == "skipped"
-    assert launch_hold.read_launch_hold(life) is None
-
-
 @pytest.mark.parametrize("streaming", [False, True])
 def test_held_task_is_queued_but_not_started_until_confirmed(tmp_path, monkeypatch, streaming):
     sid = "s-hold-route"

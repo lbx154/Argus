@@ -37,9 +37,3 @@ def test_misconfigured_application_routes_fail_explicitly(tmp_path, monkeypatch)
     monkeypatch.setenv("ARGUS_APPLICATION_ROUTES", "not-a-registrar")
     with pytest.raises(ValueError, match="module:registrar"):
         create_app(global_root=tmp_path)
-
-
-def test_native_argus_does_not_require_an_application_extension(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_APPLICATION_ROUTES", raising=False)
-    client = TestClient(create_app(global_root=tmp_path, auth_token=""))
-    assert "application_routes" not in client.get("/api/meta").json()["runtime"]

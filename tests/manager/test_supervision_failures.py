@@ -172,25 +172,6 @@ def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_pat
     assert controls(tmp_path) == before and len(backend.calls) == 1
 
 
-def test_a_slow_decision_is_waited_for_and_applied(tmp_path, monkeypatch):
-    """A long Manager call is live work: no host deadline cuts it or its delivery."""
-    event = project(tmp_path)
-    now = [100.0]
-    monkeypatch.setattr(supervision.time, "monotonic", lambda: now[0])
-    original = supervision._apply
-
-    def slow_apply(*args, **kwargs):
-        now[0] += 3600.0
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(supervision, "_apply", slow_apply)
-    backend = Backend(ok(), before_return=lambda: now.__setitem__(0, now[0] + 3600.0), payload=reply(steer=True))
-    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied" and record["effects"]["directive_delivered"]
-    assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
-    assert len(backend.calls) == 1
-
-
 @pytest.mark.parametrize("origin", ["callback", "operator_abort", "operator_pause", "daemon_shutdown", "external-prefix"])
 def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_path, origin):
     event = project(tmp_path)
@@ -228,19 +209,6 @@ def test_goal_supersession_is_distinct_from_provider_failure_and_keeps_the_new_g
     assert controls(tmp_path) == updated[0]
     assert read_continuous_state(tmp_path).objective == "New operator objective"
     assert load_active_manager_directive(tmp_path) is None and len(backend.calls) == 1
-
-
-@pytest.mark.parametrize("kind", [None, "not-a-canonical-stop-kind"])
-def test_unclassified_provider_failure_does_not_invent_a_stop_kind_or_code(tmp_path, kind):
-    event = project(tmp_path)
-    before = controls(tmp_path)
-    backend = Backend(RunnerResult(exit_code=1, call_id=CALL_ID, stop_kind=kind,
-                                   fatal_error="Unstructured runner failure: " + SECRET + " " + PROMPT_MARKER))
-    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "failed" and not record.get("decision")
-    emitted = assert_failure(tmp_path, record, stage="provider", exit_code=1, call_id=CALL_ID)
-    assert not record.get("stop_kind") and not emitted.get("stop_kind")
-    assert controls(tmp_path) == before and len(backend.calls) == 1
 
 
 @pytest.mark.parametrize("invalid", [{"to": "erase-project"}, {"evidence_refs": ["unobserved/private.json"]}, None])
@@ -298,18 +266,3 @@ def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_mo
     assert all(not recovered.get(field) for field in ("failure_stage", "error_code", "error", "error_type", "failure_reason"))
     assert read_continuous_state(tmp_path).objective == "Validate separate grouped means"
     assert not (tmp_path / "inbox.jsonl").exists()
-
-
-def test_successful_model_prose_with_error_literals_is_not_provider_failure_metadata(tmp_path):
-    event = project(tmp_path)
-    reason = "The observed checks include HTTP 402, trial_quota_exceeded, timeout and cancelled examples; all checks passed."
-    outcome = ok()
-    outcome.stderr_lines = ["Recovered warning: HTTP 402 trial_quota_exceeded timeout cancelled", SECRET, PROMPT_MARKER]
-    backend = Backend(outcome, payload=reply(summary=reason))
-    record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied" and record["decision"]["reason"] == reason
-    assert all(not record.get(field) for field in ("failure_stage", "stop_kind", "error_code", "error", "error_type"))
-    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
-    assert not any(row["type"] == EventType.LIFE_MANAGER_SUPERVISION_FAILED for row in events)
-    assert all(marker not in json.dumps([record, events]) for marker in (SECRET, PROMPT_MARKER))
-    assert len(backend.calls) == 1

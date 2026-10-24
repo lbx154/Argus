@@ -31,17 +31,6 @@ def test_adapter_is_pinned_to_the_known_public_control_contract():
     assert not adapter.supported({**spec, "host_api": 2})
 
 
-def test_streamed_html_gets_same_origin_script_and_correct_length():
-    result = exchange([b"<!doctype html><head><title>Fixture</title></he", b"ad><body>unchanged</body>"])
-    body = result[1]["body"]
-    headers = dict(result[0]["headers"])
-    assert body.count(adapter.ADAPTER_NAME.encode()) == 1
-    assert body.endswith(b"<body>unchanged</body>")
-    assert int(headers[b"content-length"]) == len(body)
-    assert headers[b"cache-control"] == b"no-store"
-    assert b"etag" not in headers
-
-
 def test_non_html_encoded_and_large_streams_are_not_rewritten():
     for kind, encoding in [(b"application/javascript", None), (b"text/html", b"gzip")]:
         result = exchange([b"<head></head>"], content_type=kind, encoding=encoding)

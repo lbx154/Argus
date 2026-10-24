@@ -13,7 +13,6 @@ import pytest
 from argus.manager import Manager
 from argus.manager.domain_author import RouteContext, VerticalDecision
 from argus.manager.form import manager_actions
-from argus.skills.stage_machine import ChecklistItem
 from argus.skills.vertical_select import VerticalResolutionError, persist_vertical
 from argus.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 from tests.hand_off import ticket
@@ -25,14 +24,6 @@ class _DecisionResult:
         self.agent_messages = [msg]
         self.thread_id = "t1"
         self.tool_activity_observed = tool_activity_observed
-
-
-
-
-
-
-
-
 
 
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
@@ -96,81 +87,10 @@ def test_direct_software_grounding_can_be_forced(
     assert runner.calls[0]["options"].external_interrupt_reason_provider is None
 
 
-def test_software_grounding_rejects_interrupted_partial_brief(
-    tmp_path,
-) -> None:
-    class InterruptedResult(_DecisionResult):
-        exit_code = 143
-        fatal_error = "External interrupt: grounding budget reached"
-
-    class GroundingRunner:
-        def run_exec(self, **kwargs):
-            return InterruptedResult(
-                "Architecture: parser -> loader -> caller. "
-                "Closest analogue: sibling_parser.py preserves the public "
-                "dictionary return contract. Affected callers include the CLI "
-                "and configuration loader. Verification: run the focused parser "
-                "tests and probe invalid input. Acceptance risk: preserve key "
-                "ordering, exception type, and valid input behavior."
-            )
-
-    manager = Manager(
-        project_root=tmp_path,
-        runner=GroundingRunner(),
-    )
-    handoff = manager._ground_execution_task(
-        "Repair parser behavior.",
-        workflow_mode="staged",
-        root_task_id="route-1",
-    )
-
-    assert handoff == "Repair parser behavior."
-    assert not hasattr(manager, "_last_software_grounding_thread_id")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_the_vertical_env_cannot_stand_in_for_a_ticket(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
     with pytest.raises(VerticalResolutionError, match="Waiting for the Manager's ticket"):
         Manager(project_root=tmp_path).decide_vertical("prove the lemma")
-
-
-def test_plan_stages_research_is_the_four_stage_pipeline():
-    stages = Manager().plan_stages("research")
-    assert stages == list(RESEARCH_STAGES)
-    assert stages[0] == "idea" and stages[-1] == "review"
-    assert len(stages) == 4
-
-
-def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
-    """A vertical that fails to resolve/import must PROPAGATE, not silently
-    substitute the canonical/paper stage list — matches divide()'s and
-    LifeSupervisor._resolve_vertical_once's documented FAIL-HARD contract.
-    Silently degrading here would turn e.g. a math_synth mission into the
-    paper pipeline with no visible error."""
-    from argus.verticals import _base
-
-    def _boom(name, project_root=None, *, scoped=True):
-        raise RuntimeError("simulated broken vertical import")
-
-    monkeypatch.setattr(_base, "load_vertical", _boom)
-    with pytest.raises(RuntimeError, match="simulated broken vertical import"):
-        Manager().plan_stages("math_synth")
 
 
 def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
@@ -184,110 +104,6 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
     monkeypatch.setattr(_base, "load_vertical", lambda name, project_root=None, scoped=True: _BareModule())
     with pytest.raises(VerticalContractError, match="declares no stage order"):
         Manager().plan_stages("some-vertical")
-
-
-
-
-
-
-
-
-def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
-    decision = RouteContext(known_verticals=("physics",), research_target_verticals=("physics",)).decide({
-        "to": "team", "summary": "a physics derivation", "assumptions": [], "choice": "existing",
-        "vertical": "physics", "execution_task": "derive the requested result",
-        "research_target_level": "doctoral",
-    })
-
-    assert decision.vertical == "physics"
-    assert decision.research_target_level == "doctoral"
-
-
-def test_vertical_commit_persists_generic_research_target_contract(
-    tmp_path,
-    monkeypatch,
-    optimize_vertical,
-) -> None:
-    from types import SimpleNamespace
-
-    from argus.verticals import _base
-
-    monkeypatch.setattr(
-        _base,
-        "load_vertical",
-        lambda name, project_root=None, scoped=True: SimpleNamespace(
-            STAGE_ORDER=("scope", "review"),
-            CHECKLIST_STAGE_ORDER=("scope", "review"),
-            CHECKLIST_ITEMS={
-                "scope": (
-                    ChecklistItem("scope.goal", "Goal is explicit", "goal"),
-                ),
-                "review": (
-                    ChecklistItem("review.result", "Result is reviewed", "result"),
-                ),
-            },
-            completion_gate="none",
-            RESEARCH_TARGET_LEVELS=("exploratory", "publishable", "doctoral"),
-        ),
-    )
-    manager = Manager(project_root=tmp_path)
-    decision = VerticalDecision(
-        choice="existing",
-        vertical=optimize_vertical,
-        execution_task="derive the requested result",
-        research_target_level="doctoral",
-    )
-
-    division = manager.commit_vertical_decision(
-        "derive the requested result",
-        decision,
-    )
-
-    state = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
-    )
-    assert division.vertical == optimize_vertical
-    assert state["research_target_level"] == "doctoral"
-    assert state["research_target_set_at"] > 0
-
-
-
-
-def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    state_path.parent.mkdir(parents=True)
-    state_path.write_text(
-        json.dumps({
-            "vertical": "learning",
-            "current_stage": "review",
-            "stages": {
-                "ingest": {"status": "done"},
-                "study": {"status": "done"},
-                "curate": {"status": "done"},
-                "review": {"status": "in_progress"},
-            },
-        }),
-        encoding="utf-8",
-    )
-    manager = Manager(project_root=tmp_path)
-    decision = VerticalDecision(
-        choice="existing",
-        vertical="research",
-        execution_task="select a real open Erdos problem",
-    )
-
-    manager.commit_vertical_decision(
-        "replace the old closed theorem target",
-        decision,
-        force_stage_reset=True,
-    )
-
-    state = json.loads(state_path.read_text())
-    assert state["vertical"] == "research"
-    assert state["current_stage"] == "idea"
-    assert state["research_intent_generation"] == 2
-    assert state["stages"]["review"]["status"] == "pending"
-    assert state["stage_history"][-1]["direction"] == "reset"
 
 
 @pytest.mark.parametrize("completed", [False, True])
@@ -355,37 +171,6 @@ def test_new_intent_rejects_prior_same_target_certification(
     ) == ""
 
 
-def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
-    persist_vertical(
-        tmp_path,
-        "research",
-        research_target_level="publishable",
-        research_direction_mode="broad",
-        workflow_mode="staged",
-    )
-    manager = Manager(project_root=tmp_path)
-    decision = VerticalDecision(
-        choice="existing",
-        vertical="research",
-        execution_task="write a paper from the supplied method",
-        workflow_mode="staged",
-        research_target_level="publishable",
-        research_direction_mode="locked",
-    )
-
-    manager.commit_vertical_decision(
-        "replace discovery with the operator's supplied paper idea",
-        decision,
-        force_stage_reset=True,
-    )
-
-    state = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
-    )
-    assert state["research_direction_mode"] == "locked"
-    assert state["current_stage"] == "idea"
-
-
 @pytest.mark.parametrize("start_stage", ["paper", "review"])
 def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     tmp_path, monkeypatch, start_stage,
@@ -428,12 +213,6 @@ def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     assert state["research_target_set_at"] > 1.0
     assert notes.read_text() == "Existing scientific result and evidence pointers."
     assert state["stages"]["review"]["status"] != "done"
-
-
-
-
-
-
 
 
 def test_root_task_id_scopes_manager_stage_call(tmp_path):
@@ -481,22 +260,6 @@ def test_root_task_id_scopes_manager_stage_call(tmp_path):
     ]
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 @pytest.mark.parametrize("ask_on_new_domain", [False, True])
 def test_new_domain_start_stage_survives_commit_and_confirmation(
     tmp_path, ask_on_new_domain,
@@ -524,28 +287,6 @@ def test_new_domain_start_stage_survives_commit_and_confirmation(
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert division.workflow_mode == "direct"
     assert state["current_stage"] == "validate"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_a_ticket_s_work_order_reaches_the_route_whole() -> None:

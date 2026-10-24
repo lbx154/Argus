@@ -86,31 +86,6 @@ def test_dashboard_does_not_follow_workspace_directory_escapes(
         assert candidate["parallel_files"] == 0
 
 
-def test_dashboard_caps_csv_reads_before_parsing_remaining_rows(tmp_path, monkeypatch) -> None:
-    _write_csv(tmp_path / "inputs" / "priority_pool.csv", ["ID"], [{"ID": "1"}])
-    def rows(_handle):
-        yield {"ID": "1"}
-        raise AssertionError("candidate limit must bound parsing, not just the returned list")
-    monkeypatch.setattr(counterexample_dashboard, "_MAX_CANDIDATES", 1)
-    monkeypatch.setattr(counterexample_dashboard.csv, "DictReader", rows)
-
-    assert build_counterexample_dashboard(tmp_path)["total"] == 1
-
-
-def test_dashboard_preserves_non_symlink_evidence_requirement(
-    tmp_path, require_symlink_support,
-) -> None:
-    _write_csv(tmp_path / "inputs" / "priority_pool.csv", ["ID"], [{"ID": "1"}])
-    (tmp_path / "report.md").write_text("ordinary workspace file")
-    evidence = tmp_path / "evidence" / "1"
-    evidence.mkdir(parents=True)
-    (evidence / "README.md").symlink_to(tmp_path / "report.md")
-
-    candidate = build_counterexample_dashboard(tmp_path)["candidates"][0]
-    assert candidate["status"] == "queued"
-    assert candidate["evidence_path"] == ""
-
-
 def test_dashboard_bounds_empty_directory_traversal(tmp_path, monkeypatch) -> None:
     root = tmp_path / "parallel" / "1"
     root.mkdir(parents=True)

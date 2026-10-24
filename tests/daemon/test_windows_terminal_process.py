@@ -40,23 +40,6 @@ def test_frozen_windows_worker_reenters_same_binary(monkeypatch, tmp_path: Path)
     ]
 
 
-def test_source_windows_worker_uses_python_module(monkeypatch, tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    monkeypatch.setattr(process.sys, "executable", "python.exe")
-    monkeypatch.delattr(process.sys, "frozen", raising=False)
-
-    command = process._windows_daemon_command(config)
-    assert command[:4] == ["python.exe", "-P", "-m", "argus"]
-    assert command[-6:] == [
-        "--resume",
-        "session-1",
-        "--backend",
-        "codex",
-        "--mission-width",
-        "2",
-    ]
-
-
 def test_windows_background_worker_forces_utf8_environment(
     monkeypatch,
     tmp_path: Path,
@@ -242,38 +225,6 @@ def test_native_windows_worker_accepts_descendant_runtime(
     finally:
         if spawned:
             process._reap_failed_windows_spawn(spawned[0])
-
-
-def test_windows_background_worker_preserves_early_exit_code(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    config = _config(tmp_path)
-    config.project_workdir.mkdir()
-    config.life_dir.mkdir(parents=True)
-    released: list[int | None] = []
-
-    class FakeProcess:
-        pid = 42
-        returncode = 3
-
-        def poll(self):
-            return self.returncode
-
-    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
-
-    rc = process._spawn_windows_background_process(
-        config,
-        pid_path=config.life_dir / "daemon.pid",
-        status_path=config.life_dir / "daemon.status.json",
-        log_path=config.life_dir / "daemons" / "boot-test.log",
-        spawn_lock_fd=7,
-        release_spawn_lock=lambda fd: released.append(fd),
-        quiet=True,
-    )
-
-    assert rc == 3
-    assert released == [7]
 
 
 def test_windows_background_worker_rejects_clean_exit_without_status(

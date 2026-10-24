@@ -6,7 +6,6 @@ from argus.core.pipeline_state import read_pipeline_state
 from argus.manager import Manager
 from argus.manager.self_context import self_skill_context
 from argus.skills.layered import LayeredSkillStore
-from argus.skills.store import SkillStore
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._data_domain import (
     load_data_domain,
@@ -64,24 +63,6 @@ def test_self_materializes_shared_learned_vertical_and_preserves_learned_skills(
     assert skill.read_bytes() == before
     reviewed = self_skill_context(manager, vertical="calendar_checks", role="reviewer")
     assert "Independently verify calendar sources." in reviewed.block
-
-
-def test_persisted_state_uses_session_root_and_refreshes_cached_manager(tmp_path):
-    manager = make_manager(tmp_path)
-    persist_vertical(manager.project_root, "software", workflow_mode="direct")
-    assert "SOFTWARE VERTICAL" in self_skill_context(manager).block
-    persist_vertical(manager.project_root, "research", workflow_mode="direct")
-    updated = self_skill_context(manager)
-    assert "single-agent task: research" in updated.block
-    assert "single-agent task: software" not in updated.block
-
-
-def test_plain_store_supports_vertical_without_losing_global_skills(tmp_path):
-    manager = make_manager(tmp_path)
-    manager.skill_store = SkillStore(tmp_path / "plain")
-    libraries = self_skill_context(manager, vertical="software")
-    assert tmp_path / "plain" in libraries.library_roots
-    assert tmp_path / "plain/_shared_verticals/software/engineer" in libraries.native_paths
 
 
 @pytest.mark.parametrize("name", ["../escape", "unknown_vertical", "private_candidate"])

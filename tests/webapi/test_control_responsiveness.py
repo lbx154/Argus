@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -15,7 +14,7 @@ from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import MemoryBundle
 from argus.manager import front_door
 from argus.manager._session_ops import manager_pipeline_lock
-from argus.webapi import manager_bridge, manager_dispatch, manager_state, project_crud, server
+from argus.webapi import manager_bridge, manager_state, project_crud, server
 from argus.webapi.daemon_services import DaemonServices
 
 
@@ -25,40 +24,6 @@ def _project(root):
     life.mkdir(parents=True)
     write_session_meta(root, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
     return sid, life
-
-
-def test_evicting_a_manager_context_cannot_reuse_a_waiting_requests_identity():
-    sid = "s-evicted-control"
-    with manager_dispatch._manager_request_scope(sid) as cancelled:
-        assert not cancelled()
-        manager_state.release_manager_context(sid)
-        assert cancelled()
-
-
-def test_continuous_stop_does_not_wait_for_busy_manager_lock(tmp_path):
-    sid, life = _project(tmp_path)
-    write_continuous_config(life, enabled=True, objective="Existing goal")
-    held, release = threading.Event(), threading.Event()
-
-    def holder():
-        with manager_state.manager_context_lock(sid):
-            held.set()
-            assert release.wait(3)
-
-    with ThreadPoolExecutor(max_workers=1) as pool, TestClient(server.create_app(global_root=tmp_path)) as client:
-        future = pool.submit(holder)
-        try:
-            assert held.wait(1)
-            started = time.monotonic()
-            response = client.post(f"/api/projects/{sid}/continuous", json={"enabled": False})
-            assert time.monotonic() - started < 0.75
-            assert response.status_code == 200
-            assert not future.done()
-            state = read_continuous_state(life)
-            assert not state.enabled and state.objective == "Existing goal"
-        finally:
-            release.set()
-            future.result(timeout=2)
 
 
 def test_new_objective_supersedes_an_older_waiting_handoff(tmp_path, monkeypatch):

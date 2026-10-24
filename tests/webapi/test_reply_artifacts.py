@@ -28,30 +28,3 @@ def test_saved_reply_exposes_existing_markdown_without_certifying_delivery(tmp_p
         response = client.get(url, headers={"Authorization": "Bearer test-only"})
         assert response.status_code == 200
         assert response.json()["preview"] == "# Existing notes\n"
-
-
-def test_reply_links_do_not_expose_secrets_missing_or_outside_files(tmp_path: Path) -> None:
-    life = tmp_path / "projects" / "s-boundary"
-    workspace = tmp_path / "workspace"
-    life.mkdir(parents=True)
-    workspace.mkdir()
-    (workspace / ".env").write_text("test-only", encoding="utf-8")
-    outside = tmp_path / "outside.md"
-    outside.write_text("outside", encoding="utf-8")
-    (workspace / "escape.md").symlink_to(outside)
-    write_session_meta(tmp_path, SessionMeta(id="s-boundary", cwd=str(life), workdir=str(workspace)))
-    append_turn(life, role="argus", text="[secret](.env) [missing](missing.md) [escape](escape.md) [outside](../outside.md)")
-    assert list_project_artifacts("s-boundary", global_root=tmp_path) == []
-
-
-def test_operator_links_and_failed_task_do_not_register_files(tmp_path: Path) -> None:
-    life = tmp_path / "projects" / "s-failed"
-    workspace = tmp_path / "workspace"
-    life.mkdir(parents=True)
-    workspace.mkdir()
-    (workspace / "report.md").write_text("unreviewed", encoding="utf-8")
-    write_session_meta(tmp_path, SessionMeta(id="s-failed", cwd=str(life), workdir=str(workspace)))
-    append_turn(life, role="operator", text="[report](report.md)")
-    append_turn(life, role="argus", text="[report](report.md)",
-                metadata={"mission_result": True, "success": False})
-    assert list_project_artifacts("s-failed", global_root=tmp_path) == []

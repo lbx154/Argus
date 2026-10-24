@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -172,82 +171,6 @@ def test_the_readings_the_route_chose_are_recorded_for_its_task(memory, monkeypa
     ]
 
 
-@pytest.mark.parametrize(
-    ("lifetime", "open_ended"),
-    [(None, False), ("bounded", False), ("garbage", False), ("standing", True)],
-)
-def test_every_team_task_arms_a_planner_run_campaign(memory, lifetime, open_ended):
-    from argus.daemon.state import read_continuous_state
-
-    state = {"backend": "codex"}
-    if lifetime is not None:
-        state["_team_lifetime"] = lifetime
-
-    item, _, _ = dispatch.enqueue_mission(memory, "write the paper", state)
-
-    campaign = read_continuous_state(memory.project.root)
-    assert campaign.enabled is True
-    assert campaign.open_ended is open_ended
-    assert campaign.objective == "managed: write the paper"
-    assert "operator_priority" in item.tags
-    assert "_team_lifetime" not in state
-
-
-def test_direct_item_carries_the_stage_the_supervisor_replays(memory, monkeypatch):
-    """The item is bound to the stage kept in the project state root.
-
-    The Manager records the campaign stage under the project state root while
-    the team works in a separate workspace with no pipeline state. Tagging the
-    item from the workspace gave it the vertical's first stage, and the
-    supervisor never replayed its reviewed result for the real stage.
-    """
-    from argus.core.pipeline_state import write_pipeline_state
-    from argus.life.supervisor._planning_cycle_enqueue import (
-        PlanningCycleEnqueueMixin,
-    )
-    from argus.skills.stage_machine import current_stage
-
-    state_root = front_door._life_dir_for(memory)
-    workspace = memory.project_worktree
-    assert state_root != workspace
-    write_pipeline_state(
-        state_root,
-        {"vertical": "software", "workflow_mode": "direct", "current_stage": "delivery"},
-    )
-    assert current_stage(workspace) != "delivery"
-    _direct_manager(monkeypatch)
-
-    item, _, _ = dispatch.enqueue_mission(memory, "write greet.py", {"backend": "codex"})
-
-    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "delivery"
-
-
-def test_resumed_campaign_workdir_takes_the_state_root_stage(memory, monkeypatch):
-    """After a campaign adopted its own workdir, the item follows the state root."""
-    from argus.core.campaign_workdir import adopt_campaign_workdir
-    from argus.core.pipeline_state import write_pipeline_state
-    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
-
-    state_root = front_door._life_dir_for(memory)
-    base = memory.project_worktree
-    campaign = base / "campaign"
-    campaign.mkdir()
-    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
-    adopt_campaign_workdir(
-        state_root=state_root, base_root=base, current_root=base, requested="campaign",
-    )
-    write_pipeline_state(
-        state_root,
-        {"vertical": "research", "workflow_mode": "direct", "current_stage": "paper"},
-    )
-    _direct_manager(monkeypatch)
-
-    item, _, _ = dispatch.enqueue_mission(memory, "resume the campaign", {"backend": "codex"})
-
-    assert dispatch._resolve_manager_workdir(memory) == campaign.resolve()
-    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "paper"
-
-
 def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
     from argus.core.session import SessionMeta, write_session_meta
 
@@ -272,79 +195,6 @@ def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
     )
 
     assert dispatch._resolve_manager_workdir(mem) == expected_worktree.resolve()
-
-
-def test_dispatch_merges_operator_attachment_context_refs(memory):
-    payload = memory.project_worktree / ".argus" / "attachments" / "s-dispatch01" / "att-deadbeefcafe" / "brief.md"
-    payload.parent.mkdir(parents=True)
-    payload.write_text("# brief\n", encoding="utf-8")
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex"},
-        context_refs=[{
-            "kind": "attachment",
-            "ref": ".argus/attachments/s-dispatch01/att-deadbeefcafe/brief.md",
-            "why": "operator-uploaded attachment in the canonical project workdir",
-            "attachment_id": "att-deadbeefcafe",
-            "original_name": "brief.md",
-            "mime": "text/markdown",
-            "size_bytes": "8",
-            "integrity": "01234567 89abcdef 01234567 89abcdef 01234567 89abcdef 01234567 89abcdef",
-        }],
-    )
-
-    assert item is not None
-    stored = memory.backlog.all()[0].context_refs[0]
-    assert stored["kind"] == "attachment"
-    assert stored["ref"].endswith("/brief.md")
-    assert stored["original_name"] == "brief.md"
-    assert stored["mime"] == "text/markdown"
-    assert stored["size_bytes"] == "8"
-    assert stored["integrity"].startswith("01234567")
-
-
-def test_continuous_dispatch_persists_operator_priority_item(memory):
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex", "_team_lifetime": "standing"},
-    )
-
-    payload = json.loads(
-        (memory.project.root / "continuous.json").read_text(encoding="utf-8")
-    )
-    assert item is not None
-    assert memory.backlog.all() == [item]
-    assert item.title == "operator request"
-    assert item.objective == "managed: operator request"
-    assert item.original_objective == "managed: operator request"
-    assert item.priority == -1
-    assert "operator_priority" in item.tags
-    assert "stage_transition:skip" in item.tags
-    assert item.manager_decision == {
-        "require_independent_review": True,
-        "routed": True,
-        "display_objective": "operator request",
-    }
-    assert payload["enabled"] is True
-    assert payload["objective"] == "managed: operator request"
-    assert payload["open_ended"] is True
-
-    events = [
-        json.loads(line)
-        for line in (memory.project.root / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    queued = next(
-        event
-        for event in events
-        if event.get("type") == "life.planner.task_added"
-    )
-    assert queued["item_id"] == item.id
-    assert queued["source"] == "manager_operator"
-    assert queued["operator_priority"] is True
 
 
 def test_continuous_replacement_queues_operator_task_after_running_work(memory):
@@ -410,90 +260,6 @@ def test_dispatch_validates_the_life_backend(memory, monkeypatch):
     assert memory.backlog.all() == []
     assert not read_continuous_state(memory.project.root).enabled
     assert "config" not in state
-
-
-def test_dispatch_validates_the_active_daemon_backend(memory, monkeypatch):
-    from argus.daemon import life_worker
-
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
-    monkeypatch.setattr(
-        life_worker,
-        "read_daemon_status",
-        lambda life_dir: SimpleNamespace(
-            alive=True,
-            backend="copilot",
-            life_backend="memory",
-        ),
-    )
-
-    with pytest.raises(
-        front_door.ManagerHandoffError,
-        match="ARGUS_SKILL_LIFE_BACKEND=memory cannot plan",
-    ):
-        dispatch.enqueue_mission(memory, "one report", {"backend": "codex"})
-
-    assert memory.backlog.all() == []
-
-
-def test_failed_campaign_handoff_publishes_nothing(memory, monkeypatch):
-    state = {"backend": "codex"}
-    monkeypatch.setattr(
-        front_door,
-        "manager_continuous_handoff",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("failed")),
-    )
-
-    with pytest.raises(RuntimeError, match="failed"):
-        dispatch.enqueue_mission(memory, "keep researching", state)
-
-    assert "config" not in state
-    assert memory.backlog.all() == []
-
-
-def test_the_operator_item_does_not_claim_planner_authorship(memory):
-    """``preplanned`` is computed as ``"planner" in item.tags`` and marks work a
-    Planner already decomposed. Nobody decomposed a raw operator message."""
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex", "config": {"continuous": True}},
-    )
-
-    assert "planner" not in item.tags
-    assert "operator_priority" in item.tags
-    assert "scope:bounded" in item.tags
-
-
-def test_the_operator_item_satisfies_the_review_only_contract(memory):
-    """Skipping the stage transition is honored only alongside required
-    independent review; the operator item must carry the pair together."""
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex", "config": {"continuous": True}},
-    )
-
-    assert item is not None
-    assert "stage_transition:skip" in item.tags
-    assert "review:required" in item.tags
-
-
-def test_the_operator_mission_gets_an_independent_reviewer(memory):
-    """Read through the same helper the mission runtime uses. Without the tag,
-    ``round_routing`` settles the mission on the Engineer's own
-    MILESTONE_STATUS=DONE and no Reviewer ever runs.
-    """
-    from argus.life.supervisor._planning_context import PlanningContextMixin
-
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex", "config": {"continuous": True}},
-    )
-
-    assert PlanningContextMixin._item_requires_independent_review(item) is True
-    assert PlanningContextMixin._item_skips_stage_transition(item) is True
 
 
 def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):

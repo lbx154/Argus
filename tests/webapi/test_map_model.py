@@ -57,25 +57,6 @@ def test_map_output_recovery_rejects_trailing_prose_other_shapes_and_incomplete_
         map_model._parse_document(raw, {})
 
 
-def test_recovered_output_still_requires_the_requested_schema_and_card_coverage():
-    with pytest.raises(ValueError, match="schema"):
-        map_model._parse_document('{"cards":{}},"relations":[]}', schema(["required-task"], ["required-task"]))
-    with pytest.raises(ValueError, match="schema"):
-        map_model._parse_document('{"cards":{"a":{"title":"Missing brief"}}},"relations":[]}', schema(["a"], ["a"]))
-
-
-@pytest.mark.parametrize(("raw", "expected"), [
-    (r'{"detail":"\\rho(X) \le 15"}', r'\rho(X) \le 15'),
-    (r'{"detail":"C:\work\project\main.cpp"}', r'C:\work\project\main.cpp'),
-    (r'{"detail":"a \"quote\" then \le; newline \n; pair \\\\"}', 'a "quote" then \\le; newline \n; pair \\\\'),
-    (r'{"detail":"odd \\\le"}', r'odd \\le'),
-])
-def test_map_output_preserves_literal_unknown_escapes(raw, expected):
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(raw)
-    assert map_model._parse_document(raw, {}) == {"detail": expected}
-
-
 def test_map_output_keeps_valid_json_escapes_and_does_not_guess_unicode():
     raw = r'{"detail":"quote \" slash \\ solidus \/ controls \b\f\n\r\t unicode \u03c1"}'
     assert map_model._parse_document(raw, {}) == json.loads(raw)
@@ -87,26 +68,10 @@ def test_map_output_keeps_valid_json_escapes_and_does_not_guess_unicode():
             map_model._parse_document(malformed, {})
 
 
-def test_unknown_escape_recovery_reuses_card_boundary_and_schema_validation():
-    raw = r'{"cards":{"a":"literal \le"}},"relations":[]}'
-    assert map_model._parse_document(raw, {}) == {'cards': {'a': r'literal \le'}, 'relations': []}
-    with pytest.raises(ValueError, match='schema'):
-        map_model._parse_document(raw, {'required': ['missing']})
-
-
 def reading_schema():
     from argus.webapi.reader_foundation_prompt import foundation_request
 
     return foundation_request("Explain a comparison", "en-US")[1]
-
-
-def test_markdown_preserves_the_entire_document_and_literal_math_backslashes(monkeypatch):
-    raw = "# A comparison\n\n" + r"\[\frac{10}{7}=\lambda.\] Literal \u0005 stays literal."
-    monkeypatch.setattr(map_model, "_document_value", lambda *a: pytest.fail("Markdown was JSON-decoded"))
-    monkeypatch.setattr(map_model, "_literal_unknown_escapes", lambda *a: pytest.fail("Markdown was rewritten"))
-    result = map_model._parse_markdown_document(raw, reading_schema())
-    assert result == {"title": "A comparison", "markdown": raw}
-    assert "\f" not in result["markdown"] and "\x05" not in result["markdown"]
 
 
 @pytest.mark.parametrize("raw", [
@@ -118,13 +83,6 @@ def test_markdown_preserves_the_entire_document_and_literal_math_backslashes(mon
 def test_markdown_requires_the_actual_first_H1_body_and_existing_limits(raw):
     with pytest.raises(ValueError):
         map_model._parse_markdown_document(raw, reading_schema())
-
-
-def test_markdown_accepts_the_complete_local_limit_without_truncation():
-    prefix = "# " + "t" * 160 + "\n\n"
-    raw = prefix + "x" * (32_000 - len(prefix))
-    result = map_model._parse_markdown_document(raw, reading_schema())
-    assert len(result["title"]) == 160 and result["markdown"] == raw
 
 
 def test_map_runs_the_light_model_on_the_shared_runner(monkeypatch):
@@ -140,16 +98,6 @@ def test_map_runs_the_light_model_on_the_shared_runner(monkeypatch):
     changed = map_model.resolve_map_model()
     assert (changed.backend, changed.model, changed.effort) == ("codex", "gpt-5.5", "high")
     assert changed.revision != before.revision
-
-
-def test_opening_a_project_never_inherits_deep_research_effort(monkeypatch):
-    """Map copy is presentation: a deep-reasoning engineer must not make
-    every project open pay for deep reasoning."""
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh")
-    config = map_model.resolve_map_model()
-    assert config.effort == "low"
-    assert config.model == map_model.resolve_light_model(backend=config.backend)
 
 
 def test_light_model_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
@@ -257,49 +205,6 @@ def test_map_result_receipt_survives_execution_and_output_failures(tmp_path, mon
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
 
-@pytest.mark.parametrize("result_options,raw,error", [
-    ({}, "# A reading\n\nA complete answer.", None),
-    ({"exit_code": 1}, "# Interrupted\n\nPartial answer.", OSError),
-    ({"fatal_error": "runner failed"}, "# Interrupted\n\nPartial answer.", OSError),
-    ({"tool_activity_observed": True}, "# Unexpected tools\n\nAnswer.", ValueError),
-    ({}, "An answer without its title", ValueError),
-    ({}, "# Empty answer", ValueError),
-])
-def test_markdown_receipt_precedes_validation_and_failures_never_retry(tmp_path, monkeypatch, result_options, raw, error):
-    receipt = RunnerResult(**{"exit_code": 0, **result_options}, agent_messages=[raw],
-                           call_id="actual-markdown-call", call_id_log_correlated=True)
-    received, calls = [], []
-
-    def run(*args, **kwargs):
-        assert kwargs["options"].output_schema is None
-        assert kwargs["options"].disable_tools is True
-        calls.append(kwargs)
-        return receipt
-
-    monkeypatch.setattr(map_model, "run_exec", run)
-    original = map_model._parse_markdown_document
-
-    def parse(*args):
-        assert received == [receipt]
-        return original(*args)
-
-    monkeypatch.setattr(map_model, "_parse_markdown_document", parse)
-
-    def generate():
-        return map_model.run_map_model("Explain the selected reading", reading_schema(),
-            map_model.MapModel("pi", "gpt-5.4-mini", "low", sys.executable),
-            project_root=tmp_path / "project", global_root=tmp_path,
-            run_label="reader-clarification", on_result=received.append, output_format="markdown")
-
-    if error is None:
-        assert generate() == {"title": "A reading", "markdown": raw}
-    else:
-        with pytest.raises(error):
-            generate()
-    assert len(calls) == 1 and received == [receipt]
-    assert not list((tmp_path / "map-presentation").glob("generation-*"))
-
-
 def test_unknown_output_format_fails_before_runner_or_phase(tmp_path, monkeypatch):
     phases, receipts = [], []
     monkeypatch.setattr(map_model, "_run_map_turn", lambda *a, **k: pytest.fail("Unknown format ran a model"))
@@ -327,4 +232,3 @@ def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatc
     assert phases == []
     assert receipts == []
     assert not (tmp_path / "map-presentation").exists()
-

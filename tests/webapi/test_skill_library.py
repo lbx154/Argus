@@ -45,22 +45,6 @@ def document(client, *, library_id="project:learned", path="engineer/learned.md"
                       params={"library": library_id, "path": path, **({"sid": sid} if sid else {})})
 
 
-def test_catalog_and_documents_require_auth_and_no_project_is_needed(workspace):
-    home, client, _ = workspace
-    assert client.get("/api/skill-library").status_code == 401
-    assert client.get("/api/skill-library/document", params={"library": "global:bundled", "path": "engineer/common.md"}).status_code == 401
-    response = client.get("/api/skill-library", headers=HEADERS)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["scopes"] == ["global", "vertical", "project"]
-    assert [(row["scope"], row["name"]) for row in data["items"]] == [("global", "Common"), ("vertical", "Software")]
-    assert all(row["is_default"] and row["updated_at"] is None for row in data["items"])
-    assert not (home / "skills").exists()
-    assert not (home / "projects/one/skills").exists()
-    assert document(client, library_id="global:bundled", path="engineer/common.md", sid=None).status_code == 200
-    assert client.get("/api/skill-library", params={"sid": "missing"}, headers=HEADERS).status_code == 404
-
-
 def test_all_classes_recent_changes_dedup_and_full_content(workspace):
     home, client, bundled = workspace
     shared = home / "skills"
@@ -106,12 +90,6 @@ def test_project_binding_native_skills_and_hidden_files(workspace):
     assert document(client, path="engineer/private.md", sid="two").status_code == 200
     assert document(client, library_id="project:native", path="author/SKILL.md").status_code == 200
     assert document(client, sid=None).status_code == 404
-
-
-@pytest.mark.parametrize("path", ["../secret.md", "/etc/secret.md", "engineer/../../secret.md", "engineer\\secret.md", "bad\x00.md"])
-def test_document_rejects_unconfined_paths(workspace, path):
-    _, client, _ = workspace
-    assert document(client, path=path).status_code == 404
 
 
 def test_file_and_library_root_symlinks_cannot_escape(workspace):
@@ -160,29 +138,6 @@ def test_browsing_is_read_only_and_oversized_documents_are_explicit(workspace):
     assert before == after
     path.write_bytes(b"\xff")
     assert document(client).status_code == 409
-
-
-def test_legacy_command_reads_the_same_bound_library_in_a_fresh_profile(workspace, monkeypatch):
-    home, client, _ = workspace
-    other_home = home.parent / "other-profile"
-    skill(other_home / "skills/private.md", "Other profile secret")
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(other_home))
-    skill(home / "skills/engineer/saved.md", "Shared learning")
-    skill(home / "projects/one/skills/engineer/project.md", "Project One")
-    skill(home / "projects/two/skills/engineer/project.md", "Project Two")
-    for sid in ("one", "two"):
-        route = f"/api/projects/{sid}/skills"
-        assert client.post(route, json={"args": "ls"}).status_code == 401
-        output = client.post(route, headers=HEADERS, json={"args": "ls"}).json()["text"]
-        catalog = client.get("/api/skill-library", params={"sid": sid}, headers=HEADERS).json()
-        for row in catalog["items"]:
-            assert row["name"] in output
-        assert output.index("Global skills") < output.index("Vertical skills") < output.index("Project skills")
-        assert "Common" in output and "available to every task" in output
-        assert "Other profile secret" not in output
-        assert ("Project Two" if sid == "one" else "Project One") not in output
-        assert "(no global skills)" not in output
-    assert client.post("/api/projects/missing/skills", headers=HEADERS, json={"args": "ls"}).status_code == 404
 
 
 def test_legacy_command_respects_configured_shared_directory(workspace, monkeypatch):

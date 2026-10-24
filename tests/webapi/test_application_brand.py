@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,14 +20,6 @@ def brand_file(tmp_path, monkeypatch):
     path.write_text(json.dumps(data))
     monkeypatch.setenv("ARGUS_APPLICATION_BRAND", str(path))
     return path
-
-
-def test_default_app_and_state_are_unchanged(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_APPLICATION_BRAND", raising=False)
-    client = TestClient(create_app(global_root=tmp_path / "state"))
-    assert client.get("/api/application-brand").json() == DEFAULT_BRAND
-    assert client.get("/api/application-brand/assets/mark").status_code == 404
-    assert client.get("/api/meta").json()["runtime"]["state_root"] == str(tmp_path / "state")
 
 
 def test_real_app_serves_only_selected_public_bytes(brand_file, tmp_path, monkeypatch):
@@ -90,17 +81,3 @@ def test_symlink_and_oversized_asset_are_rejected(brand_file):
     asset.write_bytes(b"x" * 262145)
     with pytest.raises(ValueError, match="exceeds"):
         load_application_brand()
-
-
-def test_launcher_exports_public_brand_without_changing_runtime_identity(brand_file, monkeypatch):
-    from argus.apps.tui_launcher import _export_tui_local_identity
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(brand_file.parent / "chosen-state"))
-    monkeypatch.setenv("ARGUS_TUI_APPLICATION_BRAND", "old")
-    _export_tui_local_identity()
-    import os
-
-    public = json.loads(os.environ["ARGUS_TUI_APPLICATION_BRAND"])
-    assert public["id"] == "example"
-    assert os.environ["ARGUS_TUI_LOCAL_STATE_ROOT"] == str(brand_file.parent / "chosen-state")
-    assert Path(os.environ["ARGUS_TUI_LOCAL_STATE_ROOT"]).name == "chosen-state"

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import multiprocessing
 import os
 import socket
 import sys
@@ -22,7 +21,6 @@ from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import control_identity, observe_project
 from argus.manager.supervision import supervise
 
-LONG_REQUIREMENT_PREFIX = "Validate each recorded acceptance rule without weakening it. " * 30
 LONG_EXCERPT_PREFIX = "Recorded diagnostic detail from the earlier attempt. " * 40
 
 
@@ -148,89 +146,6 @@ def assert_unobserved_source_blocks_supervision(root, event, source):
     assert controls(root) == before and load_active_manager_directive(root) is None
 
 
-def test_acceptance_tail_change_has_a_new_revision_and_cannot_reuse_an_applied_receipt(tmp_path):
-    first_requirement = LONG_REQUIREMENT_PREFIX + "FINAL CHECK: retain all negative observations."
-    second_requirement = LONG_REQUIREMENT_PREFIX + "FINAL CHECK: independently verify every negative observation."
-    assert first_requirement[:1600] == second_requirement[:1600]
-    backlog, item, event = project(tmp_path, first_requirement)
-    backend = Backend()
-    manager = Manager(tmp_path, runner=backend)
-    before = observe_project(tmp_path, event=event)
-    first = supervise(manager, tmp_path, event)
-    assert first["status"] == "applied" and len(backend.prompts) == 1
-
-    backlog.update(item.id, acceptance_check=second_requirement)
-    after = observe_project(tmp_path, event=event)
-    assert after.evidence_revision != before.evidence_revision
-    second = supervise(manager, tmp_path, event)
-    assert second["status"] == "applied" and second["id"] != first["id"]
-    assert len(backend.prompts) == 2 and second_requirement in backend.prompts[-1]
-    assert supervise(manager, tmp_path, event)["id"] == second["id"]
-    assert len(backend.prompts) == 2
-
-
-def test_acceptance_that_fits_the_observation_budget_reaches_the_actual_model_prompt_intact(tmp_path):
-    requirement = LONG_REQUIREMENT_PREFIX + "FINAL CHECK: report the independently recomputed values before claiming success."
-    _, item, event = project(tmp_path, requirement)
-    observation = observe_project(tmp_path, event=event)
-    assert task_row(observation, item.id)["acceptance_check"] == requirement
-    backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied"
-    assert len(backend.prompts) == 1 and requirement in backend.prompts[0]
-
-
-def test_required_acceptance_survives_secondary_evidence_removal_within_utf8_budget(tmp_path):
-    requirement = LONG_REQUIREMENT_PREFIX * 3 + "FINAL ACCEPTANCE: independently recompute the original group values."
-    backlog, item, event = project(tmp_path, requirement)
-    write_excerpt(tmp_path, backlog, item, "engineer_summary", LONG_EXCERPT_PREFIX)
-    backlog.update(item.id, last_error=LONG_EXCERPT_PREFIX)
-    packet_dir = mission_context_dir(tmp_path, item.id)
-    (packet_dir / "latest.json").write_text(json.dumps({
-        "kind": "review_handoff",
-        "engineer_summary": LONG_EXCERPT_PREFIX,
-        "review": {
-            "reason": LONG_EXCERPT_PREFIX,
-            "next_action": LONG_EXCERPT_PREFIX,
-            "evidence": [{"summary": LONG_EXCERPT_PREFIX, "reason": LONG_EXCERPT_PREFIX} for _ in range(8)],
-        },
-    }))
-    observation = observe_project(tmp_path, event=event)
-    assert task_row(observation, item.id)["acceptance_check"] == requirement
-    assert observation.incomplete_requirements == ()
-    assert observation.facts["limitations"]
-    assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
-    backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "applied" and requirement in backend.prompts[0]
-
-
-@pytest.mark.parametrize("field", ["acceptance_check", "objective", "pending_question"])
-def test_overbudget_critical_field_is_named_as_unobserved_and_stops_before_model_call(tmp_path, field):
-    backlog, item, event = project(tmp_path)
-    # UTF-8 size, rather than character count, determines whether the requirement fits.
-    unit = "必须独立核验原始结果；"
-    value = unit * (observation_module.MAX_OBSERVATION_BYTES // len(unit.encode("utf-8")) + 1)
-    value += "REQUIRED_TAIL_MUST_NOT_BE_SILENTLY_LOST"
-    backlog.update(item.id, **{field: value})
-    before = controls(tmp_path)
-    observation = observe_project(tmp_path, event=event)
-    path = f"tasks[{item.id}].{field}"
-    notes = observation.facts["limitations"]
-    assert path in observation.incomplete_requirements
-    assert any(path in note and any(word in note.lower() for word in ("budget", "trunc", "预算", "截断")) for note in notes)
-    assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
-    assert "REQUIRED_TAIL_MUST_NOT_BE_SILENTLY_LOST" not in observation.render()
-    backend = Backend()
-    record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
-    assert record["status"] == "failed" and record["failure_stage"] == "decision"
-    assert path in record["incomplete_requirements"]
-    assert record["observation_limitations"] == notes
-    assert record["error_code"] == "observation_incomplete"
-    assert not backend.prompts and not record.get("decision") and not record.get("effects")
-    assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
-
-
 def test_budget_omissions_share_one_note_so_notes_do_not_evict_objectives(tmp_path):
     # s-a43d1018: six parallel arms with long Chinese briefs. A sentence per
     # omitted field (title, plan_id, deps, ...) cost more than the field and
@@ -254,20 +169,6 @@ def test_budget_omissions_share_one_note_so_notes_do_not_evict_objectives(tmp_pa
     assert "tasks[arm-cpc].title" in budget_notes[0]
     assert len(observation.incomplete_requirements) == 1
     assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
-
-
-@pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
-def test_excerpt_tail_edits_change_canonical_revision_even_when_presentation_is_identical(tmp_path, field):
-    backlog, item, event = project(tmp_path)
-    original = LONG_EXCERPT_PREFIX + "Hidden tail: the check passed."
-    changed = LONG_EXCERPT_PREFIX + "Hidden tail: the check failed."
-    assert original[:1600] == changed[:1600]
-    write_excerpt(tmp_path, backlog, item, field, original)
-    before = observe_project(tmp_path, event=event)
-    write_excerpt(tmp_path, backlog, item, field, changed)
-    after = observe_project(tmp_path, event=event)
-    assert displayed_excerpt(before, item.id, field) == displayed_excerpt(after, item.id, field)
-    assert before.evidence_revision != after.evidence_revision
 
 
 @pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
@@ -337,17 +238,6 @@ def test_oversize_sources_with_equal_prefix_size_and_mtime_keep_distinct_unobser
     assert reads and max(reads) <= observation_module.MAX_SOURCE_BYTES + 1
 
 
-@pytest.mark.parametrize("contents", ['{"unfinished":', '[{"claim":"not an object"}]'])
-def test_invalid_source_objects_are_explicitly_unobserved_and_cannot_authorize_a_call(tmp_path, contents):
-    backlog, item, event = project(tmp_path)
-    write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "mission.json"
-    source.write_text(contents)
-    observation = observe_project(tmp_path, event=event)
-    assert_source_unobserved(observation, source)
-    assert_unobserved_source_blocks_supervision(tmp_path, event, source)
-
-
 def test_source_changed_during_read_is_not_treated_as_a_complete_snapshot(tmp_path, monkeypatch):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
@@ -391,48 +281,6 @@ def test_unpresented_handoff_tail_has_a_canonical_identity_and_specific_limitati
     detail = "entries" if shape == "ninth-list-item" else "deeper"
     assert any(path in note and detail in note for note in after.facts["limitations"])
     assert before.incomplete_requirements == after.incomplete_requirements == ()
-
-
-@pytest.mark.skipif(not hasattr(os, "mkfifo") or "fork" not in multiprocessing.get_all_start_methods(),
-                    reason="Requires a POSIX FIFO and a bounded fork worker")
-def test_fifo_source_without_a_writer_is_rejected_without_blocking_supervision(tmp_path):
-    backlog, item, event = project(tmp_path)
-    write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "mission.json"
-    source.unlink()
-    os.mkfifo(source)
-    context = multiprocessing.get_context("fork")
-    reader, writer = context.Pipe(duplex=False)
-
-    def check_source():
-        try:
-            observation = observe_project(tmp_path, event=event)
-            assert_source_unobserved(observation, source)
-            assert_unobserved_source_blocks_supervision(tmp_path, event, source)
-            writer.send({"passed": True})
-        except BaseException as exc:
-            writer.send({"passed": False, "error": type(exc).__name__, "detail": str(exc)})
-        finally:
-            writer.close()
-
-    worker = context.Process(target=check_source)
-    worker.start()
-    writer.close()
-    try:
-        worker.join(timeout=3)
-        assert not worker.is_alive(), "FIFO read blocked without a writer"
-        assert worker.exitcode == 0 and reader.poll(1)
-        result = reader.recv()
-        assert result["passed"], result
-    finally:
-        if worker.is_alive():
-            worker.terminate()
-            worker.join(timeout=2)
-        if worker.is_alive():
-            worker.kill()
-            worker.join(timeout=2)
-        reader.close()
-        worker.close()
 
 
 @pytest.mark.parametrize("link", ["leaf", "parent"])

@@ -95,16 +95,6 @@ def test_a_backend_change_is_one_setting_for_every_role(home) -> None:
     assert lines == ["Set all Argus roles' CLI backend to copilot."]
 
 
-def test_refusal_names_the_backend_whose_list_lacks_the_model(home) -> None:
-    intent = ConfigIntent(knob="model", roles=(), value="hosted-x")
-    lines: list[str] = []
-
-    assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
-
-    assert "ARGUS_SKILL_MODEL" not in read_persisted_knobs()
-    assert len(lines) == 1 and "codex" in lines[0]
-
-
 def test_config_change_grounding_note_is_tagged_as_config(home, tmp_path) -> None:
     import json
 

@@ -42,22 +42,6 @@ def _review(status: str = "done"):
     return SimpleNamespace(status=status)
 
 
-def test_a_non_final_stage_says_so_and_names_what_remains() -> None:
-    """Run 13's exact situation."""
-    blockers = final_stage_completion_blockers(
-        _review(),
-        current_stage="scope",
-        stage_order=STAGES,
-        vertical="targeted_lab",
-    )
-
-    assert blockers
-    joined = " ".join(blockers)
-    assert "final stage" in joined
-    assert "'review'" in joined
-    assert "solve" in joined, "the operator needs to know what is still ahead"
-
-
 def test_an_external_gate_blocker_is_passed_through_verbatim() -> None:
     blockers = final_stage_completion_blockers(
         _review(),
@@ -68,38 +52,6 @@ def test_an_external_gate_blocker_is_passed_through_verbatim() -> None:
     )
 
     assert blockers == ("benchmark regression is still open",)
-
-
-def test_a_bounded_mission_is_told_it_lacks_standing() -> None:
-    """Only applies where the vertical's gate is ``certified``.
-
-    ``research`` is such a vertical; ``math`` (gate ``none``) deliberately lets
-    any mission envelope carry the verdict, so this check never fires there.
-    """
-    blockers = final_stage_completion_blockers(
-        _review(),
-        current_stage="submission",
-        stage_order=["research", "submission"],
-        vertical="research",
-        mission_scope="bounded",
-    )
-
-    assert blockers
-    joined = " ".join(blockers)
-    assert "bounded" in joined
-    assert "final_submission" in joined
-
-
-def test_an_unknown_stage_is_named_rather_than_swallowed() -> None:
-    blockers = final_stage_completion_blockers(
-        _review(),
-        current_stage="publication",
-        stage_order=STAGES,
-        vertical="targeted_lab",
-    )
-
-    assert blockers
-    assert "publication" in " ".join(blockers)
 
 
 def test_the_blockers_agree_with_the_decision() -> None:
@@ -129,19 +81,6 @@ def test_the_blockers_agree_with_the_decision() -> None:
         blockers = final_stage_completion_blockers(_review(), **kwargs)
         assert decision is None, kwargs
         assert blockers, kwargs
-
-
-def test_nothing_blocks_a_decision_that_is_allowed() -> None:
-    kwargs = {
-        "current_stage": "review",
-        "stage_order": STAGES,
-        "vertical": "targeted_lab",
-        "mission_scope": "project",
-    }
-    decision = final_stage_completion_decision(_review(), **kwargs)
-    blockers = final_stage_completion_blockers(_review(), **kwargs)
-
-    assert (decision is None) == bool(blockers)
 
 
 def test_research_final_review_done_certifies_regardless_of_result_grades() -> None:

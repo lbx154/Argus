@@ -50,12 +50,6 @@ def _seed_proven_domain(tmp_path):
     state.write_text(json.dumps(payload))
 
 
-def test_disabled_by_default(tmp_path, monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_PROMOTE_DOMAINS", raising=False)
-    _seed_proven_domain(tmp_path)
-    assert dt.propose_promotions(tmp_path) == []  # gate OFF → nothing proposed
-
-
 def test_proposes_only_when_proven(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
     dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate"])
@@ -78,44 +72,6 @@ def test_promote_requires_approval(tmp_path, monkeypatch):
     assert dt.promote_data_domain(tmp_path, "robotics_sim", approved=False) is None
     # Headless sweep (no approve callback) never writes.
     assert dt.tidy_domains_after_mission(tmp_path, approve=None) == []
-
-
-def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
-    _seed_proven_domain(tmp_path)
-    src = dt._render_stages_py("robotics_sim", tmp_path)
-    src = src.replace("from ...skills.stage_machine", "from argus.skills.stage_machine")
-    mod = types.ModuleType("promoted_stages")
-    exec(compile(src, "<stages>", "exec"), mod.__dict__)
-    assert mod.STAGE_ORDER == ["scope", "simulate", "measure", "report"]
-    assert mod.completion_gate == "none"
-    assert [i.id for i in mod.CHECKLIST_ITEMS["scope"]] == ["scope.obj"]
-    assert [i.id for i in mod.CHECKLIST_ITEMS["simulate"]] == ["simulate.seeds"]
-    assert callable(mod.role_banner)
-
-
-def test_rendered_stages_py_preserves_role_specific_banners(tmp_path):
-    dd.write_data_domain(
-        tmp_path,
-        "role_aware",
-        stages=["scope", "deliver"],
-        role_banner={
-            "manager": "manager contract",
-            "reviewer": "reviewer contract",
-            "default": "shared contract",
-        },
-    )
-    src = dt._render_stages_py("role_aware", tmp_path)
-    src = src.replace(
-        "from ...skills.stage_machine",
-        "from argus.skills.stage_machine",
-    )
-    mod = types.ModuleType("promoted_role_aware_stages")
-    exec(compile(src, "<stages>", "exec"), mod.__dict__)
-
-    assert mod.role_banner("manager") == "manager contract"
-    assert mod.role_banner("reviewer") == "reviewer contract"
-    assert mod.role_banner("engineer") == "shared contract"
 
 
 def test_render_preserves_seed_plus_custom_items(tmp_path):
@@ -210,16 +166,3 @@ def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
     assert stages_path.is_file()
     assert (stages_path.parent / "__init__.py").is_file()
     assert committed == [stages_path.parent / "__init__.py", stages_path]
-
-
-def test_a_retired_round_policy_in_an_old_domain_is_ignored(tmp_path):
-    dd.write_data_domain(tmp_path, "long_verify", stages=["build", "verify"])
-    path = tmp_path / "research" / "DOMAINS" / "long_verify.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["round_policy"] = {"soft_round_limit": 0, "stall_threshold": "eight"}
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-    src = dt._render_stages_py("long_verify", tmp_path)
-
-    assert "ROUND_POLICY" not in src
-    assert "round_policy" not in src

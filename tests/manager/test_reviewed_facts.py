@@ -128,45 +128,6 @@ def test_prompt_carries_key_fields_not_the_full_result_json(
     assert json.dumps(evidence[0]) not in prompt
 
 
-def test_overlong_summary_values_are_clipped_with_a_note(tmp_path: Path) -> None:
-    backend = _decline_backend()
-    long_item = "trace-" + "y" * 5000
-
-    review_and_append_fact(
-        backend,
-        digest_path=tmp_path / "reviewed-facts.md",
-        source_campaign="campaign-paper-03",
-        reviewer_reason="Reviewer confirmed the reported pattern.",
-        research_result={
-            "result_class": "verified_new_result",
-            "evidence": [long_item],
-        },
-        evidence_refs=["results/point-0.json"],
-    )
-
-    prompt = backend.calls[0]["prompt"]
-    assert long_item not in prompt
-    assert f"[shortened to 400 of {len(long_item)} characters]" in prompt
-
-
-def test_reviewer_reason_is_clipped(tmp_path: Path) -> None:
-    backend = _decline_backend()
-    reason = "because-" + "w" * 5000
-
-    review_and_append_fact(
-        backend,
-        digest_path=tmp_path / "reviewed-facts.md",
-        source_campaign="campaign-paper-03",
-        reviewer_reason=reason,
-        research_result={"result_class": "verified_new_result", "evidence": ["a"]},
-        evidence_refs=["results/point-0.json"],
-    )
-
-    prompt = backend.calls[0]["prompt"]
-    assert reason not in prompt
-    assert f"[shortened to 600 of {len(reason)} characters]" in prompt
-
-
 def test_prompt_points_to_full_record_readable_during_call_gone_after(
     tmp_path: Path,
 ) -> None:

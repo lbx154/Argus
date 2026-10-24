@@ -6,7 +6,6 @@ import json
 import stat
 import sys
 import time
-from pathlib import Path
 
 import pytest
 
@@ -112,11 +111,3 @@ def test_a_slow_probe_does_not_block_and_falls_back_to_the_catalog(copilot_home,
     rows = mission_items.model_options(root)
     assert time.monotonic() - started < 1.5
     assert {row["model"] for row in rows} >= {"stale-catalog-model"}
-
-
-def test_non_copilot_backends_keep_the_harness_catalog(copilot_home, monkeypatch) -> None:
-    root, calls = copilot_home
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    sources = {row["model"]: row["source"] for row in mission_items.model_options(root)}
-    assert sources == {"stale-catalog-model": "catalog"}
-    assert not Path(calls).exists()

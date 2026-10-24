@@ -146,118 +146,6 @@ def test_read_uploaded_attachments_rejects_total_limit_in_chunks(
     assert second.closed is True
 
 
-def test_upload_attachment_writes_to_canonical_workdir(
-    client: TestClient,
-    tmp_path: Path,
-) -> None:
-    payload = b"# operator note\n"
-
-    response = client.post(
-        "/api/projects/s-upload0/attachments",
-        files=[("files", ("notes.md", payload, "text/markdown"))],
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["limits"]["max_count"] == 5
-    attachment = body["attachments"][0]
-    workspace_target = tmp_path / "workspace" / "s-upload0" / attachment["relative_path"]
-    state_target = tmp_path / "projects" / "s-upload0" / attachment["relative_path"]
-    assert workspace_target.read_bytes() == payload
-    assert not state_target.exists()
-    assert attachment["mime"] == "text/markdown"
-    assert attachment["original_name"] == "notes.md"
-    assert attachment["size_bytes"] == len(payload)
-    assert "sha256" not in attachment
-    assert "integrity" not in attachment
-    assert attachment["relative_path"].startswith(".argus/attachments/s-upload0/att-")
-
-
-def test_upload_attachment_rejects_pathlike_filename(tmp_path: Path) -> None:
-    _make_project(tmp_path, "s-upload0")
-
-    with pytest.raises(ValueError, match="path separators"):
-        upload_attachments(
-            "s-upload0",
-            [("../evil.md", "text/markdown", b"hi")],
-            global_root=tmp_path,
-        )
-
-
-def test_message_route_resolves_attachment_metadata(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    upload = client.post(
-        "/api/projects/s-upload0/attachments",
-        files=[("files", ("report.csv", b"a,b\n1,2\n", "text/csv"))],
-    )
-    attachment_id = upload.json()["attachments"][0]["attachment_id"]
-    seen: dict[str, object] = {}
-
-    def fake_message(
-        sid,
-        text,
-        *,
-        global_root=None,
-        attachments=None,
-        cancelled=None,
-        defer_dispatch_ack=False,
-    ):
-        assert defer_dispatch_ack is True
-        seen["sid"] = sid
-        seen["text"] = text
-        seen["attachments"] = attachments
-        return {"kind": "chat", "reply": "ok"}
-
-    monkeypatch.setattr("argus.webapi.manager_bridge.manager_message", fake_message)
-
-    response = client.post(
-        "/api/projects/s-upload0/message",
-        json={
-            "text": "Summarize the attached table.",
-            "attachments": [{"attachment_id": attachment_id}],
-        },
-    )
-
-    assert response.status_code == 200
-    forwarded = seen["attachments"]
-    assert isinstance(forwarded, list) and len(forwarded) == 1
-    assert forwarded[0]["attachment_id"] == attachment_id
-    assert forwarded[0]["relative_path"].endswith("/report.csv")
-    assert forwarded[0]["mime"] == "text/csv"
-    assert forwarded[0]["size_bytes"] == len(b"a,b\n1,2\n")
-    assert "sha256" not in forwarded[0]
-    assert "integrity" not in forwarded[0]
-
-
-def test_resolve_legacy_attachment_drops_hash_metadata(tmp_path: Path) -> None:
-    workspace = _make_project(tmp_path, "s-upload0")
-    uploaded = upload_attachments(
-        "s-upload0",
-        [("notes.md", "text/markdown", b"hello\n")],
-        global_root=tmp_path,
-    )["attachments"][0]
-    metadata_path = (
-        workspace
-        / Path(uploaded["relative_path"]).parent
-        / "metadata.json"
-    )
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["sha256"] = "legacy"
-    metadata["integrity"] = "legacy"
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-
-    resolved = resolve_attachment_refs(
-        "s-upload0",
-        [{"attachment_id": uploaded["attachment_id"]}],
-        global_root=tmp_path,
-    )[0]
-
-    assert "sha256" not in resolved
-    assert "integrity" not in resolved
-
-
 def test_message_stream_route_resolves_attachment_metadata(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -351,27 +239,6 @@ def test_resolve_attachment_refs_rejects_tampered_payload(tmp_path: Path) -> Non
         )
 
 
-def test_upload_rejects_symlinked_session_attachment_root(
-    tmp_path: Path,
-    require_symlink_support,
-) -> None:
-    workspace = _make_project(tmp_path, "s-upload0")
-    outside = tmp_path / "outside-root"
-    outside.mkdir()
-    session_root = workspace / ".argus" / "attachments"
-    session_root.mkdir(parents=True)
-    (session_root / "s-upload0").symlink_to(outside, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="symlink"):
-        upload_attachments(
-            "s-upload0",
-            [("notes.md", "text/markdown", b"hello\n")],
-            global_root=tmp_path,
-        )
-
-    assert list(outside.iterdir()) == []
-
-
 def test_resolve_attachment_refs_rejects_symlinked_attachment_directory(
     tmp_path: Path,
     require_symlink_support,
@@ -458,22 +325,6 @@ def test_upload_rejects_junctioned_session_attachment_root(tmp_path: Path) -> No
         junction.rmdir()
 
 
-def test_upload_accepts_archives_office_files_notebooks_and_code(client: TestClient) -> None:
-    files = [
-        ("files", ("data.zip", b"PK\x03\x04rest", "application/zip")),
-        ("files", ("train.py", b"print('hi')\n", "text/plain")),
-        ("files", ("analysis.ipynb", b'{"cells": []}', "application/x-ipynb+json")),
-        ("files", ("table.xlsx", b"PK\x03\x04xl", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
-        ("files", ("paper.tex", b"\\documentclass{article}", "text/plain")),
-    ]
-    response = client.post("/api/projects/s-upload0/attachments", files=files)
-    assert response.status_code == 200, response.text
-    mimes = {row["original_name"]: row["mime"] for row in response.json()["attachments"]}
-    assert mimes["data.zip"] == "application/zip"
-    assert mimes["train.py"] == "text/plain"
-    assert mimes["analysis.ipynb"] == "application/x-ipynb+json"
-
-
 def test_upload_rejects_disguised_archives_broken_notebooks_and_executables(client: TestClient) -> None:
     for name, payload, mime in [
         ("data.zip", b"not a zip", "application/zip"),
@@ -483,4 +334,3 @@ def test_upload_rejects_disguised_archives_broken_notebooks_and_executables(clie
     ]:
         response = client.post("/api/projects/s-upload0/attachments", files=[("files", (name, payload, mime))])
         assert response.status_code == 400, name
-

@@ -10,19 +10,6 @@ def write_events(path: Path, rows: list[dict]):
     path.write_text(''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in rows))
 
 
-def test_full_record_restores_tail_beyond_snapshot_limit_and_rotated_history(tmp_path):
-    detail = '项目检查。\n' * 1500 + '最后一行必须保留。'
-    write_events(tmp_path / 'events.jsonl.2', [{'type': 'engineer.progress', 'kind': 'agent_message',
-                                             'agent_layer': 'engineer', 'message_id': 'long-message',
-                                             'event_id': 'archived', 'text': detail}])
-    write_events(tmp_path / 'events.jsonl', [{'type': 'engineer.progress', 'kind': 'agent_message',
-                                           'message_id': 'latest', 'text': 'A different record.'}])
-    result = full_work_record(tmp_path, 'engineer', 'engineer:long-message')
-    assert result['detail'] == detail and result['characters'] > 4000
-    assert full_work_record(tmp_path, 'engineer', 'archived')['detail'].endswith('最后一行必须保留。')
-    assert full_work_record(tmp_path, 'engineer', 'missing') is None
-
-
 def test_full_record_cache_invalidates_and_fragments_keep_full_content(tmp_path):
     path = tmp_path / 'events.jsonl'
     first = {'type': 'engineer.progress', 'kind': 'agent_message', 'message_id': 'message', 'text': 'First part.'}

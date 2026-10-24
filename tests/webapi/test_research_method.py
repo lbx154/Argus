@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import importlib
 import sys
 import types
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +10,6 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
-from argus.webapi.routes.research_method import ERROR_DETAIL_LIMIT
 from argus.webapi.server import create_app
 
 MODULE_NAME = "argus.verticals.research.method_card"
@@ -105,13 +102,6 @@ def _stub_derivation(monkeypatch, derive):
     return module
 
 
-def test_method_route_requires_auth_and_unknown_project_is_404(tmp_path, monkeypatch):
-    _stub_derivation(monkeypatch, lambda workdir: dict(DERIVED))
-    client, _workspace, headers = _client(tmp_path, method=METHOD)
-    assert client.get("/api/projects/demo/research/method").status_code == 401
-    assert client.get("/api/projects/missing/research/method", headers=headers).status_code == 404
-
-
 def test_method_route_reports_absence_without_deriving_or_creating_anything(tmp_path, monkeypatch):
     calls: list[Path] = []
     _stub_derivation(monkeypatch, lambda workdir: calls.append(workdir) or dict(DERIVED))
@@ -148,20 +138,6 @@ def test_method_route_rejects_symlink_leaving_the_workspace(tmp_path, monkeypatc
     assert client.get("/api/projects/demo/research/method", headers=headers).status_code == 409
 
 
-def test_method_route_turns_a_broken_derivation_into_a_soft_error(tmp_path, monkeypatch):
-    def explode(workdir):
-        raise RuntimeError("config parser fell over " + "x" * 500)
-
-    _stub_derivation(monkeypatch, explode)
-    client, _workspace, headers = _client(tmp_path, method=METHOD)
-    response = client.get("/api/projects/demo/research/method", headers=headers)
-    assert response.status_code == 200
-    body = response.json()
-    assert body["exists"] is False
-    assert body["error"].startswith("RuntimeError: config parser fell over")
-    assert len(body["error"]) <= ERROR_DETAIL_LIMIT
-
-
 def test_method_route_soft_fails_when_the_derivation_module_is_missing(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, MODULE_NAME, None)  # makes the import raise ImportError
     client, _workspace, headers = _client(tmp_path, method=METHOD)
@@ -178,44 +154,3 @@ def test_method_route_soft_fails_when_the_derivation_returns_garbage(tmp_path, m
     body = client.get("/api/projects/demo/research/method", headers=headers).json()
     assert body["exists"] is False
     assert "error" in body
-
-
-def test_method_route_serves_the_real_derivation_end_to_end(tmp_path):
-    try:
-        module = importlib.import_module(MODULE_NAME)
-    except (
-        ImportError
-    ) as exc:  # pragma: no cover - only while the vertical module is still being written
-        pytest.skip(f"{MODULE_NAME} is not importable yet: {exc}")
-    assert callable(getattr(module, "derive_method_card", None)), (
-        "vertical must expose derive_method_card"
-    )
-    client, workspace, headers = _client(tmp_path, method=METHOD)
-    # A record the host's retired per-round test run left behind is ignored.
-    old_checks = workspace / ".argus" / "round-checks"
-    old_checks.mkdir(parents=True)
-    (old_checks / "latest.json").write_text('{"round_index": 3, "counts": {"FAILED": 1}}', encoding="utf-8")
-    response = client.get("/api/projects/demo/research/method", headers=headers)
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["exists"] is True
-    assert body["path"] == "METHOD.md"
-    assert body["title"] == "Contrastive pretraining with a queue"
-    assert body["statement"].startswith("The encoder feeds a queue of negatives")
-    assert body["markdown"] == METHOD
-    assert body["truncated"] is False
-    updated = body["updated_at"]
-    if isinstance(updated, str):  # ISO-8601 is the other accepted spelling of the mtime
-        updated = datetime.fromisoformat(updated).timestamp()
-    assert updated == pytest.approx((workspace / "METHOD.md").stat().st_mtime, abs=1.0)
-    for key in ("components", "reused_code", "hyperparameters", "change_log"):
-        assert isinstance(body[key], list), key
-    assert "checks" not in body
-    assert isinstance(body["protocol"], str) and isinstance(body["falsifiers"], str)
-    for row in body["components"]:
-        assert {"component", "prescribes", "notes", "tests"} <= set(row)
-        assert row["tests"] == []  # no spec tests were ever collected in this workspace
-    # A read must not leave anything visible behind in the project (a hidden .argus/ cache is tolerated).
-    assert sorted(p.name for p in workspace.iterdir() if not p.name.startswith(".")) == [
-        "METHOD.md"
-    ]

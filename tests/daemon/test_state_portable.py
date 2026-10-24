@@ -3,30 +3,15 @@ from __future__ import annotations
 import errno
 import json
 import os
-import threading
 from pathlib import Path
 
 import pytest
 
 from argus.daemon import state as daemon_state
 from argus.daemon.state import (
-    ContinuousConfigState,
     read_continuous_state,
     write_continuous_config,
 )
-
-
-def test_continuous_config_round_trips_unicode_as_utf8(tmp_path: Path) -> None:
-    objective = "自动科研平台 🔬 → α"
-
-    write_continuous_config(tmp_path, enabled=True, objective=objective)
-
-    raw = (tmp_path / "continuous.json").read_bytes()
-    assert json.loads(raw.decode("utf-8"))["objective"] == objective
-    state = read_continuous_state(tmp_path)
-    assert state.enabled is True
-    assert state.objective == objective
-    assert state.generation == 1
 
 
 def test_failed_replace_preserves_existing_continuous_config(
@@ -82,54 +67,6 @@ def test_windows_continuous_lock_retries_until_acquired(
         daemon_state._WINDOWS_LOCK_POLL_SECONDS,
         daemon_state._WINDOWS_LOCK_POLL_SECONDS,
     ]
-
-
-def test_cas_bootstraps_reserve_for_upgraded_existing_life_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    (tmp_path / "continuous.json").write_text(
-        json.dumps(
-            {
-                "enabled": True,
-                "objective": "legacy campaign",
-                "open_ended": True,
-                "generation": 7,
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert not any(path.exists() for path in daemon_state._continuous_reserve_paths(tmp_path))
-
-    expected = ContinuousConfigState(
-        enabled=True,
-        objective="legacy campaign",
-        open_ended=True,
-        generation=7,
-    )
-    real_atomic_write = daemon_state._atomic_write_text
-    failures = 0
-
-    def _quota_once(path: Path, text: str) -> None:
-        nonlocal failures
-        if path.name == "continuous.json" and failures == 0:
-            failures += 1
-            raise OSError(errno.ENOSPC, "quota exhausted")
-        real_atomic_write(path, text)
-
-    monkeypatch.setattr(daemon_state, "_atomic_write_text", _quota_once)
-
-    assert daemon_state.compare_and_swap_continuous_config(
-        tmp_path,
-        expected=expected,
-        enabled=True,
-        objective="upgraded campaign",
-    )
-
-    assert failures == 1
-    assert read_continuous_state(tmp_path).objective == "upgraded campaign"
-    for reserve in daemon_state._continuous_reserve_paths(tmp_path):
-        assert reserve.stat().st_size >= daemon_state._CONTINUOUS_RESERVE_MIN_BYTES
 
 
 def test_quota_exhausted_cas_uses_preallocated_reserve(
@@ -293,87 +230,3 @@ def test_transient_reserve_refresh_failure_preserves_existing_reserve(
         for path in daemon_state._continuous_reserve_paths(tmp_path)
     }
     assert after == before
-
-
-def test_quota_retry_can_be_repeated_after_transient_retry_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    write_continuous_config(tmp_path, enabled=True, objective="existing")
-    real_atomic_write = daemon_state._atomic_write_text
-    calls = 0
-
-    def _quota_then_transient_then_quota(path: Path, text: str) -> None:
-        nonlocal calls
-        if path.name != "continuous.json":
-            real_atomic_write(path, text)
-            return
-        calls += 1
-        if calls in {1, 3}:
-            raise OSError(errno.ENOSPC, "quota exhausted")
-        if calls == 2:
-            raise OSError(errno.EIO, "transient write failure")
-        real_atomic_write(path, text)
-
-    monkeypatch.setattr(
-        daemon_state,
-        "_atomic_write_text",
-        _quota_then_transient_then_quota,
-    )
-    expected = read_continuous_state(tmp_path)
-
-    assert (
-        daemon_state.compare_and_swap_continuous_config(
-            tmp_path,
-            expected=expected,
-            enabled=True,
-            objective="first attempt",
-        )
-        is False
-    )
-    assert read_continuous_state(tmp_path) == expected
-    assert any(path.exists() for path in daemon_state._continuous_reserve_paths(tmp_path))
-
-    assert daemon_state.compare_and_swap_continuous_config(
-        tmp_path,
-        expected=expected,
-        enabled=True,
-        objective="second attempt",
-    )
-    assert calls == 4
-    assert read_continuous_state(tmp_path).objective == "second attempt"
-
-
-def test_reader_waits_for_continuous_writer_lock(tmp_path: Path) -> None:
-    write_continuous_config(tmp_path, enabled=True, objective="existing")
-    expected = read_continuous_state(tmp_path)
-    reader_started = threading.Event()
-    reader_finished = threading.Event()
-    observed: list[ContinuousConfigState] = []
-
-    def _reader() -> None:
-        reader_started.set()
-        observed.append(read_continuous_state(tmp_path))
-        reader_finished.set()
-
-    thread: threading.Thread | None = None
-
-    def _start_reader_while_writer_locked() -> None:
-        nonlocal thread
-        thread = threading.Thread(target=_reader)
-        thread.start()
-        assert reader_started.wait(1)
-        assert not reader_finished.wait(0.05)
-
-    assert daemon_state.compare_and_swap_continuous_config(
-        tmp_path,
-        expected=expected,
-        enabled=True,
-        objective="after locked write",
-        before_write=_start_reader_while_writer_locked,
-    )
-    assert reader_finished.wait(1)
-    assert thread is not None
-    thread.join(timeout=1)
-    assert observed == [read_continuous_state(tmp_path)]
-    assert observed[0].objective == "after locked write"

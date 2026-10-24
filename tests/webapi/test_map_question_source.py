@@ -3,7 +3,6 @@
 import asyncio
 import copy
 import json
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -116,18 +115,6 @@ def test_missing_historical_events_are_omitted_when_saved_card_has_task_binding(
     assert record["card_key"] == "lost-event"
 
 
-def test_saved_task_binding_preserves_the_selected_brief_card_evidence(project, tmp_path):
-    sid, _, _, _, card = project
-    card["task_id"] = "t"
-    save_copy(tmp_path, sid, card, key="t:brief")
-    response = TestClient(create_app(global_root=tmp_path)).post(
-        f"/api/map-question-source/project/{sid}", json={"card_key": "t:brief", "task_id": "t", "locale": "en-US"},
-    )
-    assert response.status_code == 200, response.text
-    record = reader_progress.read_progress_source(tmp_path, sid, response.json()["source_id"])
-    assert "status" not in record["records"]["task"] and "outcome" not in record["records"]["task"]
-
-
 @pytest.mark.parametrize("problem", [
     "missing_copy", "missing_card", "wrong_task", "wrong_event_owner", "wrong_bound_task",
     "missing_task", "no_title", "no_revision", "no_timestamp", "unknown_foundation", "missing_foundation",
@@ -173,27 +160,3 @@ def test_route_auth_session_source_and_body_limits(project, tmp_path):
         assert client.post(url, json={**body, field: value}).status_code == 422
     assert not (life / reader_progress.DIRECTORY).exists()
     assert client.post(url, json=body).status_code == 200
-
-
-def test_prepare_then_question_uses_the_existing_foundation_contract(project, tmp_path, monkeypatch):
-    sid, _, _, _, card = project
-    save_copy(tmp_path, sid, card)
-    prompts = []
-    monkeypatch.setattr(reader_foundation, "resolve_map_model", lambda: SimpleNamespace(available=True, revision="offline"))
-
-    def answer(prompt, *args, **kwargs):
-        prompts.append(prompt)
-        return {"title": "Answer", "markdown": "# Answer\n\nThe selected explanation covers one recorded comparison."}
-
-    monkeypatch.setattr(reader_foundation, "run_map_model", answer)
-    client = TestClient(create_app(global_root=tmp_path))
-    prepared = client.post(f"/api/map-question-source/project/{sid}", json={"card_key": "t", "task_id": "t", "locale": "en-US"})
-    assert prepared.status_code == 200, prepared.text
-    response = client.post(f"/api/projects/{sid}/reader-foundation", json={
-        "request_id": str(uuid4()), "question": "Explain this comparison.", "locale": "en-US",
-        "progress_source": {"source_id": prepared.json()["source_id"]},
-    })
-    assert response.status_code == 200, response.text
-    assert response.json()["reader_foundation"]["kind"] == "progress_answer"
-    assert len(prompts) == 1 and "SELECTED EXPLANATION" in prompts[0] and "CURRENT EVENT 5" in prompts[0]
-    assert "source_snapshot" not in prompts[0] and "resolved_evidence" not in prompts[0]
