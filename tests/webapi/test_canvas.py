@@ -128,3 +128,20 @@ def test_digest_lists_linked_cards_first(tmp_path: Path) -> None:
     lines = store.human_canvas_digest(canvas, titles={"task-x": "跑基线"})
     assert lines[0].endswith("早的想法") and lines[1].endswith("晚的想法")
     assert lines[-1] == "- 连线（检查）: 想法卡《早的想法》 → 任务《跑基线》"
+
+
+def _canvas_events(tmp_path: Path) -> list[dict]:
+    rows = (tmp_path / "projects" / _SID / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    return [row for row in map(json.loads, rows) if row.get("type") == "project.canvas.updated"]
+
+
+def test_every_accepted_write_is_announced_on_the_live_stream(client: TestClient, tmp_path: Path) -> None:
+    """Other open windows refetch on the event instead of waiting for a poll."""
+    card = _card(client, 0, kind="idea", text="先确认评测口径")["card"]
+    res = client.put(f"{_BASE}/positions", json={"revision": 1, "positions": {card["id"]: {"x": 5, "y": 6}}})
+    assert res.status_code == 200, res.text
+    stale = client.post(f"{_BASE}/cards", json={"revision": 0, "kind": "idea", "text": "x"})
+    assert stale.status_code == 409
+    events = _canvas_events(tmp_path)
+    assert [(e["revision"], e["change"]) for e in events] == [(1, "card"), (2, "positions")]
+    assert all(e.get("event_validation") is None for e in events)

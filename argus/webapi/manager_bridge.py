@@ -537,7 +537,7 @@ def _manager_message(
 
 
 def manager_canvas_context(life_dir: Path) -> str:
-    """What a person placed on the canvas, as context for one Manager turn (web chat and chat router)."""
+    """What a person placed on the canvas, as context for one Manager turn (web chat, chat router, team reports)."""
     from .canvas import canvas_context_block
     from .map_references import _backlog_by_id
 
@@ -563,7 +563,11 @@ def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: d
     with _lock_for(sid):
         chat_state = _chat_state_for(sid)
         chat_state.update(session_id=sid, global_root=str(mem.global_root))
-        reply, handoff = manager_turn(mem, f"Team report:\n{text}", chat_state, team_allowed=False)
+        turn_input = f"Team report:\n{text}"
+        # The canvas is context for this decision too, as in the web chat.
+        if canvas_context := manager_canvas_context(Path(mem.project_root)):
+            turn_input = f"{turn_input}\n\n{canvas_context}"
+        reply, handoff = manager_turn(mem, turn_input, chat_state, team_allowed=False)
         tell_team_stage_ruling(mem.project_root, chat_state)
         if reply is None or chat_state.pop("_self_failure", None):
             reply = text

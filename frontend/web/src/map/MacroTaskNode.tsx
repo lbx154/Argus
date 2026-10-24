@@ -34,6 +34,7 @@ import {
   type MapCard,
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
+import { ConnectSource } from "./CanvasNodes";
 import { LiveLine } from "./LiveLine";
 import { arrivalDelay } from "./alive";
 
@@ -380,10 +381,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           ),
         ),
       )}
-      {data.connectable && !data.detailed && (
-        <Handle id="connect" type="source" position={Position.Right} className="canvas-connect"
-          isConnectableEnd={false} title={data.zh ? "拖到另一张卡上连线" : "Drag onto another card to link"} />
-      )}
+      {data.connectable && !data.detailed && <ConnectSource zh={data.zh} />}
       <div
         className="macro-summary"
         aria-hidden={detailed}

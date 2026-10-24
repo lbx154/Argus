@@ -123,6 +123,7 @@
     "plan.draft.done",
     "plan.draft.failed",
     "plan.draft.start",
+    "project.canvas.updated",
     "project.completed",
     "project.completion_refused",
     "provider.request.completed",
@@ -180,7 +181,7 @@
       "counts": {
         "handled": 23,
         "hidden": 0,
-        "missing": 151
+        "missing": 152
       },
       "fallback": "greppable",
       "handled": [
@@ -314,6 +315,7 @@
         "plan.draft.done",
         "plan.draft.failed",
         "plan.draft.start",
+        "project.canvas.updated",
         "project.completed",
         "project.completion_refused",
         "provider.request.completed",
@@ -366,7 +368,7 @@
     "tui": {
       "counts": {
         "handled": 91,
-        "hidden": 83,
+        "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
@@ -520,6 +522,7 @@
         "manager.turn.cancelled",
         "manager.turn.started",
         "plan.draft.start",
+        "project.canvas.updated",
         "project.completed",
         "project.completion_refused",
         "provider.request.completed",
@@ -553,7 +556,7 @@
     "web": {
       "counts": {
         "handled": 91,
-        "hidden": 83,
+        "hidden": 84,
         "missing": 0
       },
       "fallback": "hide",
@@ -707,6 +710,7 @@
         "manager.turn.cancelled",
         "manager.turn.started",
         "plan.draft.start",
+        "project.canvas.updated",
         "project.completed",
         "project.completion_refused",
         "provider.request.completed",

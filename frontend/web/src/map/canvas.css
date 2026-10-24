@@ -33,10 +33,40 @@
 .canvas-file strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; }
 .canvas-file small { font-size: 40px; color: var(--ink-dim, #5c636b); }
 
+/* Far view: no header, the words as one large two-line label (CanvasNodes farLabelFont). */
+.canvas-card.is-far { padding: var(--far-pad, 28px); justify-content: center; gap: 0; }
+.canvas-card .canvas-far-label { font-size: var(--far-font, 120px); line-height: 1.15; font-weight: 650;
+  -webkit-line-clamp: 2; white-space: normal; }
+.canvas-card-file .canvas-far-label { color: var(--blue, #2f6fb3); }
+
+/* Buttons on a card sit above the edge strips so they stay clickable. */
+.canvas-card-more, .canvas-file { position: relative; z-index: 6; }
+
+/* The edge strips a link starts from (ConnectSource): the whole border of a
+   card, --rim wide (about 14 screen px), never over a fifth of the card. */
+.react-flow .react-flow__node .react-flow__handle.canvas-rim {
+  min-width: 0; min-height: 0; border: 0; border-radius: 0; background: transparent;
+  opacity: 1; transform: none; cursor: crosshair; z-index: 5;
+}
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-top,
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-bottom {
+  left: 0; right: auto; width: 100%; height: min(var(--rim, 14px), 20%);
+}
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-left,
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-right {
+  top: 0; bottom: auto; height: 100%; width: min(var(--rim, 14px), 20%);
+}
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-top { top: calc(var(--rim, 14px) * -0.35); }
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-bottom { top: auto; bottom: calc(var(--rim, 14px) * -0.35); }
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-left { left: calc(var(--rim, 14px) * -0.35); }
+.react-flow .react-flow__node .react-flow__handle.canvas-rim-right { left: auto; right: calc(var(--rim, 14px) * -0.35); }
+.react-flow .react-flow__node:hover .react-flow__handle.canvas-rim { background: rgb(184 134 43 / 0.10); }
+.react-flow .react-flow__node .react-flow__handle.canvas-rim:hover { background: rgb(184 134 43 / 0.32); }
+
 /* The dot a person drags from to draw a link, on human and task cards. */
 .react-flow__handle.canvas-connect {
   width: 44px; height: 44px; right: -22px; border-radius: 50%;
-  background: #fff; border: 6px solid #b8862b; opacity: 0.35; cursor: crosshair;
+  background: #fff; border: 6px solid #b8862b; opacity: 0.35; cursor: crosshair; z-index: 6;
 }
 .react-flow__node:hover .react-flow__handle.canvas-connect { opacity: 1; }
 

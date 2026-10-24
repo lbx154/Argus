@@ -606,6 +606,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped':
     case 'manager.live_view.updated': case 'manager.live_view.rejected':
+    // A canvas write: open maps refetch the canvas; nothing to read in the feed.
+    case 'project.canvas.updated':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);
     default: {

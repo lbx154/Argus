@@ -1,6 +1,7 @@
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
+import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
+import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
@@ -499,6 +500,12 @@ export default function App() {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [loadedSid, queryClient, snapshotRefreshKey]);
+  // A canvas write in another window arrives as an event: refetch the canvas
+  // now instead of on its next poll.
+  const canvasRevision = useMemo(() => canvasRevisionFromEvents(events), [events]);
+  useEffect(() => {
+    if (loadedSid && canvasRevision) refreshCanvas(queryClient, loadedSid, canvasRevision);
+  }, [canvasRevision, loadedSid, queryClient]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
     loadedSid, true, events, localConversationEvents, localConversationSid.current,

@@ -1919,6 +1919,13 @@ export interface AccountingJournalRepairedEvent extends EventMsg {
   "liabilities": Array<{ "call_id"?: string; "cost_usd"?: number | null; "line"?: number; }>;
 }
 
+export interface ProjectCanvasUpdatedEvent extends EventMsg {
+  type: "project.canvas.updated";
+  payload_schema_version?: 1;
+  "revision": number;
+  "change"?: "card" | "link" | "positions";
+}
+
 export interface EventPayloadByType {
   "life.peer.message.processed": LifePeerMessageProcessedEvent;
   "life.config.parse_failed": LifeConfigParseFailedEvent;
@@ -2094,6 +2101,7 @@ export interface EventPayloadByType {
   "ui.operator": UiOperatorEvent;
   "ui.argus": UiArgusEvent;
   "accounting.journal_repaired": AccountingJournalRepairedEvent;
+  "project.canvas.updated": ProjectCanvasUpdatedEvent;
 }
 
 export type TypedArgusEvent = EventPayloadByType[keyof EventPayloadByType];

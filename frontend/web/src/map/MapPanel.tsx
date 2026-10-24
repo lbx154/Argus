@@ -1561,6 +1561,7 @@ export function MapCanvas({
               onInit={(instance) => { flowInstance.current = instance; }}
               onConnectEnd={onConnectEnd}
               connectionMode={ConnectionMode.Loose}
+              connectOnClick={false}
               nodeDragThreshold={4}
               onNodeMouseEnter={(_, node) => setHoverId(node.id)}
               onNodeMouseLeave={() => setHoverId(null)}

@@ -10,7 +10,10 @@ DELETE /api/projects/{sid}/canvas/links/{link_id}?revision=N
 PUT    /api/projects/{sid}/canvas/positions          → {canvas}
 
 Every write carries the revision it read; a stale one answers 409 with the
-current canvas in ``detail.canvas``. Plain reads and writes, no model calls.
+current canvas in ``detail.canvas``. Every accepted write also puts a
+``project.canvas.updated`` event (its new revision) on the project's live
+stream, so other open windows refetch the canvas at once. Plain reads and
+writes, no model calls.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from typing import Any, Literal
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ...core.event_catalog import EventType
 from .. import canvas as store
 from ..staged_attachments import StagedAttachmentError, unstage
 
@@ -62,13 +66,31 @@ class PositionsIn(BaseModel):
     positions: dict[str, Point | None]
 
 
+def tell_open_maps(life_dir, canvas: dict[str, Any], changed: str) -> None:
+    """Put the canvas's new revision on the live stream every open map reads.
+
+    A window that already holds this revision (the one that wrote it) ignores
+    it; any other refetches the canvas. Best effort: the write stands either way.
+    """
+    try:
+        from ...life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=life_dir).append({
+            "type": EventType.PROJECT_CANVAS_UPDATED.value,
+            "revision": int(canvas["revision"]),
+            "change": changed,
+        })
+    except Exception:  # noqa: BLE001 - other windows still catch up on their next read
+        logger.warning("Could not announce canvas revision in %s", life_dir, exc_info=True)
+
+
 def register_canvas_routes(app, ctx) -> None:
     auth = [Depends(ctx.require_auth)]
 
-    def run(sid: str, operation, *args, **kwargs) -> tuple[dict[str, Any], Any]:
+    def run(sid: str, changed: str, operation, *args, **kwargs) -> tuple[dict[str, Any], Any]:
         life_dir = ctx.resolve_or_404(sid)
         try:
-            return operation(life_dir, *args, **kwargs)
+            result = operation(life_dir, *args, **kwargs)
         except store.CanvasConflict as exc:
             raise HTTPException(409, {"message": str(exc), "canvas": exc.current}) from exc
         except store.CanvasError as exc:
@@ -76,6 +98,8 @@ def register_canvas_routes(app, ctx) -> None:
         except OSError as exc:
             logger.exception("Canvas write failed")
             raise HTTPException(500, "the canvas could not be saved; check disk space and retry") from exc
+        tell_open_maps(life_dir, result[0], changed)
+        return result
 
     @app.get("/api/projects/{sid}/canvas", dependencies=auth)
     def _get_canvas(sid: str) -> dict[str, Any]:
@@ -84,7 +108,7 @@ def register_canvas_routes(app, ctx) -> None:
     @app.post("/api/projects/{sid}/canvas/cards", dependencies=auth)
     def _add_card(sid: str, body: CardIn) -> dict[str, Any]:
         canvas, card = run(
-            sid, store.add_card, body.revision, kind=body.kind, text=body.text,
+            sid, "card", store.add_card, body.revision, kind=body.kind, text=body.text,
             attachment=body.attachment, position=body.position.model_dump() if body.position else None,
         )
         if card["attachment"]:
@@ -97,31 +121,31 @@ def register_canvas_routes(app, ctx) -> None:
 
     @app.patch("/api/projects/{sid}/canvas/cards/{card_id}", dependencies=auth)
     def _update_card(sid: str, card_id: str, body: CardPatch) -> dict[str, Any]:
-        canvas, card = run(sid, store.update_card, body.revision, card_id, text=body.text)
+        canvas, card = run(sid, "card", store.update_card, body.revision, card_id, text=body.text)
         return {"canvas": canvas, "card": card}
 
     @app.delete("/api/projects/{sid}/canvas/cards/{card_id}", dependencies=auth)
     def _delete_card(sid: str, card_id: str, revision: int = Query(ge=0)) -> dict[str, Any]:
-        canvas, card = run(sid, store.delete_card, revision, card_id)
+        canvas, card = run(sid, "card", store.delete_card, revision, card_id)
         return {"canvas": canvas, "card": card}
 
     @app.post("/api/projects/{sid}/canvas/links", dependencies=auth)
     def _add_link(sid: str, body: LinkIn) -> dict[str, Any]:
-        canvas, link = run(sid, store.add_link, body.revision, source=body.source, target=body.target, kind=body.kind)
+        canvas, link = run(sid, "link", store.add_link, body.revision, source=body.source, target=body.target, kind=body.kind)
         return {"canvas": canvas, "link": link}
 
     @app.patch("/api/projects/{sid}/canvas/links/{link_id}", dependencies=auth)
     def _update_link(sid: str, link_id: str, body: LinkPatch) -> dict[str, Any]:
-        canvas, link = run(sid, store.update_link, body.revision, link_id, kind=body.kind)
+        canvas, link = run(sid, "link", store.update_link, body.revision, link_id, kind=body.kind)
         return {"canvas": canvas, "link": link}
 
     @app.delete("/api/projects/{sid}/canvas/links/{link_id}", dependencies=auth)
     def _delete_link(sid: str, link_id: str, revision: int = Query(ge=0)) -> dict[str, Any]:
-        canvas, link = run(sid, store.delete_link, revision, link_id)
+        canvas, link = run(sid, "link", store.delete_link, revision, link_id)
         return {"canvas": canvas, "link": link}
 
     @app.put("/api/projects/{sid}/canvas/positions", dependencies=auth)
     def _put_positions(sid: str, body: PositionsIn) -> dict[str, Any]:
         positions = {key: value.model_dump() if value else None for key, value in body.positions.items()}
-        canvas, _ = run(sid, store.set_positions, body.revision, positions)
+        canvas, _ = run(sid, "positions", store.set_positions, body.revision, positions)
         return {"canvas": canvas}
