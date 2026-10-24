@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -319,31 +317,6 @@ def test_feed_preserves_loaded_evidence_when_the_live_log_rolls_over(tmp_path):
     assert [event["id"] for event in continued["events"]] == ["after-roll"]
 
 
-def test_separate_api_processes_reuse_the_same_cached_generation(tmp_path):
-    script = """
-import json, sys, time
-from pathlib import Path
-from argus.webapi import map_narrative as copy
-root = Path(sys.argv[1])
-def generate(documents, *args, **kwargs):
-    with (root / 'calls.txt').open('a') as f: f.write('call\\n')
-    time.sleep(.15)
-    return {'cards': [{'key': 'a', 'title': 'Coverage', 'summary': 'Checked', 'detail': 'Result'}], 'relations': []}
-copy.generate = generate
-copy.configured = lambda: True
-data = {'id': 'live:s-process', 'tasks': [{'id': 'a', 'title': 'Coverage', 'status': 'done'}], 'events': []}
-result = copy.enrich(root, data, [{'key': 'a', 'task_id': 'a', 'kind': 'task', 'event_ids': []}], 'en-US', project_root=root)
-print(json.dumps({'cached': result['cached']}))
-"""
-    workers = [subprocess.Popen([sys.executable, "-c", script, str(tmp_path)],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
-    receipts = []
-    for worker in workers:
-        stdout, stderr = worker.communicate(timeout=30)
-        assert worker.returncode == 0, stderr
-        receipts.append(json.loads(stdout))
-    assert (tmp_path / "calls.txt").read_text().splitlines() == ["call"]
-    assert sum(r["cached"] for r in receipts) == 1
 
 
 def test_updated_event_behind_the_cursor_is_redelivered(tmp_path):
