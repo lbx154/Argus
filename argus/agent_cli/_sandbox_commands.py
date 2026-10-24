@@ -16,6 +16,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from ..core.hosting import hosting
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
@@ -251,9 +252,7 @@ def copilot_model_options(
     rejects ``--reasoning-effort``, and some tokens can use nothing else, so
     such a call names neither flag. A named model keeps the configured effort.
     """
-    from ..trial.client import trial_model_options
-
-    model, effort = trial_model_options(model, effort)
+    model, effort = hosting().model_options(model, effort)
     if str(model or "").strip().casefold() in _COPILOT_AUTO_MODELS:
         return None, None
     return model, effort

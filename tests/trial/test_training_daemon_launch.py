@@ -21,6 +21,7 @@ from test_training_runtime import training as training
 
 from argus.daemon import _life_worker_admission as admission
 from argus.daemon.config import LifeWorkerConfig
+from argus.trial import hosting
 from argus.trial import training_runtime as runtime
 from argus.trial.analytics import AnalyticsError
 from argus.trial.training_bridge import (
@@ -120,7 +121,7 @@ life_worker.LifeWorker=IsolatedNoModelWorker
         tickets.append(payload)
         return payload
 
-    monkeypatch.setattr(runtime, "daemon_launch_payload", observe)
+    monkeypatch.setattr(hosting, "daemon_launch_payload", observe)
     daemon_pid = None
     try:
         assert admission.spawn_detached_daemon_clean(config, quiet=True) == 0, config.last_spawn_error

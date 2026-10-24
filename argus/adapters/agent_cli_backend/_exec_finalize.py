@@ -12,6 +12,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from ...core.hosting import hosting
 from ...core.metrics import metrics_root_for_project, record_metric
 from ...core.models import RunnerResult
 from ...core.runner_errors import result_rejected_before_output
@@ -113,7 +114,6 @@ def finalize_result(
     if ctx.usage_project_root is not None:
         try:
             from ...core.usage import UsageLedger, build_usage_record
-            from ...trial.client import trial_enabled
 
             pricing_model, model_fallback_source = resolve_pricing_model(
                 result.usage_model,
@@ -149,7 +149,7 @@ def finalize_result(
                 premium_requests=premium,
                 total_nano_aiu=result.total_nano_aiu,
                 copilot_token_billing_expected=ctx.copilot_token_billing_expected,
-                hosted_trial=backend._backend_name == "copilot" and trial_enabled(),
+                hosted_trial=backend._backend_name == "copilot" and hosting().enabled(),
                 provider_cost_usd=(
                     provider_cost_usd
                     if backend._backend_name in {"opencode", "pi"}

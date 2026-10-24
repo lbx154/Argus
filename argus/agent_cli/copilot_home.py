@@ -46,6 +46,7 @@ import time
 from pathlib import Path
 from typing import Mapping
 
+from ..core.hosting import hosting
 from ..core.paths import global_root
 
 log = logging.getLogger(__name__)
@@ -81,10 +82,9 @@ def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
     """Resolve the opt-in account binding without touching credentials."""
     from ..core.knob_store import persisted_knob
     from ..core.paths import resolve_runtime_path
-    from ..trial.client import trial_enabled
 
     source = os.environ if env is None else env
-    if trial_enabled(source):
+    if hosting().enabled(source):
         return None
     # An explicitly empty value lets setup validate removal before persisting it.
     raw = (
@@ -100,10 +100,9 @@ def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
 def copilot_token_from_env_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Whether the operator opted in to authenticating Copilot by env token."""
     from ..core.knob_store import persisted_knob
-    from ..trial.client import trial_enabled
 
     source = os.environ if env is None else env
-    if trial_enabled(source):
+    if hosting().enabled(source):
         return False
     return persisted_knob(COPILOT_TOKEN_FROM_ENV_KNOB, env=source).strip().lower() in _TRUTHY
 
@@ -140,10 +139,9 @@ def apply_copilot_env_token(
 
 def copilot_auth_source(env: Mapping[str, str] | None = None) -> str:
     """Human-readable description of where Copilot children get credentials."""
-    from ..trial.client import trial_enabled
 
     source = os.environ if env is None else env
-    if trial_enabled(source):
+    if hosting().enabled(source):
         return "trial provider"
     if copilot_token_from_env_enabled(source):
         if copilot_env_token(source):
@@ -373,16 +371,12 @@ def copilot_log_dir(env: Mapping[str, str] | None = None) -> Path:
 
 def copilot_runtime_redactions() -> tuple[str, ...]:
     """Keep hosted-provider redactions behind the existing Copilot boundary."""
-    from ..trial.client import runtime_redactions
-
-    return runtime_redactions()
+    return hosting().redactions()
 
 
 def apply_copilot_provider(env: dict[str, str]) -> None:
     """Reapply only the explicitly selected provider to an isolated child."""
-    from ..trial.client import apply_trial_provider
-
-    apply_trial_provider(env)
+    hosting().apply_provider(env)
 
 
 def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:

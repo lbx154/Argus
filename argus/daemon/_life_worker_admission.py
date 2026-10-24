@@ -20,6 +20,8 @@ from typing import Any
 
 import portalocker
 
+from ..core.hosting import hosting
+
 try:
     import fcntl as _fcntl
 except ImportError:  # pragma: no cover - detached daemon is POSIX-only
@@ -468,9 +470,7 @@ def spawn_detached_daemon_clean(
     started_at = time.time()
     timeout_s = _clean_launch_timeout_seconds()
     payload = _config_payload(config)
-    from ..trial.training_runtime import daemon_launch_payload
-
-    training_launch = daemon_launch_payload(config)
+    training_launch = hosting().daemon_launch_payload(config)
     if training_launch is not None:
         payload["_training_launch"] = training_launch
     try:

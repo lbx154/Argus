@@ -1,13 +1,13 @@
 """Optional plugin center plus dynamically activated, authenticated workbenches."""
 
 import logging
-import os
 import threading
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from ...core import plugin_manager as manager
+from ...core.hosting import hosting
 from .. import plugin_desktop
 
 
@@ -49,10 +49,8 @@ class PluginSurface:
         if key not in self.apps:
             host = FastAPI()
             plugin.mount(host, self.ctx)
-            if os.environ.get("ARGUS_TRIAL_HARNESS") and name == "crystalpilot":
-                from ...trial.plugins import workspace_boundary
-
-                host.middleware("http")(workspace_boundary)
+            if boundary := hosting().plugin_middleware(name):
+                host.middleware("http")(boundary)
             self.apps[key] = host
         ui_path = scope.get("path", "").removeprefix("/plugins/crystalpilot").strip("/")
         ui_document = scope.get("path", "").startswith("/plugins/crystalpilot") and (
@@ -87,14 +85,12 @@ def register_plugin_routes(app, ctx):
     @app.get("/api/plugins", dependencies=[Depends(ctx.require_auth)])
     def list_plugins():
         rows = manager.plugin_rows(ctx.global_root)
-        if os.environ.get("ARGUS_TRIAL_HARNESS"):
-            from ...trial.plugins import SETUP_ACTIONS
-
+        if (allowed := hosting().plugin_setup_actions()) is not None:
             for row in rows:
                 if row.get("setup"):
                     row["setup"] = {
                         **row["setup"],
-                        "actions": [a for a in row["setup"]["actions"] if a in SETUP_ACTIONS],
+                        "actions": [a for a in row["setup"]["actions"] if a in allowed],
                     }
         return {"plugins": rows}
 
@@ -102,11 +98,9 @@ def register_plugin_routes(app, ctx):
     def manage(
         plugin_id: str, action: str, request: Request, payload: dict = Body(default_factory=dict)
     ):
-        if os.environ.get("ARGUS_TRIAL_HARNESS"):
-            from ...trial.plugins import SETUP_ACTIONS
-
-            if action not in SETUP_ACTIONS:
-                raise HTTPException(403, "Plugin installation is managed by the service")
+        allowed = hosting().plugin_setup_actions()
+        if allowed is not None and action not in allowed:
+            raise HTTPException(403, "Plugin installation is managed by the service")
         origin = request.headers.get("origin")
         from urllib.parse import urlparse
 

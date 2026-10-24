@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.event_catalog import EventType
+from ..core.hosting import hosting
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec
 from .config import AdvisorConfig
@@ -53,9 +54,7 @@ def make_advisor_backend(config: AdvisorConfig, interrupt: Callable[[], str | No
     if config.backend in {"pi", "opencode"} and "/" not in config.model:
         raise ValueError("advisor requires an explicit provider/model for this backend")
     if config.backend == "copilot":
-        from ..trial.client import trial_model_options
-
-        model, effort = trial_model_options(config.model, config.effort or None)
+        model, effort = hosting().model_options(config.model, config.effort or None)
         if model != config.model or effort != (config.effort or None):
             raise ValueError("hosted trial would override the advisor model or effort; configure an independent route")
     executable = resolve_runner_bin(config.backend, config.runner_bin or None)

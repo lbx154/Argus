@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli.copilot_home import argus_copilot_home, copilot_account_home
+from ..core.hosting import hosting
 
 # Copilot records cost in nano-AI units. 1e9 nano-AIU = 1 AI credit and
 # 1 AI credit = $0.01, therefore one USD is 1e11 nano-AIU.
@@ -116,11 +117,9 @@ def copilot_usage_db_candidates() -> list[Path]:
     """Every store a Copilot call may have written, with each workdir's
     sandboxed copy of it."""
     from ..core.sandbox import private_copies
-    from ..trial.client import profile_path, trial_enabled
-
     account_home = copilot_account_home()
-    if trial_enabled():
-        candidates = [profile_path().parent / "copilot-trial-home" / "session-store.db"]
+    if trial_store := hosting().copilot_session_store():
+        candidates = [trial_store]
     elif account_home is not None:
         candidates = [account_home / "session-store.db"]
     else:
@@ -142,12 +141,8 @@ def capture_copilot_usage_cursor(
     # home even before its DB is created; accounting itself remains read-only.
     # A sandboxed call keeps that home in its workdir's private copy.
     from ..core.sandbox import private_path
-    from ..trial.client import profile_path, trial_enabled
-
-    if trial_enabled():
-        return _capture_cursor(private_path(
-            profile_path().parent / "copilot-trial-home" / "session-store.db", working_dir,
-        ))
+    if trial_store := hosting().copilot_session_store():
+        return _capture_cursor(private_path(trial_store, working_dir))
     account_home = copilot_account_home()
     if account_home is not None:
         return _capture_cursor(private_path(account_home / "session-store.db", working_dir))

@@ -1044,20 +1044,15 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_core.py -> tools",
     "adapters/agent_cli_backend/_exec.py -> life",
     "adapters/agent_cli_backend/_exec.py -> messaging",
-    "adapters/agent_cli_backend/_exec.py -> trial",
-    "adapters/agent_cli_backend/_exec_finalize.py -> trial",
     "advisor/service.py -> life",
-    "advisor/service.py -> trial",
-    "agent_cli/_sandbox_commands.py -> trial",
-    "agent_cli/copilot_home.py -> trial",
     "core/agent_probe.py -> adapters",
+    "core/hosting.py -> trial",
     "core/backend_readiness.py -> agent_cli",
     "core/backend_readiness.py -> tools",
     "core/jsonl_reader.py -> life",
     "core/knob_store.py -> agent_cli",
     "core/knobs.py -> agent_cli",
     "core/knobs.py -> tools",
-    "core/knobs.py -> trial",
     "core/mission_view/_replay.py -> life",
     "core/operator_context.py -> life",
     "core/operator_context.py -> manager",
@@ -1070,12 +1065,9 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "core/stage_certificate.py -> skills",
     "core/usage.py -> agent_cli",
     "core/vault_preflight.py -> tools",
-    "daemon/_life_worker_admission.py -> trial",
     "daemon/_life_worker_boot.py -> apps",
     "daemon/_life_worker_run.py -> apps",
     "daemon/_life_worker_runtime_context.py -> apps",
-    "daemon/process.py -> trial",
-    "daemon/spawn_helper.py -> trial",
     "engineer/round_execution.py -> life",
     "engineer/round_manager_wait.py -> manager",
     "engineer/round_settlement.py -> life",
@@ -1095,7 +1087,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/front_door.py -> apps",
     "manager/front_door.py -> daemon",
     "manager/supervision.py -> daemon",
-    "provider_integrations/copilot_usage.py -> trial",
     "reviewer/_core.py -> manager",
     "skills/builtins.py -> domains",
     "skills/builtins.py -> verticals",
@@ -1107,7 +1098,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/stage_machine.py -> verticals",
     "skills/vertical_select.py -> domains",
     "skills/vertical_select.py -> verticals",
-    "tools/setup.py -> trial",
     "verticals/research/idea_portfolio.py -> manager",
 })
 
@@ -1270,6 +1260,20 @@ def test_function_body_imports_to_higher_layers_are_pinned() -> None:
         "upward import", measured, FUNCTION_BODY_UPWARD_ALLOWLIST
     )
 
+
+def test_only_the_hosting_seam_imports_the_trial() -> None:
+    """Core reaches the hosted trial only through ``core/hosting.py``.
+
+    The trial is moving to its own repository; any other file that names it,
+    at module level or inside a function, would stop working without it.
+    """
+    importers = {
+        path.relative_to(ARGUS).as_posix()
+        for path in _every_python_file()
+        for record in _cross_package_imports(path)
+        if _target_package(record.module) == "trial"
+    }
+    assert importers == {"core/hosting.py"}
 
 def test_private_modules_are_not_imported_across_packages() -> None:
     """A leading underscore is a promise that only the owning package reads it.
