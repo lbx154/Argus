@@ -25,6 +25,7 @@ import { currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
 import { FileText } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
+import { deliveryFiles } from './deliveryPresentation';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 export const FILES_PATH = '__argus_files__';
@@ -346,6 +347,26 @@ export function ResearchCanvas({
     setManualPath(path);
     if (filesFirst && sid) setSaveFailed(!writeLocalStorage(`argus.preview.file.v1:${sid}`, path));
   }, [previewArtifacts, requestedPath, requestedPathToken, filesFirst, sid]);
+
+  // A new delivery replaces what the panel showed before: the newest result
+  // is what the person wants to see (the old chart must not linger).
+  const seenDelivery = useRef<{ sid: string | null; id: string } | null>(null);
+  const [newestPaths, setNewestPaths] = useState<string[]>([]);
+  useEffect(() => {
+    const id = latestDelivery?.delivery_id || '';
+    const previous = seenDelivery.current;
+    seenDelivery.current = { sid, id };
+    if (!filesFirst || !latestDelivery || !id || !previous?.id || previous.sid !== sid || previous.id === id) return;
+    setNewestPaths(deliveryFiles(latestDelivery).map((file) => file.path));
+  }, [latestDelivery, sid, filesFirst]);
+  useEffect(() => {
+    if (!newestPaths.length) return;
+    const target = newestPaths.find((path) => previewArtifacts.some((item) => item.path === path && item.exists));
+    if (!target) return;
+    setNewestPaths([]);
+    setManualPath(target);
+    if (sid) setSaveFailed(!writeLocalStorage(`argus.preview.file.v1:${sid}`, target));
+  }, [newestPaths, previewArtifacts, sid]);
 
   const selectPreviewPath = (path: string) => {
     setManualPath(path);

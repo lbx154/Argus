@@ -116,7 +116,7 @@ describe('launch settings and the confirm-before-start card', () => {
     const html = renderToStaticMarkup(<LaunchSettingsBar value={DEFAULT_LAUNCH_SETTINGS} onChange={() => undefined}
       ask="beyond_authority" onAskChange={() => undefined} research />);
     expect(html).toContain('开工设置');
-    expect(html).toContain('首个结果');
+    expect(html).toContain('多久先看到结果');
     expect(html).toContain('什么时候问我');
     expect(html).toContain('冲刺可发表（耗时长）');
     expect(html).not.toContain('type="checkbox"');

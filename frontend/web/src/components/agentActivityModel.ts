@@ -31,7 +31,7 @@ export function activityTitle(kind: string, zh: boolean, tool = ''): string {
     grounding: ['理解任务与检查项目', 'Understanding the task'], task: ['安排任务', 'Task assignment'],
     decision: ['确定执行方案', 'Execution decision'], plan: ['制定执行计划', 'Planning the work'],
     agent_message: ['更新执行进度', 'Progress update'], assistant_message: ['更新执行进度', 'Progress update'],
-    command_execution: ['运行项目命令', 'Running a project command'], tool_use: ['使用工具', 'Using a tool'],
+    command_execution: ['在项目里执行操作', 'Working in the project'], tool_use: ['使用工具', 'Using a tool'],
     tool_result: ['工具输出', 'Tool output'],
     file_change: ['更新项目文件', 'Updating project files'], handoff: ['整理结果与后续工作', 'Summarizing results and next steps'],
     review: ['检查实现与结果', 'Checking implementation and results'], verdict: ['说明检查结果', 'Explaining the check result'],

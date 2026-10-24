@@ -35,10 +35,16 @@ export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: 
 }
 
 /** Main-conversation actions around the same input surface used by the map. */
+/** A long project title is clipped so the placeholder still reads as one line. */
+function clipProjectName(name: string): string {
+  const text = name.replace(/\s+/g, ' ').trim();
+  return text.length > 24 ? `${text.slice(0, 23)}…` : text;
+}
+
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote, projectName,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -58,6 +64,8 @@ export function ChatBox({
   onRouteOverrideChange?: (value: MessageRouteOverride) => void;
   /** Shown under the input, like the map composer's runtime line. */
   footer?: ReactNode;
+  /** The project a message goes to, named in the placeholder so it is never in doubt. */
+  projectName?: string;
   /** Replaces the reply hint while the send waits on something else, such as uploads. */
   pendingNote?: string;
 }) {
@@ -179,7 +187,7 @@ export function ChatBox({
         onKeyDown: onKey, 'aria-label': t('chat.messageArgus'), 'aria-keyshortcuts': 'Control+R Meta+R',
         'aria-controls': completionOpen ? SLASH_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
         'aria-activedescendant': activeCompletion ? slashCompletionOptionId(activeCompletion.id) : undefined,
-        placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
+        placeholder: disabled ? t('chat.selectSession') : projectName?.trim() ? t('chat.placeholderProject', { project: clipProjectName(projectName) }) : t('chat.placeholder'),
       }}
       controls={<>
         {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}

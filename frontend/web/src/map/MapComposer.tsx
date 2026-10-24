@@ -392,7 +392,7 @@ export function MapComposer({
         {compact && pending && (
           <button type="button" className="map-island-stop" onClick={onCancel}
             aria-label={zh ? "停止本次回复" : "Stop this reply"}
-            title={zh ? "只停止 Manager 这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}>
+            title={zh ? "只停止经理这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}>
             <Square size={13} />
           </button>
         )}
@@ -464,7 +464,7 @@ export function MapComposer({
                 }}
                 tabIndex={compact ? -1 : 0}
                 aria-label={zh ? "停止本次回复" : "Stop this reply"}
-                title={zh ? "只停止 Manager 这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}
+                title={zh ? "只停止经理这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}
                 className="map-send is-pending"
               >
                 <Square size={15} />

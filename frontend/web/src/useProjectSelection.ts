@@ -7,10 +7,20 @@ import { type NoticeTone } from './components/ActionNotice';
 export type ProjectHistoryMode = 'push' | 'replace';
 
 const BROWSER_PROJECT_KEY = 'argus.browser.project.v1';
+// The project this browser last showed. A tab keeps its own choice; a fresh
+// load (new tab, reopened app) opens the last one viewed here, never merely the
+// most recently active one, so a message goes where the person was looking.
+const LAST_VIEWED_PROJECT_KEY = 'argus.browser.lastViewedProject.v1';
 
 function storedBrowserProject(): string | null {
   try {
-    return window.sessionStorage.getItem(BROWSER_PROJECT_KEY);
+    const tab = window.sessionStorage.getItem(BROWSER_PROJECT_KEY);
+    if (tab) return tab;
+  } catch {
+    /* storage can be disabled */
+  }
+  try {
+    return window.localStorage.getItem(LAST_VIEWED_PROJECT_KEY);
   } catch {
     return null;
   }
@@ -22,6 +32,26 @@ function storeBrowserProject(id: string | null): void {
     else window.sessionStorage.removeItem(BROWSER_PROJECT_KEY);
   } catch {
     /* storage can be disabled; the URL remains authoritative */
+  }
+  try {
+    // Leaving to the landing page keeps the last real project to come back to.
+    if (id) window.localStorage.setItem(LAST_VIEWED_PROJECT_KEY, id);
+  } catch {
+    /* storage can be disabled */
+  }
+}
+
+/** Forget a project this browser remembered (it was deleted or discarded). */
+export function forgetBrowserProject(id: string): void {
+  try {
+    if (window.sessionStorage.getItem(BROWSER_PROJECT_KEY) === id) window.sessionStorage.removeItem(BROWSER_PROJECT_KEY);
+  } catch {
+    /* storage can be disabled */
+  }
+  try {
+    if (window.localStorage.getItem(LAST_VIEWED_PROJECT_KEY) === id) window.localStorage.removeItem(LAST_VIEWED_PROJECT_KEY);
+  } catch {
+    /* storage can be disabled */
   }
 }
 
@@ -66,6 +96,9 @@ export function useProjectSelection({
       : `Project “${requested}” was not found. Create a project to continue.`;
   };
   const params = new URLSearchParams(window.location.search);
+  // Only a project named in the URL is worth a "not found" notice; a
+  // remembered one that has since been removed falls back quietly.
+  const urlRequestedRef = useRef(Boolean(params.get('project')));
   const [sid, setSid] = useState<string | null>(
     params.get('project') || storedBrowserProject(),
   );
@@ -120,7 +153,7 @@ export function useProjectSelection({
     if (locationId !== selection.id) {
       writeProjectLocation(selection.id, 'replace');
     }
-    if (selection.recovered) {
+    if (selection.recovered && urlRequestedRef.current) {
       const fallback = projects.find((project) => project.id === selection.id);
       notify(
         'info',

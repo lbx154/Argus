@@ -79,6 +79,13 @@
 .react-flow__connectionline path { stroke: #b8862b; stroke-width: 6; }
 .canvas-drop-hint { position: absolute; inset: 0; z-index: 5; pointer-events: none;
   outline: 3px dashed #b8862b; outline-offset: -8px; border-radius: 12px; background: rgb(255 247 214 / 0.18); }
+.canvas-conversation-notice { display: flex; align-items: center; gap: 8px; }
+.canvas-conversation-notice button { color: var(--blue, #2563eb); background: none; border: 0; cursor: pointer; font-size: 13px; padding: 0; }
+.canvas-conversation-notice button:last-child { color: var(--ink-faint, #8a9099); }
+.canvas-hint { position: absolute; left: 12px; top: 58px; z-index: 5; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
+  background: var(--panel, #fff); border: 1px dashed var(--line, #d0d4d9); border-radius: 999px; padding: 3px 6px 3px 12px;
+  font-size: 12px; color: var(--ink-dim, #5c636b); opacity: .92; }
+.canvas-hint button { border: 0; background: none; cursor: pointer; color: var(--ink-faint, #8a9099); font-size: 14px; line-height: 1; padding: 0 4px; }
 .canvas-upload-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
   background: var(--panel, #fff); border: 1px solid var(--line, #d0d4d9); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 

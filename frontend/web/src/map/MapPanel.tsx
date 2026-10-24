@@ -114,6 +114,7 @@ const RELATION_HINTS: Partial<Record<string, [string, string]>> = {
 };
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
+const CANVAS_HINT_KEY = "argus.map.canvasHintDismissed.v1";
 type CanvasMenu =
   | { type: "card"; id: string; x: number; y: number }
   | { type: "link"; id: string; x: number; y: number }
@@ -174,7 +175,17 @@ export function MapCanvas({
   const operatorMessageId = operatorMessage ? String(operatorMessage.message_id || operatorMessage.ts || '') : '';
   const lastOperatorMessage = useRef(operatorMessageId);
   const wasPending = useRef(composer.pending);
+  // A message about a card (交给团队 / 问这张卡) keeps the canvas in view: the
+  // conversation would cover the card and the task it makes, so a small
+  // notice links to it instead of opening it.
+  const quietUntil = useRef(0);
+  const [conversationNotice, setConversationNotice] = useState("");
   useEffect(() => {
+    if (Date.now() < quietUntil.current) {
+      lastOperatorMessage.current = operatorMessageId;
+      wasPending.current = composer.pending;
+      return;
+    }
     if (data.kind === 'live' && !readOnly && ((operatorMessageId && operatorMessageId !== lastOperatorMessage.current)
       || (composer.pending && !wasPending.current))) {
       setConversationOpen(true);
@@ -308,19 +319,23 @@ export function MapCanvas({
     const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
     setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
     let hasTask = false;
+    const aboutCard = splitDraft(text).refs.length > 0;
+    if (aboutCard) {
+      quietUntil.current = Date.now() + 120_000;
+      setConversationNotice(zh ? "已发给 Argus，回复在对话里" : "Sent to Argus; the reply is in the conversation");
+    }
     const observe: DispatchObserver = (result) => {
       if (result.type === 'task') hasTask = true;
-      if (alive.current && result.type === 'settled' && result.outcome === 'message' && !hasTask) { setConversationOpen(true); setAgentsOpen(false); }
+      if (alive.current && result.type === 'settled' && aboutCard) {
+        quietUntil.current = 0;
+        if (result.outcome === 'message' && !hasTask) setConversationNotice(zh ? "Argus 已回复" : "Argus replied");
+        else if (hasTask) setConversationNotice(zh ? "已交给团队，新任务出现在画布上" : "Handed to the team; the new task is on the canvas");
+      } else if (alive.current && result.type === 'settled' && result.outcome === 'message' && !hasTask) { setConversationOpen(true); setAgentsOpen(false); }
       if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
     };
     try {
       const accepted = await composer.onSend(text, files, observe);
-      if (accepted && alive.current && splitDraft(text).refs.length > 0) {
-        // Referenced questions belong beside their live reply, including the
-        // waiting period and streamed text before the final response arrives.
-        setConversationOpen(true);
-        setAgentsOpen(false);
-      }
+      if (!accepted && aboutCard) { quietUntil.current = 0; setConversationNotice(""); }
       if (!accepted) observe({ type: 'settled', outcome: 'error' });
       return accepted;
     } catch (error) {
@@ -837,6 +852,15 @@ export function MapCanvas({
   const [editingCard, setEditingCard] = useState<string | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
   const [canvasNotice, setCanvasNotice] = useState("");
+  // A quiet first-visit tip for an editable canvas; dismissing it, or adding
+  // a card, is remembered in this browser.
+  const [canvasHintShown, setCanvasHintShown] = useState(() => {
+    try { return window.localStorage.getItem(CANVAS_HINT_KEY) !== "1"; } catch { return true; }
+  });
+  const dismissCanvasHint = useCallback(() => {
+    setCanvasHintShown(false);
+    try { window.localStorage.setItem(CANVAS_HINT_KEY, "1"); } catch { /* the tip just returns next visit */ }
+  }, []);
   const [dropping, setDropping] = useState(false);
   const failed = useCallback((error: unknown) => {
     setCanvasNotice((zh ? "画布没有保存：" : "The canvas was not saved: ") +
@@ -960,7 +984,8 @@ export function MapCanvas({
     const at = toFlow({ x: event.clientX, y: event.clientY });
     const frame = humanFrame({ kind: "idea" });
     setDraft({ id: `draft-${Date.now()}`, position: { x: Math.round(at.x - frame.width / 2), y: Math.round(at.y - frame.height / 2) } });
-  }, [editable, draft, toFlow]);
+    dismissCanvasHint();
+  }, [editable, draft, toFlow, dismissCanvasHint]);
   const fileDrag = (event: React.DragEvent) => editable && event.dataTransfer.types.includes("Files") &&
     !!(event.target as Element).closest(".react-flow");
   const dropFiles = useCallback(async (files: File[], at: Point, onto?: string) => {
@@ -1361,6 +1386,19 @@ export function MapCanvas({
           {dropping && <div className="canvas-drop-hint" aria-hidden />}
           {canvasNotice && (
             <div className="canvas-upload-status" role="status" onClick={() => setCanvasNotice("")}>{canvasNotice}</div>
+          )}
+          {conversationNotice && !conversationOpen && !canvasNotice && (
+            <div className="canvas-upload-status canvas-conversation-notice nodrag nopan" role="status">
+              <span>{conversationNotice}</span>
+              <button type="button" onClick={() => { setConversationNotice(""); setConversationOpen(true); setAgentsOpen(false); }}>{zh ? "查看对话" : "Open conversation"}</button>
+              <button type="button" aria-label={zh ? "关闭" : "Dismiss"} onClick={() => setConversationNotice("")}>×</button>
+            </div>
+          )}
+          {canvasHintShown && editable && graph.tasks.length > 0 && (
+            <div className="canvas-hint nodrag nopan" role="note">
+              <span>{zh ? "双击空白处加想法卡 · 把文件拖进来 · 从卡片边缘拉线" : "Double-click empty space to add an idea card · Drop files here · Drag from a card edge to link"}</span>
+              <button type="button" aria-label={zh ? "知道了，不再提示" : "Got it, hide this tip"} title={zh ? "知道了，不再提示" : "Got it, hide this tip"} onClick={dismissCanvasHint}>×</button>
+            </div>
           )}
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
