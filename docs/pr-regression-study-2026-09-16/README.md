@@ -199,7 +199,7 @@
 以下是本机证据路径，不是已纳入本目录的附件：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/
+<experiments dir>/pr-regression-50-20260916/
 ```
 
 | 相对实验根目录的路径 | 内容 |

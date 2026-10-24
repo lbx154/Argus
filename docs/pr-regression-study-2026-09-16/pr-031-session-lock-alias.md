@@ -96,7 +96,7 @@ Candidate 中 child 确实记录了已完成的更新，随后 parent 写回旧�
 本机证据根目录：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/results/pr-31/
+<experiments dir>/pr-regression-50-20260916/results/pr-31/
 ```
 
 | 相对路径 | 用途 |

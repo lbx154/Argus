@@ -80,7 +80,7 @@
 本机证据根目录：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/results/pr-17/
+<experiments dir>/pr-regression-50-20260916/results/pr-17/
 ```
 
 | 相对路径 | 用途 |

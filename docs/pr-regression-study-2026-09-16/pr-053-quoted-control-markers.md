@@ -122,7 +122,7 @@ F1 的确认 probe 合计约 1.28 秒，不包含找问题、构造输入或启�
 原实验本机证据根目录：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/results/pr-53/
+<experiments dir>/pr-regression-50-20260916/results/pr-53/
 ```
 
 | 相对路径 | 内容 |
@@ -183,7 +183,7 @@ python -m pytest -q -s -p no:cacheprovider \
 追查证据保存在本机：
 
 ```text
-/home/chentianyu/.copilot/session-state/391859ca-39ac-4dd4-9a4a-2fcadd0eb3b8/files/pr53-latest-check/
+<local session state>
 ```
 
 其中 `summary.json` 保存源 SHA、观测和证据哈希；`latest.log`、`controls.log` 保存实际输出；

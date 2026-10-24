@@ -112,7 +112,7 @@ Windows 文件名策略也表现出旧 hash 与新 base64 key 不兼容，但它
 本机证据根目录：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/results/pr-38/
+<experiments dir>/pr-regression-50-20260916/results/pr-38/
 ```
 
 | 相对路径 | 用途 |

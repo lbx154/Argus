@@ -146,7 +146,7 @@ TaskSpec
 本机原始证据根目录：
 
 ```text
-/home/chentianyu/argus-experiments/pr-regression-50-20260916/results/pr-124/
+<experiments dir>/pr-regression-50-20260916/results/pr-124/
 ```
 
 | 相对路径 | 用途 |
