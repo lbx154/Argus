@@ -27,7 +27,7 @@ class Reviewer:
     def evaluate(self, *, config: ReviewerConfig, **_kwargs: Any) -> ReviewDecision:
         self.saw.append(config.snapshots.hunks("baseline", "candidate", ["train.py"]))
         if len(self.saw) % 2:
-            return ReviewDecision(status="continue", reason="Train longer.", next_action="Raise epochs.")
+            return ReviewDecision(status="engineer", reason="Train longer.", next_action="Raise epochs.")
         return ReviewDecision(status="done", reason="Epochs raised.", next_action="")
 
 

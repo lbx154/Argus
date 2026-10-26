@@ -167,7 +167,7 @@ def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) ->
     # The host did not take the acceptance, so it does not stand again; the
     # Reviewer already judged this very candidate, so the work climbs past it.
     assert labels == ["engineer-r1"]
-    assert status == "replan_requested"
+    assert status == "planner"
     climbed = rounds[-1].review
     assert climbed.review_source == "unchanged_return"
     assert "reviewer" in climbed.reason and "planner" in climbed.reason
@@ -187,7 +187,7 @@ def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
     status, rounds, labels = _run(tmp_path, MemoryBackend())
 
     assert labels == []
-    assert status == "blocked"
+    assert status == "operator"
     assert rounds[-1].review.operator_question
     assert "engineer and the reviewer and the planner and the manager" in rounds[-1].review.reason
 

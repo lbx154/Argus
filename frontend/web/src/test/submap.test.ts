@@ -42,7 +42,8 @@ describe("task submap evidence", () => {
     ], true);
     expect(rows.some((row) => row.kind === "review")).toBe(false);
     const round = rows.find((row) => row.round === 1)!;
-    expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "blocked", ["e2", "e3", "e4"]]);
+    // An older record's `blocked` names the Manager as the work's holder.
+    expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "manager", ["e2", "e3", "e4"]]);
   });
 
   it("shows the question, its answer, remarks, direction and why the work paused", () => {
@@ -580,8 +581,8 @@ describe("where the task stands", () => {
         success: false, overall_complete: false, next_action: "A and B conflict", operator_question: "A or B?" },
     ];
     const waiting = buildSubmap({ ...parent, status: "parked", pending_question: "A or B?" }, asked, true);
-    expect(waiting.find((step) => step.kind === "review")).toMatchObject({ status: "question", title: "审阅：等你决定" });
-    expect(waiting.find((step) => step.kind === "result")?.status).toBe("question");
+    expect(waiting.find((step) => step.kind === "review")).toMatchObject({ status: "operator", title: "审阅：等你决定" });
+    expect(waiting.find((step) => step.kind === "result")?.status).toBe("operator");
     expect(waiting.some((step) => step.kind === "revision")).toBe(false);
     expect(taskConclusion(waiting, true, false)).toBe("当前结论：等你决定");
     const resumed = [...asked,

@@ -78,7 +78,7 @@ class StageTransitionMixin:
             }
             final_review_status = str(getattr(final_review, "status", "") or "").strip().lower()
             if projection_context is not None and st.source != "stale_stage_context_hold" and (
-                st.action != "hold" or final_review_status in {"done", "blocked"}
+                st.action != "hold" or final_review_status in {"done", "manager", "operator"}
             ):
                 try:
                     control, identity, expected_head = projection_context

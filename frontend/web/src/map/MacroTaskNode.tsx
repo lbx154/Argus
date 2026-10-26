@@ -132,13 +132,14 @@ const STATES: Record<string, [string, string]> = {
   paused: ["已暂停", "Paused"],
   missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],
-  continue: ["需再改一轮", "Another pass needed"],
+  engineer: ["需再改一轮", "Another pass needed"],
+  operator: ["等待答复", "Waiting for an answer"],
+  manager: ["等经理定夺", "With the Manager to decide"],
   blocked: ["受阻", "Held up"],
   started: ["进行中", "Under way"],
   recorded: ["已记录", "On record"],
   requested: ["修改建议", "Requested"],
-  replan: ["需要调整计划", "Plan needs adjusting"],
-  replan_requested: ["需要调整计划", "Plan needs adjusting"],
+  planner: ["需要调整计划", "Plan needs adjusting"],
 };
 /* One sentence per stage, so a newcomer learns who does what while reading. */
 const KIND_NOTES: Record<StepKind, [string, string]> = {

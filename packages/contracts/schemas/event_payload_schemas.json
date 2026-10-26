@@ -1567,14 +1567,19 @@
           "type": "string",
           "enum": [
             "done",
+            "engineer",
+            "planner",
+            "manager",
+            "operator",
+            "error",
             "continue",
             "blocked",
             "replan_requested",
-            "error",
             "research_incomplete",
             "paused_no_breakthrough",
             "exhausted_current_methods"
-          ]
+          ],
+          "description": "The holder the round settled on, or done. The other values are what older releases wrote; core/handoff.py holder_of reads them, nothing writes them."
         },
         "reason": {
           "type": "string"
@@ -1802,15 +1807,17 @@
           "enum": [
             "planned",
             "completed",
+            "parked",
+            "error",
             "research_incomplete",
             "paused_budget",
             "paused_cost",
             "paused_no_breakthrough",
             "exhausted_current_methods",
             "provider_cooldown",
-            "infra_blocked",
-            "error"
-          ]
+            "infra_blocked"
+          ],
+          "description": "parked waits on park_reason. The other values after error are what older releases wrote; core/planner_verdict.py reads each as parked with its reason."
         },
         "success": {
           "type": "boolean"
@@ -1861,6 +1868,12 @@
           ]
         },
         "completion_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "park_reason": {
           "type": [
             "string",
             "null"

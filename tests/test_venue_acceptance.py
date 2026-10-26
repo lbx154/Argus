@@ -94,12 +94,12 @@ def test_manuscript_change_during_review_cannot_be_certified(paper):
 
 def test_a_final_reviews_own_routing_stands(paper):
     review = ReviewDecision(
-        status="replan_requested", reason="The baseline processes fewer positions.",
+        status="planner", reason="The baseline processes fewer positions.",
         next_action="Measure latency and accepted tokens under the same speculative budget.",
         venue_review=assessment("weak_reject", clear=False),
     )
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert review.status == "replan_requested"
+    assert review.status == "planner"
     assert review.next_action == "Measure latency and accepted tokens under the same speculative budget."
     assert not review.interventions
     assert not review.final_submission_certified
@@ -223,10 +223,10 @@ def test_a_final_acceptance_of_a_survey_is_its_ordinary_review(tmp_path):
 
 
 def test_settlement_follows_the_verdict_and_the_operator_bar(paper):
-    rejecting = ReviewDecision(status="continue", reason="Still below weak accept.", next_action="Run the missing matched control.")
+    rejecting = ReviewDecision(status="engineer", reason="Still below weak accept.", next_action="Run the missing matched control.")
     assert RoundSettlementMixin._classify(review=rejecting) == (None, "")
-    stopped = ReviewDecision(status="blocked", reason="Operator stopped this work.", next_action="", operator_question="Wait for the operator.")
-    assert RoundSettlementMixin._classify(review=stopped)[0] == "blocked"
+    stopped = ReviewDecision(status="operator", reason="Operator stopped this work.", next_action="", operator_question="Wait for the operator.")
+    assert RoundSettlementMixin._classify(review=stopped)[0] == "operator"
     accepted = ReviewDecision(status="done", reason="Accepted.", next_action="", venue_review=assessment())
     enforce_venue_acceptance(accepted, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
     assert RoundSettlementMixin._classify(review=accepted)[0] == "done"
@@ -295,7 +295,7 @@ class _BelowBarReviewer:
     def evaluate(self, **_kwargs):
         self.calls += 1
         return ReviewDecision(
-            status="continue", reason="Still below weak accept.", next_action="Add the matched control.",
+            status="engineer", reason="Still below weak accept.", next_action="Add the matched control.",
             venue_review_required=True, venue_review_snapshot=paper_review_snapshot(self.paper),
         )
 
@@ -325,5 +325,5 @@ def test_an_unchanged_paper_is_not_reviewed_again(paper, tmp_path_factory):
     # paper coming back unchanged passes the Reviewer and climbs to the Planner.
     status, reason, engineer_calls, reviewer_calls = _final_review(paper, tmp_path_factory.mktemp("state"))
     assert (engineer_calls, reviewer_calls) == (2, 1)
-    assert status == "replan_requested"
+    assert status == "planner"
     assert "Nothing changed since the reviewer" in reason

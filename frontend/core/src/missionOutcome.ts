@@ -74,13 +74,24 @@ export function isPauseStatus(status: unknown): boolean {
   return value === 'parked' || value.startsWith('paused_');
 }
 
-/** How a review or a task settled, as its reader is told. A `→ operator:`
- * handoff settles `blocked` with the question it asks (HANDOFF_STATUS): the
- * work waits on the operator's decision, `question`, and is neither stuck nor
- * sent another way. */
+// What older releases wrote where a round or task now names its holder; mirrors
+// `holder_of` in argus/core/handoff.py. Read here, never written.
+const OLD_HOLDERS: Record<string, string> = {
+  continue: 'engineer',
+  research_incomplete: 'engineer',
+  replan_requested: 'planner',
+  paused_no_breakthrough: 'planner',
+  exhausted_current_methods: 'planner',
+  blocked: 'manager',
+};
+
+/** The holder a review or a task settled on (`engineer`, `planner`, `manager`,
+ * `operator`, `done`), an older status read as its holder. `operator` waits on
+ * the operator's decision and is neither stuck nor sent another way. */
 export function settledStatus(event: MissionOutcomeEvent | { status?: unknown; operator_question?: unknown }): string {
   const status = normalizedString(event.status);
-  return status === 'blocked' && String(event.operator_question ?? '').trim() ? 'question' : status;
+  if (status === 'blocked' && String(event.operator_question ?? '').trim()) return 'operator';
+  return Object.hasOwn(OLD_HOLDERS, status) ? OLD_HOLDERS[status] : status;
 }
 
 const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation, 'outcomeClass' | 'kind' | 'label' | 'technical'>> = {
@@ -133,6 +144,7 @@ const CLAUSES: Record<string, Pair> = {
   external_work: ['work outside Argus had to finish first', '需要先等 Argus 之外的工作完成'],
   operator_question: ['a question is waiting for your answer', '有个问题在等你回答'],
   infra: ['the program that runs the work could not start', '运行环境无法启动'],
+  research_open: ['the work waits for the team to decide how it goes on', '工作在等团队决定下一步怎么做'],
 };
 
 function normalizedString(value: unknown): string {
@@ -170,7 +182,8 @@ function derivedOutcomeClass(event: MissionOutcomeEvent): MissionOutcomeClass {
   const status = normalizedString(event.status);
   const park = parkReason(status, event.park_reason);
   if (event.success === true || COMPLETED_STATUSES.has(status)) return 'completed';
-  if (park === 'research_open') return 'incomplete';
+  // Handed to the Manager or the person: it waits for them, never fails.
+  if (park === 'research_open' || status === 'manager' || status === 'operator') return 'incomplete';
   if (STALLED_STATUSES.has(status)) return 'stalled';
   if (status === 'blocked' || park === 'infra') return 'blocked';
   if (FAILED_STATUSES.has(status)) return 'failed';
@@ -228,7 +241,7 @@ export function missionOutcomePresentation(
   locale: 'en' | 'zh-CN' = 'en',
 ): MissionOutcomePresentation {
   // A task that settled on a question to the operator is parked on it, as its row is.
-  const event = settledStatus(recorded) === 'question'
+  const event = settledStatus(recorded) === 'operator'
     ? { ...recorded, outcome_class: 'ended', status: 'parked', park_reason: 'operator_question' }
     : recorded;
   const zh = locale === 'zh-CN';

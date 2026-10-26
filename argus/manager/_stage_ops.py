@@ -628,7 +628,7 @@ class _StageDecisionMixin:
             )
             if planner_handoff:
                 review = SimpleNamespace(
-                    status="blocked",
+                    status="manager",
                     reason=(
                         "The Planner reports no dispatchable current-stage work "
                         "and requests a stage-authority decision. "

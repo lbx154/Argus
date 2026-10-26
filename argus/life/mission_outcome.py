@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
+from ..core.handoff import holder_of
 from ..core.stop_kinds import is_pause_status, park_reason_of
 
 _COMPLETED_STATUSES = frozenset({"done", "success", "completed"})
 _STALLED_STATUSES = frozenset({"no_progress", "max_rounds"})
 _FAILED_STATUSES = frozenset({"error", "failed", "supervisor_error"})
-_REVIEW_STATUSES = frozenset({
-    "done",
-    "continue",
-    "blocked",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-})
-#: Reviewer verdicts asserting the work itself is unfinished rather than
-#: settled. See ``review_keeps_mission_resumable``.
-_RESUMING_REVIEW_STATUSES = frozenset({"continue"})
+#: The holders a review names; ``engineer`` asserts the work itself is
+#: unfinished rather than settled (``review_keeps_mission_resumable``).
+_REVIEW_HOLDERS = frozenset({"done", "engineer", "planner", "manager", "operator"})
 
 
 def mission_outcome_class(status: str, success: bool, park_reason: object = "") -> str:
@@ -37,6 +30,9 @@ def mission_outcome_class(status: str, success: bool, park_reason: object = "") 
         return "incomplete"
     if normalized in _STALLED_STATUSES:
         return "stalled"
+    if normalized in {"manager", "operator"}:
+        # Handed to the Manager or the person: it waits for them, never fails.
+        return "incomplete"
     if normalized == "blocked" or park == "infra":
         return "blocked"
     if normalized in _FAILED_STATUSES:
@@ -54,13 +50,13 @@ def review_keeps_mission_resumable(
     """Return whether a Reviewer verdict outranks a stall status.
 
     ``no_progress`` and ``max_rounds`` are facts about *this mission's rounds*:
-    a round added nothing, or the round budget ran out. ``continue`` is the
+    a round added nothing, or the round budget ran out. ``→ engineer`` is the
     Reviewer's finding about *the work*: it is unfinished and should go on.
     These are independent, and letting the round-level fact win discards the
     verdict — the project then records a terminal stall for a goal a Reviewer
     explicitly asked to continue.
 
-    Deliberately narrow. A success needs no resumption, and ``blocked``,
+    Deliberately narrow. A success needs no resumption, and a handoff past the team,
     ``failed`` and an operator abort stop for reasons no review verdict may
     override: a pending operator question, a crash, and an explicit stop.
     """
@@ -73,7 +69,7 @@ def review_keeps_mission_resumable(
         return False
     if mission_outcome_class(normalized_status, False) != "stalled":
         return False
-    return str(review_status or "").strip().lower() in _RESUMING_REVIEW_STATUSES
+    return holder_of(review_status) == "engineer"
 
 
 def mission_outcome_dimensions(
@@ -93,8 +89,8 @@ def mission_outcome_dimensions(
     normalized_stop = str(stop_kind or "").strip().lower()
     outcome_class = mission_outcome_class(normalized_status, bool(success), park_reason)
 
-    normalized_review = str(review_status or "").strip().lower()
-    if normalized_review not in _REVIEW_STATUSES:
+    normalized_review = holder_of(review_status)
+    if normalized_review not in _REVIEW_HOLDERS:
         normalized_review = "not_assessed"
 
     # Applied here rather than only at the settlement call site: this function
@@ -154,7 +150,7 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
     execution = str(outcome.get("execution_status") or "").strip().lower()
     if not execution:
         return []
-    review = str(outcome.get("review_status") or "").strip().lower()
+    review = holder_of(outcome.get("review_status"))
     stage = str(outcome.get("stage_certification") or "").strip().lower()
     interruption = str(outcome.get("interruption_kind") or "").strip().lower()
     parts = [{
@@ -170,11 +166,10 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
     if review and review != "not_assessed":
         parts.append({
             "done": "Review passed",
-            "continue": "Review requested another pass",
-            "blocked": "Review needs an external decision",
-            "research_incomplete": "Review found work remaining",
-            "paused_no_breakthrough": "Review found no breakthrough yet",
-            "exhausted_current_methods": "Review found the current methods exhausted",
+            "engineer": "Review requested another pass",
+            "planner": "Review asked for a new plan",
+            "manager": "Review needs an external decision",
+            "operator": "Review leaves a decision to you",
         }.get(review, f"Review {review.replace('_', ' ')}"))
     if stage and stage != "not_assessed":
         parts.append({

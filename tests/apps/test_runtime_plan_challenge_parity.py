@@ -28,7 +28,7 @@ class _Harness(SkillLoopExecuteMixin):
 
 def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
     review = ReviewDecision(
-        status="replan_requested",
+        status="planner",
         reason=str(report.get("challenge") or "The plan is challenged."),
         next_action=str(report.get("alternative") or ""),
         operator_question=question,
@@ -37,7 +37,7 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
     state.workdir = tmp_path
     state.mission_scope = ""
     state.outcome = SimpleNamespace(
-        status="replan_requested",
+        status="planner",
         last_thread_id="t1",
         stop_reason="",
         stop_kind=None,

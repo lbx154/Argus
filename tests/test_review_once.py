@@ -142,7 +142,7 @@ def test_a_second_closing_step_on_unchanged_files_is_not_reviewed_or_replanned(t
     # 01:32: the fix is in Argus's records, so the survey is unchanged and the
     # work goes one rung up, to the Planner, which replans once.
     status, _rounds, labels = _run(tmp_path, first, _task(tmp_path, "9e5992dac968", closing=True))
-    assert (labels, status) == (["engineer-r1", "reviewer", "engineer-r2"], "replan_requested")
+    assert (labels, status) == (["engineer-r1", "reviewer", "engineer-r2"], "planner")
 
     second = MemoryBackend()
     second.queue("engineer-r1", _edit(work, ".argus/evidence/final-certification.md", "confirmed"))
@@ -152,7 +152,7 @@ def test_a_second_closing_step_on_unchanged_files_is_not_reviewed_or_replanned(t
     # second replan: the Reviewer and the Planner already held these files,
     # so the work reaches the Manager.
     assert labels == ["engineer-r1"]
-    assert status == "blocked"
+    assert status == "manager"
     assert "reviewer and the planner" in rounds[-1].review.reason
 
 
@@ -161,7 +161,7 @@ def test_the_climb_reads_as_plain_chinese() -> None:
     from argus.engineer.round_routing import climb_record
 
     text = render_operator_update(
-        title="独立验收中文综述的完整交付", status="replan_requested",
+        title="独立验收中文综述的完整交付", status="planner",
         reason=climb_record(["reviewer"], "planner").reason, holder="planner",
     )
 

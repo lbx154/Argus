@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 def _next_engineer_action(review: ReviewDecision) -> str | None:
     """What the next Engineer turn works from: the verdict, and an intervention that kept the work going."""
-    if review.status == "continue":
+    if review.status == "engineer":
         return review.next_action
     if not review.intervention(ACCEPTANCE_BAR_POLICY):
         return None
@@ -74,13 +74,8 @@ class RoundSettlementMixin:
                 # host's note beside the verdict says why.
                 return None, ""
             return "done", review.reason or "Reviewer judged the objective complete."
-        if review.status == "blocked":
-            return "blocked", review.reason or "Reviewer blocked progress."
-        if review.status == "replan_requested":
-            return (
-                "replan_requested",
-                review.reason or "Reviewer requested a Manager-owned replacement plan.",
-            )
+        if review.status in {"planner", "manager", "operator"}:
+            return review.status, review.reason or f"Reviewer handed the work to the {review.status}."
         return None, ""
 
     def _settle_round(

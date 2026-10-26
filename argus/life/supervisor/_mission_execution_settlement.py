@@ -324,7 +324,7 @@ class MissionExecutionSettlementMixin:
             # Only an explicit model decision means "stay and keep working".
             # Parser/backend failures also return HOLD and must not busy-loop.
             if str(getattr(outcome, "operator_question", "") or "").strip():
-                state.status = "blocked"
+                state.status = "operator"
             elif stage_transition.get("diagnostic") == "intentional_hold":
                 state.status = "stage_continues"
             else:
@@ -479,13 +479,13 @@ class MissionExecutionSettlementMixin:
         # A park the loop's own pause path left here: the Manager stopped the
         # run, or its host could not start.
         parked = status == "parked"
-        replan_requested = status == "replan_requested"
+        to_planner = status == "planner"
         intentional_abort = status == "aborted" or state.stop_kind == "operator_abort"
         if intentional_abort:
             success = False
             status = "aborted"
         stage_reconciled_replan = (
-            replan_requested and stage_action in {"advance", "rollback"}
+            to_planner and stage_action in {"advance", "rollback"}
         )
         iteration = state.iteration
         iteration_requeued = state.iteration_requeued
@@ -636,7 +636,7 @@ class MissionExecutionSettlementMixin:
         def capture_state() -> None:
             state.success = success
             state.status = status
-            state.replan_requested = replan_requested
+            state.to_planner = to_planner
             state.intentional_abort = intentional_abort
             state.err = err
             state.resumable = resumable
@@ -676,8 +676,6 @@ class MissionExecutionSettlementMixin:
                 stage_transition=stage_transition, stop_kind=state.stop_kind,
                 resumable=True, park_reason=reason,
             )
-
-        from ...manager.supervision import HANDED_TO_MANAGER
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
@@ -727,11 +725,16 @@ class MissionExecutionSettlementMixin:
             )
         elif success:
             commit(status="done", finished_ts=time.time(), outcome=outcome_dimensions)
-        elif status == "blocked" and operator_question:
-            # Status and the authority-bearing question reach disk in one
+        elif operator_question and status == "operator":
+            # The operator's turn (a refused credential is theirs too): the
+            # task waits on their answer, parked, while the run goes on with
+            # work that does not need it. Status and the authority-bearing question reach disk in one
             # backlog transaction. The row stays nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
             # operator is deciding; their answer resumes this same row.
+            held = status
+            outcome_dimensions = parked_outcome("operator_question", succeeded=False)
+            status = held
             ask_operator(
                 self.memory.root, item, operator_question,
                 reason=str(getattr(outcome, "final_review_reason", "") or err), layer="manager",
@@ -740,12 +743,10 @@ class MissionExecutionSettlementMixin:
                 options=list(getattr(outcome, "operator_options", []) or []),
                 evidence=list(getattr(item, "context_refs", None) or []),
             )
-        elif status == "blocked" and str(
-            getattr(outcome, "final_review_source", "") or ""
-        ) in HANDED_TO_MANAGER:
-            # Handed to the Manager, who holds it now: it parks where a Manager
-            # stop leaves work, for the Manager to put to the operator, the
-            # Planner to retire or the operator to resume.
+        elif status == "manager":
+            # Handed to the Manager, who holds it now: it waits, never fails.
+            # It parks where a Manager stop leaves work, for the Manager to put
+            # to the operator, the Planner to retire or the operator to resume.
             outcome_dimensions = parked_outcome("research_open", succeeded=False)
             commit(
                 park_reason=state.park_reason,
@@ -762,7 +763,7 @@ class MissionExecutionSettlementMixin:
                 ),
                 outcome=outcome_dimensions,
             )
-        elif replan_requested and not item.plan_id:
+        elif to_planner and not item.plan_id:
             # Handed to the Planner with no plan to revise (the Manager's direct
             # task, an operator's): it parks in the Planner's hands, to retire or
             # replace, not queued back to the Engineer who handed it on.
@@ -772,7 +773,7 @@ class MissionExecutionSettlementMixin:
                 last_error=state.stop_reason,
                 outcome=outcome_dimensions,
             )
-        elif replan_requested:
+        elif to_planner:
             commit(
                 status="pending",
                 started_ts=None,
@@ -847,7 +848,10 @@ class MissionExecutionSettlementMixin:
             else "mission_complete"
             if success
             else "mission_replan_requested"
-            if state.replan_requested or status == "stage_continues"
+            if state.to_planner or status == "stage_continues"
+            # Waiting on its holder or a condition: never a failure.
+            else "mission_parked"
+            if status == "parked" or state.park_reason
             else "mission_aborted"
             if state.intentional_abort
             else "mission_failed"
@@ -1005,7 +1009,7 @@ class MissionExecutionSettlementMixin:
             "outcome": state.outcome_dimensions,
             "plan_challenge": plan_challenge,
             "plan_revision_witness": (
-                dict(state.plan_revision_witness) if state.replan_requested else {}
+                dict(state.plan_revision_witness) if state.to_planner else {}
             ),
             "rounds": state.rounds,
             "elapsed_seconds": state.elapsed,
@@ -1025,7 +1029,8 @@ class MissionExecutionSettlementMixin:
             "stop_kind": state.stop_kind,
             "stop_reason": (
                 state.stop_reason or state.err
-                if kind in {"mission_failed", "mission_aborted"} or status == "stage_continues"
+                if kind in {"mission_failed", "mission_parked", "mission_aborted"}
+                or status == "stage_continues"
                 else ""
             ),
             "failure_reason": state.err if kind == "mission_failed" else "",
@@ -1105,7 +1110,7 @@ class MissionExecutionSettlementMixin:
             "delivery": delivery,
             "plan_challenge": plan_challenge,
             "plan_revision_witness": (
-                dict(state.plan_revision_witness) if state.replan_requested else {}
+                dict(state.plan_revision_witness) if state.to_planner else {}
             ),
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
@@ -1148,7 +1153,7 @@ class MissionExecutionSettlementMixin:
                     "project_id": self.memory.root.name,
                     "item_id": item.id,
                     "accepted": bool(success),
-                    "replan_requested": bool(state.replan_requested),
+                    "replan_requested": bool(state.to_planner),
                     "elapsed_seconds": float(state.elapsed or 0.0),
                 },
             )
@@ -1265,7 +1270,7 @@ class MissionExecutionSettlementMixin:
                 else ""
             ),
             mission_accepted=bool(
-                state.success and not state.iteration_requeued and not state.replan_requested
+                state.success and not state.iteration_requeued and not state.to_planner
             ),
         )
 

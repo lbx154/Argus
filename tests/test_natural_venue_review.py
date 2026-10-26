@@ -75,7 +75,7 @@ def evaluate(paper, runner):
 def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
     runner = ProseRunner(FEEDBACK)
     review = evaluate(paper, runner)
-    assert review.status == "continue" and not review.backend_unavailable
+    assert review.status == "engineer" and not review.backend_unavailable
     assert not review.final_submission_certified
     assert review.next_action == FEEDBACK
     assert review.input_tokens == 100 and review.output_tokens == 50
@@ -151,7 +151,7 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
         assert review.final_submission_certified and not review.backend_unavailable
         assert read_pipeline_state(paper)["current_verdict"] == "done"
     else:
-        assert review.status == "blocked" and review.backend_unavailable
+        assert review.status == "manager" and review.backend_unavailable
         assert not review.final_submission_certified
         assert review.backend_exit_code == 0
         assert error in review.reason
@@ -171,15 +171,15 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
         main_summary="No project directory was provided.", main_error=None,
         config=ReviewerConfig(active_vertical="software"),
     )
-    assert review.status == "continue" and not review.backend_unavailable
+    assert review.status == "engineer" and not review.backend_unavailable
     assert review.manuscript_snapshot is None
     assert inspected == []
 
 
 @pytest.mark.parametrize(("holder", "status"), [
-    ("operator: 可否使用授权数据集？", "blocked"),
-    ("planner", "replan_requested"),
-    ("manager", "blocked"),
+    ("operator: 可否使用授权数据集？", "operator"),
+    ("planner", "planner"),
+    ("manager", "manager"),
 ])
 def test_questions_and_scientific_repairs_are_not_backend_failure(paper, holder, status):
     feedback = "需要解决所述前提，再作最终判断。"

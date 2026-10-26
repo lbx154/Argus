@@ -179,11 +179,11 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 
 一次等待最多持续它所在的那个回合。因此在有限次交接之内，每项工作要么完成，要么被放弃，要么停在一个能被询问的操作员手里等一个不可逆的决定，而这不会阻塞任何其他工作。死锁不可能发生，没有变化的模型调用次数以权限梯的高度为上界。
 
-**它替代了什么。**
+**它替代了什么。** 已完成（2026 年 10 月）：接力棒下面不再有轮次状态，旁边也不再有具名的暂停状态。
 
-- `continue` 就是 `→ engineer`，`replan_requested` 就是 `→ planner`，`blocked` 就是 `→` 能排除障碍的一方，`done` 就是接受一个具名候选。
-- 交给 Manager 的任务挂起在它手里，而不是记为失败：Manager 交给操作员的问题挂起的就是这个任务，回答后恢复的也是它，不另开副本。
-- 十一种 `paused_*` 状态合并为一种挂起，原因只是数据。
+- `continue` 就是 `→ engineer`，`replan_requested` 就是 `→ planner`，`blocked` 就是 `→` 能排除障碍的一方，`done` 就是接受一个具名候选。一轮、它的记录和它结算的任务直接写持有者（`engineer`、`planner`、`manager`、`operator`、`done`），不再翻译回旧状态。旧版本写下的记录只在一处读：`holder_of`（argus/core/handoff.py）和 `settledStatus`（frontend/core/src/missionOutcome.ts），从不再写。
+- 交给 Manager 或操作员的任务挂起在他们手里，不管是谁交的，都不记为失败：Manager 交给操作员的问题挂起的就是这个任务，回答后恢复的也是它，不另开副本。
+- `paused_*` 状态是一种挂起，原因只是数据（argus/core/stop_kinds.py），待办行、Planner 结论和给操作员的提示都一样；措辞由原因决定。旧的行和事件经同一张表读入。
 - Planner 没有新工作可开时，写明下一个持有者：`→ engineer`（在跑的工作决定下一步）、`→ manager`（阶段卡住了它）或 `→ operator: <问题>`。不再有等待契约。
 - Engineer 的七个 footer 键和等待行变成上面那一行；等待本身移进 Engineer 的回合。
 

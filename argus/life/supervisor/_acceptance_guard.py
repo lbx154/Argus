@@ -30,7 +30,9 @@ def _stopped(
     return SimpleNamespace(
         success=False,
         status=(
-            "blocked" if contract_blocked else "parked" if park
+            # A contract the operator can settle is their turn to answer.
+            ("operator" if operator_question else "blocked") if contract_blocked
+            else "parked" if park
             else "aborted" if stop_kind == "operator_abort" else "error"
         ),
         park_reason=park,

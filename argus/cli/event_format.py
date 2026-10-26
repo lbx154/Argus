@@ -12,6 +12,7 @@ import shlex
 from typing import Any, Callable
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.handoff import holder_of
 from ..core.mission_view import uses_cjk
 from ..core.secret_guard import redact_secrets_text
 from ..core.stop_kinds import is_pause_status, park_clause
@@ -336,11 +337,12 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
     next_action = _trunc(str(event.get("next_action") or ""), 200)
     outcome = {
         "done": "✅ verified",
-        "continue": "↻ more work is needed",
-        "blocked": "⛔ cannot continue yet",
-        "replan_requested": "↺ the current route needs revision",
+        "engineer": "↻ more work is needed",
+        "manager": "⛔ cannot continue yet",
+        "operator": "⛔ cannot continue yet",
+        "planner": "↺ the current route needs revision",
         "no_progress": "🚫 no useful change was found",
-    }.get(status, "review finished")
+    }.get(holder_of(status), "review finished")
     residual_risk = _trunc(str(event.get("residual_risk") or "").strip(), 300)
     if status == "done" and residual_risk:
         # Approved with one check left unverified: never shown as plain "verified".

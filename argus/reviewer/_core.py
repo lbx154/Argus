@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
+from ..core.handoff import holder_of
 from ..core.mission_view import say, uses_cjk
 from ..core.models import (
     READING_ROLE_UNUSED_COPILOT_TOOLS,
@@ -65,13 +66,13 @@ def _parallel_final_review_passes(
     from ..core.pipeline_state import read_pipeline_state
     from ..skills.stage_machine import current_stage
 
-    verdict = str(read_pipeline_state(state_root).get("current_verdict") or "")
+    verdict = holder_of(read_pipeline_state(state_root).get("current_verdict"))
     if (
         current_stage(state_root) != "review"
         or verdict
         not in {
             "",
-            "continue",
+            "engineer",
             "in_progress",
             "mapped_stage_requires_current_review",
         }
@@ -89,7 +90,7 @@ def _parallel_final_review_passes(
             )
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             return ReviewDecision(
-                status="continue",
+                status="engineer",
                 reason=f"ScientificLoss shadow pass unavailable: {exc}",
                 next_action=(
                     "Restore a readable immutable pre-edit snapshot, then rerun the "
@@ -101,7 +102,7 @@ def _parallel_final_review_passes(
         pdf_is_current, pdf_status = rendered_pdf_freshness(workdir)
         if not pdf_is_current:
             return ReviewDecision(
-                status="continue",
+                status="engineer",
                 reason=f"ColdRead shadow pass unavailable: {pdf_status}",
                 next_action="Compile the current manuscript before the PDF-only cold read.",
             )
@@ -298,7 +299,7 @@ def _parallel_final_review_passes(
             del prompts[label]
     if not prompts:
         return ReviewDecision(
-            status="continue",
+            status="engineer",
             reason="\n\n".join(f"{label}: {text}" for label, text in findings.items()),
             next_action="Adjudicate these current assessments in the integrated review.",
         )
@@ -309,7 +310,7 @@ def _parallel_final_review_passes(
     fork = getattr(runner, "fork", None)
     if not callable(fork):
         return ReviewDecision(
-            status="blocked",
+            status="manager",
             reason="The reviewer backend cannot create independent parallel calls.",
             next_action="Use a reviewer backend that supports independent calls.",
             backend_unavailable=True,
@@ -340,7 +341,7 @@ def _parallel_final_review_passes(
         or len({id(backend) for backend in pass_runners.values()}) != len(prompts)
     ):
         return ReviewDecision(
-            status="blocked",
+            status="manager",
             reason="The reviewer backend returned shared instances for parallel calls.",
             next_action="Use a reviewer backend that supports independent calls.",
             backend_unavailable=True,
@@ -389,7 +390,7 @@ def _parallel_final_review_passes(
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
             return ReviewDecision(
-                status="blocked",
+                status="manager",
                 reason=f"Rendered paper review inputs are unavailable: {exc}",
                 next_action="Restore PDF page rendering before running the paper review.",
                 backend_unavailable=True,
@@ -492,7 +493,7 @@ def _parallel_final_review_passes(
     if failures:
         _, _, stop_kind, fatal, failed_exit_code, reason = min(failures)
         return ReviewDecision(
-            status="blocked",
+            status="manager",
             reason=reason,
             next_action="Resolve the failed review provider call before retrying.",
             backend_unavailable=True,
@@ -509,7 +510,7 @@ def _parallel_final_review_passes(
     empty = next((label for label, text in findings.items() if not text), "")
     if empty:
         return ReviewDecision(
-            status="blocked",
+            status="manager",
             reason=f"{empty} review returned no assessment",
             next_action="Retry the missing review pass.",
             backend_unavailable=True,
@@ -524,7 +525,7 @@ def _parallel_final_review_passes(
             if key:
                 config.paper_pass_cache[label] = (key, findings[label])
     return ReviewDecision(
-        status="continue",
+        status="engineer",
         reason="\n\n".join(f"{label}: {text}" for label, text in findings.items()),
         next_action=(
             "Apply the scientific, visual, and reader-facing findings to the paper, "
@@ -972,7 +973,7 @@ class Reviewer:
                     + (f"; fatal_error={fatal}" if fatal else "")
                 )
                 return with_call_metadata(ReviewDecision(
-                    status="blocked",
+                    status="manager",
                     reason=reason,
                     next_action=(
                         "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
@@ -987,7 +988,7 @@ class Reviewer:
                 ))
             if decision is None:
                 return with_call_metadata(ReviewDecision(
-                    status="blocked",
+                    status="manager",
                     reason=(
                         "The Reviewer ended without handing the work on. "
                         "Its reply was not interpreted as acceptance or rejection."
@@ -1022,7 +1023,7 @@ class Reviewer:
             msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
             log.exception("reviewer runner raised")
             return with_call_metadata(ReviewDecision(
-                status="blocked",
+                status="manager",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
                 backend_unavailable=True,

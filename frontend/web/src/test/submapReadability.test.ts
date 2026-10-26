@@ -214,11 +214,15 @@ describe("step readability in buildSubmap", () => {
         zh,
       ).find((r) => r.kind === "review")!;
     expect(rowFor("done", false).title).toBe("Review passed");
+    expect(rowFor("engineer", false).title).toBe("Review: another pass asked for");
+    expect(rowFor("manager", false).title).toBe("Review: a change of course asked for");
+    // What an older release wrote reads as the holder it named.
     expect(rowFor("continue", false).title).toBe("Review: another pass asked for");
     expect(rowFor("blocked", false).title).toBe("Review: a change of course asked for");
     expect(rowFor("failed", false).title).toBe("Review not passed");
     expect(rowFor("done", true).title).toBe("审阅通过");
-    expect(rowFor("replan", true).title).toBe("审阅：建议调整方向");
+    expect(rowFor("planner", true).title).toBe("审阅：建议调整方向");
+    expect(rowFor("replan_requested", true).title).toBe("审阅：建议调整方向");
   });
   it("keeps the verdict title and latest summary when start and completion merge", () => {
     const rows = buildSubmap(

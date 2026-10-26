@@ -42,7 +42,7 @@ def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None
     actions = review_actions()
     assert "authority_impact" not in actions.tools[0]["inputSchema"]["properties"]
     actions.dispatch(*hand_off("planner", "Each round repairs a symptom of one cohort rule; certify per cell."))
-    assert actions.handoff.value.status == "replan_requested"
+    assert actions.handoff.value.status == "planner"
     routed = adjudicate_plan_challenge(
         reviewer_status=actions.handoff.value.status,
         review_reason=actions.handoff.value.reason,

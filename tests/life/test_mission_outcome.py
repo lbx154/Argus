@@ -285,7 +285,8 @@ def test_review_continue_keeps_a_stalled_mission_resumable() -> None:
 
     assert outcome["execution_status"] == "paused"
     assert outcome["resumable"] is True
-    assert outcome["review_status"] == "continue"
+    # An older ``continue`` reads as the holder it named.
+    assert outcome["review_status"] == "engineer"
     # The stage verdict is a separate question and must not move with it.
     assert outcome["stage_certification"] == "deferred"
 

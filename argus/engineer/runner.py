@@ -346,9 +346,8 @@ class SupervisedEngineer(
                 state.snapshots.hold(
                     "reviewer", "reviewed", state.handed_inputs, accepted_verdict(review, round_index, state),
                 )
-                wanted = {"replan_requested": "planner", "blocked": "manager"}.get(review.status, "")
-                if wanted and not review.operator_question and not review.backend_unavailable:
-                    holder, passed = self._deliver(wanted, state=state, label="reviewed")
+                if review.status in {"planner", "manager"} and not review.backend_unavailable:
+                    holder, passed = self._deliver(review.status, state=state, label="reviewed")
                     review = climb_record(passed, holder, handed=review) if passed else review
             control = self._settle_round(
                 review=review,

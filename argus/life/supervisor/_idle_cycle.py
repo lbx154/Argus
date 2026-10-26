@@ -96,7 +96,7 @@ class IdleCycleMixin:
             return None
         # The circuit's own fields carry the technical record.
         words = self._operator_words(
-            "work_paused_service" if outage else "work_paused_internal"
+            "parked_provider_fence" if outage else "parked_internal_error"
         )
         reason = words["text"]
         if self._should_journal_idle_repeat("runtime_failure_circuit"):
@@ -262,7 +262,7 @@ class IdleCycleMixin:
             not continuous.enabled
             and is_execution_host_startup_error(continuous.done_reason)
         ):
-            words = self._operator_words("planning_paused_host")
+            words = self._operator_words("parked_infra")
             reason = (
                 words["text"]
                 + (" 技术记录：" if self._operator_chinese() else " Technical record: ")

@@ -150,6 +150,10 @@ _CLAUSES: dict[str, tuple[str, str]] = {
         "the program that runs the work could not start",
         "运行环境无法启动",
     ),
+    "research_open": (
+        "the work waits for the team to decide how it goes on",
+        "工作在等团队决定下一步怎么做",
+    ),
 }
 _UNSAID = ("the work was interrupted", "工作被打断了")
 

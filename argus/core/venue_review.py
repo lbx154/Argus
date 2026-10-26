@@ -183,7 +183,7 @@ def enforce_venue_acceptance(
         # read-only leg; do not ask Engineer to alter a paper to fix the protocol.
         # The retried verdict is no longer what the Reviewer judged, so its
         # learning judgment goes and reflection runs.
-        decision.status = "blocked"
+        decision.status = "manager"
         decision.learning = decision.learning_reason = ""
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"

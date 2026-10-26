@@ -169,7 +169,7 @@ def test_capped_call_winds_down_and_continues_in_a_fresh_session(
 
     # The recorded round keeps the work with a continue judgment, and no
     # backend-failure accounting ran.
-    assert rounds[0].review.status == "continue"
+    assert rounds[0].review.status == "engineer"
     assert "allowance" in rounds[0].review.reason
     assert not any(
         event.get("type") == "round.watchdog.retry" for event in events
@@ -241,7 +241,7 @@ class _CappedOnceReviewer:
         self.calls += 1
         if self.calls == 1:
             return ReviewDecision(
-                status="blocked",
+                status="manager",
                 reason="review ended at the per-call provider-turn allowance",
                 next_action="",
                 backend_unavailable=True,

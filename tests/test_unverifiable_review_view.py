@@ -67,7 +67,7 @@ def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
 
     # The obstacle neither ends nor extends the loop by itself.
     assert status == "max_rounds"
-    assert [row.review.status for row in rounds] == ["continue", "continue"]
+    assert [row.review.status for row in rounds] == ["engineer", "engineer"]
     reviews = [e for e in events if e.get("type") == "round.review.completed"]
     assert reviews[0]["verification_obstacle"] == _OBSTACLE
     assert "verification_obstacle" not in reviews[1]

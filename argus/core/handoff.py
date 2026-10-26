@@ -17,20 +17,30 @@ from typing import Any, Callable, Mapping
 from jsonschema import ValidationError, validate
 
 from .contract_resources import contract_schema_path
-from .models import ReviewStatus
 
 ACTION = "hand_off"
 _CONTRACT = json.loads(contract_schema_path("handoff_forms.json").read_text(encoding="utf-8"))
 
-#: How a round settles on each holder a handoff names: the Engineer works on,
-#: the Planner replans, the Manager or the operator decides, or the candidate
-#: is accepted. The Reviewer is reached inside the round.
-HANDOFF_STATUS: dict[str, ReviewStatus] = {
-    "engineer": "continue", "planner": "replan_requested",
-    "manager": "blocked", "operator": "blocked", "done": "done",
-}
 #: The rungs an unchanged return climbs, one at a time (invariant 3).
 LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
+
+
+#: What older releases wrote where a round or task now names its holder: read
+#: here, never written. ``blocked`` was the Manager's, or with a question the
+#: operator's; the research verdicts asked for more work or a new plan.
+_OLD_HOLDERS = {
+    "continue": "engineer", "research_incomplete": "engineer",
+    "replan_requested": "planner", "paused_no_breakthrough": "planner",
+    "exhausted_current_methods": "planner", "blocked": "manager",
+}
+
+
+def holder_of(status: Any, operator_question: Any = "") -> str:
+    """The holder a recorded review or task status names, an older status read as its holder."""
+    status = str(status or "").strip().lower()
+    if status == "blocked" and str(operator_question or "").strip():
+        return "operator"
+    return _OLD_HOLDERS.get(status, status)
 
 
 def form_tool(form: str, fields: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -147,4 +157,4 @@ class HandOffActions:
         return {"recorded": payload.get("to") or self.form}
 
 
-__all__ = ["ACTION", "HANDOFF_STATUS", "LADDER", "HandOff", "HandOffActions", "form_tool"]
+__all__ = ["ACTION", "LADDER", "HandOff", "HandOffActions", "form_tool", "holder_of"]

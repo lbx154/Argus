@@ -94,7 +94,7 @@ def test_initial_final_review_runs_three_passes_in_parallel_with_engineer_access
     )
 
     assert decision is not None
-    assert decision.status == "continue"
+    assert decision.status == "engineer"
     assert all(label in decision.reason for label in ("Scientific:", "Visual:", "Language:"))
     assert runner.shared.max_active == 3
     assert all(
@@ -147,7 +147,7 @@ def test_parallel_review_prefers_returned_control_stop_over_generic_exception(
     )
 
     assert decision is not None
-    assert decision.status == "blocked"
+    assert decision.status == "manager"
     assert decision.backend_stop_kind == "operator_abort"
     assert decision.backend_fatal_error == "operator stopped review"
     assert decision.input_tokens == 4

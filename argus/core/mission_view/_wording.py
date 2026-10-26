@@ -123,25 +123,27 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "规划时 Argus 自己出错已经 {minutes} 分钟了，会放慢节奏继续试；"
         "麻烦把运行日志一起反馈给我们。",
     ),
-    "planning_paused_host": (
+    # Work parked on a condition the operator ends, keyed by its park reason
+    # (core/stop_kinds.py): what happened and what they can do.
+    "parked_infra": (
         "The program that runs code for Argus could not start, so planning is "
         "paused. Reinstall Codex, then turn continuous work back on to try again.",
         "为 Argus 运行代码的程序启动不了，规划先停下了。把 Codex 装好后，"
         "重新开启持续工作就会再试。",
     ),
-    "planning_paused_content_filter": (
+    "parked_content_filter": (
         "The model service's content filter refused this plan, so work is "
         "paused. Please rephrase the goal.",
         "模型服务的内容过滤拦下了这次规划，工作先暂停；请换个说法描述目标。",
     ),
-    "work_paused_service": (
+    "parked_provider_fence": (
         "The model service kept turning work away after every automatic retry, "
         "so Argus has stopped calling it. Click Run, switch the backend or "
         "model, or send a message to try again.",
         "模型服务在自动重试后仍然拒绝工作，Argus 先不再调用它。点“运行”、"
         "换个后端或模型，或者发条消息，就会再试。",
     ),
-    "work_paused_internal": (
+    "parked_internal_error": (
         "Argus keeps hitting the same internal error, so new work is on hold "
         "until a fixed Argus is installed.",
         "Argus 自己反复遇到同一个内部错误，新的工作先停下，等装上修好的版本再继续。",
@@ -474,8 +476,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "rest_awaits_answer": ("another item is waiting for your answer", "另一项在等你回答"),
     "step_done": ("One step done: {title}.", "「{title}」这一步做完了。"),
     "task_ended": ("This task has ended: {title}.", "「{title}」这项任务结束了。"),
-    "review_continue": ("The review asked for more work.", "审阅认为还要再完善。"),
-    "review_blocked": ("The review found a blocking problem.", "审阅发现了卡住的问题。"),
+    "review_engineer": ("The review asked for more work.", "审阅认为还要再完善。"),
+    "review_planner": ("The review asked for a new plan.", "审阅要求重新规划。"),
+    "review_manager": ("The review found a blocking problem.", "审阅发现了卡住的问题。"),
+    "review_operator": ("The review leaves a decision to you.", "审阅把一个决定留给你。"),
     "review_stale": (
         "The manuscript changed after the review, so the review is out of date.",
         "审阅之后稿件又改过，审阅结论已经过时。",

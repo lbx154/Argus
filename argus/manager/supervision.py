@@ -18,7 +18,7 @@ import portalocker
 
 from ..core.autonomy import record_assumptions
 from ..core.event_catalog import EventType
-from ..core.handoff import HandOffActions
+from ..core.handoff import HandOffActions, holder_of
 from ..core.models import RunnerOptions
 from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
@@ -740,8 +740,8 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
                 "its verdict stands as written: decide whether this review counts")
     handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (
-        handed and event.get("status") == "blocked"
-        and not event.get("operator_question") and not event.get("review_skipped")
+        handed and holder_of(event.get("status"), event.get("operator_question")) == "manager"
+        and not event.get("review_skipped")
     ):
         why = " ".join(str(event.get("reason") or "").split())[:200]
         return f"{handed}: {why}"
@@ -760,7 +760,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     if event_type in {EventType.LIFE_DAEMON_DEGRADED, EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}:
         reason = None
     elif event_type == EventType.ROUND_REVIEW_COMPLETED and (
-            event.get("status") in {"continue", "blocked"} or event.get("changed_during_review")):
+            holder_of(event.get("status")) in {"engineer", "manager", "operator"} or event.get("changed_during_review")):
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled":
         reason = (

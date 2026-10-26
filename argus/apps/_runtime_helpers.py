@@ -204,7 +204,7 @@ def _should_run_stage_transition(
         and normalized_scope == "bounded"
     ):
         return False
-    if normalized == "replan_requested":
+    if normalized == "planner":
         return False
     if normalized == "parked":
         return False

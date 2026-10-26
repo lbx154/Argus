@@ -30,7 +30,7 @@ def adjudicate_plan_challenge(
     challenge = str(review_reason or "").strip()
     alternative = str(next_action or "").strip()
 
-    if status != "replan_requested":
+    if status != "planner":
         return PlanChallengeDecision(
             action="keep",
             reason="Reviewer did not challenge the current plan",

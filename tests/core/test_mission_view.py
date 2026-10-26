@@ -666,8 +666,8 @@ def test_a_review_handing_the_choice_to_the_operator_waits_on_them(tmp_path: Pat
     assert reviewer["kind"] == "choice_left_to_you"
     assert (reviewer["status"], reviewer["label"]) == ("waiting", "审阅者把选择交给你，等你决定后再继续。")
     assert view["timeline"][-1]["tone"] == "info"
-    # The verdict itself is the record's, unchanged.
-    assert view["review"]["status"] == "blocked"
+    # An older record's ``blocked`` with a question names the operator as its holder.
+    assert view["review"]["status"] == "operator"
     view = emit(
         tmp_path, "life.mission.completed", 3, item_id="t", status="blocked", outcome_class="blocked",
         success=False, operator_question="选 A 还是 B？",

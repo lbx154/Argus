@@ -1,12 +1,13 @@
 import type { BacklogItem, EventMsg, Snapshot } from './types';
 import { isStructuredAgentPayload } from '../../../core/src/events';
+import { settledStatus } from '../../../core/src/missionOutcome';
 import { currentWorkStatus, eventTaskId, workStatusLabel } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
 import { eventDetail, eventTitle } from './utils';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
-const NEEDS_WORK = /continue|replan|reject|blocked|fail|error|incomplete|revoked/;
+const NEEDS_WORK = /engineer|planner|manager|operator|reject|fail|error|incomplete|revoked/;
 const PUBLIC_MESSAGE_KINDS = new Set(['assistant_message', 'agent_message', 'message']);
 const WORK_EVENTS = new Set([
   'life.planner.task_added', 'life.mission.started', 'life.mission.completed', 'life.mission.failed',
@@ -127,8 +128,8 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
   const newReviewStarted = Boolean(reviewStarted && (!reviewEvent || Number(reviewStarted.ts) > Number(reviewEvent.ts)));
   const reviewing = running && runtime.role === 'reviewer' && newReviewStarted;
   const currentReview = newReviewStarted ? undefined : reviewEvent;
-  const rawReviewStatus = String(currentReview?.status ?? '').toLowerCase();
-  const viewReviewStatus = matchesView ? String(view?.review.status ?? '').toLowerCase() : '';
+  const rawReviewStatus = settledStatus({ status: currentReview?.status });
+  const viewReviewStatus = matchesView ? settledStatus({ status: view?.review.status }) : '';
   const reviewSkipped = currentReview?.review_skipped === true || rawReviewStatus === 'skipped';
   const selfReview = currentReview?.review_source === 'engineer_self_review';
   const independentReview = !currentReview?.review_source || currentReview.review_source === 'reviewer';

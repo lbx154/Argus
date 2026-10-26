@@ -63,7 +63,7 @@ def test_without_review_the_engineers_manager_handoff_settles_immediately(
         workdir=tmp_path,
     )
 
-    assert status == "blocked"
+    assert status == "manager"
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert len(rounds) == 1
     assert rounds[0].review.operator_question == ""
@@ -97,5 +97,5 @@ def test_an_explicit_operator_handoff_parks_the_round(tmp_path: Path) -> None:
     # No word in the question routes it: the handoff named the operator.
     backend, status, rounds = _freight_question_round(tmp_path)
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
+    assert status == "operator"
     assert rounds[0].review.review_source == "engineer_handoff"

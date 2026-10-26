@@ -35,7 +35,7 @@ def _run(tmp_path: Path, *responses: tuple[str, CannedResponse], review: bool = 
     return status, rounds, [label for label, _prompt, _options in backend.history]
 
 
-@pytest.mark.parametrize("to, status", [("planner", "replan_requested"), ("manager", "blocked")])
+@pytest.mark.parametrize("to, status", [("planner", "planner"), ("manager", "manager")])
 def test_the_engineer_hands_straight_to_the_planner_or_the_manager(tmp_path: Path, to: str, status: str) -> None:
     """Neither accepts work, so no review stands between the Engineer and them."""
     result, rounds, labels = _run(tmp_path, ("engineer-r1", CannedResponse(
@@ -66,9 +66,9 @@ def test_an_operator_question_parks_with_its_options(tmp_path: Path) -> None:
     result, rounds, labels = _run(tmp_path, ("engineer-r1", CannedResponse(
         action=hand_off("operator", "Two parsers fit.", ask=_KEEP),
     )))
-    assert (result, labels) == ("blocked", ["engineer-r1"])
+    assert (result, labels) == ("operator", ["engineer-r1"])
     review = rounds[0].review
-    assert (review.status, review.review_source, review.reason) == ("blocked", "engineer_handoff", "Two parsers fit.")
+    assert (review.status, review.review_source, review.reason) == ("operator", "engineer_handoff", "Two parsers fit.")
     assert review.operator_question == "Keep the old date format?"
     assert [(option["id"], option["label"]) for option in review.operator_options] == [
         ("option-1", "Keep it"), ("option-2", "Switch to ISO"),
