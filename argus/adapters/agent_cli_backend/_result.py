@@ -226,9 +226,17 @@ class UsageAccumulator:
         if not thread_id:
             return raw_totals
 
+        from ...core.session_ledger import remember_usage_totals, usage_totals
+
         with self._lock:
             previous = self._thread_usage_totals.get(thread_id)
             self._thread_usage_totals[thread_id] = raw_totals
+        if previous is None:
+            # Another process (or an earlier backend object) may have run
+            # this thread's earlier turns; its totals are on disk.
+            recorded = usage_totals(thread_id)
+            previous = recorded if recorded and len(recorded) == len(raw_totals) else None
+        remember_usage_totals(thread_id, raw_totals)
 
         if previous is None:
             return raw_totals

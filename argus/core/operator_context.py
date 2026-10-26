@@ -1525,7 +1525,10 @@ def append_operator_context(prompt: str, operator_context: str) -> str:
     steering the strongest recency position without changing its contents.
     """
     context = str(operator_context or "").strip()
-    return str(prompt) + ("\n\n" + context if context else "")
+    if not context or context in str(prompt):
+        # A caller that already carries this exact block keeps one copy.
+        return str(prompt)
+    return str(prompt) + "\n\n" + context
 
 
 def operator_context_revision_from_text(text: str) -> int:

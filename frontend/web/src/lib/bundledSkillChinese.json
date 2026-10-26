@@ -648,7 +648,7 @@
     "summary": "通过当前来源对照最接近的已有工作，判断一条候选想法的差异，而非先宣称创新。",
     "originalName": "Testing the idea's novelty",
     "source": "argus/verticals/research/skills/engineer/novelty-check.md",
-    "sourceBytes": 1794
+    "sourceBytes": 1630
   },
   "vertical/research/engineer/paper-chart-styling.md": {
     "title": "论文数据图样式",
@@ -739,7 +739,7 @@
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 6733
+    "sourceBytes": 6516
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",

@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterator
 from .models import RunnerOptions, RunnerResult
 from .ports import RunnerBackend
 from .runner_errors import result_has_missing_resume_target
+from .session_ledger import elide_sent_sections, record_sent, turn_size_tokens
 
 log = logging.getLogger(__name__)
 
@@ -106,8 +107,13 @@ class RunExecGateway:
             options = replace(options, external_interrupt_reason_provider=(
                 lambda: interrupt() or (original() if original else None)
             ))
+        full_prompt = str(request.prompt)
+        resume_id = request.resume_thread_id if isinstance(request.resume_thread_id, str) else None
+        resumed = bool(resume_id)
+        # Fixed text goes once per provider session: a resumed thread is sent
+        # only the sections it does not already hold.
         kwargs = {
-            "prompt": str(request.prompt),
+            "prompt": elide_sent_sections(resume_id, full_prompt) if resumed else full_prompt,
             "options": options,
             "run_label": str(request.run_label),
         }
@@ -116,8 +122,6 @@ class RunExecGateway:
         reason = interrupt() if interrupt is not None else None
         result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
                   if reason else self.backend.run_exec(**kwargs))
-        resume_id = request.resume_thread_id if isinstance(request.resume_thread_id, str) else None
-        resumed = bool(resume_id)
         if (
             resumed
             and request.fresh_on_missing_resume
@@ -133,7 +137,7 @@ class RunExecGateway:
             )
             resumed = False
             kwargs["resume_thread_id"] = None
-            kwargs["prompt"] = _MISSING_SESSION_NOTE + kwargs["prompt"]
+            kwargs["prompt"] = _MISSING_SESSION_NOTE + full_prompt
             reason = interrupt() if interrupt is not None else None
             result = (RunnerResult(exit_code=130, fatal_error=f"External interrupt: {reason}")
                       if reason else self.backend.run_exec(**kwargs))
@@ -144,6 +148,7 @@ class RunExecGateway:
             result.call_id = f"gateway-{uuid.uuid4().hex}"
         if result.thread_id is None and resumed:
             result.thread_id = resume_id
+        _record_session(result, resume_id if resumed else None, full_prompt, str(kwargs["prompt"]))
         if result.started_at <= 0:
             result.started_at = started_at
         if result.completed_at <= 0:
@@ -159,6 +164,24 @@ class RunExecGateway:
             request.prompt
         )
         return result
+
+
+def _record_session(
+    result: RunnerResult, resume_id: str | None, full_prompt: str, sent_prompt: str,
+) -> None:
+    """Note what this turn left in its provider thread (see ``session_ledger``)."""
+    thread = str(result.thread_id or "")
+    if not thread or (resume_id and thread != resume_id):
+        # A resume answered on another thread never received the elided
+        # sections; that thread starts with no record and gets everything.
+        return
+    completed = int(result.exit_code or 0) == 0 and not result.fatal_error
+    record_sent(
+        thread,
+        full_prompt,
+        holds_prompt=completed,
+        added_tokens=turn_size_tokens(sent_prompt, result.stdout_lines),
+    )
 
 
 def run_exec(

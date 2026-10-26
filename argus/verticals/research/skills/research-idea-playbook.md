@@ -37,10 +37,8 @@ not test the empirical hypothesis.
    here: the machine's GPUs and cached weights listed in the stage context,
    public data, and code that exists. Do not build the decisive experiment on
    human participants, ethics approval, paid annotation, credentials, or
-   compute the operator has not supplied. For novelty, read about the 5–8
-   closest sources per route, not an exhaustive survey, and keep one copy of a
-   source you need (its URL and the passage that matters), not a raw download
-   beside an extracted text. Related work existing is not a rejection: name the
+   compute the operator has not supplied.
+   Related work existing is not a rejection: name the
    closest work and the delta. A meaningful delta (new mechanism, setting,
    scale, or finding) passes with the overlap recorded as a known risk. Set a
    route aside only when the same mechanism and claim are already published,

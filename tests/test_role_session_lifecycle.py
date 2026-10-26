@@ -230,7 +230,9 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
         if label.startswith("engineer-") or label == "reviewer"
     ] == [("engineer-r1", "e1"), ("reviewer", "v1")]
     prompt = next(prompt for label, prompt, _ in second.history if label == "engineer-r1")
-    assert str(context.parent / "role-sessions" / "engineer.json") in prompt
+    # The resumed thread already holds its Role state references block from the
+    # first process; the run gateway names it instead of sending it again.
+    assert "`Role state references`" in prompt
     assert str(context.parent / "role-sessions" / "reviewer.json") not in prompt
     assert [label for label, _prompt, _options in second.history] == [
         "engineer-r1",
