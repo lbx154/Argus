@@ -425,7 +425,8 @@ def route_directive_text(steps: Iterable[Step]) -> str:
         "reorder or reinterpret a step. If a step looks wrong or impossible, ask the operator "
         "(to=operator, about_waypoint=<step id>, options keep / change / remove) instead of "
         "skipping it. The project is not done while a step is open. A task tied to a step is "
-        "reviewed against that step's words.",
+        "reviewed against that step's words. The [ids] are for waypoint_id only: in titles and "
+        "anything the operator reads, name a step by its number and words (第 2 步「…」).",
     ]
     for step in steps:
         order = f"{step.number}." if step.number is not None else "- (any order)"

@@ -325,15 +325,21 @@ def enqueue_mission(
         # carries out the next step only, tied to it, so the Planner plans the
         # later steps in order and a checkpoint can pause between them.
         step = _next_required_step(mem)
-        acceptance_check = ""
+        objective, acceptance_check = execution_body, ""
         if step is not None:
             from ..core.waypoints import scope_to_step
 
-            execution_body, acceptance_check = scope_to_step(execution_body, step)
+            # The original objective stays the Manager's own words: the
+            # campaign recognises its direct objective as already handed out.
+            objective, acceptance_check = scope_to_step(execution_body, step)
+            # One step is not the whole stage: it closes nothing, and the
+            # Planner plans the steps after it (eval w1: a stage-closing first
+            # step was rejected at completion and re-checked for nothing).
+            kind_tags = ["operator", "operator_priority", "stage_transition:skip"]
         item = BacklogItem.new(
             item_id=root_task_id,
             title=brief_title(display_title or topic or compact),
-            objective=execution_body,
+            objective=objective,
             priority=min(head_priority - 1, -1),
             tags=["manager", "scope:bounded", "review:required", *kind_tags],
             iterate=False,
