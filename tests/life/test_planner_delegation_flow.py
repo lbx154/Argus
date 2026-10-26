@@ -575,16 +575,13 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
         "expected_plan_id": "plan-old",
         "expected_plan_version": 1,
         "plan_challenge": {
-            "manager_action": "replace",
-            "manager_reason": "Later evidence supports a concrete alternative.",
             "challenge": "The preselected skip-zero candidate is unnecessary.",
             "alternative": "Use the no-gap validator alternative.",
-            "source": "manager_authority_policy",
+            "source": "reviewer",
             "raised_at": time.time() - 2,
         },
     }
 
-    assert supervisor._adjudicate_mission_challenge(outcome) == "replace"
     assert supervisor._plan_next_work(revision_request=outcome) is True
 
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
@@ -597,12 +594,14 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     assert replacement.iterate is True
     prompt = planner.calls[0]["prompt"]
     assert "challenged_assumption: The preselected skip-zero candidate" in prompt
-    assert "proposed_alternative: Use the no-gap validator" in prompt
+    assert "reviewer_alternative: Use the no-gap validator" in prompt
+    # The Reviewer's challenge reaches the Planner as its input: nobody chose an action first.
+    assert "manager_action" not in prompt
     events = [
         json.loads(line)
         for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
     ]
-    decided = [
+    assert not [
         event for event in events
         if event.get("type") == "life.manager.plan_challenge.decided"
     ]
@@ -610,8 +609,8 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
         event for event in events
         if event.get("type") == "life.plan.revision.committed"
     ]
-    assert decided and decided[-1]["manager_action"] == "replace"
-    assert decided[-1]["revision_latency_seconds"] >= 1
+    assert committed[-1]["revision_latency_seconds"] >= 1
+    assert "manager_action" not in committed[-1]
     assert committed and committed[-1]["alternative"].startswith("Use the no-gap")
 
 
@@ -634,11 +633,9 @@ def _assert_replan_replace_commits_after_source_terminalized(
                     "The source node completed enough evidence to refute itself."
                 ),
                 plan_challenge={
-                    "manager_action": "replace",
-                    "manager_reason": "Later evidence supports a replacement.",
                     "challenge": "The source route is now worse than the replacement.",
                     "alternative": "Commit the replacement route.",
-                    "source": "manager_authority_policy",
+                    "source": "reviewer",
                     "raised_at": time.time() - 2,
                 },
                 stage_transition={},
@@ -674,14 +671,13 @@ def _assert_replan_replace_commits_after_source_terminalized(
     outcome = supervisor._run_one(trigger)
 
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
-    # The Manager's ruling on the challenge, not a progress bit, retires it.
+    # The Planner's replacement, not a progress bit, retires it.
     assert rows_after_run["source-route"].status == "pending"
     assert outcome["status"] == "planner"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",
         "source-followup",
     ]
-    assert supervisor._adjudicate_mission_challenge(outcome) == "replace"
     assert supervisor._plan_next_work(revision_request=outcome) is True
 
     rows = {item.id: item for item in supervisor.memory.backlog.all()}

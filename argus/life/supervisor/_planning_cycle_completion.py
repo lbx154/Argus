@@ -22,7 +22,6 @@ from ...core.mission_view import say
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.transcript import read_turns
 from ...core.workspace_facts import fact_text
-from ..memory import BacklogItem
 from ._constants import (
     COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
     PLAN_ERROR,
@@ -30,7 +29,6 @@ from ._constants import (
     PLAN_TERMINAL_IDLE,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
 )
-from ._planner_failure_backoff import MANAGER_HANDOFF_UNANSWERED
 from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
@@ -408,11 +406,8 @@ class PlanningCycleCompletionMixin:
         if not verdict.handoff:
             return None
         if verdict.new_tasks:
-            # The tasks run. A stage handed to the Manager is put to it first:
-            # a stage it moves leaves these tasks planned against the old one,
-            # so plan again under the new stage. A question goes on the card.
-            if revision_request is None and self._reconcile_planner_handoff(verdict) in {"hold", "rollback"}:
-                return PLAN_RETRY
+            # The tasks run. A question goes on the card; a stuck process the
+            # Planner hands to the Manager reaches its supervision as it is.
             if verdict.handoff == "operator":
                 self._park_planner_question(
                     state, verdict.operator_question or verdict.summary, verdict.summary,
@@ -441,55 +436,6 @@ class PlanningCycleCompletionMixin:
             state.verdict = replace(verdict, handoff="", project_done=True)
             return self._pc_normalize_project_done(state)
         if revision_request is not None:
-            reconciliation_result = self._reconcile_planner_handoff(verdict)
-            if reconciliation_result == "rollback":
-                superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
-                try:
-                    result = self.memory.backlog.supersede_active_plan(
-                        expected_plan_id=expected_plan_id,
-                        expected_version=expected_plan_version,
-                        supersede_item_ids=[item.id for item in state.revision_active_items],
-                        superseded_by_plan_id=superseding_plan_id,
-                        reason=verdict.summary,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    self._emit(
-                        {
-                            "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                            "reason": (
-                                "Manager rolled back stage but active plan could "
-                                f"not be retired: {type(exc).__name__}: {exc}"
-                            ),
-                            "expected_plan_id": expected_plan_id,
-                            "expected_plan_version": expected_plan_version,
-                        }
-                    )
-                    return PLAN_ERROR
-                for item_id in result.superseded_ids:
-                    self._emit(
-                        {
-                            "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
-                            "item_id": item_id,
-                            "plan_id": expected_plan_id,
-                            "plan_version": expected_plan_version,
-                            "superseded_by_plan_id": superseding_plan_id,
-                            "reason": verdict.summary,
-                        }
-                    )
-                self._emit(
-                    {
-                        "type": "life.plan.revision.rolled_back",
-                        "old_plan_id": expected_plan_id,
-                        "old_plan_version": expected_plan_version,
-                        "superseded_item_ids": list(result.superseded_ids),
-                        "reason": verdict.summary,
-                    }
-                )
-                return PLAN_RETRY
-            if reconciliation_result == "unanswered":
-                return self._pc_handoff_unanswered(state)
-            if reconciliation_result:
-                return PLAN_RETRY
             self._emit(
                 {
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
@@ -498,30 +444,7 @@ class PlanningCycleCompletionMixin:
                     "expected_plan_version": expected_plan_version,
                 }
             )
-        if revision_request is None:
-            reconciliation_result = self._reconcile_planner_handoff(verdict)
-            if reconciliation_result == "unanswered":
-                return self._pc_handoff_unanswered(state)
-            if reconciliation_result:
-                return PLAN_RETRY
         return self._record_planner_handoff(verdict, state)
-
-    def _pc_handoff_unanswered(self, state: _PlanCycleState) -> str:
-        """The Manager's backend left the Planner's handoff unanswered.
-
-        Argus launched that backend, so the turn failed: the Planner's failure
-        streak paces the retry, alerts, and stops it with the operator told.
-        """
-        state.verdict = replace(
-            state.verdict, summary=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
-        )
-        self._emit({
-            "type": EventType.LIFE_PLANNER_ERROR,
-            "cycle": self._planning_cycles,
-            "error": MANAGER_HANDOFF_UNANSWERED,
-        })
-        self._enter_pause_backoff()
-        return PLAN_ERROR
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
@@ -672,8 +595,8 @@ class PlanningCycleCompletionMixin:
             if not self._manager_final_stage_is_completed():
                 stage = str(self._current_pipeline_stage() or "")
                 reason = (
-                    f"Project completion cannot be recorded yet: final stage "
-                    f"{stage!r} has not been completed by Manager."
+                    f"Project completion is the completion gate's: final stage {stage!r} is not "
+                    "closed yet. Plan the work its checks need, or the task that closes it."
                 )
                 if not self._persist_manager_planner_feedback(
                     stage=stage,

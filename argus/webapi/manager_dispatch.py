@@ -863,14 +863,6 @@ def ask_text(handoff: Any, chinese: bool) -> str:
     return "\n\n".join(part for part in (handoff.question, numbered_options(handoff.options, chinese)) if part)
 
 
-def tell_team_stage_ruling(life_dir: Any, chat_state: dict[str, Any]) -> None:
-    """Put the stage ruling the Manager's turn carried out, if any, in the team's inbox."""
-    from ..apps._inbox import queue_inbox_message
-
-    if text := chat_state.pop("_stage_ruling", None):
-        queue_inbox_message(life_dir, text, source="manager.stage")
-
-
 def _settle_manager_turn(
     mem: Any,
     reply: str,

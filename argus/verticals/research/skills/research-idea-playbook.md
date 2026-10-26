@@ -77,7 +77,7 @@ with prior work or an uncertain effect size, are listed for Experiment to
 answer; they do not hold the idea. When in doubt between passing with risks
 and rejecting, pass and list the risks.
 For exploratory work, completion is the requested source-grounded finding rather
-than a fabricated paper direction. Manager alone advances the stage after the
+than a fabricated paper direction. The completion gate advances the stage after the
 work required for the applicable path is complete and the stage's standards are met.
 
 ## Research notes

@@ -2870,6 +2870,23 @@ class Backlog:
                 self._save(items)
             return resumed
 
+    def resume_one(self, item_id: str, *, notes: str = "") -> BacklogItem | None:
+        """Re-arm one parked row, with ``notes`` for whoever runs it next; ``None`` when it is not parked.
+
+        A row a question holds stays parked: only the answer resumes it.
+        """
+        with self._locked():
+            items = self._load()
+            item = next((row for row in items if row.id == item_id), None)
+            if item is None or park_reason(item) is None or str(item.pending_question or "").strip():
+                return None
+            _rearm(item)
+            if notes:
+                item.notes = notes
+            self._cascade_blocked(items, history=self._dependency_history(items))
+            self._save(items)
+            return item
+
     def remove(self, item_id: str) -> bool:
         with self._locked():
             items = self._load()

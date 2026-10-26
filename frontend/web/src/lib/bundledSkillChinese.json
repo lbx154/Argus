@@ -29,10 +29,10 @@
   },
   "global/manager/asking-the-operator/SKILL.md": {
     "title": "向操作者提问",
-    "summary": "只在需要操作者拍板时提问：问题和选项写清楚，操作者只看到这一处；阶段推进由经理自己定，但要交付需求的哪种理解仍由操作者定，问过就等答复，不替他选。",
+    "summary": "只在需要你拍板时提问：问题和选项写清楚，你只看到这一处；你想要什么由你定，经理只在你说“别问我”时才替你选并记下；阶段由完成闸门按证据推进。",
     "originalName": "Asking the operator",
     "source": "argus/builtin_skills/manager/asking-the-operator/SKILL.md",
-    "sourceBytes": 3388
+    "sourceBytes": 3209
   },
   "global/manager/workflow-setup/SKILL.md": {
     "title": "和用户商定可复用流程",
@@ -42,11 +42,11 @@
     "sourceBytes": 2079
   },
   "global/manager/evidence-based-stage-decision.md": {
-    "title": "经理的职责与阶段决定",
-    "summary": "经理是唯一改变阶段的角色；结合规划和评审证据决定继续、推进、返回或结束，部署始终需要操作者批准。",
-    "originalName": "The Manager's role and stage decisions",
+    "title": "经理的职责：替你传话，流程卡住时排查",
+    "summary": "每件事一个负责人：你定想要什么，规划者定怎么拆，评审定验收，完成闸门按证据推进阶段和判定完成；经理只转达你的意思，工作卡到它这里时排查流程问题，不替你、规划者或闸门做决定。",
+    "originalName": "The Manager's role: the person's voice, and debugging a stuck process",
     "source": "argus/builtin_skills/manager/evidence-based-stage-decision.md",
-    "sourceBytes": 2939
+    "sourceBytes": 4364
   },
   "global/manager/replying/SKILL.md": {
     "title": "回复操作者",
@@ -71,10 +71,10 @@
   },
   "global/manager/team-handoff/SKILL.md": {
     "title": "把任务交给团队",
-    "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单。",
+    "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单；团队自己规划、验收、推进阶段，经理不替它裁决。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 4561
+    "sourceBytes": 4821
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",
@@ -92,10 +92,10 @@
   },
   "global/planner/dependency-aware-task-decomposition.md": {
     "title": "规划者的职责与按依赖拆解任务",
-    "summary": "规划者只读只派、不执行，阶段只由经理改变；把目标与已有证据整理成最小、可执行、有真实依赖且能明确验收的任务集合。",
+    "summary": "规划者负责新建、拆分、排序、撤下和替换任务，评审的质疑直接作为它的输入；它只提议阶段就绪或完成，由完成闸门按证据决定；流程卡住交给经理排查。",
     "originalName": "The Planner's role and dependency-aware task decomposition",
     "source": "argus/builtin_skills/planner/dependency-aware-task-decomposition.md",
-    "sourceBytes": 3182
+    "sourceBytes": 4280
   },
   "global/project-venv-package-management.md": {
     "title": "项目环境、依赖与运行前核查",
@@ -732,21 +732,21 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34271
+    "sourceBytes": 34301
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 6733
+    "sourceBytes": 6739
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
     "summary": "从已确认的正向证据组织论文、编译并准备投稿材料，保持证据与论述一致。",
     "originalName": "Writing the research paper",
     "source": "argus/verticals/research/skills/research-paper-playbook.md",
-    "sourceBytes": 13004
+    "sourceBytes": 13034
   },
   "vertical/research/research-review-playbook.md": {
     "title": "对论文形成独立判断",

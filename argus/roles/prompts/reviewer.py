@@ -520,9 +520,9 @@ def render_reviewer_prompt(
 
     # Upstream-evidence defect REPORT. When the reviewer notices that an
     # upstream stage's evidence is missing or unreliable while working a
-    # later stage, the correct move is to REPORT it so the Manager can roll
-    # the stage back — the reviewer does NOT edit the pipeline state machine
-    # itself (stage authority is the Manager's). The instruction lives here
+    # later stage, the correct move is to REPORT it so the Planner can propose
+    # reopening that stage — the reviewer does NOT edit the pipeline state
+    # machine itself (the completion gate is its one writer). The instruction lives here
     # (not in the individual checklist items) so it applies uniformly.
     stage_order = prompt_context.stage_order
     stage_idx = stage_order.index(stage) if stage in stage_order else 0
@@ -541,8 +541,8 @@ def render_reviewer_prompt(
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
             "Rollback only when a concrete earlier defect makes the current result "
             "unusable. Optional outputs or those not needed for the claim are advisory. If "
-            "rollback is necessary, hand the work to the Manager, who owns rollback: "
-            "`to=manager`, with the earliest stage and evidence. Never edit "
+            "rollback is necessary, hand the work to the Planner, who proposes reopening "
+            "that stage: `to=planner`, with the earliest stage and evidence. Never edit "
             "`.argus/PIPELINE_STATE.json`."
         )
     operator_text = (

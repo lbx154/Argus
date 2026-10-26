@@ -58,16 +58,6 @@ def test_an_answer_kept_with_the_manager_cannot_go_to_the_team():
     assert "yourself" in _call(actions, to="team", goal="g", acceptance=["a"])
 
 
-def test_a_team_report_is_not_handed_back_to_the_team():
-    # 2026-10-24 01:33: the Manager, told the final acceptance went to the
-    # Planner, tried to send it to the team again; the refusal said the
-    # operator wanted it answered directly, which no one had asked.
-    actions = manager_actions("Team report:\n独立验收需要换个做法。", active_mission=True, team_allowed=False)
-    refusal = _call(actions, to="team", goal="g", acceptance=["a"], vertical="research")
-    assert "team's report" in refusal and "do not retry" in refusal
-    assert "operator asked" not in refusal
-
-
 def test_a_question_offers_two_to_five_different_answers():
     actions = manager_actions("A 和 B 冲突了", active_mission=False, operator_available=True)
     ask = {"question": "选哪个？", "options": [{"label": "A"}, {"label": "a"}]}

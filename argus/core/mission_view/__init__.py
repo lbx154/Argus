@@ -50,6 +50,7 @@ from ._wording import (
     say,
     sentences,
     session_is_chinese,
+    stage_label,
     uses_cjk,
     written_language,
 )
@@ -73,4 +74,5 @@ __all__ = [
     "conversation_is_chinese",
     "written_language",
     "work_record_event_id",
+    "stage_label",
 ]

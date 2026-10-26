@@ -120,6 +120,17 @@ def _apply_planner_stage_request(
             raise advance_error
 
 
+def _challenge_latency(challenge: dict[str, Any]) -> float:
+    """Seconds from the Reviewer raising a challenge to the Planner's revision."""
+    import time
+
+    try:
+        raised_at = float(challenge.get("raised_at") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, time.time() - raised_at) if raised_at > 0 else 0.0
+
+
 class PlanningCycleEnqueueMixin:
     """Dedupe index, pending-item construction, commit, and final emission."""
 
@@ -906,14 +917,9 @@ class PlanningCycleEnqueueMixin:
                     "new_plan_version": state.new_plan_version,
                     "superseded_item_ids": list(revision_result.superseded_ids),
                     "added_item_ids": list(revision_result.added_ids),
-                    "manager_action": str(
-                        challenge.get("manager_action") or "revise"
-                    ),
                     "challenge": str(challenge.get("challenge") or ""),
                     "alternative": str(challenge.get("alternative") or ""),
-                    "revision_latency_seconds": float(
-                        challenge.get("revision_latency_seconds") or 0.0
-                    ),
+                    "revision_latency_seconds": _challenge_latency(challenge),
                 }
             )
 

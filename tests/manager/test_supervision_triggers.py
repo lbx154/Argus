@@ -71,8 +71,11 @@ def test_an_engineer_handing_the_work_over_reaches_the_manager(admitted):
     event = admitted(_review(2, status="blocked", review_source="engineer_handoff",
                              reason="The fixture needs a credential only you can grant."))
     assert event["consult_reason"] == (
-        "the Engineer handed the work to you: The fixture needs a credential only you can grant."
+        "the Engineer handed the work to you, so the process is stuck: "
+        "The fixture needs a credential only you can grant."
     )
+    # The Manager's rung is process debugging: the brief and its refusals apply.
+    assert event["process_stuck"] is True
 
 
 def test_an_impossible_check_reaches_the_manager_only_in_the_operator_s_place(admitted, monkeypatch):

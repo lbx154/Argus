@@ -98,21 +98,13 @@ def _check_no_start_hold(payload: dict[str, Any], message: str) -> None:
 
 def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_allowed: bool,
            route: Callable[[dict[str, Any]], Any] | None,
-           stage: Callable[[dict[str, Any]], Any] | None, waiting: Mapping[str, Sequence[str]],
-           setting_up: bool) -> Any:
+           waiting: Mapping[str, Sequence[str]], setting_up: bool) -> Any:
     """The rules Argus enforces on the Manager's call; each refusal is one sentence the model can act on."""
     to = payload["to"]
     if "answer" in payload:
         _check_answer(payload, waiting)
     _check_setup(payload, setting_up)
     if to == "team" and not team_allowed:
-        if message.startswith("Team report:"):
-            # The team holds the work it reports on: the Planner, not a second
-            # ticket, takes up whatever it left.
-            raise ValueError(
-                "This is the team's report and the team still holds that work: tell the operator "
-                "what it means for them; do not hand it to the team, and do not retry."
-            )
         raise ValueError("The operator asked you to answer this yourself: do not hand it to the team.")
     if (to == "team") != all(key in payload for key in ("goal", "acceptance", "vertical")):
         raise ValueError("to=team goes with goal, acceptance and vertical, and they only with to=team.")
@@ -127,38 +119,33 @@ def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_
     if to == "team":
         _check_no_start_hold(payload, message)
         return route(_route(payload)) if route else None
-    if "stage" in payload and to != "manager":
-        raise ValueError("A stage ruling is carried out by Argus: file it with to=manager.")
-    ruling = stage(payload) if "stage" in payload and stage else None
     if not control:
-        return ruling
+        return None
     if _folded(control["quote"]) not in _folded(message):
         raise ValueError("control.quote must be the operator's own words giving the command, copied from the message.")
     if control["kind"] == "steer" and not active_mission:
         raise ValueError("No mission is running, so there is nothing to steer: leave control out.")
     if control["kind"] == "steer" and not control.get("directive"):
         raise ValueError("A steer needs its new direction in control.directive.")
-    return ruling
+    return None
 
 
 def manager_actions(
     message: str, *, active_mission: bool, team_allowed: bool = True, operator_available: bool | None = None,
     route: Callable[[dict[str, Any]], Any] | None = None,
-    stage: Callable[[dict[str, Any]], Any] | None = None,
     waiting: Mapping[str, Sequence[str]] | None = None, setting_up: bool = False,
 ) -> HandOffActions:
     """The ``hand_off`` tool bound to one Manager turn on ``message``.
 
     ``route`` checks a ticket's routing decision (``Manager.adopt_route``); what
     it returns is the handoff's value, the decision the team is dispatched with.
-    ``stage`` checks a stage ruling (``Manager.stage_ruling``).
     ``waiting`` maps each task paused on a question to the ids of the answers it
     offers; ``setting_up`` is a workflow setup under way with the operator.
     """
     return HandOffActions(
         "manager", operator_available=True if setting_up else operator_available,
         check=partial(_check, message=message, active_mission=active_mission, team_allowed=team_allowed,
-                      route=route, stage=stage, waiting=waiting or {}, setting_up=setting_up),
+                      route=route, waiting=waiting or {}, setting_up=setting_up),
     )
 
 

@@ -58,11 +58,6 @@ class CancelMessageIn(BaseModel):
     request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
-class TeamTurnIn(BaseModel):
-    message_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-    text: str = Field(min_length=1, max_length=200_000)
-
-
 class AnswerIn(BaseModel):
     text: str = Field(max_length=MESSAGE_MAX_CHARS)
 

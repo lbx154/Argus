@@ -140,7 +140,7 @@ def test_first_words_are_closed_when_the_turn_ends_without_a_reply(tmp_path, mon
 
     monkeypatch.setattr(front_door, "manager_turn", replying(turn))
     if ending == "crashed":
-        monkeypatch.setattr(manager_bridge, "tell_team_stage_ruling", crash)
+        monkeypatch.setattr(manager_bridge, "_settle_manager_turn", crash)
         with pytest.raises(RuntimeError):
             manager_bridge.manager_message(life.name, "format_ratio 是干嘛的？", global_root=tmp_path, turn_id="web-7")
     else:

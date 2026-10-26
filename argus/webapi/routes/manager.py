@@ -6,11 +6,9 @@ WebSocket stream.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 import queue
-import secrets
 import threading
 import uuid
 from contextlib import suppress
@@ -22,7 +20,6 @@ from fastapi import (
     File,
     HTTPException,
     Query,
-    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -33,7 +30,7 @@ from starlette.responses import StreamingResponse
 from ...daemon import life_worker as daemon_worker
 from .. import project_state, server
 from .context import STREAM_PROTOCOL, ServerContext
-from .models import CancelMessageIn, MessageIn, TeamTurnIn
+from .models import CancelMessageIn, MessageIn
 
 log = logging.getLogger(__name__)
 
@@ -212,56 +209,6 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
     def _close_deferred_messages():
         deferred.close()
 
-    @app.middleware("http")
-    async def _publish_manager_endpoint(request, call_next):
-        # A project process pushes the Manager's decisions here. The socket a
-        # request reached is this server's own address, whatever launched it.
-        server_address = request.scope.get("server")
-        if server_address and server_address[1] and endpoint.get("at") != server_address:
-            from ...core.team_reports import publish_manager_endpoint
-
-            host, port = server_address
-            host = f"[{host}]" if ":" in host else host
-            for root in ctx.roots:
-                try:
-                    publish_manager_endpoint(root, url=f"http://{host}:{port}", token=push_secret)
-                except OSError:
-                    log.warning("Manager endpoint not published in %s", root, exc_info=True)
-            endpoint["at"] = server_address
-        return await call_next(request)
-
-    endpoint: dict[str, Any] = {}
-    team_turns: set[tuple[str, str]] = set()
-    # What a project process presents to push a turn: a secret of this server
-    # start, good for that one route, so the file never holds the master token.
-    push_secret = secrets.token_urlsafe(32)
-
-    def _require_push_auth(request: Request) -> None:
-        offered = (request.headers.get("authorization") or "").encode()
-        if not (ctx.authorized(request) or hmac.compare_digest(offered, f"Bearer {push_secret}".encode())):
-            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
-
-    @app.post("/api/projects/{sid}/manager/team-turn", status_code=202, dependencies=[Depends(_require_push_auth)])
-    def _team_turn(sid: str, body: TeamTurnIn) -> dict[str, Any]:
-        """A decision only the Manager makes, which the team waits on: its turn starts now."""
-        from ..manager_bridge import manager_team_report
-
-        root = ctx.project_root_or_404(sid)
-        with team_turns_lock:
-            if (sid, body.message_id) in team_turns:
-                return {"accepted": True, "duplicate": True}
-            team_turns.add((sid, body.message_id))
-
-        def _run() -> None:
-            try:
-                manager_team_report(sid, body.text, message_id=body.message_id, event_fields={}, global_root=root)
-            except Exception:  # noqa: BLE001 - the question waits for the next turn
-                log.exception("Manager turn for %s failed in %s", body.message_id, sid)
-
-        threading.Thread(target=_run, name=f"manager-team-turn-{sid}", daemon=True).start()
-        return {"accepted": True}
-
-    team_turns_lock = threading.Lock()
 
     def _begin_message(sid: str, request_id: str):
         try:

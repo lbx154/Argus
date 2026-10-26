@@ -277,7 +277,6 @@ class LettersMixin:
             types={
                 "life.manager.stage_decision",
                 "life.plan.node.superseded",
-                "life.manager.plan_challenge.decided",
             },
         ):
             kind = str(row.get("type") or "")
@@ -288,10 +287,6 @@ class LettersMixin:
                 )
             elif kind == "life.plan.node.superseded":
                 decisions.append(f"- Let go of a planned task: {str(row.get('reason') or '')[:300]}")
-            elif kind == "life.manager.plan_challenge.decided":
-                decisions.append(
-                    f"- Plan challenge: {row.get('manager_action')}: {str(row.get('challenge') or '')[:300]}"
-                )
 
         running: list[str] = []
         planned: list[str] = []

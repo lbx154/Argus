@@ -23,9 +23,7 @@ from .manager_dispatch import (
     _manager_request_scope,
     _settle_manager_turn,
     _TurnEmitter,
-    ask_text,
     record_turn_step,
-    tell_team_stage_ruling,
 )
 from .manager_pending_question import _emit_ui_turn
 from .manager_state import (
@@ -347,6 +345,11 @@ def _manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator",
                       metadata={"refs": reference_ids} if reference_ids else None)
+        if domain_answer is None and not explicit_chat and not active_mission:
+            _note_instruction_for_planning_in_flight(life_dir, operator_text)
+        from .manager_handoff_queue import resume_queued_handoffs
+
+        resume_queued_handoffs(life_dir)
 
         if _cancelled():
             return _cancelled_result()
@@ -418,7 +421,6 @@ def _manager_message(
                 mem, turn_input, chat_state,
                 on_fragment=emitter.fragment, root_task_id=root_task_id, team_allowed=not explicit_chat,
             )
-            tell_team_stage_ruling(life_dir, chat_state)
             if _cancelled():
                 emitter.cancel_task()
                 return _cancelled_result()
@@ -450,6 +452,32 @@ def _manager_message(
             if intake_before:
                 write_intake(life_dir, intake_before)
             return _cancelled_result()
+
+        def _queue_behind_running_mission() -> dict[str, Any]:
+            # A running mission holds the pipeline: the person reads the
+            # Manager's reply now, and the ticket goes in at the mission's
+            # next safe point, with no deadline (trial s-efe9deac).
+            from .manager_handoff_queue import queue_team_handoff
+
+            patch = {key: chat_state.pop(key) for key in (
+                "_approved_domain_decision", "_team_lifetime", "_domain_display_objective",
+            ) if key in chat_state}
+            queue_team_handoff(
+                sid, life_dir, global_root=mem.global_root, body=body, public_task=public_task or body,
+                root_task_id=root_task_id, operator_text=operator_text, chat_patch=patch,
+                attachment_context_refs=message_attachment_refs, reference_deps=reference_deps,
+            )
+            note = say("handoff_queued", conversation_chinese)
+            return emitter.respond(
+                "\n\n".join(part for part in (str(reply or "").strip(), note) if part),
+                {"kind": "chat", "queued_handoff": True},
+            )
+
+        from ..manager._session_ops import ManagerPipelineWaitTimeout, manager_pipeline_busy
+
+        conversation_chinese = _conversation_chinese(life_dir, operator_text)
+        if manager_pipeline_busy(life_dir):
+            return _queue_behind_running_mission()
         try:
             item, daemon_alive, daemon_pid = _dispatch_team_mission(
                 mem,
@@ -483,11 +511,18 @@ def _manager_message(
                         "item": _item_to_dict(pending_item, operator_text or body),
                     },
                 )
-            error_reply = (
-                "I couldn't safely prepare that request, so nothing was queued "
-                "or executed. Clarify the target and allowed scope, or retry later."
+            if isinstance(exc, ManagerPipelineWaitTimeout) or isinstance(
+                getattr(exc, "__cause__", None), ManagerPipelineWaitTimeout,
+            ):
+                # The pipeline was taken between the check and the commit.
+                return _queue_behind_running_mission()
+            reason = say("handoff_reason_unknown", conversation_chinese)
+            return emitter.respond(
+                "\n\n".join(part for part in (
+                    str(reply or "").strip(), say("handoff_failed", conversation_chinese, said=reason),
+                ) if part),
+                {"kind": "error"},
             )
-            return emitter.respond(error_reply, {"kind": "error"})
 
     if _cancelled():
         return _cancelled_result()
@@ -540,6 +575,46 @@ def _manager_message(
     return result
 
 
+def _note_instruction_for_planning_in_flight(life_dir: Path, operator_text: str) -> None:
+    """Put the person's words before a Planner call already in flight.
+
+    The pipeline is held and no mission runs, so the Planner is mid-call: its
+    plan was made without these words. Recording them moves the operator
+    context revision, so that plan does not start and the Planner replans with
+    them (trial s-efe9deac: a plan committed 40 s after "stop re-picking the
+    topic" picked a new topic). A message while no work is in flight needs no
+    record: whatever the Manager hands the team is planned after it.
+    """
+    from ..core.operator_context import OperatorContextStore, append_directive
+    from ..manager._session_ops import manager_pipeline_busy
+
+    text = " ".join(str(operator_text or "").split())
+    if not text or not manager_pipeline_busy(life_dir):
+        return
+    try:
+        append_directive(
+            life_dir,
+            "The operator wrote this while you were planning; the Manager answers them and may "
+            f"hand the team a ticket for it. Plan by it where it changes the work: {text[:2000]}",
+            scope="project", applies_to_roles=("planner",), lifetime="once", source="operator.message",
+            expected_revision=OperatorContextStore(life_dir).revision,
+        )
+    except Exception:  # noqa: BLE001 - the Manager's own hand-off still carries the words
+        log.warning("operator words could not reach the planning in flight", exc_info=True)
+
+
+def _conversation_chinese(life_dir: Path, operator_text: str) -> bool:
+    """The conversation's language, not only the last message's (ux rule 4)."""
+    from ..core.mission_view import load_mission_view, session_is_chinese
+
+    try:
+        return session_is_chinese(load_mission_view(life_dir), operator_text)
+    except Exception:  # noqa: BLE001 - wording only
+        from ..core.mission_view import uses_cjk
+
+        return uses_cjk(operator_text)
+
+
 def manager_canvas_context(life_dir: Path) -> str:
     """What a person placed on the canvas, as context for one Manager turn (web chat, chat router, team reports)."""
     from .canvas import canvas_context_block
@@ -552,40 +627,6 @@ def manager_canvas_context(life_dir: Path) -> str:
         return list(_backlog_by_id(life_dir).values())
 
     return canvas_context_block(life_dir, titles=titles, rows=rows)
-
-
-def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: dict[str, Any],
-                        global_root: Path | str) -> dict[str, Any]:
-    """Answer a team report as a turn of the Manager's own session.
-
-    The operator reads the Manager's words under the report's message id and
-    card fields; if the Manager cannot answer, they read the team's report.
-    """
-    from ..core.mission_view import uses_cjk
-    from ..core.operator_messages import publish_operator_message
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import manager_turn
-
-    mem = MemoryBundle.for_cwd(fingerprint=sid, global_root=Path(global_root))
-    with _lock_for(sid):
-        chat_state = _chat_state_for(sid)
-        chat_state.update(session_id=sid, global_root=str(mem.global_root))
-        turn_input = f"Team report:\n{text}"
-        # The canvas is context for this decision too, as in the web chat.
-        if canvas_context := manager_canvas_context(Path(mem.project_root)):
-            turn_input = f"{turn_input}\n\n{canvas_context}"
-        reply, handoff = manager_turn(mem, turn_input, chat_state, team_allowed=False)
-        tell_team_stage_ruling(mem.project_root, chat_state)
-        if reply is None or chat_state.pop("_self_failure", None):
-            reply = text
-        elif handoff is not None and handoff.to == "operator":
-            from ..manager.stage_question import park_stage_question_on_task
-
-            reply = ask_text(handoff, uses_cjk(reply))
-            # The stage question's task waits on the operator's answer, on its card.
-            park_stage_question_on_task(mem.project_root, handoff)
-        publish_operator_message(mem.project_root, text=reply, message_id=message_id, event_fields=event_fields)
-    return {"kind": "chat", "reply": reply}
 
 
 def manager_plan(

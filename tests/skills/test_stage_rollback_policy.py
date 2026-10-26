@@ -17,7 +17,6 @@ from argus.skills.stage_machine import (
 )
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals import _registry
-from tests.hand_off import stage
 
 
 @pytest.fixture(autouse=True)
@@ -58,16 +57,17 @@ def _external_project(tmp_path: Path, monkeypatch, policy: bool | None):
     return state, workdir, provider
 
 
-@pytest.mark.parametrize("entrypoint", ["stage", "planner", "manager"])
+@pytest.mark.parametrize("entrypoint", ["stage", "planner", "gate"])
 @pytest.mark.parametrize("policy", [False, True, None], ids=["forward_only", "rollback", "default"])
 def test_external_vertical_rollback_policy_across_runtime_entries(
     tmp_path: Path, monkeypatch, entrypoint: str, policy: bool | None,
 ) -> None:
     state, workdir, _provider = _external_project(tmp_path, monkeypatch, policy)
     before = read_pipeline_state(state)
-    if entrypoint == "manager":
-        model = stage(move="rollback", target_stage="build")
-
+    if entrypoint == "gate":
+        # A Reviewer's replan is the Planner's input: the completion gate
+        # rolls nothing back on it, and no model is asked. The Planner's own
+        # request (the "planner" entry) is the route back.
         transition = Manager(
             project_root=state, execution_workdir=workdir, runner=object(),
         ).decide_stage_transition(
@@ -78,17 +78,10 @@ def test_external_vertical_rollback_policy_across_runtime_entries(
             project_root=state,
             mission_scope="bounded",
             stage_closing=True,
-            run_exec=model,
         )
-        assert len(model.prompts) == 1
-        if policy is False:
-            assert transition.action == "hold"
-            assert "forward-only" in transition.reason
-            assert transition.diagnostic == "external_lab_rollback_rejected"
-            assert "Rollback targets: none" in model.prompts[0]
-        else:
-            assert transition.action == "rollback"
-            assert "Rollback targets: none" not in model.prompts[0]
+        assert transition.action == "hold"
+        assert read_pipeline_state(state) == before
+        return
     else:
         def apply():
             if entrypoint == "stage":

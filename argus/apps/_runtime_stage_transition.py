@@ -1,5 +1,5 @@
 """Stage-transition mixin: ``StageTransitionMixin`` — hands each round's
-reviewer verdict to the Manager (the sole writer of the
+reviewer verdict to the completion gate (the one writer of the
 pipeline stage) and returns its advance/hold/rollback decision.
 """
 
