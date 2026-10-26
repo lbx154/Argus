@@ -19,6 +19,7 @@ from ..core import paths as core_paths
 from ..core.launch_settings import strip_launch_note
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import operator_objective, snapshot_mission_view
+from ..core.operator_messages import plain_stop_reason, served_task
 from ..core.role_config import RoleConfig, resolve_all_roles
 from ..core.runtime_identity import runtime_identity
 from ..core.session import (
@@ -442,8 +443,9 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "ts": item.ts,
         "started_ts": item.started_ts,
         "finished_ts": item.finished_ts,
-        # The first line of why a task stopped, for status summaries.
-        "last_error": " ".join(str(item.last_error or "").split())[:300],
+        # The first line of why a task stopped, for status summaries, said
+        # for the person rather than in the host's routing words.
+        "last_error": " ".join(plain_stop_reason(item.last_error, item.title, objective).split())[:300],
         "deps": [str(dep) for dep in item.deps],
         # What the task may write: a step that touches only Argus's own
         # records (.argus/...) failing does not mean the person's work failed.
@@ -669,7 +671,7 @@ def build_snapshot(
         backlog = (
             [compact_backlog_item(item) for item in items]
             if compact
-            else [item.to_jsonable() for item in items]
+            else [served_task(item) for item in items]
         )
     except Exception as exc:  # noqa: BLE001
         backlog = []

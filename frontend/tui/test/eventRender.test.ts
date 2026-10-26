@@ -287,7 +287,7 @@ test('internal status words and routing reasons read as plain words', () => {
     action: 'escalate',
     reason: 'Nothing changed since the reviewer last held this work, and nothing new arrived from outside, so it went one rung up, to the planner.',
   } as EventMsg)?.text ?? '';
-  assert.match(climbed, /Nothing changed since the Reviewer last looked at it, so the Planner takes it over\./);
+  assert.match(climbed, /This path is making no new progress, so the team is trying a different approach\./);
   assert.doesNotMatch(climbed, /one rung up/);
   // The conversation itself stays as written.
   assert.equal(renderEvent({ type: 'ui.argus', text: 'done', message_id: 'm-argus' } as EventMsg)?.text, 'done');

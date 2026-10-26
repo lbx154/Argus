@@ -10,11 +10,6 @@
 export type PlainLocale = 'en' | 'zh-CN';
 
 const zh = (locale: PlainLocale) => locale === 'zh-CN';
-const ROLE_WORDS: Record<string, [string, string]> = {
-  planner: ['规划者', 'Planner'], manager: ['经理', 'Manager'], reviewer: ['审阅者', 'Reviewer'],
-  engineer: ['工程师', 'Engineer'], operator: ['你', 'you'],
-};
-const roleWord = (role: string, locale: PlainLocale) => (ROLE_WORDS[role.trim().toLowerCase()] ?? [role, role])[zh(locale) ? 0 : 1];
 
 /** A verdict's status as the agent wrote it on its last line ("…\n\ncontinue"). */
 export const STATUS_TAIL = /(?:^|\n)[ \t]*`?(?:continue|done|blocked|replan_requested|question|no_progress)`?[ \t.]*$/i;
@@ -34,18 +29,20 @@ export function plainStatusWord(word: string, locale: PlainLocale): string {
   return pair ? pair[zh(locale) ? 1 : 0] : '';
 }
 
-/** The host's own reasons for where work went, said in the reader's language. */
+/**
+ * The host's own reasons for where work went, said in the reader's language as
+ * what they mean for the work: which role held it and which one holds it now
+ * are internal hand-offs, never the reader's words (same wording as the Python
+ * side's `plain_routing_reason`).
+ */
 export function plainInternalReason(text: string, locale: PlainLocale): string {
   return text.replace(
-    /Nothing changed since the ([a-z]+(?: and the [a-z]+)*) last held this work, and nothing new arrived from outside, so it went one rung up, to the ([a-z]+)\.(?: The Reviewer had handed it to the [a-z]+: )?/gi,
-    (_match, passed: string, holder: string) => {
-      const who = passed.split(' and the ').map(role => roleWord(role, locale)).join(zh(locale) ? '和' : ' and the ');
+    /Nothing changed since the [a-z]+(?: and the [a-z]+)* last held this work, and nothing new arrived from outside, so it went one rung up, to the ([a-z]+)\.(?:\s*The Reviewer had handed it to the [a-z]+:)?\s*/gi,
+    (_match, holder: string) => {
       if (holder.toLowerCase() === 'operator') {
-        return zh(locale) ? `自${who}上次处理以来没有新变化，需要你来决定怎么继续。` : `Nothing changed since the ${who} last looked at it, so it needs your decision. `;
+        return zh(locale) ? '这条路没有新进展，需要你决定怎么继续。' : 'This path is making no new progress; it needs your decision on how to go on. ';
       }
-      return zh(locale)
-        ? `自${who}上次处理以来没有新变化，交给${roleWord(holder, locale)}重新安排。`
-        : `Nothing changed since the ${who} last looked at it, so the ${roleWord(holder, locale)} takes it over. `;
+      return zh(locale) ? '这条路没有新进展，团队正在换个思路。' : 'This path is making no new progress, so the team is trying a different approach. ';
     },
   ).trim();
 }

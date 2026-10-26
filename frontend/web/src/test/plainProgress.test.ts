@@ -10,9 +10,13 @@ const climb = 'Nothing changed since the reviewer last held this work, and nothi
 
 describe('the progress feed in the reader’s words', () => {
   it('says the host’s English routing reason in Chinese and in English', () => {
-    expect(plainInternalReason(climb, 'zh-CN')).toBe('自审阅者上次处理以来没有新变化，交给规划者重新安排。');
-    expect(plainInternalReason(climb, 'en')).toBe('Nothing changed since the Reviewer last looked at it, so the Planner takes it over.');
-    expect(plainInternalReason(climb.replace('planner.', 'operator.'), 'zh-CN')).toBe('自审阅者上次处理以来没有新变化，需要你来决定怎么继续。');
+    // What it means for the work, never the internal hand-off between roles.
+    expect(plainInternalReason(climb, 'zh-CN')).toBe('这条路没有新进展，团队正在换个思路。');
+    expect(plainInternalReason(climb, 'en')).toBe('This path is making no new progress, so the team is trying a different approach.');
+    expect(plainInternalReason(climb.replace('planner.', 'operator.'), 'zh-CN')).toBe('这条路没有新进展，需要你决定怎么继续。');
+    // The Reviewer's own words after the hand-on stay.
+    expect(plainInternalReason(`${climb} The Reviewer had handed it to the planner: 计划需要调整。`, 'zh-CN'))
+      .toBe('这条路没有新进展，团队正在换个思路。计划需要调整。');
     // A role's own words are left as written.
     expect(plainInternalReason('综述内容已通过完整独立核查。', 'zh-CN')).toBe('综述内容已通过完整独立核查。');
   });
@@ -35,8 +39,8 @@ describe('the progress feed in the reader’s words', () => {
     const first = plainRowText(continued.ev, continued.r, 'zh-CN');
     expect(first.text).toBe('综述内容已通过完整独立核查；核验记录对既有回复的一处错误归因尚需修正。');
     expect(first.full).toContain('下一步：修正 source-verification.md 第 55 行的归因。');
-    expect(plainRowText(climbed.ev, climbed.r, 'zh-CN').text).toBe('自审阅者上次处理以来没有新变化，交给规划者重新安排。');
-    expect(roleHeadline([continued, climbed], 'zh-CN')).toBe('自审阅者上次处理以来没有新变化，交给规划者重新安排。');
+    expect(plainRowText(climbed.ev, climbed.r, 'zh-CN').text).toBe('这条路没有新进展，团队正在换个思路。');
+    expect(roleHeadline([continued, climbed], 'zh-CN')).toBe('这条路没有新进展，团队正在换个思路。');
   });
 
   it('never heads a role with a command, and counts commands when it said nothing', () => {

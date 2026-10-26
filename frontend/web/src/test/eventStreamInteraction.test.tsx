@@ -688,7 +688,7 @@ describe('project work progress in plain words', () => {
         reason: 'The content passed; one internal record still needs a fix.', next_action: 'Correct the attribution in source-verification.md.', event_id: 'v2', ts: 2 },
     ]);
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
-    expect(visibleText(group)).toContain('Nothing changed since the Reviewer last looked at it, so the Planner takes it over.');
+    expect(visibleText(group)).toContain('This path is making no new progress, so the team is trying a different approach.');
     expect(visibleText(group)).not.toMatch(/one rung up|replan_requested|\bcontinue\b/);
     expect(header('reviewer')).toBe('ReviewerThe content passed; one internal record still needs a fix.');
     expect(group.findAllByProps({ 'data-full-text': true })).toHaveLength(0);

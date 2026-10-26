@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..life.event_log import JsonlEventSink
-from .mission_view import say, uses_cjk
+from .mission_view import conversation_is_chinese, say, uses_cjk
 from .residual_risk import sanitize_text
 from .stop_kinds import park_reason_of
 from .transcript import append_turn
@@ -16,7 +16,11 @@ _CLIMB_RE = re.compile(
     r"Nothing changed since the (?P<who>.+?) last held this work, and nothing new arrived "
     r"from outside, so it went one rung up, to the (?P<holder>\w+)\."
 )
-_ROLE_ZH = {"engineer": "工程师", "reviewer": "审阅者", "planner": "规划者", "manager": "经理"}
+# The same record wherever it stands in a text, with the Reviewer's hand-on
+# that may follow it; the Reviewer's own words after it stay.
+_CLIMB_IN_TEXT_RE = re.compile(
+    _CLIMB_RE.pattern + r"(?:\s*The Reviewer had handed it to the \w+:)?\s*"
+)
 _TIMEOUT_RE = re.compile(
     r"(?:timed? out|timeout|exceeded timeout_s)[^0-9]*(\d+(?:\.\d+)?)?",
     flags=re.IGNORECASE,
@@ -52,11 +56,8 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
         return ("模型运行中断，未能完成请求。请重试；如果仍然失败，请联系管理员。" if zh else
                 "The model stopped before completing the request. Retry, or contact the administrator if it keeps failing.")
     climbed = _CLIMB_RE.match(raw)
-    if climbed and zh:
-        who = "和".join(_ROLE_ZH.get(role, role) for role in climbed["who"].split(" and the "))
-        holder = climbed["holder"]
-        then = "需要你决定怎么继续" if holder == "operator" else f"交给{_ROLE_ZH.get(holder, holder)}决定怎么继续"
-        return f"自{who}上次处理以来，交付的文件没有变化，也没有新的要求，所以{then}。"
+    if climbed:
+        return _plain_climb(climbed["holder"], zh)
     timeout = _TIMEOUT_RE.search(raw)
     if timeout:
         seconds = timeout.group(1)
@@ -99,6 +100,44 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
             else "This run reached its budget limit. Existing work is preserved; increase the budget or narrow the task to continue."
         )
     return raw
+
+
+def _plain_climb(holder: str, chinese: bool) -> str:
+    """Unchanged work went up for a new decision, said as what it means for the work.
+
+    Which role held it and which one holds it now are Argus's internal
+    hand-offs; the person reads that this path made no progress and what
+    happens next.
+    """
+    if holder == "operator":
+        return ("这条路没有新进展，需要你决定怎么继续。" if chinese else
+                "This path is making no new progress; it needs your decision on how to go on.")
+    return ("这条路没有新进展，团队正在换个思路。" if chinese else
+            "This path is making no new progress, so the team is trying a different approach.")
+
+
+def plain_routing_reason(text: Any, *, chinese: bool) -> str:
+    """``text`` with the host's routing records in it said for a person, never as raw internals."""
+    return _CLIMB_IN_TEXT_RE.sub(
+        lambda found: _plain_climb(found["holder"], chinese) + ("" if chinese else " "),
+        str(text or ""),
+    ).strip()
+
+
+def plain_stop_reason(reason: Any, *task_words: Any) -> str:
+    """Why a task stopped, as a page shows it, in the language of the task's own words."""
+    return plain_routing_reason(reason, chinese=conversation_is_chinese(*task_words) if task_words else False)
+
+
+def served_task(item: Any) -> dict[str, Any]:
+    """A backlog item as the pages serve it: its record, with why it stopped said plainly.
+
+    The stored ``last_error`` keeps the host's own words for the roles that
+    read it; every page reads this one.
+    """
+    row = item.to_jsonable()
+    row["last_error"] = plain_stop_reason(row.get("last_error"), row.get("title"), row.get("objective"))
+    return row
 
 
 def brief_title(text: str, limit: int = 50) -> str:
@@ -220,6 +259,9 @@ __all__ = [
     "brief_title",
     "first_sentence",
     "humanize_runtime_reason",
+    "plain_routing_reason",
+    "plain_stop_reason",
     "publish_operator_message",
     "render_operator_update",
+    "served_task",
 ]

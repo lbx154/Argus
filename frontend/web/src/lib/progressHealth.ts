@@ -1,7 +1,6 @@
 import type { BacklogItem, Snapshot } from '../../../core/src/types';
 
 const FAILED = new Set(['failed', 'error']);
-const ACTIVE = new Set(['pending', 'running', 'in_progress', 'claimed']);
 export const REPEATED_FAILURE_THRESHOLD = 3;
 export const NO_ACCEPTED_RESULT_HOURS = 12;
 
@@ -24,6 +23,11 @@ function failed(item: BacklogItem): boolean {
  * result, or a long active stretch has produced nothing that passed review.
  * Measured from task outcomes, not from event activity, so a busy but
  * unproductive run is still noticed.
+ *
+ * The stretch counts only time the team was working: it starts at the later
+ * of the last reviewed result and the last start of work, so a project that
+ * was stopped for days and started again an hour ago has been quiet for an
+ * hour, not for days. While nothing runs there is no stretch at all.
  */
 export function progressHealth(snapshot: Pick<Snapshot, 'backlog' | 'daemon'>, nowSeconds: number): ProgressHealth | null {
   const finished = snapshot.backlog
@@ -39,11 +43,12 @@ export function progressHealth(snapshot: Pick<Snapshot, 'backlog' | 'daemon'>, n
   if (failures >= REPEATED_FAILURE_THRESHOLD && latest) {
     return { problem: 'repeated_failures', key: `failures:${latest.id}`, failures, hoursWithoutAccepted: 0, latestFailure };
   }
-  const active = snapshot.daemon.alive || snapshot.backlog.some((item) => ACTIVE.has(item.status));
-  if (!active) return null;
+  // A task left "running" by a stopped daemon is not work going on.
+  if (!snapshot.daemon.alive) return null;
   const accepted = Math.max(0, ...snapshot.backlog.filter((item) => item.status === 'done').map((item) => Number(item.finished_ts) || 0));
   const starts = snapshot.backlog.map((item) => Number(item.started_ts) || Number(item.ts) || 0).filter((value) => value > 0);
-  const since = accepted || (starts.length ? Math.min(...starts) : 0);
+  const resumed = Date.parse(snapshot.daemon.started_at_iso || '') / 1000;
+  const since = Math.max(accepted || (starts.length ? Math.min(...starts) : 0), Number.isFinite(resumed) ? resumed : 0);
   if (!since) return null;
   const hours = (nowSeconds - since) / 3600;
   if (hours < NO_ACCEPTED_RESULT_HOURS) return null;

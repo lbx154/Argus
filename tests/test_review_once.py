@@ -165,5 +165,6 @@ def test_the_climb_reads_as_plain_chinese() -> None:
         reason=climb_record(["reviewer"], "planner").reason, holder="planner",
     )
 
-    assert "Nothing changed" not in text
-    assert "自审阅者上次处理以来，交付的文件没有变化" in text and "交给规划者" in text
+    assert "Nothing changed" not in text and "rung" not in text
+    # What it means for the work, not which role held it last.
+    assert "原因：这条路没有新进展，团队正在换个思路。" in text and "审阅者" not in text
