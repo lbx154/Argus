@@ -31,7 +31,7 @@ export function TimelineResults({ report, selectedId, text }: { report: Timeline
       <div className="space-y-3">{selected.schedule.map((row) => <div key={row.id}>
         <div className="mb-1 flex justify-between gap-3 text-xs"><span>{row.title}</span><span className="shrink-0 text-ink-faint">{row.start_hours.toFixed(1)}–{row.finish_hours.toFixed(1)} h</span></div>
         <div className="h-2.5 rounded-full bg-line/40" role="img" aria-label={`${row.title}: ${row.start_hours.toFixed(1)}–${row.finish_hours.toFixed(1)} h`}>
-          <div className={`h-full rounded-full ${row.status === 'failed' ? 'bg-red' : row.status === 'completed' ? 'bg-emerald-500' : 'bg-blue'}`} style={{ marginLeft: `${row.start_hours / end * 100}%`, width: `${Math.max(0.3, (row.finish_hours - row.start_hours) / end * 100)}%` }} />
+          <div className={`h-full rounded-full ${row.status === 'failed' ? 'bg-status-failed' : row.status === 'completed' ? 'bg-status-done' : 'bg-status-running'}`} style={{ marginLeft: `${row.start_hours / end * 100}%`, width: `${Math.max(0.3, (row.finish_hours - row.start_hours) / end * 100)}%` }} />
         </div>
       </div>)}</div>
     </section>

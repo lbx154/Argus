@@ -6,8 +6,8 @@ export function StatusDot({ ok, pulse = false, title }: { ok: boolean; pulse?: b
   return (
     <span
       title={title}
-      className={`inline-block h-1.5 w-1.5 rounded-full transition-shadow duration-150 ${
-        ok ? 'bg-ok ring-1 ring-ok/30 ring-offset-1 ring-offset-panel' : 'bg-ink-faint/50'
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full transition-shadow duration-150 ${
+        ok ? 'bg-status-running' : 'bg-status-idle'
       }`}
       data-live={ok && pulse ? 'true' : undefined}
     />

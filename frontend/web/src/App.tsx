@@ -1751,6 +1751,7 @@ export default function App() {
           alive={manageSnapQ.data?.daemon.alive
             ?? Boolean(projects.find((project) => project.id === manageTargetSid)?.daemon_alive)}
           controlAvailable={manageSnapQ.data?.daemon.control_available !== false}
+          snapshot={manageSnapQ.data}
           busy={daemonBusy}
           onClose={() => {
             setDaemonManageOpen(false);

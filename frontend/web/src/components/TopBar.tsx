@@ -2,19 +2,24 @@ import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
-import { theme } from '../lib/theme';
 import { roleLabel } from '../lib/enumLabels';
+import { teamPhase, teamPhaseLabel, type TeamPhase } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
-import { DaemonSpendBadge } from './DaemonSpendBadge';
 import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
+import { isFreshProject } from '../lib/launch';
 
 export type ThemeMode = 'light' | 'dark';
 
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
+
+/** Status = one small dot + words; colour lives only on the dot. */
+const PHASE_TONE: Record<TeamPhase, string> = {
+  running: 'running', waiting_you: 'waiting', paused: 'idle', stopped: 'failed', done: 'done', unknown: 'idle',
+};
 
 export function TopBar({
   snap,
@@ -66,7 +71,11 @@ export function TopBar({
     || snap.session.objective
     || '', snap.session.workdir, snap.session.cwd);
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
-  const spendUsd = typeof snap.spend_usd === 'number' ? snap.spend_usd : snap.usage_summary?.known_cost_usd ?? 0;
+  const phase = teamPhase(work, snap);
+  // A project nobody has written to yet has finished nothing: it waits for the person (rule 6).
+  const untouched = isFreshProject(snap) && phase === 'done' && !events.length && !focus;
+  const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')
+    : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : progress || teamPhaseLabel(phase, locale);
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   // A foreground request (a direct answer or a one-agent task) runs without
   // the daemon; offering "Run" then reads as if nothing had started.
@@ -106,41 +115,27 @@ export function TopBar({
         </button>
       ) : null}
       <div className="topbar-heading flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <div className="topbar-title min-w-0 truncate text-sm font-semibold text-ink" title={snap.session.display_name || snap.session.id}>
+        <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={snap.session.display_name || snap.session.id}>
           {snap.session.display_name || t('sidebar.unnamedSession')}
         </div>
-        <div className="flex min-w-0 items-center gap-2">
-          {roleActive ? <span
-            data-role-dot={roleName}
-            aria-label={t('topbar.roleActive', { role: roleLabel(roleName, t) })}
-            className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
-            style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
-          /> : null}
-          {roleActive || focus ? <span className="min-w-0 truncate text-xs font-medium text-ink-dim" title={progress}>{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : progress}</span> : null}
+        <div className="topbar-status flex min-w-0 items-center gap-2 text-xs text-ink-faint">
+          <span
+            className="status-dot"
+            data-tone={!streamOk || snapshotStale || untouched ? 'idle' : PHASE_TONE[phase]}
+            data-role-dot={roleActive ? roleName : undefined}
+            aria-label={roleActive ? t('topbar.roleActive', { role: roleLabel(roleName, t) }) : undefined}
+            aria-hidden={roleActive ? undefined : true}
+          />
+          <span className="min-w-0 truncate text-ink-dim" title={focus ? `${statusWords} · ${focus}` : statusWords}>{statusWords}</span>
           <SessionWorkdir session={snap.session} />
         </div>
       </div>
-      <span
+      {degraded || snapshotStale || !streamOk ? <span
         title={healthTitle}
-        className={`h-2 w-2 shrink-0 rounded-full transition-shadow duration-150 ${
-          degraded || snapshotStale
-            ? 'bg-err ring-1 ring-err/30 ring-offset-1 ring-offset-panel'
-            : streamOk
-            ? 'bg-ok ring-1 ring-ok/30 ring-offset-1 ring-offset-panel'
-            : 'bg-ink-faint/50'
-        }`}
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${degraded || snapshotStale ? 'bg-err' : 'bg-silver'}`}
       >
         <span className="sr-only">{healthTitle}</span>
-      </span>
-      {spendUsd > 0 ? <DaemonSpendBadge
-        settledUsd={snap.spend_usd}
-        knownUsd={snap.usage_summary?.known_cost_usd}
-        status={snap.spend_status}
-        calls={snap.usage_summary?.call_count}
-        premiumRequests={snap.usage_summary?.premium_requests}
-        live={snap.daemon.alive}
-        compact
-      /> : null}
+      </span> : <span className="sr-only">{healthTitle}</span>}
       {onToggleMobileView ? (
         <button
           type="button"
@@ -185,7 +180,7 @@ export function TopBar({
             aria-label={t('topbar.manageSession')}
             title={t('topbar.manageSession')}
             onClick={onManage}
-            className="icon-control flex h-8 w-8 shrink-0 items-center justify-center text-sm tracking-widest"
+            className="icon-control flex h-8 w-8 shrink-0 items-center justify-center text-base leading-none tracking-[0.12em] text-ink-dim"
           >
             ···
           </button>

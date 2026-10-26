@@ -163,17 +163,17 @@ export function ArtifactModal({
                 : info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
-        {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="shrink-0 rounded-md border border-line p-2 text-ink-dim">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
+        {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="artifact-tool shrink-0 p-2">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
         {onEdit && path && info && canEditArtifact(info)
-          && <button type="button" onClick={() => onEdit(path)} className="shrink-0 rounded-md border border-blue/30 px-3 py-2 text-xs text-blue">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
+          && <button type="button" onClick={() => onEdit(path)} className="artifact-tool shrink-0">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
         {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
-          className="shrink-0 rounded-md border border-blue/30 bg-blue/5 px-3 py-2 text-xs text-blue disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
-        {info?.kind === 'html' && <button type="button" disabled={downloading} onClick={() => void download(true)} className="shrink-0 rounded-md border border-blue-deep/60 bg-blue-deep/10 px-3 py-2 text-xs text-blue-sky disabled:opacity-50">{zh ? '下载完整网页' : 'Download website'}</button>}
+          className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
+        {info?.kind === 'html' && <button type="button" disabled={downloading} onClick={() => void download(true)} className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '下载完整网页' : 'Download website'}</button>}
         <button
           type="button"
           disabled={!info || downloading}
           onClick={() => void download()}
-          className="rounded-md border border-blue-deep/60 bg-blue-deep/10 px-3 py-1.5 text-xs text-blue-sky transition-colors hover:bg-blue-deep/20 disabled:cursor-wait disabled:opacity-50"
+          className="artifact-tool artifact-tool-primary disabled:cursor-wait disabled:opacity-50"
         >
           {downloading ? t('artifact.downloading') : t('artifact.download')}
         </button>

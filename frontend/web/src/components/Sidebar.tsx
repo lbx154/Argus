@@ -235,7 +235,7 @@ export function Sidebar({
       </div>
       {slim ? (
         <div className="flex h-12 shrink-0 items-center justify-center">
-          <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.expand')} title={`${t('sidebar.expand')} · Ctrl/⌘ B`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink">
+          <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.expand')} title={`${t('sidebar.expand')} · Ctrl/⌘ B`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
             <PanelLeftOpen size={16} />
           </button>
         </div>
@@ -243,7 +243,7 @@ export function Sidebar({
 
       {slim && onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} aria-label={resultsLabel} title={resultsTitle} data-sidebar-results
         className="relative mx-auto my-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-40">
-        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-0.5 top-0.5 rounded-full bg-ok px-1 text-[11px] leading-5 text-on-accent">{resultsCount}</span> : null}
+        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" /> : null}
       </button> : null}
       {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
       {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
@@ -255,7 +255,7 @@ export function Sidebar({
             {onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} title={resultsTitle} data-sidebar-results
               className="mx-2 my-1 flex h-9 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink disabled:opacity-50 disabled:hover:bg-transparent">
               <PackageCheck size={17} strokeWidth={1.5} /><span>{resultsLabel}</span>
-              {resultsCount ? <span className="ml-auto rounded-full bg-ok/15 px-1.5 text-[11px] font-medium text-ok">{resultsCount}</span> : null}
+              {resultsCount ? <span className="ml-auto text-xs tabular-nums text-ink-faint">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
               title={zh ? '知识库、领域商店、插件' : 'Knowledge, domain store and plugins'}
@@ -387,7 +387,7 @@ export function Sidebar({
                         active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
-                      <span aria-hidden="true" className={`absolute left-0 transition-colors ${active ? 'inset-y-1 w-px bg-blue' : 'inset-y-2 w-px bg-transparent group-hover:bg-ink-faint/30'}`} />
+                      <span aria-hidden="true" className={`absolute left-0 transition-colors ${active ? 'inset-y-3 w-px bg-accent' : 'inset-y-3 w-px bg-transparent'}`} />
                       <button
                         type="button"
                         onClick={() => onSelect(project.id)}
@@ -469,18 +469,26 @@ export function Sidebar({
             ))}
           </div>
 
+          {/* Settings stay one click away; rarer tools fold into one quiet menu. */}
           <div className="sidebar-footer">
-            {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-1 px-1 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={16} />{zh ? '设备' : 'Devices'}</button>}
-            <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
-              <Settings size={16} />
+            <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
+              <Settings size={15} />{zh ? '设置' : 'Settings'}
             </button>
-            {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
-              <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
-                className="icon-control flex h-8 w-8 items-center justify-center text-blue">
-                <Cpu size={16} />
-              </a>
-            ) : null}
-            <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
+            <details className="sidebar-more">
+              <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '设备、语言与外观' : 'Devices, language and appearance'}>
+                <span aria-hidden="true" className="tracking-[0.12em]">···</span>
+              </summary>
+              <div className="sidebar-more-menu">
+                {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备' : 'Devices'}</button>}
+                {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
+                  <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
+                    className="icon-control flex h-8 w-8 items-center justify-center">
+                    <Cpu size={16} />
+                  </a>
+                ) : null}
+                <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
+              </div>
+            </details>
             {settingsHint && <p role="status" className="sidebar-settings-hint">{zh ? '先打开或创建一个项目，再调整该项目的设置。' : 'Open or create a project first to adjust its settings.'}</p>}
           </div>
         </>

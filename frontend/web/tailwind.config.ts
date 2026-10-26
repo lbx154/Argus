@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
-/** Cool, quiet research-workbench tokens. Colour communicates state while the
- * chrome stays close to an editor/notebook rather than a card dashboard. */
+/** Metal research-workbench tokens (silver, gold, white, black). Hierarchy comes
+ * from type and space; gold marks focus and the person's own things. */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
@@ -14,6 +14,21 @@ export default {
         'panel-raised': 'rgb(var(--panel-raised) / <alpha-value>)',
         'on-accent': 'rgb(var(--on-accent) / <alpha-value>)',
         line: 'rgb(var(--line) / <alpha-value>)',
+        silver: 'rgb(var(--silver) / <alpha-value>)',
+        sunken: 'rgb(var(--surface-2) / <alpha-value>)',
+        'field-line': 'rgb(var(--field-line) / <alpha-value>)',
+        accent: {
+          DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
+          ink: 'rgb(var(--accent-ink) / <alpha-value>)',
+          hover: 'rgb(var(--accent-hover) / <alpha-value>)',
+        },
+        status: {
+          running: 'rgb(var(--status-running) / <alpha-value>)',
+          waiting: 'rgb(var(--status-waiting) / <alpha-value>)',
+          done: 'rgb(var(--status-done) / <alpha-value>)',
+          idle: 'rgb(var(--status-idle) / <alpha-value>)',
+          failed: 'rgb(var(--status-failed) / <alpha-value>)',
+        },
         blue: {
           DEFAULT: 'rgb(var(--blue) / <alpha-value>)',
           deep: 'rgb(var(--blue-deep) / <alpha-value>)',
@@ -44,11 +59,13 @@ export default {
       },
       fontFamily: {
         sans: ['Geist Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        serif: ['Source Serif 4', 'Source Serif Pro', 'Noto Serif SC', 'Songti SC', 'STSong', 'Georgia', 'Noto Serif', 'serif'],
         mono: ['Geist Mono Variable', 'SFMono-Regular', 'Menlo', 'ui-monospace', 'monospace'],
       },
-      borderRadius: { xl: '0.75rem' },
+      borderRadius: { xl: '0.875rem' },
       boxShadow: {
-        glow: '0 16px 44px rgba(0,0,0,0.34)',
+        glow: 'var(--shadow-lift)',
+        lift: 'var(--shadow-lift)',
       },
       keyframes: {
         appear: {
