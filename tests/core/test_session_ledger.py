@@ -126,3 +126,26 @@ def test_a_new_process_resuming_a_thread_charges_only_its_own_turn() -> None:
     assert first.usage_delta_for_thread(thread_id="t-m", raw_totals=(730, 640, 10, 1)) == (730, 640, 10, 1)
     # Another backend object (e.g. after a restart) resumes the same thread.
     assert later.usage_delta_for_thread(thread_id="t-m", raw_totals=(1460, 1280, 17, 2)) == (730, 640, 7, 1)
+
+
+def test_manager_chat_resume_drops_the_skill_block_the_thread_already_holds() -> None:
+    from argus.core.operator_context import append_operator_context
+    from argus.roles.prompts.manager import build_manager_prompt
+
+    block = "## Vertical for this single-agent task: software\n" + "Apply methods.\n" * 40 + (
+        "\n## Skill libraries (on-demand)\n" + "1. `/opt/argus/builtin_skills`\n" * 30
+    )
+    context = "## OperatorContext\n" + "Safety first.\n" * 40
+    # The layout _self_reply builds: the page, then the block; later turns
+    # are the message, then the block.
+    fresh = append_operator_context("\n\n".join([
+        build_manager_prompt("first", workspace="/w", state_root="/s"), block,
+    ]), context)
+    record_sent("t-chat", fresh, holds_prompt=True, added_tokens=0)
+    resumed = elide_sent_sections("t-chat", append_operator_context(
+        "\n\n".join(["second message", block]), context))
+    assert resumed.startswith("second message")
+    assert "Apply methods." not in resumed and "builtin_skills" not in resumed
+    moved = elide_sent_sections("t-chat", "\n\n".join(
+        ["third", block.replace("/opt/argus", "/opt/argus-2")]))
+    assert "/opt/argus-2/builtin_skills" in moved

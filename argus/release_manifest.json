@@ -1,7 +1,7 @@
 {
-  "git_commit": "5b8e9765254f674eeba592f547070238335e31de",
+  "git_commit": "56ea6db104c2aa21ff85f248cb0ba28d8d1063d7",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+5b8e9765254f",
+  "release_id": "0.1.8+56ea6db104c2",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -67,7 +67,7 @@
     "argus/apps/_runtime_interrupt.py": 2031,
     "argus/apps/_runtime_stage_transition.py": 5915,
     "argus/apps/_runtime_supervisor.py": 16278,
-    "argus/apps/_self_reply.py": 12694,
+    "argus/apps/_self_reply.py": 12846,
     "argus/apps/_target_paths.py": 1131,
     "argus/apps/_watch.py": 18873,
     "argus/apps/cli/__init__.py": 193,
