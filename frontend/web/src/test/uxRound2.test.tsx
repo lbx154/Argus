@@ -17,8 +17,9 @@ const { foldedContinuationRuns } = await import('../components/EventStream');
 const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
 const { ProgressHealthBanner } = await import('../components/ProgressHealthBanner');
 
-function snapshot(backlog: Snapshot['backlog'], alive = true): Pick<Snapshot, 'backlog' | 'daemon'> {
-  return { backlog, daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null } };
+function snapshot(backlog: Snapshot['backlog'], alive = true, startedAt = 0): Pick<Snapshot, 'backlog' | 'daemon'> {
+  return { backlog, daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null,
+    started_at_iso: startedAt ? new Date(startedAt * 1000).toISOString() : null } };
 }
 const task = (id: string, status: string, finished: number, extra: Record<string, unknown> = {}) =>
   ({ id, title: `任务 ${id}`, objective: '', status, priority: 1, started_ts: finished - 100, finished_ts: finished, ...extra });
@@ -38,6 +39,25 @@ describe('progress health', () => {
     expect(progressHealth(quiet, 1000 + 13 * 3600)).toMatchObject({ problem: 'no_accepted_result', hoursWithoutAccepted: 13 });
     expect(progressHealth(quiet, 1000 + 3600)).toBeNull();
     expect(progressHealth(snapshot([task('a', 'done', 1000)], false), 1000 + 30 * 3600)).toBeNull();
+  });
+
+  it('counts only the time work ran: a project restarted an hour ago after two stopped days is not 45 hours quiet', () => {
+    // Trial s-efe9deac: last reviewed result 10-24 10:30, stopped, started again 10-26 06:52; the banner said 45 hours.
+    const accepted = 1792751429, restarted = 1792997548;
+    const backlog = [task('a', 'done', accepted), task('b', 'running', 0, { started_ts: restarted + 60, finished_ts: null })];
+    expect(progressHealth(snapshot(backlog, true, restarted), restarted + 3600)).toBeNull();
+    expect(progressHealth(snapshot(backlog, true, restarted), restarted + 13 * 3600))
+      .toMatchObject({ problem: 'no_accepted_result', hoursWithoutAccepted: 13 });
+    // A task a stopped daemon left marked running is not work going on.
+    expect(progressHealth(snapshot(backlog, false, restarted), accepted + 45 * 3600)).toBeNull();
+  });
+
+  it('says the host’s routing record plainly, in the reader’s language', () => {
+    const climb = 'Nothing changed since the engineer and the planner last held this work, and nothing new arrived from outside, so it went one rung up, to the manager.';
+    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1"
+      health={{ problem: 'no_accepted_result', key: 'quiet:1', failures: 1, hoursWithoutAccepted: 13, latestFailure: { title: '形成新机制路线', reason: climb } }} />);
+    expect(html).toContain('最近一次：形成新机制路线——这条路没有新进展，团队正在换个思路。');
+    expect(html).not.toMatch(/Nothing changed|rung|planner|规划者|经理/);
   });
 
   it('renders a dismissible banner with the two remedies', () => {

@@ -12,6 +12,7 @@ from ..apps._inbox import count_pending_inbox_messages
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..core.config_snapshot import build_config_snapshot
 from ..core.mission_view import operator_objective
+from ..core.operator_messages import served_task
 from ..core.role_config import resolve_all_roles
 from ..core.session import (
     session_lifecycle_lock,
@@ -275,7 +276,7 @@ def get_backlog_item(
         return None
     if item is None:
         return None
-    row = item.to_jsonable()
+    row = served_task(item)
     return {**row, "objective": operator_objective(row)}
 
 

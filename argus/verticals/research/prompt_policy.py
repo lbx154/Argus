@@ -289,6 +289,27 @@ def _method_card_reviewer_block(stage: str) -> str:
     )
 
 
+def _idea_reviewer_block(stage: str) -> str:
+    """The Idea bar: a solid paper at the target venue, judged once, as written.
+
+    One ACL project set aside five routes in a row for "prior work exists",
+    re-searching the literature in every review. Overlap is a risk to record.
+    """
+    if stage != "idea":
+        return ""
+    return (
+        "## Idea route bar\n"
+        "Judge the route as written against a solid, publishable paper at the target "
+        "venue, not an Oral or Best Paper, and do not redo the literature search. "
+        "Related work alone is not a rejection: with the closest work named and a "
+        "meaningful delta (new mechanism, setting, scale, or finding), pass and list "
+        "the overlap as a known risk. Reject only when the same mechanism and claim "
+        "are already published, the mechanism is contradicted by evidence, or the "
+        "decisive experiment needs resources not here. When in doubt, pass and list "
+        "the risks for Experiment."
+    )
+
+
 def _method_card_planner_block(stage: str) -> str:
     if stage != "experiment":
         return ""
@@ -717,6 +738,7 @@ def _reviewer_fragment(
         for block in (
             _stage_playbook_block(stage),
             policy,
+            _idea_reviewer_block(stage),
             _method_card_reviewer_block(stage),
             _reviewer_figure_block(stage, scope),
         )

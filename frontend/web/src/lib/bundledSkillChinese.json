@@ -648,7 +648,7 @@
     "summary": "通过当前来源对照最接近的已有工作，判断一条候选想法的差异，而非先宣称创新。",
     "originalName": "Testing the idea's novelty",
     "source": "argus/verticals/research/skills/engineer/novelty-check.md",
-    "sourceBytes": 1171
+    "sourceBytes": 1794
   },
   "vertical/research/engineer/paper-chart-styling.md": {
     "title": "论文数据图样式",
@@ -739,7 +739,7 @@
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 5604
+    "sourceBytes": 6733
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
@@ -778,10 +778,10 @@
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",
-    "summary": "在最终评审中识别论文最关键的科学弱点，不通过直接改稿掩盖它。",
+    "summary": "在最终评审中识别论文最关键的科学弱点，不通过直接改稿掩盖它；在构思路线评审中区分足以搁置路线的理由与留给实验阶段的风险。",
     "originalName": "The strongest argument against the paper",
     "source": "argus/verticals/research/skills/reviewer/strongest-argument-against.md",
-    "sourceBytes": 922
+    "sourceBytes": 1535
   },
   "vertical/research/reviewer/venue-academic-language-review.md": {
     "title": "审查论文论证与学术表达",
