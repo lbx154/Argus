@@ -8,7 +8,9 @@
  *      overview to a fully opened task, where canvas units made them vanish at
  *      one end and swell at the other.
  *   2. Card text has a fixed layout and scales with the canvas. Zooming does
- *      not change the words, line limits or visible controls.
+ *      not change the words, line limits or visible controls. One exception,
+ *      in CSS only: seen from afar a task card's title grows to stay readable
+ *      and the rest of the card fades (see "Seen from afar" below).
  *
  * `--map-zoom-step` is written by useSemanticCamera on the canvas wrapper
  * (the zoom in quarter-octave steps, see zoomStep.ts). */
@@ -620,4 +622,110 @@
   box-shadow:
     inset 0 0 0 1px rgb(var(--ink) / 0.22),
     0 2px 6px rgb(40 34 24 / 0.1);
+}
+
+/* ── Task cards, quiet by default (intelligent-ui.md) ─────────────────────
+   At rest a card says what it is and where it stands: the title, the state as
+   a small dot and a word, and one line of the current conclusion. Its course
+   and the way in appear on hover or focus. Metal palette: white card, silver
+   hairline, black title; colour only on the status dot (canvas.css names). */
+.argus-map.argus-map {
+  --map-edge-context: var(--map-silver);
+  --map-edge-continuation: var(--map-silver);
+  --map-edge-semantic: var(--map-silver);
+  --map-edge-dependency: rgb(var(--ink-dim));
+}
+.argus-map.argus-map .map-state-running { --state: var(--map-status-running); }
+.argus-map.argus-map .map-state-question,
+.argus-map.argus-map .map-state-review_unavailable { --state: var(--map-status-waiting); }
+.argus-map.argus-map .map-state-done { --state: var(--map-status-done); }
+.argus-map.argus-map .map-state-failed { --state: var(--map-status-failed); }
+.argus-map.argus-map :is(.map-state-paused, .map-state-held, .map-state-superseded, .map-state-recorded,
+  .map-state-aborted, .map-state-skipped, .map-state-missing, .map-state-pending, .map-state-unknown) { --state: var(--map-status-idle); }
+.argus-map .map-macro,
+[data-theme="dark"] .argus-map .map-macro {
+  background: var(--map-paper);
+  border-color: var(--map-hairline);
+  box-shadow: none;
+}
+.argus-map .map-macro::after { content: none; }
+.argus-map .map-macro[data-hovered="true"],
+.argus-map .map-macro:hover {
+  border-color: var(--map-silver);
+  box-shadow: 0 var(--px) calc(2 * var(--px)) rgb(0 0 0 / 0.06), 0 calc(6 * var(--px)) calc(20 * var(--px)) rgb(0 0 0 / 0.06);
+}
+.argus-map .map-macro[data-focused="true"],
+.argus-map .map-macro[data-active="true"] {
+  border-color: var(--map-accent);
+  box-shadow: 0 0 0 calc(3 * var(--px)) var(--map-accent-soft);
+}
+.argus-map .macro-summary .map-card { padding: 18px 20px 14px; }
+.argus-map .macro-summary .map-card,
+.argus-map .macro-summary .map-card:hover,
+.argus-map .macro-summary .map-card:active { border: 0; outline: 0; box-shadow: none !important; background: transparent; transform: none; }
+.argus-map .macro-summary .map-card .map-card-top { padding: 0 0 10px; gap: 10px; justify-content: flex-start; }
+.argus-map .macro-summary .map-card .map-card-number { font-size: 11px; letter-spacing: .04em; color: rgb(var(--ink-faint)); }
+.argus-map .macro-summary .map-status {
+  margin-left: auto; padding: 0; border-radius: 0; background: none; font-size: 11.5px; font-weight: 500;
+  color: rgb(var(--ink-dim));
+}
+.argus-map .macro-summary .map-status svg { display: none; }
+.argus-map .macro-summary .map-status::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  background: var(--state); vertical-align: 0.1em;
+}
+/* Waiting for the person: the gold dot wears a ring. */
+.argus-map .macro-summary .map-state-question .map-status::before,
+.argus-map .macro-summary .map-status.map-state-question::before { box-shadow: 0 0 0 2px var(--map-paper), 0 0 0 3px var(--state); }
+.argus-map .macro-summary .map-state-dot { display: none; }
+.argus-map .macro-summary .map-card h3 {
+  margin: 0 0 6px; min-height: 0; font-family: var(--map-title-serif);
+  font-size: 19px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; color: rgb(var(--ink));
+}
+.argus-map .macro-summary .map-card-conclusion {
+  margin: 0 0 6px; padding: 0; background: none; border-radius: 0;
+  font-size: 13px; line-height: 1.5; color: rgb(var(--ink-dim)); -webkit-line-clamp: 1;
+}
+.argus-map .macro-summary .map-card-copy { font-size: 12.5px; line-height: 1.55; -webkit-line-clamp: 2; color: rgb(var(--ink-dim)); }
+.argus-map .macro-summary .map-card:has(.map-card-conclusion) .map-card-copy,
+.argus-map .macro-summary .map-card:has(.map-card-conclusion) .map-card-objective { display: none; }
+.argus-map .macro-summary .map-card-course { gap: 2px; padding-top: 4px; }
+.argus-map .macro-summary .map-card-course > span { padding: 2px 3px; background: none; box-shadow: none; color: rgb(var(--ink-faint)); opacity: .5; }
+.argus-map .macro-summary .map-card-course > span b { display: none; }
+.argus-map .macro-summary .map-card-course > span[data-present="true"] { background: none; box-shadow: none; color: rgb(var(--ink-dim)); opacity: 1; }
+.argus-map .macro-summary .map-card-course > span[data-active="true"] { color: var(--map-accent-ink); box-shadow: none; }
+.argus-map .macro-summary .map-card-bottom { border-top: 0; padding: 6px 0 0; font-size: 11px; color: rgb(var(--ink-faint)); }
+/* Details on demand: the course, the summary line and the way in. */
+.argus-map .macro-summary .map-card-course,
+.argus-map .macro-summary .map-card-bottom,
+.argus-map .macro-summary .map-card-objective,
+.argus-map .macro-summary .map-card-copy { transition: opacity 180ms ease; }
+.argus-map .map-macro:not(:hover):not([data-hovered="true"]):not([data-focused="true"]) .macro-summary .map-card:not(:focus-visible) :is(.map-card-course, .map-card-bottom) { opacity: 0; }
+
+/* Seen from afar the card becomes its title. Without re-rendering on zoom
+   (the markup is the same at every zoom): --on-screen is how large one card
+   pixel is on screen; below about 0.8 the 19px title would read under 15px,
+   so it grows to stay near 15 screen px (capped to fit three lines) while the
+   rest of the card fades out (--near goes from 1 to 0). */
+.argus-map .macro-summary {
+  --on-screen: calc(var(--z, 0.24) * var(--summary-scale, 5));
+  --near: clamp(0, calc((var(--on-screen) - 0.62) * 5), 1);
+}
+.argus-map .macro-summary .map-card h3 {
+  font-size: max(19px, min(56px, calc(15px / var(--on-screen))));
+  -webkit-line-clamp: 3;
+}
+.argus-map .macro-summary .map-card > :not(h3) { opacity: var(--near); }
+.argus-map .macro-summary .map-card h3 .macro-note-badge { opacity: var(--near); }
+
+/* Full canvas: the toolbar is a few quiet floating icons until pointed at. */
+.argus-map[data-immersive="true"] .map-canvas-toolbar > button,
+.argus-map[data-immersive="true"] .map-canvas-toolbar .map-search {
+  background: transparent; border-color: transparent; box-shadow: none; color: rgb(var(--ink-faint));
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+.argus-map[data-immersive="true"] .map-canvas-toolbar > button:hover,
+.argus-map[data-immersive="true"] .map-canvas-toolbar > button:focus-visible,
+.argus-map[data-immersive="true"] .map-canvas-toolbar .map-search:focus-within {
+  color: rgb(var(--ink)); background: rgb(var(--panel)); border-color: rgb(var(--line));
 }

@@ -48,6 +48,8 @@ import {
   History,
   LocateFixed,
   Maximize2,
+  Expand,
+  Shrink,
   Pause,
   Play,
   RotateCcw,
@@ -64,7 +66,7 @@ import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroNode } fr
 import { ZoomStepContext } from "./zoomStep";
 import { groupNotesByNode } from "./notes";
 import "./notes.css";
-import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
+import { INITIAL_VIEWPORT, openCanvasArea, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
@@ -82,7 +84,7 @@ import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
-import { humanFrame, isHumanCardId, LINK_KINDS, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point } from "./canvas";
+import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point } from "./canvas";
 import { HumanCardView, HumanLinkView, type HumanCardNode, type HumanLinkEdge } from "./CanvasNodes";
 
 interface MapWorkspaceActions {
@@ -112,6 +114,8 @@ const RELATION_HINTS: Partial<Record<string, [string, string]>> = {
   follows: ["接续：在那项工作之后接着做", "Follows: continues after that work"],
   replaces: ["替代：新的计划替代了旧的", "Replaces: a newer plan replaced the older one"],
 };
+/** How long the opening fit waits for saved explanations before it shows the map anyway. */
+const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
 const CANVAS_HINT_KEY = "argus.map.canvasHintDismissed.v1";
@@ -151,6 +155,8 @@ export function MapCanvas({
   paused,
   actions,
   replacements,
+  immersive = false,
+  onImmersiveChange,
 }: {
   data: Dataset;
   sessionId: string;
@@ -168,6 +174,8 @@ export function MapCanvas({
   /** Whether plan-replacement links are drawn; the panel owns the switch so
    * the options menu can flip it on screens that hide the legend. */
   replacements?: { shown: boolean; toggle: () => void };
+  immersive?: boolean;
+  onImmersiveChange?: (immersive: boolean) => void;
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -347,9 +355,20 @@ export function MapCanvas({
     setFlight((current) => current ? { ...current, result: { type: 'settled', outcome: 'cancelled' } } : null);
     composer.onCancel();
   };
+  // The opening fit waits for the saved explanations (their relations place
+  // cards) and a remembered view for its history, but not for long: on a busy
+  // server those reads can take seconds, and an invisible canvas reads as an
+  // empty map. After OPENING_WAIT_MS the cards show where they stand; the
+  // scene refits by itself when the late data moves them.
+  const [waited, setWaited] = useState(false);
   useEffect(() => {
-    if (!nodesReady || initialFit.current || !copyReady) return;
-    if (savedView.current?.camera && data.history_loading) return;
+    if (!nodesReady || waited) return;
+    const timer = setTimeout(() => setWaited(true), OPENING_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [nodesReady, waited]);
+  useEffect(() => {
+    if (!nodesReady || initialFit.current || (!copyReady && !waited)) return;
+    if (savedView.current?.camera && data.history_loading && !waited) return;
     const frame = requestAnimationFrame(() => {
       initialFit.current = true;
       if (savedView.current?.camera) camera.restore(savedView.current.camera);
@@ -366,7 +385,7 @@ export function MapCanvas({
       setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady]);
+  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady, waited]);
   useEffect(() => {
     if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
     setArriving(true);
@@ -845,7 +864,7 @@ export function MapCanvas({
     ],
   );
   // Set by ReactFlow's onInit; screen points map to the canvas through it.
-  const flowInstance = useRef<Pick<ReactFlowInstance, "screenToFlowPosition"> | null>(null);
+  const flowInstance = useRef<Pick<ReactFlowInstance, "screenToFlowPosition" | "getZoom"> | null>(null);
   const toFlow = useCallback((point: Point) => flowInstance.current?.screenToFlowPosition(point) ?? point, []);
   const [draft, setDraft] = useState<{ id: string; position: Point } | null>(null);
   const [humanDrag, setHumanDrag] = useState<Record<string, Point>>({});
@@ -925,7 +944,7 @@ export function MapCanvas({
         type: "human" as const,
         zIndex: 1,
         data: { kind: "related" as LinkKind, zh, recorded: true, label: name ? (zh ? name[1] : name[2]) : relation.kind },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#8a7a5a", width: 26, height: 26 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgb(var(--ink-faint))", width: 26, height: 26 },
         ariaLabel: `${relation.kind}: ${relation.target} → ${task.id}`,
       }];
     }));
@@ -941,7 +960,7 @@ export function MapCanvas({
         type: "human" as const,
         zIndex: 1,
         data: { kind: link.kind, zh, menu: editable ? linkMenu : undefined },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#b8862b", width: 26, height: 26 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--map-accent)", width: 26, height: 26 },
         ariaLabel: `${link.kind}: ${link.source} → ${link.target}`,
       }];
     })];
@@ -970,22 +989,39 @@ export function MapCanvas({
       return next;
     });
   }, [canvasApi.move, failed]);
+  const [linking, setLinking] = useState(false);
+  const onConnectStart = useCallback(() => { setLinking(true); camera.hold(); }, [camera.hold]);
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    setLinking(false);
     const point = "changedTouches" in event ? event.changedTouches[0] : event;
     const source = state.fromNode?.id;
-    const target = state.toNode?.id ?? document.elementFromPoint(point.clientX, point.clientY)
-      ?.closest(".react-flow__node")?.getAttribute("data-id") ?? undefined;
-    if (!source || !target || source === target || target.startsWith("draft-")) return;
+    if (!source) return;
+    // Task cards take no links, so React Flow rarely names the target: the
+    // drop point does (canvas.ts resolveLinkTarget).
+    const under = typeof document.elementsFromPoint === "function"
+      ? document.elementsFromPoint(point.clientX, point.clientY)
+      : [document.elementFromPoint(point.clientX, point.clientY)];
+    const stack = [state.toNode?.id, ...under.map((el) => el?.closest(".react-flow__node")?.getAttribute("data-id"))];
+    const target = resolveLinkTarget(source, stack, toFlow({ x: point.clientX, y: point.clientY }),
+      flowNodes.flatMap((n) => n.hidden ? [] : [{ id: n.id, kind: n.type ?? "", x: n.position.x, y: n.position.y,
+        width: n.width ?? n.measured?.width ?? 0, height: n.height ?? n.measured?.height ?? 0 }]));
+    if (!target) return;
     setCanvasMenu({ type: "connect", source, target,
       x: Math.min(window.innerWidth - 180, point.clientX), y: Math.min(window.innerHeight - 220, point.clientY) });
-  }, []);
+  }, [toFlow, flowNodes]);
   const addIdeaAt = useCallback((event: React.MouseEvent) => {
     if (!editable || draft || !(event.target as Element).closest(".react-flow__pane")) return;
-    const at = toFlow({ x: event.clientX, y: event.clientY });
+    camera.hold();
     const frame = humanFrame({ kind: "idea" });
+    // A card stays out from under the toolbar, legend and composer: it opens
+    // where it was asked for, pulled into the clear part of the canvas.
+    const zoom = flowInstance.current?.getZoom() ?? 1;
+    const area = canvasRef.current ? openCanvasArea(canvasRef.current) : null;
+    const at = toFlow(area ? clearOfChrome({ x: event.clientX, y: event.clientY },
+      { width: frame.width * zoom + 24, height: frame.height * zoom + 24 }, area) : { x: event.clientX, y: event.clientY });
     setDraft({ id: `draft-${Date.now()}`, position: { x: Math.round(at.x - frame.width / 2), y: Math.round(at.y - frame.height / 2) } });
     dismissCanvasHint();
-  }, [editable, draft, toFlow, dismissCanvasHint]);
+  }, [editable, draft, toFlow, dismissCanvasHint, camera.hold]);
   const fileDrag = (event: React.DragEvent) => editable && event.dataTransfer.types.includes("Files") &&
     !!(event.target as Element).closest(".react-flow");
   const dropFiles = useCallback(async (files: File[], at: Point, onto?: string) => {
@@ -1370,6 +1406,7 @@ export function MapCanvas({
           data-focused={!!camera.focusId}
           data-detailed={camera.detailed}
           data-fitted={fitted}
+          data-linking={linking || undefined}
           data-hovering={!!hoverId && !camera.detailed}
           onDoubleClick={addIdeaAt}
           onDragOver={(e) => {
@@ -1411,6 +1448,20 @@ export function MapCanvas({
             onLand={(id) => setFlight((current) => current?.id === id ? { ...current, landed: true } : current)}
             onFinish={(id) => setFlight((current) => current?.id === id ? null : current)} />}
           <div className="map-canvas-toolbar nowheel">
+            {onImmersiveChange && (
+              <button
+                type="button"
+                className="map-immersive-toggle"
+                data-testid="map-immersive-toggle"
+                aria-pressed={immersive}
+                onClick={() => onImmersiveChange(!immersive)}
+                title={immersive ? (zh ? "显示项目列表、总览和图例" : "Show projects, overview and legend") : (zh ? "全屏画布：收起周围的内容" : "Full canvas: fold everything around it")}
+                aria-label={immersive ? (zh ? "退出全屏画布" : "Leave full canvas") : (zh ? "全屏画布" : "Full canvas")}
+              >
+                {immersive ? <Shrink size={15} /> : <Expand size={15} />}
+                <span>{immersive ? (zh ? "显示周围" : "Show panels") : (zh ? "全屏画布" : "Full canvas")}</span>
+              </button>
+            )}
             <label className="map-search">
               <Search size={14} />
               <input
@@ -1597,9 +1648,15 @@ export function MapCanvas({
               onNodesChange={onFlowNodesChange}
               onNodeDragStop={onNodeDragStop}
               onInit={(instance) => { flowInstance.current = instance; }}
+              onConnectStart={onConnectStart}
               onConnectEnd={onConnectEnd}
               connectionMode={ConnectionMode.Loose}
               connectOnClick={false}
+              // A link is drawn between cards on screen. Panning while the
+              // pointer is near the canvas edge (where cards under the toolbar
+              // or composer sit) slid the target away before the drop, and the
+              // line landed on empty canvas.
+              autoPanOnConnect={false}
               nodeDragThreshold={4}
               onNodeMouseEnter={(_, node) => setHoverId(node.id)}
               onNodeMouseLeave={() => setHoverId(null)}
@@ -1638,7 +1695,7 @@ export function MapCanvas({
               />
               <MiniMap<MacroNode | HumanCardNode>
                 nodeColor={(n) =>
-                  n.type === "human" ? "#d9b443" :
+                  n.type === "human" ? "var(--map-accent)" :
                   MINIMAP_STATUS[statusKey((n as MacroNode).data.task)] ?? "#c6c8cb"
                 }
                 maskColor="var(--map-minimap-mask)"
@@ -1706,7 +1763,7 @@ export function MapCanvas({
           {!readOnly && (
             <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
-              onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} />
+              onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} startCompact={immersive} />
           )}
           {canvasMenu && editable && (
             <div className="map-context-menu canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }}>
@@ -1884,6 +1941,8 @@ export function MapCanvas({
 /** Memoized: the app re-renders on every streamed event and poll; the map
  * only needs to follow its own (throttled) props, not that firehose. */
 export const MapPanel = memo(function MapPanel({
+  immersive = false,
+  onImmersiveChange,
   snapshot,
   currentTaskId,
   events,
@@ -1930,6 +1989,9 @@ export const MapPanel = memo(function MapPanel({
   onCancel: () => void;
   focusSignal: number;
   readOnly?: boolean;
+  /** The map fills the window: the header, overview and legend step aside. */
+  immersive?: boolean;
+  onImmersiveChange?: (immersive: boolean) => void;
   onOpenSettings?: () => void;
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (route: MessageRouteOverride) => void;
@@ -2150,6 +2212,7 @@ export const MapPanel = memo(function MapPanel({
     <section
       ref={sectionRef}
       className="argus-map"
+      data-immersive={immersive || undefined}
       aria-label={zh ? "进度地图" : "Progress map"}
     >
       <header className="map-header">
@@ -2280,6 +2343,8 @@ export const MapPanel = memo(function MapPanel({
             zh={zh}
             readOnly={readOnly}
             replacements={replacements}
+            immersive={immersive}
+            onImmersiveChange={onImmersiveChange}
             activePhase={
               source === "live" && !paused
                 ? snapshot.roles.find((r) => r.active)?.role

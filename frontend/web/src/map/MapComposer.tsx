@@ -38,6 +38,9 @@ export interface MapComposerProps {
   overview?: boolean;
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (route: MessageRouteOverride) => void;
+  /** Full canvas: start as the pill even on a desktop, so the editor does not
+   * sit over cards until the person reaches for it. */
+  startCompact?: boolean;
 }
 
 // A wide screen with a mouse has room for the editor; only touch and narrow
@@ -65,6 +68,7 @@ export function MapComposer({
   zh,
   routeOverride = 'auto',
   onRouteOverrideChange,
+  startCompact = false,
 }: MapComposerProps) {
   const { t } = useI18n();
   const editorId = useId();
@@ -82,7 +86,7 @@ export function MapComposer({
   // the pill click, the "c" key, an app focus request, or a fresh reference
   // chip. Focusing a card flips the camera to detail view and must never
   // expand the editor on its own. A draft present at mount stays visible.
-  const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length) || desktopPointer());
+  const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length) || (!startCompact && desktopPointer()));
   const [inputHeight, setInputHeight] = useState(44);
   const currentValue = useRef(value);
   currentValue.current = value;

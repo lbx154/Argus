@@ -38,6 +38,12 @@ import { ConnectSource } from "./CanvasNodes";
 import { LiveLine } from "./LiveLine";
 import { arrivalDelay } from "./alive";
 
+export function taskFarTitle(step: number, scale: number): number {
+  const onScreen = Math.max(step, 0.0001) * Math.max(scale, 0.0001);
+  if (16 * onScreen >= 13) return 0;
+  return Math.round(Math.min(56, Math.max(18, 15 / onScreen)));
+}
+
 export type MacroData = MapCard & {
   zh: boolean;
   /** A person may draw a link from this card (the canvas's connect dot). */
@@ -387,6 +393,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         aria-hidden={detailed}
         style={{
           "--summary-height": `${data.frame.height / summaryScale - 20}px`,
+          // design.css sizes the far-view title from this and the zoom step.
+          "--summary-scale": summaryScale,
           width: data.frame.width / summaryScale - 20,
           transform: `translate(-50%, -50%) scale(${summaryScale})`,
         } as import("react").CSSProperties}

@@ -11,7 +11,7 @@ import {
 } from "@xyflow/react";
 import { FileText, Lightbulb, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { humanFrame, linkKindLabel, type HumanCard, type LinkKind } from "./canvas";
+import { cardTextLines, connectDotSize, humanFrame, linkKindLabel, type HumanCard, type LinkKind } from "./canvas";
 import { useSteppedZoom } from "./zoomStep";
 import "./canvas.css";
 
@@ -42,6 +42,7 @@ export const rimWidth = (step: number) => Math.round(Math.max(14, 14 / Math.max(
  * drags, and a plain click still reaches the card. */
 export function ConnectSource({ zh }: { zh: boolean }) {
   const rim = useSteppedZoom(rimWidth);
+  const dot = useSteppedZoom(connectDotSize);
   const title = zh ? "拖到另一张卡上连线" : "Drag onto another card to link";
   return (
     <>
@@ -58,7 +59,7 @@ export function ConnectSource({ zh }: { zh: boolean }) {
         />
       ))}
       <Handle id="connect" type="source" position={Position.Right} className="canvas-connect"
-        isConnectableEnd={false} title={title} />
+        isConnectableEnd={false} title={title} style={{ "--dot": `${dot}px` } as CSSProperties} data-testid="canvas-connect" />
     </>
   );
 }
@@ -139,10 +140,12 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
       </div>
     );
   }
+  const kindLabel = isFile ? (zh ? "资料" : "File") : draft ? (zh ? "新想法" : "New idea") : (zh ? "想法" : "Idea");
   return (
     <div
-      className={`canvas-card canvas-card-${card.kind}${editing ? " is-editing" : ""}`}
+      className={`canvas-card canvas-card-${card.kind}${editing ? " is-editing" : ""}${draft ? " is-draft" : ""}`}
       data-testid={`canvas-card-${card.kind}`}
+      style={{ "--lines": cardTextLines(card) } as CSSProperties}
       onContextMenu={(e) => {
         if (readOnly || draft) return;
         e.preventDefault();
@@ -152,9 +155,14 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
     >
       <CanvasHandles connectable={!readOnly && !draft && !editing} zh={zh} />
       <header>
-        {isFile ? <FileText aria-hidden /> : <Lightbulb aria-hidden />}
-        <span>{isFile ? (zh ? "资料卡" : "File") : (zh ? "想法卡" : "Idea")}</span>
-        {!readOnly && !draft && (
+        <span className="canvas-card-kind">
+          {isFile ? <FileText aria-hidden /> : <Lightbulb aria-hidden />}
+          {kindLabel}
+        </span>
+        {editing && (
+          <span className="canvas-card-keys">{zh ? "Enter 保存 · Esc 取消" : "Enter to save · Esc to cancel"}</span>
+        )}
+        {!readOnly && !draft && !editing && (
           <button
             type="button"
             className="canvas-card-more nodrag"
@@ -194,7 +202,8 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         />
       ) : (
         (card.text || !isFile) && (
-          <p onDoubleClick={(e) => { if (readOnly) return; e.stopPropagation(); setEditing(true); }}>{card.text}</p>
+          <p className="canvas-card-text" title={card.text}
+            onDoubleClick={(e) => { if (readOnly) return; e.stopPropagation(); setEditing(true); }}>{card.text}</p>
         )
       )}
     </div>
