@@ -210,7 +210,7 @@ class PlanningCycleIntakeMixin:
         context = OperatorContextStore(operator_context_state_root(self.memory))
         if (
             any(not is_host_report(message) for message in self._operator_guidance_carryover)
-            or context.revision > context.acknowledged_revision("planner")
+            or context.has_unhandled_input("planner")
         ):
             return ""
         # The operator reads this reason on the timeline and the Manager

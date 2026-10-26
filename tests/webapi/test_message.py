@@ -905,3 +905,43 @@ def test_a_turn_that_files_to_argus_keeps_its_own_delivery() -> None:
             source_channel="web", source_message_id="m", operator_text="选第一套",
         )
     assert seen["delivery"] == receipt and seen["delivery_id"] == receipt["delivery_id"]
+
+
+@pytest.mark.parametrize("applies", [True, False])
+def test_one_answer_gets_one_acknowledgement(tmp_path: Path, applies: bool) -> None:
+    """Scenario eval k1-split-cents (2026-10-24): the operator answered the question
+    in the composer; the Manager said "已按你的选择恢复执行：…" and Argus then added
+    "好的，按你的选择继续：只接受非负金额。" for the same answer. One answer, one
+    acknowledgement — and none that says it resumed when the answer did not apply."""
+    from types import SimpleNamespace
+
+    from argus.webapi.manager_dispatch import _settle_manager_turn, _TurnEmitter
+
+    life = _make_project(tmp_path)
+    backlog = LifeMemory.open(life).backlog
+    item = BacklogItem.new(title="给 moneyfmt 加一个公开函数 split_cents(amount)",
+                           objective="split_cents", iterate=False)
+    item.pending_question = "split_cents 的边界规则你希望采用哪一种？"
+    item.operator_decision = {"options": [{"id": "option-1", "label": "推荐：支持负数，同号拆分"},
+                                          {"id": "option-2", "label": "只接受非负金额"}]}
+    backlog.add(item)
+    if not applies:
+        backlog.update(item.id, pending_question="")
+    answer = {"item": item.id, "decision": "负数抛 ValueError；超过两位小数抛 ValueError。", "option": "option-2"}
+    handoff = SimpleNamespace(to="manager", get=lambda key, default=None: {"answer": answer}.get(key, default))
+    reply = "已按你的选择恢复执行：负数和超过两位的有效小数报 ValueError，不舍入、不截断。"
+    operator_text = "① 接受 int/float/Decimal。② 负数直接报 ValueError。③ 超过两位小数直接报 ValueError。"
+    emitter = _TurnEmitter(life_dir=life, turn_id="web-1", fragment=lambda *_args: None)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+
+    result = _settle_manager_turn(mem, reply, handoff, {}, emitter, source_channel="web",
+                                  source_message_id="", operator_text=operator_text)
+
+    turns = [json.loads(line) for line in (life / "transcript.jsonl").read_text(encoding="utf-8").splitlines()]
+    said = [turn["text"] for turn in turns if turn["role"] == "argus"]
+    assert len(said) == 1, said
+    assert result["reply"] == said[0]
+    if applies:
+        assert said[0] == reply and result.get("resolved") is True
+    else:
+        assert "恢复执行" not in said[0] and result.get("resolved") is not True

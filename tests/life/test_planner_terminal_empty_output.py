@@ -1176,3 +1176,36 @@ def test_unversioned_item_replan_degrades_to_planning_not_a_dead_end(
     assert rejected == [], (
         "an unversioned item has no versioned plan revision to reject"
     )
+
+
+def test_an_answer_the_task_already_took_does_not_hold_bounded_completion(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Scenario eval k1-split-cents (2026-10-24): the operator answered the task's
+    question, the task resumed with it and delivered, and the chat said done; the
+    settled one-shot answer still counted as unhandled Planner input, so the project
+    read "运行中 · 正在安排接下来要做的事" for a 46 s Planner call that only said done again."""
+    from argus.core.operator_context import (
+        OperatorContextStore,
+        operator_context_state_root,
+        persist_once_answer,
+    )
+
+    supervisor, backend, _sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    root = operator_context_state_root(supervisor.memory)
+    answer = "① 接受 int/float/Decimal，其他类型报 TypeError。② 负数直接报 ValueError。"
+    record = persist_once_answer(root, answer, source="operator.pending_answer", mission_id="29a665527934")
+    context = OperatorContextStore(root)
+    # Not yet applied to its task: the Planner must still see it.
+    assert supervisor._bounded_completion_reason() == ""
+    # _apply_operator_answer settles it on the task it answered.
+    context.settle_once(record.revision)
+    assert context.acknowledged_revision("planner") == 0
+    assert supervisor._bounded_completion_reason()
+    # Input that arrives after it still holds completion.
+    persist_once_answer(root, "再加一个 split_cents 的类型注解。")
+    assert supervisor._bounded_completion_reason() == ""
+    assert backend.planner_calls == 0

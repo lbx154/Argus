@@ -594,6 +594,32 @@ class OperatorContextStore:
         with self._locked():
             return int((self._load().state.get("acknowledged_revisions") or {}).get(role, 0))
 
+    def has_unhandled_input(self, role: Role) -> bool:
+        """True while some revision above what ``role`` acknowledged still carries input for it.
+
+        A one-shot answer already settled on the task it answered carries none:
+        that task took it in and no role is shown it again. Counting it kept a
+        delivered bounded project "安排接下来要做的事" for a whole Planner call
+        after the chat said done (k1-split-cents, 2026-10-24).
+        """
+        if role not in _ROLES:
+            raise ValueError(f"unknown operator context role: {role}")
+        with self._locked():
+            doc = self._load()
+            acknowledged = int((doc.state.get("acknowledged_revisions") or {}).get(role, 0))
+            if doc.revision <= acknowledged:
+                return False
+            consumed = {int(value) for value in doc.state.get("consumed_once", [])}
+            settled = {
+                int(row["revision"])
+                for row in doc.records
+                if row.get("type") == "directive"
+                and row.get("lifetime") == "once"
+                and int(row["revision"]) in consumed
+            }
+            # A revision not in the records (compacted away) counts as unhandled.
+            return any(revision not in settled for revision in range(acknowledged + 1, doc.revision + 1))
+
     def acknowledge(
         self, role: Role, revision: int, *, settle: Iterable[int] = ()
     ) -> tuple[int, ...]:

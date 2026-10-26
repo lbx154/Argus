@@ -906,17 +906,21 @@ def _settle_manager_turn(
         return emitter.journal_and_respond(reply, result) if handoff is None else emitter.respond(reply, result)
     if handoff.to == "team":
         return None
-    # Argus applies what the Manager filed and confirms it after its reply.
-    emitter.journal(reply, result)
-    emitter.turn_id = f"{emitter.turn_id}-applied"
     if handoff.get("answer"):
         from .manager_pending_question import apply_manager_answer
 
-        result = apply_manager_answer(mem, handoff, operator_text)
+        # One answer, one acknowledgement: the Manager's reply is it once the
+        # answer applies; if it does not, the operator reads that instead of a
+        # "resuming" that did not happen (k1-split-cents, 2026-10-24: the
+        # Manager's reply and Argus's confirmation both acknowledged it).
+        applied = apply_manager_answer(mem, handoff, operator_text, reply=reply)
         return emitter.respond(
-            str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(operator_text)),
-            {"kind": "pending_question", **result},
+            str(applied.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(operator_text)),
+            {**result, "kind": "pending_question", **applied},
         )
+    # Argus applies what the Manager filed and confirms it after its reply.
+    emitter.journal(reply, result)
+    emitter.turn_id = f"{emitter.turn_id}-applied"
     control = handoff.get("control", {})
     if handoff.get("authorization"):
         return _handle_authorization_control(

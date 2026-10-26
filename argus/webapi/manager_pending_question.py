@@ -546,10 +546,13 @@ def _apply_operator_answer(
     }
 
 
-def apply_manager_answer(mem: Any, handoff: Any, operator_text: str) -> dict[str, Any]:
+def apply_manager_answer(mem: Any, handoff: Any, operator_text: str, *, reply: str = "") -> dict[str, Any]:
     """Apply the operator's answer the Manager read off its turn (``answer`` of the ``manager`` form).
 
-    The form's check already tied it to a task waiting on a question.
+    The form's check already tied it to a task waiting on a question. ``reply``
+    is the Manager's own words to the operator in that turn: when the answer
+    applies they are its one acknowledgement (``result["reply"]``), not a second
+    line after them; a canned line stands in only when the Manager said nothing.
     """
     from ..core.operator_context import persist_once_answer
 
@@ -565,7 +568,9 @@ def apply_manager_answer(mem: Any, handoff: Any, operator_text: str) -> dict[str
     zh = conversation_is_chinese(operator_text, item.pending_question, item.title)
     result = _apply_operator_answer(
         mem, item, operator_text, manager_decision=answer["decision"],
-        manager_reply=say("answer_continue_with", zh, choice=picked) if picked else say("answer_taken", zh),
+        manager_reply=reply.strip() or (
+            say("answer_continue_with", zh, choice=picked) if picked else say("answer_taken", zh)
+        ),
         decision_option=answer.get("option", "custom"),
         operator_context_persisted=True, operator_context_revision=record.revision,
     )
