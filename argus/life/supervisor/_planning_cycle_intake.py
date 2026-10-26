@@ -11,6 +11,7 @@ fast path.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,8 @@ from ._planning_cycle_helpers import (
 if TYPE_CHECKING:
     from ..memory import BacklogItem
     from ._config import _MemoryView
+
+log = logging.getLogger(__name__)
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
 
@@ -217,6 +220,26 @@ class PlanningCycleIntakeMixin:
         # reports from it: say what happened, not which certificate allowed it.
         return say("requested_work_done", self._operator_chinese())
 
+    def _sync_waypoints_for_planner(self) -> str:
+        """Bind the canvas route before the Planner reads OperatorContext; returns where it stands.
+
+        The webapi binds a route on every canvas write; this catches a canvas
+        written while that failed. The status block is not operator input: it
+        moves with the work, so it never bumps the operator-context revision.
+        """
+        from ...core.waypoints import read_step_states, route_status_block, sync_route_directive
+
+        backlog = getattr(self.memory, "backlog", None)
+        if getattr(backlog, "path", None) is None:
+            return ""
+        try:
+            life_dir = Path(backlog.path).parent
+            sync_route_directive(life_dir)
+            return route_status_block(read_step_states(life_dir, self.memory.backlog.history()))
+        except Exception:  # noqa: BLE001 - planning goes on; the gate still holds the order
+            log.exception("required steps could not be synced for the Planner")
+            return ""
+
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.
 
@@ -230,6 +253,7 @@ class PlanningCycleIntakeMixin:
             operator_context_state_root,
         )
 
+        route_status = self._sync_waypoints_for_planner()
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
             if revision_request is None
@@ -270,6 +294,7 @@ class PlanningCycleIntakeMixin:
         state.operator_messages = list(
             dict.fromkeys(
                 ([operator_context] if operator_context else [])
+                + ([route_status] if route_status else [])
             )
         )
         if operator_messages:

@@ -700,6 +700,42 @@ class OperatorContextStore:
             self._save(doc, new_rows=new_rows, checkpoint=mutable_lifetime)
             return written
 
+    def replace_standing_directive(
+        self, source: str, text: str, *, applies_to_roles: AppliesToRoles = "all",
+    ) -> int:
+        """Make ``text`` the one live standing directive from ``source``; "" withdraws it.
+
+        Earlier live directives from ``source`` are revoked and the new one is
+        appended in one checkpoint, so every role re-reads it and the Planner
+        sees unhandled input. Unchanged text writes nothing. Returns the
+        ledger revision after the write.
+        """
+        text = str(text or "").strip()
+        with self._locked():
+            doc = self._load()
+            revoked = {int(row["target_revision"]) for row in doc.records if row["type"] == "revoke"}
+            revoked.update(int(value) for value in doc.state.get("revoked", []))
+            live = [
+                row for row in doc.records
+                if row["type"] == "directive" and row.get("source") == source
+                and int(row["revision"]) not in revoked
+            ]
+            if (not text and not live) or (
+                len(live) == 1 and live[0]["text"] == text and live[0]["lifetime"] == "standing"
+            ):
+                return doc.revision
+            for row in live:
+                self._stage_record(doc, RevokeRecord(
+                    target_revision=int(row["revision"]), reason=f"replaced by {source}", revision=1,
+                ))
+            if text:
+                self._stage_record(doc, DirectiveRecord(
+                    text=text, scope="project", applies_to_roles=applies_to_roles,
+                    lifetime="standing", source=source, revision=1, created_at=_utc_now(),
+                ))
+            self._save(doc, checkpoint=True)
+            return doc.revision
+
     def _stage_record(
         self, doc: ContextDocument, record: OperatorRecord, *, mission_id: str = "",
     ) -> tuple[OperatorRecord, bool]:

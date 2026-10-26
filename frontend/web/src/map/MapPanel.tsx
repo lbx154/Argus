@@ -84,7 +84,7 @@ import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
-import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point } from "./canvas";
+import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point, type RouteStep } from "./canvas";
 import { HumanCardView, HumanLinkView, type HumanCardNode, type HumanLinkEdge } from "./CanvasNodes";
 
 interface MapWorkspaceActions {
@@ -866,7 +866,7 @@ export function MapCanvas({
   // Set by ReactFlow's onInit; screen points map to the canvas through it.
   const flowInstance = useRef<Pick<ReactFlowInstance, "screenToFlowPosition" | "getZoom"> | null>(null);
   const toFlow = useCallback((point: Point) => flowInstance.current?.screenToFlowPosition(point) ?? point, []);
-  const [draft, setDraft] = useState<{ id: string; position: Point } | null>(null);
+  const [draft, setDraft] = useState<{ id: string; position: Point; kind: "idea" | "step" } | null>(null);
   const [humanDrag, setHumanDrag] = useState<Record<string, Point>>({});
   const [editingCard, setEditingCard] = useState<string | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
@@ -889,9 +889,25 @@ export function MapCanvas({
     setEditingCard(null);
     if (draft && id === draft.id) {
       setDraft(null);
-      canvasApi.addCard({ kind: "idea", text, position: draft.position }).catch(failed);
+      canvasApi.addCard({ kind: draft.kind, text, position: draft.position }).catch(failed);
     } else canvasApi.editCard(id, text).catch(failed);
   }, [draft, canvasApi.addCard, canvasApi.editCard, failed]);
+  const setDraftKind = useCallback((kind: "idea" | "step") =>
+    setDraft((current) => current && { ...current, kind }), []);
+  // A step's status follows its tasks: refetch the route when they move.
+  const taskSignature = data.tasks.map((task) => `${task.id}:${task.status}`).join("|");
+  const { refreshRoute } = canvasApi;
+  useEffect(() => { refreshRoute(); }, [taskSignature, refreshRoute]);
+  const routeSteps = useMemo(() => new Map<string, RouteStep>(
+    (canvasRecord.route?.steps ?? []).map((step) => [step.id, step])), [canvasRecord.route]);
+  const taskTitle = useMemo(() => new Map(data.tasks.map((task) => [task.id, task.title])), [data.tasks]);
+  // ``focus`` is declared further down; the card reaches it through this ref.
+  const focusRef = useRef<(id: string) => void>(() => undefined);
+  const openStepQuestion = useCallback((itemId: string) => {
+    const card = scene.cards.filter((item) => item.task.id === itemId).at(-1);
+    if (card) focusRef.current(card.id);
+    else actions.onAnswer();
+  }, [scene.cards, actions.onAnswer]);
   const cancelCard = useCallback((id: string) => {
     setEditingCard(null);
     if (draft && id === draft.id) setDraft(null);
@@ -902,7 +918,7 @@ export function MapCanvas({
     setCanvasMenu({ type: "link", id, x: Math.min(window.innerWidth - 180, point.x), y: Math.min(window.innerHeight - 220, point.y) }), []);
   const humanNodes = useMemo<HumanCardNode[]>(() => {
     const cards: Array<[HumanCard, boolean]> = canvasRecord.cards.map((card) => [card, false]);
-    if (draft) cards.push([{ id: draft.id, kind: "idea", text: "", attachment: null, created_ts: 0, updated_ts: 0 }, true]);
+    if (draft) cards.push([{ id: draft.id, kind: draft.kind, text: "", attachment: null, created_ts: 0, updated_ts: 0 }, true]);
     return cards.map(([card, isDraft]) => {
       const frame = humanFrame(card);
       return {
@@ -918,10 +934,17 @@ export function MapCanvas({
         data: {
           card, zh, draft: isDraft, readOnly: !editable, commit: commitCard, cancel: cancelCard,
           openFile: actions.onOpenArtifact, menu: cardMenu, editing: editingCard === card.id,
+          ...(card.kind === "step" && !isDraft ? {
+            step: routeSteps.get(card.id),
+            taskTitles: (routeSteps.get(card.id)?.task_ids ?? []).map((id) => taskTitle.get(id) ?? id),
+            openQuestion: openStepQuestion,
+          } : {}),
+          ...(isDraft ? { setDraftKind } : {}),
         },
       };
     });
-  }, [canvasRecord, draft, humanDrag, editable, zh, commitCard, cancelCard, actions.onOpenArtifact, cardMenu, editingCard]);
+  }, [canvasRecord, draft, humanDrag, editable, zh, commitCard, cancelCard, actions.onOpenArtifact, cardMenu, editingCard,
+    routeSteps, taskTitle, openStepQuestion, setDraftKind]);
   const flowNodes = useMemo(() => humanNodes.length ? [...displayNodes, ...humanNodes] : displayNodes,
     [displayNodes, humanNodes]);
   const humanEdges = useMemo<HumanLinkEdge[]>(() => {
@@ -944,14 +967,38 @@ export function MapCanvas({
         type: "human" as const,
         zIndex: 1,
         data: { kind: "related" as LinkKind, zh, recorded: true, label: name ? (zh ? name[1] : name[2]) : relation.kind },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "rgb(var(--ink-faint))", width: 26, height: 26 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgb(var(--ink-faint))", width: 12, height: 12 },
         ariaLabel: `${relation.kind}: ${relation.target} → ${task.id}`,
       }];
     }));
-    return [...recorded, ...canvasRecord.links.flatMap((link) => {
+    // A quiet silver "执行" line from a required step to each task fulfilling it.
+    // and from a step to the question it raised with the person (rule 2: a
+    // question links to the card it is about).
+    const fulfilling = [...routeSteps.values()].flatMap((step) => [
+      ...step.task_ids.map((taskId) => [taskId, zh ? "执行" : "Carries out"] as const),
+      ...(step.question_item_id ? [[step.question_item_id, zh ? "问你" : "Asks you"] as const] : []),
+    ].flatMap(([taskId, label]) => {
+      const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
+      const a = box(step.id);
+      const b = card && box(card.id);
+      if (!card || !a || !b) return [];
+      return [{
+        id: JSON.stringify(["fulfils", step.id, card.id]),
+        source: step.id,
+        target: card.id,
+        ...relationPorts(a, b),
+        type: "human" as const,
+        zIndex: 1,
+        data: { kind: "related" as LinkKind, zh, recorded: true, label },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--map-silver)", width: 12, height: 12 },
+        ariaLabel: `${label}: ${step.id} → ${card.id}`,
+      }];
+    }));
+    return [...recorded, ...fulfilling, ...canvasRecord.links.flatMap((link) => {
       const a = box(link.source);
       const b = box(link.target);
       if (!a || !b) return [];
+      const path = link.kind === "order" && routeSteps.has(link.source) && routeSteps.has(link.target);
       return [{
         id: link.id,
         source: link.source,
@@ -959,12 +1006,12 @@ export function MapCanvas({
         ...relationPorts(a, b),
         type: "human" as const,
         zIndex: 1,
-        data: { kind: link.kind, zh, menu: editable ? linkMenu : undefined },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--map-accent)", width: 26, height: 26 },
+        data: { kind: link.kind, zh, menu: editable ? linkMenu : undefined, path },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--map-accent)", width: path ? 7 : 9, height: path ? 7 : 9 },
         ariaLabel: `${link.kind}: ${link.source} → ${link.target}`,
       }];
     })];
-  }, [data.tasks, canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, zh, editable, linkMenu]);
+  }, [data.tasks, canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, scene.cards, zh, editable, linkMenu, routeSteps]);
   const flowEdges = useMemo<Edge[]>(() => humanEdges.length ? [...edges, ...humanEdges] : edges, [edges, humanEdges]);
   const onFlowNodesChange = useCallback((changes: NodeChange[]) => {
     const theirs: NodeChange<MacroNode>[] = [];
@@ -1019,7 +1066,7 @@ export function MapCanvas({
     const area = canvasRef.current ? openCanvasArea(canvasRef.current) : null;
     const at = toFlow(area ? clearOfChrome({ x: event.clientX, y: event.clientY },
       { width: frame.width * zoom + 24, height: frame.height * zoom + 24 }, area) : { x: event.clientX, y: event.clientY });
-    setDraft({ id: `draft-${Date.now()}`, position: { x: Math.round(at.x - frame.width / 2), y: Math.round(at.y - frame.height / 2) } });
+    setDraft({ id: `draft-${Date.now()}`, kind: "idea", position: { x: Math.round(at.x - frame.width / 2), y: Math.round(at.y - frame.height / 2) } });
     dismissCanvasHint();
   }, [editable, draft, toFlow, dismissCanvasHint, camera.hold]);
   const fileDrag = (event: React.DragEvent) => editable && event.dataTransfer.types.includes("Files") &&
@@ -1168,6 +1215,7 @@ export function MapCanvas({
     );
     camera.enter(id);
   };
+  focusRef.current = focus;
   const openFinalReview = () => {
     const card = scene.cards.filter(item => item.task.id === finalReview?.id).at(-1);
     if (card) {
@@ -1300,7 +1348,7 @@ export function MapCanvas({
     <MapArtifactContext.Provider value={artifactScope}>
     <MapLaunchContext.Provider value={launchScope}>
       {data.kind === "live" && !replaying && (overview.goal || data.tasks.length > 0 || actions.teamStatus) && (
-        <MapOverview overview={overview} zh={zh} team={actions.teamStatus} readOnly={readOnly}
+        <MapOverview overview={overview} zh={zh} team={actions.teamStatus} readOnly={readOnly} route={canvasRecord.route}
           onOpenReceipt={actions.onOpenReceipt} onOpenArtifact={actions.onOpenArtifact} onAnswer={actions.onAnswer} onStartLaunch={actions.onStartLaunch}
           onFocusTask={(taskId) => {
             const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
@@ -1777,10 +1825,28 @@ export function MapCanvas({
                   <button role="menuitem" onClick={() => askAboutCard(menuCard)}>
                     {zh ? "问这张卡" : "Ask about this card"}
                   </button>
-                  {menuCard.kind === "idea" && (
+                  {menuCard.kind !== "file" && (
                     <button role="menuitem" onClick={() => { setEditingCard(menuCard.id); setCanvasMenu(null); }}>
                       {zh ? "编辑文字" : "Edit text"}
                     </button>
+                  )}
+                  {menuCard.kind === "idea" && menuCard.text.trim() && (
+                    <button role="menuitem" data-testid="canvas-make-step"
+                      onClick={() => { setCanvasMenu(null); canvasApi.patchCard(menuCard.id, { kind: "step" }).catch(failed); }}>
+                      {zh ? "设为必经步骤" : "Make it a required step"}
+                    </button>
+                  )}
+                  {menuCard.kind === "step" && (
+                    <>
+                      <button role="menuitemcheckbox" aria-checked={!!menuCard.checkpoint} data-testid="canvas-step-checkpoint"
+                        onClick={() => { setCanvasMenu(null); canvasApi.patchCard(menuCard.id, { checkpoint: !menuCard.checkpoint }).catch(failed); }}>
+                        {menuCard.checkpoint ? "✓ " : ""}{zh ? "到这步先停下来给我看" : "Pause for me after this step"}
+                      </button>
+                      <button role="menuitem"
+                        onClick={() => { setCanvasMenu(null); canvasApi.patchCard(menuCard.id, { kind: "idea" }).catch(failed); }}>
+                        {zh ? "改回想法" : "Make it an idea again"}
+                      </button>
+                    </>
                   )}
                   <button role="menuitem" onClick={() => { setCanvasMenu(null); canvasApi.deleteCard(menuCard.id).catch(failed); }}>
                     {zh ? "删除卡片" : "Delete card"}

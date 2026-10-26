@@ -37,7 +37,29 @@ def _card(client: TestClient, revision: int, **body) -> dict:
 def test_empty_canvas(client: TestClient) -> None:
     res = client.get(_BASE)
     assert res.status_code == 200
-    assert res.json() == store.empty_canvas()
+    assert res.json() == {**store.empty_canvas(), "route": {"steps": [], "done": 0, "total": 0}}
+
+
+def test_step_cards_bind_the_route_and_come_back_numbered_with_their_status(client: TestClient, tmp_path: Path) -> None:
+    from argus.core.operator_context import OperatorContextStore
+
+    life = tmp_path / "projects" / _SID
+    first = _card(client, 0, kind="step", text="先复现 baseline")["card"]
+    second = _card(client, 1, kind="idea", text="写完方法部分先给我看")["card"]
+    made = client.patch(f"{_BASE}/cards/{second['id']}", json={"revision": 2, "kind": "step", "checkpoint": True})
+    assert made.status_code == 200, made.text
+    linked = client.post(f"{_BASE}/links", json={"revision": 3, "source": first["id"], "target": second["id"], "kind": "order"})
+    assert linked.status_code == 200, linked.text
+    route = linked.json()["canvas"]["route"]
+    assert [(s["number"], s["status"], s["checkpoint"]) for s in route["steps"]] == [(1, "todo", False), (2, "todo", True)]
+    assert (route["done"], route["total"]) == (0, 2)
+    store_ = OperatorContextStore(life)
+    live = [r for r in store_.records() if getattr(r, "source", "") == "operator.canvas.route"]
+    assert live and f"2. [{second['id']}] 写完方法部分先给我看" in live[-1].text
+    assert store_.has_unhandled_input("planner")
+    before = store_.revision
+    client.put(f"{_BASE}/positions", json={"revision": 4, "positions": {first["id"]: {"x": 1, "y": 2}}})
+    assert store_.revision == before  # moving a card is not a new route
 
 
 def test_card_link_position_roundtrip(client: TestClient, tmp_path: Path) -> None:

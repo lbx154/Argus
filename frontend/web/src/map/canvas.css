@@ -1,29 +1,22 @@
 /* Cards and links a person put on the map. Sizes are in flow units: task
    cards are ~1440 wide, so type here is large and reads at overview zoom.
    Palette (intelligent-ui.md "Palette: metal"): white and black, silver
-   structure, gold for the person's own things. The names below wrap the app
-   tokens with fallbacks until those tokens exist in index.css. */
+   structure, gold for the person's own things. index.css defines the tokens
+   as RGB channels ("176 141 60"), for both themes; each name below is a whole
+   colour with the light value as fallback. A bare var(--accent) here is not a
+   colour, so a border fell back to currentColor (black). */
 .argus-map {
-  --map-accent: var(--accent, #B08D3C);
-  --map-accent-ink: var(--accent-ink, #85661F);
+  --map-accent: rgb(var(--accent, 176 141 60));
+  --map-accent-ink: rgb(var(--accent-ink, 133 102 31));
   --map-accent-soft: color-mix(in srgb, var(--map-accent) 16%, transparent);
-  --map-silver: var(--silver, #A7ACB3);
-  --map-hairline: color-mix(in srgb, var(--map-silver) 55%, transparent);
-  --map-status-running: var(--status-running, #B08D3C);
-  --map-status-waiting: var(--status-waiting, #B08D3C);
-  --map-status-done: var(--status-done, #0E0E10);
-  --map-status-idle: var(--status-idle, #A7ACB3);
-  --map-status-failed: var(--status-failed, #A33A3A);
+  --map-silver: rgb(var(--field-line, 167 172 179));
+  --map-hairline: rgb(var(--line, 220 222 225));
+  --map-status-running: rgb(var(--status-running, 176 141 60));
+  --map-status-waiting: rgb(var(--status-waiting, 176 141 60));
+  --map-status-done: rgb(var(--status-done, 14 14 16));
+  --map-status-idle: rgb(var(--status-idle, 167 172 179));
+  --map-status-failed: rgb(var(--status-failed, 163 58 58));
   --map-title-serif: var(--font-serif, "Source Serif 4", "Noto Serif SC", "Songti SC", Georgia, serif);
-}
-[data-theme="dark"] .argus-map {
-  --map-accent: var(--accent, #D4B866);
-  --map-accent-ink: var(--accent-ink, #D4B866);
-  --map-silver: var(--silver, #8E9298);
-  --map-hairline: color-mix(in srgb, var(--map-silver) 40%, transparent);
-  --map-status-running: var(--status-running, #D4B866);
-  --map-status-waiting: var(--status-waiting, #D4B866);
-  --map-status-done: var(--status-done, #F2F2F0);
 }
 
 /* A person's card is one family with a task card (design.css .map-macro):
@@ -42,6 +35,7 @@
   background: var(--map-paper, rgb(var(--panel)));
   border: var(--px, 4px) solid var(--map-hairline);
   box-shadow: inset calc(3 * var(--px, 4px)) 0 0 var(--map-accent);
+  border-left-color: var(--map-accent);
   color: rgb(var(--ink));
   font-size: 60px;
   line-height: 1.45;
@@ -131,6 +125,10 @@
 .map-canvas-wrap[data-linking="true"] .react-flow__node-task:hover .map-macro { outline: calc(2 * var(--px, 4px)) solid var(--map-accent); outline-offset: calc(3 * var(--px, 4px)); }
 
 .react-flow__edge-path.canvas-link { stroke: var(--map-accent); stroke-dasharray: none; }
+/* What the records state about a person's card ("来自", "执行") is Argus's
+   own line: thin and silver. Only lines a person drew are gold. */
+.react-flow__edge-path.canvas-link.is-recorded { stroke: var(--map-silver); opacity: .75; }
+.canvas-link-label.is-recorded { color: rgb(var(--ink-faint)); border-color: transparent; cursor: default; }
 .canvas-link-label {
   position: absolute; pointer-events: all; cursor: pointer;
   font-size: 13px; font-weight: 500; padding: 1px 8px; border-radius: 6px;
@@ -150,3 +148,68 @@
 .canvas-upload-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
   background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 8px; padding: 4px 12px; font-size: 13px; }
 .canvas-menu-title { display: block; padding: 4px 10px; font-size: 12px; color: rgb(var(--ink-dim)); }
+
+/* ── 必经步骤: a step a person laid for the team (core/waypoints.py) ─────────
+   One family with the person's other cards (white, silver hairline, gold
+   rule); what marks it as a step is the gold number badge, and where it
+   stands is one small dot and a word at the foot (intelligent-ui.md #5). */
+.canvas-card-step { gap: 18px; }
+.canvas-step-badge {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 68px; height: 68px; padding: 0 16px; box-sizing: border-box; border-radius: 34px;
+  background: var(--map-accent); color: rgb(var(--on-accent, 255 255 255));
+  font-size: 44px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0;
+}
+.canvas-card-step .canvas-card-kind { color: var(--map-accent-ink); }
+.canvas-step-check { margin-left: auto; font-size: 38px; color: var(--map-accent-ink); white-space: nowrap; }
+.canvas-step-check + .canvas-card-more { margin-left: 8px; }
+.canvas-card .canvas-step-status {
+  margin: auto 0 0; display: flex; align-items: center; gap: 18px; min-width: 0;
+  font: inherit; font-size: 42px; line-height: 1.2; color: rgb(var(--ink-dim));
+  -webkit-line-clamp: unset; white-space: nowrap;
+}
+button.canvas-step-status { position: relative; z-index: 6; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
+.canvas-step-count { color: rgb(var(--ink-faint)); }
+.canvas-step-count::before { content: "·"; margin-right: 18px; }
+.canvas-step-open { margin-left: auto; color: var(--map-accent-ink); }
+button.canvas-step-status:hover .canvas-step-open { text-decoration: underline; text-decoration-color: var(--map-accent); }
+.canvas-step-dot {
+  display: inline-block; flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--map-status-idle);
+}
+.canvas-step-dot[data-status="running"] { background: var(--map-status-running); animation: canvas-step-pulse 1.8s ease-in-out infinite; }
+/* Waiting for the person: the gold dot wears a ring; a question is the ring alone. */
+.canvas-step-dot[data-status="review"] { background: var(--map-status-waiting);
+  box-shadow: 0 0 0 7px var(--map-paper, rgb(var(--panel))), 0 0 0 11px var(--map-status-waiting); }
+.canvas-step-dot[data-status="question"] { background: transparent; box-shadow: inset 0 0 0 5px var(--map-status-waiting); }
+.canvas-step-dot[data-status="done"] { background: var(--map-status-done); }
+.canvas-card-step.is-step-done .canvas-card-text { color: rgb(var(--ink-dim)); }
+@keyframes canvas-step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .canvas-step-dot[data-status="running"] { animation: none; } }
+
+/* Far view: the badge and the dot above the words. */
+.canvas-step-far-head { display: flex; align-items: center; gap: calc(var(--far-font, 120px) * 0.3);
+  margin-bottom: calc(var(--far-font, 120px) * 0.2); }
+.canvas-card.is-far .canvas-step-badge { height: calc(var(--far-font, 120px) * 0.95); min-width: calc(var(--far-font, 120px) * 0.95);
+  border-radius: calc(var(--far-font, 120px) * 0.5); font-size: calc(var(--far-font, 120px) * 0.6); padding: 0 calc(var(--far-font, 120px) * 0.2); }
+.canvas-card.is-far .canvas-step-dot { width: calc(var(--far-font, 120px) * 0.36); height: calc(var(--far-font, 120px) * 0.36); }
+.canvas-card.is-far .canvas-step-dot[data-status="review"] { box-shadow: 0 0 0 calc(var(--far-font, 120px) * .1) var(--map-paper, rgb(var(--panel))),
+  0 0 0 calc(var(--far-font, 120px) * .16) var(--map-status-waiting); }
+.canvas-card.is-far .canvas-step-dot[data-status="question"] { box-shadow: inset 0 0 0 calc(var(--far-font, 120px) * .08) var(--map-status-waiting); }
+.canvas-card-step.is-far .canvas-far-label { -webkit-line-clamp: 2; }
+
+/* A new card chooses what it is: 想法 or 必经步骤. */
+.canvas-kind-choice { display: inline-flex; gap: 10px; }
+.canvas-kind-choice button {
+  display: inline-flex; align-items: center; gap: 12px; font: inherit; font-size: 40px; line-height: 1;
+  padding: 12px 26px; border-radius: 40px; border: var(--px, 4px) solid transparent; background: transparent;
+  color: rgb(var(--ink-faint)); cursor: pointer;
+}
+.canvas-kind-choice button svg { width: 38px; height: 38px; }
+.canvas-kind-choice button[aria-checked="true"] { color: var(--map-accent-ink); border-color: var(--map-accent); background: var(--map-accent-soft); }
+
+/* Overview: 必经步骤 2/5 and the next one open. */
+.map-overview-steps { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.map-overview-steps b { font-weight: 600; font-variant-numeric: tabular-nums; color: rgb(var(--ink)); }
+.map-overview-steps span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-dim)); }
+.map-overview-steps small { color: rgb(var(--ink-faint)); font-size: inherit; }

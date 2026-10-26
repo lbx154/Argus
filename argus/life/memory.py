@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import logging
 import mmap
 import os
 import shutil
@@ -1133,6 +1134,10 @@ class BacklogItem:
     expected_regressions: str = ""
     decision_rule: str = ""
     non_goals: list[str] = field(default_factory=list)
+    # The person's required step (a ``step`` card on the canvas) this task
+    # fulfils; empty for a task on no step. ``core.waypoints`` holds a task of
+    # a later step until the earlier steps are complete.
+    waypoint_id: str = ""
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
     # Consecutive provider-cooldown pauses of this item whose stop reason
@@ -1209,6 +1214,7 @@ class BacklogItem:
         non_goals: list[str] | None = None,
         original_objective: str = "",
         manager_decision: dict[str, Any] | None = None,
+        waypoint_id: str = "",
     ) -> "BacklogItem":
         objective = objective.strip()
         root_objective = str(original_objective or "").strip() or objective
@@ -1254,6 +1260,7 @@ class BacklogItem:
                 for item in (non_goals or [])
                 if str(item).strip()
             ],
+            waypoint_id=str(waypoint_id or "").strip(),
         )
 
     def to_jsonable(self) -> dict[str, Any]:
@@ -1326,6 +1333,7 @@ class BacklogItem:
                 for item in (row.get("non_goals", []) or [])
                 if str(item).strip()
             ],
+            waypoint_id=str(row.get("waypoint_id", "") or ""),
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
             provider_cooldown_streak=max(
@@ -1578,6 +1586,22 @@ class Backlog:
         live = list(items)
         return self._load_archive() if any(item.deps for item in live) else []
 
+    def _held_by_route(self, items: list[BacklogItem]) -> set[str]:
+        """Pending rows the person's required steps do not let start yet (``core.waypoints``).
+
+        Must run inside ``_locked``. Reads the canvas only; the archive is read
+        only when the canvas holds steps, since done tasks of a step live there.
+        """
+        from ..core.waypoints import held_item_ids, read_route
+
+        try:
+            if not read_route(self.path.parent):
+                return set()
+            return held_item_ids(self.path.parent, items, self._load_archive())
+        except Exception:  # noqa: BLE001 - a damaged canvas must not stop the queue
+            logging.getLogger(__name__).exception("required-step gate failed; scheduling without it")
+            return set()
+
     @staticmethod
     def _done_ids(items: Iterable[BacklogItem]) -> set[str]:
         """Ids of items that have completed successfully.
@@ -1677,10 +1701,12 @@ class Backlog:
         history = self._dependency_history(items)
         changed = self._cascade_blocked(items, history=history) or changed
         done = self._done_ids([*history, *items])
+        held = self._held_by_route(items)
         ready = [
             item
             for item in items
             if self._is_ready(item, done)
+            and item.id not in held
             and not self._origin_already_claimed(item, items)
         ]
         # An example that reached the backlog before the planner learned to
@@ -2576,6 +2602,7 @@ class Backlog:
         reply: str = "Stopped. The work done so far is kept.",
         last_error: str = "",
         decided_by: str = "operator",
+        status: str = "aborted",
     ) -> BacklogItem | None:
         """Resolve one pending decision by ending its item.
 
@@ -2595,7 +2622,7 @@ class Backlog:
                 return None
             if not item.pending_question:
                 return None
-            item.status = "aborted"
+            item.status = status if status in _TERMINAL_STATUSES else "aborted"
             item.finished_ts = time.time()
             item.pending_question = ""
             if last_error:
@@ -2891,7 +2918,8 @@ class Backlog:
             items = self._load()
             history = self._dependency_history(items)
         done = self._done_ids([*history, *items])
-        out = self._fit_gpus([it for it in items if self._is_ready(it, done)], items)
+        held = self._held_by_route(items)
+        out = self._fit_gpus([it for it in items if self._is_ready(it, done) and it.id not in held], items)
         out = self._fit_cpus(out, items)[0]
         out.sort(key=lambda it: (it.priority, it.ts))
         return out

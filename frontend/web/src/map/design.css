@@ -633,6 +633,17 @@
   --map-edge-context: var(--map-silver);
   --map-edge-continuation: var(--map-silver);
   --map-edge-semantic: var(--map-silver);
+  --map-edge-relation: var(--map-silver);
+  --map-edge-replacement: var(--map-silver);
+  --map-edge-dependency: rgb(var(--ink-dim));
+}
+/* edges.css tunes the old hues per theme; the metal palette keeps relations silver in both. */
+[data-theme="dark"] .argus-map.argus-map {
+  --map-edge-context: var(--map-silver);
+  --map-edge-continuation: var(--map-silver);
+  --map-edge-semantic: var(--map-silver);
+  --map-edge-relation: var(--map-silver);
+  --map-edge-replacement: var(--map-silver);
   --map-edge-dependency: rgb(var(--ink-dim));
 }
 .argus-map.argus-map .map-state-running { --state: var(--map-status-running); }
@@ -711,9 +722,15 @@
   --on-screen: calc(var(--z, 0.24) * var(--summary-scale, 5));
   --near: clamp(0, calc((var(--on-screen) - 0.62) * 5), 1);
 }
+/* Three whole lines always fit the card (its height less the status row and
+   padding, over 3 × 1.35 lines), so the clamp ends on an ellipsis instead of
+   the card cutting through a line of glyphs. */
 .argus-map .macro-summary .map-card h3 {
-  font-size: max(19px, min(56px, calc(15px / var(--on-screen))));
+  font-size: max(19px, min(56px, calc(15px / var(--on-screen)), calc((var(--summary-height, 300px) - 72px) / 4.2)));
+  font-weight: 500;
   -webkit-line-clamp: 3;
+  overflow: hidden;
+  padding-right: 4px;
 }
 .argus-map .macro-summary .map-card > :not(h3) { opacity: var(--near); }
 .argus-map .macro-summary .map-card h3 .macro-note-badge { opacity: var(--near); }

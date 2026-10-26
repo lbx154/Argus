@@ -12,7 +12,26 @@ export interface CanvasRecord {
   cards: HumanCard[];
   links: HumanLink[];
   positions: Record<string, Point>;
+  /** The person's required steps (必经步骤) by number, each with where it
+   * stands; the server reads it from the backlog on every response. */
+  route?: RouteView;
 }
+/** Where a required step stands: 未开始 / 进行中 / 等你看 / 已完成 / 有疑问. */
+export type StepStatus = "todo" | "running" | "review" | "done" | "question";
+export interface RouteStep {
+  id: string;
+  /** Place along the 先后 chain from 1; null for a step that may come any time. */
+  number: number | null;
+  text: string;
+  checkpoint: boolean;
+  after: string[];
+  status: StepStatus;
+  /** The tasks that fulfil this step. */
+  task_ids: string[];
+  /** The question card waiting on the person about this step, if any. */
+  question_item_id: string;
+}
+export interface RouteView { steps: RouteStep[]; done: number; total: number }
 export interface Point { x: number; y: number }
 export interface Box extends Point { width: number; height: number }
 export interface CanvasAttachment {
@@ -22,11 +41,14 @@ export interface CanvasAttachment {
   mime: string;
   size_bytes: number;
 }
+export type HumanCardKind = "idea" | "file" | "step";
 export interface HumanCard {
   id: string;
-  kind: "idea" | "file";
+  kind: HumanCardKind;
   text: string;
   attachment: CanvasAttachment | null;
+  /** A step that pauses for the person once its work is delivered. */
+  checkpoint?: boolean;
   created_ts: number;
   updated_ts: number;
 }
@@ -43,11 +65,29 @@ export const linkKindLabel = (kind: LinkKind, zh: boolean) =>
   LINK_KINDS.find(([k]) => k === kind)?.[zh ? 1 : 2] ?? kind;
 
 export const EMPTY_CANVAS: CanvasRecord = { version: 1, revision: 0, cards: [], links: [], positions: {} };
+
+export const STEP_STATUS: Record<StepStatus, [string, string]> = {
+  todo: ["未开始", "Not started"],
+  running: ["进行中", "In progress"],
+  review: ["等你看", "Waiting for you"],
+  done: ["已完成", "Done"],
+  question: ["有疑问", "A question for you"],
+};
+const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+/** ① ② ③ for a numbered step; "" for one that may come any time. */
+export const stepMark = (n: number | null | undefined) =>
+  n == null ? "" : n >= 1 && n <= CIRCLED.length ? CIRCLED[n - 1] : `(${n})`;
 /** Flow-space size of a person's card; task cards are ~1440 wide, so these
  * read at the same zoom without covering a task. */
-export const HUMAN_FRAME = { idea: { width: 880, height: 480 }, file: { width: 880, height: 360 } } as const;
-/** Type metrics of a person's card body (canvas.css), in flow units. */
-export const CARD_TEXT = { font: 60, line: 87, width: 880 - 2 * 64, chrome: { idea: 210, file: 330 }, maxLines: { idea: 12, file: 6 } } as const;
+export const HUMAN_FRAME = {
+  idea: { width: 880, height: 480 }, file: { width: 880, height: 360 }, step: { width: 880, height: 520 },
+} as const;
+/** Type metrics of a person's card body (canvas.css), in flow units; a step
+ * also carries its status line. */
+export const CARD_TEXT = {
+  font: 60, line: 87, width: 880 - 2 * 64,
+  chrome: { idea: 210, file: 330, step: 300 }, maxLines: { idea: 12, file: 6, step: 8 },
+} as const;
 
 /** Lines the words take at the card's body size: a CJK character is about
  * one em wide, Latin about half; each paragraph starts a line. */
@@ -211,10 +251,18 @@ export function useCanvas(sessionId: string, enabled: boolean) {
     return next;
   }, [client, sessionId]);
   const canvas = query.data ?? EMPTY_CANVAS;
-  const addCard = useCallback((card: { kind: HumanCard["kind"]; text?: string; attachment?: CanvasAttachment; position: Point }) =>
+  const addCard = useCallback((card: { kind: HumanCard["kind"]; text?: string; attachment?: CanvasAttachment; position: Point; checkpoint?: boolean }) =>
     write<{ canvas: CanvasRecord; card: HumanCard }>("POST", () => "/cards", (revision) => ({ revision, ...card })), [write]);
   const editCard = useCallback((id: string, text: string) =>
     write<{ canvas: CanvasRecord; card: HumanCard }>("PATCH", () => `/cards/${encodeURIComponent(id)}`, (revision) => ({ revision, text })), [write]);
+  /** 设为必经步骤 / 改回想法, and a step's "到这步先停下来给我看". */
+  const patchCard = useCallback((id: string, change: { kind?: "idea" | "step"; checkpoint?: boolean }) =>
+    write<{ canvas: CanvasRecord; card: HumanCard }>("PATCH", () => `/cards/${encodeURIComponent(id)}`, (revision) => ({ revision, ...change })), [write]);
+  /** Step statuses follow the tasks: refetch when the tasks moved. */
+  const refreshRoute = useCallback(() => {
+    if (client.getQueryData<CanvasRecord>(KEY(sessionId))?.route?.total)
+      void client.invalidateQueries({ queryKey: KEY(sessionId), exact: true });
+  }, [client, sessionId]);
   const deleteCard = useCallback((id: string) =>
     write("DELETE", (revision) => `/cards/${encodeURIComponent(id)}?revision=${revision}`), [write]);
   const addLink = useCallback((source: string, target: string, kind: LinkKind) =>
@@ -232,6 +280,6 @@ export function useCanvas(sessionId: string, enabled: boolean) {
       throw error;
     });
   }, [client, sessionId, write]);
-  return { canvas, ready: query.isSuccess, addCard, editCard, deleteCard, addLink, setLinkKind, deleteLink, move };
+  return { canvas, ready: query.isSuccess, addCard, editCard, patchCard, refreshRoute, deleteCard, addLink, setLinkKind, deleteLink, move };
 }
 export type CanvasApi = ReturnType<typeof useCanvas>;

@@ -71,7 +71,7 @@ class PlanningCycleVerdictMixin:
 
     def _park_planner_question(
         self, state: _PlanCycleState | None, question: str, reason: str,
-        *, options: tuple[dict[str, Any], ...] = (),
+        *, options: tuple[dict[str, Any], ...] = (), about_waypoint: str = "",
     ) -> bool:
         """Put the planning slot's question to the operator on its one card.
 
@@ -111,10 +111,19 @@ class PlanningCycleVerdictMixin:
             )
         from .pending_notify import ask_operator
 
+        card_fields: dict[str, Any] = {}
+        if about_waypoint:
+            # A doubted required step: the person keeps, changes or removes it.
+            from ..waypoint_cards import dispute_card
+
+            waypoint_states = getattr(self, "_waypoint_states", None)
+            options, card_fields = dispute_card(
+                waypoint_states() if callable(waypoint_states) else (), about_waypoint, question, options,
+            )
         ask_operator(
             self.memory.root, item, question, reason=reason or question, layer="planner",
             save=partial(self.memory.backlog.update, item.id, last_error=reason), emit=self._emit,
-            options=options,
+            options=options, **card_fields,
         )
         return True
 

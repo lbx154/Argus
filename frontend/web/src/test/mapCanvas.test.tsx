@@ -339,3 +339,41 @@ it("grows a person's card with its words and keeps new cards clear of the map's 
   expect(clearOfChrome({ x: 500, y: 690 }, { width: 200, height: 120 }, area)).toEqual({ x: 500, y: 640 });
   expect(clearOfChrome({ x: 500, y: 300 }, { width: 200, height: 120 }, area)).toEqual({ x: 500, y: 300 });
 });
+
+it("lets a new card be a required step (必经步骤) before it is saved", async () => {
+  act(() => wrap().props.onDoubleClick({ target: target(".react-flow__pane"), clientX: 1000, clientY: 500 }));
+  const draft = human()[0];
+  act(() => (draft.data.setDraftKind as (kind: "idea" | "step") => void)("step"));
+  expect((human()[0].data.card as { kind: string }).kind).toBe("step");
+  act(() => (human()[0].data.commit as (id: string, text: string) => void)(human()[0].id, "先复现 baseline"));
+  await flush();
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/cards", body: { kind: "step", text: "先复现 baseline" } });
+});
+
+it("numbers steps along the gold path, shows where each stands and the tasks carrying it out", async () => {
+  server = {
+    ...structuredClone(EMPTY_CANVAS), revision: 3,
+    cards: [
+      { id: "hc-a", kind: "step", text: "读数据", attachment: null, checkpoint: false, created_ts: 1, updated_ts: 1 },
+      { id: "hc-b", kind: "step", text: "画图给我看", attachment: null, checkpoint: true, created_ts: 2, updated_ts: 2 },
+    ],
+    links: [{ id: "hl-1", source: "hc-a", target: "hc-b", kind: "order", created_ts: 3 }],
+    positions: { "hc-a": { x: 0, y: -900 }, "hc-b": { x: 1200, y: -900 } },
+    route: { done: 1, total: 2, steps: [
+      { id: "hc-a", number: 1, text: "读数据", checkpoint: false, after: [], status: "done", task_ids: ["parent"], question_item_id: "" },
+      { id: "hc-b", number: 2, text: "画图给我看", checkpoint: true, after: ["hc-a"], status: "review", task_ids: ["child"], question_item_id: "q-1" },
+    ] },
+  };
+  client.setQueryData(["map-canvas", "canvas"], server);
+  remount({});
+  await flush();
+  const steps = human();
+  expect(steps.map((n) => [(n.data.step as { number: number }).number, (n.data.step as { status: string }).status]))
+    .toEqual([[1, "done"], [2, "review"]]);
+  expect(steps[0].data.taskTitles).toEqual(["Route data"]);
+  const path = flow().edges.find((e) => e.id === "hl-1")!;
+  expect(path.data).toMatchObject({ kind: "order", path: true });
+  const carries = flow().edges.filter((e) => e.type === "human" && e.data?.label === "执行");
+  expect(carries.map((e) => e.source).sort()).toEqual(["hc-a", "hc-b"]);
+  expect(renderer.root.findByProps({ "data-testid": "overview-steps" }).findByType("b").children.join("")).toBe("1/2");
+});
