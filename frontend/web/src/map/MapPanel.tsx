@@ -46,6 +46,7 @@ import {
   Compass,
   GitBranch,
   History,
+  Info,
   LocateFixed,
   Maximize2,
   Expand,
@@ -119,6 +120,12 @@ const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
 const CANVAS_HINT_KEY = "argus.map.canvasHintDismissed.v1";
+/** The map's key (ⓘ in the toolbar): what each kind of card is. */
+export const MAP_CARD_LEGEND: Array<[[string, string], string, string]> = [
+  [["任务卡", "Task card"], "团队拆出来、能单独完成和验收的一件事", "one piece of work the team split out that can be finished and checked on its own"],
+  [["你的卡", "Your cards"], "你加的想法和资料", "the ideas and files you added"],
+  [["必经步骤", "Required steps"], "你定的必须经过的路", "the road you laid that the work must pass through"],
+];
 type CanvasMenu =
   | { type: "card"; id: string; x: number; y: number }
   | { type: "link"; id: string; x: number; y: number }
@@ -207,6 +214,8 @@ export function MapCanvas({
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const graph = useMemo(() => buildMap(data.tasks), [data.tasks]);
+  // Requests still being read wait by the composer; the newest few.
+  const looseRequests = useMemo(() => (data.requests ?? []).slice(-3).reverse(), [data.requests]);
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const camera = useSemanticCamera(canvasRef, !readOnly);
@@ -900,7 +909,14 @@ export function MapCanvas({
   useEffect(() => { refreshRoute(); }, [taskSignature, refreshRoute]);
   const routeSteps = useMemo(() => new Map<string, RouteStep>(
     (canvasRecord.route?.steps ?? []).map((step) => [step.id, step])), [canvasRecord.route]);
-  const taskTitle = useMemo(() => new Map(data.tasks.map((task) => [task.id, task.title])), [data.tasks]);
+  // A replaced task folded into its replacement (map_relations.fold_cards):
+  // a step's tasks still name it, and its line goes to the replacement.
+  const foldedInto = useMemo(() => new Map(data.tasks.flatMap((task) =>
+    (task.replaced ?? []).map((old) => [old.id, task.id] as const))), [data.tasks]);
+  const taskTitle = useMemo(() => new Map([
+    ...data.tasks.flatMap((task) => (task.replaced ?? []).map((old) => [old.id, old.title] as const)),
+    ...data.tasks.map((task) => [task.id, task.title] as const),
+  ]), [data.tasks]);
   // ``focus`` is declared further down; the card reaches it through this ref.
   const focusRef = useRef<(id: string) => void>(() => undefined);
   const openStepQuestion = useCallback((itemId: string) => {
@@ -977,7 +993,8 @@ export function MapCanvas({
     const fulfilling = [...routeSteps.values()].flatMap((step) => [
       ...step.task_ids.map((taskId) => [taskId, zh ? "执行" : "Carries out"] as const),
       ...(step.question_item_id ? [[step.question_item_id, zh ? "问你" : "Asks you"] as const] : []),
-    ].flatMap(([taskId, label]) => {
+    ].flatMap(([id, label]) => {
+      const taskId = foldedInto.get(id) ?? id;
       const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
       const a = box(step.id);
       const b = card && box(card.id);
@@ -994,7 +1011,9 @@ export function MapCanvas({
         ariaLabel: `${label}: ${step.id} → ${card.id}`,
       }];
     }));
-    return [...recorded, ...fulfilling, ...canvasRecord.links.flatMap((link) => {
+    // Two tasks of a step folded into one card draw one line to it.
+    const lines = [...new Map(fulfilling.map((edge) => [edge.id, edge])).values()];
+    return [...recorded, ...lines, ...canvasRecord.links.flatMap((link) => {
       const a = box(link.source);
       const b = box(link.target);
       if (!a || !b) return [];
@@ -1011,7 +1030,7 @@ export function MapCanvas({
         ariaLabel: `${link.kind}: ${link.source} → ${link.target}`,
       }];
     })];
-  }, [data.tasks, canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, scene.cards, zh, editable, linkMenu, routeSteps]);
+  }, [data.tasks, canvasRecord.links, humanNodes, visibleIds, positions, scene.frames, scene.cards, zh, editable, linkMenu, routeSteps, foldedInto]);
   const flowEdges = useMemo<Edge[]>(() => humanEdges.length ? [...edges, ...humanEdges] : edges, [edges, humanEdges]);
   const onFlowNodesChange = useCallback((changes: NodeChange[]) => {
     const theirs: NodeChange<MacroNode>[] = [];
@@ -1579,6 +1598,15 @@ export function MapCanvas({
                 <span>{zh ? "回放" : "Replay"}</span>
               </button>
             )}
+            <span className="map-legend-info">
+              <button type="button" data-testid="map-legend-info" aria-label={zh ? "卡片是怎么分的" : "What the cards are"}
+                aria-describedby="map-legend-cards">
+                <Info size={15} />
+              </button>
+              <span role="tooltip" id="map-legend-cards">{MAP_CARD_LEGEND.map(([name, zhText, enText]) => (
+                <span key={name[0]} style={{ display: "block" }}><b>{zh ? name[0] : name[1]}</b> = {zh ? zhText : enText}</span>
+              ))}</span>
+            </span>
             {camera.detailed && (
               <button
                 onClick={camera.back}
@@ -1808,6 +1836,15 @@ export function MapCanvas({
               {replacementCount ? ` · ${replacementCount}` : ""}
             </button>
           </div>
+          {!readOnly && !!looseRequests.length && !camera.detailed && (
+            <div className="map-loose-requests" data-testid="map-loose-requests" aria-live="polite">
+              {looseRequests.map((request) => (
+                <span key={request.id} title={request.full || request.text}>
+                  <i aria-hidden />{zh ? "你说：" : "You said: "}{request.text}
+                </span>
+              ))}
+            </div>
+          )}
           {!readOnly && (
             <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}

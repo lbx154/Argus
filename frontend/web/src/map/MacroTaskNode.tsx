@@ -23,7 +23,7 @@ import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
-import { ACTIVE, statusKey } from "./model";
+import { ACTIVE, plainTitle, replacedNote, requestChip, statusKey } from "./model";
 import {
   STEP_KINDS,
   humanizeHarnessNote,
@@ -237,7 +237,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   };
   // An explanation written before the execution ended short of its goal may
   // claim more than happened, so it does not head such a card.
-  const title = (data.completionScope ? "" : copy[task.id]?.title) || task.title;
+  const title = plainTitle((data.completionScope ? "" : copy[task.id]?.title) || task.title);
+  // What the person said that started this task rides on it as a chip, and
+  // the plans it replaced fold into it (map_relations.fold_cards).
+  const request = isLastPart ? requestChip(task.requests, zh) : null;
+  const replaced = isLastPart ? replacedNote(task, zh) : null;
+  const replacedTitle = replaced ? [replaced.label, ...replaced.lines].join("\n") : undefined;
   const range = zh
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
@@ -400,6 +405,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           transform: `translate(-50%, -50%) scale(${summaryScale})`,
         } as import("react").CSSProperties}
       >
+        {request && (
+          <div className="map-request-chip" data-testid="map-request-chip" title={request.title}>
+            <span>{request.label}</span>
+            {request.more > 0 && <b>+{request.more}</b>}
+          </div>
+        )}
         <button
           className={`map-card map-state-${state} nodrag nopan`}
           data-testid="map-card"
@@ -415,6 +426,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : isLastPart ? (zh ? "任务" : "MISSION") : (zh ? "历史" : "HISTORY")}
               {" "}{String(ordinal).padStart(2, "0")}
               {!isLastPart && ` · ${data.part}/${data.partCount}`}
+              {replaced && (
+                <span className="map-card-replaced" data-testid="map-card-replaced" title={replacedTitle}>
+                  {" · "}{replaced.label}
+                </span>
+              )}
             </span>
             {/* An earlier part of a long task has no state of its own; the
                 task's state is read on its last part, so no chip here. An
@@ -557,6 +573,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   : "INSIDE THIS TASK"}
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
+            {replaced && (
+              <details className="macro-replaced nodrag nopan" data-testid="macro-replaced">
+                <summary>{replaced.label}</summary>
+                <ul>{replaced.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>
+              </details>
+            )}
           </div>
           {data.conclusion && (
             <span className="macro-conclusion" data-testid="macro-conclusion" title={data.conclusion}>{data.conclusion}</span>

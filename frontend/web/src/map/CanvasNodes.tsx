@@ -12,7 +12,7 @@ import {
 import { FileText, Flag, Lightbulb, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
-  cardTextLines, connectDotSize, humanFrame, linkKindLabel, STEP_STATUS, stepMark,
+  cardTextLines, connectDotSize, FAR_TEXT, humanFrame, linkKindLabel, STEP_STATUS, stepHeadHeight, stepMark,
   type HumanCard, type LinkKind, type RouteStep,
 } from "./canvas";
 import { useSteppedZoom } from "./zoomStep";
@@ -94,7 +94,7 @@ const BODY_FONT = 60;
 const NEAR_MIN_PX = 12;
 /** The far view's label aims at this many screen pixels, within the card. */
 const FAR_LABEL_PX = 14;
-const FAR_PAD = 28;
+const FAR_PAD = FAR_TEXT.pad;
 const FAR_LINES = 2;
 
 /** Seen from afar a card drops its header and size line and shows its words
@@ -106,6 +106,16 @@ export function farLabelFont(step: number, kind: HumanCard["kind"]): number {
   const frame = humanFrame({ kind });
   const fit = Math.floor((frame.height - 2 * FAR_PAD) / (FAR_LINES * 1.15));
   return Math.round(Math.min(fit, Math.max(BODY_FONT, FAR_LABEL_PX / Math.max(step, 0.01))));
+}
+
+/** Whole lines of the far label that fit the card at label size ``font``
+ * (below a step's number-and-status row); the clamp ends on a whole line. */
+export function farLabelLines(font: number, card: Pick<HumanCard, "kind" | "text">): number {
+  if (!font) return FAR_LINES;
+  const frame = humanFrame(card);
+  const head = card.kind === "step" ? stepHeadHeight(font) : 0;
+  const fit = Math.floor((frame.height - 2 * FAR_PAD - head) / (font * FAR_TEXT.line));
+  return Math.max(1, Math.min(FAR_TEXT.lines, fit));
 }
 
 function sizeLabel(bytes: number) {
@@ -138,7 +148,7 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
   const statusWord = STEP_STATUS[status][zh ? 0 : 1];
   const mark = stepMark(route?.number);
   const stepTitle = isStep ? [
-    `${mark ? `${mark} ` : ""}${card.text}`,
+    `${zh ? "必经步骤" : "Required step"} ${mark ? `${mark} ` : ""}${card.text}`,
     `${statusWord}${card.checkpoint ? (zh ? " · 到这步先停下来给你看" : " · Pauses for you here") : ""}`,
     ...(data.taskTitles?.length ? [(zh ? "执行的任务：" : "Tasks: ") + data.taskTitles.join("；")] : []),
   ].join("\n") : label;
@@ -149,7 +159,8 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         className={`canvas-card canvas-card-${card.kind} is-far${stepClass}`}
         data-testid={`canvas-card-${card.kind}`}
         title={stepTitle}
-        style={{ "--far-font": `${farFont}px`, "--far-pad": `${FAR_PAD}px` } as CSSProperties}
+        style={{ "--far-font": `${farFont}px`, "--far-pad": `${FAR_PAD}px`,
+          "--far-lines": farLabelLines(farFont, card) } as CSSProperties}
         onContextMenu={(e) => {
           if (readOnly) return;
           e.preventDefault();
@@ -161,7 +172,8 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         {isStep && (
           <span className="canvas-step-far-head">
             <span className="canvas-step-badge" aria-hidden>{route?.number ?? "·"}</span>
-            <i className="canvas-step-dot" data-status={status} aria-label={statusWord} />
+            <i className="canvas-step-dot" data-status={status} aria-hidden />
+            <span className="canvas-step-far-word">{statusWord}</span>
           </span>
         )}
         <p className="canvas-far-label">{label}</p>
@@ -199,6 +211,9 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
               </button>
             ))}
           </span>
+        ) : isStep && !draft && !editing ? (
+          <StepStatusLine status={status} word={statusWord} zh={zh} tasks={data.taskTitles?.length ?? 0}
+            question={route?.question_item_id} open={data.openQuestion} />
         ) : (
           <span className="canvas-card-kind">
             {isFile ? <FileText aria-hidden /> : isStep ? null : <Lightbulb aria-hidden />}
@@ -257,10 +272,6 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
             onDoubleClick={(e) => { if (readOnly) return; e.stopPropagation(); setEditing(true); }}>{card.text}</p>
         )
       )}
-      {isStep && !draft && !editing && (
-        <StepStatusLine status={status} word={statusWord} zh={zh} tasks={data.taskTitles?.length ?? 0}
-          question={route?.question_item_id} open={data.openQuestion} />
-      )}
     </div>
   );
 }
@@ -281,7 +292,7 @@ function StepStatusLine({ status, word, zh, tasks, question, open }: {
       </button>
     );
   }
-  return <p className="canvas-step-status" data-status={status} data-testid="canvas-step-status">{body}</p>;
+  return <span className="canvas-step-status" data-status={status} data-testid="canvas-step-status">{body}</span>;
 }
 
 export type HumanLinkEdge = Edge<{

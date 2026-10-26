@@ -75,8 +75,8 @@
 
 /* Far view: no header, the words as one large two-line label (CanvasNodes farLabelFont). */
 .canvas-card.is-far { padding: var(--far-pad, 28px) calc(var(--far-pad, 28px) * 1.6); justify-content: center; gap: 0; }
-.canvas-card .canvas-far-label { font-size: var(--far-font, 120px); line-height: 1.2; font-weight: 600;
-  -webkit-line-clamp: 2; white-space: normal; }
+.canvas-card .canvas-far-label { font-size: var(--far-font, 120px); line-height: 1.2; font-weight: 500;
+  -webkit-line-clamp: var(--far-lines, 2); white-space: normal; }
 
 /* Buttons on a card sit above the edge strips so they stay clickable. */
 .canvas-card-more, .canvas-file { position: relative; z-index: 6; }
@@ -163,10 +163,12 @@
 .canvas-card-step .canvas-card-kind { color: var(--map-accent-ink); }
 .canvas-step-check { margin-left: auto; font-size: 38px; color: var(--map-accent-ink); white-space: nowrap; }
 .canvas-step-check + .canvas-card-more { margin-left: 8px; }
+.canvas-card-step .canvas-step-status + .canvas-card-more { margin-left: 8px; }
+/* Number badge, status dot and word in one header row; the words below. */
 .canvas-card .canvas-step-status {
-  margin: auto 0 0; display: flex; align-items: center; gap: 18px; min-width: 0;
+  margin: 0; display: flex; align-items: center; gap: 18px; min-width: 0; flex: 1;
   font: inherit; font-size: 42px; line-height: 1.2; color: rgb(var(--ink-dim));
-  -webkit-line-clamp: unset; white-space: nowrap;
+  white-space: nowrap; overflow: hidden;
 }
 button.canvas-step-status { position: relative; z-index: 6; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
 .canvas-step-count { color: rgb(var(--ink-faint)); }
@@ -190,13 +192,15 @@ button.canvas-step-status:hover .canvas-step-open { text-decoration: underline; 
 /* Far view: the badge and the dot above the words. */
 .canvas-step-far-head { display: flex; align-items: center; gap: calc(var(--far-font, 120px) * 0.3);
   margin-bottom: calc(var(--far-font, 120px) * 0.2); }
+.canvas-step-far-word { font-size: calc(var(--far-font, 120px) * 0.62); line-height: 1; color: rgb(var(--ink-dim));
+  white-space: nowrap; }
 .canvas-card.is-far .canvas-step-badge { height: calc(var(--far-font, 120px) * 0.95); min-width: calc(var(--far-font, 120px) * 0.95);
   border-radius: calc(var(--far-font, 120px) * 0.5); font-size: calc(var(--far-font, 120px) * 0.6); padding: 0 calc(var(--far-font, 120px) * 0.2); }
 .canvas-card.is-far .canvas-step-dot { width: calc(var(--far-font, 120px) * 0.36); height: calc(var(--far-font, 120px) * 0.36); }
 .canvas-card.is-far .canvas-step-dot[data-status="review"] { box-shadow: 0 0 0 calc(var(--far-font, 120px) * .1) var(--map-paper, rgb(var(--panel))),
   0 0 0 calc(var(--far-font, 120px) * .16) var(--map-status-waiting); }
 .canvas-card.is-far .canvas-step-dot[data-status="question"] { box-shadow: inset 0 0 0 calc(var(--far-font, 120px) * .08) var(--map-status-waiting); }
-.canvas-card-step.is-far .canvas-far-label { -webkit-line-clamp: 2; }
+.canvas-card-step.is-far .canvas-far-label { -webkit-line-clamp: var(--far-lines, 2); }
 
 /* A new card chooses what it is: 想法 or 必经步骤. */
 .canvas-kind-choice { display: inline-flex; gap: 10px; }
