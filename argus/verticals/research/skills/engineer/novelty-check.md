@@ -9,9 +9,13 @@ Use this only during an independent route review in Idea, before the one-time
 selector. Do not execute candidate code or experiments.
 
 Identify the mechanism on which the route depends and the distinction it claims. Search
-current primary literature using several conceptually different phrasings,
-including the mechanism, problem, and nearest method family. Read the closest
-papers rather than judging from titles.
+current primary literature using a few conceptually different phrasings,
+including the mechanism, problem, and nearest method family. Read about the
+5–8 closest papers rather than judging from titles; this is not an exhaustive
+survey. Keep one copy of a source you need (its URL and the passage that
+matters), not a raw download beside an extracted text. Run the check once per
+route version; the Reviewer judges its result as written and opens a source
+only to settle a specific doubt, without repeating the search.
 
 Return through the route's internal review result:
 
@@ -19,6 +23,11 @@ Return through the route's internal review result:
 - what that work actually implements and establishes;
 - the precise mechanism or consequence, if any, that remains novel;
 - the strongest prior-art argument against selecting the route.
+
+Related work existing is not a verdict. When the delta is meaningful (new
+mechanism, setting, scale, or finding), say so and record the overlap as a
+known risk for Experiment; the route still passes. Only the same mechanism and
+claim already published is a novelty reason to set the route aside.
 
 Do not create a project-visible novelty report or literature database. If a route's core mechanism already exists, explain that concern in its
 independent review; the selector still waits for all route/review pairs and chooses

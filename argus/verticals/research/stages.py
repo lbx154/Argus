@@ -55,7 +55,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "aside every other route. For a staged direction the operator has fixed, "
                 "the research notes instead examine and position the supplied idea "
                 "without inventing routes that were set aside. The notes replace the "
-                "previous text rather than accumulating history. A direct Idea-only "
+                "previous text rather than accumulating history. A route with a "
+                "meaningful delta from its closest work passes with the overlap and "
+                "other open questions listed as risks for Experiment. A direct Idea-only "
                 "request returns its independently reviewed result without writing "
                 "that file."
             ),
@@ -592,7 +594,10 @@ _AMBITIOUS_RESEARCH_POLICY = (
     "credible evidence, at the scale the claim needs, supports a scientifically "
     "meaningful claim; a claim of superiority must beat the strongest "
     "same-information baseline. When evidence supports "
-    "a strong claim, state it plainly instead of burying it under defensive caveats."
+    "a strong claim, state it plainly instead of burying it under defensive caveats. "
+    "In Idea, a route passes as a solid, publishable contribution at the target "
+    "venue with a clear delta from its closest work, not an Oral or Best Paper; "
+    "related work is a risk to record, not by itself a reason to reject."
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (

@@ -7,11 +7,13 @@ description: "The guide that defines Idea: discover possibilities from sources a
 
 ## What Idea should establish
 
-Select or establish the promise of one important, technically nontrivial research idea that
-could change what the field builds or believes. Calibrate ambition against
-strong recent accepted, Oral, Outstanding Paper, and Best Paper work in the
-closest area. Idea decides what to build; it does not test the empirical
-hypothesis.
+Select or establish the promise of one technically nontrivial research idea
+that would be a solid, publishable contribution at the target venue (for
+example ACL main or Findings): a clear delta from the closest work and a
+decisive first experiment that fits this machine. Calibrate against strong
+recent accepted work in the closest area; Oral, Outstanding Paper, and Best
+Paper work is an aspiration, not a gate. Idea decides what to build; it does
+not test the empirical hypothesis.
 
 ## How to approach the question
 
@@ -35,13 +37,22 @@ hypothesis.
    here: the machine's GPUs and cached weights listed in the stage context,
    public data, and code that exists. Do not build the decisive experiment on
    human participants, ethics approval, paid annotation, credentials, or
-   compute the operator has not supplied.
+   compute the operator has not supplied. For novelty, read about the 5–8
+   closest sources per route, not an exhaustive survey, and keep one copy of a
+   source you need (its URL and the passage that matters), not a raw download
+   beside an extracted text. Related work existing is not a rejection: name the
+   closest work and the delta. A meaningful delta (new mechanism, setting,
+   scale, or finding) passes with the overlap recorded as a known risk. Set a
+   route aside only when the same mechanism and claim are already published,
+   the mechanism is contradicted by evidence, or the decisive experiment needs
+   resources not here. The independent review judges the route as written,
+   once per route version; it does not redo the literature search.
 6. Close Idea search after the choice or examination of the locked direction.
    Later implementation, evaluator, experiment, or paper defects are repaired in
    the current later stage and do not reopen the choice.
 
 Prefer a sharp mechanism, theorem, system capability, or field-level empirical
-result over a safe incremental combination. Do not select an idea because it is
+result over a combination of known parts with no new finding. Do not select an idea because it is
 cheap, easy to confirm, or easy to defend. Do weigh how soon it can produce
 decisive evidence: every route states the smallest complete run on the
 operator's real data that could refute it, with its estimated wall-clock and
@@ -57,11 +68,14 @@ saved report.
 
 ## When the idea is ready
 
-The selected or locked idea has a consequential thesis, load-bearing mechanism,
-source-backed novelty distinction, strongest baseline, realistic resources,
-the strongest argument against it stated plainly, and a decisive Experiment
-path. It has a credible route to a paper whose value is obvious before reading
-implementation details.
+The selected or locked idea has a clear thesis, load-bearing mechanism, the
+closest work named with the delta from it, strongest baseline, realistic
+resources, the strongest argument against it stated plainly, and a decisive
+Experiment path that fits this machine. It has a credible route to a solid,
+publishable paper at the target venue. Known risks, such as partial overlap
+with prior work or an uncertain effect size, are listed for Experiment to
+answer; they do not hold the idea. When in doubt between passing with risks
+and rejecting, pass and list the risks.
 For exploratory work, completion is the requested source-grounded finding rather
 than a fabricated paper direction. Manager alone advances the stage after the
 work required for the applicable path is complete and the stage's standards are met.

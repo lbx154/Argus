@@ -139,3 +139,27 @@ def test_skill_library_state_includes_vertical_prompt_blocks() -> None:
 
     assert state.skill_text == "library index\n\nvertical block"
     assert state.reviewer_skill_block == "reviewer index"
+
+
+def test_idea_bar_is_a_solid_paper_and_overlap_is_a_risk() -> None:
+    from argus.verticals.research.prompt_policy import render_role_prompt_fragment
+    from argus.verticals.research.stages import role_banner
+
+    skills = Path(__file__).resolve().parents[2] / "argus/verticals/research/skills"
+    playbook = (skills / "research-idea-playbook.md").read_text(encoding="utf-8")
+    assert "aspiration, not a gate" in playbook
+    assert "Related work existing is not a rejection" in playbook
+    assert "about the 5–8" in playbook
+    assert "pass and list the risks" in playbook
+    novelty = (skills / "engineer/novelty-check.md").read_text(encoding="utf-8")
+    assert "not a raw download beside an extracted text" in novelty
+
+    idea_review = render_role_prompt_fragment(
+        role="reviewer", operation="evaluate", stage="idea", scope="", project_root=None
+    )
+    assert "## Idea route bar" in idea_review
+    assert "do not redo the literature search" in idea_review
+    assert "## Idea route bar" not in render_role_prompt_fragment(
+        role="reviewer", operation="evaluate", stage="experiment", scope="", project_root=None
+    )
+    assert "not an Oral or Best Paper" in role_banner("reviewer")
