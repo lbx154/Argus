@@ -48,6 +48,9 @@ function viewingArea(el: HTMLElement, detailed = false) {
   const bottom = Math.max(
     composer ? bounds.bottom - composer.top + 24 : 100,
     !hideChrome && minimap ? bounds.bottom - minimap.top + 20 : 0,
+    // On a wide screen the legend sits along the bottom edge, beside the
+    // composer; cards fitted under it would be covered.
+    !hideChrome && el.clientWidth >= 640 && legend ? bounds.bottom - legend.top + 16 : 0,
   );
   return {
     x: left,
@@ -55,6 +58,13 @@ function viewingArea(el: HTMLElement, detailed = false) {
     width: Math.max(180, el.clientWidth - left * 2),
     height: Math.max(100, el.clientHeight - top - bottom),
   };
+}
+
+/** The part of the canvas no chrome covers, in screen pixels. */
+export function openCanvasArea(el: HTMLElement) {
+  const area = viewingArea(el);
+  const bounds = el.getBoundingClientRect();
+  return { x: area.x + bounds.left, y: area.y + bounds.top, width: area.width, height: area.height };
 }
 
 // A focused card's short side targets FOCUS_FILL of the canvas's short side so
@@ -436,6 +446,9 @@ export function useSemanticCamera(
     void flow.setViewport(view, { duration: motionDuration(reducedMotion, 320) });
   }, [cancelWheel, flow, reducedMotion, root]);
   refitOverview.current = () => fit(overviewTasks.current);
+  /** The person is drawing on the map (placing a card, drawing a link): the
+   * overview stops re-fitting itself, so nothing moves under their hand. */
+  const hold = useCallback(() => { fitOnResize.current = false; }, []);
   const fitUpdatedScene = useCallback(() => {
     if (fitOnResize.current) refitOverview.current();
     else if (allowRefit.current && reading.current && readerTarget.current)
@@ -616,6 +629,7 @@ export function useSemanticCamera(
     back,
     fit,
     fitUpdatedScene,
+    hold,
     navigate,
     readStep,
     onMove,

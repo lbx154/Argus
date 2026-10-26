@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import type { Edge, Node } from "@xyflow/react";
@@ -21,10 +22,11 @@ vi.mock("../map/useSemanticCamera", async () => {
   const noop = () => {};
   return {
     INITIAL_VIEWPORT: { x: 0, y: 0, zoom: 0.24 },
+    openCanvasArea: () => null,
     useSemanticCamera: () => ({
       focusId: null, detailed: false, canvasSize: { width: 1440, height: 960 },
       enter: noop, fit: noop, back: noop, readStep: noop, restore: noop, capture: noop,
-      fitUpdatedScene: noop, navigate: noop, onMove: noop, reducedMotion: true,
+      fitUpdatedScene: noop, hold: noop, navigate: noop, onMove: noop, reducedMotion: true,
     }),
   };
 });
@@ -271,7 +273,7 @@ it("shows a person's card as a large two-line label once its words would be too 
   expect(farLabelFont(0.125, "idea") * 0.125).toBeCloseTo(14, 0);
   // …and never outgrows two lines of the card.
   expect(farLabelFont(0.03, "idea")).toBe(Math.floor((480 - 56) / 2.3));
-  expect(farLabelFont(0.03, "file")).toBe(Math.floor((320 - 56) / 2.3));
+  expect(farLabelFont(0.03, "file")).toBe(Math.floor((360 - 56) / 2.3));
 });
 
 it("refetches the canvas when the live stream announces a newer revision than this window holds", async () => {
@@ -290,4 +292,50 @@ it("refetches the canvas when the live stream announces a newer revision than th
   expect(spy).not.toHaveBeenCalled();
   refreshCanvas(client, "s1", 6);
   expect(spy).toHaveBeenCalledWith({ queryKey: ["map-canvas", "s1"], exact: true });
+});
+
+it("finds the card a link was dropped on even when no handle takes it", async () => {
+  const { resolveLinkTarget } = await import("../map/canvas");
+  const nodes = [
+    { id: "task-a", kind: "task", x: 0, y: 0, width: 1440, height: 900 },
+    { id: "hc-b", kind: "human", x: 100, y: 100, width: 880, height: 480 },
+    { id: "hc-src", kind: "human", x: 2000, y: 0, width: 880, height: 480 },
+    { id: "draft-1", kind: "human", x: 3000, y: 0, width: 880, height: 480 },
+  ];
+  // What the browser reports under the pointer wins, skipping the source card.
+  expect(resolveLinkTarget("hc-src", [undefined, "hc-src", "task-a"], null, nodes)).toBe("task-a");
+  // Nothing under the pointer (a label, a gap in the DOM): the drop point decides,
+  // a person's card before the task card it sits on.
+  expect(resolveLinkTarget("hc-src", [], { x: 200, y: 200 }, nodes)).toBe("hc-b");
+  expect(resolveLinkTarget("hc-src", [null], { x: 1200, y: 800 }, nodes)).toBe("task-a");
+  // Never onto itself, a draft, or empty canvas.
+  expect(resolveLinkTarget("hc-src", ["hc-src"], { x: 2100, y: 100 }, nodes)).toBeUndefined();
+  expect(resolveLinkTarget("hc-src", ["draft-1"], { x: 3100, y: 100 }, nodes)).toBeUndefined();
+  expect(resolveLinkTarget("hc-src", [], { x: 5000, y: 5000 }, nodes)).toBeUndefined();
+});
+
+it("keeps the link dot about 18 screen pixels at every zoom, above the 7px port rule", async () => {
+  const { connectDotSize } = await import("../map/canvas");
+  for (const step of [0.0625, 0.125, 0.24, 0.5]) expect(connectDotSize(step) * step).toBeGreaterThanOrEqual(17.5);
+  expect(connectDotSize(1)).toBe(40);
+  const css = readFileSync(new URL("../map/canvas.css", import.meta.url), "utf8");
+  // map.css `.argus-map .react-flow__handle { width: 7px }` shrank the dot to
+  // 1.7 screen px at overview zoom; the dot's own rule must outrank it.
+  expect(css).toMatch(/\.argus-map \.react-flow__node \.react-flow__handle\.canvas-connect,[^{]*\{[^}]*width: var\(--dot/);
+  expect(css).toMatch(/\.argus-map \.react-flow__node \.react-flow__handle\.canvas-rim,/);
+});
+
+it("grows a person's card with its words and keeps new cards clear of the map's chrome", async () => {
+  const { humanFrame, cardTextLines, clearOfChrome, HUMAN_FRAME } = await import("../map/canvas");
+  expect(humanFrame({ kind: "idea" })).toEqual(HUMAN_FRAME.idea);
+  expect(humanFrame({ kind: "idea", text: "短句" }).height).toBe(HUMAN_FRAME.idea.height);
+  const long = "想加一个功能：按产品分别画出月度销售折线，并标注同比变化。".repeat(3);
+  const grown = humanFrame({ kind: "idea", text: long });
+  expect(grown.height).toBeGreaterThan(HUMAN_FRAME.idea.height);
+  expect(cardTextLines({ kind: "idea", text: long })).toBeGreaterThan(3);
+  expect(humanFrame({ kind: "idea", text: long.repeat(20) }).height).toBeLessThanOrEqual(1300);
+  const area = { x: 50, y: 100, width: 1000, height: 600 };
+  // Double-clicked just above the composer: the card opens inside the clear area.
+  expect(clearOfChrome({ x: 500, y: 690 }, { width: 200, height: 120 }, area)).toEqual({ x: 500, y: 640 });
+  expect(clearOfChrome({ x: 500, y: 300 }, { width: 200, height: 120 }, area)).toEqual({ x: 500, y: 300 });
 });

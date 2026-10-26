@@ -937,3 +937,24 @@ button.map-overview-item:hover, .map-overview-link:hover { border-color: rgb(var
 .map-attention-detail > div { max-height: 7em; overflow-y: auto; white-space: pre-line; }
 .map-attention-detail > div > p { margin: 0 0 2px; }
 .map-attention-detail details { color: rgb(var(--ink-dim)); }
+
+/* Full canvas (App mapImmersive): the map fills the window. The project
+ * header, overview, status line and legend step aside; the toolbar keeps its
+ * buttons as icons, and the toggle brings everything back. */
+.argus-map[data-immersive="true"] .map-header,
+.argus-map[data-immersive="true"] .map-overview,
+.argus-map[data-immersive="true"] .map-status-row,
+.argus-map[data-immersive="true"] .map-final-review,
+.argus-map[data-immersive="true"] .map-legend {
+  display: none;
+}
+.argus-map[data-immersive="true"] .map-canvas-toolbar > button:not(.map-back-button):not(.map-immersive-toggle) span {
+  display: none;
+}
+.argus-map[data-immersive="true"] .map-search:not(:focus-within) { width: 38px; }
+.argus-map[data-immersive="true"] .map-search:not(:focus-within) input { opacity: 0; }
+.map-canvas-toolbar > button.map-immersive-toggle[aria-pressed="true"] {
+  color: rgb(var(--ink-dim));
+  border-color: rgb(var(--line));
+  background: rgb(var(--panel) / .92);
+}

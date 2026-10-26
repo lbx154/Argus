@@ -1,49 +1,96 @@
 /* Cards and links a person put on the map. Sizes are in flow units: task
-   cards are ~1440 wide, so type here is large and reads at overview zoom. */
+   cards are ~1440 wide, so type here is large and reads at overview zoom.
+   Palette (intelligent-ui.md "Palette: metal"): white and black, silver
+   structure, gold for the person's own things. The names below wrap the app
+   tokens with fallbacks until those tokens exist in index.css. */
+.argus-map {
+  --map-accent: var(--accent, #B08D3C);
+  --map-accent-ink: var(--accent-ink, #85661F);
+  --map-accent-soft: color-mix(in srgb, var(--map-accent) 16%, transparent);
+  --map-silver: var(--silver, #A7ACB3);
+  --map-hairline: color-mix(in srgb, var(--map-silver) 55%, transparent);
+  --map-status-running: var(--status-running, #B08D3C);
+  --map-status-waiting: var(--status-waiting, #B08D3C);
+  --map-status-done: var(--status-done, #0E0E10);
+  --map-status-idle: var(--status-idle, #A7ACB3);
+  --map-status-failed: var(--status-failed, #A33A3A);
+  --map-title-serif: var(--font-serif, "Source Serif 4", "Noto Serif SC", "Songti SC", Georgia, serif);
+}
+[data-theme="dark"] .argus-map {
+  --map-accent: var(--accent, #D4B866);
+  --map-accent-ink: var(--accent-ink, #D4B866);
+  --map-silver: var(--silver, #8E9298);
+  --map-hairline: color-mix(in srgb, var(--map-silver) 40%, transparent);
+  --map-status-running: var(--status-running, #D4B866);
+  --map-status-waiting: var(--status-waiting, #D4B866);
+  --map-status-done: var(--status-done, #F2F2F0);
+}
+
+/* A person's card is one family with a task card (design.css .map-macro):
+   paper surface, hairline border, the same screen-constant radius, a shadow
+   only on hover. What marks it as theirs is a thin accent rule on the left. */
 .canvas-card {
   box-sizing: border-box;
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  padding: 34px 40px;
-  border-radius: 28px;
-  background: #fff7d6;
-  border: 4px solid #d9b443;
-  color: var(--ink, #1f2328);
-  box-shadow: 0 12px 36px rgb(0 0 0 / 0.10);
+  padding: 48px 64px 52px 72px;
+  border-radius: calc(14 * var(--px, 4px));
+  background: var(--map-paper, rgb(var(--panel)));
+  border: var(--px, 4px) solid var(--map-hairline);
+  box-shadow: inset calc(3 * var(--px, 4px)) 0 0 var(--map-accent);
+  color: rgb(var(--ink));
   font-size: 60px;
-  line-height: 1.25;
+  line-height: 1.45;
   overflow: hidden;
+  transition: box-shadow 180ms ease, border-color 180ms ease;
 }
-.canvas-card-file { background: #eef4fb; border-color: #7a9cc4; }
-.canvas-card.is-editing { border-style: dashed; }
-.canvas-card header { display: flex; align-items: center; gap: 16px; font-size: 40px; color: var(--ink-dim, #5c636b); }
-.canvas-card header svg { width: 48px; height: 48px; flex: none; }
-.canvas-card header span { flex: 1; }
-.canvas-card-more { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 6px; border-radius: 12px; }
-.canvas-card-more:hover { background: rgb(0 0 0 / 0.08); }
+.react-flow__node:hover > .canvas-card:not(.is-editing) {
+  box-shadow: inset calc(3 * var(--px, 4px)) 0 0 var(--map-accent),
+    0 var(--px, 4px) calc(2 * var(--px, 4px)) rgb(0 0 0 / 0.06),
+    0 calc(6 * var(--px, 4px)) calc(20 * var(--px, 4px)) rgb(0 0 0 / 0.06);
+}
+.canvas-card.is-editing {
+  border-color: var(--map-accent);
+  box-shadow: inset calc(3 * var(--px, 4px)) 0 0 var(--map-accent),
+    0 0 0 calc(3 * var(--px, 4px)) var(--map-accent-soft);
+}
+.canvas-card header { display: flex; align-items: center; gap: 18px; min-height: 56px; font-size: 42px; line-height: 1; }
+.canvas-card-kind { display: inline-flex; align-items: center; gap: 14px; color: var(--map-accent-ink); letter-spacing: .04em; }
+.canvas-card-kind svg { width: 40px; height: 40px; flex: none; color: var(--map-accent); }
+.canvas-card-keys { margin-left: auto; color: rgb(var(--ink-faint)); font-size: 38px; }
+.canvas-card-more { margin-left: auto; border: 0; background: transparent; color: rgb(var(--ink-faint)); cursor: pointer;
+  padding: 8px; border-radius: 20px; line-height: 0; opacity: 0; transition: opacity 150ms ease; }
+.react-flow__node:hover .canvas-card-more, .canvas-card-more:focus-visible { opacity: 1; }
+.canvas-card-more svg { width: 56px; height: 56px; }
+.canvas-card-more:hover { background: rgb(var(--ink) / 0.06); color: rgb(var(--ink)); }
 .canvas-card p { margin: 0; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
-.canvas-card textarea { flex: 1; font: inherit; color: inherit; background: rgb(255 255 255 / 0.7);
-  border: 2px solid rgb(0 0 0 / 0.18); border-radius: 16px; padding: 14px 18px; resize: none; }
-.canvas-file { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left;
-  font: inherit; color: var(--blue, #2f6fb3); background: none; border: 0; padding: 0; cursor: pointer; min-width: 0; }
-.canvas-file strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; }
-.canvas-file small { font-size: 40px; color: var(--ink-dim, #5c636b); }
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); }
+.canvas-card textarea { flex: 1; min-height: 0; font: inherit; color: inherit; background: transparent;
+  border: 0; outline: none; padding: 0; resize: none; }
+.canvas-card textarea::placeholder { color: rgb(var(--ink-faint)); }
+.canvas-file { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; font: inherit;
+  color: rgb(var(--ink)); background: none; border: 0; padding: 0; cursor: pointer; min-width: 0; max-width: 100%; }
+.canvas-file strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.canvas-file:hover strong { text-decoration: underline; text-decoration-color: var(--map-accent); }
+.canvas-file small { font-size: 40px; color: rgb(var(--ink-faint)); }
+.canvas-card-file .canvas-card-text { color: rgb(var(--ink-dim)); }
 
 /* Far view: no header, the words as one large two-line label (CanvasNodes farLabelFont). */
-.canvas-card.is-far { padding: var(--far-pad, 28px); justify-content: center; gap: 0; }
-.canvas-card .canvas-far-label { font-size: var(--far-font, 120px); line-height: 1.15; font-weight: 650;
+.canvas-card.is-far { padding: var(--far-pad, 28px) calc(var(--far-pad, 28px) * 1.6); justify-content: center; gap: 0; }
+.canvas-card .canvas-far-label { font-size: var(--far-font, 120px); line-height: 1.2; font-weight: 600;
   -webkit-line-clamp: 2; white-space: normal; }
-.canvas-card-file .canvas-far-label { color: var(--blue, #2f6fb3); }
 
 /* Buttons on a card sit above the edge strips so they stay clickable. */
 .canvas-card-more, .canvas-file { position: relative; z-index: 6; }
 
 /* The edge strips a link starts from (ConnectSource): the whole border of a
-   card, --rim wide (about 14 screen px), never over a fifth of the card. */
+   card, --rim wide (about 14 screen px), never over a fifth of the card. The
+   selectors outrank map.css `.argus-map .react-flow__handle` (a 7px port). */
+.argus-map .react-flow__node .react-flow__handle.canvas-rim,
 .react-flow .react-flow__node .react-flow__handle.canvas-rim {
   min-width: 0; min-height: 0; border: 0; border-radius: 0; background: transparent;
   opacity: 1; transform: none; cursor: crosshair; z-index: 5;
@@ -60,39 +107,46 @@
 .react-flow .react-flow__node .react-flow__handle.canvas-rim-bottom { top: auto; bottom: calc(var(--rim, 14px) * -0.35); }
 .react-flow .react-flow__node .react-flow__handle.canvas-rim-left { left: calc(var(--rim, 14px) * -0.35); }
 .react-flow .react-flow__node .react-flow__handle.canvas-rim-right { left: auto; right: calc(var(--rim, 14px) * -0.35); }
-.react-flow .react-flow__node:hover .react-flow__handle.canvas-rim { background: rgb(184 134 43 / 0.10); }
-.react-flow .react-flow__node .react-flow__handle.canvas-rim:hover { background: rgb(184 134 43 / 0.32); }
+.react-flow .react-flow__node .react-flow__handle.canvas-rim:hover { background: var(--map-accent-soft); }
 
-/* The dot a person drags from to draw a link, on human and task cards. */
-.react-flow__handle.canvas-connect {
-  width: 44px; height: 44px; right: -22px; border-radius: 50%;
-  background: #fff; border: 6px solid #b8862b; opacity: 0.35; cursor: crosshair; z-index: 6;
+/* The dot a person drags from to draw a link, on human and task cards. Its
+   size is in flow units (--dot, ~18 screen px at any zoom, CanvasNodes); the
+   selector outranks map.css `.argus-map .react-flow__handle`, whose 7px would
+   otherwise shrink it to a speck at overview zoom. Hidden until the card is
+   hovered or focused. */
+.argus-map .react-flow__node .react-flow__handle.canvas-connect,
+.react-flow .react-flow__node .react-flow__handle.canvas-connect {
+  width: var(--dot, 44px); height: var(--dot, 44px); min-width: 0; min-height: 0;
+  right: 0; border-radius: 50%;
+  background: var(--map-paper, rgb(var(--panel))); border: calc(var(--dot, 44px) * 0.14) solid var(--map-accent); opacity: 0;
+  cursor: crosshair; z-index: 7; transition: opacity 150ms ease, transform 150ms ease;
 }
-.react-flow__node:hover .react-flow__handle.canvas-connect { opacity: 1; }
+.react-flow__node:hover .react-flow__handle.canvas-connect,
+.react-flow__node:focus-within .react-flow__handle.canvas-connect { opacity: 1; }
+.react-flow .react-flow__node .react-flow__handle.canvas-connect:hover { transform: translate(50%, -50%) scale(1.2); background: var(--map-accent); }
+/* While a line is being drawn every card shows it can take it. */
+.map-canvas-wrap[data-linking="true"] .react-flow__node-human > .canvas-card { border-color: var(--map-accent); }
+.map-canvas-wrap[data-linking="true"] .react-flow__node-task .map-macro { border-style: dashed; }
+.map-canvas-wrap[data-linking="true"] .react-flow__node-human:hover > .canvas-card,
+.map-canvas-wrap[data-linking="true"] .react-flow__node-task:hover .map-macro { outline: calc(2 * var(--px, 4px)) solid var(--map-accent); outline-offset: calc(3 * var(--px, 4px)); }
 
-.react-flow__edge-path.canvas-link { stroke: #b8862b; stroke-dasharray: none; }
+.react-flow__edge-path.canvas-link { stroke: var(--map-accent); stroke-dasharray: none; }
 .canvas-link-label {
   position: absolute; pointer-events: all; cursor: pointer;
-  font-size: 14px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
-  background: #fff7d6; color: #6b4e12; border: 1.5px solid #b8862b;
+  font-size: 13px; font-weight: 500; padding: 1px 8px; border-radius: 6px;
+  background: var(--map-paper, rgb(var(--panel))); color: var(--map-accent-ink); border: 1px solid var(--map-hairline);
 }
-.react-flow__connectionline path { stroke: #b8862b; stroke-width: 6; }
+.canvas-link-label:hover { color: var(--map-accent-ink); border-color: var(--map-accent); }
+.react-flow__connectionline path { stroke: var(--map-accent); stroke-width: 2.5; }
 .canvas-drop-hint { position: absolute; inset: 0; z-index: 5; pointer-events: none;
-  outline: 3px dashed #b8862b; outline-offset: -8px; border-radius: 12px; background: rgb(255 247 214 / 0.18); }
+  outline: 2px dashed var(--map-accent); outline-offset: -8px; border-radius: 12px; background: var(--map-accent-soft); }
 .canvas-conversation-notice { display: flex; align-items: center; gap: 8px; }
-.canvas-conversation-notice button { color: var(--blue, #2563eb); background: none; border: 0; cursor: pointer; font-size: 13px; padding: 0; }
-.canvas-conversation-notice button:last-child { color: var(--ink-faint, #8a9099); }
+.canvas-conversation-notice button { color: var(--map-accent-ink); background: none; border: 0; cursor: pointer; font-size: 13px; padding: 0; }
+.canvas-conversation-notice button:last-child { color: rgb(var(--ink-faint)); }
 .canvas-hint { position: absolute; left: 12px; top: 58px; z-index: 5; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
-  background: var(--panel, #fff); border: 1px dashed var(--line, #d0d4d9); border-radius: 999px; padding: 3px 6px 3px 12px;
-  font-size: 12px; color: var(--ink-dim, #5c636b); opacity: .92; }
-.canvas-hint button { border: 0; background: none; cursor: pointer; color: var(--ink-faint, #8a9099); font-size: 14px; line-height: 1; padding: 0 4px; }
+  background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 8px; padding: 3px 6px 3px 12px;
+  font-size: 12px; color: rgb(var(--ink-dim)); opacity: .92; }
+.canvas-hint button { border: 0; background: none; cursor: pointer; color: rgb(var(--ink-faint)); font-size: 14px; line-height: 1; padding: 0 4px; }
 .canvas-upload-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
-  background: var(--panel, #fff); border: 1px solid var(--line, #d0d4d9); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .canvas-card { background: #3a3320; border-color: #a6862e; color: #f1ead6; }
-  :root:not([data-theme="light"]) .canvas-card-file { background: #1f2a36; border-color: #5d7ea6; color: #dde7f2; }
-}
-:root[data-theme="dark"] .canvas-card { background: #3a3320; border-color: #a6862e; color: #f1ead6; }
-:root[data-theme="dark"] .canvas-card-file { background: #1f2a36; border-color: #5d7ea6; color: #dde7f2; }
-.canvas-menu-title { display: block; padding: 4px 10px; font-size: 12px; color: var(--ink-dim, #5c636b); }
+  background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 8px; padding: 4px 12px; font-size: 13px; }
+.canvas-menu-title { display: block; padding: 4px 10px; font-size: 12px; color: rgb(var(--ink-dim)); }

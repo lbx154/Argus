@@ -45,8 +45,72 @@ export const linkKindLabel = (kind: LinkKind, zh: boolean) =>
 export const EMPTY_CANVAS: CanvasRecord = { version: 1, revision: 0, cards: [], links: [], positions: {} };
 /** Flow-space size of a person's card; task cards are ~1440 wide, so these
  * read at the same zoom without covering a task. */
-export const HUMAN_FRAME = { idea: { width: 860, height: 480 }, file: { width: 860, height: 320 } } as const;
-export const humanFrame = (card: Pick<HumanCard, "kind">) => HUMAN_FRAME[card.kind];
+export const HUMAN_FRAME = { idea: { width: 880, height: 480 }, file: { width: 880, height: 360 } } as const;
+/** Type metrics of a person's card body (canvas.css), in flow units. */
+export const CARD_TEXT = { font: 60, line: 87, width: 880 - 2 * 64, chrome: { idea: 210, file: 330 }, maxLines: { idea: 12, file: 6 } } as const;
+
+/** Lines the words take at the card's body size: a CJK character is about
+ * one em wide, Latin about half; each paragraph starts a line. */
+export function textLines(text: string): number {
+  // One em short of the measure, so a line that wraps early still fits.
+  const perLine = Math.floor(CARD_TEXT.width / CARD_TEXT.font) - 1;
+  return text.split("\n").reduce((sum, paragraph) => {
+    let width = 0;
+    for (const ch of paragraph) width += /[\u2e80-\uffef]/.test(ch) ? 1 : ch === " " ? 0.3 : 0.56;
+    return sum + Math.max(1, Math.ceil(width / perLine));
+  }, 0);
+}
+
+/** A card is as tall as its words, from a three-line minimum up to a cap; a
+ * longer text scrolls in the open editor and is cut with an ellipsis. */
+export function humanFrame(card: Pick<HumanCard, "kind"> & { text?: string }) {
+  const base = HUMAN_FRAME[card.kind];
+  if (!card.text) return base;
+  const lines = Math.min(textLines(card.text), CARD_TEXT.maxLines[card.kind]);
+  return { width: base.width, height: Math.max(base.height, CARD_TEXT.chrome[card.kind] + lines * CARD_TEXT.line) };
+}
+/** Lines the card shows before its ellipsis: what its frame holds. */
+export const cardTextLines = (card: Pick<HumanCard, "kind" | "text">) =>
+  Math.max(1, Math.floor((humanFrame(card).height - CARD_TEXT.chrome[card.kind]) / CARD_TEXT.line));
+
+/** Screen size of the dot a link starts from: about 18 px at any zoom. */
+export const connectDotSize = (step: number) => Math.round(Math.max(40, 18 / Math.max(step, 0.01)));
+
+export interface LinkCandidate extends Box { id: string; kind: "human" | "task" | string }
+/**
+ * The card a link dropped onto. React Flow names it only when the pointer is
+ * over a handle that takes links, and task cards take none, so the drop point
+ * decides: first what the browser reports under the pointer (topmost card
+ * other than the one the link started from), then any card whose box holds
+ * the point in flow space — a person's card before a task card, the smaller
+ * box first — so a line dropped on a card's edge, label or shadow still lands.
+ */
+export function resolveLinkTarget(
+  source: string,
+  stack: ReadonlyArray<string | null | undefined>,
+  point: Point | null,
+  nodes: ReadonlyArray<LinkCandidate>,
+): string | undefined {
+  const usable = (id: string | null | undefined): id is string => !!id && id !== source && !id.startsWith("draft-");
+  const fromStack = stack.find(usable);
+  if (fromStack) return fromStack;
+  if (!point) return undefined;
+  const hits = nodes.filter((n) => usable(n.id) &&
+    point.x >= n.x && point.x <= n.x + n.width && point.y >= n.y && point.y <= n.y + n.height);
+  hits.sort((a, b) => Number(b.kind === "human") - Number(a.kind === "human") || a.width * a.height - b.width * b.height);
+  return hits[0]?.id;
+}
+
+/** Where a new card goes so it is not under the map's own chrome: the point
+ * clicked, pulled inside ``area`` (screen px) when the card would cross it. */
+export function clearOfChrome(center: Point, size: { width: number; height: number }, area: Box): Point {
+  const half = { x: size.width / 2, y: size.height / 2 };
+  const clamp = (v: number, lo: number, hi: number) => lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi);
+  return {
+    x: clamp(center.x, area.x + half.x, area.x + area.width - half.x),
+    y: clamp(center.y, area.y + half.y, area.y + area.height - half.y),
+  };
+}
 export const isHumanCardId = (id: string) => id.startsWith("hc-");
 
 const GAP = 120;
