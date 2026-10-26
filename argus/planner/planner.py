@@ -48,6 +48,9 @@ class PlannerConfig:
     on_event: Any = None
     # The stages a plan may move to; empty for a project without stages.
     stages: tuple[str, ...] = ()
+    # The operator's required steps (``core.waypoints.StepState``) as they
+    # stand this turn; the plan form refuses a plan that breaks them.
+    route: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,8 @@ class TaskSpec:
     # Mission-level role selected by Planner. Empty inherits the campaign
     # vertical chosen by Manager at the front door.
     vertical: str = ""
+    # The operator's required step (canvas ``step`` card) this task fulfils.
+    waypoint_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -132,6 +137,8 @@ class PlannerVerdict:
     settled_instructions: tuple[int, ...] = ()
     assumptions: tuple[dict[str, str], ...] = ()
     plan_update: str = ""
+    # With ``handoff == "operator"``: the required step the question doubts.
+    about_waypoint: str = ""
 
 
 class Planner:
@@ -257,7 +264,9 @@ class Planner:
             skill_paths=[str(path) for path in libraries.native_paths],
             external_interrupt_reason_provider=cfg.external_interrupt_reason_provider,
         )
-        actions = HandOffActions("plan", check=partial(_plan, open_ended=cfg.open_ended, stages=cfg.stages))
+        actions = HandOffActions(
+            "plan", check=partial(_plan, open_ended=cfg.open_ended, stages=cfg.stages, route=cfg.route),
+        )
         started_at = time.monotonic()
         try:
             with role_actions(self.runner, planner_options, actions) as bound:
@@ -435,7 +444,56 @@ def _verdict(handoff: Any, text: str) -> PlannerVerdict:
     return replace(handoff.value, raw_text=text)
 
 
-def _plan(payload: dict[str, Any], *, open_ended: bool, stages: tuple[str, ...]) -> PlannerVerdict:
+def _check_route(payload: dict[str, Any], route: tuple[Any, ...]) -> None:
+    """The operator's required steps (``core.waypoints``): tasks name real steps and
+    keep their order; the project is not done while one is open; a doubted
+    step goes to the operator, never skipped."""
+    from ..core.waypoints import ancestors, status_word
+
+    to, tasks = payload["to"], payload.get("tasks", [])
+    about = payload.get("about_waypoint", "")
+    if not route:
+        if any(task.get("waypoint_id") for task in tasks) or about:
+            raise ValueError("waypoint_id / about_waypoint: this project has no required steps; leave them out.")
+        return
+    by_id = {entry.step.id: entry for entry in route}
+    before = ancestors(entry.step for entry in route)
+    planned = {task.get("waypoint_id") for task in tasks if task.get("waypoint_id")}
+    for task in tasks:
+        step_id = task.get("waypoint_id", "")
+        if not step_id:
+            continue
+        if step_id not in by_id:
+            raise ValueError(
+                f"waypoint_id of {task['title']!r}: name one of the operator's steps ({', '.join(by_id)})."
+            )
+        for parent in sorted(before.get(step_id, ()), key=lambda key: by_id[key].step.number or 0):
+            entry = by_id[parent]
+            if not entry.complete and not entry.task_ids and parent not in planned:
+                raise ValueError(
+                    f"tasks of {task['title']!r} are for {by_id[step_id].step.label(False)}, but "
+                    f"{entry.step.label(False)} [{parent}] comes first and has no task yet: plan it "
+                    "first, or in this call."
+                )
+    if about:
+        if to != "operator":
+            raise ValueError("about_waypoint goes with to=operator and your question about that step.")
+        if about not in by_id:
+            raise ValueError(f"about_waypoint: name one of the operator's steps ({', '.join(by_id)}).")
+    if to == "done":
+        for entry in route:
+            if not entry.complete:
+                raise ValueError(
+                    f"to=done: the operator's {entry.step.label(False)} [{entry.step.id}] "
+                    f"«{entry.step.text[:120]}» is {status_word(entry.status, False)}. Plan tasks for it, "
+                    "or if you believe it is wrong or impossible ask the operator (to=operator, "
+                    "about_waypoint) whether to keep, change or remove it; a step is never skipped."
+                )
+
+
+def _plan(
+    payload: dict[str, Any], *, open_ended: bool, stages: tuple[str, ...], route: tuple[Any, ...] = (),
+) -> PlannerVerdict:
     """The plan form's own rules (``core.handoff``): what the host can act on."""
     to, tasks = payload["to"], payload.get("tasks", [])
     if to == "done" and tasks:
@@ -458,6 +516,7 @@ def _plan(payload: dict[str, Any], *, open_ended: bool, stages: tuple[str, ...])
             parts = Path(path.strip()).parts
             if not parts or Path(path).is_absolute() or ".." in parts or any(char in path for char in "*?[]{}!"):
                 raise ValueError(f"owns_paths of {task['title']!r}: {path!r} is not a literal path inside the project.")
+    _check_route(payload, route)
     ask = payload.get("ask", {})
     return PlannerVerdict(
         project_done=to == "done",
@@ -471,4 +530,5 @@ def _plan(payload: dict[str, Any], *, open_ended: bool, stages: tuple[str, ...])
         settled_instructions=tuple(dict.fromkeys(payload.get("settle_instructions", ()))),
         assumptions=tuple(payload["assumptions"]),
         plan_update=payload.get("plan_update", ""),
+        about_waypoint=payload.get("about_waypoint", ""),
     )

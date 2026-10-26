@@ -758,6 +758,7 @@ class PlanningContextMixin:
             self._park_planner_question(
                 state, str(verdict.operator_question or reason), reason,
                 options=verdict.operator_options,
+                about_waypoint=getattr(verdict, "about_waypoint", ""),
             )
         self._enter_pause_backoff()
         self._emit(

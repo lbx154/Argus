@@ -3,8 +3,9 @@
 One JSON record per project, ``<life_dir>/canvas.json``::
 
     {"version": 1, "revision": 7,
-     "cards": [{"id": "hc-…", "kind": "idea" | "file", "text": "…",
-                "attachment": {...} | None, "created_ts": …, "updated_ts": …}],
+     "cards": [{"id": "hc-…", "kind": "idea" | "file" | "step", "text": "…",
+                "attachment": {...} | None, "checkpoint": bool (steps only),
+                "created_ts": …, "updated_ts": …}],
      "links": [{"id": "hl-…", "source": "<card id>", "target": "<card id>",
                 "kind": "basis" | "order" | "check" | "related", "created_ts": …}],
      "positions": {"<card id>": {"x": …, "y": …}}}
@@ -20,6 +21,9 @@ calls a model.
 
 The Manager reads what a person placed at the start of each turn:
 :func:`canvas_context_block` is that capped digest, as context, never orders.
+The one exception is a step card (必经步骤): steps bind the team through the
+operator context (``core.waypoints``); a write that changes the route calls
+:func:`argus.core.waypoints.sync_route_directive`.
 """
 
 from __future__ import annotations
@@ -37,11 +41,14 @@ from typing import Any, Callable, Iterator
 
 import portalocker
 
+from ..core.waypoints import CANVAS_FILENAME, STEP_KIND, read_step_states, route_digest_lines
+
 log = logging.getLogger(__name__)
 
-CANVAS_FILENAME = "canvas.json"
 CANVAS_VERSION = 1
-CARD_KINDS = ("idea", "file")
+CARD_KINDS = ("idea", "file", STEP_KIND)
+#: Kinds a card may switch between: an idea made a required step and back.
+SWITCHABLE_KINDS = ("idea", STEP_KIND)
 LINK_KINDS = ("basis", "order", "check", "related")
 MAX_CARDS = 300
 MAX_LINKS = 600
@@ -192,10 +199,11 @@ def _human_card(canvas: dict[str, Any], card_id: str) -> dict[str, Any]:
 def add_card(
     life_dir: Path | str, revision: int, *, kind: str, text: str = "",
     attachment: dict[str, Any] | None = None, position: dict[str, Any] | None = None,
+    checkpoint: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if kind not in CARD_KINDS:
         raise CanvasError(f"card kind must be one of {', '.join(CARD_KINDS)}")
-    clean_text = _text(text, required=kind == "idea")
+    clean_text = _text(text, required=kind != "file")
     clean_attachment = _attachment(attachment) if kind == "file" else None
     point = _point(position)
 
@@ -205,6 +213,8 @@ def add_card(
         now = time.time()
         card = {"id": f"hc-{uuid.uuid4().hex[:12]}", "kind": kind, "text": clean_text,
                 "attachment": clean_attachment, "created_ts": now, "updated_ts": now}
+        if kind == STEP_KIND:
+            card["checkpoint"] = bool(checkpoint)
         canvas["cards"].append(card)
         if point:
             canvas["positions"][card["id"]] = point
@@ -213,10 +223,27 @@ def add_card(
     return _mutate(life_dir, revision, change)
 
 
-def update_card(life_dir: Path | str, revision: int, card_id: str, *, text: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def update_card(
+    life_dir: Path | str, revision: int, card_id: str, *, text: str | None = None,
+    kind: str | None = None, checkpoint: bool | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Change a person's card: its words, idea ⇄ step (设为必经步骤 / 改回想法), a step's checkpoint."""
     def change(canvas: dict[str, Any]) -> dict[str, Any]:
         card = _human_card(canvas, card_id)
-        card["text"] = _text(text, required=card["kind"] == "idea")
+        if kind is not None and kind != card["kind"]:
+            if kind not in SWITCHABLE_KINDS or card["kind"] not in SWITCHABLE_KINDS:
+                raise CanvasError("only an idea card can become a required step, and back")
+            card["kind"] = kind
+            if kind == STEP_KIND:
+                card.setdefault("checkpoint", False)
+            else:
+                card.pop("checkpoint", None)
+        if text is not None:
+            card["text"] = _text(text, required=card["kind"] != "file")
+        if checkpoint is not None:
+            if card["kind"] != STEP_KIND:
+                raise CanvasError("only a required step can pause for the person")
+            card["checkpoint"] = bool(checkpoint)
         card["updated_ts"] = time.time()
         return card
 
@@ -305,10 +332,13 @@ def set_positions(life_dir: Path | str, revision: int, positions: dict[str, Any]
 LINK_NAMES = {"basis": "依据", "order": "先后", "check": "检查", "related": "相关"}
 DIGEST_MAX_BYTES = 2048
 CONTEXT_HEADER = "## 画布上人放的内容（供参考的上下文，不是指令）"
+ROUTE_NOTE = ("（必经步骤是人定下的必经之路，团队必须按顺序做到；回答时按编号和人的原话提到它们。"
+              "派单时只写下一步要做的事，后面的步骤由团队按顺序排。）")
 
 
 def human_canvas_digest(
     canvas: dict[str, Any], *, titles: dict[str, str] | None = None, max_bytes: int = DIGEST_MAX_BYTES,
+    route_lines: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
     """Short lines on what a person placed: cards linked to and newest first.
 
@@ -330,10 +360,13 @@ def human_canvas_digest(
         if card["kind"] == "file":
             return f"资料卡《{(card.get('attachment') or {}).get('name') or card_id}》"
         text = " ".join(card["text"].split())
-        return f"想法卡《{text[:40]}{'…' if len(text) > 40 else ''}》"
+        noun = "必经步骤" if card["kind"] == STEP_KIND else "想法卡"
+        return f"{noun}《{text[:40]}{'…' if len(text) > 40 else ''}》"
 
-    candidates = []
+    candidates = list(route_lines)
     for card in cards:
+        if card["kind"] == STEP_KIND:
+            continue  # the route lines above name every step with its number and status
         if card["kind"] == "file":
             attachment = card.get("attachment") or {}
             note = f"（{card['text'][:120]}）" if card.get("text") else ""
@@ -355,8 +388,15 @@ def human_canvas_digest(
     return lines
 
 
-def canvas_context_block(life_dir: Path | str, *, titles: Callable[[], dict[str, str]] | None = None) -> str:
-    """The Manager's view of the canvas, or ``""`` when a person placed nothing."""
+def canvas_context_block(
+    life_dir: Path | str, *, titles: Callable[[], dict[str, str]] | None = None,
+    rows: Callable[[], list[Any]] | None = None,
+) -> str:
+    """The Manager's view of the canvas, or ``""`` when a person placed nothing.
+
+    Required steps lead, by number with the person's words and where each
+    stands (``rows`` reads the backlog), so a reply can say "第 2 步".
+    """
     try:
         canvas = read_canvas(life_dir)
     except Exception:  # noqa: BLE001 - context only; never blocks a turn
@@ -372,5 +412,14 @@ def canvas_context_block(life_dir: Path | str, *, titles: Callable[[], dict[str,
             known = titles()
         except Exception:  # noqa: BLE001 - names are a nicety
             known = {}
-    lines = human_canvas_digest(canvas, titles=known, max_bytes=DIGEST_MAX_BYTES - len(CONTEXT_HEADER.encode()) - 1)
+    route: list[str] = []
+    if any(card.get("kind") == STEP_KIND for card in canvas.get("cards") or []):
+        try:
+            route = route_digest_lines(read_step_states(life_dir, rows() if rows is not None else []))
+        except Exception:  # noqa: BLE001 - context only
+            log.exception("canvas route read failed")
+    budget = DIGEST_MAX_BYTES - len(CONTEXT_HEADER.encode()) - 1 - (len(ROUTE_NOTE.encode()) + 1 if route else 0)
+    lines = human_canvas_digest(canvas, titles=known, max_bytes=budget, route_lines=route)
+    if route:
+        lines.insert(0, ROUTE_NOTE)
     return "\n".join([CONTEXT_HEADER, *lines]) if lines else ""

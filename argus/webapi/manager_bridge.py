@@ -548,7 +548,10 @@ def manager_canvas_context(life_dir: Path) -> str:
     def titles() -> dict[str, str]:
         return {task_id: str(getattr(item, "title", "") or "") for task_id, item in _backlog_by_id(life_dir).items()}
 
-    return canvas_context_block(life_dir, titles=titles)
+    def rows() -> list[Any]:
+        return list(_backlog_by_id(life_dir).values())
+
+    return canvas_context_block(life_dir, titles=titles, rows=rows)
 
 
 def manager_team_report(sid: str, text: str, *, message_id: str, event_fields: dict[str, Any],

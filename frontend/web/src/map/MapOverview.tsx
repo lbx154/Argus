@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { DeliveryReceipt } from "../../../core/src/types";
 import { LaunchStartButton } from "../components/LaunchPanel";
+import { STEP_STATUS, stepMark, type RouteView } from "./canvas";
 import type { ProjectOverview } from "./overview";
 
 const SHOWN = 3;
@@ -8,8 +9,10 @@ const SHOWN = 3;
 /** The strip at the top of the canvas: the team's state, then 目标 / 主要成果 /
  * 已验证 / 等你决定. Every item leads somewhere: a result opens, a check or a
  * question finds its card on the canvas. */
-export function MapOverview({ overview, zh, team, readOnly, onOpenReceipt, onOpenArtifact, onFocusTask, onAnswer, onStartLaunch }: {
+export function MapOverview({ overview, zh, team, readOnly, route, onOpenReceipt, onOpenArtifact, onFocusTask, onAnswer, onStartLaunch }: {
   overview: ProjectOverview;
+  /** The person's required steps: "必经步骤 2/5" and the next one open. */
+  route?: RouteView;
   zh: boolean;
   /** The team status line with 暂停团队 / 继续, shared with the conversation. */
   team?: ReactNode;
@@ -37,6 +40,23 @@ export function MapOverview({ overview, zh, team, readOnly, onOpenReceipt, onOpe
           <dt>{zh ? "目标" : "Goal"}</dt>
           <dd className="map-overview-goal" title={goal}>{goal || (zh ? "还没有目标" : "No goal yet")}</dd>
         </div>
+        {route && route.total > 0 && (() => {
+          const next = route.steps.find((step) => step.status !== "done");
+          return (
+            <div data-row="steps">
+              <dt>{zh ? "必经步骤" : "Required steps"}</dt>
+              <dd className="map-overview-steps" data-testid="overview-steps">
+                <b>{route.done}/{route.total}</b>
+                {next && (
+                  <span title={next.text}>
+                    {zh ? "下一步 " : "Next "}{stepMark(next.number) || "·"} {next.text}
+                    <small> · {STEP_STATUS[next.status][zh ? 0 : 1]}</small>
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })()}
         <div data-row="results">
           <dt>{zh ? "主要成果" : "Results"}</dt>
           <dd>{results.length ? <>

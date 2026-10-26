@@ -13,6 +13,7 @@ nothing off holds.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
@@ -139,7 +140,7 @@ def final_stage_completion_decision(
     order = [str(s).strip().lower() for s in stage_order]
     if cur not in order or (cur != order[-1] and not allow_early_completion):
         return None
-    if str(completion_blocker or "").strip():
+    if str(completion_blocker or "").strip() or required_steps_blocker(project_root):
         return None
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
@@ -164,6 +165,28 @@ def final_stage_completion_decision(
     reason = trigger_reason or "Manager completed the certified current stage"
     diagnostic = trigger_diagnostic or "manager_completion_certified"
     return StageDecision("complete", cur, reason, diagnostic)
+
+
+def required_steps_blocker(project_root: Any) -> str:
+    """The person's required steps (必经步骤) still open; "" with none, or no project root.
+
+    The project is not done while a step the person laid on the canvas is not
+    complete, unless they removed it (``core.waypoints``).
+    """
+    if not project_root:
+        return ""
+    from ..core.waypoints import CANVAS_FILENAME, open_steps_blocker
+
+    root = Path(str(project_root))
+    if not (root / CANVAS_FILENAME).is_file():
+        return ""
+    try:
+        from ..life.memory import LifeMemory
+
+        rows = LifeMemory.open(root).backlog.history()
+    except Exception:  # noqa: BLE001 - unknown tasks leave every step open, which still blocks
+        rows = []
+    return open_steps_blocker(root, rows)
 
 
 def final_stage_completion_blockers(
@@ -223,6 +246,9 @@ def final_stage_completion_blockers(
     blocker = str(completion_blocker or "").strip()
     if blocker:
         blockers.append(blocker)
+    steps_open = required_steps_blocker(project_root)
+    if steps_open:
+        blockers.append(steps_open)
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
         vertical,
@@ -360,5 +386,6 @@ __all__ = [
     "external_completion_gate_rework_decision",
     "external_completion_gate_stage_guard_decision",
     "final_stage_completion_blockers",
+    "required_steps_blocker",
     "final_stage_completion_decision",
 ]

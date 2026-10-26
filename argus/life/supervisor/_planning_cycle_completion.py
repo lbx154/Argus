@@ -417,6 +417,7 @@ class PlanningCycleCompletionMixin:
                 self._park_planner_question(
                     state, verdict.operator_question or verdict.summary, verdict.summary,
                     options=verdict.operator_options,
+                    about_waypoint=getattr(verdict, "about_waypoint", ""),
                 )
             return None
         feedback = self._load_manager_planner_feedback()
@@ -563,6 +564,14 @@ class PlanningCycleCompletionMixin:
                 new_tasks=[],
             )
             return PLAN_RETRY
+
+        if verdict.project_done:
+            from ...core.waypoints import route_blocker
+
+            waypoint_states = getattr(self, "_waypoint_states", None)
+            waypoint_issue = route_blocker(waypoint_states() if callable(waypoint_states) else ())
+            if waypoint_issue:
+                return reject_completion(f"Project completion held: {waypoint_issue}.", "waypoints_open")
 
         if (
             verdict.project_done

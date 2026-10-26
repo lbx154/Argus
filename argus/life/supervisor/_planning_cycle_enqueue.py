@@ -278,8 +278,20 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
+        waypoint_states = getattr(self, "_waypoint_states", None)
+        route = {entry.step.id: entry.step for entry in (waypoint_states() if callable(waypoint_states) else ())}
         for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
+            step = route.get(str(getattr(task, "waypoint_id", "") or ""))
+            if step is None:
+                # A step removed since the Planner read the route: an ordinary task.
+                task = replace(task, waypoint_id="")
+            elif step.text not in task.acceptance_check:
+                # The Reviewer checks a step's task against the person's own words.
+                task = replace(task, acceptance_check="\n".join(part for part in (
+                    task.acceptance_check.strip(),
+                    f"It fulfils the operator's required {step.label(False)}: «{step.text}».",
+                ) if part))
             sanitized_title = _sanitize_planner_task_text(task.title)
             sanitized_objective = _sanitize_planner_task_text(task.objective)
             sanitized_evidence = _sanitize_planner_task_text(task.evidence)
@@ -573,6 +585,7 @@ class PlanningCycleEnqueueMixin:
                 authorization_id=authorization_id,
                 authorization_action=authorization_action,
                 manager_decision=manager_decision,
+                waypoint_id=str(getattr(task, "waypoint_id", "") or ""),
             )
             # Reserve the signature now so a later sibling in the SAME batch
             # with an identical title/objective still de-dupes against this

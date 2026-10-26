@@ -427,7 +427,33 @@ class LifeSupervisor(
             role_session_path=state_root / "role-sessions" / "planner.json",
             on_event=getattr(self.sink, "handle_event", None),
             stages=tuple(active_vertical_checklist_defs(state_root)[0]) if current_pipeline_stage else (),
+            route=tuple(self._waypoint_states()),
         )
+
+    def _raise_waypoint_checkpoints(self) -> bool:
+        """Park on the person's OK when a checkpoint step's work was delivered (``life.waypoint_cards``)."""
+        from ..waypoint_cards import raise_due_checkpoints
+
+        if getattr(getattr(self.memory, "backlog", None), "path", None) is None:
+            return False
+        try:
+            return raise_due_checkpoints(self.memory.backlog, self._emit) > 0
+        except Exception:  # noqa: BLE001 - the gate still holds later steps without the card
+            log.exception("could not raise a required-step checkpoint")
+            return False
+
+    def _waypoint_states(self) -> list[Any]:
+        """The person's required steps and where each stands (``core.waypoints``)."""
+        from ...core.waypoints import read_step_states
+
+        backlog = getattr(self.memory, "backlog", None)
+        if getattr(backlog, "path", None) is None:
+            return []
+        try:
+            return read_step_states(Path(backlog.path).parent, backlog.history())
+        except Exception:  # noqa: BLE001 - a damaged canvas must not stop planning
+            log.exception("required steps could not be read")
+            return []
 
     # ------------------------------------------------------------------
     # Public driving methods
@@ -573,6 +599,8 @@ class LifeSupervisor(
                 stopped_by = "supervisor_error"
                 break
             if outcome is None:
+                if self._raise_waypoint_checkpoints():
+                    continue
                 if self._decide_parked_questions():
                     continue
                 active_items = self.memory.backlog.active()

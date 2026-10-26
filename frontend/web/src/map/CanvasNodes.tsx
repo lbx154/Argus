@@ -9,9 +9,12 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { FileText, Lightbulb, MoreHorizontal } from "lucide-react";
+import { FileText, Flag, Lightbulb, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { cardTextLines, connectDotSize, humanFrame, linkKindLabel, type HumanCard, type LinkKind } from "./canvas";
+import {
+  cardTextLines, connectDotSize, humanFrame, linkKindLabel, STEP_STATUS, stepMark,
+  type HumanCard, type LinkKind, type RouteStep,
+} from "./canvas";
 import { useSteppedZoom } from "./zoomStep";
 import "./canvas.css";
 
@@ -27,6 +30,14 @@ export interface HumanCardData extends Record<string, unknown> {
   menu: (id: string, point: { x: number; y: number }) => void;
   /** Set by the menu's "edit" so the text opens for editing. */
   editing?: boolean;
+  /** A required step: its number and where it stands (canvas route). */
+  step?: RouteStep;
+  /** Titles of the tasks fulfilling the step, shown on hover. */
+  taskTitles?: string[];
+  /** Opens the question waiting on the person about this step. */
+  openQuestion?: (itemId: string) => void;
+  /** A new card chooses 想法 or 必经步骤 before it is saved. */
+  setDraftKind?: (kind: "idea" | "step") => void;
 }
 export type HumanCardNode = Node<HumanCardData, "human">;
 
@@ -118,15 +129,26 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
     else if (draft || (save && !value && card.kind === "idea")) data.cancel(card.id);
   };
   const isFile = card.kind === "file";
+  const isStep = card.kind === "step";
   const farFont = useSteppedZoom((step) => farLabelFont(step, card.kind));
   const far = farFont > 0 && !editing && !draft;
   const label = isFile ? card.attachment?.name || card.text : card.text;
+  const route = data.step;
+  const status = route?.status ?? "todo";
+  const statusWord = STEP_STATUS[status][zh ? 0 : 1];
+  const mark = stepMark(route?.number);
+  const stepTitle = isStep ? [
+    `${mark ? `${mark} ` : ""}${card.text}`,
+    `${statusWord}${card.checkpoint ? (zh ? " · 到这步先停下来给你看" : " · Pauses for you here") : ""}`,
+    ...(data.taskTitles?.length ? [(zh ? "执行的任务：" : "Tasks: ") + data.taskTitles.join("；")] : []),
+  ].join("\n") : label;
+  const stepClass = isStep ? ` is-step-${status}` : "";
   if (far) {
     return (
       <div
-        className={`canvas-card canvas-card-${card.kind} is-far`}
+        className={`canvas-card canvas-card-${card.kind} is-far${stepClass}`}
         data-testid={`canvas-card-${card.kind}`}
-        title={label}
+        title={stepTitle}
         style={{ "--far-font": `${farFont}px`, "--far-pad": `${FAR_PAD}px` } as CSSProperties}
         onContextMenu={(e) => {
           if (readOnly) return;
@@ -136,15 +158,23 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         }}
       >
         <CanvasHandles connectable={!readOnly} zh={zh} />
+        {isStep && (
+          <span className="canvas-step-far-head">
+            <span className="canvas-step-badge" aria-hidden>{route?.number ?? "·"}</span>
+            <i className="canvas-step-dot" data-status={status} aria-label={statusWord} />
+          </span>
+        )}
         <p className="canvas-far-label">{label}</p>
       </div>
     );
   }
-  const kindLabel = isFile ? (zh ? "资料" : "File") : draft ? (zh ? "新想法" : "New idea") : (zh ? "想法" : "Idea");
+  const kindLabel = isFile ? (zh ? "资料" : "File") : isStep ? (zh ? "必经步骤" : "Required step")
+    : draft ? (zh ? "新想法" : "New idea") : (zh ? "想法" : "Idea");
   return (
     <div
-      className={`canvas-card canvas-card-${card.kind}${editing ? " is-editing" : ""}${draft ? " is-draft" : ""}`}
+      className={`canvas-card canvas-card-${card.kind}${editing ? " is-editing" : ""}${draft ? " is-draft" : ""}${stepClass}`}
       data-testid={`canvas-card-${card.kind}`}
+      title={isStep && !editing ? stepTitle : undefined}
       style={{ "--lines": cardTextLines(card) } as CSSProperties}
       onContextMenu={(e) => {
         if (readOnly || draft) return;
@@ -155,11 +185,30 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
     >
       <CanvasHandles connectable={!readOnly && !draft && !editing} zh={zh} />
       <header>
-        <span className="canvas-card-kind">
-          {isFile ? <FileText aria-hidden /> : <Lightbulb aria-hidden />}
-          {kindLabel}
-        </span>
-        {editing && (
+        {isStep && !draft && <span className="canvas-step-badge" aria-hidden>{route?.number ?? "·"}</span>}
+        {draft && data.setDraftKind ? (
+          <span className="canvas-kind-choice" role="radiogroup" aria-label={zh ? "卡片种类" : "Card kind"}>
+            {(["idea", "step"] as const).map((kind) => (
+              <button key={kind} type="button" role="radio" aria-checked={card.kind === kind}
+                className="nodrag" data-testid={`canvas-draft-${kind}`}
+                // Keep the text field focused: a blur would save or drop the draft.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => { e.stopPropagation(); data.setDraftKind?.(kind); }}>
+                {kind === "idea" ? <Lightbulb aria-hidden /> : <Flag aria-hidden />}
+                {kind === "idea" ? (zh ? "想法" : "Idea") : (zh ? "必经步骤" : "Required step")}
+              </button>
+            ))}
+          </span>
+        ) : (
+          <span className="canvas-card-kind">
+            {isFile ? <FileText aria-hidden /> : isStep ? null : <Lightbulb aria-hidden />}
+            {kindLabel}
+          </span>
+        )}
+        {isStep && !draft && card.checkpoint && !editing && (
+          <span className="canvas-step-check">{zh ? "先给我看" : "Pause for me"}</span>
+        )}
+        {editing && !draft && (
           <span className="canvas-card-keys">{zh ? "Enter 保存 · Esc 取消" : "Enter to save · Esc to cancel"}</span>
         )}
         {!readOnly && !draft && !editing && (
@@ -191,7 +240,9 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
           value={text}
           maxLength={2000}
           aria-label={zh ? "卡片内容" : "Card text"}
-          placeholder={zh ? "写一句要求、假设、问题或待办…" : "A requirement, assumption, question or to-do…"}
+          placeholder={isStep
+            ? (zh ? "写下必须做到的一步，例如“先在小规模上复现 baseline”" : "A step the team must take, e.g. “reproduce the baseline at small scale first”")
+            : (zh ? "写一句要求、假设、问题或待办…" : "A requirement, assumption, question or to-do…")}
           onChange={(e) => setText(e.target.value)}
           onBlur={() => finish(true)}
           onKeyDown={(e) => {
@@ -202,12 +253,35 @@ export function HumanCardView({ data }: NodeProps<HumanCardNode>) {
         />
       ) : (
         (card.text || !isFile) && (
-          <p className="canvas-card-text" title={card.text}
+          <p className="canvas-card-text" title={isStep ? undefined : card.text}
             onDoubleClick={(e) => { if (readOnly) return; e.stopPropagation(); setEditing(true); }}>{card.text}</p>
         )
       )}
+      {isStep && !draft && !editing && (
+        <StepStatusLine status={status} word={statusWord} zh={zh} tasks={data.taskTitles?.length ?? 0}
+          question={route?.question_item_id} open={data.openQuestion} />
+      )}
     </div>
   );
+}
+
+/** A step's status as a small dot and a word; a step waiting on the person
+ * opens the question waiting on them. */
+function StepStatusLine({ status, word, zh, tasks, question, open }: {
+  status: RouteStep["status"]; word: string; zh: boolean; tasks: number; question?: string;
+  open?: (itemId: string) => void;
+}) {
+  const count = tasks > 0 ? <span className="canvas-step-count">{zh ? `${tasks} 个任务` : `${tasks} task${tasks > 1 ? "s" : ""}`}</span> : null;
+  const body = <><i className="canvas-step-dot" data-status={status} aria-hidden />{word}{count}</>;
+  if (question && open) {
+    return (
+      <button type="button" className="canvas-step-status is-action nodrag" data-status={status} data-testid="canvas-step-status"
+        onClick={(e) => { e.stopPropagation(); open(question); }}>
+        {body}<span className="canvas-step-open">{zh ? "去看看" : "Open"}</span>
+      </button>
+    );
+  }
+  return <p className="canvas-step-status" data-status={status} data-testid="canvas-step-status">{body}</p>;
 }
 
 export type HumanLinkEdge = Edge<{
@@ -218,6 +292,8 @@ export type HumanLinkEdge = Edge<{
    * placed ("来自", "关于"): dashed, named by ``label``, not editable. */
   recorded?: boolean;
   label?: string;
+  /** 先后 between two required steps: the gold path ①→②→③. */
+  path?: boolean;
 }, "human">;
 
 /** A link a person drew: a solid line with its kind written on it, unlike
@@ -228,12 +304,18 @@ export function HumanLinkView({ id, sourceX, sourceY, targetX, targetY, data, ma
   const scale = Math.min(12, 1 / Math.max(zoom, 0.02));
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} className={data?.recorded ? "canvas-link is-recorded" : "canvas-link"}
-        style={{ strokeWidth: 3, vectorEffect: "non-scaling-stroke", ...(data?.recorded ? { strokeDasharray: "10 8" } : {}) }} />
+      <BaseEdge id={id} path={path} markerEnd={markerEnd}
+        className={data?.recorded ? "canvas-link is-recorded" : data?.path ? "canvas-link is-path" : "canvas-link"}
+        // Screen pixels at any zoom: vector-effect does not undo the CSS scale
+        // of the flow's viewport, so the width is divided by the zoom.
+        style={{
+          strokeWidth: (data?.recorded ? 1 : data?.path ? 2.5 : 1.75) / Math.max(zoom, 0.02),
+          ...(data?.recorded ? { strokeDasharray: `${5 / Math.max(zoom, 0.02)} ${5 / Math.max(zoom, 0.02)}` } : {}),
+        }} />
       <EdgeLabelRenderer>
         <button
           type="button"
-          className="canvas-link-label nodrag nopan"
+          className={`canvas-link-label nodrag nopan${data?.recorded ? " is-recorded" : ""}`}
           data-testid="canvas-link-label"
           style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${scale})` }}
           onClick={(e) => { e.stopPropagation(); data?.menu?.(id, { x: e.clientX, y: e.clientY }); }}

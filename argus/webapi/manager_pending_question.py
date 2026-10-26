@@ -463,6 +463,19 @@ def _apply_operator_answer(
             decided_by=decided_by,
         )
 
+    from .waypoint_answers import apply_waypoint_answer
+
+    step_answer = apply_waypoint_answer(
+        mem, item, answer, decision_option=decision_option, decision_id=decision_id,
+        decision_note=decision_note, manager_reply=manager_reply, decided_by=decided_by,
+    )
+    if step_answer is not None:
+        if step_answer.get("resolved") and operator_context_revision:
+            from ..core.operator_context import OperatorContextStore
+
+            OperatorContextStore(Path(mem.project_root)).settle_once(operator_context_revision)
+        return step_answer
+
     from ..apps._inbox import queue_inbox_message
     from ..core.event_catalog import EventType
     from ..life.event_log import JsonlEventSink

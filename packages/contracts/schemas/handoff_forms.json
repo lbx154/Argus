@@ -124,6 +124,7 @@
               "expected_regressions": {"type": "string"},
               "decision_rule": {"type": "string"},
               "acceptance_check": {"type": "string", "description": "The one decisive completion check."},
+              "waypoint_id": {"type": "string", "description": "The id of the operator's required step (必经步骤) this task fulfils; at most one."},
               "non_goals": {"type": "array", "items": {"type": "string"}},
               "scope": {"enum": ["bounded", "final_submission"], "description": "final_submission only for the final independent certification task."},
               "parallel_safe": {"type": "boolean", "description": "Co-runs with other parallel_safe tasks; needs owns_paths. Stage-closing and framework-maintenance work runs alone."},
@@ -152,7 +153,8 @@
           "description": "Each OperatorContext entry tagged `revision N` that this decision carries out, rules out, or (for a subagent report) has already taken into account."
         },
         "advance_to_stage": {"type": "string", "description": "The stage this plan moves to; left out, the stage holds."},
-        "plan_update": {"type": "string", "description": "The full new RESEARCH_PLAN.md, when the direction changed; left out, it stays."}
+        "plan_update": {"type": "string", "description": "The full new RESEARCH_PLAN.md, when the direction changed; left out, it stays."},
+        "about_waypoint": {"type": "string", "description": "With to=operator: the id of the operator's required step your question doubts (offer keep / change / remove)."}
       }
     },
     "manager": {

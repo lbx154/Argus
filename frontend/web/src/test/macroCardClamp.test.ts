@@ -49,7 +49,10 @@ describe("atlas overview card text is line-clamped", () => {
     // same at every zoom (macroCardCopy.test.tsx).
     const scope = rule(".argus-map .macro-summary", design);
     expect(scope).toMatch(/--on-screen:\s*calc\(var\(--z/);
-    expect(design).toMatch(/font-size:\s*max\(19px,\s*min\(56px,\s*calc\(15px \/ var\(--on-screen\)\)\)\)/);
+    expect(design).toMatch(/font-size:\s*max\(19px,\s*min\(56px,\s*calc\(15px \/ var\(--on-screen\)\),/);
+    // Three whole lines always fit the card's height, so the clamp ends on an
+    // ellipsis and never cuts through glyphs (2026-10-26).
+    expect(design).toMatch(/calc\(\(var\(--summary-height, 300px\) - 72px\) \/ 4\.2\)\)\)/);
     expect(design).toMatch(/\.map-card > :not\(h3\) \{ opacity: var\(--near\); \}/);
   });
 });
