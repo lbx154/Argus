@@ -45,17 +45,20 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   const label = workStatusLabel(status, locale, connected);
   // The label may already name the task ("正在处理：X"); do not say it twice.
   const shortTitle = status.title.replace(/\s+/g, ' ').trim().slice(0, 20);
-  return <div className="shrink-0 border-b border-line/60 bg-panel px-4 py-2.5 text-xs" data-testid="work-status" data-state={status.state}>
+  const tone = !connected ? 'idle' : status.reason === 'task_failed' ? 'failed' : status.state === 'running' ? 'running'
+    : status.state === 'waiting' || ['operator_input', 'launch_confirm'].includes(status.reason) ? 'waiting'
+    : status.state === 'step_finished' ? 'done' : 'idle';
+  return <div className="work-status shrink-0 px-4 py-2 text-xs sm:px-5" data-testid="work-status" data-state={status.state}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${!connected ? 'bg-warn' : status.state === 'running' ? 'bg-blue animate-pulse motion-reduce:animate-none' : status.state === 'waiting' ? 'bg-warn' : 'bg-ink-faint'}`} aria-hidden="true" />
-      <span className="font-semibold text-ink" data-testid="team-phase" data-phase={untouched ? 'new' : phase}>{untouched ? (zh ? '等你开始' : 'Waiting for you to start') : teamPhaseLabel(phase, locale)}</span>
+      <span className="status-dot" data-tone={tone} aria-hidden="true" />
+      <span className="font-medium text-ink" data-testid="team-phase" data-phase={untouched ? 'new' : phase}>{untouched ? (zh ? '等你开始' : 'Waiting for you to start') : teamPhaseLabel(phase, locale)}</span>
       {untouched ? null : <span className="min-w-0 truncate text-ink-dim" title={status.title || undefined}>{label}{compact && status.title && phase === 'running' && !label.includes(shortTitle) ? ` · ${status.title}` : ''}</span>}
       {age ? <time className="text-ink-faint" dateTime={status.activityAt ? new Date(status.activityAt * 1000).toISOString() : undefined}>{age}</time> : null}
       {snapshot && (onPauseTeam || onResumeTeam) ? <TeamPauseButton snapshot={snapshot} locale={locale} onPause={onPauseTeam} onResume={onResumeTeam} busy={teamBusy}
-        className="ml-auto rounded border border-line px-2 py-0.5 text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-50" /> : null}
+        className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-dim hover:bg-sunken hover:text-ink disabled:opacity-50" /> : null}
     </div>
-    {!connected ? <p className="mt-1 leading-5 text-ink-faint">{zh ? '这里保留的是已收到的记录；连接恢复后继续更新。' : 'These are the records already received. Updates resume when the connection returns.'}</p>
-      : !compact && status.title ? <p className="mt-1 line-clamp-2 leading-5 text-ink-dim" title={status.title}>{status.title}</p> : null}
-    {connected && next && <p className="mt-1 leading-5 text-ink-faint">{next}</p>}
+    {!connected ? <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{zh ? '这里保留的是已收到的记录；连接恢复后继续更新。' : 'These are the records already received. Updates resume when the connection returns.'}</p>
+      : !compact && status.title ? <p className="mt-1 line-clamp-2 pl-[15px] leading-5 text-ink-dim" title={status.title}>{status.title}</p> : null}
+    {connected && next && <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{next}</p>}
   </div>;
 }

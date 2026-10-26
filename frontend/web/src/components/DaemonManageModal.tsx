@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from './Modal';
 import { useI18n } from '../i18n';
+import type { Snapshot } from '../api';
+import { DaemonSpendBadge } from './DaemonSpendBadge';
 
 export function DaemonManageModal({
   open,
@@ -14,6 +16,7 @@ export function DaemonManageModal({
   onStart,
   onStop,
   onDelete,
+  snapshot,
 }: {
   open: boolean;
   sid: string;
@@ -26,8 +29,12 @@ export function DaemonManageModal({
   onStart: () => Promise<boolean>;
   onStop: () => Promise<boolean>;
   onDelete: () => Promise<boolean>;
+  /** Run details (cost, calls) live here, out of the top bar. */
+  snapshot?: Snapshot | null;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const zh = locale === 'zh-CN';
+  const spendUsd = snapshot ? (typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : snapshot.usage_summary?.known_cost_usd ?? 0) : 0;
   const [draftName, setDraftName] = useState(name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [stoppedLocally, setStoppedLocally] = useState(false);
@@ -55,26 +62,40 @@ export function DaemonManageModal({
 
   return (
     <Modal open={open} onClose={() => !busy && onClose()} label={t('manage.daemon')} width="max-w-lg">
-      <div className="border-b border-line px-5 py-4">
-        <h2 className="text-base font-semibold text-ink">{t('topbar.manageSession')}</h2>
-        <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{sid}</p>
+      <div className="modal-header">
+        <h2>{t('topbar.manageSession')}</h2>
+        <p className="font-mono text-[11px] text-ink-faint">{sid}</p>
       </div>
+      {snapshot ? <div className="border-t border-line px-6 py-4" data-testid="manage-run-info">
+        <div className="text-xs font-medium text-ink-faint">{zh ? '运行信息' : 'Run details'}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-dim">
+          {spendUsd > 0 ? <DaemonSpendBadge
+            settledUsd={snapshot.spend_usd}
+            knownUsd={snapshot.usage_summary?.known_cost_usd}
+            status={snapshot.spend_status}
+            calls={snapshot.usage_summary?.call_count}
+            premiumRequests={snapshot.usage_summary?.premium_requests}
+            live={snapshot.daemon.alive}
+          /> : <span>{zh ? '还没有花费' : 'No spend yet'}</span>}
+          {snapshot.usage_summary?.call_count ? <span>{zh ? `模型调用 ${snapshot.usage_summary.call_count} 次` : `${snapshot.usage_summary.call_count} model calls`}</span> : null}
+        </div>
+      </div> : null}
 
-      <form onSubmit={(event) => void save(event)} className="border-b border-line p-5">
+      <form onSubmit={(event) => void save(event)} className="border-y border-line px-6 py-5">
         <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('manage.displayName')}</span>
+          <span className="mb-1.5 block text-xs font-medium text-ink-faint">{t('manage.displayName')}</span>
           <div className="flex gap-2">
             <input
               value={draftName}
               onChange={(event) => setDraftName(event.target.value)}
               maxLength={80}
               disabled={busy}
-              className="h-9 min-w-0 flex-1 rounded border border-line bg-bg/50 px-3 text-sm text-ink outline-none focus:border-blue-deep disabled:opacity-50"
+              className="h-9 min-w-0 flex-1 rounded-md border border-field-line/70 bg-surface px-3 text-sm text-ink outline-none focus:border-accent disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={busy || draftName.trim() === name}
-              className="rounded border border-line px-3 text-xs text-ink-dim hover:bg-surface disabled:opacity-40"
+              className="brand-button brand-button-ghost disabled:opacity-40"
             >
               {t('common.save')}
             </button>
@@ -82,9 +103,9 @@ export function DaemonManageModal({
         </label>
       </form>
 
-      <div className="border-b border-line p-5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('manage.executor')}</div>
-        <div className="mt-2 flex items-center justify-between rounded border border-line bg-bg/30 p-3">
+      <div className="border-b border-line px-6 py-5">
+        <div className="text-xs font-medium text-ink-faint">{t('manage.executor')}</div>
+        <div className="mt-2 flex items-center justify-between gap-4">
           <div>
             <div className="text-sm text-ink">{effectiveAlive ? (controlAvailable ? t('manage.running') : t('manage.runningExternally')) : t('manage.paused')}</div>
             <p className="mt-0.5 text-[11px] text-ink-faint">
@@ -100,7 +121,7 @@ export function DaemonManageModal({
             disabled={busy || !controlAvailable}
             onClick={() => void toggleExecutor()}
             className={`rounded border px-3 py-1.5 text-xs disabled:cursor-wait disabled:opacity-50 ${
-              effectiveAlive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-on-accent hover:bg-blue-deep/80'
+              effectiveAlive ? 'border-line text-ink hover:bg-sunken' : 'border-ink bg-ink text-surface hover:bg-ink/85'
             }`}
           >
             {busy ? t('manage.working') : !controlAvailable ? t('common.external') : effectiveAlive ? t('manage.stopNow') : t('manage.resume')}
@@ -108,8 +129,8 @@ export function DaemonManageModal({
         </div>
       </div>
 
-      <div className="p-5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-err">{t('manage.deleteSession')}</div>
+      <div className="px-6 py-5">
+        <div className="text-xs font-medium text-err">{t('manage.deleteSession')}</div>
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
           {t('manage.deleteHint')}
         </p>
