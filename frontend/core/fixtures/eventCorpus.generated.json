@@ -1447,6 +1447,7 @@
         "delivery_id": "delivery id",
         "mission_id": "mission id",
         "novelty_status": "novelty status",
+        "park_reason": "park reason",
         "payload_schema_version": 1,
         "project_id": "project id",
         "reason": "the current operation needs attention",

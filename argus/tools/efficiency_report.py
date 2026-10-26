@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from ..core.event_catalog import canonical_event_type
+from ..core.handoff import holder_of
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import retained_jsonl_paths
 from ..core.metrics import cost_per_passed_task
@@ -131,7 +132,7 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         elif kind == "life.manager.supervision.applied":
             applied.add(str(event.get("supervision_id")))
         elif kind == "round.review.completed":
-            if event.get("status") == "continue":
+            if holder_of(event.get("status")) == "engineer":
                 tasks[task]["continue"] += 1
         elif kind == "life.mission.completed":
             elapsed[task] += float(event.get("elapsed_seconds") or 0)

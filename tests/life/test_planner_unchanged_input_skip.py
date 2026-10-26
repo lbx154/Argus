@@ -248,7 +248,7 @@ def test_a_direct_task_handed_to_the_planner_is_the_planners(
         def execute(self, **_kwargs):
             runs.append("engineer")
             return SimpleNamespace(
-                success=False, status="replan_requested", rounds=1,
+                success=False, status="planner", rounds=1,
                 stop_reason="format_minutes floors, format_days rounds half up; I cannot pick one.",
             )
 

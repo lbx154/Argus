@@ -439,7 +439,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   type: "round.review.completed";
   payload_schema_version?: 1;
   "round_index"?: number;
-  "status": "done" | "continue" | "blocked" | "replan_requested" | "error" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
+  "status": "done" | "engineer" | "planner" | "manager" | "operator" | "error" | "continue" | "blocked" | "replan_requested" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
   "reason": string;
   "next_action"?: string;
   "operator_question"?: string;
@@ -501,7 +501,7 @@ export interface LifePlannerPreviewSkippedEvent extends EventMsg {
 export interface LifePlannerVerdictEvent extends EventMsg {
   type: "life.planner.verdict";
   payload_schema_version?: 1;
-  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_cost" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "infra_blocked" | "error";
+  "status": "planned" | "completed" | "parked" | "error" | "research_incomplete" | "paused_budget" | "paused_cost" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "infra_blocked";
   "success": boolean;
   "recoverable": boolean;
   "reason": string;
@@ -514,6 +514,7 @@ export interface LifePlannerVerdictEvent extends EventMsg {
   "significance_status"?: string | null;
   "stop_kind"?: string | null;
   "completion_kind"?: string | null;
+  "park_reason"?: string | null;
   "delivery_id"?: string;
   "delivery"?: Record<string, unknown> | null;
   "tasks_added"?: number;

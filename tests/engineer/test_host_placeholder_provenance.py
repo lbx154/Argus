@@ -80,7 +80,7 @@ def test_a_reviewer_that_never_answered_is_not_credited_or_staged(tmp_path: Path
         workdir=tmp_path,
     )
     assert status == "error"
-    assert rounds[-1].review.status == "blocked"
+    assert rounds[-1].review.status == "manager"
     assert rounds[-1].review.review_source == "reviewer_unavailable"
 
     state = _ExecuteState()
@@ -106,7 +106,7 @@ def test_a_reviewer_that_never_answered_is_not_credited_or_staged(tmp_path: Path
 
     assert stage_calls == []
     assert result.final_review_source != "reviewer"
-    assert result.final_review_status == "blocked"
+    assert result.final_review_status == "manager"
 
 
 def test_a_turn_limit_restart_keeps_the_reviewers_pending_request() -> None:
@@ -152,7 +152,7 @@ def test_a_question_nobody_may_be_asked_still_goes_where_the_reviewer_sent_it(
 ) -> None:
     """``→ operator`` parks the work; with no operator, the Manager decides the card."""
     review = ReviewDecision(
-        status="blocked",
+        status="manager",
         reason="parse_date drops the timezone; the CSV writer leaves a trailing comma.",
         next_action="Fix parse_date to keep the timezone and remove the trailing comma.",
         operator_question="May I change the CSV schema?",
@@ -165,4 +165,4 @@ def test_a_question_nobody_may_be_asked_still_goes_where_the_reviewer_sent_it(
     recorded = state.rounds[-1].review
     assert recorded == review and recorded.interventions == []
     assert control.action == "return"
-    assert control.terminal[0] == "blocked"
+    assert control.terminal[0] == "manager"

@@ -46,6 +46,7 @@ from typing import Any, Callable, Collection, Iterable, Iterator, Mapping
 import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.handoff import holder_of
 from ..core.json_codec import loads_finite_json
 from ..core.operator_decision import card_answer
 from ..core.prompt_example_tasks import is_prompt_example_task
@@ -544,7 +545,7 @@ class EventJournal:
             kind = "mission_iterated"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") == "replan_requested"
+            and holder_of(row.get("status")) == "planner"
         ):
             kind = "mission_replan_requested"
         elif park == "provider_cooldown":

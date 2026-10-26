@@ -8,6 +8,7 @@ import {
 import {
   missionOutcomeDimensions,
   missionOutcomePresentation,
+  settledStatus,
 } from './missionOutcome.js';
 import type {
   ArtifactInfo,
@@ -407,12 +408,12 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     addTimeline(view, event, 'engineer', 'Continued before review', nextStep, 'info');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_COMPLETED) {
     const reviewSkipped = event.review_skipped === true;
-    const status = reviewSkipped ? 'skipped' : S(event, 'status');
+    const status = reviewSkipped ? 'skipped' : settledStatus(event);
     const reason = S(event, 'reason');
     view.review = {
       status,
       reason,
-      rejected_attempts: view.review.rejected_attempts + (['continue', 'blocked'].includes(status) ? 1 : 0),
+      rejected_attempts: view.review.rejected_attempts + (['engineer', 'manager', 'operator'].includes(status) ? 1 : 0),
     };
     const frontierChange = S(event, 'frontier_change');
     if (frontierChange) {

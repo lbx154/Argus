@@ -98,7 +98,7 @@ def test_provider_exception_does_not_invent_completed_call_metadata(
         action=hand_off("done", "Approval before the provider failed."),
     ))
     decision = _evaluate(backend, tmp_path)
-    assert decision.status == "blocked" and decision.backend_unavailable
+    assert decision.status == "manager" and decision.backend_unavailable
     assert "synthetic provider failure" in decision.reason
     for name in completed_reviewer_metadata:
         assert getattr(decision, name) == (None if name == "thread_id" else 0)

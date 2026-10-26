@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from ...core import paths as core_paths
+from ...core.handoff import holder_of
 from ...core.json_codec import loads_finite_json
 from ...core.mission_view import uses_cjk
 from ...core.role_reply import visible_text
 from ...core.secret_guard import known_secret_values, redact_secrets_text
+from ...core.stop_kinds import park_reason_of, stop_kind_clause
 from ...life.memory import Backlog
 from .._inbox import format_inbox_event
 from ..tui_launcher import _bundle_path
@@ -404,9 +406,10 @@ def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
             reading = {
                 "done": "the work holds",
-                "continue": "another pass is needed",
-                "blocked": "it cannot move without an outside decision",
-            }.get(status, f"finished reading ({status or '?'})")
+                "engineer": "another pass is needed",
+                "manager": "it cannot move without an outside decision",
+                "operator": "it cannot move without an outside decision",
+            }.get(holder_of(status), f"finished reading ({status or '?'})")
             return f"💭 the reviewer's read: {reading}." + (
                 f" {reason}" if reason else ""
             )
@@ -753,9 +756,10 @@ def _format_follow_event_body(
         reason = _clean_follow_text(str(event.get("reason") or ""), limit=None)
         verdict = {
             "done": f"Accepted round {round_index}.",
-            "continue": f"Requested another pass after round {round_index}.",
-            "blocked": f"Needs an external decision after round {round_index}.",
-        }.get(status, f"Finished checking round {round_index}.")
+            "engineer": f"Requested another pass after round {round_index}.",
+            "manager": f"Needs an external decision after round {round_index}.",
+            "operator": f"Needs an external decision after round {round_index}.",
+        }.get(holder_of(status), f"Finished checking round {round_index}.")
         return f"✅ [{_follow_layer_label('reviewer')}] {verdict}" + (
             f" {reason}" if reason else ""
         )
@@ -834,6 +838,10 @@ def _format_follow_event_body(
             if detail:
                 text += f" {detail}"
             icon = "✅"
+        elif (park := park_reason_of(status, event.get("park_reason"))) is not None:
+            why = stop_kind_clause(park, chinese=chinese, neutral=True)
+            text = f"{title} 在等待：{why}。" if chinese else f"Waiting: {title}, because {why}."
+            icon = "⏸"
         elif status == "failed" or event.get("success") is False:
             text = (
                 f"未能完成 {title}：{failure_reason}"

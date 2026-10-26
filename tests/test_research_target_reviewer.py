@@ -31,7 +31,7 @@ class _Backend:
 
 def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> None:
     persist_vertical(tmp_path, "research", research_target_level="publishable")
-    backend = _Backend("replan_requested")
+    backend = _Backend("planner")
     decision = Reviewer(backend).evaluate(
         objective="produce publishable research",
         original_objective="produce publishable research",
@@ -43,7 +43,7 @@ def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> 
         scope="bounded",
     )
 
-    assert decision.status == "replan_requested"
+    assert decision.status == "planner"
     assert "Project target `publishable`" in backend.prompt
     # The project bar and this round's bar are now separate statements:
     # a publishable target must not be read as this round's requirement.

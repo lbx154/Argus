@@ -60,7 +60,7 @@ class PlanningCycleVerdictMixin:
             "operator_alert": True,
             "recoverable": True,
             "stop_kind": "backend_unavailable",
-            **self._operator_words("planning_paused_host"),
+            **self._operator_words("parked_infra"),
         })
         self._emit_status(
             "Planner execution host is unavailable; restore the Codex host executable "
@@ -316,7 +316,7 @@ class PlanningCycleVerdictMixin:
                             "operator_alert": True,
                             "recoverable": False,
                             "stop_kind": "permanent_error",
-                            **self._operator_words("planning_paused_content_filter"),
+                            **self._operator_words("parked_content_filter"),
                         }
                         if content_filtered
                         else {}

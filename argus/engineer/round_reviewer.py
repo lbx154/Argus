@@ -545,7 +545,7 @@ class RoundReviewerMixin:
             msg = f"reviewer raised {type(exc).__name__}: {exc}"
             log.exception("reviewer raised during supervised round")
             return ReviewDecision(
-                status="blocked",
+                status="manager",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
                 backend_unavailable=True,

@@ -61,7 +61,7 @@ class _Outcome:
     # planned work drains.
     stage_transition_deferred: bool = False
     # The reviewer's named ``OPERATOR_QUESTION`` verdict field from the
-    # FINAL round, when the mission stopped with ``status == "blocked"``. The
+    # FINAL round, when the mission stopped on the operator's turn. The
     # supervisor persists this onto the backlog item (``pending_question``)
     # so it survives past this one event and /status can list it later —
     # without this, the question only ever existed for as long as whatever

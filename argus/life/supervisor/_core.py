@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.handoff import holder_of
 from ...core.mission_view import awaits_operator, say, sentences, uses_cjk
 from ...core.planner_verdict import (
     PlannerVerdictStatus,
@@ -73,9 +74,10 @@ def _review_phrase(review: str, chinese: bool) -> str:
 
     A passed review needs none: the completion already says so.
     """
+    review = holder_of(review)
     if review in {"done", "passed", "approved"}:
         return ""
-    known = review in {"continue", "blocked", "stale"}
+    known = review in {"engineer", "planner", "manager", "operator", "stale"}
     return say(f"review_{review}" if known else "review_other", chinese, review=review)
 
 
@@ -745,7 +747,7 @@ class LifeSupervisor(
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
                 break
-            if outcome.get("status") == "replan_requested":
+            if outcome.get("status") == "planner":
                 manager_action = self._adjudicate_mission_challenge(outcome)
                 if manager_action == "keep":
                     self._emit_status(
@@ -1666,12 +1668,10 @@ class LifeSupervisor(
                         },
                     )
                     return
-                from ...manager.supervision import HANDED_TO_MANAGER
-
                 # Work parked on the operator waits for their decision; work
                 # handed to the Manager is the Manager's to decide, as the
                 # settlement parks it and supervision puts it to the Manager.
-                to_manager = review == "blocked" and event.get("review_source") in HANDED_TO_MANAGER
+                to_manager = holder_of(review) == "manager"
                 text = render_operator_update(
                     title=title,
                     status=status,
@@ -1681,7 +1681,7 @@ class LifeSupervisor(
                     holder=(
                         "operator" if park in {"operator_question", "operator_pause"}
                         else "manager" if to_manager
-                        else "planner" if status == "replan_requested" else ""
+                        else "planner" if status == "planner" else ""
                     ),
                     language_hint=language_hint,
                 )

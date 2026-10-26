@@ -8,10 +8,13 @@ from typing import Any, Callable, Literal
 from .event_catalog import EventType
 from .stop_kinds import StopKind
 
-ReviewStatus = Literal["done", "continue", "blocked", "replan_requested"]
+#: Who holds the work when a round settles: the role or person its handoff
+#: names, or ``done`` for a named candidate accepted (core/handoff.py).
+Holder = Literal["engineer", "planner", "manager", "operator", "done"]
 LoopStatus = Literal[
     "done",
     "max_rounds",
+    # The host refused to go on (an isolation breach, a refused credential).
     "blocked",
     "no_progress",
     "error",
@@ -21,7 +24,10 @@ LoopStatus = Literal[
     # The Manager parked the run between role operations for the Planner to retire.
     "manager_stop",
     "aborted",
-    "replan_requested",
+    # Handed past the Engineer and the Reviewer: the holder that has the work.
+    "planner",
+    "manager",
+    "operator",
 ]
 
 # Copilot CLI tools for sub-agents, dynamic workflows, the session store and
@@ -194,7 +200,7 @@ class RunnerResult:
 class ReviewDecision:
     """Reviewer verdict on one Engineer round."""
 
-    status: ReviewStatus
+    status: Holder
     reason: str
     next_action: str
     operator_question: str = ""

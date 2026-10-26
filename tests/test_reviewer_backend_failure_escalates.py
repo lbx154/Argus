@@ -61,8 +61,8 @@ def test_backend_death_is_blocked_not_continue() -> None:
     # The regression: this branch returned status="continue" before the fix,
     # which let the loop run the completion gate blind. It MUST be a loud,
     # non-verdict block carrying the explicit infra-death marker.
-    assert decision.status == "blocked"
-    assert decision.status != "continue"
+    assert decision.status == "manager"
+    assert decision.status != "engineer"
     assert decision.backend_unavailable is True
 
 

@@ -114,7 +114,7 @@ def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review, mon
     second = _parallel_final_review_passes(runner, config)
     assert len(runner.shared.calls) == 2
     assert second.input_tokens == second.output_tokens == 0
-    assert second.status == "continue"  # Cached passes never certify the mission.
+    assert second.status == "engineer"  # Cached passes never certify the mission.
     assert "reviewer-visual: pass" in second.reason
     assert "reviewer-coldread: pass" in second.reason
     assert len(renders) == 1
@@ -181,7 +181,7 @@ def test_round_delivers_current_account_to_source_reviewers(
             assert kwargs["operator_messages"] == live_directive
             assert "New observation" in kwargs["operator_messages"][0]
             return ReviewDecision(
-                status="continue", reason="Verify the pending evidence.",
+                status="engineer", reason="Verify the pending evidence.",
                 next_action="Inspect the completed replacement before updating the paper.",
             )
 
@@ -198,7 +198,7 @@ def test_round_delivers_current_account_to_source_reviewers(
         assert account in prompts[label]
         assert "ICLR strong accept" in prompts[label]
     assert account not in prompts["reviewer-visual"]
-    assert decision.status == "continue"
+    assert decision.status == "engineer"
 
 
 def test_unreadable_pdf_facts_run_fresh_isolated_passes(paper_review, monkeypatch):

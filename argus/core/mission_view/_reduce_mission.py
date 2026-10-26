@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 from ...life.mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..event_catalog import EventType
+from ..handoff import holder_of
 from ..stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     is_pause_status,
@@ -139,12 +140,10 @@ def _skipped_round_cause(event: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _settled_status(event: Mapping[str, Any]) -> str:
-    """How a review or a task settled, as its reader is told; ``settledStatus``
-    in frontend/core/src/missionOutcome.ts says the same. A ``→ operator:``
-    handoff settles ``blocked`` with the question it asks (HANDOFF_STATUS):
-    the work waits on the operator's decision and is not stuck."""
-    status = _text(event, "status").lower()
-    return "question" if status == "blocked" and _text(event, "operator_question") else status
+    """The holder a review or a task settled on, an older status read as its
+    holder (``holder_of``); ``settledStatus`` in frontend/core/src/missionOutcome.ts
+    says the same. ``operator`` waits on the operator's decision and is not stuck."""
+    return holder_of(_text(event, "status"), _text(event, "operator_question"))
 
 
 def _mission_outcome_presentation(
@@ -154,7 +153,7 @@ def _mission_outcome_presentation(
     chinese: bool,
 ) -> tuple[str, str, str, str, str, str]:
     """Return (mission status, role status, kind, label, tone, technical)."""
-    if _settled_status(event) == "question":
+    if _settled_status(event) == "operator":
         # A task that settled on a question to the operator is parked on it, as its row is.
         event = {**event, "outcome_class": "ended", "status": "parked", "park_reason": "operator_question"}
     if event_type == EventType.LIFE_MISSION_FAILED:
@@ -368,7 +367,7 @@ def _reduce_review_completed(
     chinese: bool,
 ) -> None:
     review_skipped = event.get("review_skipped") is True
-    status = "skipped" if review_skipped else _text(event, "status")
+    status = "skipped" if review_skipped else _settled_status(event)
     reason = _text(event, "reason")
     review_source = _text(event, "review_source") or "reviewer"
     view["review"] = {
@@ -376,7 +375,7 @@ def _reduce_review_completed(
         "reason": reason,
         "source": review_source,
         "rejected_attempts": int(view.get("review", {}).get("rejected_attempts") or 0)
-        + (1 if status in {"continue", "blocked"} else 0),
+        + (1 if status in {"engineer", "manager", "operator"} else 0),
     }
     if isinstance(event.get("manuscript_snapshot"), dict):
         view["review"]["manuscript_snapshot"] = dict(
@@ -450,14 +449,14 @@ def _reduce_review_completed(
         settled = _settled_status(event)
         kind = {
             "done": "results_accepted",
-            "continue": "another_attempt_requested",
-            "blocked": "attempt_blocked",
-            "question": "choice_left_to_you",
-            "replan_requested": "replan_requested",
+            "engineer": "another_attempt_requested",
+            "manager": "attempt_blocked",
+            "operator": "choice_left_to_you",
+            "planner": "replan_requested",
         }.get(settled, "results_not_final")
         role_status, tone = (
             ("done", "success") if status == "done"
-            else ("waiting", "info") if settled == "question"
+            else ("waiting", "info") if settled == "operator"
             else ("rejected", "error")
         )
         _set_role(view, "reviewer", role_status, say(kind, chinese), ts, kind=kind)

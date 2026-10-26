@@ -57,6 +57,7 @@ import re
 import stat
 import uuid
 
+from argus.core.handoff import holder_of
 from argus.core.secret_guard import contains_secret, redact_secrets_record
 from argus.core.stop_kinds import park_reason_of
 from argus.trial.analytics import (
@@ -308,13 +309,13 @@ def _lifecycle(kind, payload):
     status = payload.get("status") or payload.get("to_state")
     if isinstance(status, str):
         status = status.lower()
-        if park_reason_of(status) is not None or status == "blocked":
+        if park_reason_of(status) is not None or holder_of(status) in {"manager", "operator"}:
             return "pause"
         if status in {"cancelled", "canceled", "aborted"}:
             return "cancel"
         if status in {"failed", "error", "orphaned"}:
             return "fail"
-        if status in {"continue", "running", "in_progress", "replan_requested"}:
+        if holder_of(status) in {"engineer", "planner", "running", "in_progress"}:
             return "resume" if kind.endswith((".resumed", ".requeued")) else "continue"
         if status in {"done", "completed", "success"}:
             outcome = payload.get("outcome")

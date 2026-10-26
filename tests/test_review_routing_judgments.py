@@ -46,11 +46,11 @@ def paper(tmp_path: Path) -> Path:
 
 
 def test_a_final_review_replan_stays_the_reviewers(paper):
-    review = _review("replan_requested")
+    review = _review("planner")
 
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
-    assert review.status == "replan_requested"
+    assert review.status == "planner"
     assert not review.interventions
     _assert_kept(review)
 
@@ -77,6 +77,6 @@ def test_a_missing_venue_assessment_drops_the_judgments(paper):
 
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
-    assert review.status == "blocked"
+    assert review.status == "manager"
     assert not review.learning and not review.learning_reason
     assert "learning" not in review.to_event_payload()

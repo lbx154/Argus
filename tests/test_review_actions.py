@@ -27,8 +27,8 @@ def evaluate(backend, tmp_path):
 
 
 @pytest.mark.parametrize(("to", "status"), [
-    ("done", "done"), ("engineer", "continue"), ("planner", "replan_requested"),
-    ("manager", "blocked"), ("operator", "blocked"),
+    ("done", "done"), ("engineer", "engineer"), ("planner", "planner"),
+    ("manager", "manager"), ("operator", "operator"),
 ])
 def test_the_handoff_routes_and_its_note_reaches_the_next_holder(tmp_path, to, status):
     note = "保留详细证据。" * 1600
@@ -90,7 +90,7 @@ def test_tool_transport_keeps_the_engineer_s_access_and_capability_out_of_argv(b
         elif backend == "pi":
             assert "--tools" not in command
         bridge_request(PREFIX, *hand_off("engineer", "Await the running experiment."), env=env)
-        assert actions.handoff.value.status == "continue"
+        assert actions.handoff.value.status == "engineer"
         assert not actions.handoff.value.backend_unavailable
 
 
@@ -111,7 +111,7 @@ def test_pi_extension_invokes_the_host_action():
             ["node", "--input-type=module", "-e", script, options.trusted_extensions[0]],
             env={**os.environ, **options.extension_env}, check=True, capture_output=True, text=True,
         )
-        assert actions.handoff.value.status == "continue"
+        assert actions.handoff.value.status == "engineer"
         assert actions.handoff.value.reason == "Await the running GPU benchmark."
 
 

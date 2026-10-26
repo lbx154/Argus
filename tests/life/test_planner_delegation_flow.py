@@ -569,7 +569,7 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     ))
     outcome = {
         "item_id": trigger.id,
-        "status": "replan_requested",
+        "status": "planner",
         "review_status": "done",
         "review_reason": "The no-gap validator dominates the preselected candidate.",
         "expected_plan_id": "plan-old",
@@ -626,7 +626,7 @@ def _assert_replan_replace_commits_after_source_terminalized(
         def execute(self, **_kwargs):  # noqa: ANN003
             return SimpleNamespace(
                 success=False,
-                status="replan_requested",
+                status="planner",
                 stop_reason="completed work requires a replacement plan",
                 rounds=1,
                 final_review_status="done",
@@ -676,7 +676,7 @@ def _assert_replan_replace_commits_after_source_terminalized(
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
     # The Manager's ruling on the challenge, not a progress bit, retires it.
     assert rows_after_run["source-route"].status == "pending"
-    assert outcome["status"] == "replan_requested"
+    assert outcome["status"] == "planner"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",
         "source-followup",

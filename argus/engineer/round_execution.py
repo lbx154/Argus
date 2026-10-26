@@ -573,7 +573,7 @@ class RoundExecutionMixin:
                     part for part in (previous, guidance) if part
                 )
             review = ReviewDecision(
-                status="continue",
+                status="engineer",
                 reason="The model call ended during a background wait; Engineer will continue the unfinished work.",
                 next_action=state.reviewer_next_action or guidance,
                 review_source="provider_background_wait",
@@ -621,7 +621,7 @@ class RoundExecutionMixin:
                 stop_kind=stop_kind,
             ))
             return control_return((
-                "blocked" if auth_failure else "error",
+                "operator" if auth_failure else "error",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,

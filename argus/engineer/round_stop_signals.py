@@ -406,7 +406,7 @@ def idle_termination_review_decision(
     return ReviewDecision(
         host_placeholder="silent_command",
         review_source="silent_command",
-        status="continue",
+        status="engineer",
         reason=(
             "Argus stopped the Engineer's session because neither the model nor "
             f"{what} made any progress for a long time; nothing was judged. "
@@ -443,7 +443,7 @@ def backend_failure_review_decision(
     return ReviewDecision(
         host_placeholder="backend_failure",
         review_source="backend_failure",
-        status="continue",
+        status="engineer",
         reason=(
             "The model service dropped the Engineer's session before it "
             "produced a result that could be checked, so this round was not "
@@ -475,7 +475,7 @@ def provider_turn_cap_review_decision(
 ) -> ReviewDecision:
     """The skipped-review record for a call that used its whole turn allowance.
 
-    ``status="continue"`` on purpose: nothing failed. The Engineer's work up to
+    ``status="engineer"`` on purpose: nothing failed. The Engineer's work up to
     the allowance is kept, the checkpoint carries the state forward, and the
     next round runs the same task in a fresh session. ``next_action`` is what
     that fresh session reads first, so it carries the wind-down summary.
@@ -494,7 +494,7 @@ def provider_turn_cap_review_decision(
     return ReviewDecision(
         host_placeholder="provider_turn_cap",
         review_source="provider_turn_cap",
-        status="continue",
+        status="engineer",
         reason=(
             "The Engineer's session reached the length limit for a single "
             f"call before finishing ({rotations}), so this round was not "
@@ -524,7 +524,7 @@ def external_pause_review_decision(
         )
     why = stop_kind_clause(stop_kind, neutral=True)
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         reason=(
             f"The work was paused before the Engineer finished this round "
             f"because {why}, so this round was not judged; it resumes from "
@@ -545,7 +545,7 @@ def execution_host_review_decision(
     """A missing tool host needs repair before an explicit mission retry."""
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         reason=(
             "The tool environment the Engineer needs could not be started, so "
             "this round did not run and was not judged. "
@@ -600,7 +600,7 @@ def infrastructure_failure_review_decision(
         "so this round was not judged; "
     )
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         reason=(
             f"{named}. {session_result}"
             "Argus pauses this task and retries it after a short wait. "
@@ -623,7 +623,7 @@ def model_configuration_review_decision(
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         reason=(
             "The configured model is unavailable, so neither the Engineer nor "
             "the Reviewer could run this round. "
@@ -663,7 +663,7 @@ def authentication_review_decision(
         "After authentication succeeds, confirm here to resume the same mission."
     )
     return ReviewDecision(
-        status="blocked",
+        status="operator",
         reason=error_text,
         next_action=action,
         operator_question=question,
@@ -681,7 +681,7 @@ def daemon_stop_review_decision(
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         # An intentional shutdown, recorded structurally so a consumer reading
         # this decision alone can tell it apart from a real failure instead of
         # having to parse ``reason`` prose.
@@ -705,7 +705,7 @@ def operator_abort_review_decision(
     engineer_aborted_before_review: bool = False,
 ) -> ReviewDecision:
     return ReviewDecision(
-        status="blocked",
+        status="manager",
         # Same contract as the daemon-stop sibling: this was an operator's
         # deliberate abort of ONE mission, not a crash and not a daemon
         # shutdown. Keep it structural so the distinction survives being read

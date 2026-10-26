@@ -32,7 +32,7 @@ class _Reviewer:
     def evaluate(self, **kwargs):
         self.calls += 1
         if self.calls == 1:
-            return ReviewDecision(status="continue", reason="Useful first batch.", next_action="Repair the remaining baseline.")
+            return ReviewDecision(status="engineer", reason="Useful first batch.", next_action="Repair the remaining baseline.")
         return ReviewDecision(status="done", reason="The complete comparison holds.", next_action="")
 
 

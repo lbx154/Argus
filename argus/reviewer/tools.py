@@ -6,7 +6,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..core.handoff import HANDOFF_STATUS, HandOffActions
+from ..core.handoff import HandOffActions
 from ..core.models import ReviewDecision
 from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
@@ -175,7 +175,7 @@ def _review(
 
         options = acceptance_options(payload["accept_risk"]["check"], payload["accept_risk"]["risk"])
     decision = ReviewDecision(
-        status=HANDOFF_STATUS[to], reason=payload["summary"], next_action=payload["note"],
+        status=to, reason=payload["summary"], next_action=payload["note"],
         operator_question=payload.get("ask", {}).get("question", ""),
         operator_options=normalize_agent_options(options),
         research_result=research,

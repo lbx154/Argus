@@ -50,7 +50,7 @@ class _Reviewer:
         self.calls += 1
         if self.fail_host:
             return ReviewDecision(
-                status="blocked", reason=HOST_ERROR, next_action="Restore host",
+                status="manager", reason=HOST_ERROR, next_action="Restore host",
                 backend_unavailable=True,
                 backend_fatal_error=HOST_ERROR, backend_stop_kind="backend_unavailable",
             )
@@ -228,5 +228,5 @@ def test_an_infrastructure_park_skips_the_stage_judge(
     assert result.final_submission_certified is False
     # A park never moves the stage; only a host failure drops the review credit.
     assert stage_calls == []
-    assert result.final_review_status == ("not_assessed" if host_failure else "blocked")
+    assert result.final_review_status == ("not_assessed" if host_failure else "manager")
     assert result.stage_transition == {}

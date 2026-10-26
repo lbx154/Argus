@@ -208,7 +208,7 @@ def render_operator_update(
         else "update_canceled" if canceled
         else "update_continuing" if state in {"continue", "running", "in_progress", "stage_continues"}
         else "update_stuck" if state == "blocked" or park is not None
-        else "update_new_approach" if state in {"replan_requested", "revise"}
+        else "update_new_approach" if state in {"planner", "revise"}
         else "update_not_finished",
         chinese, subject=subject,
     )]

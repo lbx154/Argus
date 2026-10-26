@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from ..core.handoff import HANDOFF_STATUS, LADDER, HandOff, HandOffActions
+from ..core.handoff import LADDER, HandOff, HandOffActions
 from ..core.models import ReviewDecision, RunnerResult
 from .round_reviewer import backlog_history, mission_questions_allowed
 from .round_state import (
@@ -35,7 +35,7 @@ def _handoff_record(holder: str, handoff: HandOff) -> ReviewDecision:
     for it. ``done`` is the Engineer accepting where no review is required.
     """
     return ReviewDecision(
-        status=HANDOFF_STATUS[holder],
+        status=holder,
         reason=handoff.summary,
         next_action=handoff.note,
         operator_question=handoff.question,
@@ -153,8 +153,8 @@ def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | Non
     if handed is not None:
         reason += f" The Reviewer had handed it to the {passed[0]}: {handed.reason}"
     return replace(
-        handed or ReviewDecision(status="continue", reason="", next_action=""),
-        status=HANDOFF_STATUS[holder],
+        handed or ReviewDecision(status="engineer", reason="", next_action=""),
+        status=holder,
         reason=reason,
         next_action="",
         operator_question=(

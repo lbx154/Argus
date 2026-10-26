@@ -330,15 +330,23 @@ handoffs, every item is therefore done, dropped, or held by an operator who
 can be asked on an irreversible decision that blocks nothing else. Deadlock is impossible, and
 the ladder's height bounds the number of model calls made without a change.
 
-**What this replaces.**
+**What this replaces.** Done (October 2026): no round status sits under the
+baton any more, and no named pause state beside it.
 
 - `continue` is `→ engineer`, `replan_requested` is `→ planner`, `blocked` is
   `→` whoever can remove the obstacle, and `done` is acceptance of a named
-  candidate.
-- A task handed to the Manager is parked in its hands, not failed: a question
-  the Manager puts to the operator parks that same task, and the answer resumes
-  it, never a copy.
-- The eleven `paused_*` statuses become one park whose reason is data.
+  candidate. A round, its record and the task it settles carry the holder
+  itself (`engineer`, `planner`, `manager`, `operator`, `done`); nothing
+  translates it back. A record an older release wrote is read once, in
+  `holder_of` (argus/core/handoff.py) and `settledStatus`
+  (frontend/core/src/missionOutcome.ts), and never written.
+- A task handed to the Manager or the operator is parked in their hands, never
+  failed, whoever handed it: a question the Manager puts to the operator parks
+  that same task, and the answer resumes it, never a copy.
+- The `paused_*` statuses are one park whose reason is data
+  (argus/core/stop_kinds.py), for backlog rows, Planner verdicts and the
+  notices the operator reads; the words come from the reason. Older rows and
+  events load through the same table.
 - A Planner with nothing new to start names who acts next: `→ engineer` (the
   work in flight decides what comes next), `→ manager` (the stage blocks it), or
   `→ operator: <question>`. There is no waiting contract.

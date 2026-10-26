@@ -36,7 +36,7 @@ class _Sink:
 @dataclass
 class _Outcome:
     success: bool = False
-    status: str = "blocked"
+    status: str = "operator"
     stop_reason: str = ""
     rounds: int = 1
     matched_skill_name: str = ""
@@ -84,7 +84,7 @@ def test_no_operator_mission_question_parks_for_the_manager(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "blocked"
+    assert result is not None and result["status"] == "operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "parked"
     assert stored.pending_question == "Which of the two conflicting release rules wins?"

@@ -165,7 +165,7 @@ def test_work_handed_back_to_the_planner_gives_the_engineer_s_reason(tmp_path) -
 
     assert _last_said(supervisor, {
         "item_id": "task-hours", "title": "为 timefmt 添加整小时格式化函数",
-        "success": False, "status": "replan_requested", "review_source": "engineer_handoff",
+        "success": False, "status": "planner", "review_source": "engineer_handoff",
         "stop_reason": "", "failure_reason": "", "next_action": "",
         "summary": "尚未实现：现有整单位函数的舍入规则不一致。未修改仓库文件，交给 Planner 明确舍入规则。",
         "outcome": {"review_status": "not_assessed", "execution_status": "ended"},

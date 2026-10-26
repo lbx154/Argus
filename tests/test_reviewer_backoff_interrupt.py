@@ -128,7 +128,7 @@ def test_skill_loop_stops_during_reviewer_backoff_without_another_call(
     assert len(outcome.rounds) == 1
     record = outcome.rounds[0]
     assert record.engineer_exit_code == 0 and record.engineer_message == ENGINEER_OUTPUT
-    assert record.review.backend_unavailable and record.review.status == "blocked"
+    assert record.review.backend_unavailable and record.review.status == "manager"
     assert record.review.backend_fatal_error == REVIEW_FAILURE
     assert record.stop_kind == stop_kind and reason in outcome.reason
     interrupted = [event for event in events if event["type"] == "round.backend_failure.hold_interrupted"]

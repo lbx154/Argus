@@ -564,11 +564,11 @@ class _BlockedQuestionRunner:
     """A runner whose mission stops with a reviewer 'blocked' verdict carrying
     an operator_question — the shape apps/_runtime.py's real execute()
     produces (``_Outcome.operator_question``, extracted from the final
-    round's ReviewDecision when ``status == "blocked"``)."""
+    round's ReviewDecision when the round settles on the operator)."""
 
     def execute(self, **kwargs: Any) -> _Outcome:
         return _Outcome(
-            success=False, status="blocked", final_message="needs a decision",
+            success=False, status="operator", final_message="needs a decision",
             operator_question="fp16 精度损失可以接受吗，还是必须 fp32？",
             operator_options=[
                 {
@@ -620,7 +620,7 @@ def test_late_forbid_still_parks_the_question_for_the_manager(
     assert result is not None
     # The role named the operator. With nobody to ask, the card parks and the
     # Manager decides it in the operator's place; the host never reroutes it.
-    assert result["status"] == "blocked"
+    assert result["status"] == "operator"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
     assert stored.status == "parked"
     assert stored.pending_question
@@ -632,7 +632,7 @@ class _TechnicalQuestionRunner:
     def execute(self, **kwargs: Any) -> _Outcome:
         outcome = _Outcome(
             success=False,
-            status="blocked",
+            status="operator",
             stop_reason="the largest benchmark row timed out",
             operator_question="Should the benchmark use a smaller diagnostic shape?",
         )
@@ -665,7 +665,7 @@ def test_no_operator_parks_the_question_for_the_manager(
 
     result = sup.tick()
 
-    assert result is not None and result["status"] == "blocked"
+    assert result is not None and result["status"] == "operator"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
     assert stored.status == "parked"
     assert stored.pending_question == (
@@ -674,11 +674,11 @@ def test_no_operator_parks_the_question_for_the_manager(
 
 
 class _HandedToManagerRunner:
-    """The Engineer's ``→ manager``: blocked, with no question, in its own words."""
+    """The Engineer's ``→ manager``, with no question, in its own words."""
 
     def execute(self, **kwargs: Any) -> _Outcome:
         outcome = _Outcome(
-            success=False, status="blocked", final_message="A and B conflict.",
+            success=False, status="manager", final_message="A and B conflict.",
             stop_reason="A and B conflict; the choice is not mine.",
         )
         outcome.final_review_source = "engineer_handoff"
@@ -708,6 +708,43 @@ def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path) ->
     assert park_reason(stored) == "research_open"
     assert stored.pending_question == ""
     assert "the choice is not mine" in stored.last_error
+
+
+class _ClimbedToManagerRunner:
+    """Work that climbed to the Manager on a record no role wrote (the host's)."""
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        outcome = _Outcome(
+            success=False, status="manager", final_message="Nothing changed.",
+            stop_reason="Nothing changed since the planner last held this work.",
+        )
+        outcome.final_review_source = "reviewer_unavailable"
+        return outcome
+
+
+def test_a_task_handed_to_the_manager_waits_whoever_handed_it(tmp_path) -> None:
+    """Live 2026-10-26: a research task that climbed to the Manager read as
+    failed. Handed to the Manager by any record, a task is parked in its hands,
+    and its completion carries no failure."""
+    from argus.life.memory import park_reason
+
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    sup = LifeSupervisor(
+        memory=mem, runner=_ClimbedToManagerRunner(), sink=sink,
+        config=LifeSupervisorConfig(budget=LifeBudget(max_missions=1), poll_interval_seconds=0.01),
+    )
+    item = mem.backlog.add(BacklogItem.new(title="Survey the field", objective="map prior work"))
+
+    sup.tick()
+
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert (stored.status, park_reason(stored)) == ("parked", "research_open")
+    assert stored.outcome["execution_status"] == "paused"
+    completed = next(e for e in sink.events if e.get("type") == EventType.LIFE_MISSION_COMPLETED)
+    assert completed["status"] == "parked"
+    assert (completed["failure_reason"], completed["terminal_status"]) == ("", "")
+    assert completed["outcome_class"] != "failed"
 
 
 def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> None:
@@ -741,7 +778,7 @@ class _CountingReplanRunner:
         self.calls += 1
         outcome = _Outcome(
             success=False,
-            status="replan_requested",
+            status="planner",
             stop_reason="reviewer refuted node; premise unsatisfiable",
         )
         if self._stage_transition is not None:
@@ -755,7 +792,7 @@ class _QuestionRunner:
     def execute(self, **kwargs: Any) -> _Outcome:
         return _Outcome(
             success=False,
-            status="blocked",
+            status="operator",
             stop_reason="the approved trust boundary is ambiguous",
             operator_question="May this function be added to the trusted boundary?",
         )
@@ -783,7 +820,7 @@ def test_a_question_uses_the_durable_answer_path(tmp_path) -> None:
     result = sup.tick()
 
     assert result is not None
-    assert result["status"] == "blocked"
+    assert result["status"] == "operator"
     assert not [
         entry
         for entry in mem.journal.all()
@@ -846,7 +883,7 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
 
     result = sup.run()
 
-    assert result["results"][0]["status"] == "blocked"
+    assert result["results"][0]["status"] == "operator"
     assert result["stopped_by"] != "pending_operator_question"
     # The Planner is asked for work that does not depend on the answer.
     assert planned
@@ -881,7 +918,7 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
 
     for calls in range(1, 5):
         result = sup.tick()
-        assert result is not None and result["status"] == "replan_requested"
+        assert result is not None and result["status"] == "planner"
         row = {row.id: row for row in mem.backlog.all()}[item.id]
         assert row.status == "pending"
         assert runner.calls == calls

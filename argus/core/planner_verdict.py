@@ -9,38 +9,22 @@ from .research_contract import (
     normalize_research_result,
     normalize_research_target_level,
 )
-from .stop_kinds import normalize_stop_kind
+from .stop_kinds import normalize_stop_kind, park_reason_of
 
 
 class PlannerVerdictStatus(str, Enum):
     PLANNED = "planned"
     COMPLETED = "completed"
-    RESEARCH_INCOMPLETE = "research_incomplete"
-    PAUSED_BUDGET = "paused_budget"
-    PAUSED_COST = "paused_cost"
-    PAUSED_NO_BREAKTHROUGH = "paused_no_breakthrough"
-    EXHAUSTED_CURRENT_METHODS = "exhausted_current_methods"
-    PROVIDER_COOLDOWN = "provider_cooldown"
-    INFRA_BLOCKED = "infra_blocked"
+    # Waiting; the event's ``park_reason`` says on what (core/stop_kinds.py).
+    PARKED = "parked"
     ERROR = "error"
 
 
 _STATUS_POLICY: dict[PlannerVerdictStatus, tuple[bool, bool]] = {
     PlannerVerdictStatus.PLANNED: (True, False),
     PlannerVerdictStatus.COMPLETED: (True, False),
-    PlannerVerdictStatus.RESEARCH_INCOMPLETE: (False, True),
-    PlannerVerdictStatus.PAUSED_BUDGET: (False, True),
-    PlannerVerdictStatus.PAUSED_COST: (False, True),
-    PlannerVerdictStatus.PAUSED_NO_BREAKTHROUGH: (False, True),
-    PlannerVerdictStatus.EXHAUSTED_CURRENT_METHODS: (False, True),
-    PlannerVerdictStatus.PROVIDER_COOLDOWN: (False, True),
-    PlannerVerdictStatus.INFRA_BLOCKED: (False, True),
+    PlannerVerdictStatus.PARKED: (False, True),
     PlannerVerdictStatus.ERROR: (False, False),
-}
-
-_LEGACY_STATUS_ALIASES = {
-    "done": PlannerVerdictStatus.COMPLETED,
-    "paused_provider_cooldown": PlannerVerdictStatus.PROVIDER_COOLDOWN,
 }
 
 _PROTECTED_FIELDS = frozenset({
@@ -58,6 +42,7 @@ _PROTECTED_FIELDS = frozenset({
     "significance_status",
     "stop_kind",
     "completion_kind",
+    "park_reason",
     "tasks_added",
 })
 
@@ -74,6 +59,7 @@ def build_planner_verdict_event(
     significance_status: str | None = None,
     stop_kind: str | None = None,
     completion_kind: str | None = None,
+    park_reason: str | None = None,
     **details: Any,
 ) -> dict[str, Any]:
     """Build and validate one complete planner-verdict event."""
@@ -99,6 +85,7 @@ def build_planner_verdict_event(
         "significance_status": significance_status,
         "stop_kind": stop_kind,
         "completion_kind": completion_kind,
+        "park_reason": park_reason if status is PlannerVerdictStatus.PARKED else None,
         **details,
     }
     event["tasks_added"] = int(event.get("enqueued_tasks", 0) or 0)
@@ -110,46 +97,53 @@ def build_planner_verdict_event(
     return event
 
 
+_PARKED = PlannerVerdictStatus.PARKED
+
+
 def _legacy_status(
     payload: Mapping[str, Any],
     *,
     research_result: dict[str, Any] | None,
-) -> PlannerVerdictStatus:
+) -> tuple[PlannerVerdictStatus, str | None]:
+    """The status an older verdict settles as, with the reason a park waits on.
+
+    Each ``paused_*`` (and research) status an older release wrote is one park
+    whose reason it names (``park_reason_of``).
+    """
     raw_status = str(payload.get("status") or "").strip().lower()
+    if raw_status == "done":
+        return PlannerVerdictStatus.COMPLETED, None
     try:
-        return PlannerVerdictStatus(raw_status)
+        status = PlannerVerdictStatus(raw_status)
+        return status, (str(payload.get("park_reason") or "") if status is _PARKED else None)
     except ValueError:
-        if raw_status in _LEGACY_STATUS_ALIASES:
-            return _LEGACY_STATUS_ALIASES[raw_status]
+        if (park := park_reason_of(raw_status) or normalize_stop_kind(raw_status)) is not None:
+            return _PARKED, park
 
     stop_kind = normalize_stop_kind(payload.get("stop_kind"))
-    if stop_kind == "budget_exhausted":
-        return PlannerVerdictStatus.PAUSED_BUDGET
-    if stop_kind == "cost_unreconciled":
-        return PlannerVerdictStatus.PAUSED_COST
-    if stop_kind == "provider_cooldown":
-        return PlannerVerdictStatus.PROVIDER_COOLDOWN
+    if stop_kind in {"budget_exhausted", "cost_unreconciled", "provider_cooldown"}:
+        return _PARKED, stop_kind
     if stop_kind in {"backend_unavailable", "transient_error"}:
-        return PlannerVerdictStatus.INFRA_BLOCKED
+        return _PARKED, "infra"
     if stop_kind == "permanent_error" or payload.get("error"):
-        return PlannerVerdictStatus.ERROR
+        return PlannerVerdictStatus.ERROR, None
 
     if research_result is not None and (
         research_result["correctness_status"] != "verified"
         or research_result["novelty_status"] == "unverified"
         or research_result["significance_status"] == "unverified"
     ):
-        return PlannerVerdictStatus.RESEARCH_INCOMPLETE
+        return _PARKED, "research_open"
     if payload.get("project_done") is True:
-        return PlannerVerdictStatus.COMPLETED
+        return PlannerVerdictStatus.COMPLETED, None
     if int(
         payload.get("enqueued_tasks")
         or payload.get("tasks_added")
         or payload.get("task_count")
         or 0
     ) > 0:
-        return PlannerVerdictStatus.PLANNED
-    return PlannerVerdictStatus.RESEARCH_INCOMPLETE
+        return PlannerVerdictStatus.PLANNED, None
+    return _PARKED, "research_open"
 
 
 def adapt_legacy_planner_verdict_event(
@@ -160,7 +154,7 @@ def adapt_legacy_planner_verdict_event(
     if not isinstance(raw_research_result, dict):
         raw_research_result = payload.get("math_result")
     research_result = normalize_research_result(raw_research_result)
-    status = _legacy_status(payload, research_result=research_result)
+    status, park_reason = _legacy_status(payload, research_result=research_result)
     details = {
         key: value
         for key, value in payload.items()
@@ -184,6 +178,7 @@ def adapt_legacy_planner_verdict_event(
         ),
         stop_kind=normalize_stop_kind(payload.get("stop_kind")),
         completion_kind=str(payload.get("completion_kind") or "") or None,
+        park_reason=park_reason,
         **details,
     )
 

@@ -87,7 +87,7 @@ class _MissionRunState:
     iteration_requeued: bool = False
 
     # Finalization: _finalize_mission_status supplies the durable outcome fields.
-    replan_requested: bool = False
+    to_planner: bool = False
     intentional_abort: bool = False
     err: str = ""
     resumable: bool = False

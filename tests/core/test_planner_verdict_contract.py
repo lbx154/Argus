@@ -34,15 +34,15 @@ def test_doctoral_novelty_unverified_maps_to_research_incomplete() -> None:
         },
     })
 
-    assert adapted["status"] == "research_incomplete"
+    assert (adapted["status"], adapted["park_reason"]) == ("parked", "research_open")
     assert adapted["success"] is False
     assert adapted["novelty_status"] == "unverified"
     assert adapted["correctness_status"] == "verified"
     assert adapted["significance_status"] not in {"publishable", "doctoral"}
 
 
-def test_budget_exhausted_legacy_maps_to_paused_budget() -> None:
-    """Req 11: budget_exhausted stop_kind → paused_budget status."""
+def test_budget_exhausted_legacy_parks_on_the_budget() -> None:
+    """Req 11: budget_exhausted stop_kind → one park whose reason is the budget."""
     adapted = adapt_legacy_planner_verdict_event({
         "type": "life.planner.verdict",
         "project_done": False,
@@ -50,7 +50,7 @@ def test_budget_exhausted_legacy_maps_to_paused_budget() -> None:
         "stop_kind": "budget_exhausted",
     })
 
-    assert adapted["status"] == "paused_budget"
+    assert (adapted["status"], adapted["park_reason"]) == ("parked", "budget_exhausted")
     assert adapted["success"] is False
     assert adapted["recoverable"] is True
 
@@ -83,7 +83,7 @@ def test_event_journal_applies_generic_legacy_verdict_adapter(
 
     entry = EventJournal(path).all()[0]
 
-    assert entry.extra["status"] == "research_incomplete"
+    assert (entry.extra["status"], entry.extra["park_reason"]) == ("parked", "research_open")
     assert entry.extra["success"] is False
     assert "event_validation" not in entry.extra
 
@@ -93,3 +93,22 @@ def test_production_producers_do_not_handwrite_planner_verdict_payloads() -> Non
     for relative in ("_planning_cycle.py", "_planning_context.py"):
         source = (root / relative).read_text(encoding="utf-8")
         assert '"type": EventType.LIFE_PLANNER_VERDICT' not in source
+
+
+@pytest.mark.parametrize(("old", "reason"), [
+    ("paused_budget", "budget_exhausted"),
+    ("paused_cost", "cost_unreconciled"),
+    ("paused_no_breakthrough", "research_open"),
+    ("research_incomplete", "research_open"),
+    ("exhausted_current_methods", "research_open"),
+    ("provider_cooldown", "provider_cooldown"),
+    ("paused_provider_cooldown", "provider_cooldown"),
+    ("infra_blocked", "infra"),
+])
+def test_every_older_paused_verdict_loads_as_one_park_with_its_reason(old: str, reason: str) -> None:
+    adapted = adapt_legacy_planner_verdict_event({
+        "type": "life.planner.verdict", "status": old, "reason": "an older release",
+    })
+
+    assert (adapted["status"], adapted["park_reason"]) == ("parked", reason)
+    assert (adapted["success"], adapted["recoverable"]) == (False, True)

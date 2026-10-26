@@ -114,7 +114,7 @@ def test_oauth_refresh_failure_requires_operator_authentication() -> None:
     assert fatal_error_looks_like_auth_failure(error)
     decision = authentication_review_decision(fatal_error=error, exit_code=1)
 
-    assert decision.status == "blocked"
+    assert decision.status == "operator"
     assert decision.backend_unavailable is True
     assert decision.operator_question is not None
     assert "OAuth refresh failed" in decision.operator_question
