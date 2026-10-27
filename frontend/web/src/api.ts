@@ -1239,6 +1239,9 @@ export const api = {
   },
   artifactRawUrl: (sid: string, path: string) =>
     P(sid, `/artifact/raw?${new URLSearchParams({ path })}`),
+  /** A mesh, glTF buffer or texture a registered model references, by the reference as written. */
+  artifactModelAsset: (sid: string, path: string, ref: string, signal?: AbortSignal) =>
+    getBlob(P(sid, `/artifact/model-asset?${new URLSearchParams({ path, ref })}`), signal),
   gitDiff: (sid: string, signal?: AbortSignal) =>
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>

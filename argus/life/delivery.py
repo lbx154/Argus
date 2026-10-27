@@ -46,7 +46,7 @@ _WINDOWS_PATH_RE = re.compile(
 # Bare names a verdict may give for its primary visual are recognised too. The
 # 3D model suffixes still pass the live-view suffix policy before they count.
 _PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp|svg|gif|urdf|stl|obj|glb))(?=$|[^\w/\\.-]|\.(?=\s|$))",
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp|svg|gif|urdf|stl|obj|dae|glb|gltf))(?=$|[^\w/\\.-]|\.(?=\s|$))",
     re.IGNORECASE,
 )
 _BRACED_FILE_RE = re.compile(

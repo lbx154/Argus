@@ -17,6 +17,8 @@ import { useI18n } from '../i18n';
 import { errorText } from '../lib/format';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { PdfPreview } from './PdfPreview';
+import { ModelPreview } from './ModelPreview';
+import { modelFormat } from '../lib/modelFiles';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
 import { canEditArtifact, isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
@@ -63,6 +65,8 @@ export function ArtifactModal({
   const [expanded, setExpanded] = useState(false);
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const pdfPreview = info?.kind === 'pdf' || path?.toLowerCase().endsWith('.pdf') === true;
+  // Older hosts report a URDF or mesh as binary; the suffix still names a model.
+  const modelPreview = Boolean(info && (info.kind === 'model' || modelFormat(info.path)));
   const reviewDocument = Boolean(path && /(?:^|[\\/])REVIEW\.md$/i.test(path));
 
   useEffect(() => {
@@ -263,7 +267,12 @@ export function ArtifactModal({
         {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
         ) : null}
-        {info?.kind === 'binary' ? (
+        {info && modelPreview && sid && path ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ModelPreview key={path} sid={sid} path={path} constraintFiles={info.constraint_files} />
+          </div>
+        ) : null}
+        {info?.kind === 'binary' && !modelPreview ? (
           <div className="m-auto max-w-md text-center">
             <div className="text-3xl text-ink-faint">◇</div>
             <p className="mt-2 text-sm text-ink-dim">{t('artifact.noPreview')}</p>
