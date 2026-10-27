@@ -1,5 +1,7 @@
 # System Audit: Six Complaints, Measured
 
+> **Historical snapshot:** counts and paths were measured when this was written, and several named files no longer exist. See [ROADMAP.md](ROADMAP.md).
+
 Six problems were raised about the runtime. This document checks each against the
 code rather than against impressions. Every number below was measured on the tree
 at the time of writing and can be re-derived with the command given.

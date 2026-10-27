@@ -1,5 +1,9 @@
 # 反例实验室配置
 
+> **已过时（2026-10-22 核对，RL-4）：**反例实验室的工作台页面已从网页版删除（`948cbb4d`），
+> 只剩下文所述的只读接口 `GET /api/projects/{sid}/counterexamples`。当前工作台见
+> [web-control-responsiveness.md](web-control-responsiveness.md)。
+
 这套集成包含两项
 互相独立的能力，并且不携带任何私有猜想或战役数据：
 
@@ -38,7 +42,7 @@ research/MATH_STATE.json
 
 ## 在工作台内安全更新
 
-打开“操作”→“运行时”，点击“拉取最新版本”。更新器会检查当前分支，只从公开仓库
+打开“工作台”→“运行控制”，点击“拉取最新版本”。更新器会检查当前分支，只从公开仓库
 拉取同名分支并使用 `--ff-only`，版本变化后重新安装 editable checkout，然后提示在安全
 边界重启工作台和 daemon。工作树有本地修改、detached、分支未发布或历史分叉时都会
 失败关闭，不会覆盖本地工作。

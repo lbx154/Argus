@@ -22,7 +22,6 @@
 
 - [运行时结构与故障定位](../runtime-maintainability.md)
 - [收件箱协议、停止与恢复边界](../operator-inbox-delivery.md)
-- [完整需求及真实模型验收范围](../team-intelligence-work.md)
 
 Advisor 的 Planner/Reviewer 完整回合、Manager 的完整四阶段监督、长期学习效果和面向初学者的讲解质量，仍缺少完整的真实模型验收。源码测试通过不能替代这些结果。
 

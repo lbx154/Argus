@@ -1,5 +1,9 @@
 # Argus 精简架构规划
 
+> **历史快照（RL-4，2026-10-22）：**本文是 2026-09 的规划。此后 math、math_synth 和 kernel_engineering
+> 已移到 Vertical Store。不是当前指引，见
+> [ROADMAP.zh-CN.md](ROADMAP.zh-CN.md) 和 [vertical-store.md](vertical-store.md)。
+
 当前的代码入口、状态所有权、恢复边界和分批任务见
 [Runtime 维护地图与重构任务](runtime-maintainability.md)。下文保留工作流和
 Vertical 拆库的设计背景；实施状态以维护地图为准。

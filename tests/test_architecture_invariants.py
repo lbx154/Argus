@@ -1625,15 +1625,9 @@ def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
 
 # Prose that tells an agent or operator which module to run. After the rename
 # every such citation must spell the package ``argus``; the historical
-# handoff notes below describe the tree as it was and are left alone.
+# record below describes the tree as it was and is left alone.
 _LEGACY_MODULE_CITATION = re.compile(r"\bargus_skill\.[A-Za-z_]")
-_HISTORICAL_DOCS = (
-    "docs/handoff-2026-09-04-capability-tests.md",
-    "docs/HANDOFF-2026-09-05-NEXT.md",
-    "docs/WHAT_ARGUS_GREW.md",
-    "docs/team-intelligence-",
-    "docs/notes-2026-09-06-",
-)
+_HISTORICAL_DOCS = ("docs/WHAT_ARGUS_GREW.md",)
 
 
 def _rename_citation_files() -> list[Path]:

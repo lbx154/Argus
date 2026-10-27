@@ -160,7 +160,9 @@ def test_cursor_install_row_keeps_four_columns_and_the_complete_command() -> Non
 def test_windows_agent_install_contract_matches_native_worker_support() -> None:
     text = (ROOT / "docs/agent-install.md").read_text(encoding="utf-8")
     windows = _section(text, "## Windows 10/11", "## macOS")
-    assert "native durable subagents" in windows
+    # argus.tools.subagent and its durable Windows worker were deleted (b88b67b6).
+    assert "native durable subagents" not in windows
+    assert "Job Object" in windows
     assert "WSL2 is optional" in windows
     assert "POSIX/WSL2-only" not in windows
 
