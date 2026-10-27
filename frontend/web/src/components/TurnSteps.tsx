@@ -37,7 +37,7 @@ export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: s
  */
 export function TurnSteps({ steps, live, startedTs, status = '', replyShown = false }: {
   steps: TurnStep[]; live: boolean; startedTs?: number; status?: string;
-  /** The reply text is already on screen; the turn is only wrapping up. */
+  /** Reply text is already on screen (it may be an interim message). */
   replyShown?: boolean;
 }) {
   const { t, locale } = useI18n();
@@ -55,8 +55,9 @@ export function TurnSteps({ steps, live, startedTs, status = '', replyShown = fa
   const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
   const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
   const active = [...steps].reverse().find(step => step.status === 'running');
-  // Once the answer is visible a spinning "preparing a reply" would contradict it.
-  const finishing = live && replyShown;
+  // Once the answer is visible a spinning "preparing a reply" would contradict
+  // it; a step still running says what the turn is doing instead.
+  const finishing = live && replyShown && !active;
   const summary = finishing ? (locale === 'zh-CN' ? '收尾中' : 'Wrapping up')
     : live
     ? `${active ? stepText(active, locale).primary : locale === 'zh-CN' ? '正在准备回复' : 'Preparing a reply'} · ${seconds}`

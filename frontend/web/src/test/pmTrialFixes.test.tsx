@@ -14,6 +14,15 @@ describe('pm trial fixes', () => {
     expect(html).not.toContain('animate-spin');
   });
 
+  it('keeps naming the running step while an interim reply is on screen', () => {
+    const now = Date.now() / 1000;
+    const steps = [{ call_id: 'c1', kind: 'command_execution', label: '读取项目文件', status: 'running', started_ts: now }];
+    const html = renderToStaticMarkup(<TurnSteps steps={steps as never} live startedTs={now} replyShown />);
+    expect(html).toContain('读取项目文件');
+    expect(html).not.toMatch(/Wrapping up|收尾中/);
+    expect(html).toContain('animate-spin');
+  });
+
   it('folds a run block under "run it yourself"', () => {
     const html = renderToStaticMarkup(<MarkdownContent>{'Drop your CSV here.\n\n```run\npython tool.py data.csv\n```'}</MarkdownContent>);
     expect(html).toContain('<details');
