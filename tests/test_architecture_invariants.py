@@ -1893,3 +1893,77 @@ def test_memory_root_reads_do_not_grow() -> None:
     assert sum(per_file.values()) == MEMORY_ROOT_READS, _ratchet_report(
         "memory.root", MEMORY_ROOT_READS, per_file, "MEMORY_ROOT_READS"
     )
+
+
+# Broad handlers (``except Exception``, ``except BaseException``, bare
+# ``except:``, or a tuple holding one of them) per top-level package of
+# ``argus/``; "<root>" is the modules directly under it. Counted 2026-10-27.
+BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
+    "<root>": 3,
+    "adapters": 16,
+    "advisor": 4,
+    "agent_cli": 12,
+    "apps": 41,
+    "cli": 1,
+    "core": 58,
+    "daemon": 36,
+    "engineer": 19,
+    "life": 183,
+    "maintenance": 2,
+    "manager": 66,
+    "messaging": 1,
+    "planner": 1,
+    "plugin": 9,
+    "release_tools": 1,
+    "reviewer": 2,
+    "roles": 4,
+    "skills": 30,
+    "tools": 3,
+    "trial": 15,
+    "verticals": 60,
+    "webapi": 125,
+    "wiki": 6,
+}
+
+
+def _is_broad_except(caught: ast.expr | None) -> bool:
+    if caught is None:
+        return True
+    if isinstance(caught, ast.Tuple):
+        return any(_is_broad_except(item) for item in caught.elts)
+    name = caught.attr if isinstance(caught, ast.Attribute) else getattr(caught, "id", None)
+    return name in {"Exception", "BaseException"}
+
+
+def test_broad_excepts_do_not_grow_per_package() -> None:
+    """A broad ``except`` turns a bug into a quiet fallback (CO-1, CO-3).
+
+    Most of these handlers return a default or pass, so the failure they
+    catch never reaches a log a person reads, and the run carries on with
+    wrong state. Existing ones are debt to pay down; a new one must catch the
+    specific exception its boundary raises or let the error propagate. The
+    count is pinned per package, so a reduction is banked and cannot be spent
+    elsewhere.
+    """
+    per_package: dict[str, dict[str, int]] = {}
+    for relpath, text in _package_sources().items():
+        head, sep, _ = relpath.partition("/")
+        count = sum(
+            isinstance(node, ast.ExceptHandler) and _is_broad_except(node.type)
+            for node in ast.walk(ast.parse(text))
+        )
+        per_package.setdefault(head if sep else "<root>", {})[relpath] = count
+    problems = [
+        _ratchet_report(
+            f"broad excepts in {package}", BROAD_EXCEPTS_PER_PACKAGE.get(package, 0),
+            per_file, f"BROAD_EXCEPTS_PER_PACKAGE[{package!r}]",
+        )
+        for package, per_file in sorted(per_package.items())
+        if sum(per_file.values()) != BROAD_EXCEPTS_PER_PACKAGE.get(package, 0)
+    ]
+    problems += [
+        f"broad excepts in {package}: package is gone; drop BROAD_EXCEPTS_PER_PACKAGE[{package!r}]"
+        for package in BROAD_EXCEPTS_PER_PACKAGE if package not in per_package
+    ]
+
+    assert problems == []
