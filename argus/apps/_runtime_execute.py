@@ -1250,7 +1250,7 @@ class SkillLoopExecuteMixin:
                     rounds_list=ex_state.rounds_list,
                     workdir=ex_state.workdir,
                     sink=sink,
-                    root_task_id=usage_mission_id or mission_id,
+                    root_task_id=mission_id or usage_mission_id,
                     mission_scope=ex_state.mission_scope,
                     open_ended=bool(getattr(ex_state.config, "open_ended", False)),
                     continuous_objective=str(

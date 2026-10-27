@@ -469,7 +469,9 @@ def _apply_operator_answer(
         mem, item, answer, decision_option=decision_option, decision_id=decision_id,
         decision_note=decision_note, manager_reply=manager_reply, decided_by=decided_by,
     )
-    if step_answer is not None:
+    if step_answer is not None and "resume_with" in step_answer:
+        manager_decision, manager_reply = step_answer["resume_with"]
+    elif step_answer is not None:
         if step_answer.get("resolved") and operator_context_revision:
             from ..core.operator_context import OperatorContextStore
 

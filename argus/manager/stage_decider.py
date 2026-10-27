@@ -95,7 +95,7 @@ def final_stage_completion_decision(
     order = [str(s).strip().lower() for s in stage_order]
     if cur not in order or (cur != order[-1] and not allow_early_completion):
         return None
-    if str(completion_blocker or "").strip() or required_steps_blocker(project_root):
+    if str(completion_blocker or "").strip():
         return None
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
@@ -122,11 +122,13 @@ def final_stage_completion_decision(
     return StageDecision("complete", cur, reason, diagnostic)
 
 
-def required_steps_blocker(project_root: Any) -> str:
+def required_steps_blocker(project_root: Any, judged_item_id: str = "") -> str:
     """The person's required steps (必经步骤) still open; "" with none, or no project root.
 
     The project is not done while a step the person laid on the canvas is not
-    complete, unless they removed it (``core.waypoints``).
+    complete, unless they removed it (``core.waypoints``). ``judged_item_id``
+    is the task whose accepted work is being judged: it is still running while
+    the gate reads the backlog, and counts as delivered.
     """
     if not project_root:
         return ""
@@ -141,6 +143,10 @@ def required_steps_blocker(project_root: Any) -> str:
         rows = LifeMemory.open(root).backlog.history()
     except Exception:  # noqa: BLE001 - unknown tasks leave every step open, which still blocks
         rows = []
+    if judged_item_id:
+        from dataclasses import replace
+
+        rows = [replace(row, status="done") if row.id == judged_item_id else row for row in rows]
     return open_steps_blocker(root, rows)
 
 
@@ -201,9 +207,6 @@ def final_stage_completion_blockers(
     blocker = str(completion_blocker or "").strip()
     if blocker:
         blockers.append(blocker)
-    steps_open = required_steps_blocker(project_root)
-    if steps_open:
-        blockers.append(steps_open)
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
         vertical,

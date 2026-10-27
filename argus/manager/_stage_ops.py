@@ -325,6 +325,7 @@ class _StageDecisionMixin:
         mission_scope: str,
         checklist_contract: Any,
         root: Path,
+        judged_item_id: str = "",
     ) -> Any:
         """Put a stage move the evidence supports to the completion checks.
 
@@ -346,40 +347,45 @@ class _StageDecisionMixin:
             external_completion_gate_stage_guard_decision,
             final_stage_completion_blockers,
             final_stage_completion_decision,
+            required_steps_blocker,
         )
 
-        _completion_vertical = resolve_vertical(root)
-        _research_target_level = resolve_research_target_level(root)
-        # Direct mode is the operator's explicit one-package deliverable. It may
-        # complete without traversing unrelated later stages, including an
-        # Idea-only Research request. Paper production is routed as staged.
-        _allow_early_completion = (
-            not open_ended
-            and resolve_workflow_mode(root) == "direct"
-        )
-        _completion_blockers = [
-            blocker
-            for blocker in (external_completion_gate_issue(self.execution_workdir),)
-            if blocker
-        ]
-        if (
-            _research_target_level in {"publishable", "doctoral"}
-            and not _allow_early_completion
-        ):
-            from ..verticals._base import load_vertical_contract
-
-            # Final completion re-runs the active provider's own strongest
-            # stage validator through the vertical contract, so the gate stays
-            # domain-blind and project-local research providers gate it too.
-            _completion_blockers.extend(
-                load_vertical_contract(_completion_vertical, project_root=root).completion_issues(
-                    stage=order[-1],
-                    project_root=self.execution_workdir,
-                    state_root=root,
-                )
-            )
-        _completion_blocker = "; ".join(_completion_blockers)
         if decision.action == "complete":
+            # Read only for a completion: an advance or a hold never reaches them.
+            _completion_vertical = resolve_vertical(root)
+            _research_target_level = resolve_research_target_level(root)
+            # Direct mode is the operator's explicit one-package deliverable. It may
+            # complete without traversing unrelated later stages, including an
+            # Idea-only Research request. Paper production is routed as staged.
+            _allow_early_completion = (
+                not open_ended
+                and resolve_workflow_mode(root) == "direct"
+            )
+            _completion_blockers = [
+                blocker
+                for blocker in (
+                    external_completion_gate_issue(self.execution_workdir),
+                    required_steps_blocker(root, judged_item_id),
+                )
+                if blocker
+            ]
+            if (
+                _research_target_level in {"publishable", "doctoral"}
+                and not _allow_early_completion
+            ):
+                from ..verticals._base import load_vertical_contract
+
+                # Final completion re-runs the active provider's own strongest
+                # stage validator through the vertical contract, so the gate stays
+                # domain-blind and project-local research providers gate it too.
+                _completion_blockers.extend(
+                    load_vertical_contract(_completion_vertical, project_root=root).completion_issues(
+                        stage=order[-1],
+                        project_root=self.execution_workdir,
+                        state_root=root,
+                    )
+                )
+            _completion_blocker = "; ".join(_completion_blockers)
             checks = dict(
                 current_stage=cur,
                 stage_order=order,
@@ -562,11 +568,12 @@ class _StageDecisionMixin:
         Writes nothing and holds, with the reason the Planner reads, when the
         work was not accepted, the stage was not proposed ready, the person
         asked to decide stage moves themselves, or a check refuses.
+        ``root_task_id`` is the backlog task whose work is judged.
         ``run_exec`` is accepted for older callers and unused.
         """
         from ._core import StageTransition
 
-        _ = (run_exec, on_event, root_task_id)
+        _ = (run_exec, on_event)
         root = Path(project_root) if project_root is not None else self.project_root
 
         with self.pipeline_lock():
@@ -656,6 +663,7 @@ class _StageDecisionMixin:
             review, cur, order, root,
             open_ended=open_ended, mission_scope=mission_scope,
             stage_closing=stage_closing, checklist_contract=checklist_contract,
+            judged_item_id=str(root_task_id or ""),
         )
         return self._commit_stage_decision_if_current(
             decision, cur, root, expected_context=expected_context, source="completion_gate",
@@ -672,6 +680,7 @@ class _StageDecisionMixin:
         mission_scope: str,
         stage_closing: bool,
         checklist_contract: Any,
+        judged_item_id: str = "",
     ) -> Any:
         """What the evidence says about the stage: advance, complete, roll back, or hold and why."""
         from ..core.pipeline_state import read_pipeline_state
@@ -730,6 +739,7 @@ class _StageDecisionMixin:
             )
         return self._gate_completion(
             decision, cur, order, review, open_ended, mission_scope, checklist_contract, root,
+            judged_item_id=judged_item_id,
         )
 
     # ---- progress view ----

@@ -180,6 +180,7 @@
         "target_venue": {"type": "string", "maxLength": 100, "description": "With vertical=research: only a venue the operator named."},
         "require_independent_review": {"type": "boolean", "description": "With to=team: false only when the operator waived independent review."},
         "operator_decides_stages": {"type": "boolean", "description": "With to=team: true only when the operator said they want to decide stage moves themselves; the team then asks them before a stage moves."},
+        "waypoint_id": {"type": "string", "description": "With to=team, when the ticket carries out one of the operator's required steps (必经步骤): that step's id; the ticket then does that step only. Leave it out for other work."},
         "intake": {
           "type": "object", "additionalProperties": false, "required": ["type", "scope"],
           "description": "A lasting rule the operator gave: standing_directive to govern later turns (`以后都用中文`), with preference_value the rule only; otherwise preference, credential_grant or revocation; objective_amendment when it edits the live mission. roles: the roles it applies to, [] for all.",

@@ -292,3 +292,29 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
         require_independent_review=False,
         review_source="engineer_self_review",
     ) is True
+
+
+def test_only_a_ticket_that_names_a_required_step_is_tied_to_it(memory, monkeypatch) -> None:
+    from argus.manager.domain_author import RouteContext
+    from argus.webapi import canvas as store
+
+    life = memory.project.root
+    _c, first = store.add_card(life, 0, kind="step", text="写核心函数")
+    _c, second = store.add_card(life, 1, kind="step", text="加命令行")
+    store.add_link(life, 2, source=first["id"], target=second["id"], kind="order")
+
+    # Work the Manager did not tie to a step stays the operator's own request.
+    _direct_manager(monkeypatch)
+    item, _, _ = dispatch.enqueue_mission(memory, "把 README 里的安装命令修一下", {})
+    assert item.waypoint_id == "" and "[REQUIRED STEP]" not in item.objective
+    assert "stage_closing" in item.tags
+
+    _direct_manager(monkeypatch, waypoint_id=first["id"])
+    item, _, _ = dispatch.enqueue_mission(memory, "做 wordstat", {})
+    assert item.waypoint_id == first["id"]
+    assert "carries out only the operator's step 1" in item.objective
+    assert "«写核心函数»" in item.acceptance_check and "stage_closing" not in item.tags
+
+    with pytest.raises(ValueError, match="waypoint_id: name one of the operator's required steps"):
+        RouteContext(project_root=life)._waypoint({"waypoint_id": "hc-nope"})
+    assert RouteContext(project_root=life)._waypoint({"waypoint_id": second["id"]}) == second["id"]

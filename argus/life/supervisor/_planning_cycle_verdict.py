@@ -87,7 +87,8 @@ class PlanningCycleVerdictMixin:
                 (row for row in self.memory.backlog.history() if row.id == item_id),
                 None,
             )
-        if item is None:
+        asks_only = item is None
+        if asks_only:
             # One open question per planning slot, kept as it was asked: a
             # Planner that comes back while it waits neither adds a card nor
             # rewords it. Their answer is new input that calls it again; a
@@ -119,6 +120,7 @@ class PlanningCycleVerdictMixin:
             waypoint_states = getattr(self, "_waypoint_states", None)
             options, card_fields = dispute_card(
                 waypoint_states() if callable(waypoint_states) else (), about_waypoint, question, options,
+                asks_only=asks_only,
             )
         ask_operator(
             self.memory.root, item, question, reason=reason or question, layer="planner",

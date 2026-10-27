@@ -214,20 +214,6 @@ def _continuous_backend_error(life_dir: Path, body: str) -> str:
     return continuous_mode_error(backend, True, body)
 
 
-def _next_required_step(mem: Any) -> Any:
-    """The person's next required step new work carries out (``core.waypoints``), or None."""
-    from ..core.waypoints import next_step_for_new_work, read_step_states
-
-    try:
-        backlog_path = getattr(mem.backlog, "path", None)
-        if backlog_path is None:
-            return None
-        entry = next_step_for_new_work(read_step_states(Path(backlog_path).parent, mem.backlog.history()))
-    except Exception:  # noqa: BLE001 - an unreadable route leaves the task untied; the gate still holds order
-        return None
-    return entry.step if entry is not None else None
-
-
 def enqueue_mission(
     mem: Any,
     body: str,
@@ -321,10 +307,13 @@ def enqueue_mission(
         head_priority = min(
             (row.priority for row in mem.backlog.pending()), default=100,
         )
-        # The person's required steps (必经步骤): work that starts their route
-        # carries out the next step only, tied to it, so the Planner plans the
+        # The person's required step (必经步骤) the Manager's ticket names: the
+        # task carries out that step only, tied to it, so the Planner plans the
         # later steps in order and a checkpoint can pause between them.
-        step = _next_required_step(mem)
+        from ..core.waypoints import read_route
+
+        step_id = str(getattr(prepared_handoff.decision, "waypoint_id", "") or "")
+        step = next((row for row in read_route(life_dir) if row.id == step_id), None) if step_id else None
         objective, acceptance_check = execution_body, ""
         if step is not None:
             from ..core.waypoints import scope_to_step
