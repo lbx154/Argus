@@ -131,6 +131,7 @@ def _record_round_evidence(
                     if str(getattr(supervised_config, "engineer_log_path", "") or "").strip()
                     else None
                 ),
+                item_id=state.mission_item_id,
             )
         )
         if not items:
@@ -184,12 +185,18 @@ class RoundExecutionMixin:
         actions = engineer_actions(supervised_config)
         # What the agent CLI's stream reports of the Engineer's commands is kept
         # in host memory for the Reviewer, not in a project file. It is not
-        # tamper-proof; the record shows conflicts and unverified results.
-        with command_record.capture(f"engineer-r{round_index}") as round_commands:
+        # tamper-proof; the record shows conflicts and unverified results. The
+        # label names the task: parallel tasks are all in round 1, and a record
+        # takes every line its label reports.
+        label = (
+            f"engineer-r{round_index}-{state.mission_item_id}" if state.mission_item_id
+            else f"engineer-r{round_index}"
+        )
+        with command_record.capture(label) as round_commands:
             engineer_result, _round_compactions = self._run_engineer(
                 prompt=engineer_prompt,
                 workdir=workdir,
-                run_label=f"engineer-r{round_index}",
+                run_label=label,
                 resume_thread_id=resume_thread_id,
                 reasoning_effort=(
                     self.engineer_config.initial_reasoning_effort

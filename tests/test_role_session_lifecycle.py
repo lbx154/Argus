@@ -77,9 +77,9 @@ def _loop(
 def test_resumable_backend_resumes_each_role_without_crossing_roles(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     backend = _resumable()
-    backend.queue("engineer-r1", CannedResponse(message="engineer one", thread_id="e1"))
+    backend.queue("engineer-r1-mission-1", CannedResponse(message="engineer one", thread_id="e1"))
     backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="v1"))
-    backend.queue("engineer-r2", CannedResponse(message="engineer two", thread_id="e1"))
+    backend.queue("engineer-r2-mission-1", CannedResponse(message="engineer two", thread_id="e1"))
     backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
@@ -97,9 +97,9 @@ def test_resumable_backend_resumes_each_role_without_crossing_roles(tmp_path: Pa
         for label, thread in backend.resume_history
         if label.startswith("engineer-") or label == "reviewer"
     ] == [
-        ("engineer-r1", None),
+        ("engineer-r1-mission-1", None),
         ("reviewer", None),
-        ("engineer-r2", "e1"),
+        ("engineer-r2-mission-1", "e1"),
         ("reviewer", "v1"),
     ]
     capsules = context.parent / "role-sessions"
@@ -125,11 +125,11 @@ def test_fresh_backend_repeats_task_contract_on_continuation_round(
 ) -> None:
     context, checkpoint = _context(tmp_path)
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
+    backend.queue("engineer-r1-mission-1", CannedResponse(message="one", thread_id="e1"))
     backend.queue(
         "reviewer", CannedResponse(action=_review("continue"), thread_id="v1")
     )
-    backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
+    backend.queue("engineer-r2-mission-1", CannedResponse(message="two", thread_id="e2"))
     backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v2"))
 
     outcome = _loop(
@@ -157,9 +157,9 @@ def test_a_role_with_no_thread_to_resume_is_told_the_round(tmp_path: Path) -> No
     context, checkpoint = _context(tmp_path)
     backend = _resumable()
     # The provider reports no thread, so round 2 cannot resume round 1.
-    backend.queue("engineer-r1", CannedResponse(message="one"))
+    backend.queue("engineer-r1-mission-1", CannedResponse(message="one"))
     backend.queue("reviewer", CannedResponse(action=_review("continue")))
-    backend.queue("engineer-r2", CannedResponse(message="two"))
+    backend.queue("engineer-r2-mission-1", CannedResponse(message="two"))
     backend.queue("reviewer", CannedResponse(action=_review("done")))
 
     outcome = _loop(
@@ -192,7 +192,7 @@ def test_a_role_with_no_thread_to_resume_is_told_the_round(tmp_path: Path) -> No
 def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     first = _resumable()
-    first.queue("engineer-r1", CannedResponse(message="partial", thread_id="e1"))
+    first.queue("engineer-r1-mission-1", CannedResponse(message="partial", thread_id="e1"))
     first.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="v1"))
     first_loop = _loop(first, tmp_path, context, checkpoint)
     first_loop.config.max_rounds = 1
@@ -201,7 +201,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     assert interrupted.status == "max_rounds"
     assert not interrupted.successful
     assert [label for label, _prompt, _options in first.history] == [
-        "engineer-r1",
+        "engineer-r1-mission-1",
         "reviewer",
     ]
     capsules = context.parent / "role-sessions"
@@ -217,7 +217,7 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     assert "partial" not in reviewer_before_restart["decisive_output"]
 
     second = _resumable()
-    second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
+    second.queue("engineer-r1-mission-1", CannedResponse(message="finished", thread_id="e1"))
     second.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     outcome = _loop(second, tmp_path, context, checkpoint).run(
         "same objective", workdir=tmp_path
@@ -228,14 +228,14 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
         (label, thread)
         for label, thread in second.resume_history
         if label.startswith("engineer-") or label == "reviewer"
-    ] == [("engineer-r1", "e1"), ("reviewer", "v1")]
-    prompt = next(prompt for label, prompt, _ in second.history if label == "engineer-r1")
+    ] == [("engineer-r1-mission-1", "e1"), ("reviewer", "v1")]
+    prompt = next(prompt for label, prompt, _ in second.history if label == "engineer-r1-mission-1")
     # The resumed thread already holds its Role state references block from the
     # first process; the run gateway names it instead of sending it again.
     assert "`Role state references`" in prompt
     assert str(context.parent / "role-sessions" / "reviewer.json") not in prompt
     assert [label for label, _prompt, _options in second.history] == [
-        "engineer-r1",
+        "engineer-r1-mission-1",
         "reviewer",
     ]
 
@@ -374,7 +374,7 @@ def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
 def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
     backend = _resumable()
-    backend.queue("engineer-r1", CannedResponse(message="first", thread_id="e1"))
+    backend.queue("engineer-r1-mission-1", CannedResponse(message="first", thread_id="e1"))
     backend.queue(
         "reviewer",
         CannedResponse(
@@ -386,7 +386,7 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
             thread_id="v1",
         ),
     )
-    backend.queue("engineer-r2", CannedResponse(message="second", thread_id="e2"))
+    backend.queue("engineer-r2-mission-1", CannedResponse(message="second", thread_id="e2"))
     backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="v1"))
     events: list[dict] = []
 
@@ -404,9 +404,9 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
         for label, thread in backend.resume_history
         if label.startswith("engineer-") or label == "reviewer"
     ] == [
-        ("engineer-r1", None),
+        ("engineer-r1-mission-1", None),
         ("reviewer", None),
-        ("engineer-r2", None),
+        ("engineer-r2-mission-1", None),
         ("reviewer", "v1"),
     ]
     signal = next(
@@ -431,7 +431,7 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
         "turns": 3,
     }), encoding="utf-8")
     backend = _resumable()
-    backend.queue("engineer-r1", CannedResponse(message="first", thread_id="e1"))
+    backend.queue("engineer-r1-mission-1", CannedResponse(message="first", thread_id="e1"))
     backend.queue(
         "reviewer",
         CannedResponse(

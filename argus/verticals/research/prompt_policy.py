@@ -235,10 +235,8 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
         "any claim-bearing run write tests/spec: oracle "
         "(one function per equation), differential tests, one knockout per "
         "component, claim-shaped tests, each tagged "
-        "@pytest.mark.component('<name as in the card>'). Put '# @component <name>' "
-        "above each component entry point, '# @simplified' and '# @reuses' likewise "
-        "(all in engineer/method-card.md); the host builds the Reviewer's packet from "
-        "these anchors and derives the rest from code, markers, configs and git: maintain "
+        "@pytest.mark.component('<name as in the card>'). The host derives the rest "
+        "from code, markers, configs and git: maintain "
         "no tables by hand; write '# why: ...' beside each chosen config value; edit "
         "METHOD.md only when the method changes. Run tests/spec yourself when needed; put "
         "the command and result in your evidence. "
@@ -276,14 +274,11 @@ def _method_card_reviewer_block(stage: str) -> str:
         "question: which clauses do these numbers meet. A stated value the host resolves differently, "
         "a run shorter than its protocol allows, or a metric named differently from the protocol's "
         "is where you open the script; a metric on which every method scores the same separates nothing. Then the review packet "
-        "(anchors, tests per component, config changes, files changed, Run "
-        "reality; reused code; hyperparameter changes), METHOD.md, the runs in Raw "
+        "(tests per component, Run reality, files changed, reused code), METHOD.md, the runs in Raw "
         "verification evidence, tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
         "INSUFFICIENT_EVIDENCE with file:line. "
-        "Required repairs, returned as continue naming the smallest fix: a component "
-        "without a '# @component' anchor or a knockout that fails in its absence, an "
-        "untested component, a failing or unexplained-skip test, a hyperparameter "
-        "change without a '# why' or a card note, code that contradicts the card. "
+        "Required repairs, returned as continue naming the smallest fix: an "
+        "untested component, a failing or unexplained-skip test, code that contradicts the card. "
         "Narrowing the METHOD.md "
         "claim is claim drift; it, or a negative result while a named ladder rung could "
         "still change it, is a repair request, whatever the attempt count. A "
@@ -776,7 +771,7 @@ def _attainment_block_for_planner(stage: str, project_root: Path | None) -> str:
 
 
 def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> str:
-    """Host-derived component tests, reused code and hyperparameter changes.
+    """Host-derived component tests, run reality and reused code.
 
     Evidence for the Reviewer's reading order, not a gate; '' when the project
     has no METHOD.md or the derivation fails for any reason.
@@ -812,7 +807,7 @@ def render_role_prompt_context(
         if normalized_operation != "evaluate":
             return ""
         # The review packet: the host-derived method card (component tests,
-        # code anchors, files changed this round). Capped here as well as at
+        # run reality, files changed this round). Capped here as well as at
         # its source so a longer derivation can never crowd the Reviewer's
         # own evidence out of the prompt.
         packet = _derived_method_card_for_reviewer(normalized_stage, project_root)

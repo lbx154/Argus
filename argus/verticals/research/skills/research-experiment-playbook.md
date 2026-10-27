@@ -106,12 +106,11 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    and evaluator access until the differential, knockout and parity tests
    pass. Build the strongest faithful version of the idea, not the easiest
    version that can pass a local check; where the implementation must
-   simplify the route, say so in the card's Notes column and mark the entry
-   point `# @simplified` before running anything that bears a claim. Write
-   the code for the Reviewer that reads it without you present (the anchors
-   in `engineer/method-card.md`): `# @component <name>` above every
-   component entry point, `# @simplified`, `# @reuses` and `# why:` where
-   they apply; the host builds the review packet from these anchors.
+   simplify the route, say so in the card's Notes column before running
+   anything that bears a claim. Write the code for the Reviewer that reads
+   it without you present: each card row names its entry point as
+   `path:Symbol`, and `# why:` marks a non-obvious decision
+   (`engineer/method-card.md`).
 5. Beyond `tests/spec`, run only the smallest engineering checks needed to
    establish imports, shapes, branches, numerical behavior, and end-to-end
    wiring, then run a known detectable positive control through the same
@@ -330,9 +329,9 @@ Work this ladder in order, one rung per attempt, and record the evidence for
 each rung in the run records before moving to the next:
 
 1. **Implementation fidelity** against the method card: every component
-   anchored and reached on the executed path, knockouts that fail in the
-   component's absence, differential tests against the oracle and the
-   pinned reference (`engineer/method-card.md`).
+   reached on the executed path from the entry point its row names,
+   knockouts that fail in the component's absence, differential tests
+   against the oracle and the pinned reference (`engineer/method-card.md`).
 2. **Setup and evaluator**: the positive control recovers a known signal
    through the same path, the data pipeline yields what the route describes,
    no leakage across splits, and the pilot is large enough to resolve the
@@ -467,7 +466,7 @@ decision, then return here. Do not read all the sources in advance.
 
 | When needed | Open | Use it for |
 |---|---|---|
-| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; whether the experiment can answer the question; the `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet; keeping thesis and code aligned |
+| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; whether the experiment can answer the question; each component's entry point as `path:Symbol`; keeping thesis and code aligned |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/training-infrastructure.md` | Choose the framework from a current, verified survey, stand it up in isolation, and tune from the official recipe |
 | A project environment needs setup or repair, or a dependency or resource may block a claim-bearing run | `project-venv-package-management.md` in the global library | Reuse the configured environment, install only required dependencies, and verify only the resources the run uses |

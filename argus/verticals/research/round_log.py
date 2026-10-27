@@ -20,8 +20,8 @@ Reviewer reads what a check does before weighing its result or rerunning it.
 
 The calls come from host memory (:mod:`argus.core.command_record`), fed by the
 agent CLI's stream rather than by any project file. Without a capture the provider reads only
-the exact event log the host writes for the mission, never a file found by
-walking up from the mission packet, with the same conflict handling.
+the task's rows of the exact event log the host writes for the project, never a
+file found by walking up from the mission packet, with the same conflict handling.
 
 Evidence, not a gate: :func:`round_log_evidence`, registered as a round-evidence
 provider when the research vertical is imported, renders text into the
@@ -568,17 +568,19 @@ def render_round_log(
     *,
     runs: Iterable[CommandRun] = (),
     events_path: Path | None = None,
+    item_id: str = "",
     dropped: int = 0,
 ) -> str:
     """The packet text, or '' when there is nothing to show.
 
     ``runs`` (host memory) wins; otherwise only ``events_path`` is read, the
-    exact log the host writes for this mission. ``dropped`` counts earlier
-    calls the record no longer holds.
+    exact log the host writes for the project, and only task ``item_id``'s
+    rows in it: parallel tasks share the log and the round numbers.
+    ``dropped`` counts earlier calls the record no longer holds.
     """
     runs = list(runs)
     if not runs and events_path is not None and Path(events_path).is_file():
-        events = list(_iter_events(Path(events_path)))
+        events = [e for e in _iter_events(Path(events_path)) if not item_id or e.get("item_id") == item_id]
         since = round_window_start(events, round_index)
         if since is None:
             return ""
@@ -601,14 +603,15 @@ def render_round_log(
 def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
     """What the host saw of the Engineer's round, in the Reviewer's slot.
 
-    The calls come from host memory; without them only the host's own event
-    log for the mission is read, never a file near the mission packet.
+    The calls come from host memory; without them only the task's rows of the
+    host's own event log are read, never a file near the mission packet.
     """
     try:
         text = render_round_log(
             request.workdir, request.round_index,
             runs=request.command_runs,
             events_path=request.events_path,
+            item_id=request.item_id,
             dropped=request.command_runs_dropped,
         )
     except Exception:  # noqa: BLE001 - evidence must never break a round

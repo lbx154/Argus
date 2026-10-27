@@ -2,12 +2,13 @@
 
 Every model call is journaled to ``agent_io.jsonl``: an ``agent.io.start`` row
 (call id, run label, model, prompt) and the runner's stdout, one Codex JSON
-event per line. Which task a call worked for is not on those rows. It is in the
-project's ``events.jsonl``, where the loop writes ``round.start`` (or
-``round.review.started``) for an item right before it starts that role's call,
-and in ``handoffs/<item>/role-sessions``, which name the threads each role
-used. The thread wins when both are known, so parallel items cannot borrow
-each other's calls.
+event per line. An Engineer call's label names its task
+(``engineer-r<round>-<item>``). For any other call, and for older Engineer
+labels, the task is in the project's ``events.jsonl``, where the loop writes
+``round.start`` (or ``round.review.started``) for an item right before it
+starts that role's call, and in ``handoffs/<item>/role-sessions``, which name
+the threads each role used. The thread wins when both are known, so parallel
+items cannot borrow each other's calls.
 
 The trace is read-only and bounded. Prompt bodies are never returned: only what
 the model said, thought (its reasoning summaries), ran, changed and called.
@@ -33,7 +34,7 @@ PATH_LIMIT = 24
 CONCLUSION_LIMIT = 240
 # Logs are read once per request; a project's log beyond this is not traced.
 READ_LIMIT = 256 * 1024 * 1024
-_ENGINEER_LABEL = re.compile(r"^engineer-r(\d+)$")
+_ENGINEER_LABEL = re.compile(r"^engineer-r(\d+)(?:-(.+))?$")
 
 
 def _text(value, limit: int) -> str:
@@ -115,8 +116,8 @@ def _calls_by_task(life_dir: Path) -> dict[str, dict]:
             call_id, label = str(row["call_id"]), str(row.get("run_label") or "")
             base = {"label": label, "ts": row.get("ts")}
             if match := _ENGINEER_LABEL.match(label):
-                if last_round:
-                    calls[call_id] = {**base, "task_id": last_round, "role": "engineer",
+                if task := match.group(2) or last_round:
+                    calls[call_id] = {**base, "task_id": task, "role": "engineer",
                                       "round": int(match.group(1))}
             elif label == "reviewer":
                 if last_review:

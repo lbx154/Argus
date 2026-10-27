@@ -322,13 +322,9 @@ def _components_section(card: dict[str, Any]) -> list[str]:
         return []
     lines = ["### Components now"]
     for entry in components[:COMPONENT_LINES]:
-        where = method_card.anchor_location(entry)
-        line = f"- {entry['component']}: " + (
+        lines.append(f"- {entry['component']}: " + (
             method_card.kinds_summary(entry.get("tests") or []) or "no test carries its marker"
-        )
-        line += " (simplified)" if entry.get("simplified") else ""
-        line += f" — {where}" if where else " — no `# @component` anchor in the code"
-        lines.append(line)
+        ))
     if len(components) > COMPONENT_LINES:
         lines.append(f"- ... {len(components) - COMPONENT_LINES} more in METHOD.md")
     return lines

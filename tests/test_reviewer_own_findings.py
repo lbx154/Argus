@@ -55,11 +55,11 @@ def _run(
 
         return CannedResponse(message_factory=turn, thread_id=thread_id)
 
-    backend.queue("engineer-r1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
+    backend.queue("engineer-r1-mission-1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
     backend.queue("reviewer", CannedResponse(
         action=hand_off("engineer", "A finding remains.", _FINDING), thread_id="v1",
     ))
-    backend.queue("engineer-r2", writes("ERROR,20\n", "Recounted all rows.", engineer_threads[1]))
+    backend.queue("engineer-r2-mission-1", writes("ERROR,20\n", "Recounted all rows.", engineer_threads[1]))
     backend.queue("reviewer", CannedResponse(
         action=hand_off("done", "All rows match."),
         thread_id="v1",

@@ -1,9 +1,9 @@
 ---
-name: "Method card (METHOD.md), executable spec and review anchors"
-description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that runs without a model, anchors in the code that a Reviewer who was not present can follow, and the mapping from thesis to executed path. The tests behind each component, reused code, hyperparameters and history are derived by the host, never maintained by hand."
+name: "Method card (METHOD.md) and executable spec"
+description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words with its entry point, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that runs without a model, and the mapping from thesis to executed path. The tests behind each component, reused code, hyperparameters and history are derived by the host, never maintained by hand."
 ---
 
-# Method card (METHOD.md), executable spec and review anchors
+# Method card (METHOD.md) and executable spec
 
 `METHOD.md` at the project root is the one place that says what the method
 *is*. The Engineer who implements the method writes it, from the selected
@@ -15,10 +15,10 @@ sole cross-stage context and that no extra reporting files are written.
 
 Everything else in this document exists to hold the code to the card: the
 reference clone the method is a diff on, the spec suite that says in code
-what the method must do, the anchors in the code the Reviewer reads, and the
-mapping from thesis to executed path. They are joined by one convention: a
-component is spelled the same way in the card's table, in the marker on its
-tests and in the anchor above its code, and the host joins the three by name.
+what the method must do, and the mapping from thesis to executed path. They
+are joined by one convention: a component is spelled the same way in the
+card's table and in the marker on its tests, and the host joins the two by
+name.
 
 ## Why the card exists
 
@@ -47,26 +47,24 @@ the project.
 2. Copy the template at the end of this document to `METHOD.md` and fill it
    in order: a title and a one-paragraph statement of the method as the paper
    will claim it; the `Components` table (`Component | The idea prescribes |
-   Notes`), quoting the route in the second column and leaving `Notes` empty
-   unless you deliberately simplify a component, in which case it says what
-   was simplified and why; `Known prior art`; the `Protocol` (datasets,
-   baselines, seeds or repeats, metrics and the config files the runs use,
-   copied from the route, every deviation on its own line with the reason,
-   and whether this experiment can answer the question); and `What would
-   falsify the claim`, the observation that would make the paper's central
-   claim false.
-3. Spell the component name exactly as the marker on its tests and the anchor
-   above its code will spell it.
+   Notes`), quoting the route in the second column; `Notes` names the
+   component's entry point as `path:Symbol` and, if you deliberately simplify
+   the component, what was simplified and why; `Known prior art`; the
+   `Protocol` (datasets, baselines, seeds or repeats, metrics and the config
+   files the runs use, copied from the route, every deviation on its own line
+   with the reason, and whether this experiment can answer the question); and
+   `What would falsify the claim`, the observation that would make the
+   paper's central claim false.
+3. Spell the component name exactly as the marker on its tests will spell it.
 
 That is all you maintain. The host derives, at zero model cost, and shows in
 Atlas and to the Reviewer: the tests behind each component, from the markers
 on `tests/spec`; the reused code from an import scan of the project mapped
 to `third_party/` clones (pinned revision, remote) and installed packages
 (version); the hyperparameters from the config files with their `# why:`
-reasons and a diff against the previous round; and the change history from
-git. Reference implementations, reused code, key hyperparameters and the
-change log are derived by the host from the code and are never written into
-the card by hand.
+reasons; and the change history from git. Reference implementations, reused
+code, key hyperparameters and the change log are derived by the host from the
+code and are never written into the card by hand.
 
 Touch `METHOD.md` again only when the method itself changes: a component is
 added or removed, a component is deliberately simplified (say so in `Notes`),
@@ -172,49 +170,26 @@ registers the marker and, at collection, writes
 card, so each component lists the tests that carry its marker and a component
 no test is tagged with shows as untested. Nobody writes this by hand.
 
-When a component is added to the card, its tests get the marker and its code
-gets the anchor in the same round; when a component is removed, so are its
-markers and anchor. Nothing else needs to be kept in step.
+When a component is added to the card, its tests get the marker in the same
+round; when a component is removed, so are its markers. Nothing else needs to
+be kept in step.
 
-## Anchors
+## Entry points
 
-The Reviewer may be unable to run anything. It sees a review packet the
-host assembles from your anchors: each component's code excerpt and marked
-tests, the config changes and the files changed this round, beside
-`METHOD.md`. The Reviewer was not there when the code was written and cannot
-search a repository for the mechanism; the anchor is how it finds the entry
-point, reads the excerpt and compares it with the card. Code the Reviewer
-cannot locate cannot be credited with implementing the component, whatever
-that code does, so an unanchored component reads as absent in the packet and
-the round is judged on that basis. The anchors cost a comment each; they are
-the difference between a review of the method and a review of your
-description of it.
-
-- `# @component <name>` on the line directly above the `def` or `class` that
-  is the component's entry point. `<name>` is spelled exactly as in the
-  card's `Components` table and as in the `@pytest.mark.component` marker on
-  its tests. One anchor per component entry point; helpers are not anchored.
-  The host shows the anchor (file:line, symbol, excerpt) next to the
-  component's tests; a component without an anchor is listed as such, and
-  an anchor for a component the card does not name is listed too.
-- `# @simplified <name>: <why>` directly below the component anchor when the
-  implementation deliberately departs from what the route prescribes. The
-  same departure is named in the card's `Notes` column.
-- `# @reuses <library> <symbol>` on the import line for reused external code.
-  Reused code is imported from the pinned `third_party/` clone or the
-  installed package, never copied into the project.
-- `# why: <reason>` on or directly above a non-obvious decision: a
-  tolerance, a masking choice, an ordering, a shortcut taken.
-
-The round summary names the anchors added or changed this round.
+The Reviewer was not there when the code was written; it starts reading at
+the `path:Symbol` each component's row names and compares the code there with
+the card. Reused code is imported from the pinned `third_party/` clone or the
+installed package, never copied into the project. A non-obvious decision (a
+tolerance, a masking choice, an ordering, a shortcut taken) carries a
+`# why: <reason>` comment on or directly above it.
 
 ## Configuration
 
 Hyperparameters live in config files (`configs/*.yaml`), each chosen value
 with a `# why: ...` comment on the same line or the line above it; the host
-reads the value and the reason from there and shows them with a diff against
-the previous round. No load-bearing defaults hidden in function signatures;
-the run is reproducible from the config it names.
+reads the value and the reason from there and shows them beside the card. No
+load-bearing defaults hidden in function signatures; the run is reproducible
+from the config it names.
 
 ## Shape of the code
 
@@ -248,8 +223,8 @@ every load-bearing part of the thesis to the actual implementation:
 - the evaluator output and the positive control;
 - the fair baseline and the invariants.
 
-Implement through those concrete paths. The card's `Components` table, its
-markers and its anchors are where the mapping lives; a fresh Reviewer then
+Implement through those concrete paths. The card's `Components` table and its
+markers are where the mapping lives; a fresh Reviewer then
 follows the reachable call chain from the card (`reviewer/claim-to-code-trace.md`)
 and says whether the code tests the selected mechanism under the intended
 comparison, tests a different mechanism or comparison, or does not reach the
@@ -258,9 +233,9 @@ before claim-bearing runs; never resolve either by rewording the card to
 describe what the code does. The claim changes only as experiment.repair
 allows (the operator for an operator-locked idea, a reviewed revision task for
 a working hypothesis Argus selected); a component row changes in the same round only for a
-deliberate, named simplification the operator can see, marked `# @simplified`
-at the entry point. The alignment result lives in the code, the spec run you
-report and the Reviewer's returned judgement, not in a separate note.
+deliberate, named simplification the operator can see, named in its
+`Notes`. The alignment result lives in the code, the spec run you report and
+the Reviewer's returned judgement, not in a separate note.
 
 ## What the card is not
 
@@ -285,7 +260,7 @@ paper will say it achieves. Quote the selected route where it states this.>
 
 | Component | The idea prescribes | Notes |
 |---|---|---|
-| <component 1> | "<quoted sentence from the route section>" | <empty, or a deliberate simplification and why> |
+| <component 1> | "<quoted sentence from the route section>" | <`path:Symbol` of its entry point; a deliberate simplification and why> |
 | <component 2> | "<quoted sentence>" | |
 
 Spell each component name exactly as the `@pytest.mark.component("<name>")`

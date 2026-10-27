@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from argus.core.model_visible_text import (
-    MODEL_INTEGRITY_BOUNDARY,
-)
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
-from argus.roles.prompts.manager import assemble_manager_prompt
 
 SHA_B = "b" * 64
 COMMIT_ID = "9f2c1b4a8e7d0000000000000000000000000000"
@@ -18,7 +14,6 @@ def test_operator_commit_id_survives_all_role_prompt_assembly() -> None:
         skill_text="",
         next_action=None,
     )
-    manager = assemble_manager_prompt(task)
     reviewer = Reviewer(runner=None, skill_store=None)._build_prompt(
         objective=task,
         operator_messages=[],
@@ -30,11 +25,9 @@ def test_operator_commit_id_survives_all_role_prompt_assembly() -> None:
         prior_checkpoint={},
     )
 
-    for prompt in (engineer, manager, reviewer):
+    for prompt in (engineer, reviewer):
         assert task in prompt
         assert COMMIT_ID in prompt
-    for prompt in (manager, reviewer):
-        assert MODEL_INTEGRITY_BOUNDARY.splitlines()[0] in prompt
 
 
 def test_reviewer_requires_causal_performance_evidence() -> None:

@@ -6,8 +6,8 @@ description: "Read the current experimental evidence yourself, from the review p
 # What the experiments establish
 
 Use this in Experiment. Read the review packet in your context first (the
-component anchors with their code excerpts and marked tests, the config
-changes and the files changed this round), then `METHOD.md`, then
+marked tests per component, the run reality and the files changed this
+round), then `METHOD.md`, then
 direct code, configuration, raw results, positive controls, evaluator outputs,
 and strong baseline results. Do not write a separate result-review file.
 
@@ -30,9 +30,7 @@ falsifier before the new test.
 
 ## Questions that determine the next experiment
 
-- Is the executed path faithful to the selected mechanism? Does every
-  component in the card carry a `# @component` anchor on its entry point and a
-  knockout that fails in its absence? A component without either is a repair.
+- Is the executed path faithful to the selected mechanism?
 - Did the evaluator and positive control work?
 - Do the raw observations actually cover the declared configurations and
   repetitions, with exclusions or failures visible and claim-critical

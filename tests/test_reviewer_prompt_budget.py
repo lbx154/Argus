@@ -252,7 +252,7 @@ def test_reviewer_starts_from_the_diff_then_the_commands_then_the_account(tmp_pa
 
     block = prompt.split("## Workspace changes under review\n", 1)[1].split("Raw verification", 1)[0]
     assert "2 files changed, +2 -1:" in block
-    assert "- results/eval results.json: +1 -0\n" in block
+    assert "- results/: 1 file, +1 -0\n" in block  # run outputs are counted, never diffed
     assert "- train.py: +1 -1\n" in block
     assert "do not re-explore the workspace" in block
     assert "--- train.py\n@@ -1 +1 @@\n-split = 'test'\n+split = 'train'\n" in block
