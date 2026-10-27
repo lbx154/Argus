@@ -1070,6 +1070,9 @@ export function MapCanvas({
     const under = typeof document.elementsFromPoint === "function"
       ? document.elementsFromPoint(point.clientX, point.clientY)
       : [document.elementFromPoint(point.clientX, point.clientY)];
+    // Only a drop on the canvas itself links: one over a panel, the rail or
+    // past the canvas edge never reaches a card hidden behind it.
+    if (!under[0]?.closest(".react-flow__renderer")) return;
     const stack = [state.toNode?.id, ...under.map((el) => el?.closest(".react-flow__node")?.getAttribute("data-id"))];
     const target = resolveLinkTarget(source, stack, toFlow({ x: point.clientX, y: point.clientY }),
       flowNodes.flatMap((n) => n.hidden ? [] : [{ id: n.id, kind: n.type ?? "", x: n.position.x, y: n.position.y,

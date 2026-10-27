@@ -103,7 +103,7 @@ beforeEach(() => {
   writes = [];
   serial = 0;
   vi.stubGlobal("window", { location: { search: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn(), innerWidth: 1440, innerHeight: 960 });
-  vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn(), elementFromPoint: () => null, querySelector: () => null });
+  vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn(), elementFromPoint: () => target(".react-flow__renderer"), querySelector: () => null });
   vi.spyOn(api, "writeMapCanvas").mockImplementation(fakeWrite as typeof api.writeMapCanvas);
   vi.spyOn(api, "mapCanvas").mockImplementation(() => Promise.resolve(server));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -144,6 +144,25 @@ it("links two cards with the kind the person chooses and draws it as a human lin
   expect(writes).toEqual([{ method: "POST", path: "/links", body: { revision: 1, source: "hc-1", target: "parent", kind: "check" } }]);
   const edge = flow().edges.find((e) => e.type === "human")!;
   expect(edge).toMatchObject({ source: "hc-1", target: "parent", data: { kind: "check" } });
+});
+
+it("offers no link when the drop lands on a panel over the canvas or past its edge", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "假设", position: { x: 0, y: -900 } }); });
+  act(() => { client.setQueryData(["map-canvas", "canvas"], server); });
+  const node = { closest: (s: string) => s === ".react-flow__renderer" ? {} : s === ".react-flow__node" ? { getAttribute: () => "parent" } : null };
+  const menu = () => renderer.root.findAll((n) => n.props.role === "menuitemradio");
+  // Over the open conversation panel, with the task card behind it.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".map-conversation"), node];
+  act(() => flow().onConnectEnd({ clientX: 1200, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu()).toHaveLength(0);
+  // Past the canvas edge, over the sidebar rail.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".workspace-rail")];
+  act(() => flow().onConnectEnd({ clientX: 10, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu()).toHaveLength(0);
+  // On the canvas, the same card behind the line is linked.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".react-flow__renderer"), node];
+  act(() => flow().onConnectEnd({ clientX: 600, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu().length).toBeGreaterThan(0);
 });
 
 it("remembers where a task card was dropped and keeps it there", async () => {
