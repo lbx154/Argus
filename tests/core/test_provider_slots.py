@@ -52,6 +52,10 @@ def test_waiters_keep_fifo_and_user_messages_precede_map_refresh(tmp_path, monke
     assert not list((tmp_path / "provider-slots").glob("wait-*.lock"))
 
 
+def test_typing_suggestions_use_only_idle_capacity():
+    assert provider_call_priority("prompt-complete") == provider_call_priority("map-summary") == 2
+
+
 def test_cancelled_waiter_releases_its_place_promptly(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "1")
     holder, _ = acquire_provider_slot(tmp_path)

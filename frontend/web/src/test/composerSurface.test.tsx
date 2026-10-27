@@ -1,10 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerSurface } from '../components/ComposerSurface';
 import { ChatBox } from '../components/ChatBox';
 import { MapComposer } from '../map/MapComposer';
+import { referenceText } from '../map/presentation';
 
 const mainProps = {
   value: 'Research question', onChange: vi.fn(), onSend: vi.fn(async () => false), onCancel: vi.fn(),
@@ -58,6 +59,44 @@ describe('shared conversation surface', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(changed).not.toHaveBeenCalled();
     expect(filesChanged).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('mirrors only the visible text under the gray suggestion, in the textarea\'s own font', () => {
+    const value = `${referenceText({ source: 'map', task_id: 't1', task_title: 'Study', event_ids: [] })}Compare`;
+    const html = renderToStaticMarkup(createElement(ComposerSurface, {
+      value, ghost: ' the baselines', onChange: vi.fn(), inputRef: { current: null }, fileInputRef: { current: null },
+      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), onCancel: vi.fn(), pending: false,
+    }));
+    expect(html).toContain('<div class="composer-ghost" aria-hidden="true">Compare<span> the baselines</span></div>');
+
+    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('getComputedStyle', () => ({ fontFamily: 'Geist', fontSize: '14px', fontWeight: '400', lineHeight: '28px', letterSpacing: 'normal', marginTop: '8px', marginBottom: '8px', maxHeight: '56px' }));
+    const textareaNode = vi.fn(() => ({ style: {}, getClientRects: () => [], addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const mirror = { style: {} as Record<string, string> };
+    const accept = vi.fn();
+    const props = { value: 'Compare', onChange: vi.fn(), inputRef: { current: null }, fileInputRef: { current: null },
+      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), onCancel: vi.fn(), pending: false, onAcceptGhost: accept };
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(createElement(ComposerSurface, props), {
+      createNodeMock: (element) => element.type === 'textarea' ? textareaNode() : element.props.className === 'composer-ghost' ? mirror : null,
+    }); });
+    act(() => renderer.update(createElement(ComposerSurface, { ...props, ghost: ' the baselines' })));
+    // A long suggestion grows the box no further than the textarea itself may grow.
+    expect(mirror.style).toMatchObject({ fontSize: '14px', lineHeight: '28px', marginTop: '8px', maxHeight: '56px' });
+    const span = renderer.root.findByProps({ className: 'composer-ghost' }).findByType('span');
+    const down = { preventDefault: vi.fn() };
+    act(() => span.props.onPointerDown(down));
+    expect(down.preventDefault).toHaveBeenCalled();
+    // A touch may still turn into a scroll or a long press; only the tap's click takes the text.
+    expect(accept).not.toHaveBeenCalled();
+    act(() => span.props.onClick());
+    expect(accept).toHaveBeenCalledOnce();
+    act(() => renderer.update(createElement(ComposerSurface, props)));
+    // The gray text coming and going never remounts the textarea, so focus stays put.
+    expect(textareaNode).toHaveBeenCalledOnce();
     act(() => renderer.unmount());
   });
 });

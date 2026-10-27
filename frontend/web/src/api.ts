@@ -1566,6 +1566,9 @@ export const api = {
    */
   rewritePrompt: (sid: string, text: string) =>
     postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
+  /** The light model's guess at how the line being typed ends; '' when it has none. Nothing is queued. */
+  completePrompt: (sid: string, text: string, signal: AbortSignal) =>
+    postJson<{ completion?: string }>(P(sid, '/prompt/rewrite'), { text, mode: 'complete' }, signal).then((reply) => reply.completion ?? ''),
   setConfig: (sid: string, name: string, value: string, applyToRoles = false) =>
     postJson<Record<string, unknown>>(P(sid, '/config/set'), applyToRoles ? { name, value, apply_to_roles: true } : { name, value }),
   setIdentity: (sid: string, text: string) =>

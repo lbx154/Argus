@@ -294,6 +294,36 @@ def build_prompt_rewrite_prompt(
     return f"## Active vertical role\n{banner}\n\n{prompt}"
 
 
+def build_prompt_completion_prompt(
+    draft: str, anchor: str, *, project_context: str = "", recent_turns: str = "",
+) -> str:
+    """Ask for the likely rest of the line the operator is typing.
+
+    Fixed rules first and the draft last, so the provider reuses the cached
+    prefix across the many short calls one message produces.
+    """
+    prompt = (
+        "The operator has paused while typing a message to the Manager of their research team. "
+        "Predict the words they will most likely type next to finish the sentence they are writing; "
+        "the composer shows them as gray text the operator may accept.\n\n"
+        "Rules:\n"
+        "1. Finish only the current sentence, on one line: at most about 20 words or 30 Chinese characters.\n"
+        "2. Write in the draft's language and tone. Do not answer, rewrite or correct the draft, "
+        "and add no request the operator has not made.\n"
+        "3. Use names and paths from the context only when the draft is clearly heading to them; "
+        "never invent numbers, names or paths.\n"
+        '4. If the sentence already reads as finished, or you cannot tell where it is going, reply {"text": ""}.\n\n'
+        'Reply with JSON only: {"text": "..."}. The text starts with the exact characters under '
+        '"Starts with" (the end of the draft), then continues it; finish a cut-off word without a space.\n\n'
+    )
+    if project_context.strip():
+        prompt += f"## Project context\n{project_context.strip()}\n\n"
+    if recent_turns.strip():
+        prompt += f"## Latest conversation\n{recent_turns.strip()}\n\n"
+    return (prompt + "## Draft (a JSON string)\n" + json.dumps(draft, ensure_ascii=False)
+            + "\n\n## Starts with\n" + json.dumps(anchor, ensure_ascii=False))
+
+
 def build_skill_placements_prompt(
     *,
     skills: Sequence[dict[str, str]],
@@ -362,6 +392,7 @@ __all__ = [
     "assemble_manager_prompt",
     "build_manager_prompt",
     "build_plan_prompt",
+    "build_prompt_completion_prompt",
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_skill_placements_prompt",

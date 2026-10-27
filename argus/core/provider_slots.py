@@ -19,8 +19,8 @@ _MAX_WAIT_SECONDS = 600.0
 
 
 def provider_call_priority(run_label: str) -> int:
-    """Interactive work precedes workers; presentation and watching use idle capacity."""
-    if run_label.startswith(("map-", "observer")):
+    """Interactive work precedes workers; presentation, watching and typing suggestions use idle capacity."""
+    if run_label.startswith(("map-", "observer", "prompt-complete")):
         return 2
     if run_label.startswith(("manager-frontdoor", "manager-chat", "manager-self")):
         return 0

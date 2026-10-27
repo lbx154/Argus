@@ -10,6 +10,7 @@ per-project chat-state/lock bookkeeping live in ``manager_dispatch.py`` /
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,8 @@ def manager_message(
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
 
+    # The message is sent: a suggestion still running for its draft stops and frees its slot.
+    _LATEST_COMPLETION[sid] = object()
     generation = manager_control_generation(sid)
 
     def is_cancelled() -> bool:
@@ -751,3 +754,77 @@ def _manager_rewrite(
         "error": rewrite.error,
         "operator_context_revision": operator_context_revision,
     }
+
+
+# Each project's newest suggestion call; a newer one, or a sent message, stops an older one still running.
+_LATEST_COMPLETION: dict[str, object] = {}
+_COMPLETION_SECONDS = 20.0
+_COMPLETION_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["text"],
+    "properties": {"text": {"type": "string", "maxLength": 400}},
+}
+
+
+def manager_complete(sid: str, text: str, *, global_root: Path | str | None = None) -> dict[str, Any]:
+    """Gray text for the composer: how the line the operator is typing may end.
+
+    One tool-less, read-only light-model turn through the map's text path. It never
+    takes the Manager lock or the Manager's runner, so a running reply neither delays
+    it nor is delayed by it. A newer request from the same project, or the time limit,
+    stops it as an operator abort, never as a provider failure. Any failure is simply
+    no suggestion.
+    """
+    from ..core.hosting import hosting
+    from ..core.run_gateway import run_interrupt_scope
+    from ..core.secret_guard import contains_secret
+    from ..core.transcript import read_turns
+    from ..life.memory import MemoryBundle
+    from ..roles.prompts.manager import build_prompt_completion_prompt
+    from .map_model import resolve_map_model, run_map_model
+
+    turn = _LATEST_COMPLETION[sid] = object()
+    draft = text[-1500:]
+    config = resolve_map_model()
+    # A hosted trial meters (the pi harness also captures) every call, and a failed Copilot
+    # one pauses the account; a suggestion is not worth that. A pasted key reaches a model
+    # only after sending has stored it in the vault.
+    hosted = hosting().enabled() or os.environ.get("ARGUS_TRIAL_HARNESS")
+    if hosted or not config.available or contains_secret(draft):
+        return {"completion": ""}
+    mem = MemoryBundle.for_cwd(fingerprint=sid, global_root=Path(global_root) if global_root else None)
+    if not mem.project_root.is_dir():
+        return {"completion": ""}
+    give_up = time.monotonic() + _COMPLETION_SECONDS
+
+    def stopped() -> str | None:
+        if _LATEST_COMPLETION.get(sid) is not turn:
+            return "operator abort requested: a newer draft, or sending it, replaced this suggestion"
+        return "operator abort requested: the suggestion took too long" if time.monotonic() >= give_up else None
+
+    recent = "\n".join(
+        f"{row.get('role')}: {' '.join(str(row.get('text') or '').split())[-400:]}"
+        for row in read_turns(mem.project_root, limit=2)
+    )
+    anchor = draft.rstrip().rsplit("\n", 1)[-1][-24:]
+    prompt = build_prompt_completion_prompt(
+        draft, anchor, project_context=_rewrite_project_context(mem, sid), recent_turns=recent,
+    )
+    try:
+        with run_interrupt_scope(stopped):
+            reply = run_map_model(
+                prompt, _COMPLETION_SCHEMA, config, project_root=mem.project_root,
+                global_root=mem.global_root, run_label="prompt-complete",
+            )["text"]
+    except Exception:  # noqa: BLE001 — a missed suggestion is silent
+        return {"completion": ""}
+    return {"completion": "" if stopped() else _completion_tail(draft, anchor, str(reply))}
+
+
+def _completion_tail(draft: str, anchor: str, reply: str) -> str:
+    """What goes after the caret: the reply's first line past the restated end of the draft."""
+    line = reply.split("\n", 1)[0].rstrip()
+    at = line.find(anchor) if anchor else -1
+    rest = line[at + len(anchor):] if at >= 0 else ""
+    if draft[-1:].isspace():
+        rest = rest.lstrip()
+    return rest[:120] if rest.strip() else ""

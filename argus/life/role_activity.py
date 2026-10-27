@@ -37,6 +37,7 @@ _BACKGROUND_RUN_LABELS = (
     "map-summary",
     "reflection",
     "team-learning-review",
+    "prompt-complete",
 )
 
 
@@ -52,9 +53,10 @@ def _event_role(event: dict[str, Any]) -> str | None:
             # presents it separately as Maintenance activity.
             return None
         if label.startswith(_BACKGROUND_RUN_LABELS):
-            # Map summaries, curation and learning reviews describe the project
-            # rather than advance its step. Counted as Engineer work, a finished
-            # map summary hid the Engineer's own open call mid-step.
+            # Map summaries, curation, learning reviews and typing suggestions
+            # describe the project rather than advance its step. Counted as
+            # Engineer work, a finished map summary hid the Engineer's own open
+            # call mid-step.
             return None
         if "reviewer" in label or label.startswith("review"):
             return "reviewer"

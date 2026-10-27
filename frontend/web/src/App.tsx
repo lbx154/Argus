@@ -1,6 +1,6 @@
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
+import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type ProjectRow, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
@@ -12,6 +12,7 @@ import { ReplyChoiceContext } from './components/ReplyOptions';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
+import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
@@ -231,6 +232,8 @@ export default function App() {
   const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
   const [slashSelection, setSlashSelection] = useState(0);
+  // The project whose composer caret is in an @ word, so its workspace listing is wanted.
+  const [treeSid, setTreeSid] = useState<string | null>(null);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   const [launchSettings, setLaunchSettings] = useState<LaunchSettings>(DEFAULT_LAUNCH_SETTINGS);
   const [chatPending, setChatPending] = useState(false);
@@ -572,6 +575,13 @@ export default function App() {
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
     loadedSid, true, events, localConversationEvents, localConversationSid.current,
   );
+  const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
+  const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
+  const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
+    sid: loadedSid, tasks: snap?.backlog ?? [], history: promptHistoryList, files: workspaceTreeQ.data?.entries,
+    wantFiles: (want) => setTreeSid(want ? loadedSid : null),
+    continuePrompt: (text, signal) => api.completePrompt(loadedSid, text, signal),
+  } : undefined, [loadedSid, snap?.backlog, promptHistoryList, workspaceTreeQ.data]);
   // Content kept from an earlier visit shows at once; until its first refresh
   // lands it is marked as updating rather than presented as live.
   const refreshingKept = eventsRestored || [snapQ, transcriptQ].some(
@@ -1551,6 +1561,7 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
+                      completion={promptSources}
                       settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
