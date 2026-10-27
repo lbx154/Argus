@@ -2,11 +2,10 @@
 
 ``EngineerConfig`` and ``SupervisedConfig`` are the two knob-holding
 dataclasses ``SupervisedEngineer`` is constructed with; the small
-``_env_*`` helpers and ``parse_continue_work_request`` are standalone,
-config-adjacent parsing utilities with no round-loop control-flow of
-their own. Moved out of ``runner.py`` verbatim (mechanical extraction,
-no behavior change) to keep that module under the maintainability
-line-count target.
+``_env_*`` helpers are standalone, config-adjacent parsing utilities
+with no round-loop control-flow of their own. Moved out of ``runner.py``
+verbatim (mechanical extraction, no behavior change) to keep that module
+under the maintainability line-count target.
 """
 
 from __future__ import annotations
@@ -22,8 +21,6 @@ from ..core.knobs import env_int
 
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
-_CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
-_CONTINUE_WORK_MAX_CHARS = 500
 # A turn is never stopped by a timer by default: a live process is not proof
 # of work, but silence is not proof of a hang either. A turn that makes no
 # progress (no model stream event, no CPU time in its commands) for the stalled
@@ -54,29 +51,6 @@ HOST_PLACEHOLDER_REVIEW_SOURCES = frozenset(
 def _narrative_review_enforcement() -> str:
     raw = os.environ.get(_NARRATIVE_REVIEW_ENFORCEMENT_ENV, "shadow")
     return "blocking" if raw.strip().lower() == "blocking" else "shadow"
-
-
-def parse_continue_work_request(message: str | None) -> str | None:
-    """Parse an engineer-requested, bounded continuation before review.
-
-    The request must be the final non-empty line of a substantive response.
-    This keeps a quoted example or casual mention from changing control flow,
-    while letting the engineer preserve its normal evidence and summary.
-    """
-    if not message:
-        return None
-    lines = [line.strip() for line in message.strip().splitlines() if line.strip()]
-    if len(lines) < 2:
-        return None
-    line = lines[-1]
-    if line.startswith("`") and line.endswith("`") and len(line) >= 2:
-        line = line[1:-1].strip()
-    if not line.upper().startswith(_CONTINUE_WORK_SENTINEL):
-        return None
-    next_step = line[len(_CONTINUE_WORK_SENTINEL) :].strip()
-    if not next_step or len(next_step) > _CONTINUE_WORK_MAX_CHARS:
-        return None
-    return next_step
 
 
 @dataclass

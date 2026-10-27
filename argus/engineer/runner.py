@@ -40,7 +40,6 @@ from .round_config import (
     EngineerConfig,
     SupervisedConfig,
     _engineer_live_search,
-    parse_continue_work_request,
 )
 from .round_execution import RoundExecutionMixin
 from .round_manager_wait import manager_wait_terminal
@@ -533,6 +532,5 @@ __all__ = [
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_operator_abort_request",
     "fatal_error_looks_like_recoverable_reconnect",
-    "parse_continue_work_request",
     "should_clear_thread_id_after_outcome",
 ]
