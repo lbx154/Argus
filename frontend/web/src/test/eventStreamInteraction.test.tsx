@@ -697,3 +697,32 @@ describe('project work progress in plain words', () => {
     expect(visibleText(group.findByProps({ 'data-full-text': true }))).toContain('Next: Correct the attribution in source-verification.md.');
   });
 });
+
+describe('result cards in the conversation', () => {
+  const delivery = {
+    schema_version: 1, delivery_id: 'delivery:task-a:task_completed:1', kind: 'task_completed', item_id: 'task-a',
+    title: 'Sales chart', summary: '', status: 'done', review_status: 'done', delivered_at: 30,
+    primary_target: { path: 'out/figure.png', label: 'figure.png', source: 'solo_output', why: '' },
+    targets: [{ path: 'out/figure.png', label: 'figure.png', source: 'solo_output', why: '' }],
+  };
+  const events: EventMsg[] = [
+    { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', item_id: 'task-a', text: 'Drew the task A chart', event_id: 'a1', ts: 10 },
+    { type: 'ui.argus', text: 'Here is the chart.', ts: 30, message_id: 'reply-a', delivery } as EventMsg,
+    { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', item_id: 'task-b', text: 'Working on task B now', event_id: 'b1', ts: 40 },
+  ];
+
+  it('lists an image it cannot preview', () => {
+    mount(events);
+    expect(visibleText(renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' }))).toContain('figure.png');
+  });
+
+  it('opens only its own task under "how it was made"', () => {
+    mount(events);
+    const card = renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' });
+    const howMade = card.find(node => node.type === 'button' && node.props.className === 'result-card-how');
+    act(() => howMade.props.onClick());
+    const drawer = visibleText(renderer!.root.findByProps({ 'data-project-work': true }));
+    expect(drawer).toContain('Drew the task A chart');
+    expect(drawer).not.toContain('Working on task B now');
+  });
+});
