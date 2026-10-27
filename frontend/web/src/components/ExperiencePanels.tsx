@@ -24,7 +24,7 @@ export function DraftSyncStatus({ sync }: { sync: ReturnType<typeof useSyncedDra
   return <span className="text-xs text-ink-faint" role="status">{sync.status === 'loading'
     ? zh ? '正在读取同步草稿…' : 'Loading synced draft…'
     : sync.status === 'saving' || sync.pending ? zh ? '正在同步草稿…' : 'Syncing draft…'
-      : zh ? '草稿已同步至此试用空间' : 'Draft synced to this trial space'}</span>;
+      : zh ? '草稿已同步' : 'Draft synced'}</span>;
 }
 
 export function HistorySearch({ open, onClose, onChoose }: {
