@@ -52,18 +52,11 @@ export function durationLabel(seconds: number | null, zh: boolean): string {
   return zh ? `${days} 天 ${hours} 小时` : `${days} d ${hours} h`;
 }
 
-export function spendLabel(overview: Pick<ProjectOverview, 'spendUsd' | 'spendStatus'>, zh: boolean): string {
-  if (overview.spendStatus === 'not_billed') return zh ? '不计费' : 'not billed';
-  if (overview.spendUsd == null || overview.spendStatus === 'empty') return '';
-  const amount = `$${overview.spendUsd.toFixed(overview.spendUsd < 10 ? 2 : 1)}`;
-  if (overview.spendStatus === 'partial') return zh ? `至少 ${amount}` : `at least ${amount}`;
-  if (overview.spendStatus === 'unpriced') return zh ? '未定价' : 'unpriced';
-  return amount;
-}
-
-/** Cost is an API-price equivalent, not what the account was charged; say so. */
+/** Cost is an API-price equivalent, not what the account was charged; say so.
+ * Empty only when nothing was spent; calls without a price say so instead. */
 export function spendEstimateLabel(overview: Pick<ProjectOverview, 'spendUsd' | 'spendStatus'>, zh: boolean): string {
-  if (overview.spendStatus === 'not_billed' || overview.spendStatus === 'unpriced') return spendLabel(overview, zh);
+  if (overview.spendStatus === 'not_billed') return zh ? '不计费' : 'Not billed';
+  if (overview.spendStatus === 'unpriced' || (overview.spendStatus === 'partial' && overview.spendUsd == null)) return zh ? '未定价' : 'Unpriced';
   if (overview.spendUsd == null || overview.spendStatus === 'empty') return '';
   const amount = `$${overview.spendUsd.toFixed(overview.spendUsd < 10 ? 2 : 1)}`;
   const sign = overview.spendStatus === 'partial' ? '≥' : '≈';
