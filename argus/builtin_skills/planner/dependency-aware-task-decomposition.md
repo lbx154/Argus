@@ -58,7 +58,11 @@ serves.
 
 Each task states one executable objective, one decisive acceptance check,
 explicit non-goals, and only the context paths the Engineer must read, using
-project-relative references. Encode dependencies directly so independent work
+project-relative references. When the result has a visual form (a plot of
+the numbers, a rendered robot body or mechanism, an interactive page), the
+acceptance check names that visual as the primary output and what it must
+show, because a person judges such a result by looking at it and prose alone
+lets a wrong shape or trend pass. Encode dependencies directly so independent work
 can run in parallel, and do not schedule a task whose prerequisite evidence
 does not exist yet. Reuse or revise pending work instead of emitting a renamed
 duplicate. Preserve negative results, and when a method has failed, route the

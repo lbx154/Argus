@@ -182,14 +182,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Once a real comparison on the operator's data has been reviewed, deliver "
                 "one stage package (stage_package) before further diagnosis: "
-                "results with their source files, the current method, the command behind "
+                "results with their source files and, first, a figure for each result "
+                "that has a visual form, the current method, the command behind "
                 "each number, failures and their explanation, the operator requirements "
                 "still unmet, and the next round's purpose. It is labelled 'stage package, "
                 "overall goal not complete', earns a non-terminal delivery, and changes "
                 "neither the publication target nor the stage. Another package follows "
                 "only a material change in the evidence."
             ),
-            evidence_hint="the reviewed package files and the result files each number cites",
+            evidence_hint=(
+                "the reviewed package files, its rendered figures, and the result "
+                "files each number cites"
+            ),
         ),
         ChecklistItem(
             id="experiment.notes",

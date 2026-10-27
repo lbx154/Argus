@@ -43,8 +43,10 @@ _BOOK_TITLE_TARGET_RE = re.compile(r"《([^》\r\n]{1,2048})》")
 _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
+# Bare names a verdict may give for its primary visual are recognised too. The
+# 3D model suffixes still pass the live-view suffix policy before they count.
 _PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp|svg|gif|urdf|stl|obj|glb))(?=$|[^\w/\\.-]|\.(?=\s|$))",
     re.IGNORECASE,
 )
 _BRACED_FILE_RE = re.compile(
