@@ -287,12 +287,8 @@ class LifeWorkerRunMixin:
             max_workers=len(supervisors),
             thread_name_prefix="argus-mission",
         ) as executor:
-            # One copied context per submission, taken INSIDE the caller's
-            # ``with pipeline_lock`` so each worker carries this loop's
-            # pipeline-lock delegation entitlement (ContextVar) and its
-            # re-entry takes the in-process gate instead of deadlocking on the
-            # flock we are holding (the 2026-09-05 incident). A single Context
-            # cannot be entered concurrently.
+            # One copied context per submission: a single Context cannot be
+            # entered concurrently.
             def submit(supervisor: Any):
                 return executor.submit(
                     contextvars.copy_context().run,
@@ -638,46 +634,36 @@ class LifeWorkerRunMixin:
                 summary: dict = {}
                 self._supervisor_execution_active.set()
                 try:
-                    from ..manager._session_ops import (
-                        manager_pipeline_boundary,
-                        manager_pipeline_yield_requested,
+                    supervisors = getattr(
+                        rf_state,
+                        "supervisors",
+                        [rf_state.sup],
                     )
-
-                    if manager_pipeline_yield_requested(rf_state.runtime_root):
-                        self._stop.wait(0.2)
-                        continue
-                    manager = getattr(rf_state.runner, "manager", None)
-                    with manager_pipeline_boundary(manager, cancelled=self._stop.is_set):
-                        supervisors = getattr(
-                            rf_state,
-                            "supervisors",
-                            [rf_state.sup],
-                        )
-                        if not supervisors:
-                            summary = {
-                                "stopped_by": "paused_workers",
-                                "suggested_sleep": rf_state.cfg.poll_interval,
-                            }
-                        elif len(supervisors) == 1:
-                            summary = self._run_supervisor_pass(rf_state.sup)
-                        else:
-                            summary = self._run_supervisor_passes(supervisors)
-                        if summary.get("stopped_by") == "project_done":
-                            current = read_continuous_state(rf_state.runtime_root)
-                            if (
-                                current.enabled
-                                and self._adopted_continuous_generation is not None
-                                and current.generation
-                                == self._adopted_continuous_generation
-                                and compare_and_swap_continuous_config(
-                                    rf_state.runtime_root,
-                                    expected=current,
-                                    enabled=False,
-                                    objective=current.objective,
-                                    done_reason="planner declared project done",
-                                )
-                            ):
-                                self._adopted_continuous_generation = None
+                    if not supervisors:
+                        summary = {
+                            "stopped_by": "paused_workers",
+                            "suggested_sleep": rf_state.cfg.poll_interval,
+                        }
+                    elif len(supervisors) == 1:
+                        summary = self._run_supervisor_pass(rf_state.sup)
+                    else:
+                        summary = self._run_supervisor_passes(supervisors)
+                    if summary.get("stopped_by") == "project_done":
+                        current = read_continuous_state(rf_state.runtime_root)
+                        if (
+                            current.enabled
+                            and self._adopted_continuous_generation is not None
+                            and current.generation
+                            == self._adopted_continuous_generation
+                            and compare_and_swap_continuous_config(
+                                rf_state.runtime_root,
+                                expected=current,
+                                enabled=False,
+                                objective=current.objective,
+                                done_reason="planner declared project done",
+                            )
+                        ):
+                            self._adopted_continuous_generation = None
                     # A bounded worker owns one finite queue. A plain backlog
                     # finishes with ``backlog_empty``; a finite campaign ends
                     # with ``project_done``. Both must release the process slot.

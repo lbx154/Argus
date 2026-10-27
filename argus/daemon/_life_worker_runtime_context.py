@@ -189,7 +189,6 @@ def _build_supervisor_config(
         _paper_mission_for_project_root,
         _pending_question_resolver_for,
     )
-    from ..manager._session_ops import manager_pipeline_yield_requested
 
     paper_mission = _paper_mission_for_project_root(runtime_root)
     final_certification = _final_certification_for_project_root(runtime_root)
@@ -213,7 +212,6 @@ def _build_supervisor_config(
             final_certification and init_continuous and cfg.continuous_open_ended
         ),
         continuous_config_provider=continuous_provider,
-        manager_pipeline_yield_provider=(lambda: manager_pipeline_yield_requested(runtime_root)),
         post_mission_hook=post_mission_hook,
         project_state_dir=runtime_root,
         artifact_root=runtime_root,

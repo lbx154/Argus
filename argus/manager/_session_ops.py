@@ -5,8 +5,8 @@ session and its two cross-platform advisory file locks:
 
 * ``.manager_session.lock`` — held by the one turn continuing the shared
   thread; other turns never wait for it.
-* ``manager_pipeline_lock`` — serialises Manager commits with daemon mission
-  execution (the "pipeline boundary yield" handshake).
+* ``manager_pipeline_lock`` — serialises short Manager commits (stage
+  transitions, operator handoffs); never held while a mission runs.
 
 ``_restore_files_on_error`` is also here because it guards the same atomic
 write contract that the session/pipeline commits rely on.
@@ -29,7 +29,6 @@ from typing import Any, Callable
 
 import portalocker
 
-from ..core.daemon_lock import is_pid_running
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ..provider_integrations.authorization_retry import BackendLoginRequired
@@ -41,8 +40,6 @@ log = logging.getLogger(__name__)
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
-_PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
-_PIPELINE_YIELD_DIR = ".manager_pipeline_yields"
 _LOCK_POLL_SECONDS = 0.2
 
 
@@ -50,12 +47,6 @@ class ManagerLockCancelled(RuntimeError):
     """A caller cancelled its wait before entering the protected boundary."""
 
     phase = "cancelled"
-
-
-class ManagerPipelineWaitTimeout(TimeoutError):
-    """A foreground commit boundary timed out, not a model/provider call."""
-
-    phase = "handoff_wait"
 
 
 def _lock_is_contended(exc: BaseException) -> bool:
@@ -138,8 +129,7 @@ _pipeline_lock_registry_mutex = threading.Lock()
 # the current context's chain of custody holds. Set by the top-level flock
 # acquirer; visible to same-thread nested acquisitions automatically, and to
 # worker threads ONLY when the holder explicitly hands its context over
-# (``contextvars.copy_context().run`` at the submit site — see
-# ``daemon/_life_worker_run.py``). A plain ``threading.Thread`` starts with a
+# (``contextvars.copy_context().run``). A plain ``threading.Thread`` starts with a
 # fresh context, so independent threads (telegram/feishu pollers, concurrent
 # webapi requests) never inherit re-entry entitlement.
 _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
@@ -150,52 +140,21 @@ _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
 
 @contextmanager
 def manager_pipeline_lock(
-    root: Path | str, *, timeout: float | None = None,
-    cancelled: Callable[[], bool] | None = None,
+    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
 ):
-    """Serialize Manager pipeline commits with daemon mission execution.
+    """Serialize short Manager commits: stage transitions and operator handoffs.
 
-    Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``
-    (unchanged). In-process: re-entrant ONLY along the flock holder's
-    delegation chain, tracked by a ``ContextVar`` set of held lock paths — a
-    nested acquisition whose context carries this path skips the flock and
-    serialises on a per-lock-file ``threading.RLock`` gate instead. Every
-    other thread takes the flock and waits, exactly as before.
+    Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``.
+    Nobody holds it while a mission runs, so an operator handoff never waits
+    for running work. In-process: re-entrant only along the holder's chain of
+    custody, tracked by a ``ContextVar`` set of held lock paths; a nested
+    acquisition whose context carries this path skips the flock (a second
+    file handle would deadlock: POSIX flock is exclusive across open file
+    descriptions even within one process) and serialises on a per-lock-file
+    ``threading.RLock`` gate instead. Threads with a fresh context take the
+    flock and wait.
 
-    Why (2026-09-05 paper-daemon deadlock): the daemon main loop held this
-    lock (``daemon/_life_worker_run.py`` ``_rf_main_loop``) while awaiting a
-    ThreadPoolExecutor future, and the mission worker thread re-entered it
-    (``_reconcile_reviewed_stage_empty_plan`` → ``decide_stage_transition`` in
-    ``manager/_stage_ops.py``). POSIX flock is exclusive across open file
-    descriptions even within one process, so the worker polled the lock for
-    hours while the main thread waited for its result — a two-party cycle.
-
-    Why delegation-chain and not a process-wide "held" flag (the rejected
-    first fix): a process-wide flag misclassifies EVERY thread of the daemon
-    as re-entrant. The telegram/feishu poller threads and concurrent webapi
-    requests do top-level acquisitions of this same lock (``front_door.py``
-    commits, ``apps/_runtime_construction.py`` migration) and are DESIGNED to
-    wait for the mission boundary — the ``request_manager_pipeline_yield``
-    handshake exists precisely because they queue behind in-flight passes. A
-    flag would let them overlap a running pass; a ``ContextVar`` limits
-    re-entry to contexts the holder explicitly copied to its workers.
-
-    Semantics:
-
-    * cross-process mutual exclusion is byte-for-byte the old behaviour, for
-      the WHOLE hold window — the flock's lifetime is bound to the top-level
-      holder (the daemon main loop waits on its worker futures inside the
-      ``with``, so delegated gate holders always run under the flock);
-    * a worker submitted with ``executor.submit(copy_context().run, fn)`` by
-      the flock holder re-enters without deadlock; concurrent delegated
-      workers still exclude each other (gate);
-    * an independent thread (fresh context) waits for the flock exactly as
-      before — no overlap with the in-flight pass;
-    * same-thread nesting is re-entrant (the context flows into nested
-      ``with`` blocks natively; the gate is an RLock).
-
-    Cancellation only abandons acquisition; it never revokes an acquired lock
-    or interrupts a mission already inside this boundary.
+    Cancellation only abandons acquisition; it never revokes an acquired lock.
     """
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
@@ -204,16 +163,10 @@ def manager_pipeline_lock(
     with _pipeline_lock_registry_mutex:
         state = _pipeline_lock_registry.setdefault(key, _PipelineLockState())
     if key in _pipeline_lock_delegation.get():
-        # Our delegation chain already holds the on-disk flock: don't touch
-        # it (a second file handle would deadlock — see docstring); serialise
-        # against sibling delegated workers on the gate instead.
-        deadline = time.monotonic() + max(0.0, timeout) if timeout is not None else None
         while True:
             _check_lock_cancelled(cancelled)
             if state.gate.acquire(blocking=False):
                 break
-            if deadline is not None and time.monotonic() >= deadline:
-                raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
             time.sleep(0.05)
         try:
             _check_lock_cancelled(cancelled)
@@ -222,8 +175,7 @@ def manager_pipeline_lock(
             state.gate.release()
         return
     with lock_path.open("a+b") as handle:
-        if not _acquire_session_lock(handle, timeout=timeout, cancelled=cancelled):
-            raise ManagerPipelineWaitTimeout("Timed out waiting for Manager pipeline handoff; no commit was made")
+        _acquire_session_lock(handle, cancelled=cancelled)
         try:
             _check_lock_cancelled(cancelled)
             # Grant the entitlement only after the flock is ours, inside the
@@ -244,7 +196,6 @@ def manager_pipeline_lock(
 @contextmanager
 def manager_pipeline_boundary(
     manager: Any, *, cancelled: Callable[[], bool] | None = None,
-    timeout: float | None = None,
 ):
     """Enter a Manager's boundary, adapting legacy no-argument lock factories.
 
@@ -261,112 +212,15 @@ def manager_pipeline_boundary(
             parameters = tuple(signature(factory).parameters.values())
         except (TypeError, ValueError):
             parameters = ()
-        for name, value in (("cancelled", cancelled), ("timeout", timeout)):
-            if value is not None and any(
-                parameter.kind == Parameter.VAR_KEYWORD
-                or (parameter.name == name and parameter.kind != Parameter.POSITIONAL_ONLY)
-                for parameter in parameters
-            ):
-                kwargs[name] = value
+        if cancelled is not None and any(
+            parameter.kind == Parameter.VAR_KEYWORD
+            or (parameter.name == "cancelled" and parameter.kind != Parameter.POSITIONAL_ONLY)
+            for parameter in parameters
+        ):
+            kwargs["cancelled"] = cancelled
     with factory(**kwargs) if callable(factory) else nullcontext():
         _check_lock_cancelled(cancelled)
         yield
-
-
-def _read_pipeline_yield(path: Path) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _write_pipeline_yield(path: Path, payload: dict[str, Any]) -> None:
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def request_manager_pipeline_yield(
-    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
-) -> str:
-    """Publish one caller-owned request for the next mission boundary.
-
-    Each request has its own atomic marker. There is no shared read/modify/write
-    lock on the daemon stop path, and one caller cannot erase another's waiter.
-    """
-    _check_lock_cancelled(cancelled)
-    directory = Path(root) / _PIPELINE_YIELD_DIR
-    directory.mkdir(parents=True, exist_ok=True)
-    token = uuid.uuid4().hex
-    _write_pipeline_yield(directory / f"{token}.json", {
-        "schema_version": 1,
-        "token": token,
-        "pid": os.getpid(),
-        "requested_at": time.time(),
-        "state": "waiting",
-    })
-    return token
-
-
-def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
-    payload = _read_pipeline_yield(path)
-    if payload is None or str(payload.get("token") or "") != token:
-        return False
-    # Publish release before garbage collection. A failed unlink must not leave
-    # a live server pid holding the daemon at the boundary forever.
-    if payload.get("state") != "released":
-        try:
-            _write_pipeline_yield(path, {**payload, "state": "released"})
-        except OSError:
-            try:
-                path.unlink(missing_ok=True)
-                return True
-            except OSError:
-                log.warning("could not release Manager boundary yield request", exc_info=True)
-                return False
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        log.debug("retaining released Manager boundary marker for later cleanup", exc_info=True)
-    return True
-
-
-def clear_manager_pipeline_yield(root: Path | str, token: str) -> bool:
-    # Generated tokens are hex UUIDs. Legacy marker tokens remain readable but
-    # must never become arbitrary child paths.
-    if len(token) == 32 and all(char in "0123456789abcdef" for char in token):
-        path = Path(root) / _PIPELINE_YIELD_DIR / f"{token}.json"
-        if _clear_pipeline_yield_if_token(path, token):
-            return True
-    return _clear_pipeline_yield_if_token(Path(root) / _PIPELINE_YIELD_FILE, token)
-
-
-def manager_pipeline_yield_requested(root: Path | str) -> bool:
-    """Inspect atomic markers without acquiring another control-plane lock."""
-    root = Path(root)
-    legacy = root / _PIPELINE_YIELD_FILE
-    paths = [legacy, *(root / _PIPELINE_YIELD_DIR).glob("*.json")]
-    waiting = False
-    for path in paths:
-        payload = _read_pipeline_yield(path)
-        if payload is None or not payload.get("token"):
-            continue
-        live = False
-        if payload.get("state") != "released":
-            try:
-                live = is_pid_running(int(payload.get("pid") or 0))
-            except (TypeError, ValueError, OverflowError):
-                pass
-        if live:
-            waiting = True
-        else:
-            _clear_pipeline_yield_if_token(path, str(payload["token"]))
-    return waiting
 
 
 @contextmanager

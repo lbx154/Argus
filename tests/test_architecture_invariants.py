@@ -1123,7 +1123,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "daemon -> argus.agent_cli._process_control",
     "daemon -> argus.apps._inbox",
     "daemon -> argus.apps._runtime",
-    "daemon -> argus.manager._session_ops",
     "daemon -> argus.skills.vertical_select._persisted_domain",
     "daemon -> argus.skills.vertical_select._persisted_vertical",
     "daemon -> argus.verticals._base",
