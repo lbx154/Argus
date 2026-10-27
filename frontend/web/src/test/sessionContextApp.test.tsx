@@ -173,6 +173,16 @@ describe('App session composer ownership', () => {
     await act(async () => { select('s-A'); });
     expect(trash).toHaveBeenCalledWith('s-N');
   });
+  it('keeps the ask choice reachable after the project has started', () => {
+    const started = snapshot('s-A');
+    started.daemon.alive = true;
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: started });
+    refresh();
+    const bar = props().settings as { props: { started: boolean; onAskChange: (mode: string) => void } };
+    expect(bar.props.started).toBe(true);
+    act(() => bar.props.onAskChange('beyond_authority'));
+    expect((props().settings as { props: { ask: string } }).props.ask).toBe('beyond_authority');
+  });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');
     type('A draft');
