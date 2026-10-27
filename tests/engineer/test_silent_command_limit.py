@@ -7,6 +7,7 @@ import pytest
 
 from argus.agent_cli._idle_watchdog import running_tool_after_event
 from argus.engineer.round_config import SupervisedConfig
+from tests.hand_off import hand_off, submit
 
 
 def _capture_engineer_options(monkeypatch, **config):
@@ -63,12 +64,13 @@ class _SilentCommandsEngineer:
         self.commands = list(commands)
         self.calls = 0
 
-    def run_exec(self, **_kwargs):
+    def run_exec(self, **kwargs):
         from argus.core.models import RunnerResult
 
         command = self.commands[min(self.calls, len(self.commands) - 1)]
         self.calls += 1
         if command is None:
+            submit(kwargs["options"], hand_off("reviewer", "done"))
             return RunnerResult(exit_code=0, agent_messages=["done"], thread_id="t")
         return RunnerResult(exit_code=-15, agent_messages=[], fatal_error=_exec_stop(command or None))
 

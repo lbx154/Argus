@@ -22,6 +22,7 @@ from argus.engineer.round_stop_signals import (
     idle_termination_review_decision,
     provider_turn_cap_review_decision,
 )
+from tests.hand_off import hand_off, submit
 
 
 def _settle(state: RoundLoopState, review: ReviewDecision, config: SupervisedConfig, workdir: Path):
@@ -57,6 +58,7 @@ class _RaisingReviewer:
 
 class _OneTurnEngineer:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
+        submit(options, hand_off("reviewer", "changed evaluate.py"))
         return RunnerResult(exit_code=0, agent_messages=["changed evaluate.py"], thread_id="thr-e")
 
 

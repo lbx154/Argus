@@ -126,7 +126,7 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
     role = "reviewer" if scenario == "reviewer" else "engineer"
     once = append_directive(case.state, "Exactly one current role projection.", applies_to_roles=(role,),
                             lifetime="once", expected_revision=1)
-    case.backend.queue("engineer-r1", CannedResponse(message="implementation ready"))
+    case.backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "implementation ready")))
     gate, held, release, contended = (threading.Event() for _ in range(4))
     lock_path = case.state / ("operator_context.lock" if scenario in {"engineer", "reviewer"}
                               else "failure_experiences.jsonl.lock" if scenario == "experience"
@@ -247,7 +247,7 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
 
 
 def _queue_success(backend, *, first_message=None):
-    backend.queue("engineer-r1", CannedResponse(message="implementation ready", message_factory=first_message))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "implementation ready"), message_factory=first_message))
     backend.queue("reviewer", CannedResponse(action=hand_off("done", "verified")))
 
 

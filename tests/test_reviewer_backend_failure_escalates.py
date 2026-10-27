@@ -24,6 +24,7 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
+from tests.hand_off import hand_off, submit
 
 
 # --------------------------------------------------------------------------- #
@@ -154,8 +155,9 @@ class _HealthyEngineerRunner:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run_exec(self, **_kwargs):
+    def run_exec(self, **kwargs):
         self.calls += 1
+        submit(kwargs["options"], hand_off("reviewer", f"implemented increment #{self.calls}"))
         return RunnerResult(
             exit_code=0,
             agent_messages=[f"implemented increment #{self.calls}"],
@@ -269,6 +271,7 @@ class _WatchdogThenHealthyEngineer:
                     "(2700s without a model stream event; running tool: sleep 9999)"
                 ),
             )
+        submit(kwargs["options"], hand_off("reviewer", "recovered from CHECKPOINT.md"))
         return RunnerResult(
             exit_code=0,
             agent_messages=["recovered from CHECKPOINT.md"],

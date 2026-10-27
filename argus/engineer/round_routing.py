@@ -55,11 +55,6 @@ def engineer_actions(supervised_config: "SupervisedConfig") -> HandOffActions:
     )
 
 
-def sent_to(handoff: HandOff | None) -> str:
-    """Where a turn sends the work: the holder its hand_off names; without one, the Reviewer."""
-    return handoff.to if handoff else "reviewer"
-
-
 def outside_inputs(state: RoundLoopState) -> list[object] | None:
     """What reached the work from outside the team.
 
@@ -250,7 +245,7 @@ class RoundRoutingMixin:
         # Work that climbed past the Engineer goes where its last turn sent it,
         # so only a handoff to the Reviewer resumes at review.
         last = state.snapshots.held_verdict("engineer") if climbed and state.snapshots else None
-        wanted = (last or {}).get("holder", "reviewer") if climbed else sent_to(outcome.handoff)
+        wanted = (last or {}).get("holder", "reviewer") if climbed else outcome.handoff.to
         if state.snapshots is not None:
             # The Engineer held the work as its turn began, and its line sent it on.
             state.snapshots.hold("engineer", "turn", state.handed_inputs, {"holder": wanted})

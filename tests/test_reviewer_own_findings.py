@@ -53,7 +53,7 @@ def _run(
             (work / "summary.csv").write_text(rows, encoding="utf-8")
             return message
 
-        return CannedResponse(message_factory=turn, thread_id=thread_id)
+        return CannedResponse(message_factory=turn, action=hand_off("reviewer", message), thread_id=thread_id)
 
     backend.queue("engineer-r1-mission-1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
     backend.queue("reviewer", CannedResponse(

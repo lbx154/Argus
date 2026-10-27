@@ -400,8 +400,9 @@ Structured payloads remain only where a side effect needs them: a Planner
 task's title and objective (plus dependencies and owned paths where they
 exist), a question, and an authorization. The line is read leniently: case,
 role names in the operator's language, and Markdown decoration do not matter. A
-missing or unreadable line never ends a mission and never means `done`. A
-changed candidate goes to the Reviewer, and an unchanged one climbs.
+missing or unreadable line never ends a mission and never means `done`. A turn
+that ends without its hand_off hands the work to nobody: like a Reviewer's, it
+is a failed turn, retried as one.
 
 ### The Observer
 

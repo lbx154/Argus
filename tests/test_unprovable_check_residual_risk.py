@@ -506,7 +506,7 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 
 def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[tuple[str, dict]], session_id: str = ""):
     for index, (action, payload) in enumerate(verdicts, start=1):
-        backend.queue(f"engineer-r{index}", CannedResponse(message=f"round {index}: nothing new to run"))
+        backend.queue(f"engineer-r{index}", CannedResponse(action=hand_off("reviewer", f"round {index}: nothing new to run")))
         backend.queue("reviewer", CannedResponse(action=(action, payload)))
     events: list[dict] = []
     workdir = tmp_path / "work"

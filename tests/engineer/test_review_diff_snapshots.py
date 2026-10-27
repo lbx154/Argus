@@ -8,15 +8,17 @@ from typing import Any, cast
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import ReviewerConfig
+from tests.hand_off import hand_off, submit
 
 
 class Engineer:
     def __init__(self, workdir: Path) -> None:
         self.workdir, self.calls = workdir, 0
 
-    def run_exec(self, **_kwargs: Any) -> RunnerResult:
+    def run_exec(self, **kwargs: Any) -> RunnerResult:
         self.calls += 1
         (self.workdir / "train.py").write_text(f"epochs = {self.calls}\n", encoding="utf-8")
+        submit(kwargs["options"], hand_off("reviewer", f"Set epochs to {self.calls}."))
         return RunnerResult(exit_code=0, agent_messages=[f"Set epochs to {self.calls}."])
 
 

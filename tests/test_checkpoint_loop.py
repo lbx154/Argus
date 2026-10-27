@@ -28,7 +28,7 @@ def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="work"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "work")))
     backend.queue("reviewer", CannedResponse(action=_review("done")))
 
     outcome = SkillLoop(

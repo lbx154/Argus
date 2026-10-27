@@ -80,9 +80,9 @@ def test_new_operator_input_is_new_work(tmp_path: Path, arrives) -> None:
 
     def operator_writes(_prompt, _options) -> str:
         arrives(state)
-        return "Nothing to change for that."
+        return ""
 
-    backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes))
+    backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes, action=hand_off("reviewer", "Nothing to change for that.")))
     backend.queue("reviewer", _review("engineer"), _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend)

@@ -35,7 +35,7 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 
 
 def _queue(backend: MemoryBackend, round_index: int, payload: dict) -> None:
-    backend.queue(f"engineer-r{round_index}", CannedResponse(message=f"round {round_index} fixed it"))
+    backend.queue(f"engineer-r{round_index}", CannedResponse(action=hand_off("reviewer", f"round {round_index} fixed it")))
     backend.queue("reviewer", CannedResponse(action=("hand_off", payload)))
 
 

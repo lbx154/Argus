@@ -11,6 +11,7 @@ from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import ReviewerConfig
+from tests.hand_off import hand_off, submit
 
 
 def _waiting_result():
@@ -54,6 +55,7 @@ def test_repeated_waits_preserve_reviewer_feedback_without_failure_backoff(tmp_p
             self.prompts.append(prompt)
             if 2 <= len(self.prompts) <= 5:
                 return _waiting_result()
+            submit(kwargs["options"], hand_off("reviewer", "A scientific batch is complete."))
             return RunnerResult(exit_code=0, agent_messages=["A scientific batch is complete."])
 
     engineer = Engineer()

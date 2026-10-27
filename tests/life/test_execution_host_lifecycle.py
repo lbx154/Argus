@@ -13,6 +13,7 @@ from argus.life.memory import BacklogItem, LifeMemory, park_reason
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.reviewer import ReviewerConfig
 from argus.skills.loop_settlement import MissionSettlementMixin
+from tests.hand_off import hand_off, submit
 
 HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "
@@ -25,9 +26,10 @@ class _Backend:
         self.available = False
         self.calls = 0
 
-    def run_exec(self, **_kwargs) -> RunnerResult:
+    def run_exec(self, **kwargs) -> RunnerResult:
         self.calls += 1
         if self.available:
+            submit(kwargs["options"], hand_off("reviewer", "Tested the change."))
             return RunnerResult(exit_code=0, agent_messages=["Tested the change."])
         # A later assistant message and a successful process exit cannot make
         # a trusted host startup receipt a valid tool-backed execution.
