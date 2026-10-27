@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus.core.runner_receipts import CONTENT_FILTER_RECEIPT
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
@@ -120,7 +121,7 @@ def test_existing_operator_hold_is_not_rewritten_as_host_failure(tmp_path, monke
     assert not events
 
 
-@pytest.mark.parametrize("error", ["ordinary backend failure", "blocked by content filtering"])
+@pytest.mark.parametrize("error", ["ordinary backend failure", CONTENT_FILTER_RECEIPT])
 def test_non_host_planner_errors_keep_existing_policy(tmp_path, monkeypatch, error):
     supervisor, events = _supervisor(tmp_path, monkeypatch)
     root = supervisor.memory.root
@@ -131,7 +132,7 @@ def test_non_host_planner_errors_keep_existing_policy(tmp_path, monkeypatch, err
     assert read_continuous_state(root).enabled is (error == "ordinary backend failure")
     alerts = [event for event in events if event.get("type") == "life.planner.error"]
     assert len(alerts) == 1
-    if error == "blocked by content filtering":
+    if error == CONTENT_FILTER_RECEIPT:
         assert alerts[0]["stop_kind"] == "permanent_error"
     else:
         assert "stop_kind" not in alerts[0]
