@@ -228,16 +228,11 @@ current completion certificate exists, report-only native receipts are settled
 before checking the next inbox item; a retained report must not conceal a queued
 operator instruction. Operator receipts still require actual Planner handling.
 
-bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
-会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。
-
-每个等待者持有 `.manager_pipeline_yields/<token>.json`，请求者只释放自己的记录，
-无需共同读改写一份队列表或获取额外 metadata 锁。释放先记录 `released` 再删除文件，
-删除失败不会继续阻塞 daemon。旧 `.manager_pipeline_yield.json` 保留读取兼容。
-进程存活统一使用 `core.daemon_lock.is_pid_running`，避免在 Windows 上误用 `os.kill(pid, 0)`。
+`manager_pipeline_lock` 只包住短提交（阶段切换、Manager 交接），任务执行期间无人持有；
+所以运行中的长任务不会挡住新交接，交接也不再请求让出、不设等待时限。
 
 `manager_pipeline_boundary` 把取消回调传给原生 `Manager.pipeline_lock`；daemon 传入 stop 信号，
-Web TEAM 请求通过 `enqueue_mission` 传入原有取消回调。锁竞争可等待，取消可在等待期间退出；
+Web TEAM 请求通过 `enqueue_mission` 传入原有取消回调。锁只在短提交间竞争，取消可在等待期间退出；
 坏文件描述符、锁服务不可用等真正故障直接抛出，不伪装成永久竞争。旧无参锁替身只做进入前后检查。
 
 完整缩短持锁范围仍有两个前提：执行上下文不能再临时修改共享 Manager/Runner 字段，

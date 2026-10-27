@@ -152,7 +152,5 @@ class Manager(
             return nullcontext()
         return self._usage_context_factory(root_task_id)
 
-    def pipeline_lock(
-        self, *, timeout: float | None = None, cancelled: Callable[[], bool] | None = None,
-    ):
-        return manager_pipeline_lock(self.manager_session_root, timeout=timeout, cancelled=cancelled)
+    def pipeline_lock(self, *, cancelled: Callable[[], bool] | None = None):
+        return manager_pipeline_lock(self.manager_session_root, cancelled=cancelled)
