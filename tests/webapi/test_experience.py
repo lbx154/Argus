@@ -60,6 +60,20 @@ def test_editions_preserve_source_and_handle_concurrent_saves(tmp_path):
         assert client.post(path, headers=AUTH, json={**body, "source": "../outside.md"}).status_code == 404
 
 
+def test_saved_editions_stay_readable_after_the_source_file_disappears(tmp_path):
+    _life, workspace = project(tmp_path)
+    path = "/api/projects/s-experience/editions/artifact"
+    original = (workspace / "report.md").read_text()
+    with TestClient(create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        assert client.post(path, headers=AUTH, json={"source": "report.md", "base_version": 0, "content": "v1"}).status_code == 200
+        (workspace / "report.md").unlink()
+        listed = client.get(path, headers=AUTH, params={"source": "report.md"})
+        assert listed.status_code == 200
+        assert listed.json()["original"] == original
+        assert [item["content"] for item in listed.json()["versions"]] == [original, "v1"]
+        assert client.post(path, headers=AUTH, json={"source": "report.md", "base_version": 1, "content": "v2"}).json()["version"] == 2
+
+
 def test_searches_old_messages_results_and_editions_but_not_unregistered_files(tmp_path):
     life, _ = project(tmp_path)
     for index in range(130):
