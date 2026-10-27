@@ -248,7 +248,6 @@ class SelfReplyMixin:
         """
         from ..core.secret_guard import redact_secrets_text
         from ..life.delivery import (
-            asks_for_figure,
             build_delivery_receipt,
             changed_workspace_paths,
             referenced_delivery_paths,
@@ -262,7 +261,6 @@ class SelfReplyMixin:
         ]
         changed = None if before is None else changed_workspace_paths(
             workdir, before, SelfReplyMixin._workspace_facts(workdir, state_root), named=named,
-            prefer_images=asks_for_figure(safe_reply),
         )
         paths = named if changed is None else changed
         if not paths:
