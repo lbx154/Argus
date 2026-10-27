@@ -5,17 +5,13 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 
-from ...core.role_reply import decision_footer_instruction
 from ..task_contract import argus_command
 from .voice import RESEARCHER_VOICE
 
 STAGE_DECISION = "stage_decision"
 GROUNDED_VERTICAL_DECISION = "grounded_vertical_decision"
-RESEARCH_TARGET = "research_target"
 PLAN_PREVIEW = "plan_preview"
-SKILL_PLACEMENT_BATCH = "skill_placement_batch"
 LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
@@ -54,9 +50,7 @@ OPERATIONS = frozenset(
     {
         STAGE_DECISION,
         GROUNDED_VERTICAL_DECISION,
-        RESEARCH_TARGET,
         PLAN_PREVIEW,
-        SKILL_PLACEMENT_BATCH,
         LIVE_VIEW,
         PENDING_QUESTION,
     }
@@ -111,48 +105,6 @@ def build_manager_prompt(message: str, *, workspace: Path | str, state_root: Pat
         f"## Rules: read {MANAGER_RULES}/<topic>/SKILL.md before doing what it covers\n"
         f"{rules}\n\n"
         f"Message:\n{message.strip()}"
-    )
-
-
-def build_research_target_prompt(
-    task: str,
-    *,
-    supported_levels: Sequence[str] = (
-        "exploratory",
-        "publishable",
-        "doctoral",
-    ),
-) -> str:
-    """Ask the Manager for a success bar when research routing is fixed."""
-    return (
-        "You are the Manager guiding research toward a stated goal. The operator has "
-        "already fixed the vertical; do not revisit routing. Decide only the "
-        "requested research success bar from the task below. Judge what outcome "
-        "the operator requires, not the problem's apparent difficulty.\n\n"
-        "- exploratory: a well-defined investigation, known result, finite computation, "
-        "domain-specific local verification, or decision-relevant negative finding "
-        "may satisfy the task. Honest reporting alone is not scientific value.\n"
-        "- publishable: success requires a correctness-verified result with a "
-        "nontrivial technical core, verified originality, "
-        "formal/causal grounding, and field-level significance.\n"
-        "- doctoral: success explicitly requires doctoral/thesis-level original "
-        "research. Reports, literature review, finite checks, and local verification "
-        "alone are not success.\n"
-        "Do not choose exploratory merely because it makes an honest negative report "
-        "easy to close. A request to develop a submission-quality paper, find a "
-        "publishable method, or continue autonomous research requires at least the "
-        "publishable bar unless the operator explicitly asks only for a limited "
-        "investigation.\n\n"
-        "Task:\n"
-        f"{(task or '').strip()}\n\n"
-        "Allowed levels for this vertical: "
-        f"{', '.join(supported_levels)}.\n\n"
-        + RESEARCHER_VOICE + "\n\n"
-        + decision_footer_instruction(
-            "RESEARCH_TARGET_LEVEL=publishable\n"
-            "RATIONALE=brief reason tied to the requested success bar"
-        )
-        + "\n"
     )
 
 
@@ -320,45 +272,15 @@ def build_prompt_completion_prompt(
             + "\n\n## Starts with\n" + json.dumps(anchor, ensure_ascii=False))
 
 
-def build_skill_placements_prompt(
-    *,
-    skills: Sequence[dict[str, str]],
-    candidate_verticals: Sequence[str],
-) -> str:
-    candidates = sorted(
-        value for value in candidate_verticals if isinstance(value, str) and value
-    )
-    return (
-        "You are the Manager tidying several project-distilled skills after a "
-        "mission. Classify every row independently.\n\n"
-        "Placement policy: global = cross-domain; vertical = only one named "
-        "candidate vertical; stay = project-specific or uncertain. Prefer stay.\n\n"
-        f"Candidate verticals: {', '.join(candidates) or '(none)'}\n\n"
-        "Skills to classify (input data):\n"
-        f"{json.dumps(list(skills), ensure_ascii=False)}\n\n"
-        f"{RESEARCHER_VOICE}\n\n"
-        "State one block per input skill, in this shape, exactly one row per "
-        "input:\n"
-        "CANDIDATE_ID=<exact input candidate_id>\n"
-        "PLACEMENT=global|vertical|stay\n"
-        "VERTICAL=<name from the candidate list, or empty>\n"
-        "WHY=<clear explanation>"
-    )
-
-
 __all__ = [
     "GROUNDED_VERTICAL_DECISION",
     "LIVE_VIEW",
     "OPERATIONS",
     "PENDING_QUESTION",
     "PLAN_PREVIEW",
-    "RESEARCH_TARGET",
-    "SKILL_PLACEMENT_BATCH",
     "STAGE_DECISION",
     "build_manager_prompt",
     "build_plan_prompt",
     "build_prompt_completion_prompt",
     "build_prompt_rewrite_prompt",
-    "build_research_target_prompt",
-    "build_skill_placements_prompt",
 ]

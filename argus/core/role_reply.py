@@ -1,26 +1,12 @@
-"""Read a role's decision out of ordinary prose, without dictating its shape.
+"""Display cleanup for role replies, and the named-line reader of two previews.
 
-Roles are not forced to emit JSON. A model told to reply with "ONE JSON object
-and NOTHING else" spends its answer satisfying a serialiser instead of thinking,
-loses the ability to explain itself, and fails the whole decision when it adds a
-sentence of context. The harness is not smarter than the agent, and demanding a
-wire format is the harness deciding how the agent may speak.
-
-Instead the role writes naturally and states its decision on named lines, the
-same convention the Planner has always used for ``PROJECT_DONE=`` /
-``REASON=``. This module is that convention, generalised so every role decision
-can use one reader.
-
-The parsing is deliberately tolerant:
-
-* ``KEY=value`` and ``KEY: value`` both work;
-* a leading bullet or an ``ARGUS_`` prefix is ignored;
-* surrounding backticks and code fences are stripped;
-* the key is matched case-insensitively;
-* anything that is not a recognised key is skipped, so prose above, below or
-  between the lines costs nothing;
-* the last occurrence wins, so a role that restates its conclusion at the end
-  is read the way a human would read it.
+Handoffs travel only by form; nothing here decides who holds the work.
+``visible_text`` strips an old ``Decision:`` footer so a person reads the prose.
+``read_key_values``/``read_block``/``read_list`` read the plan and prompt-rewrite
+previews (``plan_mode``, ``prompt_rewrite``), which never enter the handoff
+chain. They tolerate how models decorate a ``KEY=value`` line: a bullet, bold,
+backticks, an ``ARGUS_`` prefix, a key welded to the end of a sentence; the
+last occurrence of a key wins.
 """
 
 from __future__ import annotations
@@ -47,12 +33,7 @@ _SENTENCE_END_CLASS = r"[.!?)\]\"']"
 
 
 def decision_footer_text(text: str) -> str:
-    """Return the final decision footer when one is explicitly delimited.
-
-    Older sessions have no marker and keep the tolerant whole-message parser.
-    New prompts put the actionable lines after ``Decision:`` so quoted task
-    text or a discarded earlier thought cannot impersonate the final verdict.
-    """
+    """The lines after the last ``Decision:`` marker, or the whole text without one."""
     source = str(text or "")
     matches = tuple(_DECISION_FOOTER.finditer(source))
     return source[matches[-1].end() :] if matches else source
@@ -160,67 +141,6 @@ def _read_key_values(text: str, keys: Iterable[str]) -> dict[str, str]:
     return found
 
 
-def read_records(
-    text: str,
-    keys: Iterable[str],
-    *,
-    start_key: str,
-) -> list[dict[str, str]]:
-    """Repeated blocks, each begun by ``start_key``.
-
-    The convention the Planner has always used for its ``TASK_*`` blocks,
-    generalised: a role listing several things writes them one after another,
-    and each new ``start_key`` line opens the next record. Plain
-    :func:`read_key_values` keeps only the last occurrence of a key, which is
-    right for a single verdict and wrong for a list.
-
-    A welded ``start_key`` costs one record rather than the whole reply, so
-    "the strict pass found nothing" is the wrong trigger here — it reads the
-    records after the weld and silently drops the one before it. The rescue
-    runs instead whenever splitting recovers strictly more records.
-    """
-    original = str(text or "")
-    source = decision_footer_text(original)
-    records = _read_records(source, keys, start_key=start_key)
-    rescued = _read_records(
-        _split_glued_keys(source, keys), keys, start_key=start_key
-    )
-    best = rescued if len(rescued) > len(records) else records
-    if not best and source != original:
-        return _read_records(original, keys, start_key=start_key)
-    return best
-
-
-def _read_records(
-    text: str,
-    keys: Iterable[str],
-    *,
-    start_key: str,
-) -> list[dict[str, str]]:
-    pattern = _line_pattern(keys)
-    wanted = str(start_key).strip().upper()
-    records: list[dict[str, str]] = []
-    current: dict[str, str] | None = None
-    for raw in str(text or "").splitlines():
-        line = raw.strip()
-        if _FENCE.match(line):
-            continue
-        match = pattern.match(line.strip("`").strip())
-        if match is None:
-            continue
-        key = match.group("key").upper()
-        value = match.group("value").strip().strip("`").strip()
-        if key == wanted:
-            if current is not None:
-                records.append(current)
-            current = {key: value}
-        elif current is not None:
-            current[key] = value
-    if current is not None:
-        records.append(current)
-    return records
-
-
 def read_block(text: str, key: str, keys: Iterable[str]) -> str:
     """A value that runs past the end of its line, up to the next named key.
 
@@ -282,30 +202,8 @@ def read_list(values: Mapping[str, str], key: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(part for part in parts if part))
 
 
-def read_bool(values: Mapping[str, str], key: str, default: bool = False) -> bool:
-    raw = str(values.get(key.upper()) or "").strip().casefold()
-    if raw in {"true", "yes", "y", "1", "done", "complete", "completed"}:
-        return True
-    if raw in {"false", "no", "n", "0", "retry", "blocked", "incomplete"}:
-        return False
-    return default
-
-
-def decision_footer_instruction(example: str) -> str:
-    """Ask for natural reasoning followed by the minimum actionable footer."""
-    return (
-        "Reason naturally, then end with only the Host actions below "
-        "(replace examples; omit unused lines):\nDecision:\n"
-        + str(example or "").strip()
-    )
-
-
 __all__ = [
-    "decision_footer_instruction",
-    "decision_footer_text",
     "read_block",
-    "read_bool",
     "read_key_values",
     "read_list",
-    "read_records",
 ]

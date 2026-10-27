@@ -375,15 +375,7 @@ class _RunnerConstructionMixin:
         return _ctx()
 
     def run_exec(self, **kwargs):
-        """Proxy to the manager backend so manager-side skill-library gates can
-        run_exec against this runner directly.
-
-        ``Manager.classify_skill_placement`` passes
-        ``runner=(self._session or self.runner)``; on the daemon ``_session`` is
-        this ``_SkillLoopRunner``, which had no ``run_exec`` — so both the skill
-        gate and placement raised ``AttributeError`` (caught → distillation
-        silently no-op'd). Delegate to the same backend the Manager itself uses.
-        """
+        """Run on the backend the Manager uses, for callers that hold this runner."""
         backend = self.manager_backend or self._backend
         return gateway_run_exec(backend, **kwargs)
 

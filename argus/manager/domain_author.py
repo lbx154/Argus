@@ -19,9 +19,6 @@ from typing import Any, Literal, Sequence
 
 from ..core.research_contract import normalize_research_direction_mode
 from ..core.session import topic_name
-from ..roles.prompts.manager import (
-    build_research_target_prompt,
-)
 from ..skills.stage_machine import normalize_stage_for_project
 from ..verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
@@ -366,7 +363,6 @@ __all__ = [
     "RouteContext",
     "VerticalDecision",
     "VerticalDecisionError",
-    "build_research_target_prompt",
     "parse_domain_proposal",
     "sanitize_model_reply_snippet",
 ]

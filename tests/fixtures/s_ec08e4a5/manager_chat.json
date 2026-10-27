@@ -1,0 +1,9 @@
+{
+ "call_id": "7466732e41504669b6a0abe5fc3daba9",
+ "operator": "moneyfmt 里的 format_ratio 是干嘛的？",
+ "messages": [
+  "我看一下 `moneyfmt` 里 `format_ratio` 的实现和用法。\n",
+  "`format_ratio` 用来把小数比例转成**百分比字符串，保留一位小数**。\n\n```python\nformat_ratio(0.125)  # \"12.5%\"\nformat_ratio(0.5)    # \"50.0%\"\nformat_ratio(1)      # \"100.0%\"\n```\n\n它会把输入乘以 100，再加上 `%`。所以表示 12.5% 时应传 `0.125`。\n\n实现见 [moneyfmt/core.py:6](/fastdata/v-boxiuli/argus-trial-1023/demo/c4-route/moneyfmt/core.py:6)。注释约定输入在 0～1 之间，但代码没有检查范围。"
+ ],
+ "shown": "`format_ratio` 用来把小数比例转成**百分比字符串，保留一位小数**。\n\n```python\nformat_ratio(0.125)  # \"12.5%\"\nformat_ratio(0.5)    # \"50.0%\"\nformat_ratio(1)      # \"100.0%\"\n```\n\n它会把输入乘以 100，再加上 `%`。所以表示 12.5% 时应传 `0.125`。\n\n实现见 [moneyfmt/core.py:6](/fastdata/v-boxiuli/argus-trial-1023/demo/c4-route/moneyfmt/core.py:6)。注释约定输入在 0～1 之间，但代码没有检查范围。"
+}

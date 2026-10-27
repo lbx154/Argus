@@ -31,7 +31,7 @@ local Research SVG component added.
 | Manager authority | `argus/manager/_core.py`, `argus/manager/_stage_ops.py`, `argus/manager/_vertical_ops.py` |
 | Planner and campaign scheduling | `argus/planner/planner.py`, `argus/life/supervisor/_core.py` |
 | Engineer and Reviewer | `argus/loop.py`, `argus/engineer/runner.py`, `argus/reviewer/_core.py` |
-| Skills and Wiki | `argus/skills/loop_skill_library.py`, `argus/manager/skill_review.py`, `argus/wiki/context.py` |
+| Skills and Wiki | `argus/skills/loop_skill_library.py`, `argus/wiki/context.py` |
 | Research contracts | `argus/verticals/research/stages.py` |
 | Manuscript context | `technical_report/sections/04_argus_method.tex` |
 

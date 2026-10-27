@@ -1,22 +1,42 @@
-"""UX-D / T10: the chat fast-path shows only the reply, not mission scaffolding.
+"""Replay of s-ec08e4a5 (trial-1023), call 7466732e: a Manager chat reply is shown as written.
 
-A greeting used to render "🔧 round 1: main agent finished\n   ↳ <reply>"; now
-it reads like a chat reply (see ``manager_triage``'s ``_Capture`` sink, which
-does this same job in the ACTUAL production chat fast-path — swallow
-loop.start/engineer.progress scaffolding, surface only ``round.main.completed``
-text). ``_extract_chat_reply_text`` is the shared plain/JSON-reply parser both
-that sink and this test file's own (now-removed) prototype sink used.
+The chat once unwrapped a reply after a "📢" marker or out of a JSON object
+and hid live text starting with "{". No prompt asks for either shape, and none
+of the 130 Manager chat messages in trial-1023 used one. The fixture keeps the
+operator's question, both messages the Manager streamed, and the reply the
+transcript showed.
 """
 from __future__ import annotations
 
-from argus.manager.front_door import _extract_chat_reply_text
+import json
+from pathlib import Path
+
+from argus.life.memory import MemoryBundle
+from argus.manager import front_door
+from tests.hand_off import manager_runner
+
+CHAT = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "s_ec08e4a5" / "manager_chat.json").read_text(encoding="utf-8")
+)
 
 
-def test_extract_chat_reply_text_plain_and_json():
-    assert _extract_chat_reply_text("你好，我在") == "你好，我在"
-    assert _extract_chat_reply_text("internal draft\n📢 最终回答") == "最终回答"
-    assert _extract_chat_reply_text('{"reply": "hi there"}') == "hi there"
-    assert _extract_chat_reply_text('{"message": "yo"}') == "yo"
-    # garbage / non-reply JSON falls back to the raw text
-    assert _extract_chat_reply_text('{"x": 1}') == '{"x": 1}'
-    assert _extract_chat_reply_text("") == ""
+def _stream(turn) -> None:
+    for index, text in enumerate(CHAT["messages"]):
+        turn["sink"].handle_event({
+            "type": "engineer.progress", "kind": "agent_message", "text": text, "message_id": f"m{index}",
+        })
+
+
+def test_the_manager_reply_is_shown_as_written(tmp_path: Path, monkeypatch) -> None:
+    runner = manager_runner(hand=None, reply=CHAT["messages"][-1], during=_stream)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
+    deltas: list[str] = []
+
+    reply, handoff = front_door.manager_turn(
+        MemoryBundle.for_cwd(tmp_path, global_root=tmp_path, fingerprint="s-ec08e4a5"), CHAT["operator"], {},
+        on_fragment=lambda kind, payload: deltas.append(payload["text"]) if kind == "delta" else None,
+    )
+
+    assert reply == CHAT["shown"]
+    assert handoff is None
+    assert deltas == [text.strip() for text in CHAT["messages"]] + [CHAT["shown"]]

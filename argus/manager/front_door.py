@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import time
@@ -1191,8 +1190,8 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
             # carries the final text.
             if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
                 self._message_id = str(event.get("message_id") or "")
-                live = _redact(_extract_chat_reply_text(str(event.get("text") or "")))
-                if not self._stream or event.get("transient") or not live or live.startswith("{"):
+                live = _redact(event.get("text")).strip()
+                if not self._stream or event.get("transient") or not live:
                     return
                 # Pacing snapshots of one message keeps a long reply from
                 # re-sending itself per token; the final text always follows.
@@ -1208,7 +1207,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
             if event.get("exit_code") not in (None, 0) or event.get("fatal_error") or event.get("turn_completed") is False:
                 round_failure = _redact(event.get("fatal_error") or "The Manager turn did not complete.").strip()
                 return
-            text = _redact(_extract_chat_reply_text(str(event.get("last_message") or "")))
+            text = _redact(event.get("last_message")).strip()
             if text and self._stream:
                 captured.append(text)
                 _fragment("delta", {"text": text, "message_id": self._message_id, "fragment_mode": "snapshot"})
@@ -1287,22 +1286,6 @@ def manager_ticket(mem: Any, objective: str, runner: Any) -> Any:
     return handoff.value
 
 
-def _extract_chat_reply_text(msg: str) -> str:
-    """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
-    msg = (msg or "").strip()
-    if "📢" in msg:
-        msg = msg.rsplit("📢", 1)[1].strip()
-    if msg.startswith("{") and msg.endswith("}"):
-        try:
-            data = json.loads(msg)
-            for key in ("reply", "message", "text", "answer", "response"):
-                val = data.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
-        except Exception:  # noqa: BLE001
-            pass
-    return msg
-
 __all__ = [
     "_accepts_parameter",
     "_MANAGER_RUNNER_UNAVAILABLE",
@@ -1312,7 +1295,6 @@ __all__ = [
     "_derive_session_name",
     "_emit_manager_event",
     "_ensure_manager_runner",
-    "_extract_chat_reply_text",
     "_life_dir_for",
     "_manager_divide_user_task",
     "_maybe_name_session",

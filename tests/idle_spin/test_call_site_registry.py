@@ -150,12 +150,6 @@ REGISTRY: tuple[Site, ...] = (
         ("observer",),
     ),
     Site(
-        r"manager\.skill_placement_batch", EVENT,
-        "End-of-mission skill tidy-up; no caller in this release.",
-        ("argus/manager/skill_review.py:159",),
-        ("manager.skill_placement_batch",),
-    ),
-    Site(
         r"team-learning-review", EVENT,
         "Once per settled mission that changed a project skill.",
         ("argus/manager/skill_tidy.py:473",),
@@ -444,7 +438,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 35, "the sweep no longer sees the call sites"
+    assert len(chosen) > 30, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"
