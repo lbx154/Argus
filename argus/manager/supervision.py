@@ -24,11 +24,7 @@ from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
 from ._helpers import _manager_backend_failure
-from ._session_ops import (
-    _ManagerSession,
-    clear_manager_pipeline_yield,
-    request_manager_pipeline_yield,
-)
+from ._session_ops import _ManagerSession
 from .observation import (
     ManagerObservation,
     _read_object,
@@ -354,88 +350,83 @@ def _apply(
 
     decision = record["decision"]
     path = root / "manager-supervision" / f"{record['id']}.json"
-    yield_token = request_manager_pipeline_yield(root, cancelled=cancelled)
-    try:
-        # Steering is already a supported running-mission control. It must not
-        # wait for the daemon's whole-mission pipeline lock; the next guidance
-        # boundary consumes the inbox. No stage, DAG, or acceptance file is edited.
-        with daemon_command_execution_lock(root, blocking=False) as acquired:
-            if not acquired:
-                raise SupervisionBusy("daemon control is busy")
-            observation = observe_project(root, event=event)
-            if observation.incomplete_requirements:
-                record["observation_limitations"] = observation.facts["limitations"]
-                record["incomplete_requirements"] = list(observation.incomplete_requirements)
-                raise SupervisionSuperseded("required project facts could not be fully observed")
-            if cancelled() or not (
-                observation.control_revision == record["control_revision"]
-                or _owns_reserved_control(root, record)
-            ):
-                raise SupervisionSuperseded("newer project control")
-            # Work that moved on while the Manager decided does not void its
-            # decision; voided, the decision was lost and nobody asked again.
-            record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
-            effects = record.setdefault("effects", {"supervision_id": record["id"]})
-            # Each reading the Manager chose in the operator's place, once per decision.
-            record_assumptions(
-                root, decision["assumptions"], item_id=str(record["trigger"].get("item_id") or ""),
-                source="supervise",
-            )
-            if decision.get("question"):
-                effects["question_item_id"] = _put_to_operator(root, record, decision["question"])
-            if decision["action"] == "continue":
-                effects["effect"] = "current course retained"
-                _apply_risk_decision(root, record, event, observation, effects)
-                record["applied_control_revision"] = observation.control_revision
-                return effects
-            if decision["action"] == "stop":
-                # The mission's own round loop parks this run at its next
-                # boundary (mission_stop_reason); its workspace stays.
-                attempt = _attempt_key(root, str(record.get("trigger", {}).get("item_id") or ""))
-                if not attempt:
-                    raise SupervisionSuperseded("no mission run to stop")
-                effects.update(effect="mission parked", stopped_attempt=attempt)
-                record["applied_control_revision"] = observation.control_revision
-                return effects
-            if not _owns_reserved_control(root, record):
-                # Reserve before any team-facing write. A crash before the
-                # reservation receipt is durable is conservatively superseded;
-                # generation equality alone never proves this command owns it.
-                before = control_identity(root)
-                continuous = observation.continuous
-                swapped = compare_and_swap_continuous_config(
-                    root, expected=continuous, enabled=continuous.enabled,
-                    objective=continuous.objective, open_ended=continuous.open_ended,
-                    done_reason=continuous.done_reason,
-                )
-                if not swapped:
-                    raise SupervisionSuperseded("supervision generation could not be reserved")
-                reserved = control_identity(root)
-                expected = {**before["continuous"], "generation": continuous.generation + 1}
-                expected["done_at"] = reserved["continuous"]["done_at"]
-                if reserved != {**before, "continuous": expected}:
-                    raise SupervisionSuperseded("newer control after reservation")
-                record["reserved_authority"] = reserved
-                effects["continuous_generation"] = continuous.generation + 1
-                _write(path, record)
-            if cancelled() or not _owns_reserved_control(root, record):
-                raise SupervisionSuperseded("control changed before directive delivery")
-            if decision["action"] == "steer":
-                source = f"manager.supervision:{record['id']}"
-                directive = load_active_manager_directive(root, expected_objective=observation.continuous.objective)
-                if directive is None or directive.source != source:
-                    directive = set_active_manager_directive(
-                        root, decision["directive"], source=source,
-                        scope_objective=observation.continuous.objective,
-                        for_planner=decision["handoff"] == "planner",
-                    )
-                effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
-                _apply_risk_decision(root, record, event, observation, effects)
-            record["applied_control_revision"] = observe_project(root, event=event).control_revision
-            _write(path, record)
+    # Steering is a supported running-mission control: the next guidance
+    # boundary consumes the inbox. No stage, DAG, or acceptance file is edited.
+    with daemon_command_execution_lock(root, blocking=False) as acquired:
+        if not acquired:
+            raise SupervisionBusy("daemon control is busy")
+        observation = observe_project(root, event=event)
+        if observation.incomplete_requirements:
+            record["observation_limitations"] = observation.facts["limitations"]
+            record["incomplete_requirements"] = list(observation.incomplete_requirements)
+            raise SupervisionSuperseded("required project facts could not be fully observed")
+        if cancelled() or not (
+            observation.control_revision == record["control_revision"]
+            or _owns_reserved_control(root, record)
+        ):
+            raise SupervisionSuperseded("newer project control")
+        # Work that moved on while the Manager decided does not void its
+        # decision; voided, the decision was lost and nobody asked again.
+        record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
+        effects = record.setdefault("effects", {"supervision_id": record["id"]})
+        # Each reading the Manager chose in the operator's place, once per decision.
+        record_assumptions(
+            root, decision["assumptions"], item_id=str(record["trigger"].get("item_id") or ""),
+            source="supervise",
+        )
+        if decision.get("question"):
+            effects["question_item_id"] = _put_to_operator(root, record, decision["question"])
+        if decision["action"] == "continue":
+            effects["effect"] = "current course retained"
+            _apply_risk_decision(root, record, event, observation, effects)
+            record["applied_control_revision"] = observation.control_revision
             return effects
-    finally:
-        clear_manager_pipeline_yield(root, yield_token)
+        if decision["action"] == "stop":
+            # The mission's own round loop parks this run at its next
+            # boundary (mission_stop_reason); its workspace stays.
+            attempt = _attempt_key(root, str(record.get("trigger", {}).get("item_id") or ""))
+            if not attempt:
+                raise SupervisionSuperseded("no mission run to stop")
+            effects.update(effect="mission parked", stopped_attempt=attempt)
+            record["applied_control_revision"] = observation.control_revision
+            return effects
+        if not _owns_reserved_control(root, record):
+            # Reserve before any team-facing write. A crash before the
+            # reservation receipt is durable is conservatively superseded;
+            # generation equality alone never proves this command owns it.
+            before = control_identity(root)
+            continuous = observation.continuous
+            swapped = compare_and_swap_continuous_config(
+                root, expected=continuous, enabled=continuous.enabled,
+                objective=continuous.objective, open_ended=continuous.open_ended,
+                done_reason=continuous.done_reason,
+            )
+            if not swapped:
+                raise SupervisionSuperseded("supervision generation could not be reserved")
+            reserved = control_identity(root)
+            expected = {**before["continuous"], "generation": continuous.generation + 1}
+            expected["done_at"] = reserved["continuous"]["done_at"]
+            if reserved != {**before, "continuous": expected}:
+                raise SupervisionSuperseded("newer control after reservation")
+            record["reserved_authority"] = reserved
+            effects["continuous_generation"] = continuous.generation + 1
+            _write(path, record)
+        if cancelled() or not _owns_reserved_control(root, record):
+            raise SupervisionSuperseded("control changed before directive delivery")
+        if decision["action"] == "steer":
+            source = f"manager.supervision:{record['id']}"
+            directive = load_active_manager_directive(root, expected_objective=observation.continuous.objective)
+            if directive is None or directive.source != source:
+                directive = set_active_manager_directive(
+                    root, decision["directive"], source=source,
+                    scope_objective=observation.continuous.objective,
+                    for_planner=decision["handoff"] == "planner",
+                )
+            effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
+            _apply_risk_decision(root, record, event, observation, effects)
+        record["applied_control_revision"] = observe_project(root, event=event).control_revision
+        _write(path, record)
+        return effects
 
 
 def _deliver(

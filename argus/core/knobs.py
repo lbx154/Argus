@@ -122,7 +122,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "45", "seconds a provider call queues for a busy concurrency slot before it is refused; 0 refuses at once", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     # --- mission / lifecycle ---
-    Knob("ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS", "900", "foreground Manager wait for a safe task boundary (1-3600 seconds); never interrupts provider work", "mission", cockpit=True),
     Knob(
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
         "true",
@@ -293,7 +292,7 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("config value cannot be empty")
-    if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS", "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"}:
+    if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS"}:
         maximum = 8 if name == "ARGUS_SKILL_MAP_BATCH_SIZE" else 3600
         try:
             bounded_integer = int(raw)

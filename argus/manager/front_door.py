@@ -578,7 +578,6 @@ class PreparedManagerHandoff:
     continuous: bool | None = None
     open_ended: bool | None = None
     cancelled: Callable[[], bool] | None = None
-    on_wait: Callable[[], None] | None = None
     # The model may need bounded conversation/attachment context in body. That
     # input is not the public operator objective carried by lifecycle events.
     public_objective: str | None = None
@@ -724,46 +723,18 @@ class PreparedManagerHandoff:
         })
 
 
-def _handoff_wait_seconds() -> float:
-    from ..core.knobs import normalize_cockpit_knob_value, resolve_knob
-
-    name = "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"
-    return float(normalize_cockpit_knob_value(name, resolve_knob(name, "900").value))
-
-
 @contextmanager
 def _operator_pipeline_lock(
     prepared: PreparedManagerHandoff, *, cancelled: Callable[[], bool] | None = None,
-    request_yield: bool = True,
 ) -> Iterator[None]:
-    """Ask for a mission boundary BEFORE waiting on the foreground commit lock.
-
-    This never terminates a provider call. Native Manager locks honor timeout
-    and cancellation; the optional kwargs keep injected test/custom lock
-    factories compatible with the existing no-argument protocol.
-    """
-    from ._session_ops import (
-        ManagerLockCancelled,
-        clear_manager_pipeline_yield,
-        manager_pipeline_boundary,
-        request_manager_pipeline_yield,
-    )
+    """Enter the short commit lock; running missions never hold it."""
+    from ._session_ops import ManagerLockCancelled, manager_pipeline_boundary
 
     check = cancelled if cancelled is not None else getattr(prepared, "cancelled", None)
     if callable(check) and check():
         raise ManagerLockCancelled("Manager request cancelled before safe handoff")
-    timeout = _handoff_wait_seconds()
-    on_wait = getattr(prepared, "on_wait", None)
-    if callable(on_wait):
-        on_wait()
-    life_dir = _life_dir_for(prepared.mem)
-    owner = request_manager_pipeline_yield(life_dir, cancelled=check) if request_yield else ""
-    try:
-        with manager_pipeline_boundary(prepared.manager, cancelled=check, timeout=timeout):
-            yield
-    finally:
-        if owner:
-            clear_manager_pipeline_yield(life_dir, owner)
+    with manager_pipeline_boundary(prepared.manager, cancelled=check):
+        yield
 
 
 def prepare_manager_execution_task(
@@ -940,13 +911,8 @@ def manager_bounded_handoff(
         raise ManagerHandoffError(
             "prepared Manager handoff does not match the bounded dispatch"
         )
-    from ._session_ops import clear_manager_pipeline_yield, request_manager_pipeline_yield
-
-    life_dir = _life_dir_for(mem)
-    yield_token = ""
     try:
-        yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
-        with _operator_pipeline_lock(prepared, cancelled=cancelled, request_yield=False):
+        with _operator_pipeline_lock(prepared, cancelled=cancelled):
             division = _bounded_handoff_division(
                 prepared,
                 chat_state=chat_state,
@@ -961,9 +927,6 @@ def manager_bounded_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager bounded handoff failed: {exc}") from exc
-    finally:
-        if yield_token:
-            clear_manager_pipeline_yield(life_dir, yield_token)
 
 
 def _bounded_handoff_division(
@@ -1074,12 +1037,8 @@ def manager_continuous_handoff(
                 committed["division"],
             )
 
-    from ._session_ops import clear_manager_pipeline_yield, request_manager_pipeline_yield
-
-    yield_token = ""
     try:
-        yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
-        with _operator_pipeline_lock(prepared, cancelled=cancelled, request_yield=False):
+        with _operator_pipeline_lock(prepared, cancelled=cancelled):
             resolved_open_ended = bool(
                 chat_state.get("_continuous_open_ended", expected.open_ended)
             )
@@ -1096,9 +1055,6 @@ def manager_continuous_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
-    finally:
-        if yield_token:
-            clear_manager_pipeline_yield(life_dir, yield_token)
     if not swapped:
         prepared.superseded()
         current = read_continuous_state(life_dir)

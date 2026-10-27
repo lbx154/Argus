@@ -994,12 +994,6 @@ def _dispatch_team_mission(
         offer = handle_intake(root, request, {"action": "offer"}, route="complex", self_mode="inspect", known_verticals=())
         raise DomainOfferRequired(offer["reply"] if offer else current["last_question"])
     prepared.cancelled = cancelled
-    prepared.on_wait = lambda: emitter.phase(
-        "正在等待当前研究任务安全交接，尚未提交修改…"
-        if chinese
-        else "Waiting for the current research task to hand over safely; changes are not committed yet…",
-        role="manager",
-    )
     emitter.phase(
         "正在确认这个项目能否恢复…"
         if chinese

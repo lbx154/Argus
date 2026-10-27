@@ -541,19 +541,6 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
-            yield_provider = getattr(
-                self.config,
-                "manager_pipeline_yield_provider",
-                None,
-            )
-            if callable(yield_provider):
-                try:
-                    manager_yield = bool(yield_provider())
-                except Exception:  # noqa: BLE001 - a stale marker must not crash work
-                    manager_yield = False
-                if manager_yield:
-                    stopped_by = "manager_config_pending"
-                    break
             # Hot-reload continuous config from provider (disk, etc.)
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()
