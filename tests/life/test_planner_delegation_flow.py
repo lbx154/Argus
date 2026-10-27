@@ -16,6 +16,7 @@ from argus.life.event_log import JsonlEventSink
 from argus.life.memory import (
     BacklogItem,
     LifeMemory,
+    park_reason,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.planner import Planner, PlannerConfig
@@ -671,8 +672,9 @@ def _assert_replan_replace_commits_after_source_terminalized(
     outcome = supervisor._run_one(trigger)
 
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
-    # The Planner's replacement, not a progress bit, retires it.
-    assert rows_after_run["source-route"].status == "pending"
+    # It waits parked in the Planner's hands; the Planner's replacement retires it.
+    source = rows_after_run["source-route"]
+    assert (source.status, park_reason(source)) == ("parked", "research_open")
     assert outcome["status"] == "planner"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",
