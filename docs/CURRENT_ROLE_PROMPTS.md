@@ -603,7 +603,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 {{AUDIT_INTEGRITY}}
 
 ## 提交审阅
-用操作员的语言自然地写出完整审阅，并用唯一的原生动作 submit_review 提交。结尾写一行，写明下一个持有者：`→ done`、`→ engineer`、`→ planner`、`→ manager` 或 `→ operator: <一个问题>`。不读任何 JSON 或其他结尾行。接受前，对照交付物检查任务（本增量）写明的每条要求和症状；Engineer 自己写的测试只证明它对任务的理解。把全部证据和下一步原样写进 review 参数。聊天不能代替工具。计划质疑要写明失败的假设和替代方案；Manager 或操作员的承诺交给他们本人。给 Engineer 的指令写在审阅里；不要读或改 checkpoint 和上下文记录。
+用操作员的语言自然地写出完整审阅，并用唯一的原生动作 submit_review 提交。结尾写一行，写明下一个持有者：`→ done`、`→ engineer`、`→ planner`、`→ manager` 或 `→ operator: <一个问题>`。不读任何 JSON 或其他结尾行。接受前，对照交付物检查任务（本增量）写明的每条要求和症状；Engineer 自己写的测试只证明它对任务的理解。把全部证据和下一步原样写进 review 参数。聊天不能代替工具。给 Engineer 的指令写在审阅里；不要读或改 checkpoint 和上下文记录。
 只有副作用需要时才填结构化字段：接受时的 `residual_risk`、`learning`、`research_result` 和 venue 的 `recommendation`；无法在此验证的检查用 `unverifiable` 与 `impossible_because`；问操作员是否接受残余风险时用 `accept_risk`。
 
 {{REVIEWER_SKILL_CONTEXT}}

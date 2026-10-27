@@ -7,8 +7,8 @@ claimed method. Then the first negative result was treated as a finding and
 written up as a restricted-case paper instead of being iterated on. These
 tests pin the playbooks, the prompt fragments, the checklist and the two
 handoff skills that keep the claim out of reach of whoever implements it,
-turn a negative result into a diagnosis ladder, and give the Engineer a
-complete brief and the Reviewer a packet built from code anchors.
+turn a negative result into a diagnosis ladder, and give the Reviewer a
+packet built from code anchors.
 
 Ownership follows who chose the idea. Project s-a43d1018 asked for "a general
 method"; Argus chose the route itself and then treated its pick as
@@ -64,7 +64,7 @@ def test_experiment_playbook_replaces_thesis_rederivation_with_a_diagnosis_ladde
         "scale and data", "baseline fairness", "method variants that still satisfy",
     )]
     assert order == sorted(order)
-    # The brief and the review anchors are part of the implementation step.
+    # The review anchors are part of the implementation step.
     assert "engineer/method-card.md" in text
     assert "# @component <name>" in text
 
@@ -121,26 +121,8 @@ def test_checklist_and_banners_fix_the_claim_and_hold_narrowed_acceptances() -> 
     assert "changes only as the experiment.repair item allows" in role_banner("planner")
 
 
-def test_method_card_keeps_the_brief_headings_and_review_anchors() -> None:
-    brief = _text(ENGINEER / "method-card.md")
-    for heading in (
-        "## Claim",
-        "## Components to implement this task",
-        "## Interfaces",
-        "## Tests that must pass",
-        "## Data and scale",
-        "## Commands",
-        "## Environment prerequisites",
-        "## Definition of done",
-        "## Out of scope",
-    ):
-        assert heading in brief, heading
-    assert "verbatim" in brief
-    assert "path/to/file.py:Symbol" in brief
-    assert '"e.g." is not a dataset list' in brief
-    assert "No adjectives" in brief
-
-    review = brief
+def test_method_card_keeps_the_review_anchors() -> None:
+    review = _text(ENGINEER / "method-card.md")
     for heading in ("## Anchors", "## Configuration", "## Shape of the code"):
         assert heading in review, heading
     for anchor in (

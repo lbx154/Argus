@@ -72,10 +72,9 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
     ):
         assert field not in prompt
 
-    # The handoff line routes the round; a plan challenge still names its alternative.
+    # The handoff line routes the round.
     assert "forward_progress" not in prompt
     assert "`to=planner`" in prompt
-    assert "alternative" in prompt
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):

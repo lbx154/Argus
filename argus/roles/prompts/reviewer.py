@@ -655,8 +655,7 @@ def render_reviewer_prompt(
         "Before accepting, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "
-        "Chat cannot replace the tool. A plan challenge names the failed assumption "
-        "and an alternative; a commitment of the Manager or the operator goes to them. "
+        "Chat cannot replace the tool. "
         "Give Engineer instructions in the review; neither "
         "read nor edit checkpoint or context records.\n\n"
     )

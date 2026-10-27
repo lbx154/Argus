@@ -35,6 +35,8 @@ Plan from the mission workspace only; never read sibling or parent directories.
 
 - Reuse settled/Manager decisions; name each task's decision, inputs and check,
   not who does or reviews it; handoffs decide.
+  A task's text carries only what is new for it and the operator's own acceptance words
+  for it: never restate a playbook or Skill rule, nor add a bar the operator did not set.
   Emit items that differ only in inputs or config, with disjoint outputs,
   together up to the free slots; a shared code change goes first as their dep.
 - At the digest's measured throughput, can this plan reach its first held-out

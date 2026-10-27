@@ -105,20 +105,12 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    spec first (sections below), then implement the method and baseline
    through real entry points under comparable data, compute, information,
    and evaluator access until the differential, knockout and parity tests
-   pass without loosened tolerances or skips. Build the strongest faithful
-   version of the idea, not the easiest version that can pass a local check;
-   where the implementation must simplify the route, say so in the card's
-   Notes column and mark the entry point `# @simplified` before running
-   anything that bears a claim. Each implementation task arrives as a brief
-   (the implementation brief in `engineer/method-card.md`): the claim named from `METHOD.md`,
-   the components this task builds with their entry points, interfaces,
-   the `tests/spec` ids that must pass, data and scale as the route states
-   them, commands, environment prerequisites and an executable definition
-   of done. A brief missing a field is completed from `METHOD.md` and the
-   route before code is written, and the completion is named in the round
-   summary; the brief is never narrowed to fit what is convenient. Write
-   the code for the Reviewer that reads it without you present
-   (the anchors in `engineer/method-card.md`): `# @component <name>` above every
+   pass. Build the strongest faithful version of the idea, not the easiest
+   version that can pass a local check; where the implementation must
+   simplify the route, say so in the card's Notes column and mark the entry
+   point `# @simplified` before running anything that bears a claim. Write
+   the code for the Reviewer that reads it without you present (the anchors
+   in `engineer/method-card.md`): `# @component <name>` above every
    component entry point, `# @simplified`, `# @reuses` and `# why:` where
    they apply; the host builds the review packet from these anchors.
 5. Beyond `tests/spec`, run only the smallest engineering checks needed to
@@ -386,14 +378,13 @@ operator has not supplied cannot be scheduled as work in an autonomous
 campaign; raise the need once, then design the claim around what can be
 executed here.
 
-Choose benchmarks that expose the method's mechanism and real advantage rather
-than convenient saturated tasks. Inspect the existing benchmark's label
-provenance, shortcut opportunities, and ability to distinguish the claimed
-mechanism; if unsuitable, select another established benchmark or a small
-custom experiment permitted by the cost-aware benchmark policy. Follow surprising positive evidence when it
-reveals a stronger contribution, then confirm it on untouched data. Keep
-relevant losses visible internally, but do not let defensive edge-case coverage
-replace the main result.
+Before the first claim-bearing run, the METHOD.md Protocol states whether the
+experiment can answer the question (`engineer/method-card.md`); where it
+cannot, select another established benchmark or a small custom experiment
+permitted by the cost-aware benchmark policy. Follow surprising positive
+evidence when it reveals a stronger contribution, then confirm it on untouched
+data. Keep relevant losses visible internally, but do not let defensive
+edge-case coverage replace the main result.
 
 Check real external, numerical, persistence, and security boundaries. Inside
 the controlled implementation, trust established invariants. Do not add
@@ -475,7 +466,7 @@ decision, then return here. Do not read all the sources in advance.
 
 | When needed | Open | Use it for |
 |---|---|---|
-| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, an implementation task is briefed, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; the brief a Planner writes before code; the `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet; keeping thesis and code aligned |
+| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; whether the experiment can answer the question; the `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet; keeping thesis and code aligned |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/training-infrastructure.md` | Choose the framework from a current, verified survey, stand it up in isolation, and tune from the official recipe |
 | A project environment needs setup or repair, or a dependency or resource may block a claim-bearing run | `project-venv-package-management.md` in the global library | Reuse the configured environment, install only required dependencies, and verify only the resources the run uses |

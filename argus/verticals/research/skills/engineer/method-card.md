@@ -1,6 +1,6 @@
 ---
 name: "Method card (METHOD.md), executable spec and review anchors"
-description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that runs without a model, anchors in the code that a Reviewer who was not present can follow, the mapping from thesis to executed path, and the brief a Planner writes before any code exists. The tests behind each component, reused code, hyperparameters and history are derived by the host, never maintained by hand."
+description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that runs without a model, anchors in the code that a Reviewer who was not present can follow, and the mapping from thesis to executed path. The tests behind each component, reused code, hyperparameters and history are derived by the host, never maintained by hand."
 ---
 
 # Method card (METHOD.md), executable spec and review anchors
@@ -15,12 +15,10 @@ sole cross-stage context and that no extra reporting files are written.
 
 Everything else in this document exists to hold the code to the card: the
 reference clone the method is a diff on, the spec suite that says in code
-what the method must do, the anchors in the code the Reviewer reads, the
-mapping from thesis to executed path, and the brief a Planner writes so that
-an Engineer starts from the card rather than from a paraphrase of it. They are
-joined by one convention: a component is spelled the same way in the card's
-table, in the marker on its tests and in the anchor above its code, and the
-host joins the three by name.
+what the method must do, the anchors in the code the Reviewer reads, and the
+mapping from thesis to executed path. They are joined by one convention: a
+component is spelled the same way in the card's table, in the marker on its
+tests and in the anchor above its code, and the host joins the three by name.
 
 ## Why the card exists
 
@@ -51,11 +49,12 @@ the project.
    will claim it; the `Components` table (`Component | The idea prescribes |
    Notes`), quoting the route in the second column and leaving `Notes` empty
    unless you deliberately simplify a component, in which case it says what
-   was simplified and why; the `Protocol` (datasets, baselines, seeds or
-   repeats, metrics and the config files the runs use, copied from the route,
-   every deviation on its own line with the reason); and `What would falsify
-   the claim`, the observation that would make the paper's central claim
-   false.
+   was simplified and why; `Known prior art`; the `Protocol` (datasets,
+   baselines, seeds or repeats, metrics and the config files the runs use,
+   copied from the route, every deviation on its own line with the reason,
+   and whether this experiment can answer the question); and `What would
+   falsify the claim`, the observation that would make the paper's central
+   claim false.
 3. Spell the component name exactly as the marker on its tests and the anchor
    above its code will spell it.
 
@@ -71,8 +70,8 @@ the card by hand.
 
 Touch `METHOD.md` again only when the method itself changes: a component is
 added or removed, a component is deliberately simplified (say so in `Notes`),
-the protocol changes, or the falsifier changes. Tests, code, configs and
-history speak for themselves through the derived panel. A `Notes` entry
+the prior art or the protocol changes, or the falsifier changes. Tests, code,
+configs and history speak for themselves through the derived panel. A `Notes` entry
 naming a simplification is honest and allowed; a component the card states
 plainly and the code contradicts is the defect the Reviewer looks for first.
 
@@ -263,67 +262,6 @@ deliberate, named simplification the operator can see, marked `# @simplified`
 at the entry point. The alignment result lives in the code, the spec run you
 report and the Reviewer's returned judgement, not in a separate note.
 
-## The implementation brief
-
-One task is one brief. Before code exists, the Planner writes the brief into
-the task objective; the Engineer reads it before writing code and completes
-any missing part from `METHOD.md` and the selected route, naming the
-completion in the round summary. An incomplete brief is completed, not
-refused. A brief never narrows the claim, the datasets or the scale to what
-is convenient, and a task re-issued after a failure carries the same brief
-with the same acceptance, verbatim. It answers these questions, under these
-headings:
-
-### Claim
-
-Name the `METHOD.md` statement; do not copy it. The host already shows it
-verbatim in the Engineer's task brief, and a copy in every objective crowds
-out the parts that differ per task. Never paraphrase or scope it down.
-
-### Components to implement this task
-
-Names exactly as in the card's `Components` table. For each: the entry point
-to create or change as `path/to/file.py:Symbol`, and the equations or route
-section it realizes.
-
-### Interfaces
-
-The function or class signatures, or the CLI, that the component exposes and
-that the tests and later tasks will call.
-
-### Tests that must pass
-
-The `tests/spec` ids to write or make green, each marked
-`@pytest.mark.component("<name>")` with the component it exercises: oracle,
-differential, knockout, claim-shaped or parity.
-
-### Data and scale
-
-Datasets, splits, sizes, seeds and repeats exactly as the route's protocol
-states them. "e.g." is not a dataset list.
-
-### Commands
-
-Environment activation, the run command with its config file, and the
-evaluation command, as they will be executed.
-
-### Environment prerequisites
-
-The project venv and pinned dependencies, the `third_party/` reference clone
-at its pinned revision, data present at its path, the GPU or accelerator
-mask, any credentials the operator has supplied.
-
-### Definition of done
-
-Executable checks and the numbers to report: which tests are green, which
-command produced which raw output, which comparison at which scale.
-No adjectives ("robust", "reasonable", "works well").
-
-### Out of scope
-
-What this task deliberately leaves to another brief, so the Engineer does not
-spend the round on it or quietly fold it in.
-
 ## What the card is not
 
 Not a plan, not a report, not a JSON ledger; nothing reads it to block a
@@ -353,6 +291,12 @@ paper will say it achieves. Quote the selected route where it states this.>
 Spell each component name exactly as the `@pytest.mark.component("<name>")`
 marker on its tests under `tests/spec` spells it; the host joins the two.
 
+## Known prior art
+
+<The closest published work and any published or observed evidence that the
+effect does not hold, each with its source. The research policy in your role
+prompt says what an operator-locked direction waives.>
+
 ## Protocol
 
 Copied from the selected route; every deviation is named on its own line.
@@ -363,6 +307,24 @@ Copied from the selected route; every deviation is named on its own line.
 - Metrics: <as the route names them; evaluator and version>
 - Configs: <`configs/<file>.yaml` the claim-bearing runs use>
 - Deviations: <none> / <what differs, why, and what it costs the claim>
+
+### Can this experiment answer the question
+
+Filled in before the first claim-bearing run; where an answer is no, change
+the benchmark or the scale here first.
+
+- Ceiling at both ends: <the metric for the starting point (initial model or
+  simplest method) and for the best reachable result (an oracle, a stronger
+  model or the published best): neither end at the metric's floor or ceiling
+  nor reachable by a label shortcut, with room between them for the claimed
+  effect>
+- Minimum detectable effect: <from the number of items and seeds, the smallest
+  difference this protocol resolves; the claimed effect exceeds it>
+- Strongest same-information baseline: <the strongest method given the same
+  information, and the simplest one (e.g. more samples or a tuned default);
+  both run under this protocol>
+- Known counter-evidence: <what under Known prior art predicts no effect here,
+  and the run that would show it>
 
 ## What would falsify the claim
 

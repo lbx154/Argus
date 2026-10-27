@@ -791,7 +791,8 @@ _FLOOR_STATEMENT = (
     "## Harness floor (non-negotiable)\n"
     "The project-authored checklist items above are ADDITIVE. They may "
     "tighten but never relax the framework: they cannot waive evidence-binding, "
-    "permit fabricated or placeholder results, or lower the done criteria. On any conflict, the framework checklist wins."
+    "permit fabricated or placeholder results, or lower the operator's acceptance or "
+    "a claim's decision rules. On any conflict, the framework checklist wins."
 )
 
 

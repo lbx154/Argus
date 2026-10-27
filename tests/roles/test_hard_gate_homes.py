@@ -50,8 +50,8 @@ GATES = (
     ("H5", "never request a rollback or reopen Idea selection.", ROLES),
     ("H5", "A claim-bearing task re-issued after any failure keeps the METHOD.md Protocol's "
      "data, scale and acceptance: repair the cause, never lower the bar.", ROLES),
-    ("H5", "This item binds the METHOD.md claim and its claim-bearing comparisons, not the "
-     "numeric tolerance of an engineering self-check.", ROLES),
+    ("H5", "These and the operator's own acceptance words are the only numbers frozen, never "
+     "relaxed;", ROLES),
     ("H6", "results with no statement are a continue with one question: which clauses do "
      "these numbers meet.", ("reviewer",)),
     ("H7", "Claim attainment (the Engineer's statement per clause of the claim;",

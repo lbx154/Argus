@@ -178,9 +178,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Keep the selected idea and current stage; never request a rollback or "
                 "reopen Idea selection. A claim-bearing task re-issued after any failure "
                 "keeps the METHOD.md Protocol's data, scale and acceptance: repair the "
-                "cause, never lower the bar. This item binds the METHOD.md claim and its "
-                "claim-bearing comparisons, not the numeric tolerance of an engineering "
-                "self-check."
+                "cause, never lower the bar. These and the operator's own acceptance words "
+                "are the only numbers frozen, never relaxed; a tolerance or setting an "
+                "agent chose for engineering is reported, or changed with the reason "
+                "beside it."
             ),
             evidence_hint="re-issued tasks against the METHOD.md Protocol",
         ),
@@ -630,7 +631,10 @@ _AMBITIOUS_RESEARCH_POLICY = (
     "instead of burying it under defensive caveats. "
     "In Idea, a route passes as a solid, publishable contribution at the target "
     "venue with a clear delta from its closest work, not an Oral or Best Paper; "
-    "related work is a risk to record, not by itself a reason to reject."
+    "related work is a risk to record, not by itself a reason to reject. An "
+    "operator-locked direction waives only an objection that the idea is not "
+    "original; evidence against its effect is listed under Known prior art in "
+    "METHOD.md and tested, never set aside."
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
