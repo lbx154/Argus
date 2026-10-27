@@ -21,8 +21,8 @@ from tests.hand_off import hand_off
 SURVEY = "reward-hacking-survey-zh.md"
 
 
-def _edit(workdir: Path, relative: str, text: str, to: str = "reviewer") -> CannedResponse:
-    """An Engineer turn that writes ``relative``, then hands the work on."""
+def _edit(workdir: Path, relative: str, text: str, summary: str = "", note: str = "") -> CannedResponse:
+    """An Engineer turn that writes ``relative``, then hands the work to the Reviewer."""
 
     def turn(_prompt, _options) -> str:
         path = workdir / relative
@@ -30,7 +30,7 @@ def _edit(workdir: Path, relative: str, text: str, to: str = "reviewer") -> Cann
         path.write_text(text, encoding="utf-8")
         return ""
 
-    return CannedResponse(message_factory=turn, action=hand_off(to, f"Edited {relative}."))
+    return CannedResponse(message_factory=turn, action=hand_off("reviewer", summary or f"Edited {relative}.", note))
 
 
 def _review(to: str, note: str = "") -> CannedResponse:
@@ -130,30 +130,49 @@ def test_an_ordinary_task_on_accepted_files_still_gets_its_review(tmp_path: Path
     assert status == "done"
 
 
-def test_a_second_closing_step_on_unchanged_files_is_not_reviewed_or_replanned(tmp_path: Path) -> None:
+# Event 050e88c3 (task 0f1e9e6ce520): the Reviewer asked only that its
+# conclusion be saved in the acceptance record; the Engineer saved it there.
+_SAVED_SUMMARY = "完整独立审阅意见已写入验收记录，明确综述达标且唯一旧保留意见已解除，现仅待确认记录准确。"
+_CONTINUE = "中文综述内容通过独立审阅；仅需在现有最终验收记录中保存本次实际独立结论。"
+
+
+def test_a_hand_off_to_the_reviewer_reaches_it_on_unchanged_files(tmp_path: Path) -> None:
     _delivered(tmp_path)
     work = tmp_path / "work"
     (work / SURVEY).write_text("v2, four method corrections", encoding="utf-8")
     first = MemoryBackend()
     first.queue("engineer-r1-9e5992dac968", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
-    first.queue("reviewer", _review("engineer", "Fix the misattribution in source-verification.md line 55."))
-    first.queue("engineer-r2-9e5992dac968", _edit(work, ".argus/evidence/source-verification.md", "corrected"))
-
-    # 01:32: the fix is in Argus's records, so the survey is unchanged and the
-    # work goes one rung up, to the Planner, which replans once.
-    status, _rounds, labels = _run(tmp_path, first, _task(tmp_path, "9e5992dac968", closing=True))
-    assert (labels, status) == (["engineer-r1-9e5992dac968", "reviewer", "engineer-r2-9e5992dac968"], "planner")
+    first.queue("reviewer", _review("planner", "Plan the final acceptance."))
+    assert _run(tmp_path, first, _task(tmp_path, "9e5992dac968", closing=True))[0] == "planner"
 
     second = MemoryBackend()
-    second.queue("engineer-r1-67c874f26b5e", _edit(work, ".argus/evidence/final-certification.md", "confirmed"))
-    status, rounds, labels = _run(tmp_path, second, _task(tmp_path, "67c874f26b5e", closing=True))
+    second.queue("engineer-r1-0f1e9e6ce520", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
+    second.queue("engineer-r2-0f1e9e6ce520", _edit(
+        work, ".argus/evidence/final-certification.md", "saved",
+        _SAVED_SUMMARY, "Only .argus/evidence/final-certification.md changed.",
+    ))
+    second.queue("reviewer", _review("engineer", _CONTINUE), _review("planner", "Record the acceptance."))
+    status, rounds, labels = _run(tmp_path, second, _task(tmp_path, "0f1e9e6ce520", closing=True))
 
-    # The next closing step on the same files gets no second review and no
-    # second replan: the Reviewer and the Planner already held these files,
-    # so the work reaches the Manager.
-    assert labels == ["engineer-r1-67c874f26b5e"]
-    assert status == "manager"
-    assert rounds[-1].review.review_source == "unchanged_return"
+    # The Reviewer and the Planner already held these files, and the record
+    # sits in .argus/: still each hand_off goes where it names, so the
+    # Reviewer reads the saved record and its own `to=planner` stands.
+    assert labels == ["engineer-r1-0f1e9e6ce520", "reviewer", "engineer-r2-0f1e9e6ce520", "reviewer"]
+    assert status == "planner"
+    assert all(record.review.review_source != "unchanged_return" for record in rounds)
+
+
+def test_the_reviewer_sees_the_evidence_the_engineer_was_told_to_write(tmp_path: Path) -> None:
+    (tmp_path / "work").mkdir()
+    backend = MemoryBackend()
+    backend.queue("engineer-r1-0f1e9e6ce520", _edit(tmp_path / "work", "evidence/final-certification.md", "saved"))
+    backend.queue("reviewer", _review("done"))
+
+    _run(tmp_path, backend, _task(tmp_path, "0f1e9e6ce520", closing=False))
+
+    (review_prompt,) = [prompt for label, prompt, _options in backend.history if label == "reviewer"]
+    changes = review_prompt[review_prompt.index("## Workspace changes under review"):]
+    assert "evidence/final-certification.md" in changes
 
 
 def test_the_climb_reads_as_plain_chinese() -> None:

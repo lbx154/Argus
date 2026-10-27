@@ -50,7 +50,6 @@ from .round_routing import (
     RoundRoutingMixin,
     accepted_as_is,
     accepted_verdict,
-    climb_record,
     no_turn,
     outside_inputs,
     returned_unchanged,
@@ -272,8 +271,6 @@ class SupervisedEngineer(
             except Exception as exc:  # noqa: BLE001 - comparison is a hard contract
                 reason = f"Could not preserve the pre-edit paper snapshot: {exc}"
                 return "error", state.rounds, "", reason, None
-        # A climb is said in the language of the task: the person reads it.
-        chinese = uses_cjk(objective)
         round_indices = (
             itertools.count(1)
             if supervised_config.max_rounds <= 0
@@ -316,7 +313,6 @@ class SupervisedEngineer(
                 state=state,
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
-                chinese=chinese,
                 climbed=climbed,
             )
             if control.action == "return":
@@ -351,8 +347,7 @@ class SupervisedEngineer(
                     "reviewer", "reviewed", state.handed_inputs, accepted_verdict(review, round_index, state),
                 )
                 if review.status in {"planner", "manager"}:
-                    holder, passed = self._deliver(review.status, state=state, label="reviewed")
-                    review = climb_record(holder, chinese=chinese, handed=review) if passed else review
+                    self._deliver(review.status, state=state, label="reviewed", climb=False)
             control = self._settle_round(
                 review=review,
                 round_index=round_index,

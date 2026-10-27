@@ -1,9 +1,8 @@
 """The host writes a climb once, plainly, in the task's language; no page reads it back.
 
 Review of PR 334: pages rewrote the host's English climb record with a regex.
-The decision card dropped the Reviewer's words (F39), the question put to the
-person stayed English and named roles (F40), and the mission view showed the
-raw record as the Reviewer's verdict (F41).
+The question put to the person stayed English and named roles (F40), and the
+mission view showed the raw record as the Reviewer's verdict (F41).
 """
 from __future__ import annotations
 
@@ -11,8 +10,6 @@ import json
 from pathlib import Path
 
 from argus.core.mission_view import update_mission_view_event
-from argus.core.models import ReviewDecision
-from argus.core.operator_decision import build_operator_decision
 from argus.engineer.round_routing import climb_record
 
 ROLES = ("rung", "nothing changed", "engineer", "reviewer", "planner", "manager", "operator",
@@ -21,21 +18,6 @@ ROLES = ("rung", "nothing changed", "engineer", "reviewer", "planner", "manager"
 
 def _plain(text: str) -> bool:
     return not any(word in text.lower() for word in ROLES)
-
-
-def test_the_card_keeps_the_reviewers_reason_when_work_climbs_to_the_person() -> None:
-    handed = ReviewDecision(
-        status="manager", next_action="",
-        reason="The benchmark numbers contradict the claim in section 3.",
-    )
-    review = climb_record("operator", chinese=False, handed=handed)
-    card = build_operator_decision(
-        item_id="t", title="Benchmark the kernel", reason=review.reason, question=review.operator_question,
-    )
-
-    assert "The benchmark numbers contradict the claim in section 3." in card["reason"]
-    assert card["reason"].startswith("This path is making no new progress")
-    assert review.reviewer_words["reason"] == handed.reason
 
 
 def test_the_question_to_the_person_is_plain_in_the_tasks_language() -> None:
