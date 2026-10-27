@@ -325,7 +325,10 @@ def test_a_manager_steer_wakes_the_planner_only_when_handed_to_it(
 def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """The 2026-10-20 loop: remark, steer, Planner turn, remark, four times over."""
+    """The 2026-10-20 loop: remark, steer, Planner turn, remark, four times over.
+
+    Only a Manager handing the remark ``to=planner`` asks the Planner again.
+    """
     from argus.core.event_catalog import EventType
     from argus.core.models import RunnerResult
     from argus.daemon.state import write_continuous_config
@@ -339,8 +342,6 @@ def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
         def run_exec(self, *, options, **_kwargs):
             steer = {"summary": "The Planner keeps waking for nothing.", "note": "Stop re-planning unchanged work.",
                      "evidence_refs": ["backlog.jsonl"]}
-            # Handed to the Planner, the remark's steer is refused; the Manager corrects it.
-            assert "Observer" in submit(options, hand_off("planner", **steer))
             assert not submit(options, hand_off("team", **steer))
             return RunnerResult(exit_code=0)
 

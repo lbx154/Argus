@@ -1,0 +1,88 @@
+{
+ "parked": {
+  "started": {
+   "type": "life.mission.started",
+   "item_id": "a176d0d06768",
+   "title": "运行完整两级CARE的100更新开发臂及39题验证",
+   "ts": 1793021088.9150307,
+   "event_id": "ca81b681196a4b69860d97854c53b594"
+  },
+  "turn": {
+   "type": "role.session.turn",
+   "role": "engineer",
+   "policy": "rolling",
+   "action": "fresh",
+   "round_index": 1,
+   "item_id": "a176d0d06768",
+   "duration_ms": 142345,
+   "ts": 1793021232.3816535,
+   "event_id": "cbd138ac78a94a838a0e51525d4dd4a1"
+  },
+  "parked": {
+   "type": "life.mission.completed",
+   "item_id": "a176d0d06768",
+   "success": false,
+   "status": "parked",
+   "stop_reason": "CARE 配置已逐字复制并核验，但调度尚未分配 GPU，训练和39题验证尚未启动，需要补齐设备分配后继续。",
+   "ts": 1793021232.946026,
+   "event_id": "mission-0894ee496d664cba9e42ab017d389c92"
+  },
+  "remark": {
+   "remark": "经理，工程师本轮约142秒、花费0.77美元后因未取得调度分配的GPU而停在启动前，随后经理接续检查又因信息读取不全失败；请在团队下一轮落实设备分配并续接原任务，避免重复启动前检查，完成后仍须审阅者正式验收。",
+   "seen_at": [
+    1793021232.3816535,
+    1793021232.4128103,
+    1793021232.8346255
+   ]
+  }
+ },
+ "remark": {
+  "note": {
+   "type": "life.observer.note",
+   "agent_layer": "observer",
+   "text": "经理，诊断任务已获审阅者正式验收，但接棒的规划者运行约3.8秒即被随后到达的经理指令中断，尚未形成下一步实验安排；请在团队下一轮让规划者承接最新指令完成调度，避免验收后的交接再次悬空。",
+   "seen_at": [
+    1793084575.4745507,
+    1793084608.1077747,
+    1793084612.2335362,
+    1793084612.453043,
+    1793084612.5056438
+   ],
+   "to": "manager",
+   "ts": 1793084630.0955079,
+   "event_id": "cee466a88559492294a11657b0bf0c0f"
+  },
+  "hand_off": {
+   "to": "team",
+   "summary": "经理确认诊断及记录修正已由审阅者验收，要求规划者承接最新结论完成下一步实验调度，避免重复启动，工程师保持当前运行工作。",
+   "assumptions": [],
+   "evidence_refs": [
+    "backlog.jsonl",
+    "mission-view.json"
+   ],
+   "note": "经理裁定：当前缺口是验收后的实验调度，不是诊断或归属记录尚待修正。本次指令替代上一条经理指令中已过时的条件分支，交团队下一安全边界执行，不再重启忙碌规划会话，不打断工程师当前工作。\n\n决定性证据：round.review.completed（event_id 6e1f60208194472c8a92103014f87992）已正式done，随后life.mission.completed（mission-be1e021ee6af4300a31c9192ebba1cd3）确认诊断任务完成，覆盖380组转移、64个等待窗口及追加的任务归属和明确的会话映射缺口。因此不再派工程师补做这项已验收修正，也不重复请求审阅者核查。candidate仍仅63次真实更新，100步未达、39题未测；验收的是诊断，不是完整学习或论文证据。当前tasks快照为空，而工程师显示running、规划者显示done，不能凭空推断所有项目工作停止，也未观察到已落地的下一步实验任务。观察者所述中断应作为交接纠偏处理，不另建调度系统维护项目。\n\n规划者下一轮读取最新正式验收及原诊断recommendation，直接完成当前Experiment内的一项最小共同协议修复或一项最小判别实验的可执行安排，写明证据依据、真实非零更新要求、预算、输出、科学反驳条件、责任角色与依赖；不要再次提交等待、材料重审或仅说明要规划。需要时按方法卡流程明确共同协议修订，不能仅提高旧caps、改100步终点为63或用零优势凑进度；不能回溯改写运行中CARE合同，也不能把右删失等待推断为多等必然成功。锁定组级验证纠错方向和最强同信息比较要求继续有效，不重开选题、不进入Paper。\n\n保留用户已授权的并行vLLM接入任务及GPU0/3验证、GPU1/2保护要求；先核对它是否已有有效在途任务，已有则复用，不重建、不撤销、不静默排到两组结束后。若依赖其验证结果才能启动统一引擎的新科学比较，应把该依赖显式写入调度，同时完成不依赖它的配置与协议准备，而不是继续扩大旧HF臂来代替迁移。这里不宣称迁移已有任何新结果。\n\n交接只做一次：若规划者已有调用运行，就在该调用安全边界合并本指令；若上一调用已退出，则由下一次正常调用继续，不并发重启同一会话。计划形成后核对新任务确已登记且可领取，再交工程师；下一项可接受的进展是明确可执行的实验任务或具体依赖障碍，不是又一轮交接解释。审阅者复用已通过诊断，只检查后续新增实现、协议及实验产物。经理本轮不要求额外状态回报或重复审阅，避免自身纠偏指令再次中断接棒。"
+  }
+ },
+ "review": {
+  "type": "round.review.completed",
+  "status": "done",
+  "reason": "candidate公开数据诊断通过：380组转移和64个等待窗口已独立复算，访问记录已追加CARE任务归属及明确的会话映射缺口；训练仍为63步、39题未评测。",
+  "review_source": "reviewer",
+  "operator_question": "",
+  "review_skipped": false,
+  "changed_during_review": [
+   "results/development/learning/care-seed0/train/attempt-001/evaluator-private/execution.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/base_verdicts.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/budget.json",
+   "results/development/learning/care-seed0/train/attempt-001/public/collections.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/device_samples.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/phases.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/raw_generations.jsonl",
+   "results/development/learning/care-seed0/train/attempt-001/public/rollouts.jsonl"
+  ],
+  "round_index": 2,
+  "item_id": "f9a8027c80f1",
+  "ts": 1793084575.4745507,
+  "event_id": "6e1f60208194472c8a92103014f87992"
+ }
+}

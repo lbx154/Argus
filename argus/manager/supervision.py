@@ -42,7 +42,6 @@ _GUARD = threading.Lock()
 _CLOSED = False
 _STOPPED_ROOTS: set[str] = set()
 MAX_PENDING_PROJECTS = 64
-_CHANGED_PATHS_SHOWN = 20
 
 
 class SupervisionBusy(RuntimeError):
@@ -182,11 +181,6 @@ def _check(
     to, note = payload["to"], payload.get("note", "").strip()
     if to == "planner" and not note:
         raise ValueError("to=planner needs your instruction for the Planner in note.")
-    if to == "planner" and event.get("type") == EventType.LIFE_OBSERVER_NOTE:
-        raise ValueError(
-            "An Observer's remark never moves the work to the Planner: hand it "
-            "to=team, with your instruction in note."
-        )
     consultation = payload.get("consultation", {})
     if consultation:
         from ..advisor.receipts import read_receipt
@@ -690,17 +684,12 @@ _DELIVERY_BOUNDARIES = frozenset({
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """What a review puts to the Manager, or "" when nothing.
 
-    A workspace that changed while the Reviewer judged, an Engineer's or a
-    Reviewer's ``→ manager``, work that climbed to the Manager because it came
-    back unchanged, or a check the Reviewer cannot make here while the
-    operator cannot be asked, so accepting its risk falls to the Manager.
-    A question goes to the operator, and how the work flows is the Observer's
-    to report.
+    An Engineer's or a Reviewer's ``→ manager``, work that climbed to the
+    Manager because it came back unchanged, or a check the Reviewer cannot make
+    here while the operator cannot be asked, so accepting its risk falls to the
+    Manager. A question goes to the operator, and how the work flows is the
+    Observer's to report.
     """
-    changed = event.get("changed_during_review")
-    if changed:
-        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:_CHANGED_PATHS_SHOWN]))}); "
-                "its verdict stands as written: decide whether this review counts")
     handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (
         handed and holder_of(event.get("status"), event.get("operator_question")) == "manager"
@@ -722,8 +711,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     reason: str | None = ""
     if event_type in {EventType.LIFE_DAEMON_DEGRADED, EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}:
         reason = None
-    elif event_type == EventType.ROUND_REVIEW_COMPLETED and (
-            holder_of(event.get("status")) in {"engineer", "manager", "operator"} or event.get("changed_during_review")):
+    elif event_type == EventType.ROUND_REVIEW_COMPLETED and holder_of(event.get("status")) in {"engineer", "manager", "operator"}:
         reason = _review_consult_reason(project_root, event)
         if reason and HANDED_TO_MANAGER.get(str(event.get("review_source") or "")) and holder_of(
             event.get("status"), event.get("operator_question"),
