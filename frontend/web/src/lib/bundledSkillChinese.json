@@ -732,7 +732,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34301
+    "sourceBytes": 34388
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
