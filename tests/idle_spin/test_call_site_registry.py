@@ -237,7 +237,6 @@ NOT_MODEL_CALLS = {
         "argus/life/supervisor/_mission_execution_runtime.py", "_derive_basic_outcome_fields",
         "memory.mission.aggregate",
     ),
-    ("argus/release_tools/generate_event_fixtures.py", "<module>", "Engineer"),
 }
 
 # Functions that pass a caller's label on (or record it) without choosing one.
