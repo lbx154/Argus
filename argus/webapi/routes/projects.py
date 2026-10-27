@@ -29,7 +29,7 @@ def register_project_routes(app, ctx: ServerContext) -> None:
 
     @app.get("/api/projects/costs", dependencies=[Depends(ctx.require_auth)])
     async def _project_costs(
-        limit: int = Query(100, ge=1, le=2000),
+        limit: int = Query(context.PROJECT_LIST_LIMIT, ge=1, le=2000),
     ) -> dict[str, Any]:
         return {
             "projects": await ctx.machine_project_costs_async(limit=limit),

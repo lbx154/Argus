@@ -178,7 +178,8 @@ def search_projects(ctx: ServerContext, projects: list[dict], query: str, limit:
     results: list[dict] = []
     errors: list[str] = []
     scanned = 0
-    partial = len(projects) == context.PROJECT_LIST_LIMIT
+    # The openable project list is the whole search scope, not a read cap.
+    partial = False
 
     def match(sid, title, text, kind, **extra):
         nonlocal partial

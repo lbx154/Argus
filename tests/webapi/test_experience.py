@@ -119,7 +119,10 @@ def test_search_only_returns_projects_the_project_list_can_open(tmp_path, monkey
     project(tmp_path, "s-newer")
     with TestClient(create_app(global_root=tmp_path, auth_token="test-token")) as client:
         listed = {item["id"] for item in client.get("/api/projects", headers=AUTH).json()["projects"]}
+        costed = {item["id"] for item in client.get("/api/projects/costs", headers=AUTH).json()["projects"]}
         found = client.get("/api/search?q=证据", headers=AUTH).json()
         assert len(listed) == 1
+        assert costed == listed
         assert {item["sid"] for item in found["results"]} == listed
-        assert found["partial"]
+        # A full project list is the search scope, not a read cap that more keywords could get past.
+        assert not found["partial"]
