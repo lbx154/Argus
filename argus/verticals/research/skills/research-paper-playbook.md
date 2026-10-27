@@ -169,7 +169,7 @@ The full paper, bibliography, figures, tables, includes, and rendered output are
 present and mutually consistent. The counted body extent meets the planned
 length target and the main body develops the principles, mechanism, and design
 reasoning in depth. Being below the legal maximum alone does not establish readiness.
-Manager alone advances the stage.
+The completion gate alone advances the stage, on this evidence.
 
 ## Research notes
 

@@ -377,3 +377,20 @@ it("numbers steps along the gold path, shows where each stands and the tasks car
   expect(carries.map((e) => e.source).sort()).toEqual(["hc-a", "hc-b"]);
   expect(renderer.root.findByProps({ "data-testid": "overview-steps" }).findByType("b").children.join("")).toBe("1/2");
 });
+
+it("keeps a request that started no task yet by the composer, and explains the cards in the map's key", async () => {
+  remount({ data: { ...data, requests: [
+    { id: "turn:web-1", text: "更正：按月汇总", full: "更正：按月汇总，再画图", ts: 5, status: "running" },
+  ] } });
+  await flush();
+  const waiting = renderer.root.findByProps({ "data-testid": "map-loose-requests" });
+  const chip = waiting.findByType("span");
+  expect(chip.props.title).toBe("更正：按月汇总，再画图");
+  expect(chip.children.join("")).toContain("你说：更正：按月汇总");
+  // Requests are not cards: the flow holds the two task cards only.
+  expect(flow().nodes.filter((n) => n.type === "task")).toHaveLength(2);
+  const key = renderer.root.findByProps({ id: "map-legend-cards" });
+  const text = (node: ReactTestInstance | string): string =>
+    typeof node === "string" ? node : node.children.map(text).join("");
+  expect(text(key)).toContain("任务卡 = 团队拆出来、能单独完成和验收的一件事");
+});

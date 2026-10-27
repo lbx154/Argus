@@ -137,13 +137,14 @@ def test_new_settled_mission_calls_the_planner_again(
     assert calls["count"] == 2, "a settled mission is new evidence for the Planner"
 
 
-def test_a_manager_hold_wakes_the_planner_to_plan_the_next_step(
+def test_a_planner_handoff_to_the_manager_is_a_process_question_and_its_diagnosis_wakes_the_planner(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Step 1 settled, and the Planner handed the stage to the Manager instead
-    of planning step 2. The Manager's HOLD and its reason are new to the
-    Planner, so it is asked again and plans step 2 rather than both waiting on
-    each other (2026-10-20: the HOLD was dropped and the project went silent).
+    """Step 1 settled, and the Planner handed to the Manager instead of planning
+    step 2. That is the Manager's process rung, not a stage decision: no stage
+    call is made. The Manager's diagnosis for the Planner is new to it, so it
+    is asked again and plans step 2 rather than both waiting on each other
+    (2026-10-20: the answer was dropped and the project went silent).
     """
     project = tmp_path / "project"
     project.mkdir()
@@ -183,10 +184,18 @@ def test_a_manager_hold_wakes_the_planner_to_plan_the_next_step(
     })
 
     supervisor._plan_next_work()
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    idle = [row for row in events if row.get("type") == "life.planner.idle"]
+    assert idle and idle[-1]["handoff"] == "manager"
+    from argus.manager.directive import set_active_manager_directive
+
+    set_active_manager_directive(
+        life, "The environment is fixed; plan step 2 now.", source="manager.supervision:t", for_planner=True,
+    )
     supervisor._plan_next_work()
 
-    assert len(held) == 1
-    assert calls["count"] == 2, "the Manager's answer is new evidence for the Planner"
+    assert held == [], "the Planner's handoff asks no stage decision"
+    assert calls["count"] == 2, "the Manager's diagnosis is new evidence for the Planner"
     assert [item.title for item in supervisor.memory.backlog.pending()] == ["Step 2: to_camel"]
 
 

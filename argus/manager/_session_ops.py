@@ -241,6 +241,19 @@ def manager_pipeline_lock(
             portalocker.unlock(handle)
 
 
+def manager_pipeline_busy(root: Path | str) -> bool:
+    """Whether another holder (the daemon running a pass) holds the pipeline right now.
+
+    A probe, never a wait: a caller that sees it busy queues its commit for
+    the next safe point instead of blocking behind a running mission.
+    """
+    try:
+        with manager_pipeline_lock(root, timeout=0):
+            return False
+    except ManagerPipelineWaitTimeout:
+        return True
+
+
 @contextmanager
 def manager_pipeline_boundary(
     manager: Any, *, cancelled: Callable[[], bool] | None = None,

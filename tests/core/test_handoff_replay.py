@@ -19,7 +19,6 @@ from argus.core.handoff import HandOffActions
 from argus.life.consolidation import KnowledgePage, _check_principles, render_principles
 from argus.life.observer import _remark
 from argus.life.reflection import _check_reflection
-from argus.manager.stage_decider import stage_check
 from argus.planner.planner import _plan
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "handoff_replay"
@@ -73,21 +72,9 @@ def test_the_host_reads_a_recorded_plan_as_the_text_readers_did(form: str, row: 
 
 def test_the_replay_covers_every_form_so_far() -> None:
     forms = {form for form, _ in (param.values for param in ROWS)}
-    assert forms == {"engineer", "review", "supervise", "plan", "stage", "observe", "consolidate", "reflect"}
-    assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 3
-
-
-@pytest.mark.parametrize("row", [row for form, row in (param.values for param in ROWS)
-                                 if form == "stage" and not row.get("old_defect")])
-def test_the_host_reads_a_recorded_stage_decision_as_the_text_reader_did(row: dict) -> None:
-    actions = HandOffActions("stage", operator_available=True, check=partial(
-        stage_check, current_stage=row["stage"], stage_order=[row["stage"]], allow_done=False,
-    ))
-
-    actions.dispatch("hand_off", row["payload"])
-
-    decision = actions.handoff.value
-    assert (decision.action, decision.target_stage) == (row["old"]["action"], row["old"]["target_stage"])
+    # No ``stage`` form: the completion gate moves stages on evidence, no model decides them.
+    assert forms == {"engineer", "review", "supervise", "plan", "observe", "consolidate", "reflect"}
+    assert sum(row.get("old_defect", False) for _, row in (param.values for param in ROWS)) == 2
 
 
 def _rows(form: str) -> list[dict]:

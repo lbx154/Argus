@@ -917,7 +917,8 @@ def test_direct_objective_is_not_queued_again_once_its_replacement_is_reviewed(
 
     assert supervisor._plan_next_work() == PLAN_RETRY
     assert [row.id for row in backlog.history()] == [asked.id, replacement.id]
-    assert backend.manager_calls == 1
+    # The completion gate closed it on the accepted replacement: no model was asked.
+    assert backend.manager_calls == 0
     assert any(
         event.get("type") == "life.manager.stage_decision"
         and event.get("action") == "complete"
@@ -989,15 +990,15 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.outcome["stage_certification"] == "not_certified"
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 0
     assert any(
         event.get("type") == "life.manager.stage_decision"
-        and event.get("source") == "stage_completion_gate_hold"
+        and event.get("diagnostic") == "stage_completion_gate_failed"
         for event in sink.events
     )
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 0
 
 
 @pytest.mark.parametrize("second_run_accepts", [True, False])

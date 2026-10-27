@@ -217,7 +217,7 @@ class PlanningCycleMixin(
         return None
 
     def _reconcile_reviewed_stage_empty_plan(self, verdict: Any) -> str:
-        """Replay real current-stage review evidence to the Manager.
+        """Replay real current-stage review evidence to the completion gate.
 
         Gated on ``continuous``, not ``open_ended``. ``open_ended`` answers a
         different question — whether a Planner ``project_done`` should be
@@ -240,8 +240,18 @@ class PlanningCycleMixin(
             review=review,
             # This path replays previously unassessed Reviewer evidence. The
             # empty Planner verdict only triggered recovery; it is not new
-            # stage evidence and must not force another semantic adjudication.
+            # stage evidence. The Planner's plan proposes the stage ready: the
+            # task it planned to close the stage, or a plan whose work is all
+            # accepted with nothing left to start.
             planner_verdict=None,
+            stage_closing=bool(
+                self._item_is_stage_closing(item)
+                or mission_scope.strip().lower() == "final_submission"
+                or not any(
+                    row.status in {"pending", "running", "parked", "blocked"}
+                    for row in self.memory.backlog.active()
+                )
+            ),
             project_root=root,
             on_event=getattr(self.sink, "handle_event", None),
             # The real value, not a literal: a bounded campaign reaching this
@@ -268,7 +278,7 @@ class PlanningCycleMixin(
             "rollback": "revoked",
         }.get(decision.action, "not_assessed")}
         if decision.action == "complete":
-            # The Manager closed the objective on this task's acceptance: the
+            # The gate closed the objective on this task's acceptance: the
             # task's completion now certifies it, recorded as its settlement
             # would have recorded it, so the map, the banner and the delivery agree.
             final = mission_scope.strip().lower() == "final_submission"
@@ -298,99 +308,16 @@ class PlanningCycleMixin(
                 } if final else {}),
             }):
                 return ""
-        if decision.source in {"manager_llm", "stage_completion_gate_hold"}:
+        if decision.source in {"completion_gate", "stage_completion_gate_hold"}:
             self.memory.backlog.update(item.id, outcome=outcome)
         if decision.action not in {"advance", "complete", "rollback"}:
             return ""
         self._emit_status(
-            f"manager reconciled reviewed stage to {decision.target_stage}"
+            f"completion gate moved the reviewed stage to {decision.target_stage}"
         )
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
         return decision.action
-
-    def _reconcile_planner_handoff(self, verdict: Any) -> str:
-        """Put a stage the Planner handed to the Manager (``→ manager``) to it.
-
-        Each request is put to the Manager once per stage; the same request
-        returned unchanged is recorded, not adjudicated again. The Manager alone
-        decides HOLD versus ROLLBACK, and a HOLD's reason reaches the Planner
-        as feedback for its next turn. ``"unanswered"`` means the Manager's
-        backend gave no answer and the request is still open.
-        """
-        if getattr(verdict, "handoff", "") != "manager" or verdict.project_done:
-            return ""
-        verdict = replace(verdict, new_tasks=[])
-        root = self._artifact_root()
-        from ...skills.stage_machine import current_stage
-
-        stage = current_stage(root)
-        key = (stage, " ".join(str(verdict.summary or "").split()))
-        if key == getattr(self, "_last_planner_handoff_key", None):
-            return ""
-        self._last_planner_handoff_key = key
-
-        try:
-            manager = self._bound_manager()
-        except RuntimeError:
-            # Without a Manager there is nobody above the Planner to climb to.
-            return ""
-        decision = manager.decide_stage_transition(
-            review=None,
-            planner_verdict=verdict,
-            project_root=root,
-            on_event=getattr(self.sink, "handle_event", None),
-            open_ended=bool(self.config.open_ended),
-            continuous_objective=self.config.continuous_objective,
-        )
-        self._emit({
-            "type": EventType.LIFE_MANAGER_STAGE_DECISION,
-            "action": decision.action,
-            "target_stage": decision.target_stage,
-            "reason": decision.reason,
-            "current_stage": decision.current_stage,
-            "source": decision.source,
-            "diagnostic": decision.diagnostic,
-            "trigger": "planner_handoff",
-        })
-        if decision.source == "failsafe_hold" or decision.diagnostic == "empty_output":
-            # The Manager's backend gave no answer; the handoff stays open.
-            self._last_planner_handoff_key = None
-            return "unanswered"
-        if decision.source != "manager_llm" and decision.action != "rollback":
-            # Deterministic HOLDs are not authoritative; the next handoff asks again.
-            self._last_planner_handoff_key = None
-
-        # The Manager's HOLD answers the handoff. Unpersisted, the Planner's
-        # inputs never move and it is never asked again.
-        diagnostic = decision.diagnostic
-        if decision.action == "hold" and decision.source == "manager_llm":
-            if not self._persist_manager_planner_feedback(
-                stage=stage, reason=decision.reason, diagnostic=diagnostic,
-            ):
-                self._emit_status("failed to persist Manager feedback for Planner; retry later")
-                return ""
-            self._last_planner_handoff_key = None
-            self._reset_idle_backoff()
-            self._emit({
-                "type": "life.manager.feedback.persisted",
-                "stage": stage,
-                "reason": decision.reason,
-                "diagnostic": diagnostic,
-            })
-            self._emit_status(f"Manager HOLD returned to Planner for {stage} replanning")
-            return "hold"
-
-        if decision.action != "rollback":
-            return ""
-        self._last_planner_handoff_key = None
-        self._last_open_ended_project_done_signature = ""
-        self._reset_idle_backoff()
-        self._emit_status(
-            "manager answered the Planner's handoff by reopening "
-            f"{decision.target_stage}"
-        )
-        return "rollback"
 
     def _resolve_vertical_once(self) -> dict[str, Any]:
         """Let Manager select the vertical once for the next mission."""
@@ -512,6 +439,7 @@ class PlanningCycleMixin(
             self._pc_preflight_shortcircuits,
             self._pc_reconcile_reviewed_stage,
             self._pc_invoke_planner,
+            self._pc_drop_plan_behind_operator,
             self._pc_normalize_verdict,
             self._pc_handle_handoff,
             self._pc_normalize_project_done,
@@ -564,6 +492,48 @@ class PlanningCycleMixin(
         self._arm_unchanged_planner_skip(state)
         self._record_planner_turn_outcome(state, result)
         return result
+
+    def _pc_drop_plan_behind_operator(self, state: _PlanCycleState) -> bool | None | str:
+        """A plan made before the operator's newest instruction does not start.
+
+        The operator context revision moved while the Planner was answering:
+        the person said something the plan did not hear. Nothing it planned,
+        retired or declared is applied; the Planner is asked again, with the
+        instruction (trial s-efe9deac, 2026-10-26: a call started at 01:28:54
+        committed at 01:32:08 a task contradicting the instruction of 01:31:26).
+        """
+        verdict = state.verdict
+        if not state.planner_invoked or verdict is None or getattr(verdict, "error", ""):
+            return None
+        from ...core.operator_context import OperatorContextStore, operator_context_state_root
+        from ...planner import PLANNER_SUPERSEDED_ERROR
+
+        try:
+            current = OperatorContextStore(operator_context_state_root(self.memory)).revision
+        except Exception:  # noqa: BLE001 - an unreadable ledger leaves the plan to the later checks
+            return None
+        seen = int(state.operator_context_revision or 0)
+        if current <= seen:
+            return None
+        dropped = [str(getattr(task, "title", "") or "") for task in (verdict.new_tasks or ())]
+        state.planner_turn_not_failed = True
+        state.verdict = replace(
+            verdict, new_tasks=[], retire_tasks=(), project_done=False, handoff="",
+            error=f"{PLANNER_SUPERSEDED_ERROR}: a newer operator instruction arrived during the call",
+        )
+        self._emit({
+            "type": EventType.LIFE_PLANNER_DEFERRED,
+            "agent_layer": "planner",
+            "reason": "a newer operator instruction arrived while planning; this plan does not start "
+            "and the Planner replans with it",
+            "superseded_by_operator": True,
+            "seen_operator_context_revision": seen,
+            "operator_context_revision": current,
+            "dropped_tasks": dropped,
+            "summary": str(getattr(verdict, "summary", "") or "")[:600],
+        })
+        self._reset_idle_backoff()
+        return PLAN_RETRY
 
     def _pc_reconcile_reviewed_stage(
         self,

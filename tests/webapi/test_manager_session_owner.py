@@ -1,9 +1,7 @@
 """One Manager session per project, run only by its owner; the team reports into it."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -64,31 +62,6 @@ def test_every_turn_continues_the_one_session_kept_with_the_project(project: Pat
     assert seeds == [None, "thread-A"]
 
 
-def test_the_team_report_continues_the_session_the_ticket_was_handed_in(project: Path, monkeypatch) -> None:
-    seeds: list = []
-    _runner(monkeypatch, project, seeds, reply="Handed to the team.", thread_id="thread-A")
-    manager_bridge.manager_message("s-owner", "make hello.py", global_root=project.parent.parent)
-
-    _start_daemon(project, monkeypatch)  # the ticket starts the team's daemon
-    manager_bridge.manager_team_report(
-        "s-owner", "Task done", message_id="mission-result-x", event_fields={}, global_root=project.parent.parent,
-    )
-
-    assert seeds == [None, "thread-A"]
-
-
-def test_the_operator_reads_the_team_report_when_the_manager_cannot_answer(project: Path, monkeypatch) -> None:
-    _runner(monkeypatch, project, [], failure="provider broke")
-
-    manager_bridge.manager_team_report(
-        "s-owner", "Task done; result in out.txt", message_id="mission-result-x",
-        event_fields={}, global_root=project.parent.parent,
-    )
-
-    [turn] = [t for t in read_turns(project) if t.get("message_id") == "mission-result-x"]
-    assert turn["text"] == "Task done; result in out.txt"
-
-
 def test_what_the_team_said_costs_no_turn_and_goes_with_the_next_one(project: Path, monkeypatch) -> None:
     """s-ec08e4a5 (10-24): a Manager turn on each team report put the result
     in the chat 4.7 minutes late, and held the session meanwhile."""
@@ -111,13 +84,8 @@ def test_what_the_team_said_costs_no_turn_and_goes_with_the_next_one(project: Pa
     assert told not in runner.turns[1]
 
 
-def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(project: Path, monkeypatch) -> None:
-    """The team waits on a stage ruling: the web server that owns the Manager's
-    session runs the turn when the project process asks, with no inbox to poll."""
-    import time
-    from contextlib import nullcontext
-    from urllib.parse import urlsplit
-
+def test_no_team_decision_waits_on_a_manager_turn(project: Path) -> None:
+    """Stages move through the completion gate: nothing pushes a stage question to the Manager."""
     from fastapi.testclient import TestClient
 
     from argus.core import team_reports
@@ -126,36 +94,9 @@ def test_a_decision_only_the_manager_makes_is_pushed_to_its_owner_at_once(projec
 
     global_root = project.parent.parent
     write_session_meta(global_root, SessionMeta(id="s-owner", workdir=str(global_root)))
-    ran: list = []
-    monkeypatch.setattr(manager_bridge, "manager_team_report",
-                        lambda sid, text, **kwargs: ran.append((sid, text, kwargs["message_id"])))
-    # No server has said where it is: the question waits for the next turn.
-    assert not team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
-
+    assert not hasattr(team_reports, "push_to_manager")
     with TestClient(server.create_app(global_root=global_root, auth_token="secret")) as client:
-        client.get("/api/projects")  # any request tells project processes where the owner is
-        endpoint = global_root / "manager-endpoint.json"
-        published = json.loads(endpoint.read_text())
-        assert published["url"] == "http://testserver:80" and published["token"] not in {"", "secret"}
-        assert endpoint.stat().st_mode & 0o777 == 0o600
-        # The file's secret pushes a turn and opens nothing else.
-        push = {"Authorization": f"Bearer {published['token']}"}
-        assert client.get("/api/projects", headers=push).status_code == 401
+        client.get("/api/projects")
+        assert not (global_root / "manager-endpoint.json").exists()
         assert client.post("/api/projects/s-owner/manager/team-turn", headers={"Authorization": "Bearer secret"},
-                           json={"message_id": "stage-question-0", "text": "Earlier question"}).status_code == 202
-
-        def urlopen(request, timeout):
-            response = client.post(urlsplit(request.full_url).path, content=request.data,
-                                   headers=dict(request.header_items()))
-            return nullcontext(SimpleNamespace(status=response.status_code))
-
-        monkeypatch.setattr(team_reports.urllib.request, "urlopen", urlopen)
-        for _ in range(2):
-            assert team_reports.push_to_manager(project, message_id="stage-question-1", text="Stage question")
-        wait_until = time.monotonic() + 5
-        while len(ran) < 2 and time.monotonic() < wait_until:
-            time.sleep(0.02)
-        assert client.post("/api/projects/s-owner/manager/team-turn",
-                           json={"message_id": "stage-question-2", "text": "x"}).status_code == 401
-    assert sorted(ran) == [("s-owner", "Earlier question", "stage-question-0"),
-                           ("s-owner", "Stage question", "stage-question-1")]
+                           json={"message_id": "q", "text": "x"}).status_code in {404, 405}

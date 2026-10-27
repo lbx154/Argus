@@ -1161,7 +1161,6 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     """
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
-    from ..core.pipeline_state import read_pipeline_state
     from ..core.team_reports import mark_team_messages_read, unread_team_messages
     from ..provider_integrations.authorization_retry import BackendLoginRequired
     from ._session_ops import reset_manager_session
@@ -1252,23 +1251,17 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         [item for item in mem.backlog.active() if item.pending_question.strip()],
     )
     told, told_through = unread_team_messages(mem.project_root)
-    # A stage question no web server took to the Manager at once is ruled on now.
-    stage_question = str(read_pipeline_state(mem.project_root).get("stage_question") or "")
-    stage_question = f"Team report:\n{stage_question}" if stage_question and stage_question not in body else ""
     actions = manager_actions(
         body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,
         waiting=waiting, setting_up=bool(setup),
         route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
                       allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
-        stage=lambda payload: runner.manager.stage_ruling(payload),
     )
     try:
         outcome = runner.manager_turn(
-            message="\n\n".join(part for part in (told, setup, body, stage_question, waiting_text) if part),
+            message="\n\n".join(part for part in (told, setup, body, waiting_text) if part),
             sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
             phase_cb=_phase, root_task_id=root_task_id,
-            # A stage ruling decides where the project goes; it keeps high effort.
-            deciding=bool(stage_question),
         )
     except BackendLoginRequired:
         raise
@@ -1282,12 +1275,6 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     if isinstance(outcome.delivery, dict):
         chat_state["_self_delivery"] = outcome.delivery
     handoff = actions.handoff
-    if handoff is not None and "stage" in handoff.payload:
-        try:
-            # The caller tells the team (``tell_team_stage_ruling``).
-            chat_state["_stage_ruling"] = runner.manager.commit_stage_ruling(handoff.payload)
-        except ValueError:  # the stage moved since the turn's check; the next stage call asks again
-            log.warning("manager stage ruling no longer applies", exc_info=True)
     return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
 
 

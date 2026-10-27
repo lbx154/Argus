@@ -236,7 +236,9 @@ def test_two_narrations_without_work_between_them_are_one_thought():
     assert len(segment["steps"]) == 1
 
 
-def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
+def test_a_chat_turn_with_tool_steps_keeps_its_records_but_is_not_a_card(tmp_path):
+    """Small work done in the conversation stays in the conversation: the map
+    shows the work, not the chat (map_relations.fold_cards)."""
     sid, life = sample(tmp_path)
     steps = [
         {"kind": "command_execution", "label": "$ wc -l README.md", "tool": "Count README lines",
@@ -253,9 +255,8 @@ def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
                             "text": "不客气。"}) + "\n")
     state: dict = {}
     data = read_map(sid, tmp_path, life, event_state=state)
-    cards = [t for t in data["tasks"] if t.get("kind") == "turn"]
-    assert [c["id"] for c in cards] == ["turn:web-7"]
-    card = cards[0]
+    assert [t for t in data["tasks"] if t.get("kind") == "turn"] == [] and data["requests"] == []
+    card = state["turns"]["turn:web-7"]["card"]
     assert card["title"] == "README 有几行？" and card["status"] == "done"
     assert card["summary"] == "一行。" and card["role"] == "manager"
     assert card["started_ts"] == 10.0 and card["finished_ts"] == 13.0
@@ -266,11 +267,11 @@ def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
         "tool": "Count README lines", "status": "completed",
     }]
     assert owned[1]["text"] == "一行。"
-    # A later read that only sees new rows keeps the card.
+    # A later read that only sees new rows keeps the turn's records.
     with (life / "events.jsonl").open("a") as f:
         f.write(json.dumps({"type": "round.start", "round_index": 2, "ts": 20}) + "\n")
     again = read_map(sid, tmp_path, life, event_state=state)
-    assert [t["id"] for t in again["tasks"] if t.get("kind") == "turn"] == ["turn:web-7"]
+    assert list(state["turns"]) == ["turn:web-7"]
     assert [e["id"] for e in again["events"] if e["item_id"] == "turn:web-7"] == [
         "turn:web-7:work", "turn:web-7:reply",
     ]

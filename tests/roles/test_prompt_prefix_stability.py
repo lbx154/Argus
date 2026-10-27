@@ -13,9 +13,6 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus.roles.prompts.manager import (
-    build_stage_decision_prompt,
-)
 from argus.roles.prompts.planner import (
     build_continuous_prompt,
     build_continuous_resume_prompt,
@@ -95,31 +92,6 @@ def test_reviewer_static_is_identical_and_delta_opens_with_the_mission(tmp_path)
     assert static_one.index("## Completion") < static_one.index("## Recalled Skills")
     guidance_end = _end_of(delta_one, "Planner guidance:\nVerify the behavior.")
     assert _lcp(delta_one, delta_two) >= guidance_end
-
-
-# --- Manager ----------------------------------------------------------------
-
-
-def _stage_decision(status: str, reason: str) -> str:
-    return build_stage_decision_prompt(
-        current_stage="experiment",
-        next_stage="paper",
-        later_stages=("paper", "review"),
-        earlier_stages=("idea",),
-        checklist_md="- [ ] experiment.result — the decisive run exists",
-        review=SimpleNamespace(status=status, reason=reason),
-        planner_verdict=SimpleNamespace(reason="hold"),
-        continuous_objective="Write the paper.",
-    )
-
-
-def test_manager_stage_prompt_keeps_objective_and_checklist_ahead_of_the_evidence() -> None:
-    first = _stage_decision("continue", "Round 1: the run is half done.")
-    second = _stage_decision("done", "Round 2: the run finished.")
-
-    checklist_end = _end_of(first, "## What the current stage requires\n- [ ] experiment.result — the decisive run exists")
-    assert _lcp(first, second) >= checklist_end
-    assert first.index("## Latest completion evidence") > checklist_end
 
 
 # --- Research vertical: static policy vs. live notes ------------------------

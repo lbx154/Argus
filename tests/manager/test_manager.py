@@ -6,7 +6,6 @@ tests use fake runners (no real LLM).
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 
 import pytest
 
@@ -213,51 +212,6 @@ def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     assert state["research_target_set_at"] > 1.0
     assert notes.read_text() == "Existing scientific result and evidence pointers."
     assert state["stages"]["review"]["status"] != "done"
-
-
-def test_root_task_id_scopes_manager_stage_call(tmp_path):
-    from argus.core.models import ReviewDecision
-
-    transitions: list[tuple[str, str]] = []
-
-    @contextmanager
-    def usage_context(root_task_id: str):
-        transitions.append(("enter", root_task_id))
-        try:
-            yield
-        finally:
-            transitions.append(("exit", root_task_id))
-
-    (tmp_path / ".argus").mkdir()
-    (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "research", "current_stage": "research"}),
-        encoding="utf-8",
-    )
-    review = ReviewDecision(
-        status="continue",
-        reason="more evidence needed",
-        next_action="continue",
-    )
-    manager = Manager(
-        project_root=tmp_path,
-        usage_context=usage_context,
-    )
-
-    manager.decide_stage_transition(
-        review=review,
-        project_root=tmp_path,
-        run_exec=lambda prompt: _DecisionResult(json.dumps({
-            "action": "hold",
-            "target_stage": "research",
-            "reason": "continue",
-        })),
-        root_task_id="root-task-3",
-    )
-
-    assert transitions == [
-        ("enter", "root-task-3"),
-        ("exit", "root-task-3"),
-    ]
 
 
 @pytest.mark.parametrize("ask_on_new_domain", [False, True])

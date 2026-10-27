@@ -23,10 +23,6 @@ from argus.life.runtime_failure_circuit import (
     runtime_failure_canary_cooldown_seconds,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import (
-    MANAGER_FEEDBACK_REPLAN_LIMIT,
-    PLAN_RETRY,
-)
 from argus.planner import PlannerConfig
 from argus.skills.vertical_select import persist_vertical
 from tests.hand_off import plan, submit
@@ -463,11 +459,11 @@ def _stage_decision(**overrides) -> SimpleNamespace:  # noqa: ANN003
     return SimpleNamespace(**fields)
 
 
-def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans(
+def test_a_planner_handoff_to_the_manager_with_tasks_runs_the_tasks_and_decides_no_stage(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    """85235d97: a bounded campaign reconciles an explicit stage request. Tasks
-    beside it do not swallow the request; the Manager's repair is planned."""
+    """The Planner's ``→ manager`` names a stuck process for the Manager's
+    supervision; it never asks for a stage decision. The tasks beside it run."""
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
     planner = _PlannerBackend([_handoff_with_task("manager")])
@@ -475,29 +471,9 @@ def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans
     manager = _StageManager(_stage_decision())
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
 
-    assert supervisor._plan_next_work() == PLAN_RETRY
-
-    assert len(manager.calls) == 1
-    assert manager.calls[0]["open_ended"] is False
-    assert manager.calls[0]["planner_verdict"].new_tasks == []
-    assert supervisor.memory.backlog.pending() == []
-    feedback = supervisor._load_manager_planner_feedback()
-    assert feedback["diagnostic"] == "intentional_hold"
-
-
-def test_stage_reconciliation_request_held_by_a_failsafe_keeps_tasks(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = _project(tmp_path, monkeypatch)
-    life = tmp_path / "life"
-    planner = _PlannerBackend([_handoff_with_task("manager")])
-    supervisor = _supervisor(project, life, planner)
-    manager = _StageManager(_stage_decision(source="no_review_hold", diagnostic=""))
-    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
-
     assert supervisor._plan_next_work() is True
 
-    assert len(manager.calls) == 1
+    assert manager.calls == []
     assert [item.title for item in supervisor.memory.backlog.pending()] == [
         "Write the changelog"
     ]
@@ -527,40 +503,17 @@ def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
 # I2/I1: a Manager WAIT holds only the evidence it judged.
 
 
-# I2/I3: a Planner that hands the stage to the Manager is answered once.
+# I2/I3: a Planner that hands a stuck process to the Manager is not called again on nothing new.
 
 _MANAGER_HANDOFF = plan("manager", summary="The vendor has not published the dataset the stage needs.")
-
-
-def test_a_handoff_the_managers_backend_left_unanswered_is_retried_as_a_failed_turn(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    """The Manager's backend gave no answer to the Planner's handoff. Argus
-    launched that backend, so the turn failed: the Planner's failure streak
-    paces the retry instead of the handoff hanging until something changes."""
-    project = _project(tmp_path, monkeypatch)
-    planner = _PlannerBackend([_MANAGER_HANDOFF] * 2)
-    supervisor = _supervisor(project, tmp_path / "life", planner)
-    manager = _StageManager(_stage_decision(source="failsafe_hold", diagnostic="exception"))
-    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
-
-    supervisor._plan_next_work()
-    assert supervisor._load_planner_failure_state()["kind"] == "backend"
-
-    manager.decision = _stage_decision()
-    assert supervisor._plan_next_work() == PLAN_RETRY
-    assert len(planner.calls) == 2 and len(manager.calls) == 2
-    assert supervisor._load_planner_failure_state() == {}
-    assert supervisor._load_manager_planner_feedback()["reason"] == "The stage still owes its review."
 
 
 @pytest.mark.parametrize("open_ended", [False, True])
 def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
     tmp_path: Path, monkeypatch, open_ended: bool,
 ) -> None:
-    """The Planner hands the stage to the Manager, the Manager holds it and
-    says why, and a Planner that answers the same way again is bounded by the
-    Manager-feedback limit -- then nothing is called while nothing changes."""
+    """The Planner hands a stuck process to the Manager: no stage decision is
+    asked, and while nothing changes the Planner is not called again."""
     project = _project(tmp_path, monkeypatch)
     planner = _PlannerBackend([_MANAGER_HANDOFF] * 10)
     supervisor = _supervisor(project, tmp_path / "life", planner)
@@ -571,8 +524,8 @@ def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
     for _ in range(10):
         supervisor._plan_next_work()
 
-    assert len(manager.calls) == 1
-    assert len(planner.calls) == MANAGER_FEEDBACK_REPLAN_LIMIT
+    assert manager.calls == []
+    assert len(planner.calls) == 1
 
 
 def _answered(backlog, question: str, answer: str, asked_at: float) -> BacklogItem:

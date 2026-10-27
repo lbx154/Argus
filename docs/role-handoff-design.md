@@ -297,6 +297,21 @@ invariants, and together they are the whole state machine:
    that acceptance (the task it ended failed, or was sent back to run again)
    is a new external result: the acceptance no longer stands, and the
    unchanged candidate climbs past the Reviewer.
+
+   Each rung decides only what it owns. The Planner's rung is the work's
+   content: a rejected approach or no viable idea is replanned, and with no
+   route left that fits what the operator wants it goes to the operator with
+   what was tried and the options. The Manager's rung is the **process**: the
+   same error repeating, an environment, tool, credential or quota failure, a
+   role returning unchanged work, a hand-off loop, a timeout, a stage that
+   cannot move for a mechanical reason. It receives a "process stuck" brief
+   (what repeated, the errors, the last changes), debugs it within its
+   permissions, and answers with its diagnosis and one move: fixed, so the
+   holder retries; the Planner replans around the diagnosis; or the operator
+   is asked what only they can decide. The diagnosis is written on the
+   item's own record. It does not decide what the operator wants, author the
+   plan, accept a candidate, or declare a stage or the project done
+   (`argus/manager/process_debug.py`).
 4. **Authority never vanishes.** Every decision type has an owner. When the
    owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator
@@ -304,20 +319,31 @@ invariants, and together they are the whole state machine:
    question carries the asker's default ("without an answer by T, continue
    with X").
 
-| Decision | Owner | When the owner cannot be asked |
+| Decision | Owner | When the owner cannot decide |
 | --- | --- | --- |
+| What the operator wants: the goal, which reading of their words holds, their required steps (必经步骤), risks they accept | the operator (the Manager asks and relays, never decides) | the Manager, only when the operator said not to be asked ("别问我"); recorded as its own and listed in the report |
 | Accept a candidate | Reviewer (the Engineer where review is not required) | — |
-| Create, retire, or replace work | Planner | Manager |
-| Change the stage | Manager | — |
-| Accept a residual risk | operator | Manager |
-| Stop a mission | Manager or operator | — |
-| Payment, publication, destructive actions, releases | operator | Manager |
-| Credentials | operator | Manager decides how to proceed without them |
+| Create, split, order, retire or replace work | Planner | the operator, through one question with options |
+| Change the stage | the completion gate, on evidence (reviewed deliverables, the vertical's stage completion checks, required steps); the Planner proposes "stage ready" | the operator, when the evidence and their stated intent conflict |
+| The project is done | the same completion gate | — |
+| Stop a mission | the operator, or the Manager on the operator's instruction | — |
+| Payment, publication, destructive actions, releases, credentials | operator | the Manager, only under "别问我", recorded |
+
+One owner per decision (2026-10-26): the roles stay separate, the overlapping
+authority goes. The Manager faces the operator and debugs a stuck process;
+the Planner plans, and a Reviewer's challenge reaches it as input with no
+Manager adjudication in between; one completion gate
+(`argus/manager/stage_decider.py`, run by `Manager.decide_stage_transition`)
+moves stages and declares the project done without a model call, and the
+Manager tells the operator what happened in one short paragraph. The Planner
+proposes a stage ready by planning the task that closes it, by a plan whose
+work is all accepted, or with `advance_to_stage`; it proposes the project done
+with `→ done`. No Manager stage-decision turn exists.
 
 "Cannot be asked" means the operator said not to be asked, or the run has no
-operator (principle 8). The operator's whole authority then passes to the
-Manager. Each decision the Manager takes in the operator's place is recorded as
-its own, with the evidence it cited, and the delivery report lists it.
+operator (principle 8). The operator's authority then passes to the Manager.
+Each decision the Manager takes in the operator's place is recorded as its
+own, with the evidence it cited, and the delivery report lists it.
 
 **Why every item ends.** Each handoff does one of three things:
 
@@ -348,8 +374,18 @@ baton any more, and no named pause state beside it.
   notices the operator reads; the words come from the reason. Older rows and
   events load through the same table.
 - A Planner with nothing new to start names who acts next: `→ engineer` (the
-  work in flight decides what comes next), `→ manager` (the stage blocks it), or
-  `→ operator: <question>`. There is no waiting contract.
+  work in flight decides what comes next), `→ manager` (the process is stuck
+  for a mechanical reason), or `→ operator: <question>`. There is no waiting
+  contract.
+- No Manager stage turn and no "Team report" turn: the stage moves through the
+  completion gate, and a stage question never waits on a Manager session.
+- No plan-challenge adjudication: a Reviewer's `→ planner` reaches the Planner
+  as the Reviewer wrote it.
+- A ticket the Manager hands the team while a mission runs never times out
+  behind it: the reply shows at once, the ticket is queued durably and goes in
+  at the mission's next safe point, before new work starts. A plan whose call
+  began before a newer operator instruction does not start; the Planner
+  replans with it.
 - The Engineer's seven footer keys and its wait line become the single line
   above; the wait itself moves into the Engineer's turn.
 

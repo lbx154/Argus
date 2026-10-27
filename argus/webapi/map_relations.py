@@ -14,6 +14,11 @@ kinds are only the ones a record states, found without a model call:
 - ``replaces``: the first item of the plan that superseded an item.
 
 The map draws these; time order is only its fallback for cards with none.
+
+The map shows the work, not the chat (design/role-authority.md "Map: one
+picture of the work"). ``fold_cards`` turns what a person said into a small
+request on the task it started, leaves chat-only answers off the map, and
+folds a replaced task into the task that replaced it.
 """
 
 from __future__ import annotations
@@ -123,3 +128,106 @@ def project_relations(tasks: list[dict], turns: dict, facts: dict) -> list[dict]
     for task in tasks:
         task["relations"] = found.get(task["id"], [])
     return tasks
+
+
+REQUEST_TEXT_LIMIT = 600
+LOOSE_REQUEST_LIMIT = 5
+REPLACED_LIMIT = 12
+
+
+def _request(turn: dict) -> dict:
+    """A person's request as the small chip on the map: their words, short and in full."""
+    request = {
+        "id": turn["id"],
+        "text": str(turn.get("title") or "")[:120],
+        "full": str(turn.get("objective") or turn.get("title") or "")[:REQUEST_TEXT_LIMIT],
+        "ts": turn.get("ts") or 0,
+        "status": str(turn.get("status") or ""),
+    }
+    if turn.get("summary"):
+        request["reply"] = str(turn["summary"])[:200]
+    return request
+
+
+def fold_cards(tasks: list[dict]) -> tuple[list[dict], list[dict]]:
+    """One picture of the work; returns the cards that stay and the requests
+    that started no task yet.
+
+    - A request (a turn card) is not a card. When a task carries it out, or
+      it answered a task's question ("继续"), it rides on that task as
+      ``requests``. A request still being read is returned loose; anything
+      else was chat (a ``qa`` answer, small work done in the conversation)
+      and stays in the conversation.
+    - A task a newer plan replaced before it finished (``superseded``) folds
+      into the task that replaced it: that task lists it under ``replaced``
+      (title and one-line reason), takes over its requests and relations, and
+      lines and dependencies that pointed at it point at the replacement.
+    """
+    by_id = {task["id"]: task for task in tasks}
+    into: dict[str, str] = {}
+    for task in tasks:
+        for relation in task.get("relations") or ():
+            old = by_id.get(relation["target"])
+            if relation["kind"] == "replaces" and old and old.get("status") == "superseded":
+                into.setdefault(old["id"], task["id"])
+
+    def final(task_id: str) -> str:
+        seen = {task_id}
+        while task_id in into and into[task_id] not in seen:
+            task_id = into[task_id]
+            seen.add(task_id)
+        return task_id
+
+    turns = {task["id"] for task in tasks if task.get("kind") == "turn"}
+    carried: dict[str, str] = {}
+    for task in sorted(tasks, key=lambda t: (t.get("ts") or 0, t["id"])):
+        for relation in task.get("relations") or ():
+            if relation["kind"] == "carries_out" and relation["target"] in turns:
+                carried.setdefault(relation["target"], task["id"])
+    gone = turns | {task_id for task_id in into if final(task_id) != task_id}
+    kept = [task for task in tasks if task["id"] not in gone]
+    requests: dict[str, list[dict]] = {}
+    loose = []
+    for task in tasks:
+        if task["id"] not in turns or task.get("turn_kind") == "qa":
+            continue
+        carrier = carried.get(task["id"]) or task.get("answers")
+        if carrier in by_id and carrier not in turns:
+            requests.setdefault(final(carrier), []).append(_request(task))
+        elif task.get("status") == "running":
+            # Still being read: it may yet start a task.
+            loose.append(_request(task))
+    replaced: dict[str, list[dict]] = {}
+    for task in tasks:
+        if task["id"] in gone and task["id"] not in turns:
+            reason = " ".join(str(task.get("superseded_reason") or "").split())
+            replaced.setdefault(final(task["id"]), []).append({
+                "id": task["id"], "title": str(task.get("title") or "")[:160],
+                "reason": reason[:160], "ts": task.get("ts") or 0,
+            })
+    for task in kept:
+        own = task["id"]
+        relations, seen = [], set()
+        merged = [*(task.get("relations") or ()), *(
+            relation for old in tasks if old["id"] in into and final(old["id"]) == own
+            for relation in old.get("relations") or ()
+        )]
+        for relation in merged:
+            target = relation["target"]
+            if target in turns:
+                continue
+            target = final(target)
+            if target == own or target in seen or (target not in by_id and not target.startswith("hc-")):
+                continue
+            seen.add(target)
+            relations.append({**relation, "target": target})
+        task["relations"] = relations[:RELATION_LIMIT]
+        if task.get("deps"):
+            task["deps"] = [dep for dep in dict.fromkeys(final(dep) for dep in task["deps"]) if dep != own]
+        if own in requests:
+            task["requests"] = sorted(requests[own], key=lambda r: r["ts"])
+        if own in replaced:
+            task["replaced"] = sorted(replaced[own], key=lambda r: r["ts"])[-REPLACED_LIMIT:]
+            task["replaced_count"] = len(replaced[own])
+    loose.sort(key=lambda r: r["ts"])
+    return kept, loose[-LOOSE_REQUEST_LIMIT:]

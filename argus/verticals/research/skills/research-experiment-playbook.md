@@ -90,14 +90,15 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    missing or mismatched one quietly invalidates every measurement built on
    top of it.
    GPU inventory indices are physical, while `cuda:0` means the first device
-   exposed to the launched process. Honor any allocation or inherited
-   `CUDA_VISIBLE_DEVICES` mask. When choosing an authorized free GPU yourself,
-   include the intended mask in the actual launch command and match the
+   exposed to the launched process. Unless the operator restricted devices
+   (an inherited `CUDA_VISIBLE_DEVICES` mask or a GPU allocation section),
+   every GPU on the machine is yours to use; nothing else assigns cards, so
+   never wait for an allocation. When choosing a free GPU yourself, include
+   the intended mask in the actual launch command and match the
    configuration's logical index to it. Merely writing that environment prefix
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
-   A prompt's machine inventory is a snapshot, not a reservation. Honor the
-   assigned visibility mask inside the command. Inspect
+   A prompt's machine inventory is a snapshot, not a reservation. Inspect
    unmanaged device processes too: available memory and momentary zero GPU
    utilization do not establish an uncontended measurement window.
 4. Implement against `tests/spec`. Write the method card and the executable
@@ -457,7 +458,7 @@ least one scientifically meaningful dimension. Do not require a hard numeric
 margin, wins on every headline metric, or dominance over every strong
 baseline. Keep uncertainty, relevant losses, and tradeoffs visible; state the
 claim's scope as the card states it, not narrowed to the cells that won.
-Manager alone advances the stage.
+The completion gate alone advances the stage, on this evidence.
 
 ## Research notes
 
