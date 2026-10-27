@@ -711,7 +711,7 @@
     "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 12351
+    "sourceBytes": 12620
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -739,7 +739,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 32912
+    "sourceBytes": 32956
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",

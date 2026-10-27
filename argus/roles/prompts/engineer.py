@@ -76,12 +76,11 @@ def engineer_handoff_rule() -> str:
 
 
 _PERFORMANCE_DIAGNOSTIC_RULE = (
-    "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
-    "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
-    "share hardware, but latency evidence needs an uncontended device or an "
-    "explicitly matched concurrent load. Check actual device identity and other "
-    "processes; free memory or a zero-utilization snapshot does not prove isolation. "
-    "Independent process repetitions can run sequentially on a released device."
+    "Timings compared across runs or devices keep each run's device identity and "
+    "concurrent load, matched or uncontended where the comparison turns on it; "
+    "correctness smoke tests can share hardware, and repetitions can run one after "
+    "another on a released device. A phase's share of one run's own time is read "
+    "inside that run and needs none of this."
 )
 _EXPERIMENT_PREREQUISITE_RULE = (
     "Block dependents on failed readiness; keep each attempt's outputs separate."

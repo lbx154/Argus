@@ -2,9 +2,10 @@
 
 One control project's Reviewer re-read 61 of the Engineer's files and still
 never opened the script whose "perplexity" was a formula; the host had the
-commands all along. The provider summarises them: counts, longest commands,
-tests and checks with every run's exit code, the round's last commands, other
-failures, and paths outside the workspace.
+commands all along. The provider summarises them: counts, tests and checks
+with every run's exit code, the round's last commands, other failures, and
+paths outside the workspace. It names no command as long-running: the gap to
+the next action is the Engineer's thinking as much as the command's run.
 
 The host records only what the agent CLI's stream reported, which a command
 can tamper with. The command text and output are the Engineer's, so the packet
@@ -177,7 +178,7 @@ def test_the_record_keeps_the_newest_calls_and_says_how_many_it_dropped(tmp_path
     assert "- 2 earlier commands not shown; the record keeps the newest." in text
 
 
-def test_round_log_names_longest_commands_and_outside_paths(tmp_path: Path) -> None:
+def test_round_log_names_checks_evaluations_and_outside_paths(tmp_path: Path) -> None:
     workdir = tmp_path / "workspace"
     (workdir / "results").mkdir(parents=True)
     rows = [
@@ -197,7 +198,6 @@ def test_round_log_names_longest_commands_and_outside_paths(tmp_path: Path) -> N
 
     assert "4 shell commands, 1 file reads, 1 writes over 1.2 min" in text
     assert "old_round.py" not in text
-    assert "ran ≤58 s (time to the next action): `CUDA_VISIBLE_DEVICES=2 .venv/bin/python scripts/eval_ruler.py --config c.yaml`" in text
     assert "  - `.venv/bin/python -m pytest tests/spec`: no result recorded" in text
     assert "- evaluations, benchmarks and training runs invoked" in text
     assert "  - `CUDA_VISIBLE_DEVICES=2 .venv/bin/python scripts/eval_ruler.py --config c.yaml`: no result recorded" in text
@@ -232,7 +232,7 @@ def test_provider_reads_host_memory_from_the_request(tmp_path: Path) -> None:
     evidence = mod.round_log_evidence(request)
 
     assert evidence is not None and evidence.engineer_note == ""
-    assert "run_positive_control.py" in evidence.reviewer_text and "ran ≤57 s" in evidence.reviewer_text
+    assert "run_positive_control.py" in evidence.reviewer_text
     assert "positive control: 0.91" in evidence.reviewer_text
 
 
@@ -247,3 +247,18 @@ def test_the_research_vertical_registers_the_provider() -> None:
     from argus.engineer.round_evidence import registered_round_evidence_providers
 
     assert mod.round_log_evidence in registered_round_evidence_providers()
+
+
+def test_the_gap_to_the_next_action_is_not_a_runtime() -> None:
+    """s-efe9deac mission 5665c4cc565d, Engineer round 1, as its Reviewer (call a8447ec8) read it.
+
+    The packet led with "ran ≤2.6 min" for a `cat` of one result file: the
+    minutes went to the Engineer writing notes before its next command.
+    """
+    events = Path(__file__).resolve().parents[1] / "fixtures" / "s_efe9deac" / "round_5665c4cc565d_r1_events.jsonl"
+
+    text = mod.render_round_log(Path("/nonexistent-workspace"), 1, events_path=events)
+
+    assert "23 shell commands, 0 file reads, 0 writes over 16.4 min." in text
+    assert "ran ≤" not in text and "time to the next action" not in text
+    assert "raw-recompute-001/result.json" not in text

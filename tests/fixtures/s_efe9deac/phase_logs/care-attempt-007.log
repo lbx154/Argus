@@ -1,0 +1,1 @@
+(DiagnosticTaskRunner pid=14372) step:1 - timing_s/generate_sequences:9.769 - timing_s/reshard:0.301 - timing_s/gen:12.519 - timing_s/old_log_prob:2.470 - timing_s/reward:0.367 - timing_s/ref:15.563 - timing_s/adv:0.004 - timing_s/update_actor:9.809 - timing_s/update_probe:0.097 - timing_s/dump_rollout_generations:0.010 - timing_s/save_checkpoint:20.402 - timing_s/step:61.310

@@ -640,7 +640,7 @@ def render_reviewer_prompt(
             "Only claim-essential evidence gaps warrant `to=engineer`; optional "
             "evidence and minor weaknesses are advice. A timeout or failed attempt "
             "proves no impossibility; a missed threshold describes only that run. "
-            "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
+            "Root-cause, bottleneck, or replacement claims need code-path "
             "evidence plus profiling, timing, or a controlled comparison. Integrity is "
             "required, not scientific value. Ask only for operator-owned authority/facts. "
             "`to=done` closes a task; final-submission may close the project."

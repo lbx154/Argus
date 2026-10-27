@@ -99,8 +99,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
    A prompt's machine inventory is a snapshot, not a reservation. Inspect
-   unmanaged device processes too: available memory and momentary zero GPU
-   utilization do not establish an uncontended measurement window.
+   unmanaged device processes too.
 4. Implement against `tests/spec`. Write the method card and the executable
    spec first (sections below), then implement the method and baseline
    through real entry points under comparable data, compute, information,
@@ -172,17 +171,18 @@ needed for the claim; explain the choice in the research notes. Repeat stochasti
 runs when seed variation could change the conclusion. Rerunning deterministic
 comparisons adds no independent evidence.
 
-For latency, throughput or bottleneck claims, preserve the actual device
-identity, process occupancy and relevant load over the measurement window.
-Run on an uncontended accelerator, or explicitly define and match the competing
-load when sharing is the experiment. A shared-device smoke test can establish
-correctness without establishing isolated performance. Independent repetitions
-may run sequentially on the same released device; three processes do not
-require three simultaneously available cards. If another workload overlaps a
-timing run, keep the observations and overlap record, investigate the affected
-comparisons, and repeat only the measurements whose interpretation needs it.
-Do not silently pool uncontrolled shared-device and isolated timings, or stop
-another project's work to obtain a preferred result.
+When latency or throughput is compared across runs or devices, preserve each
+run's device identity, process occupancy and relevant load over the measurement
+window. Run on an uncontended accelerator, or explicitly define and match the
+competing load when sharing is the experiment. A shared-device smoke test can
+establish correctness without establishing isolated performance. Independent
+repetitions may run sequentially on the same released device; three processes
+do not require three simultaneously available cards. If another workload
+overlaps a timing run, keep the observations and overlap record, investigate
+the affected comparisons, and repeat only the measurements whose interpretation
+needs it. Do not silently pool uncontrolled shared-device and isolated timings,
+or stop another project's work to obtain a preferred result. A phase's share of
+one run's own time is read inside that run and needs none of this.
 
 On resume, check the actual recorded observations and the code/configuration
 that produced them before deciding whether work is complete. A copied
@@ -193,7 +193,7 @@ wrapper does not prove its children have stopped. Before replacing a run,
 confirm that every producer for its output has exited; use a separate attempt
 directory and preserve the old observations. Low GPU utilization while the CPU
 is working, or output buffered until completion, does not establish failure.
-Let healthy attempts finish before applying optional performance optimizations.
+A speedup goes into the next attempt instead of replacing a running one.
 Launch long CPU analyses as well as GPU experiments detached, with the project
 environment, an explicit command, its exit code and a separate attempt output,
 so they survive the model call. A provider's native background shell can be
@@ -299,9 +299,10 @@ validation-only mission.
 After the shared runner exists, the first claim-free milestone is a small but
 complete loop on the operator's real data: read, train or fit, the strongest
 same-information baseline, exported predictions, and the one check that
-decides whether the idea can work at all (learnability, transfer). Record wall
-time, GPU memory and bytes written per step beside it, and size the full run
-from those numbers. It is development evidence, not a claim-bearing result.
+decides whether the idea can work at all (learnability, transfer). Time its
+steps with `engineer/training_scripts/phase_table.py`, record GPU memory and
+bytes written per step beside them, and size the full run from those numbers.
+It is development evidence, not a claim-bearing result.
 
 Once a real comparison on the operator's data has been reviewed, the Planner
 schedules one stage package task (`TASK_STAGE_PACKAGE=true`) before more

@@ -953,10 +953,11 @@ def _target_package(module: str) -> str:
 
 
 def _every_python_file() -> list[Path]:
-    # Every ``.py`` under the package on purpose, including the two
-    # directories with no ``__init__.py`` (research's ``figure_spec_scripts``
-    # and ``research_visual_scripts``): they ship in the wheel and run as
-    # scripts, so what they import is a coupling the tree still pays for.
+    # Every ``.py`` under the package on purpose, including the directories
+    # with no ``__init__.py`` (research's ``figure_spec_scripts``,
+    # ``research_visual_scripts`` and ``training_scripts``): they ship in the
+    # wheel and run as scripts, so what they import is a coupling the tree
+    # still pays for.
     return sorted(ARGUS.rglob("*.py"))
 
 

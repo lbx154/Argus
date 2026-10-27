@@ -5,8 +5,7 @@ then re-read the tree to check it: in one control project 61 of its 105 file
 reads were files the Engineer had just read, and it still never opened the
 script that computed a "perplexity" by formula. The host sees every command
 and file the Engineer's CLI reports, so the packet can simply say what
-happened: how many commands, which ran longest (the time to the next action
-bounds a command's runtime), which tests and checks ran with every run's exit
+happened: how many commands, which tests and checks ran with every run's exit
 code in order, which other commands failed, and which paths lay outside the
 workspace.
 
@@ -47,7 +46,6 @@ from ...engineer.round_evidence import (
 )
 
 MAX_EVENTS_SCAN = 200_000
-LONGEST_COMMANDS = 4
 OUTSIDE_PATHS = 4
 CHECKS_SHOWN = 6
 LAST_COMMANDS = 3
@@ -355,14 +353,6 @@ def _one_line(text: str, limit: int = 110) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def _duration(seconds: float) -> str:
-    if seconds < 90:
-        return f"{seconds:.0f} s"
-    if seconds < 5400:
-        return f"{seconds / 60.0:.1f} min"
-    return f"{seconds / 3600.0:.1f} h"
-
-
 def _result_word(exit_code: int | None) -> str:
     return "failed (no exit code)" if exit_code is None else f"exit {exit_code}"
 
@@ -425,7 +415,7 @@ def _grouped(commands: list[CommandRun], keep) -> dict[str, list[CommandRun]]:
 
 
 def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
-    """Lines for the Reviewer: counts, longest commands, checks, last commands, failures, outside paths."""
+    """Lines for the Reviewer: counts, checks, last commands, failures, outside paths."""
     if not runs:
         return []
     runs = sorted(runs, key=lambda run: run.started_at)
@@ -435,13 +425,6 @@ def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
     writes = [run for run in tools if run.text.startswith(_WRITE_PREFIXES)]
     span = (runs[-1].started_at - runs[0].started_at) / 60.0
     lines = [f"{len(commands)} shell commands, {len(reads)} file reads, {len(writes)} writes over {span:.1f} min."]
-    gaps = {
-        id(run): runs[index + 1].started_at - run.started_at
-        for index, run in enumerate(runs[:-1])
-    }
-    timed = [run for run in commands if id(run) in gaps]
-    for run in sorted(timed, key=lambda run: -gaps[id(run)])[:LONGEST_COMMANDS]:
-        lines.append(f"- ran ≤{_duration(gaps[id(run)])} (time to the next action): `{_one_line(run.text)}`")
     edited = _edited_paths(runs)
     groups = _grouped(commands, is_check)
     if groups:

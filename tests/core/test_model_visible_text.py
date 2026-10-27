@@ -50,5 +50,5 @@ def test_reviewer_requires_causal_performance_evidence() -> None:
     )
 
     assert 'a missed threshold describes only that run' in prompt
-    assert 'Root-cause, dominant-stage, bottleneck, or replacement claims' in prompt
+    assert 'Root-cause, bottleneck, or replacement claims' in prompt
     assert "profiling, timing, or a controlled comparison" in prompt
