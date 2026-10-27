@@ -14,7 +14,6 @@ model naturally does around those lines.
 from __future__ import annotations
 
 from argus.core.role_reply import (
-    legacy_json_object,
     read_bool,
     read_key_values,
 )
@@ -26,24 +25,6 @@ def test_bools_read_the_words_models_use() -> None:
     assert read_bool(values, "A") is True
     assert read_bool(values, "B") is False
     assert read_bool(values, "C", default=True) is True
-
-
-# -- the legacy door, deliberately still open --------------------------------
-
-
-def test_a_volunteered_json_object_still_parses() -> None:
-    """Not required, but a daemon mid-flight on an older prompt must not break."""
-    assert legacy_json_object('{"vertical": "research"}') == {"vertical": "research"}
-    assert legacy_json_object('```json\n{"vertical": "research"}\n```') == {
-        "vertical": "research"
-    }
-    assert legacy_json_object("here you go: {\"vertical\": \"research\"} ok") == {
-        "vertical": "research"
-    }
-
-
-def test_prose_with_no_json_is_not_forced_into_an_object() -> None:
-    assert legacy_json_object("I think it is kernel work.") is None
 
 
 # -- values that are genuinely prose -----------------------------------------

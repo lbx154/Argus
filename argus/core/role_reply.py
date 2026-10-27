@@ -21,16 +21,12 @@ The parsing is deliberately tolerant:
   between the lines costs nothing;
 * the last occurrence wins, so a role that restates its conclusion at the end
   is read the way a human would read it.
-
-JSON is still *accepted* where a caller opts in — an older session or a model
-that volunteers a JSON object should not fail — but it is never required.
 """
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Any, Iterable, Mapping
+from typing import Iterable, Mapping
 
 _FENCE = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*$")
 _DECISION_FOOTER = re.compile(
@@ -295,30 +291,6 @@ def read_bool(values: Mapping[str, str], key: str, default: bool = False) -> boo
     return default
 
 
-def legacy_json_object(text: str) -> dict[str, Any] | None:
-    """A JSON object the role volunteered, if it did. Never required.
-
-    Kept so that a daemon mid-flight on an older prompt, or a model that
-    answers in JSON out of habit, still parses. Callers try the named lines
-    first: this is a fallback, not a second contract.
-    """
-    cleaned = str(text or "").strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-    try:
-        value = json.loads(cleaned)
-    except (TypeError, ValueError):
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return None
-        try:
-            value = json.loads(cleaned[start : end + 1])
-        except (TypeError, ValueError):
-            return None
-    return value if isinstance(value, dict) else None
-
-
 def decision_footer_instruction(example: str) -> str:
     """Ask for natural reasoning followed by the minimum actionable footer."""
     return (
@@ -331,7 +303,6 @@ def decision_footer_instruction(example: str) -> str:
 __all__ = [
     "decision_footer_instruction",
     "decision_footer_text",
-    "legacy_json_object",
     "read_block",
     "read_bool",
     "read_key_values",

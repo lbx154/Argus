@@ -136,13 +136,6 @@ REGISTRY: tuple[Site, ...] = (
     ),
     # -- event --------------------------------------------------------------
     Site(
-        r"planner\.acceptance_dependencies", EVENT,
-        "Once per dispatched mission attempt whose acceptance contract has no cached "
-        "assessment; two tries at most.",
-        ("argus/life/supervisor/_acceptance_guard.py:147",),
-        ("planner.acceptance_dependencies",),
-    ),
-    Site(
         r"manager-supervision", EVENT,
         "Per settled-work event (mission, verdict, degraded daemon, review, stall backstop); "
         "one applied decision per evidence and control revision.",
