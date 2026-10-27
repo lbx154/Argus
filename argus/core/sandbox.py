@@ -14,6 +14,7 @@ import site
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from urllib.parse import quote
@@ -184,6 +185,50 @@ def _cli_files(backend: str, env: Mapping[str, str], home: Path) -> tuple[list[P
     }.get(backend, ([], []))
 
 
+# Settings by which a codex config names a file codex reads before its first
+# turn: one missing in the sandbox and ``codex exec`` exits "No such file or
+# directory (os error 2)", without saying which (``model_catalog_json``).
+# ``experimental_instructions_file`` is what older releases read.
+_CODEX_FILE_SETTINGS = (
+    "model_catalog_json", "model_instructions_file", "experimental_compact_prompt_file",
+    "experimental_instructions_file",
+)
+
+
+def _codex_profile(command: list[str]) -> str | None:
+    """The profile a codex command line selects: ``--profile x`` / ``-p x``."""
+    for index, arg in enumerate(command):
+        if arg in ("-p", "--profile") and index + 1 < len(command):
+            return command[index + 1]
+        if arg.startswith("--profile="):
+            return arg.partition("=")[2]
+    return None
+
+
+def _codex_config_files(codex: Path, command: list[str], home: Path) -> list[Path]:
+    """The profile file ``command`` selects and the files codex's config names
+    for it to read, as long as each is a regular file. A config that cannot be
+    read or parsed names nothing: codex reports it itself."""
+    configs = [codex / "config.toml"]
+    profile = _codex_profile(command)
+    if profile and Path(profile).name == profile and profile not in (".", ".."):
+        configs.append(codex / f"{profile}.config.toml")
+    found = configs[1:]
+    for config in configs:
+        try:
+            data = tomllib.loads(config.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            continue
+        profiles = data.get("profiles")
+        tables = [data, *(profiles.values() if isinstance(profiles, dict) else ())]
+        found += [
+            codex / (home / value[2:] if value.startswith("~/") else Path(value))
+            for table in tables if isinstance(table, dict)
+            for value in map(table.get, _CODEX_FILE_SETTINGS) if isinstance(value, str) and value
+        ]
+    return [path for path in dict.fromkeys(found) if path.is_file()]
+
+
 def _outermost(paths: Iterable[Path]) -> list[Path]:
     kept: list[Path] = []
     for path in sorted(set(paths), key=lambda value: len(value.parts)):
@@ -301,6 +346,12 @@ def isolated_workdir_command(
 
     home = Path(env.get("HOME") or Path.home())
     login, settings = _cli_files(backend, env, home)
+    # Read-only, file by file: a file outside the CLI's home brings nothing of
+    # its directory.
+    referenced = (
+        _codex_config_files(Path(env.get("CODEX_HOME") or home / ".codex").expanduser(), command, home)
+        if backend == "codex" else []
+    )
     private = _outermost(
         real(path) for path in [home, global_root(), *(file.parent for file in [*login, *settings])]
     )
@@ -324,7 +375,7 @@ def isolated_workdir_command(
     if Path(tool).name == "sandbox-exec":
         homes = [file.parent for file in [*login, *settings] if not file.is_dir()]
         return _seatbelt(
-            tool, command, workdir=workdir, hidden=private, readable=[*readable, *settings, *shared],
+            tool, command, workdir=workdir, hidden=private, readable=[*readable, *settings, *referenced, *shared],
             writable=[*writes, *homes],
         )
 
@@ -335,7 +386,7 @@ def isolated_workdir_command(
         copy = _private_root(working_dir) / path.relative_to(path.anchor)
         copy.mkdir(parents=True, exist_ok=True, mode=0o700)
         mounts += [(copy, target, True) for target in named_as(path)]
-    for files_, rw in ((login, True), (settings, False)):
+    for files_, rw in ((login, True), (settings, False), (referenced, False)):
         mounts += [(real(file), target, rw) for file in files_ for target in named_as(file)]
     for path in given:
         rw = any(real(path).is_relative_to(inside) for inside in writes)
