@@ -142,6 +142,25 @@ def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:
     assert "Use B" in resumed.objective
 
 
+@pytest.mark.parametrize(("decided_by", "credited"), [
+    ("operator", "The result follows the operator's answer: Use B"),
+    ("manager", "The result follows the Manager's answer: Use B"),
+])
+def test_acceptance_credits_whoever_decided(tmp_path, decided_by, credited) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    item = backlog.add(BacklogItem.new(title="blocked", objective="work", item_id="item"))
+    backlog.update(item.id, park_reason="operator_pause", pending_question="choose")
+
+    resumed, _ = backlog.resume_with_operator_reply(
+        item.id, "Use B", manager_decision="Use B", decided_by=decided_by,
+        operator_context_persisted=True,
+    )
+
+    assert resumed is not None
+    assert resumed.acceptance_check.endswith(credited)
+    assert ("operator's answer" in resumed.acceptance_check) == (decided_by == "operator")
+
+
 def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item = backlog.add(BacklogItem.new(title="blocked", objective="work", item_id="item"))

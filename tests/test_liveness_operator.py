@@ -522,7 +522,8 @@ def test_a_clicked_option_is_acknowledged_in_the_question_s_language(tmp_path: P
         sid, item.operator_decision["id"], "option-2", "", global_root=tmp_path,
     )
 
-    assert result["reply"].startswith("收到，按你定的继续做。")
+    # One acknowledgement rule for every way an answer arrives: it names the option chosen.
+    assert result["reply"] == '好的，按你的选择继续：B：format_date → "22.10.2026"。'
 
 
 def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:

@@ -1206,6 +1206,13 @@ def test_an_answer_the_task_already_took_does_not_hold_bounded_completion(
     context.settle_once(record.revision)
     assert context.acknowledged_revision("planner") == 0
     assert supervisor._bounded_completion_reason()
+    # Every planning gate reads the same rule: a gated project reaches its
+    # "final certification is current" shortcut instead of a Planner call.
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    state = _PlanCycleState(None)
+    supervisor._pc_intake_gate(state)
+    assert not state.has_unhandled_operator_input
     # Input that arrives after it still holds completion.
     persist_once_answer(root, "再加一个 split_cents 的类型注解。")
     assert supervisor._bounded_completion_reason() == ""

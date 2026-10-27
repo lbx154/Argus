@@ -282,3 +282,17 @@ def test_credential_import_keeps_raw_key_out_of_context(
     assert "handle=text" in block
     assert repeated_safe_text == safe_text
     assert repeated_capability is None
+
+
+def test_input_for_other_roles_is_not_unhandled_planner_input(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    store.acknowledge("planner", 0)
+    manager_only = append_directive(
+        tmp_path, "manager only preference", applies_to_roles=("manager",), expected_revision=0,
+    )
+
+    assert not store.has_unhandled_input("planner")
+    assert store.has_unhandled_input("manager")
+    # Input for every role still counts.
+    append_directive(tmp_path, "everyone", expected_revision=manager_only.revision)
+    assert store.has_unhandled_input("planner")
