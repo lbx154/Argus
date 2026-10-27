@@ -24,7 +24,8 @@ export function Modal({
   children: ReactNode;
   label: string;
   width?: string;
-  align?: 'center' | 'top';
+  /** ``bottom``: a sheet from the bottom edge on narrow screens, centered from ``sm`` up. */
+  align?: 'center' | 'top' | 'bottom';
   viewport?: boolean;
   showClose?: boolean;
   style?: CSSProperties;
@@ -49,7 +50,7 @@ export function Modal({
       )
       .fromTo(
         dialogRef.current,
-        { autoAlpha: 0, y: align === 'top' ? -6 : 8, scale: 0.992 },
+        { autoAlpha: 0, y: align === 'top' ? -6 : align === 'bottom' ? 14 : 8, scale: align === 'bottom' ? 1 : 0.992 },
         {
           autoAlpha: 1,
           y: 0,
@@ -69,7 +70,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-3 sm:pt-14' : 'items-center'} justify-center ${viewport ? 'p-0' : 'p-3 sm:p-4'}`}
+      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-3 sm:pt-14' : align === 'bottom' ? 'items-end sm:items-center' : 'items-center'} justify-center ${viewport ? 'p-0' : align === 'bottom' ? 'p-0 sm:p-4' : 'p-3 sm:p-4'}`}
       onPointerDown={onClose}
     >
       <div ref={backdropRef} className="modal-scrim absolute inset-0" />
@@ -82,7 +83,9 @@ export function Modal({
         style={style}
         className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full overscroll-contain ${width} scroll-thin ${viewport
           ? 'flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden rounded-none'
-          : 'max-h-[calc(100dvh-1.5rem)] overflow-x-hidden overflow-y-auto rounded-2xl sm:max-h-[88dvh]'
+          : align === 'bottom'
+            ? 'max-h-[92dvh] overflow-x-hidden overflow-y-auto rounded-t-2xl sm:max-h-[88dvh] sm:rounded-2xl'
+            : 'max-h-[calc(100dvh-1.5rem)] overflow-x-hidden overflow-y-auto rounded-2xl sm:max-h-[88dvh]'
         }`}
         onPointerDown={(e) => e.stopPropagation()}
       >

@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from ...core import metrics
 from .. import mission_items, project_state, source_update
 from .context import ServerContext
-from .models import ConfigSetIn, IdentitySetIn, SkillsIn
+from .models import ConfigSetIn, IdentitySetIn, ModelProbeIn, SkillsIn
 
 
 def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +190,33 @@ def register_meta_routes(app, ctx: ServerContext) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/projects/{sid}/model-choices", dependencies=[Depends(ctx.require_auth)])
+    def _model_choices(sid: str) -> dict[str, Any]:
+        # Read-only: prices from the table, speed and availability from calls
+        # already recorded. Opening the chooser never calls a model.
+        from .. import model_choices
+
+        return model_choices.model_choices(
+            ctx.resolve_or_404(sid), global_root=ctx.project_root_or_404(sid),
+        )
+
+    @app.post("/api/projects/{sid}/model-choices/probe", dependencies=[Depends(ctx.require_auth)])
+    def _model_probe(sid: str, body: ModelProbeIn) -> dict[str, Any]:
+        from ...core.hosting import hosting
+        from .. import model_choices
+
+        project_dir = ctx.resolve_or_404(sid)
+        if hosting().enabled():
+            raise HTTPException(status_code=409, detail="the hosted trial chooses its own model")
+        try:
+            return model_choices.probe_model(
+                body.model, project_dir, global_root=ctx.project_root_or_404(sid),
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/projects/{sid}/identity", dependencies=[Depends(ctx.require_auth)])
     def _identity_set(sid: str, body: IdentitySetIn) -> dict[str, Any]:

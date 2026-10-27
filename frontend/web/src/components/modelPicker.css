@@ -1,0 +1,62 @@
+/* Model chooser: comparable option cards, one selection, a confirm bar. */
+.model-picker { padding: 0 24px; }
+.model-picker-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.model-picker-effort { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--ink-dim)); }
+.model-picker-roles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.model-picker-roles button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 7px 10px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); font-size: 12px; color: rgb(var(--ink-dim)); text-align: left; transition: border-color 120ms ease, background-color 120ms ease; }
+.model-picker-roles button:hover { border-color: rgb(var(--ink-faint)); }
+.model-picker-roles button[aria-selected='true'] { border-color: rgb(var(--accent)); background: rgb(var(--accent) / .08); color: rgb(var(--ink)); }
+.model-picker-role-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 11px; color: rgb(var(--ink-faint)); }
+.model-picker-note { margin-top: 12px; font-size: 12px; line-height: 18px; color: rgb(var(--ink-faint)); }
+.model-picker-link { color: rgb(var(--blue)); text-decoration: underline; text-underline-offset: 3px; }
+
+.model-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.model-card { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-panel); background: rgb(var(--surface) / .55); cursor: pointer; transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease; }
+.model-card:hover { border-color: rgb(var(--ink-faint) / .8); }
+.model-card:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+.model-card.is-selected { border-color: rgb(var(--accent)); background: rgb(var(--accent) / .07); box-shadow: inset 0 0 0 1px rgb(var(--accent)); }
+.model-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 24px; }
+.model-card-name { min-width: 0; overflow-wrap: anywhere; font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 14px; font-weight: 500; color: rgb(var(--ink)); }
+.model-card-check { position: absolute; top: 11px; right: 12px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: rgb(var(--accent)); color: rgb(var(--on-accent)); }
+.model-card-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.model-card-meta { font-size: 11px; color: rgb(var(--ink-faint)); }
+.model-tier { flex-shrink: 0; padding: 1px 7px; border: 1px solid rgb(var(--line)); border-radius: 999px; font-size: 11px; line-height: 16px; color: rgb(var(--ink-dim)); }
+.model-tier--economy { border-color: rgb(var(--ok) / .45); color: rgb(var(--ok)); }
+.model-tier--best { border-color: rgb(var(--gold) / .55); color: rgb(var(--gold)); }
+.model-card-facts { display: grid; gap: 3px; margin: 0; font-size: 12px; line-height: 18px; }
+.model-card-facts > div { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 8px; }
+.model-card-facts dt { color: rgb(var(--ink-faint)); }
+.model-card-facts dd { margin: 0; min-width: 0; color: rgb(var(--ink-dim)); overflow-wrap: anywhere; }
+.model-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid rgb(var(--line) / .7); }
+.model-status { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12px; line-height: 18px; color: rgb(var(--ink-dim)); overflow-wrap: anywhere; }
+.model-status-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 999px; background: rgb(var(--status-idle)); transform: translateY(-1px); }
+.model-status--ok .model-status-dot { background: rgb(var(--ok)); }
+.model-status--failed { color: rgb(var(--err)); }
+.model-status--failed .model-status-dot { background: rgb(var(--err)); }
+.model-probe { flex-shrink: 0; padding: 3px 10px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); font-size: 12px; color: rgb(var(--ink-dim)); transition: border-color 120ms ease, color 120ms ease; }
+.model-probe:hover:not(:disabled) { border-color: rgb(var(--blue) / .6); color: rgb(var(--blue)); }
+.model-probe:disabled { opacity: .6; cursor: default; }
+.model-probe-result { font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.model-card-roles { display: flex; flex-wrap: wrap; gap: 4px; }
+.model-card-roles span { padding: 1px 7px; border-radius: 999px; background: rgb(var(--accent) / .14); font-size: 11px; color: rgb(var(--ink)); }
+
+.model-picker-bar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 12px; margin: 16px -24px 0; padding: 12px 24px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid rgb(var(--line)); background: rgb(var(--panel-raised)); }
+.model-picker-bar-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; line-height: 18px; }
+.model-picker-bar-label { color: rgb(var(--ink-faint)); }
+.model-picker-bar-choice { font-size: 13px; font-weight: 500; color: rgb(var(--ink)); overflow-wrap: anywhere; }
+.model-picker-use { flex-shrink: 0; min-height: 40px; padding: 0 18px; border-radius: var(--radius-control); background: rgb(var(--blue)); font-size: 14px; font-weight: 500; color: rgb(var(--on-accent)); transition: background-color 140ms ease, opacity 140ms ease; }
+.model-picker-use:hover:not(:disabled) { background: rgb(var(--blue-deep)); }
+.model-picker-use:disabled { opacity: .45; cursor: default; }
+.model-picker-use:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .model-picker { padding: 0 16px; }
+  .model-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .model-picker-roles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .model-picker-bar { margin: 16px -16px 0; padding-left: 16px; padding-right: 16px; }
+  .model-picker-use { min-height: 44px; }
+  .model-probe { min-height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-card, .model-probe, .model-picker-use, .model-picker-roles button { transition: none; }
+}

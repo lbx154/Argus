@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import type { Role, Snapshot } from '../api';
 import { useConfig } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
+import { ModelPicker } from './ModelPicker';
 
 type LastCall = NonNullable<Snapshot['last_call']>;
 
@@ -16,7 +18,8 @@ const unset = (value: string | null | undefined) => !value || ['auto', 'inherit'
 /**
  * What the work is actually running on: the newest real call's backend, model
  * and effort. When settings now ask for something else (just applied, not yet
- * used by a call), say what the next call will use. Clicking opens settings.
+ * used by a call), say what the next call will use. Clicking opens the model
+ * chooser, which links on to the full settings.
  */
 export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings }: {
   sid: string;
@@ -27,6 +30,7 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
 }) {
   const { locale, t } = useI18n();
   const { data } = useConfig(sid, true);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const zh = locale === 'zh-CN';
   const role = (running ? roles.find((item) => item.active) : undefined)
     ?? roles.find((item) => item.role === 'manager');
@@ -54,16 +58,17 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
     {!trial && !actual && running && role?.active ? ` · ${isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}` : ''}
   </>;
   const title = actual
-    ? (zh ? '最近一次模型调用实际使用的后端、模型和推理强度；点击更改' : 'Backend, model and effort the latest model call actually used; click to change')
-    : (zh ? '当前配置的后端与模型；点击更改' : 'Configured backend and model; click to change');
+    ? (zh ? '最近一次模型调用实际使用的后端、模型和推理强度；点击选择模型' : 'Backend, model and effort the latest model call actually used; click to choose a model')
+    : (zh ? '当前配置的后端与模型；点击选择模型' : 'Configured backend and model; click to choose a model');
   return <div className="composer-runtime" aria-label={zh ? '当前后端与模型' : 'Current backend and model'}>
     {onOpenSettings && !trial
-      ? <button type="button" className="composer-runtime-model" onClick={onOpenSettings} title={title} data-runtime-open-settings>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</button>
+      ? <button type="button" className="composer-runtime-model" onClick={() => setPickerOpen(true)} title={title} data-runtime-open-models>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</button>
       : <span className="composer-runtime-model" title={trial ? undefined : title}>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</span>}
     <details className="composer-runtime-details"><summary>{zh ? '运行信息' : 'Runtime details'}</summary><div>{label}</div></details>
     {next ? <span className="composer-runtime-next" data-runtime-next>{zh ? `下次使用：${next}` : `next call: ${next}`}</span> : null}
     {trial && canOpenDesktopSettings() ? <button type="button" onClick={openDesktopTrialSettings}>
       {zh ? '更换 Key' : 'Change Key'}
     </button> : null}
+    {onOpenSettings && !trial && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}
   </div>;
 }

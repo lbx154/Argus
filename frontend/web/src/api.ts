@@ -332,10 +332,39 @@ export interface ConfigSnapshot {
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
   /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
-  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
+  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'configured' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
   model_auto_resolves_to?: string;
   /** What map text actually runs on; `note` says why a saved pin was set aside for auto. */
   how_to_change: string[];
+}
+/** One row of the model chooser: every figure is from the price table or recorded calls. */
+export interface ModelChoice {
+  model: string;
+  source: string;
+  default: boolean;
+  invalid: boolean;
+  /** USD per million tokens; null when the price table does not list the model. */
+  price: { input: number; cached_input: number; output: number } | null;
+  /** This project's recent tasks re-priced with this model; null without data. */
+  task_estimate_usd: number | null;
+  /** Median duration of calls that answered on this machine; null without data. */
+  latency_ms: number | null;
+  latency_samples: number;
+  availability: { state: 'ok' | 'failed' | 'unknown'; at: number; reason: string };
+}
+export interface ModelChoices {
+  backend: string;
+  billing: 'token' | 'premium_request';
+  premium_request_usd: number | null;
+  /** How many of this project's tasks the per-task estimate re-prices. */
+  task_sample: number;
+  options: ModelChoice[];
+}
+export interface ModelProbeResult {
+  model: string;
+  ok: boolean;
+  error: string;
+  duration_ms: number;
 }
 export interface AdvisorConfig {
   schema_version: number;
@@ -1150,6 +1179,10 @@ export const api = {
     getJson<DoctorReport>(P(sid, '/doctor'), signal),
   config: (sid: string, signal?: AbortSignal) =>
     getJson<ConfigSnapshot>(P(sid, '/config'), signal),
+  modelChoices: (sid: string, signal?: AbortSignal) =>
+    getJson<ModelChoices>(P(sid, '/model-choices'), signal),
+  probeModel: (sid: string, model: string) =>
+    postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
   identity: (sid: string, signal?: AbortSignal) =>
     getJson<{ identity: string }>(P(sid, '/identity'), signal).then((r) => r.identity),
   transcript: (sid: string, n = 30, signal?: AbortSignal) =>
