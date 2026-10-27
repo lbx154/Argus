@@ -63,7 +63,11 @@ export function projectOverview({ goal, tasks, events, receipts, decisions, laun
   const first = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))[0];
   // Work the Manager did itself has no goal contract; the person's own
   // request (short, without launch settings) says what it is for.
-  const request = [...tasks].filter((task) => task.turn_kind !== "qa").sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))[0];
+  // Requests ride on the tasks they started (map_relations.fold_cards); an
+  // older map still has them as turn cards.
+  const said = tasks.flatMap((task) => task.requests ?? []).sort((a, b) => a.ts - b.ts)[0];
+  const request = said ? { objective: said.full, title: said.text }
+    : [...tasks].filter((task) => task.turn_kind !== "qa").sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))[0];
   const requested = (request?.objective || request?.title || "").split(/【开工设置|\[Launch settings/)[0];
   const goalText = oneLine(goal || first?.objective || first?.title || oneLine(requested, 60), 140);
   const titles = new Map(tasks.map((task) => [task.id, task.title]));

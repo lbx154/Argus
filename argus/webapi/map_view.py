@@ -15,9 +15,10 @@ from ..core.progress_step import describe_progress_step, plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..core.stop_kinds import NON_FAILURE_STOP_KINDS
+from ..core.waypoints import read_canvas_file, route_steps
 from ..life.memory import LifeMemory, _jsonl_history_paths, park_reason
 from .map_outcomes import project_map_outcomes, public_outcome
-from .map_relations import project_relations, relation_facts, reply_paths
+from .map_relations import fold_cards, project_relations, relation_facts, reply_paths
 
 TASK_FIELDS = (
     "id",
@@ -518,6 +519,15 @@ def turn_records(
                     turn["dispatched"] = text(row["item_id"], 160)
                     break
             continue
+        if (row.get("type") == "life.operator_question.answered" and row.get("item_id")
+                and row.get("decided_by") == "operator"):
+            # The person's message answered a question card ("继续"): the
+            # request belongs to that card.
+            for turn in reversed(turns.values()):
+                if turn["card"]["status"] == "running":
+                    turn["card"]["answers"] = text(row["item_id"], 160)
+                    break
+            continue
         if row.get("type") == "ui.operator" and message_id.endswith("-operator"):
             asks[message_id[: -len("-operator")]] = {
                 "ts": row.get("ts"), "text": text(row.get("text"), 4000),
@@ -593,6 +603,7 @@ def turn_records(
         title = ask_title(asked) if asked else (reply.splitlines()[0] if reply else turn_id)
         dispatched = (turns.get(card_id) or {}).get("dispatched")
         refs = ask.get("refs") or (turns.get(card_id) or {}).get("refs")
+        answers = ((turns.get(card_id) or {}).get("card") or {}).get("answers")
         turns[card_id] = {
             **({"dispatched": dispatched} if dispatched else {}),
             **({"refs": refs} if refs else {}),
@@ -602,6 +613,7 @@ def turn_records(
                 "id": card_id,
                 "kind": "turn",
                 **({"turn_kind": "qa"} if qa else {}),
+                **({"answers": answers} if answers else {}),
                 "ts": _timestamp(ask.get("ts")) or started or replied_at,
                 "title": text(title, 120),
                 "objective": asked,
@@ -646,6 +658,46 @@ def turn_records(
     while len(turns) > TURN_LIMIT:
         turns.pop(next(iter(turns)))
     return turns
+
+
+# A card id a person's canvas card carries ("hc-35885033b637"), and the step
+# mark a title may already put before it.
+_CARD_ID = re.compile(r"(?P<mark>[\u2460-\u2473]|\(\d+\))?\s*(?<![0-9A-Za-z_-])hc-[0-9A-Za-z_-]{4,}(?![0-9A-Za-z_-])")
+_CARD_WORDS_LIMIT = 20
+
+
+def canvas_names(canvas: dict) -> dict[str, tuple[str, str]]:
+    """Card id -> (step mark or "", the person's words) for the cards on ``canvas``."""
+    names = {
+        str(card["id"]): ("", " ".join(str(card.get("text") or "").split()))
+        for card in canvas.get("cards") or () if isinstance(card, dict) and card.get("id")
+    }
+    for step in route_steps(canvas):
+        names[step.id] = ("" if step.number is None else step.mark(), step.text)
+    return names
+
+
+def plain_card_ids(value: str, names: dict[str, tuple[str, str]]) -> str:
+    """``value`` with every canvas card id said as the person's own words.
+
+    A task the Planner wrote for a 必经步骤 may name the step by its card id
+    ("完成必经步骤① hc-35885033b637"); the map says it by its number and words
+    ("完成必经步骤①“写 wordstat …”"). An id no card has any more is dropped.
+    """
+    if "hc-" not in str(value or ""):
+        return value
+
+    def say(found: re.Match) -> str:
+        card_id = found.group(0)[found.group(0).index("hc-"):]
+        mark, words = names.get(card_id, ("", ""))
+        mark = found.group("mark") or mark
+        if not words:
+            return mark
+        if len(words) > _CARD_WORDS_LIMIT:
+            words = words[: _CARD_WORDS_LIMIT - 1].rstrip(" \t：:，,；;。.、") + "…"
+        return f"{mark}“{words}”"
+
+    return re.sub(r"[ \t]{2,}", " ", _CARD_ID.sub(say, value)).strip()
 
 
 def read_map(
@@ -778,6 +830,14 @@ def read_map(
             task["role"] = roles[task["id"]]
     tasks = project_relations(tasks, state.get("turns") or {}, state.get("relation_facts") or {})
     tasks = project_map_outcomes(tasks, visible_events)
+    if names := canvas_names(read_canvas_file(life_dir)):
+        for task in tasks:
+            for key in ("title", "objective"):
+                if isinstance(task.get(key), str):
+                    task[key] = plain_card_ids(task[key], names)
+    # The work, not the chat: requests ride on the task they started, a
+    # replaced task folds into the one that replaced it.
+    tasks, requests = fold_cards(tasks)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if
         # the backlog row is unchanged. Its response revision must change too.
@@ -790,5 +850,7 @@ def read_map(
         "read_only": False,
         "tasks": tasks,
         "events": visible_events,
+        # What the person asked that started no task yet (map_relations.fold_cards).
+        "requests": requests,
         "coverage": {"truncated": truncated or len(events) > 2000},
     })

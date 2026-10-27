@@ -746,3 +746,75 @@
 .argus-map[data-immersive="true"] .map-canvas-toolbar .map-search:focus-within {
   color: rgb(var(--ink)); background: rgb(var(--panel)); border-color: rgb(var(--line));
 }
+
+/* ── One picture of the work (role-authority.md "Map") ─────────────────────
+   What the person said is not a card: it rides on the task it started as a
+   small speech chip just above the card's top edge, in the person's gold.
+   It keeps a readable size from afar, the way the title does. */
+.argus-map .macro-summary .map-request-chip {
+  position: absolute;
+  left: 6px;
+  bottom: calc(100% + 16px);
+  max-width: calc(100% - 12px);
+  display: flex;
+  align-items: center;
+  gap: .4em;
+  box-sizing: border-box;
+  padding: .28em .7em .28em .6em;
+  border-radius: .5em .5em .5em .15em;
+  background: var(--map-paper);
+  border: 1px solid var(--map-hairline);
+  box-shadow: inset 2px 0 0 var(--map-accent);
+  color: rgb(var(--ink-dim));
+  font-size: max(11.5px, min(30px, calc(11.5px / var(--on-screen))));
+  line-height: 1.35;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: default;
+}
+.argus-map .macro-summary .map-request-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.argus-map .macro-summary .map-request-chip b { flex: none; font-weight: 500; color: var(--map-accent-ink); }
+.argus-map .map-card-replaced { color: var(--map-accent-ink); letter-spacing: 0; text-transform: none; }
+.argus-map .macro-replaced { margin-top: 6px; font-size: 12.5px; line-height: 1.5; color: rgb(var(--ink-dim)); }
+.argus-map .macro-replaced summary { cursor: pointer; color: var(--map-accent-ink); width: max-content; }
+.argus-map .macro-replaced ul { margin: 4px 0 0; padding-left: 1.1em; list-style: disc; max-height: 7.5em; overflow: auto; }
+
+/* Requests that started no task yet wait by the composer, not on the canvas. */
+.argus-map .map-loose-requests {
+  position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: min(560px, calc(100% - 32px));
+  pointer-events: none;
+}
+.argus-map .map-loose-requests > span {
+  pointer-events: auto; max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px 4px 10px; border-radius: 10px 10px 10px 3px; font-size: 12.5px; line-height: 1.4;
+  background: var(--map-paper); border: 1px solid var(--map-hairline); box-shadow: inset 2px 0 0 var(--map-accent);
+  color: rgb(var(--ink-dim)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.argus-map .map-loose-requests i {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--map-status-running);
+  animation: canvas-step-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .argus-map .map-loose-requests i { animation: none; } }
+
+/* The map's key: what each kind of card is. */
+.argus-map .map-legend-info { position: relative; display: inline-flex; }
+.argus-map .map-legend-info > button {
+  display: flex; align-items: center; height: var(--control-height); padding: 0 9px; border-radius: 7px;
+  background: var(--map-paper); border: 1px solid rgb(var(--line) / 0.7); color: rgb(var(--ink-dim)); cursor: help;
+}
+.argus-map[data-immersive="true"] .map-legend-info > button { background: transparent; border-color: transparent; color: rgb(var(--ink-faint)); }
+.argus-map .map-legend-info [role="tooltip"] {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: max-content; max-width: min(420px, 80vw);
+  padding: 10px 12px; border-radius: 8px; background: rgb(var(--panel)); border: 1px solid rgb(var(--line));
+  box-shadow: 0 6px 20px rgb(0 0 0 / .08); color: rgb(var(--ink-dim)); font-size: 12.5px; line-height: 1.6;
+  white-space: normal; text-align: left; opacity: 0; visibility: hidden; transition: opacity 120ms ease;
+}
+.argus-map .map-legend-info [role="tooltip"] b { color: rgb(var(--ink)); font-weight: 500; }
+.argus-map .map-legend-info:hover [role="tooltip"],
+.argus-map .map-legend-info:focus-within [role="tooltip"] { opacity: 1; visibility: visible; }
+
+/* Serif CJK in a heavy weight reads as smudge on screen: map titles are 500. */
+.argus-map .macro-heading h2,
+.argus-map .map-heading h1,
+.argus-map .map-relation-label { font-weight: 500; }

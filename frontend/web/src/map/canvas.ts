@@ -78,37 +78,59 @@ const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
 export const stepMark = (n: number | null | undefined) =>
   n == null ? "" : n >= 1 && n <= CIRCLED.length ? CIRCLED[n - 1] : `(${n})`;
 /** Flow-space size of a person's card; task cards are ~1440 wide, so these
- * read at the same zoom without covering a task. */
+ * read at the same zoom without covering a task. An idea and a required step
+ * are one family and one width: wide enough that the person's words read at
+ * overview zoom (a step was 880 wide, ~110 px there, and cut "写 wordstat/co…"). */
 export const HUMAN_FRAME = {
-  idea: { width: 880, height: 480 }, file: { width: 880, height: 360 }, step: { width: 880, height: 520 },
+  idea: { width: 1200, height: 480 }, file: { width: 880, height: 360 }, step: { width: 1200, height: 480 },
 } as const;
 /** Type metrics of a person's card body (canvas.css), in flow units; a step
- * also carries its status line. */
+ * carries its number and status in the header row. */
 export const CARD_TEXT = {
-  font: 60, line: 87, width: 880 - 2 * 64,
-  chrome: { idea: 210, file: 330, step: 300 }, maxLines: { idea: 12, file: 6, step: 8 },
+  font: 60, line: 87, pad: 64,
+  chrome: { idea: 210, file: 330, step: 240 }, maxLines: { idea: 12, file: 6, step: 8 },
 } as const;
+/** The far view (CanvasNodes farLabelFont): the words as a large label sized
+ * for the screen, whole lines up to ``lines``. ``font`` is the label size at
+ * the usual overview zoom, which a step's frame is made tall enough for. */
+export const FAR_TEXT = { pad: 28, font: 112, line: 1.2, lines: 4 } as const;
 
-/** Lines the words take at the card's body size: a CJK character is about
- * one em wide, Latin about half; each paragraph starts a line. */
-export function textLines(text: string): number {
-  // One em short of the measure, so a line that wraps early still fits.
-  const perLine = Math.floor(CARD_TEXT.width / CARD_TEXT.font) - 1;
-  return text.split("\n").reduce((sum, paragraph) => {
+/** Text units (a CJK character is about one em wide, Latin about half) in
+ * each paragraph of ``text``. */
+function textUnits(text: string): number[] {
+  return text.split("\n").map((paragraph) => {
     let width = 0;
     for (const ch of paragraph) width += /[\u2e80-\uffef]/.test(ch) ? 1 : ch === " " ? 0.3 : 0.56;
-    return sum + Math.max(1, Math.ceil(width / perLine));
-  }, 0);
+    return width;
+  });
+}
+
+/** Lines the words take at ``font`` in a measure ``width`` wide; each
+ * paragraph starts a line. */
+export function textLines(text: string, width: number = HUMAN_FRAME.idea.width - 2 * CARD_TEXT.pad,
+  font: number = CARD_TEXT.font): number {
+  // One em short of the measure, so a line that wraps early still fits.
+  const perLine = Math.max(1, Math.floor(width / font) - 1);
+  return textUnits(text).reduce((sum, units) => sum + Math.max(1, Math.ceil(units / perLine)), 0);
 }
 
 /** A card is as tall as its words, from a three-line minimum up to a cap; a
- * longer text scrolls in the open editor and is cut with an ellipsis. */
+ * longer text scrolls in the open editor and is cut with an ellipsis. A step
+ * is also tall enough for its words in the far view (number and status in a
+ * row above them, up to FAR_TEXT.lines whole lines). */
 export function humanFrame(card: Pick<HumanCard, "kind"> & { text?: string }) {
   const base = HUMAN_FRAME[card.kind];
   if (!card.text) return base;
-  const lines = Math.min(textLines(card.text), CARD_TEXT.maxLines[card.kind]);
-  return { width: base.width, height: Math.max(base.height, CARD_TEXT.chrome[card.kind] + lines * CARD_TEXT.line) };
+  const lines = Math.min(textLines(card.text, base.width - 2 * CARD_TEXT.pad), CARD_TEXT.maxLines[card.kind]);
+  let height = Math.max(base.height, CARD_TEXT.chrome[card.kind] + lines * CARD_TEXT.line);
+  if (card.kind === "step") {
+    const far = Math.min(FAR_TEXT.lines, textLines(card.text, base.width - 2 * FAR_TEXT.pad * 1.6, FAR_TEXT.font));
+    height = Math.max(height, Math.ceil(2 * FAR_TEXT.pad + stepHeadHeight(FAR_TEXT.font) + far * FAR_TEXT.line * FAR_TEXT.font));
+  }
+  return { width: base.width, height };
 }
+/** The far view's header row of a step (badge, dot and word) at label size ``font``. */
+export const stepHeadHeight = (font: number) => Math.ceil(font * 1.2);
 /** Lines the card shows before its ellipsis: what its frame holds. */
 export const cardTextLines = (card: Pick<HumanCard, "kind" | "text">) =>
   Math.max(1, Math.floor((humanFrame(card).height - CARD_TEXT.chrome[card.kind]) / CARD_TEXT.line));

@@ -35,6 +35,28 @@ export interface MapTask
   turn_kind?: 'qa';
   /** What this card is about, as the records state it (map_relations.py). */
   relations?: TaskRelation[];
+  /** What the person said that started this task, or that answered its
+   * question: a small chip on the card, not a card (map_relations.fold_cards). */
+  requests?: MapRequest[];
+  /** Earlier tasks a newer plan replaced with this one, folded into it. */
+  replaced?: ReplacedTask[];
+  replaced_count?: number;
+}
+/** A person's request as the map shows it: their words, short and in full. */
+export interface MapRequest {
+  id: string;
+  text: string;
+  full: string;
+  ts: number;
+  status?: string;
+  reply?: string;
+}
+export interface ReplacedTask {
+  id: string;
+  title: string;
+  /** One line: why the newer plan replaced it. */
+  reason: string;
+  ts: number;
 }
 /** ``target`` is the card this one asks about, checks, follows, replaces or
  * carries out; the map draws the line from the target to this card. */
@@ -117,6 +139,8 @@ export interface Dataset {
   read_only: boolean;
   tasks: MapTask[];
   events: MapEvent[];
+  /** Requests still being read that started no task yet: chips by the composer. */
+  requests?: MapRequest[];
   cursor?: string;
   incremental?: boolean;
   tasks_complete?: boolean;
@@ -504,4 +528,38 @@ export function connectMap(
     join(previous.id, task.id);
   }
   return links;
+}
+
+/** A person's canvas card id ("hc-35885033b637") never reaches a title: the
+ * projection says it as the step's number and words (map_view.plain_card_ids);
+ * a title written before that, or by a model, drops the id. */
+export function plainTitle(title: string): string {
+  if (!title.includes("hc-")) return title;
+  return title.replace(/(^|[^0-9A-Za-z_-])\s*hc-[0-9A-Za-z_-]{4,}(?![0-9A-Za-z_-])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ").trim();
+}
+
+/** The chip a task wears for what the person said: the newest request, and
+ * every request in full for the tooltip. */
+export function requestChip(requests: MapRequest[] | undefined, zh: boolean) {
+  if (!requests?.length) return null;
+  const latest = requests[requests.length - 1];
+  const say = (request: MapRequest) => `${zh ? "你说：" : "You said: "}${request.full || request.text}`;
+  return {
+    label: `${zh ? "你说：" : "You said: "}${latest.text}`,
+    more: requests.length - 1,
+    title: requests.map(say).join("\n\n"),
+  };
+}
+
+/** "替代了 N 个旧方案" and, for hover and the opened card, each one's title
+ * and why it was replaced. */
+export function replacedNote(task: Pick<MapTask, "replaced" | "replaced_count">, zh: boolean) {
+  const replaced = task.replaced ?? [];
+  const count = task.replaced_count ?? replaced.length;
+  if (!count) return null;
+  return {
+    label: zh ? `替代了 ${count} 个旧方案` : `Replaced ${count} earlier plan${count > 1 ? "s" : ""}`,
+    lines: replaced.map((item) => `${plainTitle(item.title)}${item.reason ? (zh ? "：" : ": ") + item.reason : ""}`),
+  };
 }

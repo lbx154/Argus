@@ -100,7 +100,7 @@ class TaskSpec:
     # A reviewed interim package for the operator while the campaign goes on;
     # it earns a non-terminal ``stage_package`` delivery, never completion.
     stage_package: bool = False
-    # GPUs the task holds while it runs; claimed only when that many are free.
+    # GPUs the task needs; it starts only when that many are free.
     gpu_count: int = 0
     # CPU cores the task keeps busy; claimed only when that many are free.
     cpu_count: int = 0
