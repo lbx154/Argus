@@ -123,6 +123,42 @@ def provider_cost(event: dict) -> float | None:
     return value / NANO_AIU_PER_USD if type(value) is int and value >= 0 else None
 
 
+def token_cost(event: dict) -> float | None:
+    """Price a terminal Responses event from the usage an OpenAI-compatible
+    upstream reports; ``None`` keeps the reservation when usage is missing."""
+    from argus.core.pricing import quote_token_usage
+
+    usage = (event.get("response") or {}).get("usage")
+    if not isinstance(usage, dict):
+        return None
+    counts = [usage.get("input_tokens"), usage.get("output_tokens")]
+    if any(type(value) is not int or value < 0 for value in counts):
+        return None
+    cached = (usage.get("input_tokens_details") or {}).get("cached_tokens")
+    quote = quote_token_usage(MODEL, input_tokens=counts[0], output_tokens=counts[1],
+                              cached_input_tokens=cached if type(cached) is int else 0)
+    return quote.cost_usd if quote.status == "priced" else None
+
+
+def upstream_request(config: dict) -> tuple[str, dict, object]:
+    """Where the meter sends a tenant's request, with which headers, and how a
+    terminal event is charged. ``upstream`` names an OpenAI-compatible
+    Responses endpoint and a file holding its key; without it the operator's
+    Copilot login is used and billed from its receipts."""
+    upstream = config.get("upstream")
+    if upstream:
+        key = Path(upstream["token_file"]).read_text().strip()
+        return upstream["base_url"].rstrip("/") + "/responses", {"Authorization": "Bearer " + key}, token_cost
+    from argus.agent_cli.copilot_home import _read_managed_config
+    from argus.core.copilot_http import COPILOT_BASE_URL, COPILOT_HEADERS
+
+    provider = _read_managed_config(Path(config["copilot_home"]) / "config.json")
+    account = provider["lastLoggedInUser"]
+    token = provider["authTokens"][f"{account['host']}:{account['login']}"]["token"]
+    return (COPILOT_BASE_URL + "/responses",
+            {**COPILOT_HEADERS, "Authorization": "Bearer " + token, "X-Initiator": "user"}, provider_cost)
+
+
 def load_config(path: Path) -> dict:
     value = json.loads(path.read_text())
     if value.get("model") != MODEL or not value.get("tenants"):
@@ -131,11 +167,8 @@ def load_config(path: Path) -> dict:
 
 
 def model_app(config: dict, ledger: Ledger) -> FastAPI:
-    from argus.agent_cli.copilot_home import _read_managed_config
-    from argus.core.copilot_http import COPILOT_BASE_URL, COPILOT_HEADERS
-
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    slots = asyncio.Semaphore(2)
+    slots = asyncio.Semaphore(config.get("concurrency", 2))
     tokens = {row["model_token"]: name for name, row in config["tenants"].items()}
 
     def identify(request: Request) -> str | None:
@@ -195,13 +228,10 @@ def model_app(config: dict, ledger: Ledger) -> FastAPI:
         handed_off = False
         try:
             reservation = ledger.reserve(tenant, (len(raw) + 4096) * INPUT_CEILING + output_limit * OUTPUT_CEILING)
-            provider = _read_managed_config(Path(config["copilot_home"]) / "config.json")
-            account = provider["lastLoggedInUser"]
-            token = provider["authTokens"][f"{account['host']}:{account['login']}"]["token"]
-            headers = {**COPILOT_HEADERS, "Authorization": "Bearer " + token, "X-Initiator": "user"}
+            url, headers, charge = upstream_request(config)
             client = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15), follow_redirects=False, trust_env=False)
             submitted = True
-            upstream = await client.send(client.build_request("POST", COPILOT_BASE_URL + "/responses",
+            upstream = await client.send(client.build_request("POST", url,
                                                              headers=headers, json=payload), stream=True)
             if upstream.status_code != 200:
                 status = upstream.status_code
@@ -235,7 +265,7 @@ def model_app(config: dict, ledger: Ledger) -> FastAPI:
                         try:
                             event = json.loads(line[5:])
                             if event.get("type") in ("response.completed", "response.incomplete", "response.failed"):
-                                charged = provider_cost(event)
+                                charged = charge(event)
                         except ValueError:
                             pass
                     yield (line + "\n").encode()
@@ -265,7 +295,7 @@ def model_app(config: dict, ledger: Ledger) -> FastAPI:
 
 LOGIN = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Argus 6.1 试用</title><style>body{font:16px system-ui;background:#f6f7f9;color:#172333;margin:0}main{max-width:420px;margin:12vh auto;padding:32px;background:white;border:1px solid #ddd;border-radius:18px}input,button{box-sizing:border-box;width:100%;padding:13px;font:inherit;border-radius:9px;margin:10px 0;border:1px solid #ddd}button{background:#2069d1;color:white;border:0}p{line-height:1.7;color:#536071}</style>
-<main><h1>Argus 6.1 试用</h1><p>告诉它需要做什么，它会实际查资料、写代码和验证结果。</p><p>每个邀请码有独立的工作区和 10 美元额度。全站总额度为 50 美元，用完后暂停；额度不会自动重置。</p>
+<main><h1>Argus 6.1 试用</h1><p>告诉它需要做什么，它会实际查资料、写代码和验证结果。</p><p>每个邀请码有独立的工作区和 {user} 美元额度。全站总额度为 {total} 美元，用完后暂停；额度不会自动重置。</p>
 <form method="post" action="/login"><label>邀请码</label><input name="invite" autocomplete="off" required placeholder="粘贴你的邀请码"><button>进入试用</button></form></main></html>"""
 
 
@@ -278,6 +308,7 @@ RECOVERING = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     invites = {row["invite"]: name for name, row in config["tenants"].items()}
+    login_html = LOGIN.replace("{user}", f"{ledger.user / MICRO:g}").replace("{total}", f"{ledger.total / MICRO:g}")
     # A session is a random token the portal holds, not a signed claim; a
     # restart ends every session and the invite code signs in again.
     sessions: dict[str, tuple[str, float]] = {}
@@ -300,12 +331,12 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
 
     @app.get("/healthz")
     async def health():
-        return {"status": "ready", "model": MODEL, "total_limit_usd": 50,
+        return {"status": "ready", "model": MODEL, "total_limit_usd": ledger.total / MICRO,
                 "revision": config["revision"]}
 
     @app.get("/login")
     async def login_page():
-        return HTMLResponse(LOGIN, headers={"Cache-Control": "no-store"})
+        return HTMLResponse(login_html, headers={"Cache-Control": "no-store"})
 
     @app.post("/login")
     async def login(request: Request):
@@ -318,7 +349,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
             return JSONResponse({"detail": "邀请码格式不正确。"}, 400)
         tenant = next((name for invite, name in invites.items() if secrets.compare_digest(token, invite)), None)
         if tenant is None:
-            return HTMLResponse(LOGIN.replace("<h1>", "<p>邀请码不正确，请检查后重试。</p><h1>"), 401)
+            return HTMLResponse(login_html.replace("<h1>", "<p>邀请码不正确，请检查后重试。</p><h1>"), 401)
         response = RedirectResponse("/", 303)
         response.set_cookie(COOKIE, session(tenant), secure=True, httponly=True, samesite="lax", max_age=7 * 86400)
         return response

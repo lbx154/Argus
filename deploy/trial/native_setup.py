@@ -23,10 +23,13 @@ def initialize(args) -> dict:
               'venv': str(args.venv.resolve()), 'python_runtime': str(args.python_runtime.resolve()),
               'node_runtime': str(args.node_runtime.resolve()), 'copilot_package': str(args.copilot_package.resolve()),
               'copilot_home': str(Path.home() / '.copilot'), 'ledger': str(root / 'usage.sqlite3'),
-              'meter_runtime': str(root / 'meter'), 'total_usd': 50, 'user_usd': 10,
+              'meter_runtime': str(root / 'meter'), 'total_usd': args.total_usd, 'user_usd': args.user_usd,
+              'concurrency': args.concurrency,
               'relay_secret': secrets.token_hex(32), 'tenants': {}}
+    if args.upstream_base_url:
+        config['upstream'] = {'base_url': args.upstream_base_url, 'token_file': str(args.upstream_token_file.resolve())}
     (root / 'meter').mkdir(mode=0o700)
-    for n in range(1, 6):
+    for n in range(1, args.tenants + 1):
         name = f'trial{n}'
         directory = root / name
         directory.mkdir(mode=0o700)
@@ -104,12 +107,20 @@ def main():
     for name in ('root', 'source', 'venv', 'python-runtime', 'node-runtime', 'copilot-package'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--revision', required=True)
+    parser.add_argument('--tenants', type=int, default=5)
+    parser.add_argument('--user-usd', type=float, default=10)
+    parser.add_argument('--total-usd', type=float, default=50)
+    parser.add_argument('--concurrency', type=int, default=2, help='simultaneous upstream model requests')
+    parser.add_argument('--upstream-base-url', help='OpenAI-compatible Responses endpoint instead of the Copilot login')
+    parser.add_argument('--upstream-token-file', type=Path, help='file holding the upstream key (kept outside Git)')
     parser.add_argument('--install-services', action='store_true')
     args = parser.parse_args()
+    if bool(args.upstream_base_url) != bool(args.upstream_token_file):
+        parser.error('--upstream-base-url and --upstream-token-file go together')
     config = initialize(args)
     if args.install_services:
         install_services(config, args.root.resolve())
-    print('Five private invitations are available in invitations.txt; credentials were not printed.')
+    print(f"{len(config['tenants'])} private invitations are available in invitations.txt; credentials were not printed.")
 
 
 if __name__ == '__main__':
