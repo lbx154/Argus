@@ -136,7 +136,6 @@ class SupervisedEngineer(
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
-        prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         reviewer_skill_block: str | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
@@ -336,7 +335,6 @@ class SupervisedEngineer(
                 reviewer_skill_block=reviewer_skill_block,
                 outcome=outcome,
                 state=state,
-                prepare_review_context=prepare_review_context,
                 on_event=on_event,
             )
             if control.action == "return":

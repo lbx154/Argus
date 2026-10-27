@@ -17,9 +17,8 @@ Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
 ``--daemon-runbook``, ``--no-daemon``). Subcommands are admin helpers —
 ``doctor``, ``repair``, ``update``, ``learn`` and ``wiki`` (``wiki init
-<project>``, ``wiki ingest --wiki <path>``, ``wiki migrate``); ``_parser.py``
-is the authoritative list. The cockpit and backlog remain the single runtime
-workflow.
+<project>``, ``wiki correct``); ``_parser.py`` is the authoritative list.
+The cockpit and backlog remain the single runtime workflow.
 """
 from __future__ import annotations
 
@@ -495,10 +494,6 @@ def main(argv: list[str] | None = None) -> int:
         return run_update()
     if args.command == "wiki" and args.wiki_cmd == "init":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_init(args))
-    if args.command == "wiki" and args.wiki_cmd == "ingest":
-        return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
-    if args.command == "wiki" and args.wiki_cmd == "migrate":
-        return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.command == "wiki" and args.wiki_cmd == "correct":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_correct(args))
     if args.command == "learn":
@@ -1474,72 +1469,6 @@ def _cmd_wiki_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _project_root_for_wiki_path(wiki: Path) -> Path:
-    wiki = wiki.expanduser()
-    resolved = wiki.resolve() if wiki.exists() else wiki.absolute()
-    if (
-        resolved.name == "wiki"
-        and resolved.parent.parent.name == ".autors"
-    ):
-        return resolved.parent.parent.parent
-    return resolved.parent.parent
-
-
-def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
-    from ...wiki.bootstrap import init_wiki, is_initialized_wiki
-    from ...wiki.ingest import ingest_lit_matrix, ingest_refs_bib
-    from ...wiki.store import WikiStore
-
-    wiki = args.wiki.expanduser()
-    if not is_initialized_wiki(wiki):
-        if args.init:
-            project_root = _project_root_for_wiki_path(wiki)
-            if wiki.name == "wiki" and wiki.parent.name:
-                init_wiki(wiki.parent.name, base=project_root)
-            else:
-                sys.stderr.write(f"argus: cannot infer project from --wiki {wiki}\n")
-                return 2
-        else:
-            sys.stderr.write(
-                f"argus: {wiki} is not an initialized wiki; "
-                "run `argus wiki init <project>` or pass --init\n"
-            )
-            return 2
-    if not is_initialized_wiki(wiki):
-        sys.stderr.write(f"argus: failed to initialize wiki at {wiki}\n")
-        return 2
-    store = WikiStore(wiki)
-    project_root = _project_root_for_wiki_path(wiki)
-    refs = args.refs.expanduser() if args.refs else project_root / "paper" / "refs.bib"
-    lit = (
-        args.lit_matrix.expanduser()
-        if args.lit_matrix
-        else project_root / "research" / "LIT_MATRIX.tsv"
-    )
-
-    if refs.exists():
-        bib_result = ingest_refs_bib(
-            store,
-            bib_path=refs,
-            ingested_by=args.ingested_by,
-        )
-        print(f"ingested {len(bib_result.written)} new source(s) from {refs}")
-        for warning in bib_result.warnings:
-            sys.stderr.write(f"warning: {warning}\n")
-    else:
-        print(f"no refs.bib at {refs}, skipping bib ingest")
-
-    if lit.exists():
-        lit_result = ingest_lit_matrix(store, tsv_path=lit)
-        print(f"enriched {lit_result.enriched_count} source(s) from {lit}")
-        for warning in lit_result.warnings:
-            sys.stderr.write(f"warning: {warning}\n")
-    else:
-        print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
-
-    return 0
-
-
 def _cmd_learn(args: argparse.Namespace) -> int:
     import json
 
@@ -1583,20 +1512,6 @@ def _cmd_learn(args: argparse.Namespace) -> int:
         f"  cd {base} && argus --daemon --continuous "
         "--objective 'Study the ingested material and update your skill+wiki libraries'"
     )
-    return 0
-
-
-def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
-    from ...wiki.bootstrap import is_initialized_wiki
-    from ...wiki.migrate import migrate_orphan_sources
-    from ...wiki.store import WikiStore
-
-    wiki = args.wiki.expanduser()
-    if not is_initialized_wiki(wiki):
-        sys.stderr.write(f"argus: {wiki} is not an initialized wiki\n")
-        return 2
-    moved = migrate_orphan_sources(WikiStore(wiki))
-    print(f"migrated {len(moved)} orphan source note(s)")
     return 0
 
 
