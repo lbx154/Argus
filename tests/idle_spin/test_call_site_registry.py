@@ -143,12 +143,6 @@ REGISTRY: tuple[Site, ...] = (
         ("planner.acceptance_dependencies",),
     ),
     Site(
-        r"manager\.reviewed_facts", EVENT,
-        "Once per Reviewer-confirmed research result at mission settlement.",
-        ("argus/manager/reviewed_facts.py:290",),
-        ("manager.reviewed_facts",),
-    ),
-    Site(
         r"manager-supervision", EVENT,
         "Per settled-work event (mission, verdict, degraded daemon, review, stall backstop); "
         "one applied decision per evidence and control revision.",

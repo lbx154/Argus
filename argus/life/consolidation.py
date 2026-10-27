@@ -34,7 +34,7 @@ from ..core import paths as core_paths
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
 from ..core.file_lock import FileLockCancelled, exclusive_file_lock
-from ..core.handoff import HandOffActions
+from ..core.handoff import CALL_HAND_OFF, HandOffActions
 from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
@@ -425,7 +425,7 @@ def build_prompt(
         if current_principles.strip()
         else "(none yet)"
     )
-    parts.append("\n\nNow call hand_off with the rules; a reply without it changes nothing.\n")
+    parts.append(f"\n\n{CALL_HAND_OFF}\n")
     return "".join(parts)
 
 

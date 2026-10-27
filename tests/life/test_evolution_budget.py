@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import pytest
-
 from argus.core.knobs import learning_enabled
 from argus.life.memory import LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
@@ -49,14 +47,8 @@ def test_learning_switch_defaults_on_and_honors_a_persisted_off(tmp_path, monkey
     assert learning_enabled() is True
 
 
-@pytest.mark.parametrize("learning", ["0", "1"])
-def test_reviewer_confirmed_research_result_reaches_fact_judgment(
-    tmp_path,
-    monkeypatch,
-    learning,
-) -> None:
-    """With learning on, the judgment rides in the reflection call; off, it runs alone."""
-    monkeypatch.setenv("ARGUS_SKILL_LEARNING", learning)
+def test_reviewer_confirmed_research_result_waits_for_the_reflection(tmp_path) -> None:
+    """The judgment rides only in the reflection call; settlement makes no model call."""
     memory = LifeMemory.open(tmp_path / "life")
     runner = _Runner()
     supervisor = LifeSupervisor(
@@ -68,16 +60,6 @@ def test_reviewer_confirmed_research_result_reaches_fact_judgment(
             project_worktree=tmp_path / "campaign",
             role_skill_maintenance_enabled=False,
         ),
-    )
-    captured = {}
-
-    def _review(*args, **kwargs):
-        captured.update(kwargs)
-        return True
-
-    monkeypatch.setattr(
-        "argus.manager.reviewed_facts.review_and_append_fact",
-        _review,
     )
     result = {"result_class": "verified_new_result", "evidence": ["result.json"]}
 
@@ -91,15 +73,8 @@ def test_reviewer_confirmed_research_result_reaches_fact_judgment(
         source_campaign="campaign-03",
     )
 
-    if learning == "0":
-        assert captured["source_campaign"] == "campaign-03"
-        assert captured["research_result"] == result
-        assert captured["evidence_refs"] == ("result.json",)
-        assert supervisor._pending_reviewed_fact is None
-    else:
-        assert captured == {}
-        pending = supervisor._pending_reviewed_fact
-        assert pending["source_campaign"] == "campaign-03"
-        assert pending["research_result"] == result
-        assert pending["evidence_refs"] == ["result.json"]
-        assert "verified_new_result" in pending["summary"]
+    pending = supervisor._pending_reviewed_fact
+    assert pending["source_campaign"] == "campaign-03"
+    assert pending["research_result"] == result
+    assert pending["evidence_refs"] == ["result.json"]
+    assert "verified_new_result" in pending["summary"]

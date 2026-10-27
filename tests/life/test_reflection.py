@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from argus.core.handoff import CALL_HAND_OFF
 from argus.core.models import RunnerResult
 from argus.life import reflection
 from argus.life.reflection import (
@@ -216,9 +217,9 @@ def test_lesson_page_is_indexed_journaled_announced_and_receipted(roots: _Roots)
         str(lesson_path.parent),
         "Judge novelty against the saved libraries",
         "at most 300 words per page",
-        "End with hand_off.",
     ):
         assert expected in prompt, expected
+    assert prompt.endswith(CALL_HAND_OFF)
 
     # INDEX.md of the vertical lists the lesson once, under its own section.
     index = (roots.vertical_root / "INDEX.md").read_text(encoding="utf-8")
@@ -610,9 +611,7 @@ class _ReplyBackend(_Backend):
 
     def run_exec(self, *, prompt: str, options: Any, run_label: str, resume_thread_id=None):
         result = super().run_exec(prompt=prompt, options=options, run_label=run_label)
-        if run_label == "manager.reviewed_facts":
-            result.agent_messages = [json.dumps({"append": False})]
-        elif not self.exit_code:
+        if not self.exit_code:
             for form in self.replies:
                 submit(options, ("hand_off", form))
         return result
@@ -641,13 +640,21 @@ def _labels(backend: _Backend) -> list[str]:
 def test_an_accepted_mission_the_reviewer_found_routine_is_not_reflected_on(roots: _Roots) -> None:
     backend = _ReplyBackend()
 
+    result = roots.reflect(backend, learning="nothing_new", mission_accepted=True, rounds=1)
+
+    assert "nothing new" in result["skipped"]
+    assert backend.calls == []
+
+
+def test_a_routine_mission_with_a_fact_to_judge_still_reflects(roots: _Roots) -> None:
+    backend = _ReplyBackend(replies=[_fact("A kept fact.", "log.txt")])
+
     result = roots.reflect(
         backend, learning="nothing_new", mission_accepted=True, rounds=1, reviewed_fact=_fact_candidate(),
     )
 
-    assert "nothing new" in result["skipped"]
-    # The reviewed fact is still judged, on its own.
-    assert _labels(backend) == ["manager.reviewed_facts"]
+    assert result["reviewed_fact_recorded"] is True
+    assert _labels(backend) == ["reflection"]
 
 
 def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
@@ -663,7 +670,7 @@ def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
     assert _labels(backend) == ["reflection"]
 
 
-def test_unwritable_knowledge_directories_still_judge_the_fact(
+def test_unwritable_knowledge_directories_leave_the_fact_unrecorded(
     roots: _Roots, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = _ReplyBackend()
@@ -679,7 +686,8 @@ def test_unwritable_knowledge_directories_still_judge_the_fact(
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     assert result["failure"] == "knowledge directories are not writable"
-    assert _labels(backend) == ["manager.reviewed_facts"]
+    assert backend.calls == []
+    assert not (roots.home / "reviewed-facts.md").exists()
     from argus.life.reflection_status import learning_status
     # Unable to keep anything is a failure, not "nothing to learn".
     assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
@@ -705,12 +713,14 @@ def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
     assert digest.count("A kept fact.") == 1
 
 
-def test_a_failed_reflection_still_judges_the_fact_on_its_own(roots: _Roots) -> None:
+def test_a_failed_reflection_leaves_the_fact_unrecorded(roots: _Roots) -> None:
     backend = _ReplyBackend(exit_code=1, fatal_error="provider down")
 
-    roots.reflect(backend, reviewed_fact=_fact_candidate())
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
-    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
+    assert result["reviewed_fact_recorded"] is False
+    assert _labels(backend) == ["reflection"]
+    assert not (roots.home / "reviewed-facts.md").exists()
 
 
 def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
@@ -726,12 +736,49 @@ def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
     assert "Allowed evidence refs:" in prompt
     assert all(f"- {ref}" in prompt for ref in refs)
     assert "verified_new_result" in prompt
+    # The call to hand_off comes after the fact section: the last thing the model reads.
+    assert prompt.endswith(f"- {refs[-1]}\n\n{CALL_HAND_OFF}")
 
 
-def test_a_fact_resting_on_a_ref_not_allowed_is_refused_and_judged_separately(roots: _Roots) -> None:
+def test_a_fact_resting_on_a_ref_not_allowed_is_refused_and_not_recorded(roots: _Roots) -> None:
     backend = _ReplyBackend(replies=[_fact("A claim.", "made-up.json")])
 
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     assert result["reviewed_fact_recorded"] is False
-    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
+    assert _labels(backend) == ["reflection"]
+    assert not (roots.home / "reviewed-facts.md").exists()
+
+
+def test_a_recorded_text_hand_off_retires_nothing_and_records_no_fact(roots: _Roots) -> None:
+    """Replay of s-efe9deac reflection 801cf5ff (trial-1023): codex wrote "hand_off:"
+    with a retire request as text and never called the tool; the text changes nothing."""
+    record = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures" / "s_efe9deac"
+         / "reflection_text_handoff_801cf5ff.json").read_text(encoding="utf-8")
+    )
+    target = roots.vertical_root / "pages" / "lessons" / record["retire_target"]["name"]
+    target.parent.mkdir(parents=True)
+    target.write_text(record["retire_target"]["text"], encoding="utf-8")
+    from argus.manager.reviewed_facts import reviewed_fact_candidate
+
+    class _TextOnly(_Backend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            result = super().run_exec(**kwargs)
+            result.agent_messages = [record["final_message"]]
+            return result
+
+    backend = _TextOnly()
+    result = roots.reflect(
+        backend, mission_id=record["mission_id"], reviewed_fact=reviewed_fact_candidate(
+            source_campaign="s-efe9deac", reviewer_reason=record["reviewer_reason"],
+            research_result=record["research_result"], evidence_refs=record["evidence_refs"],
+        ),
+    )
+
+    assert "retire:" in record["final_message"] and target.name in record["final_message"]
+    assert result["retired"] == [] and target.exists()
+    assert result["reviewed_fact_recorded"] is False
+    assert not (roots.home / "reviewed-facts.md").exists()
+    assert not list(roots.home.glob("reviewed-fact-source-*.json"))
+    assert _labels(backend) == ["reflection"]

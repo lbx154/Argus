@@ -33,7 +33,6 @@ def test_latest_call_runtime_reports_the_work_call_not_helper_calls(tmp_path: Pa
         {**start, "backend": "copilot", "model": "work-model", "reasoning_effort": "high", "run_label": "self-implement", "ts": 2.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "manager-classify-grounded", "ts": 3.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "reflection", "ts": 5.0},
-        {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "manager.reviewed_facts", "ts": 6.0},
         {**start, "backend": "copilot", "model": "summary-model", "run_label": "map-summary", "ts": 7.0},
         {**start, "backend": "copilot", "model": "fast-model", "reasoning_effort": "low", "run_label": "prompt-complete", "ts": 8.0},
     ])

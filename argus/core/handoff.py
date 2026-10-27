@@ -21,6 +21,11 @@ from .contract_resources import contract_schema_path
 ACTION = "hand_off"
 _CONTRACT = json.loads(contract_schema_path("handoff_forms.json").read_text(encoding="utf-8"))
 
+#: The last line of a prompt whose only effect is its form. Codex lists MCP
+#: tools only when the model looks for them; told to "end with hand_off", the
+#: model wrote it as text and never looked (all 28 reflections of trial-1023).
+CALL_HAND_OFF = "Now call hand_off; a reply without it changes nothing."
+
 #: The rungs an unchanged return climbs, one at a time (invariant 3).
 LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 
@@ -154,4 +159,4 @@ class HandOffActions:
         return {"recorded": payload.get("to") or self.form}
 
 
-__all__ = ["ACTION", "LADDER", "HandOff", "HandOffActions", "form_tool", "holder_of"]
+__all__ = ["ACTION", "CALL_HAND_OFF", "LADDER", "HandOff", "HandOffActions", "form_tool", "holder_of"]
