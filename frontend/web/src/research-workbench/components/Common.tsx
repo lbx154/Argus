@@ -5,7 +5,7 @@ import {
   Radio,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import { markdownRemarkPlugins, markdownRehypePlugins } from '../../components/markdownMath';
 import { agentRoleColor } from '../../lib/agentRoles';
 import { plainDetail } from '../../lib/plainStatus';
@@ -71,6 +71,13 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+// Module-level, so a re-render never hands React new component types.
+const markdownComponents: Components = {
+  a: ({ href, title, children: label }) => (
+    <a href={href} title={title} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
+  ),
+};
+
 export function Markdown({ children, className }: { children: string; className?: string }) {
   const { locale } = useWorkbenchText();
   return (
@@ -78,11 +85,7 @@ export function Markdown({ children, className }: { children: string; className?
       <ReactMarkdown
         remarkPlugins={markdownRemarkPlugins}
         rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
-        components={{
-          a: ({ href, title, children: label }) => (
-            <a href={href} title={title} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
-          ),
-        }}
+        components={markdownComponents}
       >
         {children}
       </ReactMarkdown>
