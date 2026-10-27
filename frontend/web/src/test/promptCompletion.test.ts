@@ -35,7 +35,7 @@ describe('completionToken', () => {
   });
 
   it.each([
-    ['a@b.com', 7], ['C#', 2], ['issue#12', 8], ['##', 2], ['# 标题', 2], ['@src ', 5], ['@src', -1],
+    ['a@example.com', 13], ['C#', 2], ['issue#12', 8], ['##', 2], ['# 标题', 2], ['@src ', 5], ['@src', -1],
   ])('leaves %j as text', (text, at) => {
     expect(completionToken(text, at)).toBeNull();
   });
