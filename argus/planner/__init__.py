@@ -4,6 +4,7 @@ Layer: roles
 """
 
 from .planner import (
+    PLANNER_PAUSED_ERROR,
     PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
@@ -15,6 +16,7 @@ __all__ = [
     "Planner",
     "PlannerConfig",
     "PlannerVerdict",
+    "PLANNER_PAUSED_ERROR",
     "PLANNER_SUPERSEDED_ERROR",
     "TaskSpec",
 ]

@@ -324,8 +324,7 @@ class PlannerFailureBackoffMixin:
             return True
         verdict = getattr(state, "verdict", None)
         # A handoff without new work is a decision, not a failure, whether it
-        # waits or the Manager's answer sends it back to plan; the
-        # unchanged-input skip keeps it from being re-bought at model price.
+        # waits or the Manager's answer sends it back to plan.
         return bool(
             result in {PLAN_AWAITING, PLAN_RETRY}
             and verdict is not None

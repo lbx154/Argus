@@ -11,8 +11,7 @@ A call is a row of the ledger, placed among the events where it completed; its
 role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
 that added no new work, and a Manager supervision whose decision was never
-applied or kept the course. ``avoided`` counts the times the Planner began to
-wait without a call because nothing it reads had changed (``model_call_skipped``).
+applied or kept the course.
 """
 from __future__ import annotations
 
@@ -103,7 +102,6 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     calls: dict[str, dict[str, Any]] = {}  # call_id -> usage row
     planner_cycle: list[str] = []  # this Planner cycle's calls, until its outcome
     planner_idle: list[str] = []
-    planner_skipped = 0
     supervisions: dict[str, tuple[str, str]] = {}  # supervision_id -> (call_id, action)
     applied: set[str] = set()
     tasks: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -121,8 +119,6 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         elif kind in ("life.planner.start", "life.planner.verdict"):
             planner_cycle = []
         elif kind == "life.planner.idle":
-            if event.get("model_call_skipped"):
-                planner_skipped += 1
             planner_idle += planner_cycle
             planner_cycle = []
         elif kind == "life.manager.supervision.issued":
@@ -161,16 +157,14 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
             for role, tally in roles
         },
         "no_new_information": {
-            "planner_no_new_work": _tally(
-                picked(planner_idle), of_calls=len(by_role["planner"]), avoided=planner_skipped,
-            ),
+            "planner_no_new_work": _tally(picked(planner_idle), of_calls=len(by_role["planner"])),
             "manager_not_applied": _tally(
                 picked(call for sid, (call, _) in supervisions.items() if sid not in applied),
-                of_calls=len(supervisions), avoided=0,
+                of_calls=len(supervisions),
             ),
             "manager_kept_course": _tally(
                 picked(call for sid, (call, action) in supervisions.items() if sid in applied and action == "continue"),
-                of_calls=len(supervisions), avoided=0,
+                of_calls=len(supervisions),
             ),
         },
         "cost_per_passed_task": cost_per_passed_task(
@@ -223,8 +217,8 @@ def render(report: dict[str, Any]) -> str:
     lines += _table("By role", ["role", *usage_header, "share"], [
         [role, *(tally[key] for key in usage), f"{tally['cost_share']:.1%}"] for role, tally in report["roles"].items()
     ])
-    lines += _table("No new information", ["", "calls", "of", "cost $", "avoided"], [
-        [name.replace("_", " "), row["calls"], row["of_calls"], row["cost_usd"], row["avoided"]]
+    lines += _table("No new information", ["", "calls", "of", "cost $"], [
+        [name.replace("_", " "), row["calls"], row["of_calls"], row["cost_usd"]]
         for name, row in report["no_new_information"].items()
     ])
     lines += _table("Passed tasks", ["task", "reviews", "continue", "elapsed s",

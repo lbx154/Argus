@@ -246,6 +246,41 @@ def test_a_superseded_turn_is_not_a_failure(tmp_path, monkeypatch) -> None:
     assert not sink.of(EventType.LIFE_DAEMON_DEGRADED)
 
 
+def test_calls_the_budget_refuses_are_not_failures(tmp_path, monkeypatch) -> None:
+    """An idle Planner is asked until the daemon's background budget runs out,
+    then waits at the idle backoff without a failure, an alert or a cost; the
+    first progress lets it be asked again. Refused calls once counted as a
+    backend outage: a false alert after 54 minutes, then 3 hours on hold."""
+    from argus.core import call_guard
+
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
+    answer = planner.run_exec
+
+    def admitted(**kwargs: Any) -> RunnerResult:
+        # The backend's admission (_exec_admission step 3).
+        paused = call_guard.refusal(kwargs["run_label"])
+        if paused:
+            return RunnerResult(exit_code=-1, fatal_error=paused, stop_kind="operator_pause")
+        return answer(**kwargs)
+
+    monkeypatch.setattr(planner, "run_exec", admitted)
+    trips: list[list[str]] = []
+    call_guard.enable(on_trip=trips.append)
+    try:
+        sleeps = [float(s.get("suggested_sleep") or 0) for s in _drive(supervisor, clock, WINDOW + CAP)]
+        assert (planner.planner_calls, len(trips)) == (call_guard.BACKGROUND_CALL_BUDGET, 1)
+        assert min(sleeps) >= 15.0 and max(sleeps) <= CAP
+        assert _streak(supervisor) == 0
+        assert not sink.of(EventType.LIFE_PLANNER_ERROR)
+        assert not sink.of(EventType.LIFE_DAEMON_DEGRADED)
+        assert not _stop_notices(supervisor)
+
+        call_guard.observe({"type": EventType.LIFE_INBOX_DRAINED})
+        assert _seconds_until_next_call(supervisor, planner, clock, CAP + POLL_SECONDS) is not None
+    finally:
+        call_guard.disable()
+
+
 def test_parallel_supervisors_share_one_streak_and_one_alert(tmp_path, monkeypatch) -> None:
     primary, planner_a, sink_a, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
     helper, planner_b, sink_b, _ = _supervisor(tmp_path, monkeypatch, _ONE_TASK, clock=clock)

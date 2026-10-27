@@ -298,13 +298,6 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", succeed)
     monkeypatch.setattr(backlog_type, "add_many", original_commit)
-    if failure == "done":
-        # A completion the Host declined is the Planner's answer to these
-        # inputs; it is asked again only when something it reads changes.
-        assert supervisor._plan_next_work() != PLAN_TERMINAL_IDLE
-        assert len(calls) == 2
-        messages.append(instruction)
-        supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
     assert supervisor._plan_next_work() is True
     assert store.acknowledged_revision("planner") == store.revision
     item = supervisor.memory.backlog.active()[0]
@@ -375,13 +368,13 @@ def test_a_handled_turn_without_new_work_keeps_report_dedup(campaign, monkeypatc
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(3):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == 2
+    assert len(calls) == 3
     store = OperatorContextStore(campaign.life)
     assert store.acknowledged_revision("planner") < store.revision
     restarted = campaign.make()
     for _ in range(3):
         assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == 3
+    assert len(calls) == 6
     assert len(_reports(campaign.life)) == 1
     assert load_planner_verdict_outbox(campaign.life) is None
 

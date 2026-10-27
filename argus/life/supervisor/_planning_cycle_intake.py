@@ -3,7 +3,7 @@
 Covers everything that can decide "there is nothing to plan right now" before
 the planner is ever invoked: draining operator messages, Manager→Planner
 feedback exhaustion, dynamic-plan revision-request validation, retrying a
-pending planner verdict, terminal-idle and unchanged-input outcomes, the wiki-collect
+pending planner verdict, terminal-idle outcomes, the wiki-collect
 maintenance task, the missing-planner-runner error, the operator
 external-blocker short circuit, and the bounded-vertical-reached-terminal-stage
 fast path.
@@ -590,16 +590,10 @@ class PlanningCycleIntakeMixin:
         if terminal_idle is not None:
             return terminal_idle
 
-        if revision_request is None:
-            if not state.had_operator_messages:
-                unchanged_outcome = self._maybe_skip_unchanged_planner_cycle(
-                    state
-                )
-                if unchanged_outcome is not None:
-                    return unchanged_outcome
-                failing_hold = self._maybe_hold_failing_planner()
-                if failing_hold is not None:
-                    return failing_hold
+        if revision_request is None and not state.had_operator_messages:
+            failing_hold = self._maybe_hold_failing_planner()
+            if failing_hold is not None:
+                return failing_hold
 
         self._planning_cycles += 1
         state.manager_intent = self._manager_intent_context()

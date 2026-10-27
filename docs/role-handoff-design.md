@@ -278,9 +278,11 @@ invariants, and together they are the whole state machine:
    (principle 1: the runtime is not a parent; design question 7: if the backend
    can do it, do not do it for it). A long job is started detached and waited
    for inside the turn with the backend's blocking commands. A question goes to
-   the operator, or to the Manager while the operator cannot be asked. The
-   Planner is called only when something is handed to it: a mission ends, the
-   operator writes, the Manager directs.
+   the operator, or to the Manager while the operator cannot be asked. With
+   nothing running, each daemon pass after the idle backoff asks the Planner
+   again, whatever it answered last; no earlier answer stands in for it. Past
+   the daemon's background-call budget (`argus/core/call_guard.py`) the call is
+   refused at no cost, which is no Planner failure, until the next progress.
 3. **An unchanged return climbs.** Suppose the item would return to a holder
    that already held it at the same candidate, with no new external result and
    no new operator input since. Then the host does not call that model again.
@@ -411,7 +413,7 @@ It looks once at each turn the Engineer, Reviewer or Planner ends, never at its
 own, reading only the task's events. Within a task it resumes one session and
 reads only the events added since its last look; the session ends with the
 task, and planning, which belongs to no task, is looked at afresh. A turn nobody
-took, such as a Planner call skipped because its inputs did not change, is not a
+took, such as a Planner call held after repeated failures, is not a
 turn. When the flow is off it writes one line,
 `→ manager: <sentence and where it was seen>`, as one `life.observer.note`
 event naming its task. The Manager hears it through its supervision, as news reported once,

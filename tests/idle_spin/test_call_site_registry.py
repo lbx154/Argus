@@ -198,9 +198,9 @@ REGISTRY: tuple[Site, ...] = (
     # -- gated by time, bounded by a gate -------------------------------------
     Site(
         r"planner\.cycle\d+(\.repair\d+)?", GATED_TIME,
-        "Event waits take no call; unchanged inputs take none either; failing turns back off "
-        "and stop after AUTOMATIC_RETRY_WINDOW_SECONDS; an operator wait is re-granted only "
-        "on changed input.",
+        "Event waits take no call; with nothing running, one per daemon pass after the idle "
+        "backoff, within the daemon's BACKGROUND_CALL_BUDGET; failing turns back off and stop "
+        "after AUTOMATIC_RETRY_WINDOW_SECONDS; an operator wait is re-granted only on changed input.",
         ("argus/planner/planner.py:328", "argus/planner/planner.py:541"),
         ("planner.cycle12", "planner.cycle12.repair1"),
     ),
