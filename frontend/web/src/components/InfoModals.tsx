@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { AdvisorSettings } from './AdvisorSettings';
+import { ModelPicker } from './ModelPicker';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint, RawDisclosure } from './primitives';
@@ -159,6 +160,7 @@ export function ConfigModal({
   const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
   const [pendingBackend, setPendingBackend] = useState<BackendOption | ''>('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
@@ -169,7 +171,7 @@ export function ConfigModal({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   useEffect(() => {
-    if (!open) setAdvancedOpen(false);
+    if (!open) { setAdvancedOpen(false); setPickerOpen(false); }
   }, [open]);
   useEffect(() => {
     if (!open || !data) return;
@@ -265,6 +267,7 @@ export function ConfigModal({
   const connection = connectionTopology(window.location.origin, sid);
   const hasData = Boolean(data && (data.roles.length || data.operator_knobs.length));
   return (
+    <>
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
       <div className="settings-body">
@@ -359,6 +362,9 @@ export function ConfigModal({
                 </select>
                 <button type="button" onClick={() => void applyModel()} disabled={quickConfigBusy} className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40">
                   {t('settings.applyModel')}
+                </button>
+                <button type="button" data-open-model-picker onClick={() => setPickerOpen(true)} className="h-8 shrink-0 rounded border border-blue/35 bg-blue/8 px-2.5 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent">
+                  {t('models.compare')}
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2">
@@ -521,6 +527,8 @@ export function ConfigModal({
         )}
       </div>
     </Modal>
+    {!data?.trial_mode && <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />}
+    </>
   );
 }
 

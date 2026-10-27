@@ -81,6 +81,9 @@ export const useDoctor = (sid: string | null, enabled: boolean) =>
 export const useConfig = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['config', sid], queryFn: ({ signal }) => api.config(sid!, signal), enabled: !!sid && enabled });
 
+export const useModelChoices = (sid: string | null, enabled: boolean) =>
+  useQuery({ queryKey: ['model-choices', sid], queryFn: ({ signal }) => api.modelChoices(sid!, signal), enabled: !!sid && enabled });
+
 export const useIdentity = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['identity', sid], queryFn: ({ signal }) => api.identity(sid!, signal), enabled: !!sid && enabled });
 

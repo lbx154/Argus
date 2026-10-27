@@ -563,6 +563,18 @@ def _version_desc_key(model: str) -> tuple[str, tuple[int, ...]]:
     return (family, numbers)
 
 
+def _configured_model_ids() -> list[str]:
+    from ..core.knob_store import read_persisted_knobs
+    from ..core.knobs import resolve_knob
+
+    try:
+        raw = resolve_knob("ARGUS_SKILL_MODEL_CHOICES", "", persisted=read_persisted_knobs()).value
+    except Exception:  # noqa: BLE001 - a corrupt store still leaves the other sources
+        raw = os.environ.get("ARGUS_SKILL_MODEL_CHOICES", "")
+    models = [part.strip() for part in raw.split(",")]
+    return list(dict.fromkeys(m for m in models if m and m.lower() not in {"auto", "inherit", "default"}))
+
+
 def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]:
     """What the quick picker offers instead of a text box.
 
@@ -599,6 +611,12 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
             options[model] = {"model": model, "source": "catalog"}
             if offline:
                 options[model]["offline"] = True
+    # Models the operator says the provider serves: a Codex relay publishes no
+    # list Argus can read, so the deployment names them (ARGUS_SKILL_MODEL_CHOICES).
+    for model in _configured_model_ids():
+        row = options.setdefault(model, {"model": model, "source": "configured"})
+        if row["source"] == "catalog":
+            row["source"] = "configured"  # named for this provider, not only Pi's catalog
     for model, ts in sorted(_seen_model_ids(global_root).items(), key=lambda kv: -kv[1]):
         options.setdefault(model, {"model": model, "source": "seen"})["last_used_at"] = ts
     # Only the backend's OWN list can say a model is not offered: a model that
@@ -727,6 +745,12 @@ ROLE_MODEL_KNOBS: tuple[str, ...] = (
 )
 
 
+_ROLE_EFFORT_KNOBS: tuple[str, ...] = (
+    "ARGUS_SKILL_MANAGER_REASONING_EFFORT", "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+)
+
+
 def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str]:
     """Role knobs that currently pin a model of their own (env first, then persisted)."""
     from ..core.knob_store import read_persisted_knobs
@@ -765,6 +789,15 @@ def prefer_saved_over_deployment_env(env: MutableMapping[str, str] | None = None
     )
     for name in dropped:
         env_map.pop(name, None)
+    # A role pin saved from the cockpit is placed in this process's environment
+    # when it is saved (set_operator_config). Put it back after a restart too:
+    # left only in config.json it ranks below a deployment ARGUS_SKILL_MODEL
+    # (resolve_role_model), so a per-role choice would silently stop applying.
+    # A role value the deployment itself sets still wins, as before.
+    for name in (*ROLE_MODEL_KNOBS, *_ROLE_EFFORT_KNOBS):
+        value = str(saved.get(name, "") or "").strip()
+        if value and not str(env_map.get(name, "") or "").strip():
+            env_map[name] = value
     return dropped
 
 
