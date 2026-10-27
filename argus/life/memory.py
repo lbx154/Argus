@@ -1160,11 +1160,11 @@ class BacklogItem:
     # workers. The primary worker remains able to execute every backlog item.
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
-    # GPUs this task holds while it runs. A task is claimed only when that
-    # many are free: not busy now and not reserved by another active task.
+    # GPUs this task needs. A task is claimed only when that many are free:
+    # not busy now and not reserved by another active task.
     gpu_count: int = 0
-    # The cards assigned at claim time; they stay reserved while the task is
-    # running or parked on its own job, whether or not they look busy.
+    # Admission bookkeeping only, never handed to the Engineer: the cards
+    # counted as reserved while the task runs or is parked on its own job.
     gpu_indices: list[int] = field(default_factory=list)
     # CPU cores this task (and the background jobs it parks on) keeps busy.
     # A task is claimed only when that many of the usable cores are not
