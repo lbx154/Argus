@@ -363,10 +363,6 @@ def _apply(
         if not acquired:
             raise SupervisionBusy("daemon control is busy")
         observation = observe_project(root, event=event)
-        if observation.incomplete_requirements:
-            record["observation_limitations"] = observation.facts["limitations"]
-            record["incomplete_requirements"] = list(observation.incomplete_requirements)
-            raise SupervisionSuperseded("required project facts could not be fully observed")
         if cancelled() or not (
             observation.control_revision == record["control_revision"]
             or _owns_reserved_control(root, record)
@@ -374,7 +370,6 @@ def _apply(
             raise SupervisionSuperseded("newer project control")
         # Work that moved on while the Manager decided does not void its
         # decision; voided, the decision was lost and nobody asked again.
-        record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
         effects = record.setdefault("effects", {"supervision_id": record["id"]})
         # Each reading the Manager chose in the operator's place, once per decision.
         record_assumptions(
@@ -386,7 +381,6 @@ def _apply(
         if decision["action"] == "continue":
             effects["effect"] = "current course retained"
             _apply_risk_decision(root, record, event, observation, effects)
-            record["applied_control_revision"] = observation.control_revision
             return effects
         if decision["action"] == "stop":
             # The mission's own round loop parks this run at its next
@@ -395,7 +389,6 @@ def _apply(
             if not attempt:
                 raise SupervisionSuperseded("no mission run to stop")
             effects.update(effect="mission parked", stopped_attempt=attempt)
-            record["applied_control_revision"] = observation.control_revision
             return effects
         if not _owns_reserved_control(root, record):
             # Reserve before any team-facing write. A crash before the
@@ -431,7 +424,6 @@ def _apply(
                 )
             effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
             _apply_risk_decision(root, record, event, observation, effects)
-        record["applied_control_revision"] = observe_project(root, event=event).control_revision
         _write(path, record)
         return effects
 
@@ -463,7 +455,6 @@ def _deliver(
         code = interruption_code() if interruption_code else ("cancelled" if cancelled() else None)
         code = code or ("timeout" if isinstance(exc, TimeoutError) else None)
         code = code or ("cancelled" if isinstance(exc, CancelledError) else None)
-        code = code or ("observation_incomplete" if record.get("incomplete_requirements") else None)
         code = code or ("superseded" if superseded else None)
         code = code or ("busy" if busy else None)
         record["status"] = "superseded" if superseded else "issued"
@@ -535,14 +526,6 @@ def supervise(
             latest = _latest_record(root)
             if latest.get("status") == "issued":
                 return _deliver(root, latest.get("source_event", {}), latest, cancelled or (lambda: False))
-            # A stalled turn or an Observer's remark is reported once and
-            # changes no project file, so it is new evidence by itself.
-            if (not observation.incomplete_requirements and latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
-                    and event.get("stall_reason") not in _REPORTED_ONCE
-                    and observation.control_revision in {
-                latest.get("control_revision"), latest.get("applied_control_revision"),
-            }):
-                return latest
             identity = uuid.uuid4().hex
             path = root / "manager-supervision" / f"{identity}.json"
 
@@ -566,7 +549,6 @@ def supervise(
 
             record: dict[str, Any] = {
                 "version": 1, "id": identity,
-                "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
                 "trigger": {key: event[key] for key in (
                     "type", "item_id", "event_id", "round_index", "consult_reason", "process_stuck",
@@ -577,7 +559,6 @@ def supervise(
                 }) if event else {},
                 "available_refs": observation.facts["evidence_refs"],
                 "observation_limitations": observation.facts["limitations"],
-                "incomplete_requirements": list(observation.incomplete_requirements),
                 "evidence_refs": [], "cited_refs": [],
                 "created_at": time.time(), "status": "evaluating",
             }
@@ -585,10 +566,6 @@ def supervise(
             failure_stage = "provider"
             result = None
             try:
-                if observation.incomplete_requirements:
-                    failure_stage = "decision"
-                    record["error_code"] = "observation_incomplete"
-                    raise SupervisionDecisionError("observation_incomplete", "required project facts could not be fully observed")
                 session: Any = _ManagerSession(backend, root) if backend is not None else manager._session
                 from ._helpers import _manager_model, _manager_reasoning_effort
 

@@ -1,0 +1,193 @@
+{
+ "objective": "按 docs/acl-paper-plan.md，完成 LLM 强化学习原创研究并交付面向 ACL 投稿的完整英文论文、可阅读 PDF、LaTeX 源码、可运行实验代码与真实结果、中文说明和下载包。先核查原始文献及可用资源，在开放选题范围内形成可证伪的科学问题，再实现、实验和写作；不能只交付计划或提纲。\n\nAcceptance:\n- 交付 paper/main.pdf、可编译 LaTeX 和真实可核验 references.bib；主要章节完整，采用执行时从 ACL 官方核查的适用模板及匿名和篇幅要求。\n- 科学贡献明确、可证伪且有足够规模的可信证据。若宣称优于既有方法，必须胜过最强的同信息基线；证据弱或混杂时先改进方法、实现、评价、控制或实验，不抢先进入论文阶段。\n- 方法实际实现，代码满足 METHOD.md 的科学主张；保存明确配置、环境信息、原始日志与结果，完成公平对比及必要消融、数据泄漏和不确定性检查。\n- 模型、数据集及基准版本、API 和相关文献通过实时原始来源核查；数字、图表、引用及结论均可追溯，禁止虚构或把未运行实验写成已完成。\n- research/ 与 results/ 提供复现入口、实际检查记录和数据来源；README.md 中文说明阅读、使用、资源要求和未完成的验证范围，提供完整下载包。\n- 检查论文主张与代码和实验证据的一致性、PDF 编译和复现入口；如研究工作流开展独立检查，仅在真实开展后才报告；指出仍影响投稿准备程度的问题。\n\nConstraints:\n- 这个项目只做 LLM 强化学习原创研究和 ACL 完整论文\n- 按 docs/acl-paper-plan.md 的计划开始执行，交给团队推进。\n- Build a paper around a real contribution and a result worth defending.\n- Enter Paper only when credible evidence, at the scale the claim needs, supports a scientifically meaningful claim; a claim of superiority must beat the strongest same-information baseline.\n- Make the code satisfy the claim in METHOD.md, never the card fit the code; revising a working hypothesis is a Planner task, not an edit made while implementing.\n- Repair defects in the current stage and never move the work backward.\n\nRead first:\n- docs/acl-paper-plan.md\n- /fastdata/v-boxiuli/argus-trial-1023/state/projects/s-efe9deac/events.jsonl\n\nAssumptions:\n- 尚无具体想法，按现有计划在 LLM 强化学习范围内开放选题；聊天中的明确开始授权已满足开工条件。 (not: 等待新的研究想法或再次点击开始执行。)",
+ "receipts": [
+  {
+   "id": "6654b36f553b4368ace2f551a671ce6e",
+   "at": "10-26 12:17:03",
+   "trigger": {
+    "type": "round.review.completed",
+    "item_id": "1f40caaf11fa",
+    "round_index": 1,
+    "consult_reason": "the workspace changed while the Reviewer judged (results/development/length1024/attempt-002/public/budget.json, results/development/length1024/attempt-002/public/device_samples.jsonl, results/development/length1024/attempt-002/public/generations.jsonl, results/development/length1024/verify.py); its verdict stands as written: decide whether this review counts"
+   },
+   "tasks": [
+    {
+     "id": "d9d9fa873498",
+     "status": "parked"
+    },
+    {
+     "id": "1f40caaf11fa",
+     "status": "running"
+    },
+    {
+     "id": "9aa61a7009c7",
+     "status": "running"
+    }
+   ],
+   "latest_receipt": null,
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "tasks[d9d9fa873498].objective",
+     "tasks[9aa61a7009c7].objective"
+    ]
+   }
+  },
+  {
+   "id": "b4a0a8fa51944659ad44865e6b5c1796",
+   "at": "10-26 12:42:21",
+   "trigger": {
+    "type": "life.observer.note",
+    "item_id": "ec540a8ca32e",
+    "consult_reason": "the Observer, who watches how the team works, says: 经理，工程师本轮约6分43秒、花费1.25美元追查访问记录，新增会话与任务归属证据显示审阅所据命令可能来自另一并行任务，现已交回审阅者复核；请核对提供给审阅者的命令记录是否混入其他任务，避免后续继续为归属混淆往返返工。"
+   },
+   "tasks": [
+    {
+     "id": "d9d9fa873498",
+     "status": "parked"
+    },
+    {
+     "id": "ec540a8ca32e",
+     "status": "running"
+    },
+    {
+     "id": "17957d783e27",
+     "status": "running"
+    }
+   ],
+   "latest_receipt": {
+    "id": "b60affa976904d5c88adb4e29220b81f",
+    "bytes": 135371
+   },
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "tasks[d9d9fa873498].objective",
+     "tasks[ec540a8ca32e].objective",
+     "manager-supervision/latest.json"
+    ]
+   }
+  },
+  {
+   "id": "b9acc0b19a32437194b2bc54e9f6cd2c",
+   "at": "10-26 12:50:37",
+   "trigger": {
+    "type": "life.observer.note",
+    "consult_reason": "the Observer, who watches how the team works, says: 经理，阶段包已通过审阅者正式验收，但接棒的规划者约0.5秒即再次因会话仍被占用而失败，未产出后续实验安排、当前计划仍为空；请核对规划会话的串行交接与恢复，避免同类冲突反复阻断后续实验。"
+   },
+   "tasks": [
+    {
+     "id": "d9d9fa873498",
+     "status": "parked"
+    }
+   ],
+   "latest_receipt": {
+    "id": "62a3124587224bdd8d84d2d460447d4c",
+    "bytes": 135127
+   },
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "manager-supervision/latest.json"
+    ]
+   }
+  },
+  {
+   "id": "d90f2b669d2b49f8a64ad380c6cef8ac",
+   "at": "10-26 13:27:12",
+   "trigger": {
+    "type": "round.review.completed",
+    "item_id": "a176d0d06768",
+    "round_index": 1,
+    "consult_reason": "the Engineer handed the work to you: CARE 配置已逐字复制并核验，但调度尚未分配 GPU，训练和39题验证尚未启动，需要补齐设备分配后继续。"
+   },
+   "tasks": [
+    {
+     "id": "d9d9fa873498",
+     "status": "parked"
+    },
+    {
+     "id": "8c23c57c9240",
+     "status": "running"
+    },
+    {
+     "id": "a176d0d06768",
+     "status": "running"
+    }
+   ],
+   "latest_receipt": null,
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "tasks[d9d9fa873498].objective",
+     "tasks[a176d0d06768].objective"
+    ]
+   }
+  },
+  {
+   "id": "aa4d6dc90d3e478780d4fd4b59a66bb1",
+   "at": "10-26 13:27:35",
+   "trigger": {
+    "type": "round.review.completed",
+    "item_id": "8c23c57c9240",
+    "round_index": 1,
+    "consult_reason": "the Engineer handed the work to you: candidate seed0的配置已逐字复制并核验，但任务尚未收到调度分配的GPU UUID，训练未启动，需补齐分配后继续原实验。"
+   },
+   "tasks": [
+    {
+     "id": "d9d9fa873498",
+     "status": "parked"
+    },
+    {
+     "id": "8c23c57c9240",
+     "status": "running"
+    },
+    {
+     "id": "a176d0d06768",
+     "status": "parked"
+    }
+   ],
+   "latest_receipt": null,
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "tasks[d9d9fa873498].objective",
+     "tasks[a176d0d06768].objective"
+    ]
+   }
+  },
+  {
+   "id": "bde724b0304b4171bea8997df9a3c078",
+   "at": "10-27 06:39:24",
+   "trigger": {
+    "type": "round.review.completed",
+    "item_id": "02b9996432a5",
+    "round_index": 1,
+    "consult_reason": "the workspace changed while the Reviewer judged (results/development/learning/care-seed0/launch-train-attempt-001/log, results/development/learning/care-seed0/train/attempt-001/evaluator-private/execution.jsonl, results/development/learning/care-seed0/train/attempt-001/public/base_verdicts.jsonl, results/development/learning/care-seed0/train/attempt-001/public/budget.json, results/development/learning/care-seed0/train/attempt-001/public/collections.jsonl, results/development/learning/care-seed0/train/attempt-001/public/device_samples.jsonl, results/development/learning/care-seed0/train/attempt-001/public/phases.jsonl, results/development/learning/care-seed0/train/attempt-001/public/raw_generations.jsonl, results/development/learning/care-seed0/train/attempt-001/public/rollouts.jsonl, results/development/learning/care-seed0/train/attempt-001/public/updates.jsonl); its verdict stands as written: decide whether this review counts"
+   },
+   "tasks": [
+    {
+     "id": "02b9996432a5",
+     "status": "running"
+    },
+    {
+     "id": "96a7237f3242",
+     "status": "running"
+    }
+   ],
+   "latest_receipt": null,
+   "recorded": {
+    "status": "failed",
+    "error_code": "observation_incomplete",
+    "incomplete_requirements": [
+     "tasks[96a7237f3242].objective"
+    ]
+   }
+  }
+ ]
+}

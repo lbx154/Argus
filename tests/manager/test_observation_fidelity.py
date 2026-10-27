@@ -1,10 +1,8 @@
-"""Canonical evidence must survive bounded Manager presentation and reuse checks."""
+"""What the Manager is shown is bounded, every bound is named, and none stops it being asked."""
 from __future__ import annotations
 
 import json
-import os
 import socket
-import sys
 
 import pytest
 
@@ -18,7 +16,7 @@ from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager
 from argus.manager import observation as observation_module
 from argus.manager.directive import load_active_manager_directive
-from argus.manager.observation import control_identity, observe_project
+from argus.manager.observation import observe_project
 from argus.manager.supervision import supervise
 
 LONG_EXCERPT_PREFIX = "Recorded diagnostic detail from the earlier attempt. " * 40
@@ -70,10 +68,6 @@ def project(root, acceptance="Compute each group separately; exclude missing val
 
 def task_row(observation, task_id):
     return next(row for row in observation.facts["tasks"] if row["id"] == task_id)
-
-
-def controls(root):
-    return control_identity(root), (root / "backlog.jsonl").read_bytes()
 
 
 def write_excerpt(root, backlog, item, field, value):
@@ -129,21 +123,18 @@ def bounded_source_reads(monkeypatch, source, after_read=None):
 
 
 def assert_source_unobserved(observation, source):
-    assert str(source) in observation.incomplete_requirements
     assert any(str(source) in note and "observed" in note for note in observation.facts["limitations"])
     assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
 
 
-def assert_unobserved_source_blocks_supervision(root, event, source):
-    before = controls(root)
+def assert_unobserved_source_still_asks_the_manager(root, event, source):
+    """A source it could not read is named to the Manager, which still decides (s-efe9deac)."""
     backend = Backend()
     record = supervise(Manager(root, runner=backend), root, event)
-    assert record["status"] == "failed" and record["failure_stage"] == "decision"
-    assert record["error_code"] == "observation_incomplete"
-    assert str(source) in record["incomplete_requirements"]
+    assert len(backend.prompts) == 1 and str(source) in backend.prompts[0]
     assert any(str(source) in note for note in record["observation_limitations"])
-    assert not backend.prompts and not record.get("decision") and not record.get("effects")
-    assert controls(root) == before and load_active_manager_directive(root) is None
+    assert record["status"] == "applied"
+    assert load_active_manager_directive(root).text == record["decision"]["directive"]
 
 
 def test_budget_omissions_share_one_note_so_notes_do_not_evict_objectives(tmp_path):
@@ -165,10 +156,9 @@ def test_budget_omissions_share_one_note_so_notes_do_not_evict_objectives(tmp_pa
 
     budget_notes = [note for note in observation.facts["limitations"] if "byte budget" in note]
     assert len(budget_notes) == 1
-    assert all(path in budget_notes[0] for path in observation.incomplete_requirements)
     assert "tasks[arm-cpc].title" in budget_notes[0]
-    assert len(observation.incomplete_requirements) == 1
-    assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
+    assert all(row["objective"] == item.objective
+               for row, item in zip(observation.facts["tasks"], backlog.active(), strict=True))
 
 
 @pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
@@ -188,53 +178,20 @@ def test_unseen_excerpt_tail_edit_while_the_manager_decides_is_recorded_not_void
     record = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
     after = observe_project(tmp_path, event=event)
     assert displayed_excerpt(before, item.id, field) == displayed_excerpt(after, item.id, field)
-    assert before.evidence_revision != after.evidence_revision
-    assert record["status"] == "applied" and record["evidence_moved"] is True
+    assert record["status"] == "applied"
     assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
     assert len(backend.prompts) == 1
 
 
 @pytest.mark.parametrize("filename", ["mission.json", "latest.json"])
-@pytest.mark.parametrize("rewrite", ["same-inode", "new-inode"])
-def test_oversize_sources_with_equal_prefix_size_and_mtime_keep_distinct_unobserved_identity(tmp_path, monkeypatch, filename, rewrite):
-    if rewrite == "same-inode" and sys.platform == "win32":
-        pytest.skip(
-            "Windows reports creation time as st_ctime, so an in-place rewrite that "
-            "restores size and mtime leaves no stat-visible change to assert"
-        )
+def test_an_oversize_source_is_read_only_to_its_bound_and_named(tmp_path, monkeypatch, filename):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
     source = mission_context_dir(tmp_path, item.id) / filename
-    prefix = '{"padding":"' + "p" * (observation_module.MAX_SOURCE_BYTES + 64)
-    original = (prefix + '","tail":"UNREAD_TAIL_A"}').encode()
-    changed = (prefix + '","tail":"UNREAD_TAIL_B"}').encode()
-    assert len(original) == len(changed)
-    assert original[:observation_module.MAX_SOURCE_BYTES + 1] == changed[:observation_module.MAX_SOURCE_BYTES + 1]
-    source.write_bytes(original)
-    stamp = source.stat()
+    source.write_bytes(('{"padding":"' + "p" * (observation_module.MAX_SOURCE_BYTES + 64) + '"}').encode())
     reads = bounded_source_reads(monkeypatch, source)
-    before = observe_project(tmp_path, event=event)
-    assert_source_unobserved(before, source)
-    assert_unobserved_source_blocks_supervision(tmp_path, event, source)
-
-    if rewrite == "same-inode":
-        source.write_bytes(changed)
-        os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
-    else:
-        replacement = source.with_suffix(".replacement")
-        replacement.write_bytes(changed)
-        os.utime(replacement, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
-        os.replace(replacement, source)
-    replaced = source.stat()
-    assert replaced.st_size == stamp.st_size and replaced.st_mtime_ns == stamp.st_mtime_ns
-    if rewrite == "same-inode":
-        assert replaced.st_ino == stamp.st_ino and replaced.st_ctime_ns != stamp.st_ctime_ns
-    else:
-        assert replaced.st_ino != stamp.st_ino
-    after = observe_project(tmp_path, event=event)
-    assert_source_unobserved(after, source)
-    assert after.evidence_revision != before.evidence_revision
-    assert_unobserved_source_blocks_supervision(tmp_path, event, source)
+    assert_source_unobserved(observe_project(tmp_path, event=event), source)
+    assert_unobserved_source_still_asks_the_manager(tmp_path, event, source)
     assert reads and max(reads) <= observation_module.MAX_SOURCE_BYTES + 1
 
 
@@ -253,34 +210,25 @@ def test_source_changed_during_read_is_not_treated_as_a_complete_snapshot(tmp_pa
     observation = observe_project(tmp_path, event=event)
     assert_source_unobserved(observation, source)
     assert any(str(source) in note and "changed" in note for note in observation.facts["limitations"])
-    assert_unobserved_source_blocks_supervision(tmp_path, event, source)
+    assert_unobserved_source_still_asks_the_manager(tmp_path, event, source)
     assert reads and writes
 
 
 @pytest.mark.parametrize("shape", ["ninth-list-item", "deep-field"])
-def test_unpresented_handoff_tail_has_a_canonical_identity_and_specific_limitation(tmp_path, shape):
+def test_an_unpresented_handoff_tail_is_named_in_a_specific_limitation(tmp_path, shape):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "latest.json"
-
-    def content(tail):
-        if shape == "ninth-list-item":
-            review = [{"check": f"visible-{index}"} for index in range(8)] + [{"check": tail}]
-        else:
-            review = {"layer1": {"layer2": {"layer3": {"check": tail}}}}
-        return {"kind": "review_handoff", "engineer_summary": "A readable initial handoff", "review": review}
-
-    source.write_text(json.dumps(content("UNPRESENTED_TAIL_A")))
-    before = observe_project(tmp_path, event=event)
-    source.write_text(json.dumps(content("UNPRESENTED_TAIL_B")))
-    after = observe_project(tmp_path, event=event)
-    assert task_row(before, item.id)["evidence"] == task_row(after, item.id)["evidence"]
-    assert before.evidence_revision != after.evidence_revision
-    assert "UNPRESENTED_TAIL_A" not in before.render() and "UNPRESENTED_TAIL_B" not in after.render()
+    if shape == "ninth-list-item":
+        review = [{"check": f"visible-{index}"} for index in range(8)] + [{"check": "UNPRESENTED_TAIL"}]
+    else:
+        review = {"layer1": {"layer2": {"layer3": {"check": "UNPRESENTED_TAIL"}}}}
+    (mission_context_dir(tmp_path, item.id) / "latest.json").write_text(json.dumps(
+        {"kind": "review_handoff", "engineer_summary": "A readable initial handoff", "review": review}))
+    observation = observe_project(tmp_path, event=event)
+    assert "UNPRESENTED_TAIL" not in observation.render()
     path = f"tasks[{item.id}].evidence.review"
     detail = "entries" if shape == "ninth-list-item" else "deeper"
-    assert any(path in note and detail in note for note in after.facts["limitations"])
-    assert before.incomplete_requirements == after.incomplete_requirements == ()
+    assert any(path in note and detail in note for note in observation.facts["limitations"])
 
 
 @pytest.mark.parametrize("link", ["leaf", "parent"])
@@ -303,4 +251,4 @@ def test_symlink_sources_are_named_as_unobserved_without_reading_the_target(tmp_
     observation = observe_project(tmp_path, event=event)
     assert_source_unobserved(observation, source)
     assert marker not in observation.render()
-    assert_unobserved_source_blocks_supervision(tmp_path, event, source)
+    assert_unobserved_source_still_asks_the_manager(tmp_path, event, source)

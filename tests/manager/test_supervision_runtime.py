@@ -300,8 +300,13 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
             recovered = wait_for_receipt(tmp_path, "applied")
         finally:
             assert shutdown_supervision(tmp_path) == 0
-    else:
+    elif failure_point == "continuous":
         recovered = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
+    else:
+        # Applied before latest.json caught up: the durable receipt says so,
+        # and nothing is delivered again.
+        assert not supervision.recover_issued_supervision(Manager(tmp_path, runner=backend), tmp_path)
+        recovered = supervision._latest_record(tmp_path)
     assert len(backend.calls) == 1
     assert not (tmp_path / "inbox.jsonl").exists()
     if failure_point == "continuous":

@@ -141,18 +141,18 @@ def test_newer_evidence_does_not_drop_a_pending_stall_report(admitted, tmp_path,
 
 
 @pytest.mark.parametrize("report", _REPORTS)
-def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path, report):
-    """The report is the news: an applied look at the same files does not answer it."""
+def test_what_is_put_to_the_manager_is_judged_even_when_the_project_files_are_unchanged(tmp_path, report):
+    """The trigger is the news: an applied look at the same files does not answer it."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backend = _Backend(judged("The run is still plausible."))
     manager = Manager(tmp_path, runner=backend)
     first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
-    assert first["status"] == "applied" and len(backend.prompts) == 1
-    assert supervision.supervise(manager, tmp_path, _review(2, forward_progress=False)) == first
+    again = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
+    assert first["status"] == again["status"] == "applied" and again["id"] != first["id"]
     stalled = supervision.supervise(manager, tmp_path, report)
-    assert stalled["status"] == "applied" and stalled["id"] != first["id"]
-    assert len(backend.prompts) == 2 and "consulted now because of: stalled" in backend.prompts[1]
+    assert stalled["status"] == "applied" and stalled["id"] != again["id"]
+    assert len(backend.prompts) == 3 and "consulted now because of: stalled" in backend.prompts[2]
 
 
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):

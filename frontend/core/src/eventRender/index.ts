@@ -118,7 +118,6 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   if (quiet) return null;
   const why: Record<string, [string, string]> = {
     trial_quota_exceeded: ['the trial quota is running low', '试用额度不够了'],
-    observation_incomplete: ["it couldn't read all the project files it needed", '没能读全需要的项目资料'],
     timeout: ['the model took too long to answer', '模型太久没有回应'],
   };
   const cause = (chinese: boolean) => (Object.hasOwn(why, code) ? why[code][chinese ? 1 : 0] : '')
@@ -126,7 +125,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   const [en, zh] = cause(false) ? [` (${cause(false)})`, `（${cause(true)}）`] : ['', ''];
   const text = stage === 'commit' && ['continue', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, `The Manager decided on an adjustment, but it couldn't be applied${en}; the work carries on as it was.`, `经理想调整一下工作，但没能生效${zh}；工作按原样继续。`)
-    : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later.`, `经理这次没能看完进展${zh}，稍后再看。`);
+    : localized(context, `The Manager couldn't finish looking over the progress${en}; nothing was adjusted.`, `经理这次没能看完进展${zh}，没有做任何调整。`);
   return { text, tone: 'warn' };
 }
 

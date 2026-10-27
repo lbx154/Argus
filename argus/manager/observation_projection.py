@@ -1,4 +1,4 @@
-"""Bounded Manager presentation, separate from canonical evidence identity."""
+"""Bounded Manager presentation of project evidence."""
 from __future__ import annotations
 
 import json
@@ -23,12 +23,17 @@ def render_facts(facts: dict[str, Any]) -> str:
     return EVIDENCE_PREAMBLE + json.dumps(facts, ensure_ascii=False, allow_nan=False)
 
 
-def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
-    """Prefer complete requirements; never turn their omission into permission."""
+def bounded_facts(canonical: dict[str, Any]) -> dict[str, Any]:
+    """Requirements stay whole while they fit; past the budget they are cut, never withheld."""
     notes = list(canonical.get("limitations") or [])
     required_paths = {"objective"}
     for task in canonical["tasks"]:
         required_paths.update(f"tasks[{task['id']}].{field}" for field in _REQUIRED_TASK_FIELDS)
+
+    def cut(text: str, path: str, limitations: list[str]) -> str:
+        if len(text) > 1600:
+            limitations.append(f"{path}: only the first 1600 of {len(text)} characters were observed")
+        return text[:1600]
 
     def compact(value: Any, path: str, depth: int = 0) -> Any:
         if path in required_paths:
@@ -37,9 +42,7 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
             notes.append(f"{path}: deeper evidence was not observed in this snapshot")
             return None
         if isinstance(value, str):
-            if len(value) > 1600:
-                notes.append(f"{path}: only the first 1600 of {len(value)} characters were observed")
-            return value[:1600]
+            return cut(value, path, notes)
         if isinstance(value, dict):
             entries = list(value.items())
             if len(entries) > 24:
@@ -59,7 +62,6 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
              if key not in {"limitations", "evidence_refs"}}
     facts["evidence_refs"] = canonical["evidence_refs"]
     facts["limitations"] = notes
-    incomplete: list[str] = []
     omitted: list[str] = []
 
     def fits() -> bool:
@@ -77,9 +79,8 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
             + ", ".join(omitted),
         ]
 
-    # Remove secondary descriptions before considering any goal, acceptance,
-    # or pending question. These are presentation changes, never identity changes.
-    for field in ("advisor_consultations", "manager_supervision", "recent_events", "roles",
+    # Remove secondary descriptions before any goal, acceptance, or pending question.
+    for field in ("advisor_consultations", "recent_events", "roles",
                   "delivery", "review", "stage", "accepted_residual_risks"):
         if fits():
             break
@@ -92,24 +93,13 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
             if field not in {*_REQUIRED_TASK_FIELDS, "id", "status"} and task[field]:
                 omit(task, field, f"tasks[{task['id']}].{field}", [] if isinstance(task[field], list) else "")
 
-    # If requirements themselves cannot fit, omit a whole field and explicitly
-    # make the observation unusable for issuing a control decision. A misleading
-    # prefix must never stand in for the user's complete acceptance condition.
+    # Still too large: the longest goal, acceptance, or pending question is cut
+    # first and the cut is named; the Manager is asked regardless (s-efe9deac).
     requirements = [(facts, "objective", "objective")]
     requirements.extend((task, field, f"tasks[{task['id']}].{field}")
                         for task in facts["tasks"] for field in _REQUIRED_TASK_FIELDS)
     for container, field, path in sorted(requirements, key=lambda row: len(str(row[0][row[1]])), reverse=True):
         if fits():
             break
-        if container[field]:
-            omit(container, field, path, "")
-            incomplete.append(path)
-    if not fits():
-        # Oversized identifiers/metadata can leave no room even after all text
-        # is removed. The receipt retains exact missing-field paths separately.
-        incomplete = list(dict.fromkeys([*incomplete, *sorted(required_paths)]))
-        facts = {
-            "objective": "", "tasks": [], "recent_events": [], "evidence_refs": [],
-            "limitations": ["Snapshot metadata exceeds its byte budget; required objective and task fields were not fully observed."],
-        }
-    return facts, tuple(incomplete)
+        container[field] = cut(container[field], path, facts["limitations"])
+    return facts
