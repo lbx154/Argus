@@ -1447,6 +1447,7 @@ export default function App() {
                 onStop={requestStopDaemon}
                 onPause={requestPauseDaemon}
                 onManage={() => activeSid && requestManageSession(activeSid)}
+                onOpenPalette={() => setOverlay('palette')}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
@@ -1458,7 +1459,12 @@ export default function App() {
                   <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{locale === 'zh-CN' ? '研究地图' : 'Research map'}</button>
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
-                <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
+                <button type="button" className="ml-auto flex items-center gap-1.5 px-2 py-1 text-sm text-ink-dim hover:text-ink"
+                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint')}>
+                  {t('topbar.commands')}
+                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd>
+                </button>
+                <button type="button" className="px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
                     else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
@@ -1616,6 +1622,7 @@ export default function App() {
                   onStop={requestStopDaemon}
                   onPause={requestPauseDaemon}
                   onManage={() => activeSid && requestManageSession(activeSid)}
+                  onOpenPalette={() => setOverlay('palette')}
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
                   readOnly={kiosk}
