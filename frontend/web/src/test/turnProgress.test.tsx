@@ -39,6 +39,13 @@ describe('one compact work-progress area', () => {
     }
   });
 
+  it('does not call a turn failed when work went on after a failed step', () => {
+    const html = renderToStaticMarkup(<TurnSteps steps={[{ ...step, status: 'failed' }, { ...step, status: 'completed' }]} live={false} />);
+    expect(html).not.toContain('An issue occurred');
+    expect(html).toContain('1 retried or worked around');
+    expect(renderToStaticMarkup(<TurnSteps steps={[{ ...step, status: 'completed' }]} live={false} status="failed" />)).toContain('An issue occurred');
+  });
+
   it('keeps waiting, streaming and cancellation in the same request row', () => {
     const waiting = mergeOptimisticManagerSteps([], 's-A', 1, [], 1000);
     expect(waiting).toHaveLength(1);
