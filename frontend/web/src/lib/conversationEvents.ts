@@ -117,7 +117,7 @@ export function mergeOptimisticManagerDelta(
   nowMs = Date.now(),
   mode: FragmentMode = 'auto',
   /** The text is a snapshot of a reply still being written, not its final form. */
-  interim = false,
+  inProgress = false,
 ): EventMsg[] {
   const text = fragment.trim();
   if (!text) return localEvents;
@@ -154,7 +154,7 @@ export function mergeOptimisticManagerDelta(
         event_id: `local-${sid}-${requestId}-argus`,
         message_id: messageId || `local-${requestId}-argus`,
         fragment_mode: mode,
-        interim,
+        in_progress: inProgress,
         response_latency_ms: responseLatencyMs,
         [LOCAL_REQUEST_FIELD]: requestId,
       },
@@ -167,7 +167,7 @@ export function mergeOptimisticManagerDelta(
     text: mergeFragment(String(current.text ?? ''), text, mode),
     message_id: messageId || current.message_id,
     fragment_mode: mode,
-    interim,
+    in_progress: inProgress,
   };
   return next;
 }

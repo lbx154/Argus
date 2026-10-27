@@ -1491,8 +1491,8 @@ export const api = {
           output: string;
         },
       ) => void;
-      /** ``interim`` marks a snapshot of a reply still being written, not the final text. */
-      onDelta?: (block: string, messageId: string, fragmentMode: string, interim: boolean) => void;
+      /** ``inProgress`` marks a snapshot of a reply still being written, not the final text. */
+      onDelta?: (block: string, messageId: string, fragmentMode: string, inProgress: boolean) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
     },

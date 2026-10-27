@@ -1020,7 +1020,7 @@ export default function App() {
       reply: unknown,
       messageId = '',
       fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
-      interim = false,
+      inProgress = false,
     ) => {
       if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
       setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
@@ -1031,7 +1031,7 @@ export default function App() {
         messageId,
         Date.now(),
         fragmentMode,
-        interim,
+        inProgress,
       ));
     };
 
@@ -1107,7 +1107,7 @@ export default function App() {
                 ));
               }
             },
-            onDelta: (block, messageId, fragmentMode, interim) => {
+            onDelta: (block, messageId, fragmentMode, inProgress) => {
               if (!isCurrent()) return;
               gotDelta = true;
               showManagerText(
@@ -1116,7 +1116,7 @@ export default function App() {
                 fragmentMode === 'append' || fragmentMode === 'snapshot'
                   ? fragmentMode
                   : 'auto',
-                interim,
+                inProgress,
               );
             },
             onDone: (result) => {
