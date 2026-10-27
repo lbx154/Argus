@@ -1,0 +1,12 @@
+{
+  "vertical": "research",
+  "workflow_mode": "staged",
+  "current_stage": "experiment",
+  "current_verdict": "in_progress",
+  "research_direction_mode": "broad",
+  "research_target_level": "publishable",
+  "target_venue": "ACL",
+  "stages": {
+    "experiment": {}
+  }
+}

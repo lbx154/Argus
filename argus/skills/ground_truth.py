@@ -7,7 +7,7 @@ _MODE_LINES = {
     "staged": (
         f"Inspect real code, data, logs, and measurements. Resolve a binding unknown "
         f"with a read or reversible probe; record it in `{GROUND_TRUTH_RELPATH}` only "
-        "when later rounds need it. Never fabricate or treat a summary as a conclusion."
+        "when later rounds need it. Never treat a summary as a conclusion."
     ),
     "direct": (
         f"Verify only facts material to the requested deliverable. Use "

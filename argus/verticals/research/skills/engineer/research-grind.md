@@ -198,9 +198,8 @@ the strongest same-information baseline with relevant wins clearly exceeding
 losses.
 
 If the claim as stated is not yet supported, keep working the ladder and record
-each attempt's rung and evidence. Do not reopen Idea selection, do not
-restate the claim to match what the code did, and do not turn failed attempts
-into a negative-result paper. When the claim is supported, rewrite the research notes
+each attempt's rung and evidence. Do not restate the claim to match what the
+code did, and do not turn failed attempts into a negative-result paper. When the claim is supported, rewrite the research notes
 in `RESEARCH_NOTES.md` with the claim as stated, the decisive comparisons, the
 essential contrary evidence and the direct sources Paper needs.
 

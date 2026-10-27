@@ -260,9 +260,8 @@ describe what the code does. The claim changes only as experiment.repair
 allows (the operator for an operator-locked idea, a reviewed revision task for
 a working hypothesis Argus selected); a component row changes in the same round only for a
 deliberate, named simplification the operator can see, marked `# @simplified`
-at the entry point. Do not reopen Idea selection. The alignment result lives
-in the code, the spec run you report and the Reviewer's returned judgement,
-not in a separate note.
+at the entry point. The alignment result lives in the code, the spec run you
+report and the Reviewer's returned judgement, not in a separate note.
 
 ## The implementation brief
 

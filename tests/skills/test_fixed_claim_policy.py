@@ -52,7 +52,6 @@ def test_experiment_playbook_replaces_thesis_rederivation_with_a_diagnosis_ladde
     assert "only the operator changes the claim" in lowered
     assert "working hypothesis" in lowered
     assert "development data, never as independent confirmation" in lowered
-    assert "idea selection is not reopened" in lowered
     assert "not when a count of tries is reached" in lowered
     assert "operator_options" in text
     assert "never a narrowed claim" in lowered

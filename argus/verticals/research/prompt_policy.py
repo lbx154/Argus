@@ -242,15 +242,25 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
         "no tables by hand; write '# why: ...' beside each chosen config value; edit "
         "METHOD.md only when the method changes. Run tests/spec yourself when needed; put "
         "the command and result in your evidence. "
-        "Stand-ins (mock model, fake environment, oracle policy, synthetic data where "
-        "the route names real data) belong in tests/spec only: a claim-bearing run "
-        "exercises the real system the route names; if it cannot run here, name the "
-        "deviation in METHOD.md and say so, never report a simulation as the benchmark. "
         "When a round produces a claim-bearing number, write .argus/claim_attainment.json: "
         "one entry per clause of the claim with clause, obtained, met (yes/no/partial/"
         "untested) and source {path, field} of the number; the host reads that field and "
         "shows the value beside your words to the Reviewer and the Planner. A clause you "
         "cannot meet is a negative result to state, never to reword."
+    )
+
+
+# The Engineer sees no stage checklist, yet its runs are what these gates bind;
+# it reads them by id, in the checklist's own words.
+_ENGINEER_GATE_ITEMS = frozenset({"experiment.stand_ins", "experiment.held_out", "experiment.fixed_claim"})
+
+
+def _engineer_gate_block() -> str:
+    from ...skills.stage_machine import render_items
+    from .stages import get_stage_checklist
+
+    return "## Experiment stage items the Reviewer holds your runs to\n" + render_items(
+        item for item in get_stage_checklist("experiment") if item.id in _ENGINEER_GATE_ITEMS
     )
 
 
@@ -278,7 +288,7 @@ def _method_card_reviewer_block(stage: str) -> str:
         "claim is claim drift; it, or a negative result while a named ladder rung could "
         "still change it, is a repair request, whatever the attempt count. A "
         "result produced through a stand-in listed under Run reality is "
-        "NOT_IMPLEMENTED whatever the tests say, unless METHOD.md Deviations names it. "
+        "NOT_IMPLEMENTED whatever the tests say. "
         "Run reality dates each result file against the last code edit and names functions "
         "fed random tensors: a one-minute run or random keys is not the protocol's evaluation. "
         "Do not re-read "
@@ -333,10 +343,9 @@ def _method_card_planner_block(stage: str) -> str:
         "brief and acceptance stay verbatim: repair the infrastructure, do not lower "
         "the bar. When the route hosts a model or an environment, the claim-bearing task "
         "depends on a stand-up task whose acceptance is the official example running "
-        "end to end here (engineer/training-infrastructure.md); a benchmark run "
-        "through a stand-in is not a result. Read Claim attainment before deciding the "
-        "stage: a clause not met, partial or untested keeps Experiment open for another "
-        "implementation iteration; advancing to Paper on the clauses that happened "
+        "end to end here (engineer/training-infrastructure.md). Read Claim attainment "
+        "before deciding the stage: a clause not met, partial or untested keeps "
+        "Experiment open for another implementation iteration; advancing to Paper on the clauses that happened "
         "to pass is claim drift, whatever the margin over a baseline."
     )
 
@@ -586,6 +595,7 @@ def _engineer_fragment(
             _stage_playbook_block(stage),
             _engineer_figure_block(stage, operation),
             _method_card_engineer_block(stage, operation),
+            _engineer_gate_block() if stage == "experiment" or scientific_revision else "",
             _research_learning_block("engineer", stage, operation),
             narrative_packaging,
             (

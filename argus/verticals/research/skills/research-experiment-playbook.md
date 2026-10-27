@@ -15,9 +15,9 @@ a frozen plan handed down from somewhere else.
 Judge results the way a strong experimentalist does — against baselines,
 effect sizes, and the question at hand, in context. Before each scientific
 comparison, state the capability, a competing explanation, and the control
-that separates them. Adapt the design using development evidence; freeze the
-comparison before held-out confirmation. Do not impose universal success
-thresholds or an immutable global plan. Report what the evidence supports.
+that separates them. Adapt the design using development evidence. Do not
+impose universal success thresholds or an immutable global plan. Report what
+the evidence supports.
 A credible improvement in any meaningful dimension can carry the
 contribution; the target is a result that a top reviewer would remember,
 not a complete-looking experiment matrix.
@@ -288,9 +288,9 @@ identical runs as new independent evidence. Make sample counts configurable and 
 selected configuration, not a hard-coded pilot count. A minimum count is not
 an exact-count requirement.
 
-Keep held-out data out of training and method selection. Expanding training
-creates a new checkpoint and comparison with fresh held-out confirmation;
-preserve the earlier results separately rather than silently pooling them.
+Expanding training creates a new checkpoint and comparison with fresh
+held-out confirmation; preserve the earlier results separately rather than
+silently pooling them.
 Use measured throughput and available resources to size the next run. Surface
 an actual access or budget blocker instead of quietly shrinking the objective.
 
@@ -373,8 +373,7 @@ who owns the claim:
   results and their configurations, and write the revised statement and its
   falsifier into `METHOD.md` before any run that tests it. Data already used to
   choose or revise counts as development data, never as independent
-  confirmation. Idea selection is not reopened and the stage does not move
-  back.
+  confirmation.
 
 Never a narrowed claim presented as the original, never a "restricted case" or
 "negative result" paper presented as meeting the operator's publication
@@ -385,9 +384,7 @@ Plan only on resources that are actually in hand. Human participants, ethics
 approval, paid annotation, credentials, external services, or compute the
 operator has not supplied cannot be scheduled as work in an autonomous
 campaign; raise the need once, then design the claim around what can be
-executed here. Never stand in for missing evidence with fabricated,
-placeholder, or projected results: not in the runs, not in the research notes, and
-never in a manuscript.
+executed here.
 
 Choose benchmarks that expose the method's mechanism and real advantage rather
 than convenient saturated tasks. Inspect the existing benchmark's label
@@ -403,14 +400,14 @@ the controlled implementation, trust established invariants. Do not add
 redundant guards, fallback chains, reports, wrappers, or abstractions merely to
 make the project look robust.
 
-Do not freeze a global experiment plan, reopen Idea selection, hide relevant
-losses, or present unfinished development as a negative result. The paper
-argues the claim as stated in `METHOD.md`, including any recorded revision; a
-negative or boundary paper exists only after the claim's owner has changed it.
+Do not freeze a global experiment plan, hide relevant losses, or present
+unfinished development as a negative result. The paper argues the claim as
+stated in `METHOD.md`, including any recorded revision; a negative or boundary
+paper exists only after the claim's owner has changed it.
 
 ### Real system, not a stand-in
 
-A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/training-infrastructure.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
+The rule is the Experiment item `experiment.stand_ins`; standing the real system up is `engineer/training-infrastructure.md`. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
 
 ### Say what the claim got
 

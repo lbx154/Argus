@@ -100,8 +100,7 @@ families are compared under the same rendered prompt, template, decoding and
 precision, or whether the comparison changes those too.
 
 Return the concrete defect and the smallest repair through the normal Reviewer
-response. Implementation and evaluator failures stay in the current stage and
-never reopen Idea selection.
+response.
 
 ## When the experiment trains a model or runs large inference
 
@@ -154,9 +153,8 @@ The packet's "Run reality" lines list definitions in the project's own code
 named mock, fake, stub, synthetic or oracle, with the lines that call them, and
 how many minutes the results directory was written over. A claim-bearing number
 produced through such a path is `NOT_IMPLEMENTED` for the component it stands
-in for, whatever the spec tests say, unless METHOD.md names the deviation and
-the paper calls the evaluation simulated. Ask for the real system, not for a
-caveat. The same lines date each result file against the last edit to the code
+in for, whatever the spec tests say (`experiment.stand_ins`). Ask for the real
+system, not for a caveat. The same lines date each result file against the last edit to the code
 that wrote it and name measuring functions that build their inputs from random
 tensors (with their first docstring line). Read them against the protocol's
 scale: a 32k-context sweep of two 7B models does not finish in the 57 s between

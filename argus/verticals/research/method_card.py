@@ -1055,8 +1055,7 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
     if definitions or notes:
         lines.append(
             "Possible stand-ins in the project's own code (mock/fake/stub/synthetic/oracle "
-            "names outside tests; a result produced through one is not evidence for the claim "
-            "unless METHOD.md Deviations names it):"
+            "names outside tests; experiment.stand_ins):"
         )
         protocol = str(card.get("protocol") or "").lower()
         for entry in definitions[:limit]:

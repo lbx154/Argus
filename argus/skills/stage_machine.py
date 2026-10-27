@@ -773,7 +773,7 @@ def complete_final_stage(
     )
 
 
-def _render_items(
+def render_items(
     items: Iterable[ChecklistItem],
     annotations: dict[str, list[str]] | None = None,
 ) -> str:
@@ -1107,7 +1107,7 @@ def format_stage_checklist(
     body = (
         f"## Stage checklist ({stage_norm})\n"
         f"{framing}\n\n"
-        f"{_render_items(items, annotations)}"
+        f"{render_items(items, annotations)}"
     )
     body = _apply_vertical_rendering(
         body,
@@ -1178,7 +1178,7 @@ def format_full_pipeline_checklist(
         items = _store_or_seed_items(project_root, vert_items, stage)
         if not items:
             continue
-        blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
+        blocks.append(f"### {stage}\n{render_items(items, annotations)}")
     body = "\n\n".join(blocks)
     body = _apply_vertical_rendering(
         body,

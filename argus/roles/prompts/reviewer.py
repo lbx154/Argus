@@ -531,9 +531,8 @@ def render_reviewer_prompt(
         rollback_block = (
             "## Upstream defects\n"
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "Research moves forward only. Name repairs here in `next_action` for earlier "
-            "method, experiment, or paper defects affecting this work. Never "
-            "request rollback, reopen idea selection, or edit `.argus/PIPELINE_STATE.json`."
+            "Name repairs here in `next_action` for earlier method, experiment, or paper "
+            "defects affecting this work. Never edit `.argus/PIPELINE_STATE.json`."
         )
     else:
         rollback_block = (
@@ -707,6 +706,13 @@ def render_reviewer_prompt(
         "Judge against the task's acceptance criteria and this profile only: a check "
         "they do not ask for (a packaged build, future-proofing) is a suggestion in note "
         "and never withholds `to=done`. "
+        "Judge the deliverable the operator asked for. Argus's own records (files under "
+        "`.argus/`, evidence logs, certification notes) are not it: a slip in them is a note "
+        "in your review, fixed in passing where the task owns that record, and never a reason "
+        "to hold a deliverable that meets its acceptance. "
+        "Judge the files as they are now. An earlier review's text is not a precondition: "
+        "when it is not in front of you, reach your own judgment from the current files "
+        "instead of blocking or asking for it. "
         "In `explore`/`develop`, require experimental or research feedback. "
         "Ground negatives, hedging, limitations and reruns in consequences; "
         "all claims share one evidence standard. "
