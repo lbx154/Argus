@@ -3,7 +3,9 @@
 The Manager answers the operator in its own session. It files the ``manager``
 form only when Argus must act: hand a ticket to the team, ask the operator,
 change a setting, control the running mission, record a grant or a lasting rule,
-apply the answer to a paused task's question, or settle a workflow setup.
+apply the answer to a paused task's question, or settle a workflow setup. While
+the team is working it files it on every turn, so that what it tells the
+operator about the team's work is what Argus recorded.
 """
 from __future__ import annotations
 
@@ -163,6 +165,34 @@ def waiting_questions(items: Sequence[Any]) -> tuple[dict[str, list[str]], str]:
     return waiting, "Paused tasks waiting on the operator (asking-the-operator rules):\n" + "\n".join(lines)
 
 
+#: Sent back into the Manager's session when a turn ends without a call while the team works.
+FILE_WHILE_TEAM_WORKS = (
+    "Your turn filed no hand_off, and the team is working on this project. File it now for the "
+    "operator's message, as the team-handoff rules say for while the team works. Your reply is "
+    "already written: do not write another."
+)
+
+
+def team_at_work(items: Sequence[Any], *, ongoing: bool) -> str:
+    """The team's running tasks, told with the message; while they run every turn files ``hand_off``.
+
+    ``ongoing``: the campaign plans its next piece by itself (continuous mode);
+    otherwise it stops when this work is done and waits for the operator.
+    """
+    if not items:
+        return ""
+    lines = [
+        f"- task {item.id}, {item.title}: {' '.join(str(item.original_objective or item.objective).split())[:600]}"
+        for item in items
+    ]
+    after = ("Continuous mode is on: after it, the team plans the next piece by itself." if ongoing else
+             "This work is finite: after it, the team stops and waits for the operator.")
+    return (
+        "The team is working now (team-handoff rules: while the team works; this turn ends with hand_off):\n"
+        + "\n".join(lines) + f"\n{after}"
+    )
+
+
 def ticket(payload: Any) -> str:
     """The team's work order, from a ``to=team`` call."""
     sections = [payload["goal"].strip()]
@@ -176,4 +206,7 @@ def ticket(payload: Any) -> str:
     return "\n\n".join(sections)
 
 
-__all__ = ["ConfigIntent", "config_intents", "manager_actions", "ticket", "waiting_questions"]
+__all__ = [
+    "FILE_WHILE_TEAM_WORKS", "ConfigIntent", "config_intents", "manager_actions", "team_at_work", "ticket",
+    "waiting_questions",
+]

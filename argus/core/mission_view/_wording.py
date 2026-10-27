@@ -595,6 +595,12 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "这次没有收到回复。没有新增任务，正在进行的任务也没有改变。",
     ),
     "reply_incomplete": ("No completed reply was received.", "没有收到完整回复。"),
+    # While the team works, a Manager reply that recorded nothing for the team is not sent.
+    "reply_unrecorded": (
+        "The team is working on this project, and this reply did not record what it changes "
+        "for the team, so it was not sent. Nothing was changed; please send it again.",
+        "团队正在做这个项目，这次回复没有记下对团队工作的安排，所以没有发出，什么都没有改。请再发一次。",
+    ),
     "reply_failed": (
         "This request did not finish. No new task was added.\n\nReason: {said}",
         "这次没能处理完你的请求，没有新增任务。\n\n原因：{said}",

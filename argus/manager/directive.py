@@ -36,6 +36,22 @@ class ActiveManagerDirective:
     planner_revision: str = ""
 
 
+#: Heads the operator's newer direction where a standing steer extends a campaign objective.
+NEWER_DIRECTION_HEADING = "Operator's newer direction (supersedes the text above where they differ):"
+
+
+def newer_direction(objective: str, directive: str) -> str:
+    """``objective`` carried on with the operator's newer ``directive``, which supersedes it where they differ.
+
+    The result extends ``objective``, so the campaign keeps its stage
+    (``front_door.objective_update_requires_stage_reset``).
+    """
+    base, newer = str(objective or "").strip(), str(directive or "").strip()
+    if not base or not newer or newer in base:
+        return base or newer
+    return f"{base}\n\n{NEWER_DIRECTION_HEADING}\n{newer}"
+
+
 def _directive_path(state_root: Path | str) -> Path:
     return Path(state_root) / ACTIVE_MANAGER_DIRECTIVE_FILENAME
 
@@ -450,6 +466,7 @@ def clear_active_manager_directive(state_root: Path | str) -> bool:
 __all__ = [
     "ACTIVE_MANAGER_DIRECTIVE_FILENAME",
     "ACTIVE_MANAGER_DIRECTIVE_PREFIX",
+    "NEWER_DIRECTION_HEADING",
     "STEERING_HEADER",
     "STEERING_LEDGER_FILENAME",
     "ActiveManagerDirective",
@@ -457,6 +474,7 @@ __all__ = [
     "append_steering_directive",
     "clear_active_manager_directive",
     "load_active_manager_directive",
+    "newer_direction",
     "record_operator_messages",
     "render_active_steering",
     "set_active_manager_directive",
