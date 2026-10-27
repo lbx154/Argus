@@ -65,7 +65,7 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 const WorkspaceContext = createContext('');
 const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
 /** The project whose files the conversation shows, for inline images. */
-const SessionIdContext = createContext<string | null>(null);
+export const SessionIdContext = createContext<string | null>(null);
 /** Opens the project's work log ("how it was made") when there is one. */
 const OpenWorkContext = createContext<(() => void) | null>(null);
 /** A task's title by its id, so a round names the task it belongs to. */
@@ -1259,7 +1259,7 @@ export function EventStream({
   return (
     <ConversationActionContext.Provider value={onConversationAction}>
     <StepProcessContext.Provider value={stepProcess}>
-    <WorkspaceContext.Provider value={workspace}><SessionIdContext.Provider value={snapshot?.session.id ?? null}>
+    <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
     <OpenWorkContext.Provider value={timeline.workRows.length > 0 ? openWork : null}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
@@ -1363,7 +1363,7 @@ export function EventStream({
     </section>
     </OpenWorkContext.Provider>
     </TaskTitleContext.Provider>
-    </SessionIdContext.Provider></WorkspaceContext.Provider>
+    </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
     </ConversationActionContext.Provider>
   );
