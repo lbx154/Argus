@@ -16,9 +16,8 @@ command can write CLI-shaped lines to it), so a second, different result for a
 call is shown as a conflict and a result without a matching start as
 unverified. The command text and the output are the Engineer's; a command can
 pipe a failure away, select tests, or run a check the Engineer just edited.
-The packet therefore shows each check in full and flags those shapes, so a
-Reviewer that cannot run commands reads what a check does before weighing its
-result.
+The packet therefore shows each check in full and flags those shapes, so the
+Reviewer reads what a check does before weighing its result or rerunning it.
 
 The calls come from host memory (:mod:`argus.core.command_record`), fed by the
 agent CLI's stream rather than by any project file. Without a capture the provider reads only
