@@ -18,6 +18,7 @@ import {
 } from '../lib/feedSteps';
 import { theme, toneColor } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
+import { durableMessageId } from '../lib/conversationEvents';
 import { EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
@@ -916,8 +917,10 @@ function ConversationThread({
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
   const argusRows = group.rows.filter((row) => row.ev.type === 'ui.argus');
-  const revision: ConversationRevision | undefined = group.operator ? {
-    source: String(group.operator.ev.message_id || group.operator.ev.ts),
+  // Editions are stored by message id, so only a transcript id can key them.
+  const source = group.operator && durableMessageId(group.operator.ev);
+  const revision: ConversationRevision | undefined = group.operator && source ? {
+    source,
     prompt: group.operator.r.text,
     answer: argusRows.filter(row => row.ev.mission_result !== true).map(row => row.r.text).join('\n\n'),
     mode: 'edit', baseVersion: 0,
