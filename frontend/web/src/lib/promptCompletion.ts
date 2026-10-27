@@ -29,7 +29,7 @@ export interface PromptSources {
 export interface MentionToken { trigger: '@' | '#'; query: string; start: number; end: number }
 export interface CompletionMenu { kind: 'command' | '@' | '#'; items: CompletionItem[] }
 
-/** The `@path` or `#task` word the caret is in. Glued to a word (a@b.com, C#, issue#12)
+/** The `@path` or `#task` word the caret is in. Glued to a word (a@example.com, C#, issue#12)
  *  or followed by a space (`# heading`), it stays text. Past the caret it takes only ASCII
  *  path characters, so the rest of a Chinese sentence it was typed into stays. */
 export function completionToken(text: string, at: number): MentionToken | null {

@@ -37,7 +37,7 @@ def test_a_host_stop_hands_the_work_to_nobody() -> None:
         stops.external_pause_review_decision(stop_kind="budget_exhausted", fatal_error="", exit_code=0),
         stops.execution_host_review_decision(fatal_error="no host", exit_code=1),
         stops.model_configuration_review_decision(fatal_error="no model", exit_code=1),
-        stops.daemon_stop_review_decision(fatal_error="stop", exit_code=1),
+        stops.daemon_stop_review_decision(fatal_error="stop", exit_code=1, chinese=False),
         stops.operator_abort_review_decision(fatal_error="abort", exit_code=1),
     ]
     for record in records:
