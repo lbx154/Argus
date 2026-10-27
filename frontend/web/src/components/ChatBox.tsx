@@ -49,7 +49,7 @@ function clipProjectName(name: string): string {
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, modelControl, pendingNote, projectName,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, modelControl, continuousControl, pendingNote, projectName,
   settings, completion,
 }: {
   value: string;
@@ -72,6 +72,8 @@ export function ChatBox({
   footer?: ReactNode;
   /** Always-visible model control beside the folded task settings. */
   modelControl?: ReactNode;
+  /** Always-visible continuous-work switch for the current project. */
+  continuousControl?: ReactNode;
   /** The project a message goes to, named in the placeholder so it is never in doubt. */
   projectName?: string;
   /** Replaces the reply hint while the send waits on something else, such as uploads. */
@@ -296,6 +298,7 @@ export function ChatBox({
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
       {footer}
     </details>}
+    {continuousControl}
     {modelControl}
     {onRewrite && value.trim() ? <button type="button" className="composer-rewrite" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
       title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">

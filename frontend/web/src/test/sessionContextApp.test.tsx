@@ -8,6 +8,7 @@ import App from '../App';
 import { api } from '../api';
 import { ChatBox } from '../components/ChatBox';
 import { ComposerRuntime } from '../components/ComposerRuntime';
+import { ContinuousSwitch } from '../components/ContinuousSwitch';
 import { Sidebar } from '../components/Sidebar';
 import { ArtifactModal } from '../components/ArtifactModal';
 import { ResearchCanvas } from '../components/ResearchCanvas';
@@ -182,6 +183,19 @@ describe('App session composer ownership', () => {
     expect(bar.props.started).toBe(true);
     act(() => bar.props.onAskChange('beyond_authority'));
     expect((props().settings as { props: { ask: string } }).props.ask).toBe('beyond_authority');
+  });
+  it('shows the project continuous state beside the composer and toggles it through the shared action', () => {
+    const setContinuous = fixture.actions.setContinuous.mutate;
+    setContinuous.mockClear();
+    const control = () => props().continuousControl as { type?: unknown; props: ComponentProps<typeof ContinuousSwitch> };
+    for (const enabled of [false, true]) {
+      fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled, objective: 'keep improving the model' } } });
+      refresh();
+      expect(control().type).toBe(ContinuousSwitch);
+      expect(control().props.enabled).toBe(enabled);
+      act(() => control().props.onToggle());
+      expect(setContinuous).toHaveBeenLastCalledWith({ enabled: !enabled, objective: 'keep improving the model' }, expect.any(Object));
+    }
   });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');
