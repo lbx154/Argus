@@ -1,7 +1,7 @@
 {
-  "git_commit": "8738bceeb3b60aed56e8cb4914aa4e5d0aa390c4",
+  "git_commit": "81122fd6cc375aa0463210dd579d1f04e463646f",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+8738bceeb3b6",
+  "release_id": "0.1.8+81122fd6cc37",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -384,7 +384,7 @@
     "argus/life/supervisor/_planner_orchestration.py": 21176,
     "argus/life/supervisor/_planner_rendering.py": 10160,
     "argus/life/supervisor/_planning_context.py": 56394,
-    "argus/life/supervisor/_planning_cycle.py": 26236,
+    "argus/life/supervisor/_planning_cycle.py": 26820,
     "argus/life/supervisor/_planning_cycle_completion.py": 30616,
     "argus/life/supervisor/_planning_cycle_enqueue.py": 45184,
     "argus/life/supervisor/_planning_cycle_helpers.py": 21536,
