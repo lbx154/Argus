@@ -997,6 +997,7 @@ button {
   background: rgb(var(--surface-2) / 55%);
 }
 .result-card-preview img { border-radius: var(--radius-sm); cursor: zoom-in; }
+.result-card-model { display: block; padding: 10px; }
 .result-card-body { padding: 14px 18px 12px; }
 .result-card-kind { display: flex; align-items: center; gap: 8px; color: rgb(var(--ink-faint)); font-size: 12px; }
 .result-card-title {

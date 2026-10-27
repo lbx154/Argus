@@ -20,6 +20,27 @@ _TEXT_ARTIFACT_SUFFIXES = {
 _MARKDOWN_ARTIFACT_SUFFIXES = {".md", ".markdown"}
 _JSON_ARTIFACT_SUFFIXES = {".ipynb", ".json", ".jsonl"}
 _TABLE_ARTIFACT_SUFFIXES = {".csv", ".tsv"}
+# Robot descriptions and meshes the Web viewer renders in 3D. Their sibling
+# geometry (meshes, glTF buffers, textures) is read through
+# ``resolve_model_asset`` relative to the registered model file.
+_MODEL_ARTIFACT_SUFFIXES = {".urdf", ".stl", ".obj", ".dae", ".glb", ".gltf"}
+MODEL_ASSET_SUFFIXES = frozenset(_MODEL_ARTIFACT_SUFFIXES | {
+    ".bin", ".mtl", ".png", ".jpg", ".jpeg", ".webp",
+})
+_MODEL_MIMES = {
+    ".urdf": "application/xml",
+    ".stl": "model/stl",
+    ".obj": "model/obj",
+    ".mtl": "model/mtl",
+    ".dae": "model/vnd.collada+xml",
+    ".glb": "model/gltf-binary",
+    ".gltf": "model/gltf+json",
+    ".bin": "application/octet-stream",
+}
+# A loop closure lives outside the URDF tree; the viewer says so when one sits
+# next to the model instead of pretending the tree is the whole mechanism.
+_CONSTRAINT_FILE_HINTS = ("closure", "constraint", "loop")
+_CONSTRAINT_FILE_SUFFIXES = {".json", ".yaml", ".yml", ".toml", ".txt", ".md"}
 _INLINE_IMAGE_MIMES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 _GIT_DIFF_LIMIT = 128 * 1024
 
@@ -322,10 +343,11 @@ def _file_metadata(normalized: str, resolved: Path, *, why: str = "", preview_by
     except OSError:
         exists = False
         stat = None
-    mime = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     suffix = resolved.suffix.lower()
+    mime = _MODEL_MIMES.get(suffix) or mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     kind = (
-        "html" if suffix == ".html"
+        "model" if suffix in _MODEL_ARTIFACT_SUFFIXES
+        else "html" if suffix == ".html"
         else "markdown" if suffix in _MARKDOWN_ARTIFACT_SUFFIXES
         else "json" if suffix in _JSON_ARTIFACT_SUFFIXES
         else "table" if suffix in _TABLE_ARTIFACT_SUFFIXES
@@ -360,7 +382,93 @@ def _file_metadata(normalized: str, resolved: Path, *, why: str = "", preview_by
         except OSError:
             row["preview"] = ""
             row["truncated"] = False
+    if preview_bytes > 0 and exists and suffix == ".urdf":
+        row["constraint_files"] = _constraint_files(resolved.parent)
     return row
+
+
+def _constraint_files(directory: Path) -> list[str]:
+    try:
+        names = sorted(entry.name for entry in directory.iterdir() if entry.is_file())
+    except OSError:
+        return []
+    return [
+        name for name in names
+        if not name.startswith(".")
+        and Path(name).suffix.lower() in _CONSTRAINT_FILE_SUFFIXES
+        and any(hint in name.lower() for hint in _CONSTRAINT_FILE_HINTS)
+    ][:8]
+
+
+def _model_asset_candidates(model_dir: PurePosixPath, ref: str) -> list[PurePosixPath]:
+    """Workspace-relative places a model's mesh reference may point to.
+
+    Relative references resolve against the model's own directory. ROS
+    ``package://name/rest`` has no package index here, so it resolves against
+    the model's enclosing directories: one named ``name`` first, then
+    ``<dir>/name/rest``, then ``<dir>/rest``, nearest first.
+    """
+    import posixpath
+
+    if ref.startswith("package://"):
+        package, _, rest = ref[len("package://"):].partition("/")
+        if not package or not rest:
+            return []
+        ancestors = [model_dir, *model_dir.parents]
+        named = [base / rest for base in ancestors if base.name == package]
+        nested = [base / package / rest for base in ancestors]
+        flat = [base / rest for base in ancestors]
+        raw = [*named, *nested, *flat]
+    elif "://" in ref or ref.startswith(("/", "~")) or ":" in ref.split("/", 1)[0]:
+        return []
+    else:
+        raw = [model_dir / ref]
+    out: list[PurePosixPath] = []
+    for candidate in raw:
+        normalized = posixpath.normpath(candidate.as_posix())
+        if normalized.startswith("../") or normalized in {"..", ".", ""}:
+            continue
+        path = PurePosixPath(normalized)
+        if path not in out:
+            out.append(path)
+    return out
+
+
+def resolve_model_asset(
+    sid: str,
+    model_path: str,
+    ref: str,
+    *,
+    global_root: Path | str | None = None,
+) -> tuple[str, Path] | None:
+    """Return one mesh, buffer or texture a registered model file references.
+
+    The model itself must pass the artifact allowlist; the asset must stay in
+    the same workspace, pass the same sensitive-path checks and carry a model
+    asset suffix. Nothing else in the workspace becomes readable this way.
+    """
+    raw_ref = str(ref or "").strip().replace("\\", "/")
+    if not raw_ref or "\x00" in raw_ref or len(raw_ref) > 1024:
+        return None
+    info = get_project_artifact(sid, model_path, global_root=global_root, preview_bytes=0)
+    if info is None or info.get("kind") != "model" or info.get("source") in {
+        "reader_foundation", "progress_snapshot", "attachment",
+    }:
+        return None
+    workspace = artifact_workspace(sid, global_root=global_root)
+    if workspace is None:
+        return None
+    model_dir = PurePosixPath(str(info["path"])).parent
+    for candidate in _model_asset_candidates(model_dir, raw_ref.split("?", 1)[0].split("#", 1)[0]):
+        safe = safe_artifact_path(workspace, candidate.as_posix(), allowed_suffixes=MODEL_ASSET_SUFFIXES)
+        if safe is not None and safe[1].is_file():
+            return safe
+    return None
+
+
+def model_asset_mime(path: str) -> str:
+    suffix = PurePosixPath(path).suffix.lower()
+    return _MODEL_MIMES.get(suffix) or mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
 def _uploaded_artifact(sid: str, artifact_path: str, *, global_root=None, preview_bytes=0):

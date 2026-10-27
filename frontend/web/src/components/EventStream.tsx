@@ -24,6 +24,8 @@ import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
+import { ModelThumbnail } from './ModelPreview';
+import { modelFormat } from '../lib/modelFiles';
 import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { useI18n, type Locale } from '../i18n';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
@@ -638,6 +640,7 @@ export function latestConversationDelivery(
 function fileGlyph(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   if (['csv', 'tsv', 'xlsx', 'xls', 'parquet'].includes(ext)) return '▦';
+  if (modelFormat(path)) return '◇';
   if (ext === 'pdf') return '◧';
   if (['py', 'ts', 'tsx', 'js', 'sh', 'r', 'ipynb', 'json', 'yaml', 'yml'].includes(ext)) return '‹›';
   return '▤';
@@ -654,7 +657,7 @@ function DeliveryCard({
   onHowMade,
 }: {
   delivery: DeliveryReceipt;
-  onOpen?: (delivery: DeliveryReceipt) => void;
+  onOpen?: (delivery: DeliveryReceipt, path?: string) => void;
   onHowMade?: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -664,10 +667,12 @@ function DeliveryCard({
   const howMade = onHowMade ?? workFor(delivery.item_id);
   const stage = isStagePackage(delivery);
   const files = deliveryFiles(delivery);
-  // Result first: a delivered chart or picture shows itself, not just a button.
-  // Without a project to load it from, it stays in the file list.
-  const image = sid ? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
-  const others = files.filter(file => file !== image);
+  // Result first: a delivered robot, model, chart or picture shows itself, not
+  // just a button. A model wins over a picture: it is the thing itself, and
+  // the picture is usually a render of it. Without a project to load it from,
+  // it stays in the file list.
+  const visual = sid ? files.find((file) => modelFormat(file.path)) ?? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
+  const others = files.filter(file => file !== visual);
   const listed = others.slice(0, 3);
   return (
     <aside
@@ -675,10 +680,13 @@ function DeliveryCard({
       data-stage={stage || undefined}
       className="result-card mx-auto my-4 w-[calc(100%-2rem)] max-w-full sm:w-[calc(100%-3rem)] lg:max-w-[760px]"
     >
-      {image && sid ? <div className="result-card-preview" data-delivery-thumbnail={image.path}>
-        <WorkspaceImage sid={sid} path={image.path} src={image.path} alt={image.label || image.path}
+      {visual && sid && modelFormat(visual.path) ? <div className="result-card-preview result-card-model" data-delivery-model={visual.path}>
+        <ModelThumbnail sid={sid} path={visual.path} label={visual.label}
+          onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
+      </div> : visual && sid ? <div className="result-card-preview" data-delivery-thumbnail={visual.path}>
+        <WorkspaceImage sid={sid} path={visual.path} src={visual.path} alt={visual.label || visual.path}
           className="max-h-64 w-auto max-w-full object-contain"
-          onOpen={onOpen ? () => onOpen(delivery) : undefined} />
+          onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
         <span className="sr-only">{zh ? '点击查看大图' : 'Click to view full size'}</span>
       </div> : null}
       <div className="result-card-body">
@@ -833,7 +841,7 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenWork,
   view?: MissionView | null;
   events: EventMsg[];
   onOpenWork: () => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   onPause?: () => void;
 }) {
   const { locale, t } = useI18n();
@@ -914,7 +922,7 @@ function ConversationThread({
   group: ConversationGroup;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
@@ -1052,7 +1060,7 @@ export function EventStream({
   skipFirst?: number;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   snapshot?: Snapshot;
   missionView?: MissionView | null;
   historyStatus?: ConversationHistoryStatus;

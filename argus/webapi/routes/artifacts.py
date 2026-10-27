@@ -41,6 +41,10 @@ PREVIEW_PAGE_CSP = (
     "connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
 )
 
+# URDF and COLLADA are XML. Served under their own type, a browser opening one
+# directly must not run anything an XML document can carry.
+MODEL_HEADERS = {"Content-Security-Policy": "sandbox; default-src 'none'"}
+
 
 def register_artifact_routes(app, ctx: ServerContext) -> None:
     @app.get(
@@ -91,7 +95,7 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
         if resolved is None:
             raise HTTPException(status_code=404, detail="artifact unavailable or not allowlisted")
         info, file_path = resolved
-        safe_inline = info["kind"] in {"image", "pdf", "audio", "video"}
+        safe_inline = info["kind"] in {"image", "pdf", "audio", "video", "model"}
         media_type = (
             "application/octet-stream" if download
             else str(info["mime"]) if safe_inline
@@ -103,6 +107,7 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
             filename=str(info["name"]),
             content_disposition_type="attachment" if download else "inline",
             headers={
+                **(MODEL_HEADERS if info["kind"] == "model" else {}),
                 # HTML/SVG and unknown binaries intentionally arrive as plain
                 # text; prohibit browser MIME sniffing from turning them back
                 # into executable content.
@@ -112,6 +117,32 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
                 "Content-Encoding": "identity",
                 "Cache-Control": "private, no-store, no-transform",
             },
+        )
+
+    @app.get("/api/projects/{sid}/artifact/model-asset", dependencies=[Depends(ctx.require_auth)])
+    def _artifact_model_asset(
+        sid: str,
+        path: str = Query(..., min_length=1, max_length=1024),
+        ref: str = Query(..., min_length=1, max_length=1024),
+    ):
+        """One mesh, glTF buffer or texture referenced by a registered model.
+
+        ``ref`` is the reference exactly as written in the model (relative or
+        ``package://``); see ``artifacts.resolve_model_asset`` for confinement.
+        """
+        resolved = artifacts.resolve_model_asset(
+            sid, path, ref, global_root=ctx.project_root_or_404(sid)
+        )
+        if resolved is None:
+            raise HTTPException(status_code=404, detail="model asset unavailable or not allowed")
+        name, file_path = resolved
+        return FileResponse(
+            file_path,
+            media_type=artifacts.model_asset_mime(name),
+            filename=file_path.name,
+            content_disposition_type="inline",
+            headers={**MODEL_HEADERS, "X-Content-Type-Options": "nosniff",
+                     "Cache-Control": "private, no-store, no-transform"},
         )
 
     def html_package(sid: str, path: str):
