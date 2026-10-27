@@ -16,9 +16,6 @@ def test_research_vertical_reexports_paper_specific_names() -> None:
     from argus.verticals import research
 
     expected = {
-        # evidence_chain
-        "ChainIssue",
-        "ChainReport",
         # vertical-owned stage contract
         "CHECKLIST_ITEMS",
         "STAGE_ORDER",
@@ -32,11 +29,9 @@ def test_research_vertical_reexports_paper_specific_names() -> None:
 def test_research_vertical_is_identity_reexport() -> None:
     """The re-exports must be the *same objects* as their canonical paths so
     callers can choose either import without semantic drift."""
-    from argus.skills import evidence_chain as legacy_chain
     from argus.verticals import research
     from argus.verticals.research import stages
 
-    assert research.ChainReport is legacy_chain.ChainReport
     assert research.STAGE_ORDER is stages.STAGE_ORDER
     assert research.CHECKLIST_ITEMS is stages.CHECKLIST_ITEMS
 
