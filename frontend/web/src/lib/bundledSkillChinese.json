@@ -67,14 +67,14 @@
     "summary": "按操作者明确的话修改设置、暂停、终止或调整方向，由 Argus 执行并核对。",
     "originalName": "Settings, control and lasting rules",
     "source": "argus/builtin_skills/manager/settings-and-control/SKILL.md",
-    "sourceBytes": 1730
+    "sourceBytes": 1907
   },
   "global/manager/team-handoff/SKILL.md": {
     "title": "把任务交给团队",
     "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单；团队自己规划、验收、推进阶段，经理不替它裁决。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 4595
+    "sourceBytes": 5900
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",

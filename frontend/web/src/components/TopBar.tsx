@@ -5,7 +5,7 @@ import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
 import { PHASE_TONE, teamPhase, teamPhaseLabel } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { faPause, faPlay, faStop, faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
@@ -25,6 +25,7 @@ export function TopBar({
   onStop,
   onPause,
   onManage,
+  onOpenPalette,
   onOpenSessions,
   mobileView,
   onToggleMobileView,
@@ -42,6 +43,8 @@ export function TopBar({
   /** Pause once the running task finishes; falls back to onStop when absent. */
   onPause?: () => void;
   onManage: () => void;
+  /** Opens the command palette; shown here on narrow screens, where the workspace tabs are hidden. */
+  onOpenPalette?: () => void;
   onOpenSessions?: () => void;
   mobileView?: 'activity' | 'preview';
   onToggleMobileView?: () => void;
@@ -171,6 +174,16 @@ export function TopBar({
           >
             <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
             <span className="hidden md:inline">{t('topbar.stopNow')}</span>
+          </button> : null}
+          {onOpenPalette ? <button
+            type="button"
+            onClick={onOpenPalette}
+            aria-label={t('topbar.commands')}
+            title={t('topbar.commandsHint')}
+            className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 lg:hidden"
+          >
+            <FontAwesomeIcon icon={faTerminal} className="h-3 w-3" />
+            <span>{t('topbar.commands')}</span>
           </button> : null}
           <button
             type="button"
