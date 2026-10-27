@@ -6,12 +6,15 @@ call ledger ``usage.jsonl``, and writes nothing; the round handoff files carry
 no fact the round events lack.
 
     python -m argus.tools.efficiency_report <project-state-dir> [--json]
+    python -m argus.tools.efficiency_report <project-state-dir> --since 2026-10-19 --until 2026-10-26
 
 A call is a row of the ledger, placed among the events where it completed; its
 role comes from its run label. "No new
 information" counts the calls the log itself shows as repeats: a Planner turn
 that added no new work, and a Manager supervision whose decision was never
-applied or kept the course.
+applied or kept the course. ``--since``/``--until`` keep only the calls and
+events inside that window (UTC); "tasks settled" counts each task settled in it by
+the outcome class its last settlement recorded.
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -57,9 +61,11 @@ def _rows(log: Path) -> Iterator[dict[str, Any]]:
                     yield row
 
 
-def _timeline(life_dir: Path) -> Iterator[tuple[float, str | None, dict[str, Any]]]:
+def _timeline(
+    life_dir: Path, since: float | None = None, until: float | None = None,
+) -> Iterator[tuple[float, str | None, dict[str, Any]]]:
     """``(when, event type, row)`` in order: the event log, and each ledger call
-    (type ``None``) where it completed."""
+    (type ``None``) where it completed; only ``since <= when < until`` when given."""
     events = (
         (float(row.get("ts") or 0), canonical_event_type(row.get("type")), row)
         for row in _rows(life_dir / "events.jsonl")
@@ -68,7 +74,10 @@ def _timeline(life_dir: Path) -> Iterator[tuple[float, str | None, dict[str, Any
         (float(row.get("completed_at") or 0), None, row)
         for row in _rows(life_dir / "usage.jsonl")
     )
-    return heapq.merge(events, calls, key=lambda entry: entry[0])
+    return (
+        entry for entry in heapq.merge(events, calls, key=lambda entry: entry[0])
+        if (since is None or entry[0] >= since) and (until is None or entry[0] < until)
+    )
 
 
 def _tally(rows: Iterable[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -98,7 +107,9 @@ def _context(rows: list[dict[str, Any]], turns: dict[str, list[int]]) -> dict[st
     }
 
 
-def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
+def efficiency_report(
+    life_dir: Path | str, *, since: float | None = None, until: float | None = None,
+) -> dict[str, Any]:
     calls: dict[str, dict[str, Any]] = {}  # call_id -> usage row
     planner_cycle: list[str] = []  # this Planner cycle's calls, until its outcome
     planner_idle: list[str] = []
@@ -106,10 +117,11 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     applied: set[str] = set()
     tasks: defaultdict[str, Counter[str]] = defaultdict(Counter)
     passed: dict[str, bool] = {}
+    settled: dict[str, str] = {}  # task -> the outcome class of its last settlement
     elapsed: defaultdict[str, float] = defaultdict(float)
     session_turns: defaultdict[str, defaultdict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
 
-    for _, kind, event in _timeline(Path(life_dir)):
+    for _, kind, event in _timeline(Path(life_dir), since, until):
         task = str(event.get("item_id") or "")
         if kind is None:
             call = str(event.get("call_id") or f"#{len(calls)}")
@@ -133,6 +145,7 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         elif kind == "life.mission.completed":
             elapsed[task] += float(event.get("elapsed_seconds") or 0)
             passed[task] = event.get("success") is True
+            settled[task] = str(event.get("outcome_class") or "unrecorded")
         elif kind == "role.session.turn":
             turn = int(event.get("turns_on_session") or 0)
             bucket = next(name for bound, name in TURN_BUCKETS if turn <= bound)
@@ -151,6 +164,8 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
 
     return {
         "project": str(life_dir),
+        "since": since,
+        "until": until,
         "total": total,
         "roles": {
             role: {**tally, "cost_share": round(tally["cost_usd"] / total["cost_usd"], 4) if total["cost_usd"] else 0.0}
@@ -167,6 +182,7 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
                 of_calls=len(supervisions),
             ),
         },
+        "tasks": dict(sorted(Counter(settled.values()).items())),
         "cost_per_passed_task": cost_per_passed_task(
             total["cost_usd"], sum(passed.values()),
         ),
@@ -209,9 +225,14 @@ def render(report: dict[str, Any]) -> str:
     usage = ("calls", *TOKENS, "cost_usd")
     usage_header = ["calls", "input", "cache read", "cache write", "output", "cost $"]
     per_task = report["cost_per_passed_task"]
+    window = " ".join(
+        f"{name} {datetime.fromtimestamp(report[name], timezone.utc):%Y-%m-%d %H:%M}"
+        for name in ("since", "until") if report[name] is not None
+    )
     lines = [
-        f"{report['project']}: {total['calls']:,} calls, ${total['cost_usd']:,.2f}",
+        f"{report['project']}{f' ({window} UTC)' if window else ''}: {total['calls']:,} calls, ${total['cost_usd']:,.2f}",
         "cost per passed task: " + (f"${per_task:,.2f}" if per_task is not None else "no task passed yet"),
+        "tasks settled: " + (", ".join(f"{count} {name}" for name, count in report["tasks"].items()) or "none"),
         "",
     ]
     lines += _table("By role", ["role", *usage_header, "share"], [
@@ -239,14 +260,21 @@ def render(report: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _when(text: str) -> float:
+    moment = datetime.fromisoformat(text)
+    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m argus.tools.efficiency_report", description=__doc__.splitlines()[0])
     parser.add_argument("life_dir", type=Path, metavar="project-state-dir", help="the directory holding events.jsonl")
+    parser.add_argument("--since", type=_when, help="window start, ISO date or time (UTC unless it names a zone)")
+    parser.add_argument("--until", type=_when, help="window end, exclusive")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
     if not (args.life_dir / "events.jsonl").is_file():
         parser.error(f"no events.jsonl in {args.life_dir}")
-    report = efficiency_report(args.life_dir)
+    report = efficiency_report(args.life_dir, since=args.since, until=args.until)
     print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else render(report))
     return 0
 

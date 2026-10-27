@@ -115,3 +115,46 @@ def test_cli_rejects_a_directory_without_an_event_log(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exit_info:
         main([str(tmp_path)])
     assert exit_info.value.code == 2
+
+
+def _settled(task: str, ts: float, success: bool, status: str, **fields) -> dict:
+    return {"type": "life.mission.completed", "item_id": task, "ts": ts, "success": success, "status": status, **fields}
+
+
+def test_tasks_count_the_outcome_class_each_settlement_recorded(tmp_path: Path) -> None:
+    """A stage that continues reports success but is not finished; a research
+    park is open, not failed. The report reads the settlement's own class."""
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+        _settled("aaa", 1, True, "done", outcome_class="completed"),
+        _settled("bbb", 2, True, "stage_continues", outcome_class="incomplete"),
+        _settled("ccc", 3, False, "parked", park_reason="research_open", outcome_class="incomplete"),
+        _settled("ddd", 4, False, "error", outcome_class="failed"),
+        _settled("eee", 5, False, "blocked"),  # an older settlement that recorded no class
+    ]))
+    assert efficiency_report(tmp_path)["tasks"] == {"completed": 1, "failed": 1, "incomplete": 2, "unrecorded": 1}
+
+
+def test_a_window_keeps_only_what_happened_inside_it(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A retry started before the window and settled inside it counts once, as
+    its settlement says; the start outside the window is not read."""
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+        {"type": "life.mission.started", "item_id": "aaa", "attempt": 2, "ts": 86_400.0},
+        _settled("old", 86_400.0, True, "done", outcome_class="completed"),
+        _settled("aaa", 2 * 86_400.0, True, "done", outcome_class="completed"),
+        _settled("new", 3 * 86_400.0, False, "error", outcome_class="failed"),
+    ]))
+    (tmp_path / "usage.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+        _usage("e1", "engineer-r1", 1.0, 10, task="aaa:attempt:2", completed_at=86_400.0),
+        _usage("e2", "engineer-r1", 2.0, 10, task="aaa:attempt:2", completed_at=2 * 86_400.0),
+    ]))
+    report = efficiency_report(tmp_path, since=1.5 * 86_400, until=3 * 86_400)
+    assert report["tasks"] == {"completed": 1}
+    assert (report["total"]["calls"], report["cost_per_passed_task"]) == (1, 2.0)
+
+    assert main([str(tmp_path), "--since", "1970-01-02T12:00", "--until", "1970-01-04"]) == 0
+    head = capsys.readouterr().out.splitlines()[:3]
+    assert head == [
+        f"{tmp_path} (since 1970-01-02 12:00 until 1970-01-04 00:00 UTC): 1 calls, $2.00",
+        "cost per passed task: $2.00",
+        "tasks settled: 1 completed",
+    ]
