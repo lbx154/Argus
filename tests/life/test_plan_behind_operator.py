@@ -75,6 +75,23 @@ def test_a_plan_with_no_newer_instruction_starts(tmp_path: Path, monkeypatch) ->
     ]
 
 
+
+def test_words_written_before_the_call_leave_the_plan_to_start(tmp_path: Path, monkeypatch) -> None:
+    from argus.core.operator_context import operator_context_state_root
+    from argus.core.transcript import append_turn
+
+    project = _project(tmp_path, monkeypatch)
+    planner = _PlannerBackend([_PICK_ROUTE])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    root = operator_context_state_root(supervisor.memory)
+    # Heard before the call began: the plan was made with it.
+    assert append_turn(root, "operator", _INSTRUCTION)
+
+    assert supervisor._plan_next_work() is True
+    assert [item.title for item in supervisor.memory.backlog.pending()] == [
+        "Run the first experiment on the checked route",
+    ]
+
 def test_a_message_sent_to_the_manager_during_the_call_stops_the_plan(tmp_path: Path, monkeypatch) -> None:
     """The live order of s-efe9deac: the person writes to the Manager while the
     Planner call runs, and the Manager has handed the team nothing yet when the
@@ -103,6 +120,9 @@ def test_a_message_sent_to_the_manager_during_the_call_stops_the_plan(tmp_path: 
 
     planner = _PersonWritesMidCall([_NEW_TOPIC, _PICK_ROUTE])
     supervisor = _supervisor(project, life, planner)
+    # One unreadable row in the journal must not blind the check to the rest.
+    with (life / "transcript.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"ts": "not-a-time", "role": "operator", "text": "garbled"}) + "\n")
     seen = OperatorContextStore(life).revision
 
     assert supervisor._plan_next_work() == PLAN_RETRY

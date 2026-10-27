@@ -515,22 +515,32 @@ class PlanningCycleMixin(
         from ...core.transcript import read_turns
         from ...planner import PLANNER_SUPERSEDED_ERROR
 
+        # Each step fails alone: an unreadable journal or a lost append still
+        # leaves the revision check, which a plan must always pass.
+        root = operator_context_state_root(self.memory)
+        store = OperatorContextStore(root)
+        said = ""
         try:
-            root = operator_context_state_root(self.memory)
             said = " / ".join(
                 " ".join(str(turn.get("text") or "").split())
                 for turn in read_turns(root)
-                if turn.get("role") == "operator" and float(turn.get("ts") or 0) >= state.started_at
+                if turn.get("role") == "operator"
+                and isinstance(turn.get("ts"), (int, float)) and turn["ts"] >= state.started_at
             )
-            store = OperatorContextStore(root)
-            if said:
+        except Exception:  # noqa: BLE001
+            log.warning("could not read the conversation to check the plan against", exc_info=True)
+        if said:
+            try:
                 append_directive(
                     root,
                     "The operator wrote this while you were planning; the Manager answers them and "
-                    f"may hand the team a ticket for it. Plan by it where it changes the work: {said[:2000]}",
+                    f"may hand the team a ticket for it. Plan by it where it changes the work: {said[-2000:]}",
                     scope="project", applies_to_roles=("planner",), lifetime="once",
                     source="operator.message", expected_revision=store.revision,
                 )
+            except Exception:  # noqa: BLE001 - another writer moved the revision; the check below sees it
+                log.warning("could not record the operator's newest words for the Planner", exc_info=True)
+        try:
             current = store.revision
         except Exception:  # noqa: BLE001 - an unreadable ledger leaves the plan to the later checks
             log.warning("could not check the plan against the operator's newest words", exc_info=True)
