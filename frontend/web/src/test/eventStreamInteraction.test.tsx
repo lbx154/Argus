@@ -725,4 +725,18 @@ describe('result cards in the conversation', () => {
     expect(drawer).toContain('Drew the task A chart');
     expect(drawer).not.toContain('Working on task B now');
   });
+
+  it('names the task its log belongs to, and the header button switches to all work', () => {
+    mount(events);
+    const card = renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' });
+    act(() => card.find(node => node.type === 'button' && node.props.className === 'result-card-how').props.onClick());
+    const heading = () => visibleText(renderer!.root.findByProps({ 'data-work-heading': true }));
+    expect(heading()).not.toMatch(/项目工作进展|Project work progress/);
+    const all = renderer!.root.find(node => node.type === 'button' && 'aria-expanded' in node.props && /查看工作进展|View work progress/.test(visibleText(node)));
+    act(() => all.props.onClick());
+    expect(heading()).toMatch(/项目工作进展|Project work progress/);
+    expect(visibleText(renderer!.root.findByProps({ 'data-project-work': true }))).toContain('Working on task B now');
+    act(() => all.props.onClick());
+    expect(renderer!.root.findByProps({ 'data-project-work': true }).parent!.props.className).toContain('hidden');
+  });
 });

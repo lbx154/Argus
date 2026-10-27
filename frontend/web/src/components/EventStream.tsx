@@ -1154,10 +1154,11 @@ export function EventStream({
   // A result card opens its own task's log; elsewhere the drawer shows all work.
   const [workTask, setWorkTask] = useState<string | null>(null);
   const openWork = () => { setWorkTask(null); setWorkOpen(true); };
-  const taskRows = (taskId: string | null) => timeline.blocks.find((block): block is Extract<TimelineBlock, { kind: 'task' }> =>
-    block.kind === 'task' && block.taskId === taskId)?.rows;
-  const workFor = (taskId: string) => taskRows(taskId)?.length ? () => { setWorkTask(taskId); setWorkOpen(true); } : undefined;
-  const drawerRows = (workTask ? taskRows(workTask) : null) ?? timeline.workRows;
+  const taskBlock = (taskId: string | null) => timeline.blocks.find((block): block is Extract<TimelineBlock, { kind: 'task' }> =>
+    block.kind === 'task' && Boolean(taskId) && block.taskId === taskId);
+  const workFor = (taskId: string) => taskBlock(taskId)?.rows.length ? () => { setWorkTask(taskId); setWorkOpen(true); } : undefined;
+  const drawerTask = taskBlock(workTask);
+  const drawerRows = drawerTask?.rows ?? timeline.workRows;
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
     const completed = [...block.rows].reverse().find(row => row.ev.type === 'life.mission.completed');
@@ -1279,7 +1280,7 @@ export function EventStream({
           {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} latestDelivery={latestDelivery} /> : null}
         </div>
         {showHeader ? <div className="chat-context-tools">
-          {timeline.workRows.length > 0 ? <button type="button" onClick={() => { setWorkTask(null); setWorkOpen(value => !value); }} aria-expanded={workOpen}>
+          {timeline.workRows.length > 0 ? <button type="button" onClick={() => (workOpen && !drawerTask ? setWorkOpen(false) : openWork())} aria-expanded={workOpen && !drawerTask}>
             {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
           </button> : null}
           <button type="button" onClick={onToggleReasoning} aria-pressed={showReasoning} title={t('stream.toggleReasoning')}>
@@ -1357,7 +1358,7 @@ export function EventStream({
         aria-label={locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
         className={`${workOpen ? 'flex' : 'hidden'} absolute inset-y-0 right-0 z-30 w-full max-w-md flex-col border-l border-line/80 bg-panel shadow-glow`}>
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-          {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
+          <span data-work-heading className={`min-w-0 truncate ${drawerTask ? 'normal-case tracking-normal' : ''}`}>{drawerTask ? blockTitle(drawerTask) : locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}</span>
           <span className="font-mono font-normal tracking-normal">{drawerRows.length}</span>
           <button type="button" onClick={() => setWorkOpen(false)}
             className="ml-auto rounded px-1.5 py-0.5 text-xs font-normal normal-case tracking-normal text-ink-dim hover:bg-bg hover:text-ink">
@@ -1365,7 +1366,7 @@ export function EventStream({
           </button>
         </div>
         <section data-project-work className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-          <RoleLogCollection rows={drawerRows} live={live} followLatest activeRole={workTask ? undefined : work?.role} activeTaskId={workTask ?? work?.taskId} />
+          <RoleLogCollection rows={drawerRows} live={live} followLatest activeRole={drawerTask ? undefined : work?.role} activeTaskId={drawerTask?.taskId ?? work?.taskId} />
         </section>
       </aside> : null}
     </section>
