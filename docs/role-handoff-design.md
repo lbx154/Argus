@@ -384,11 +384,9 @@ baton any more, and no named pause state beside it.
   completion gate, and a stage question never waits on a Manager session.
 - No plan-challenge adjudication: a Reviewer's `→ planner` reaches the Planner
   as the Reviewer wrote it.
-- A ticket the Manager hands the team while a mission runs never times out
-  behind it: the reply shows at once, the ticket is queued durably and goes in
-  at the mission's next safe point, before new work starts. A plan whose call
-  began before a newer operator instruction does not start; the Planner
-  replans with it.
+- A plan made while the operator wrote does not start: when the Planner's
+  result is committed, an operator message journaled after its cycle began
+  becomes a one-time Planner instruction, and the Planner replans with it.
 - The Engineer's seven footer keys and its wait line become the single line
   above; the wait itself moves into the Engineer's turn.
 

@@ -395,6 +395,28 @@ def test_mission_write_failure_is_visible_and_keeps_pending_item(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_a_failed_handoff_behind_a_running_mission_is_told_in_the_conversations_language(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Trial s-efe9deac: a failed hand-off replaced the reply with English
+    "I couldn't safely prepare that request, so nothing was queued…"."""
+    sid = "s-handoff-zh"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(title="current work", objective="finish current work"))
+    assert memory.backlog.claim_next() is not None
+
+    def broken(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(dispatch, "enqueue_mission", broken)
+    result = manager_bridge.manager_message(sid, "加一个导出功能。", global_root=tmp_path)
+
+    assert result["kind"] == "error"
+    assert "没能交给团队" in result["reply"] and "再发一次" in result["reply"]
+    assert "couldn't" not in result["reply"] and "disk full" not in result["reply"]
+
+
 def test_active_mission_team_message_uses_continuous_dispatch(
     tmp_path: Path, monkeypatch,
 ) -> None:

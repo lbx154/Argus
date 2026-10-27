@@ -564,18 +564,11 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "so that stage gets more work.",
         "回到「{to_stage}」阶段：收尾前必须通过的检查还没过，这个阶段要补做。",
     ),
-    # A team hand-off that waits for the running task to reach a safe point.
-    "handoff_queued": (
-        "Noted. The current task is still running; this goes in at its next safe point, "
-        "before anything new starts. Nothing else is needed from you.",
-        "记下了。当前任务还在进行，这条会在它的下一个安全交接点排进去，排进去之前不会开始新的工作，你不用再做什么。",
-    ),
-    "handoff_applied": ("Added to the team's work: {title}.", "已排进团队的工作：{title}。"),
-    "handoff_reason_unknown": ("the project state could not be updated", "项目状态没能更新"),
+    # A team hand-off whose commit failed, told in the conversation's language.
     "handoff_failed": (
-        "I couldn't add this to the team's work ({said}). Nothing was changed; "
-        "send it again and I'll retry.",
-        "这条没能交给团队（{said}），什么都没有改。再发一次，我会重新安排。",
+        "I couldn't add this to the team's work (the project state could not be updated). "
+        "Nothing was changed; send it again and I'll retry.",
+        "这条没能交给团队（项目状态没能更新），什么都没有改。再发一次，我会重新安排。",
     ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),

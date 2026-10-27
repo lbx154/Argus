@@ -494,23 +494,46 @@ class PlanningCycleMixin(
         return result
 
     def _pc_drop_plan_behind_operator(self, state: _PlanCycleState) -> bool | None | str:
-        """A plan made before the operator's newest instruction does not start.
+        """A plan made before the operator's newest words does not start.
 
-        The operator context revision moved while the Planner was answering:
-        the person said something the plan did not hear. Nothing it planned,
-        retired or declared is applied; the Planner is asked again, with the
-        instruction (trial s-efe9deac, 2026-10-26: a call started at 01:28:54
-        committed at 01:32:08 a task contradicting the instruction of 01:31:26).
+        The person wrote to the Manager after this cycle began (the
+        conversation journal says so), or the operator context revision moved
+        while the Planner was answering: the plan did not hear it. The words
+        become a one-time Planner instruction, nothing the plan proposed,
+        retired or declared is applied, and the Planner is asked again with
+        them (trial s-efe9deac, 2026-10-26: a call started at 01:28:54
+        committed at 01:32:08 a task contradicting the message of 01:31:26).
         """
         verdict = state.verdict
         if not state.planner_invoked or verdict is None or getattr(verdict, "error", ""):
             return None
-        from ...core.operator_context import OperatorContextStore, operator_context_state_root
+        from ...core.operator_context import (
+            OperatorContextStore,
+            append_directive,
+            operator_context_state_root,
+        )
+        from ...core.transcript import read_turns
         from ...planner import PLANNER_SUPERSEDED_ERROR
 
         try:
-            current = OperatorContextStore(operator_context_state_root(self.memory)).revision
+            root = operator_context_state_root(self.memory)
+            said = " / ".join(
+                " ".join(str(turn.get("text") or "").split())
+                for turn in read_turns(root)
+                if turn.get("role") == "operator" and float(turn.get("ts") or 0) >= state.started_at
+            )
+            store = OperatorContextStore(root)
+            if said:
+                append_directive(
+                    root,
+                    "The operator wrote this while you were planning; the Manager answers them and "
+                    f"may hand the team a ticket for it. Plan by it where it changes the work: {said[:2000]}",
+                    scope="project", applies_to_roles=("planner",), lifetime="once",
+                    source="operator.message", expected_revision=store.revision,
+                )
+            current = store.revision
         except Exception:  # noqa: BLE001 - an unreadable ledger leaves the plan to the later checks
+            log.warning("could not check the plan against the operator's newest words", exc_info=True)
             return None
         seen = int(state.operator_context_revision or 0)
         if current <= seen:

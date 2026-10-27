@@ -436,6 +436,10 @@ class _PlanCycleState:
             dict(revision_request) if isinstance(revision_request, dict) else None
         )
 
+        # The cycle reads its input from here on: an operator message
+        # journaled later is one its plan did not hear.
+        self.started_at = time.time()
+
         # Set by the intake/gate phase.
         self.operator_messages: list[str] = []
         self.fresh_operator_messages: list[str] = []

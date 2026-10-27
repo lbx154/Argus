@@ -345,11 +345,6 @@ def _manager_message(
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator",
                       metadata={"refs": reference_ids} if reference_ids else None)
-        if domain_answer is None and not explicit_chat and not active_mission:
-            _note_instruction_for_planning_in_flight(life_dir, operator_text)
-        from .manager_handoff_queue import resume_queued_handoffs
-
-        resume_queued_handoffs(life_dir)
 
         if _cancelled():
             return _cancelled_result()
@@ -453,31 +448,6 @@ def _manager_message(
                 write_intake(life_dir, intake_before)
             return _cancelled_result()
 
-        def _queue_behind_running_mission() -> dict[str, Any]:
-            # A running mission holds the pipeline: the person reads the
-            # Manager's reply now, and the ticket goes in at the mission's
-            # next safe point, with no deadline (trial s-efe9deac).
-            from .manager_handoff_queue import queue_team_handoff
-
-            patch = {key: chat_state.pop(key) for key in (
-                "_approved_domain_decision", "_team_lifetime", "_domain_display_objective",
-            ) if key in chat_state}
-            queue_team_handoff(
-                sid, life_dir, global_root=mem.global_root, body=body, public_task=public_task or body,
-                root_task_id=root_task_id, operator_text=operator_text, chat_patch=patch,
-                attachment_context_refs=message_attachment_refs, reference_deps=reference_deps,
-            )
-            note = say("handoff_queued", conversation_chinese)
-            return emitter.respond(
-                "\n\n".join(part for part in (str(reply or "").strip(), note) if part),
-                {"kind": "chat", "queued_handoff": True},
-            )
-
-        from ..manager._session_ops import ManagerPipelineWaitTimeout, manager_pipeline_busy
-
-        conversation_chinese = _conversation_chinese(life_dir, operator_text)
-        if manager_pipeline_busy(life_dir):
-            return _queue_behind_running_mission()
         try:
             item, daemon_alive, daemon_pid = _dispatch_team_mission(
                 mem,
@@ -511,15 +481,9 @@ def _manager_message(
                         "item": _item_to_dict(pending_item, operator_text or body),
                     },
                 )
-            if isinstance(exc, ManagerPipelineWaitTimeout) or isinstance(
-                getattr(exc, "__cause__", None), ManagerPipelineWaitTimeout,
-            ):
-                # The pipeline was taken between the check and the commit.
-                return _queue_behind_running_mission()
-            reason = say("handoff_reason_unknown", conversation_chinese)
             return emitter.respond(
                 "\n\n".join(part for part in (
-                    str(reply or "").strip(), say("handoff_failed", conversation_chinese, said=reason),
+                    str(reply or "").strip(), say("handoff_failed", _conversation_chinese(life_dir, operator_text)),
                 ) if part),
                 {"kind": "error"},
             )
@@ -573,34 +537,6 @@ def _manager_message(
     else:
         emitter.emit_only(f"Queued · {title}")
     return result
-
-
-def _note_instruction_for_planning_in_flight(life_dir: Path, operator_text: str) -> None:
-    """Put the person's words before a Planner call already in flight.
-
-    The pipeline is held and no mission runs, so the Planner is mid-call: its
-    plan was made without these words. Recording them moves the operator
-    context revision, so that plan does not start and the Planner replans with
-    them (trial s-efe9deac: a plan committed 40 s after "stop re-picking the
-    topic" picked a new topic). A message while no work is in flight needs no
-    record: whatever the Manager hands the team is planned after it.
-    """
-    from ..core.operator_context import OperatorContextStore, append_directive
-    from ..manager._session_ops import manager_pipeline_busy
-
-    text = " ".join(str(operator_text or "").split())
-    if not text or not manager_pipeline_busy(life_dir):
-        return
-    try:
-        append_directive(
-            life_dir,
-            "The operator wrote this while you were planning; the Manager answers them and may "
-            f"hand the team a ticket for it. Plan by it where it changes the work: {text[:2000]}",
-            scope="project", applies_to_roles=("planner",), lifetime="once", source="operator.message",
-            expected_revision=OperatorContextStore(life_dir).revision,
-        )
-    except Exception:  # noqa: BLE001 - the Manager's own hand-off still carries the words
-        log.warning("operator words could not reach the planning in flight", exc_info=True)
 
 
 def _conversation_chinese(life_dir: Path, operator_text: str) -> bool:
