@@ -670,18 +670,12 @@ class RoundReviewerMixin:
         reviewer_skill_block: str | None,
         outcome: EngineerTurnOutcome,
         state: RoundLoopState,
-        prepare_review_context,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
         engineer_result = outcome.engineer_result
         engineer_message = outcome.engineer_message
         safe_fatal_error = outcome.safe_fatal_error
         process_ownership_note = outcome.process_ownership_note
-        if prepare_review_context is not None:
-            try:
-                prepare_review_context()
-            except Exception:  # noqa: BLE001 — context prep must not hide a verdict
-                log.warning("review context preparation failed", exc_info=True)
         if on_event:
             on_event({
                 "type": EventType.ROUND_REVIEW_STARTED,

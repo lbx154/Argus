@@ -95,12 +95,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _ArgusArgumentParser(
         prog="argus",
         description="Argus — one cockpit; describe what you need.",
-        # Disable prefix abbreviation so a subcommand flag like
-        # ``wiki ingest --init`` is not rejected as an ambiguous abbreviation
-        # of top-level options (``--init-identity`` / ``--init-model-api``).
-        # argparse pre-scans every option-like token against the top-level
-        # parser before delegating to a subparser; with abbreviation enabled
-        # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
+        # Disable prefix abbreviation: argparse pre-scans every option-like
+        # token against the top-level parser before delegating to a
+        # subparser, so on Python <= 3.12 a subcommand flag that prefixes
+        # several top-level options would be rejected as ambiguous.
         allow_abbrev=False,
     )
     parser.add_argument(
@@ -635,50 +633,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path.cwd(),
         help="Base directory (default: cwd)",
     )
-    ingest_parser = wiki_sub.add_parser(
-        "ingest",
-        help="Backfill sources/papers/ from paper/refs.bib (+ optional LIT_MATRIX.tsv)",
-    )
-    ingest_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-    ingest_parser.add_argument(
-        "--refs",
-        type=Path,
-        help="Path to refs.bib (default: <project-root>/paper/refs.bib if it exists)",
-    )
-    ingest_parser.add_argument(
-        "--lit-matrix",
-        type=Path,
-        help=(
-            "Path to LIT_MATRIX.tsv (default: "
-            "<project-root>/research/LIT_MATRIX.tsv if it exists)"
-        ),
-    )
-    ingest_parser.add_argument(
-        "--ingested-by",
-        default="wiki-curator@manual-backfill",
-        help="Provenance string for the ingested_by frontmatter field",
-    )
-    ingest_parser.add_argument(
-        "--init",
-        action="store_true",
-        help="Initialize the wiki path before ingesting if it is missing",
-    )
-    migrate_parser = wiki_sub.add_parser(
-        "migrate",
-        help="Run one-shot wiki migrations such as sources/*.md -> sources/notes/",
-    )
-    migrate_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-
     correct_parser = wiki_sub.add_parser(
         "correct",
         help="Correct a knowledge page in place and record the correction",

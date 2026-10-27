@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
-from typing import Iterator
 
 from ..core.file_lock import exclusive_file_lock
 from .schema import WikiPage, parse_page, serialize_page
@@ -81,25 +80,6 @@ class WikiStore:
     def read_page(self, semantic_path: str | Path) -> WikiPage:
         path = _semantic_page_path(self.root, semantic_path)
         return parse_page(path.read_text(encoding="utf-8"))
-
-    def iter_page_paths(self) -> Iterator[Path]:
-        pages = self.root / "pages"
-        if not pages.exists():
-            return
-        for path in sorted(pages.rglob("*.md")):
-            if any(part.startswith(".") for part in path.relative_to(pages).parts):
-                continue
-            yield path
-
-    def iter_pages(self, *, skip_invalid: bool = False) -> list[tuple[Path, WikiPage]]:
-        rows: list[tuple[Path, WikiPage]] = []
-        for path in self.iter_page_paths():
-            try:
-                rows.append((path, parse_page(path.read_text(encoding="utf-8"))))
-            except (OSError, ValueError):
-                if not skip_invalid:
-                    raise
-        return rows
 
 
 __all__ = ["WikiStore", "_atomic_write_text", "atomic_write_bytes"]

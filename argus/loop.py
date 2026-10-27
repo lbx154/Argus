@@ -45,7 +45,6 @@ from .engineer.runner import (
 )
 from .reviewer import Reviewer, ReviewerConfig
 from .skills.loop_prompt import PromptContextMixin
-from .skills.loop_review_hooks import ReviewedRoundHooksMixin
 from .skills.loop_settlement import MissionSettlementMixin
 from .skills.loop_skill_library import SkillLibraryMixin
 from .skills.loop_state import MissionContext
@@ -139,7 +138,6 @@ class SkillLoopConfig:
 class SkillLoop(
     SkillLibraryMixin,
     PromptContextMixin,
-    ReviewedRoundHooksMixin,
     MissionSettlementMixin,
 ):
     """High-level entry point: ``loop.run("task description")``.
@@ -340,14 +338,11 @@ class SkillLoop(
         # sources. No Skill is parsed, matched, adapted, or injected.
         state = self._prepare_skill_libraries(mission)
 
-        # Step 3: supervised round-loop. The three small wrappers below adapt
-        # this mixin's ``(self, mission, state, ...)`` phase methods to the
-        # exact bare-callable signatures ``SupervisedEngineer.run`` expects.
+        # Step 3: supervised round-loop. The wrapper below adapts this mixin's
+        # ``(self, mission, state, ...)`` prompt builder to the bare callable
+        # ``SupervisedEngineer.run`` expects.
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:
             return self._build_round_prompt(mission, state, next_action, include_static)
-
-        def prepare_review_context() -> None:
-            return self._prepare_review_context(mission)
 
         from .core.venue_review import requires_venue_review
         from .skills.vertical_select import resolve_vertical_if_decided
@@ -386,7 +381,6 @@ class SkillLoop(
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
             scope=scope,
-            prepare_review_context=prepare_review_context,
             reviewer_skill_block=state.reviewer_skill_block,
         )
         if self.pre_settlement_guard is not None:
