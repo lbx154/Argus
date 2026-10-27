@@ -26,7 +26,6 @@ from typing import Any
 from ..core.launch_settings import (
     launch_note,
     launch_target_level_stated,
-    mentions_waiting_for_start,
     normalize_launch_settings,
 )
 
@@ -36,14 +35,8 @@ _ACTIVE_STATUSES = {"pending", "running", "in_progress", "claimed", "parked"}
 __all__ = [
     "LAUNCH_HOLD_FILENAME", "clear_launch_hold", "discard_held_work", "launch_hold_view",
     "launch_note", "launch_target_level_stated", "normalize_launch_settings",
-    "read_launch_hold", "release_held_ticket", "started_ticket_text", "write_launch_hold",
+    "read_launch_hold", "write_launch_hold",
 ]
-
-STARTED_NOTE_ZH = "用户已点击“开始执行”：上面关于等待开始的要求已经满足，现在按目标执行。"
-STARTED_NOTE_EN = (
-    "The operator pressed Start: any requirement above to wait for the start is met; "
-    "do the work now as the goal says."
-)
 
 
 def hold_path(life_dir: Path | str) -> Path:
@@ -133,69 +126,6 @@ def launch_hold_view(
     held = next((item for item in backlog or [] if _field(item, "id") == record.get("item_id")), None)
     plan = (_field(held, "manager_decision") or {}).get("plan") if held is not None else None
     return {**record, "understood": _understood(Path(life_dir)), **({"plan": plan} if plan else {})}
-
-
-def started_ticket_text(text: str) -> str:
-    """A held ticket's text once Start was pressed: any "wait for Start" in it is met.
-
-    Only text that mentions waiting for the start changes, and only once; the
-    same input always gives the same output, so copies of one ticket stay equal.
-    """
-    from ..core.mission_view import uses_cjk
-
-    body = str(text or "")
-    if not mentions_waiting_for_start(body):
-        return body
-    if STARTED_NOTE_ZH in body or STARTED_NOTE_EN in body:
-        return body
-    note = STARTED_NOTE_ZH if uses_cjk(body) else STARTED_NOTE_EN
-    return f"{body.rstrip()}\n\nStarted:\n- {note}"
-
-
-def release_held_ticket(life_dir: Path | str, record: dict[str, Any]) -> list[str]:
-    """On Start, tell the team the start it was told to wait for has happened.
-
-    The hold is Argus's mechanism, so a ticket should never mention it; when a
-    Manager still wrote "wait for Start" into one (trial s-efe9deac), the team
-    read it after Start and only re-checked the plan. Every copy of the ticket
-    the roles read is annotated the same way: the task row (objective and the
-    request anchor), the campaign objective the Planner reads, and the goal
-    contract, which must keep the campaign's objective to stay in force.
-    Returns the names of the records changed.
-    """
-    from dataclasses import replace
-
-    from ..core.project_contract import load_contract, save_contract
-    from ..daemon.state import compare_and_swap_continuous_config, read_continuous_state
-    from ..life.memory import LifeMemory
-
-    root = Path(life_dir)
-    changed: list[str] = []
-    item_id = str(record.get("item_id") or "")
-    backlog = LifeMemory.open(root).backlog
-    item = next((row for row in backlog.active() if row.id == item_id), None) if item_id else None
-    if item is not None:
-        fields: dict[str, str] = {}
-        for name in ("objective", "original_objective"):
-            before = str(getattr(item, name, "") or "")
-            if (after := started_ticket_text(before)) != before:
-                fields[name] = after
-        if fields and backlog.update(item.id, **fields) is not None:
-            changed.append("task")
-    continuous = read_continuous_state(root)
-    objective = started_ticket_text(continuous.objective)
-    if continuous.enabled and objective != continuous.objective and compare_and_swap_continuous_config(
-        root, expected=continuous, enabled=True, objective=objective,
-        open_ended=continuous.open_ended, done_reason=continuous.done_reason,
-    ):
-        changed.append("campaign")
-    contract = load_contract(root)
-    if contract is not None:
-        objective = started_ticket_text(contract.objective)
-        if objective != contract.objective:
-            save_contract(root, contract=replace(contract, objective=objective, updated_at=time.time()))
-            changed.append("contract")
-    return changed
 
 
 def discard_held_work(life_dir: Path | str) -> dict[str, Any]:

@@ -1,0 +1,8 @@
+{
+  "source": "argus-trial-1023 s-efe9deac: transcript.jsonl line 1 (operator, composer hold on) and agent_io.jsonl call 9b9e1b34 (the Manager turn before the hold left the operator text)",
+  "operator_text": "我想把一个LLM RL想法做成可用成果。请先确认目标、交付物和验收条件，给出简短计划，再在我授权的范围内执行和检查。交付可以直接查看、使用或下载的成果，不只给操作建议。 请i直接给一个完整的论文 我要投ACL",
+  "launch": {
+    "hold": true
+  },
+  "pre_fix_manager_message": "我想把一个LLM RL想法做成可用成果。请先确认目标、交付物和验收条件，给出简短计划，再在我授权的范围内执行和检查。交付可以直接查看、使用或下载的成果，不只给操作建议。 请i直接给一个完整的论文 我要投ACL\n\n【开工设置（我在界面上选的）】\n- 交给团队后先别开工：Argus 会把排好的任务停在开始之前，等我点“开始执行”。"
+}
