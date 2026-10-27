@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   dropSupersededDrafts,
+  durableMessageId,
   mergeConversationEvents,
   mergeOptimisticManagerDelta,
   optimisticOperatorEvent,
@@ -17,6 +18,14 @@ describe('optimistic Manager conversation', () => {
       ts: 1,
       event_id: 'local-s-fast-1-operator',
     });
+  });
+
+  it('keys conversation revisions only by transcript ids, never by the page-local placeholder', () => {
+    // A reload restarts request ids at 1, so the placeholder would collide across days.
+    const operator = optimisticOperatorEvent('s-fast', 1, '你好', 1_000);
+    expect(durableMessageId(operator)).toBeUndefined();
+    const confirmed = mergeOptimisticManagerDelta([operator], 's-fast', 1, '你好！', 'web-1-argus', 1_010);
+    expect(durableMessageId(confirmed[0])).toBe('web-1-operator');
   });
 
   it('renders and grows Manager SSE blocks without waiting for done', () => {

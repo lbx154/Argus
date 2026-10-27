@@ -90,6 +90,14 @@ export function settleOptimisticManagerTurn(
   });
 }
 
+const localOperatorId = (requestId: number) => `local-${requestId}-operator`;
+
+/** The transcript id of a sent message; a page-local placeholder is not one. */
+export function durableMessageId(event: EventMsg): string | undefined {
+  const id = event.message_id;
+  return typeof id === 'string' && id && id !== localOperatorId(Number(event[LOCAL_REQUEST_FIELD])) ? id : undefined;
+}
+
 export function optimisticOperatorEvent(
   sid: string,
   requestId: number,
@@ -102,7 +110,7 @@ export function optimisticOperatorEvent(
     text,
     ts: nowMs / 1_000,
     event_id: `local-${sid}-${requestId}-operator`,
-    message_id: `local-${requestId}-operator`,
+    message_id: localOperatorId(requestId),
     [LOCAL_REQUEST_FIELD]: requestId,
   };
 }

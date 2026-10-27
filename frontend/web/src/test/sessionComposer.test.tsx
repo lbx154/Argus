@@ -104,6 +104,56 @@ describe('cross-device drafts', () => {
   });
 });
 
+describe('drafts on one device', () => {
+  const ref = { attachment_id: 'att-123456789abc', relative_path: 'registered/a.txt', original_name: 'a.txt',
+    stored_name: 'a.txt', mime: 'text/plain', size_bytes: 1 };
+  // What the upload route returns: more keys, in another order, than a draft stores.
+  const receipt = { schema_version: 1, session_id: 's-A', attachment_id: ref.attachment_id, original_name: 'a.txt',
+    stored_name: 'a.txt', mime: 'text/plain', relative_path: ref.relative_path, size_bytes: 1, created_at: 1 };
+  let server: BrowserState;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', Object.assign(new EventTarget(), { setTimeout, clearTimeout }));
+    server = { value: {}, revision: 0 };
+    // Like the pydantic model: keep only the declared reference fields.
+    vi.spyOn(api, 'saveBrowserDraft').mockImplementation(async (_sid, value, revision) => {
+      server = { value: { ...value, uploaded: value.uploaded.map(item => ({ ...ref, ...Object.fromEntries(
+        Object.keys(ref).map(key => [key, Reflect.get(item, key)])) })) }, revision: revision + 1 };
+      return server;
+    });
+    vi.spyOn(api, 'browserDraft').mockImplementation(async () => server);
+  });
+  it('keeps an uploaded file draft after reload and focus instead of reporting another device', async () => {
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    const first = new File(['a'], 'a.txt');
+    const second = new File(['b'], 'b.txt');
+    act(() => { controller.setText('with file'); controller.setAttachments([first]); });
+    act(() => controller.rememberUploaded(controller.capture('s-A')!, first, receipt as typeof ref));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    act(() => controller.setAttachments([first, second]));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(controller.draft.attachments).toEqual([first, second]);
+    expect(controller.draft.missingAttachments ?? []).toEqual([]);
+    act(() => renderer.unmount());
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    expect(sync.status).toBe('ready');
+    expect(controller.draft.uploaded?.[0].attachment.attachment_id).toBe(ref.attachment_id);
+  });
+  it('does not bring a sent message back as a draft when the tab closed before the empty draft synced', async () => {
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    act(() => controller.setText('already sent'));
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(server.value.text).toBe('already sent');
+    act(() => { controller.consume(controller.capture('s-A')!, []); });
+    act(() => renderer.unmount());
+    await act(async () => { renderer = create(<SyncedProbe sid="s-A" />); });
+    expect(controller.draft.text).toBe('');
+    expect(sync.status).toBe('ready');
+    await act(async () => { vi.advanceTimersByTime(601); });
+    expect(server.value.text).toBe('');
+  });
+});
+
 describe('persistent text drafts and in-memory file revisions', () => {
   it('persists completed references, retains unfinished reminders and fences removed files', () => {
     mount();

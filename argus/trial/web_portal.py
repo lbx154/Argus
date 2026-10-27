@@ -129,7 +129,8 @@ PROJECT_WRITES = re.compile(
     r"^/api/projects/[^/]+/(?:attachments|message(?:/stream|/cancel)?|advisor/config|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
-    r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?)$"
+    r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?|"
+    r"browser-draft|editions/(?:artifact|conversation))$"
 )
 # These operations must remain reachable while ordinary reads or message
 # streams occupy every workspace connection. Keep model-backed routes out.
@@ -490,7 +491,7 @@ def permitted(path: str, method: str) -> bool:
     if method == "POST":
         return bool(
             PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path)
-            or VERTICAL_WRITES.fullmatch(path) or path == "/api/daemons"
+            or VERTICAL_WRITES.fullmatch(path) or path in {"/api/daemons", "/api/browser-state/organization"}
             or re.fullmatch(r"/api/map-(?:copy|lines|cards|question-source)/(?:project|dataset)/[^/]+", path)
             or re.fullmatch(r"/api/trash/[^/]+/restore", path)
         )

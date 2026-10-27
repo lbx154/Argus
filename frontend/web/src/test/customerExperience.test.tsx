@@ -10,7 +10,7 @@ import { ActionNotice } from '../components/ActionNotice';
 import { ChatBox } from '../components/ChatBox';
 import { matchesQuery, verticalTitle } from '../lib/verticalStore';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HistorySearch } from '../components/ExperiencePanels';
+import { DraftSyncStatus, HistorySearch } from '../components/ExperiencePanels';
 
 vi.mock('../i18n', () => ({ useI18n: () => ({
   locale: 'zh-CN', setLocale: vi.fn(),
@@ -187,5 +187,12 @@ describe('project organization', () => {
     expect(verticalTitle(row, 'zh-CN')).toBe('软件开发');
     expect(matchesQuery(row, '软件开发')).toBe(true);
     expect(row.name).toBe('software');
+  });
+});
+
+describe('draft sync status', () => {
+  it('does not claim a trial space outside the hosted trial', () => {
+    act(() => { view = create(<DraftSyncStatus sync={{ status: 'ready', pending: false, error: undefined, resolve: vi.fn(), retry: vi.fn() }} />); });
+    expect(text(view.root.findByProps({ role: 'status' }))).toBe('草稿已同步');
   });
 });
