@@ -496,8 +496,6 @@ export default function App() {
   // Leaving a project "+ 新建" made, with nothing sent, typed or attached,
   // removes it (reversibly, to the trash) instead of leaving another
   // "未命名项目" in the list.
-  const leavingDraftRef = useRef(false);
-  leavingDraftRef.current = Boolean(composerDraft.trim() || composerAttachments.length);
   const previousSidRef = useRef(activeSid);
   useEffect(() => {
     const previous = previousSidRef.current;
@@ -505,13 +503,15 @@ export default function App() {
     if (!previous || previous === activeSid || untouchedNewRef.current !== previous) return;
     untouchedNewRef.current = null;
     const before = queryClient.getQueryData<Parameters<typeof isFreshProject>[0]>(['snapshot', previous]);
-    if (kiosk || leavingDraftRef.current || (before && !isFreshProject(before))) return;
+    const left = captureDraft(previous);
+    if (kiosk || left?.text.trim() || left?.attachments.length || left?.uploaded?.length
+      || (before && !isFreshProject(before))) return;
     void api.deleteProject(previous).then(() => {
       queryClient.setQueryData<{ projects: ProjectRow[]; local_cwd: string }>(['projects'], (current) => current
         ? { ...current, projects: current.projects.filter((project) => project.id !== previous) } : current);
       void projectsQ.refetch();
     }).catch(() => undefined);
-  }, [activeSid, kiosk, projectsQ, queryClient]);
+  }, [activeSid, captureDraft, kiosk, projectsQ, queryClient]);
   const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
   useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
   const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);

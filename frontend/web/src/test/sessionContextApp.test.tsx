@@ -154,6 +154,25 @@ describe('App session composer ownership', () => {
     expect(footer?.type).toBe(ComposerRuntime);
     expect(footer?.props?.sid).toBe('s-A');
   });
+  it('judges a new project by its own draft when leaving it, not the destination draft', async () => {
+    fixture.index.data = { ...fixture.index.data, projects: [...fixture.index.data.projects, { id: 's-N', label: 's-N', last_active: 1, daemon_alive: false, objective: '', launch_cwd: '/synthetic/s-N', daemon_pid: null, uptime_seconds: null }] };
+    refresh();
+    fixture.snapshots.set('s-N', { ...fixture.idle, data: snapshot('s-N') });
+    vi.spyOn(api, 'createDaemon').mockResolvedValue({ sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>);
+    const trash = vi.spyOn(api, 'deleteProject').mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.deleteProject>>);
+    const startNew = async () => act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    await startNew();
+    expect((props().footer as { props: { sid: string } }).props.sid).toBe('s-N');
+    type('typed request in the new project');
+    select('s-B');
+    expect(trash).not.toHaveBeenCalled();
+    select('s-N'); expect(props().value).toBe('typed request in the new project');
+    type(''); select('s-A');
+    type('A has its own draft');
+    await startNew();
+    await act(async () => { select('s-A'); });
+    expect(trash).toHaveBeenCalledWith('s-N');
+  });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');
     type('A draft');
