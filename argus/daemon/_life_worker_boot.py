@@ -460,8 +460,9 @@ class LifeWorkerBootMixin:
     def _rf_manager_divide_on_boot(self, rf_state: _RunForeverState) -> None:
         """Persist the vertical via ``Manager.divide`` before the supervisor starts.
 
-        The Manager's session belongs to the web server that runs its turns; a
-        daemon starting does not touch it.
+        A daemon starting does not reset the Manager's session. A project with
+        no route yet gets one from the Manager's ticket on the objective, a turn
+        of that session as at the front door (``manager_ticket``).
         """
         # Manager divides the task before the supervisor starts — same as the
         # foreground path (apps/_runtime.run_life_supervisor): classify the vertical,
@@ -492,9 +493,11 @@ class LifeWorkerBootMixin:
                 if mgr is None:
                     raise RuntimeError("runner was constructed without a Manager")
                 from ..manager.front_door import (
+                    manager_ticket,
                     require_manager_execution_task,
                 )
                 from ..skills.vertical_select import (
+                    AwaitingManagerTicketError,
                     _persisted_domain,
                     _persisted_vertical,
                 )
@@ -509,7 +512,12 @@ class LifeWorkerBootMixin:
                 prior_domain = _persisted_domain(
                     rf_state.runtime_root
                 )
-                decision = mgr.decide_vertical(source_objective)
+                try:
+                    decision = mgr.decide_vertical(source_objective)
+                except AwaitingManagerTicketError:
+                    # A fresh project has no route yet: the Manager chooses
+                    # one in its ticket, as at the front door.
+                    decision = manager_ticket(rf_state.mem, source_objective, rf_state.runner)
                 execution_task = require_manager_execution_task(decision)
                 prior_handoff = _read_manager_handoff_identity(rf_state.runtime_root)
                 if prior_handoff is None and prior_vertical:
