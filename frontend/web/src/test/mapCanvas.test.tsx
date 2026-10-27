@@ -8,6 +8,7 @@ import { api } from "../api";
 import { MapCanvas } from "../map/MapPanel";
 import { EMPTY_CANVAS, placeAroundPeople, type CanvasRecord } from "../map/canvas";
 import type { Dataset } from "../map/model";
+import type { DispatchObserver } from "../map/submission";
 
 vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
@@ -209,6 +210,19 @@ it("hands an idea card to the team as a message to the Manager that quotes the c
   const [marker, ask] = text.split("\n");
   expect(JSON.parse(marker.slice("[[Argus引用 ".length, -2))).toMatchObject({ task_id: "hc-1", task_title: "写一个导出", event_ids: [] });
   expect(ask).toBe("把这张卡做成任务：写一个导出");
+});
+
+it.each(["error", "cancelled"] as const)("drops the card notice and opens the conversation when a card message ends %s", async (outcome) => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  const onSend = vi.fn(async (_text: string, _files?: File[], observe?: DispatchObserver) => { observe?.({ type: "settled", outcome }); return true; });
+  remount({ composer: { ...props.composer, onSend } });
+  openCardMenu("hc-1");
+  act(() => menuItem("交给团队").props.onClick());
+  await flush();
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(renderer.root.findAll((n) => n.type === "span" && n.children.includes("已发给 Argus，回复在对话里"))).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: "map-conversation nowheel nodrag nopan" })).toHaveLength(1);
 });
 
 it("keeps the person's draft: a hand-off then waits in the composer", async () => {

@@ -343,16 +343,19 @@ export function MapCanvas({
     }
     const observe: DispatchObserver = (result) => {
       if (result.type === 'task') hasTask = true;
-      if (alive.current && result.type === 'settled' && aboutCard) {
-        quietUntil.current = 0;
-        if (result.outcome === 'message' && !hasTask) setConversationNotice(zh ? "Argus 已回复" : "Argus replied");
-        else if (hasTask) setConversationNotice(zh ? "已交给团队，新任务出现在画布上" : "Handed to the team; the new task is on the canvas");
-      } else if (alive.current && result.type === 'settled' && result.outcome === 'message' && !hasTask) { setConversationOpen(true); setAgentsOpen(false); }
+      if (alive.current && result.type === 'settled') {
+        if (aboutCard) quietUntil.current = 0;
+        // A card message that made a task, or got its reply, keeps the canvas
+        // in view; anything else (a plain reply, a failure, a cancel) opens
+        // the conversation, where it is shown.
+        if (aboutCard && hasTask) setConversationNotice(zh ? "已交给团队，新任务出现在画布上" : "Handed to the team; the new task is on the canvas");
+        else if (aboutCard && result.outcome === 'message') setConversationNotice(zh ? "Argus 已回复" : "Argus replied");
+        else if (aboutCard || (result.outcome === 'message' && !hasTask)) { setConversationNotice(""); setConversationOpen(true); setAgentsOpen(false); }
+      }
       if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
     };
     try {
       const accepted = await composer.onSend(text, files, observe);
-      if (!accepted && aboutCard) { quietUntil.current = 0; setConversationNotice(""); }
       if (!accepted) observe({ type: 'settled', outcome: 'error' });
       return accepted;
     } catch (error) {
