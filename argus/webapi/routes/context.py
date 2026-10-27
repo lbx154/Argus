@@ -19,6 +19,8 @@ from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_second
 STREAM_PROTOCOL = "argus"
 BEARER_PROTOCOL = "argus.bearer."
 BROWSER_COOKIE = "argus_browser_access"
+# The project list a browser can open; history search covers exactly these.
+PROJECT_LIST_LIMIT = 100
 
 
 class ServerContext:

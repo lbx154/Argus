@@ -109,3 +109,17 @@ def test_browser_session_uses_httponly_cookie_and_rejects_cross_origin_mutations
         assert client.post(path, headers={"Origin": "http://testserver"}, json=body).status_code == 200
         assert client.delete("/api/browser-session", headers={"Origin": "http://testserver"}).status_code == 200
         assert client.get("/api/projects").status_code == 401
+
+
+def test_search_only_returns_projects_the_project_list_can_open(tmp_path, monkeypatch):
+    from argus.webapi.routes import context
+
+    monkeypatch.setattr(context, "PROJECT_LIST_LIMIT", 1)
+    project(tmp_path, "s-older")
+    project(tmp_path, "s-newer")
+    with TestClient(create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        listed = {item["id"] for item in client.get("/api/projects", headers=AUTH).json()["projects"]}
+        found = client.get("/api/search?q=证据", headers=AUTH).json()
+        assert len(listed) == 1
+        assert {item["sid"] for item in found["results"]} == listed
+        assert found["partial"]

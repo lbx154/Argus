@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from ...apps.cli import _follow as event_follow
 from ...life import memory as life_memory
 from .. import daemon_lifecycle, project_crud, project_state, server
+from . import context
 from .context import ServerContext
 from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 
@@ -18,7 +19,7 @@ from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 def register_project_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/projects", dependencies=[Depends(ctx.require_auth)])
     async def _projects(
-        limit: int = Query(100, ge=1, le=2000),
+        limit: int = Query(context.PROJECT_LIST_LIMIT, ge=1, le=2000),
         include_empty: bool = Query(False),
     ) -> dict[str, Any]:
         return {
