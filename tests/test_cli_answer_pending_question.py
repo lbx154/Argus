@@ -14,6 +14,7 @@ resumes with the answer in its objective, as authority.
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,12 +46,12 @@ def _args(_tmp_path, **over):
 
 @pytest.fixture
 def _project(tmp_path, monkeypatch):
-    class _Bundle:
-        class project:
-            root = tmp_path
-
-    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda args: _Bundle())
-    return tmp_path
+    life = tmp_path / "projects" / "s-answer"
+    life.mkdir(parents=True)
+    bundle = SimpleNamespace(project=SimpleNamespace(root=life, fingerprint="s-answer"), global_root=tmp_path)
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda args: bundle)
+    monkeypatch.setattr("argus.webapi.daemon_lifecycle.start_project_daemon", lambda *_a, **_k: {"rc": 0})
+    return life
 
 
 def test_empty_answers_are_refused(_project) -> None:
@@ -103,6 +104,7 @@ def test_framework_deployment_answer_uses_the_decision_boundary(
             "id": "decision-1",
             "status": "pending",
             "decision_kind": "framework_deployment",
+            "options": [{"id": "adopt", "label": "Adopt"}, {"id": "decline", "label": "Decline"}],
         },
     )
     observed = {}

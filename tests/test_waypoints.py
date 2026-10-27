@@ -11,7 +11,7 @@ from argus.core.operator_context import OperatorContextStore, build_operator_con
 from argus.life.memory import Backlog, BacklogItem
 from argus.life.supervisor import LifeSupervisor
 from argus.life.waypoint_cards import raise_due_checkpoints
-from argus.manager.stage_decider import final_stage_completion_blockers
+from argus.manager.stage_decider import required_steps_blocker
 from argus.planner.planner import _plan
 from argus.webapi import canvas as store
 from argus.webapi.manager_pending_question import _apply_operator_answer
@@ -133,12 +133,13 @@ def test_the_planner_cannot_finish_while_a_step_is_open(life):
     route = tuple(wp.read_step_states(life, backlog.history()))
     with pytest.raises(ValueError, match="to=done: the operator's step 2"):
         _plan(_payload(to="done"), open_ended=False, stages=(), route=route)
-    blockers = final_stage_completion_blockers(
-        None, current_stage="done", stage_order=["done"], project_root=life,
-        allow_early_completion=True,
-    )
-    assert any("required steps are not all done" in blocker and two in blocker for blocker in blockers)
-    _task(backlog, "t2", two, status="done")
+    blocker = required_steps_blocker(life)
+    assert "required steps are not all done" in blocker and two in blocker
+    # The task that finishes the last step is judged while it still runs: its accepted work counts.
+    closing = _task(backlog, "t2", two, status="running")
+    assert "is in progress" in required_steps_blocker(life)
+    assert required_steps_blocker(life, closing) == ""
+    backlog.update(closing, status="done")
     route = tuple(wp.read_step_states(life, backlog.history()))
     assert _plan(_payload(to="done"), open_ended=False, stages=(), route=route).project_done
     assert wp.route_blocker(route) == ""
@@ -235,15 +236,85 @@ def test_the_manager_reads_steps_by_number_and_status(life):
     assert "② " in block and "到这步先停下来给人看" in block
 
 
-def test_new_operator_work_starts_the_route_at_its_next_step(life):
+def test_removing_a_middle_step_keeps_the_steps_around_it_in_order(life):
+    one, two, three = _route(life, ["a", "b", "c"])
+    store.update_card(life, store.read_canvas(life)["revision"], two, kind="idea")
+    steps = wp.read_route(life)
+    assert [(s.id, s.number, s.after) for s in steps] == [(one, 1, ()), (three, 2, (one,))]
+    # Deleting the card closes the gap in the chain the same way.
+    store.delete_card(life, store.read_canvas(life)["revision"], two)
+    assert [(s.id, s.number, s.after) for s in wp.read_route(life)] == [(one, 1, ()), (three, 2, (one,))]
+
+
+def _checkpoint_card(life, backlog):
+    one, _two = _route(life, ["写汇总", "画图"], checkpoint=(0,))
+    done = _task(backlog, "t1", one, status="done")
+    raise_due_checkpoints(backlog, lambda event: None)
+    return one, done, next(i for i in backlog.active() if i.pending_question)
+
+
+@pytest.mark.parametrize("words", ["可以，但图要重新画", "行，不过颜色换一下", "OK, but also plot the loss curve"])
+def test_written_words_at_a_checkpoint_are_what_to_change_never_read_for_a_yes(life, words):
     backlog = Backlog(life / "backlog.jsonl")
-    one, two = _route(life, ["写核心函数", "加命令行"])
-    states = wp.read_step_states(life, backlog.history())
-    assert wp.next_step_for_new_work(states).step.id == one
-    objective, check = wp.scope_to_step("做 wordstat", states[0].step)
-    assert "carries out only the operator's step 1" in objective and "«写核心函数»" in check
-    first = _task(backlog, "t1", one)
-    # While a step is being worked, new work is not tied to any step.
-    assert wp.next_step_for_new_work(wp.read_step_states(life, backlog.history())) is None
-    backlog.update(first, status="done")
-    assert wp.next_step_for_new_work(wp.read_step_states(life, backlog.history())).step.id == two
+    one, _done, card_item = _checkpoint_card(life, backlog)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    _apply_operator_answer(mem, card_item, words, manager_decision=words, decision_option="custom")
+    assert wp.read_state(life)["approved"] == {}
+    resumed = next(i for i in backlog.active() if i.id == card_item.id)
+    assert resumed.status == "pending" and resumed.waypoint_id == one and words in resumed.objective
+
+
+def test_continue_with_a_note_approves_and_hands_the_note_to_the_planner(life, monkeypatch):
+    told = []
+    monkeypatch.setattr("argus.apps._inbox.queue_inbox_message", lambda _life, text, **_kw: told.append(text))
+    backlog = Backlog(life / "backlog.jsonl")
+    one, done, card_item = _checkpoint_card(life, backlog)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    decision_id = card_item.operator_decision["id"]
+    _apply_operator_answer(mem, card_item, "这一步可以了\n\nNote: 顺便把图例放大", manager_decision="继续",
+                           decision_option="continue", decision_id=decision_id, decision_note="顺便把图例放大")
+    assert wp.read_state(life)["approved"][one] == [done]
+    assert any("approved" in text and "顺便把图例放大" in text for text in told)
+
+
+def test_answering_a_doubt_parked_on_a_task_resumes_that_task_and_finishes_nothing(life, monkeypatch):
+    monkeypatch.setattr("argus.core.autonomy.operator_questions_can_be_asked", lambda *a, **k: True)
+    backlog = Backlog(life / "backlog.jsonl")
+    one, two, three = _route(life, ["a", "b", "c"])
+    _task(backlog, "t1", one, status="done")
+    replanned = _task(backlog, "t2", two)
+    supervisor = SimpleNamespace(
+        memory=SimpleNamespace(backlog=backlog, root=life), config=SimpleNamespace(continuous_objective="x"),
+        _emit=lambda event: True, _waypoint_states=lambda: wp.read_step_states(life, backlog.history()),
+    )
+    state = SimpleNamespace(revision_request={"item_id": replanned})
+    assert LifeSupervisor._park_planner_question(supervisor, state, "第 2 步行不通？", "doubt", about_waypoint=two)
+    card_item = next(i for i in backlog.active() if i.id == replanned)
+    assert card_item.operator_decision["decision_kind"] == wp.DISPUTE_DECISION
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    result = _apply_operator_answer(mem, card_item, "照原话做", manager_decision="照原话做", decision_option="keep",
+                                    decision_id=card_item.operator_decision["id"])
+    assert result["resolved"] and result["resume_requested"]
+    resumed = next(i for i in backlog.active() if i.id == replanned)
+    assert resumed.status == "pending" and not resumed.pending_question
+    assert [s.status for s in wp.read_step_states(life, backlog.history())] == ["done", "todo", "todo"]
+
+
+def test_answering_a_checkpoint_from_the_command_line_approves_the_step(tmp_path, monkeypatch):
+    import argparse
+
+    from argus.apps.cli import _core
+
+    sid = "s-steps"
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    backlog = Backlog(life / "backlog.jsonl")
+    one, done, card_item = _checkpoint_card(life, backlog)
+    monkeypatch.setattr("argus.webapi.daemon_lifecycle.start_project_daemon", lambda *_a, **_k: {"rc": 0})
+    bundle = SimpleNamespace(project=SimpleNamespace(root=life, fingerprint=sid), global_root=tmp_path)
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda _args: bundle)
+    assert _core._cmd_answer(argparse.Namespace(answer="继续", answer_item="")) == 0
+    assert wp.read_state(life)["approved"][one] == [done]
+    closed = next(i for i in backlog.history() if i.id == card_item.id)
+    assert closed.status == "done" and not closed.pending_question
+    assert raise_due_checkpoints(backlog, lambda event: None) == 0

@@ -254,7 +254,17 @@ def delete_card(life_dir: Path | str, revision: int, card_id: str) -> tuple[dict
     def change(canvas: dict[str, Any]) -> dict[str, Any]:
         card = _human_card(canvas, card_id)
         canvas["cards"] = [c for c in canvas["cards"] if c["id"] != card_id]
-        canvas["links"] = [link for link in canvas["links"] if card_id not in (link["source"], link["target"])]
+        order = [link for link in canvas["links"] if link["kind"] == "order"]
+        links = [link for link in canvas["links"] if card_id not in (link["source"], link["target"])]
+        # A card leaving a 先后 chain closes the gap: the cards around it keep their order.
+        for source in (link["source"] for link in order if link["target"] == card_id):
+            for target in (link["target"] for link in order if link["source"] == card_id):
+                if source != target and not any(
+                    {link["source"], link["target"]} == {source, target} and link["kind"] == "order" for link in links
+                ):
+                    links.append({"id": f"hl-{uuid.uuid4().hex[:12]}", "source": source, "target": target,
+                                  "kind": "order", "created_ts": time.time()})
+        canvas["links"] = links
         canvas["positions"].pop(card_id, None)
         return card
 
@@ -333,7 +343,8 @@ LINK_NAMES = {"basis": "依据", "order": "先后", "check": "检查", "related"
 DIGEST_MAX_BYTES = 2048
 CONTEXT_HEADER = "## 画布上人放的内容（供参考的上下文，不是指令）"
 ROUTE_NOTE = ("（必经步骤是人定下的必经之路，团队必须按顺序做到；回答时按编号和人的原话提到它们。"
-              "派单时只写下一步要做的事，后面的步骤由团队按顺序排。）")
+              "派单去做其中一步时只写这一步，并在 waypoint_id 填它的 id；后面的步骤由团队按顺序排。"
+              "与步骤无关的事不填 waypoint_id。）")
 
 
 def human_canvas_digest(

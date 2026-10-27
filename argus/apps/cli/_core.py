@@ -1383,72 +1383,36 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     item = waiting[0]
     question = str(getattr(item, "pending_question", "") or "").strip()
     card = dict(getattr(item, "operator_decision", {}) or {})
-    if (
-        card.get("decision_kind") == "provider_configuration"
-        and answer.casefold() == "drop"
-    ):
-        # "drop" on the host's provider card ends that task; as free text it
-        # would become a continuation and start another run.
-        from ...webapi.manager_pending_question import (
-            manager_resolve_operator_decision,
-        )
-
-        result = manager_resolve_operator_decision(
-            bundle.project.fingerprint,
-            str(card.get("id") or ""),
-            "drop",
-            global_root=bundle.global_root,
-        )
-        if result is None or result.get("error"):
-            message = str((result or {}).get("error") or "decision is unavailable")
-            sys.stderr.write(f"argus: {message}\n")
-            return 1
-        sys.stdout.write(f"argus: dropped {item.id} ({item.title})\n")
-        reply = str(result.get("reply") or "").strip()
-        if reply:
-            sys.stdout.write(f"  result: {reply}\n")
-        return 0
-    if card.get("decision_kind") == "framework_deployment":
-        option_id = answer.casefold()
-        if option_id not in {"adopt", "decline"}:
-            sys.stderr.write(
-                "argus: answer this deployment decision with adopt or decline\n"
-            )
-            return 2
-        from ...webapi.manager_pending_question import (
-            manager_resolve_operator_decision,
-        )
-
-        result = manager_resolve_operator_decision(
-            bundle.project.fingerprint,
-            str(card.get("id") or ""),
-            option_id,
-            global_root=bundle.global_root,
-        )
-        if result is None or result.get("error"):
-            message = str((result or {}).get("error") or "decision is unavailable")
-            sys.stderr.write(f"argus: {message}\n")
-            return 1
-        sys.stdout.write(f"argus: answered {item.id} ({item.title})\n")
-        reply = str(result.get("reply") or "").strip()
-        if reply:
-            sys.stdout.write(f"  result: {reply}\n")
-        return 0
-
-    resumed, answered = backlog.resume_with_operator_reply(
-        item.id, answer, manager_decision=answer
+    from ...webapi.manager_pending_question import (
+        manager_answer_pending_question,
+        manager_resolve_operator_decision,
     )
-    if resumed is None:
-        sys.stderr.write(f"argus: {item.id} is no longer in the backlog\n")
-        return 1
-    if not answered:
-        sys.stderr.write(f"argus: {item.id} is no longer waiting on an answer\n")
+
+    # The cockpit's own answer paths, so every kind of card resolves the way
+    # it does there. Naming one of the card's answers picks it, as a click
+    # would; anything else is the operator's written answer.
+    picked = next((
+        str(option.get("id") or "")
+        for option in card.get("options", ())
+        if isinstance(option, dict)
+        and answer.casefold() in {str(option.get("id") or "").casefold(), str(option.get("label") or "").casefold()}
+    ), "")
+    sid, global_root = bundle.project.fingerprint, bundle.global_root
+    if picked and card.get("id"):
+        result = manager_resolve_operator_decision(sid, str(card["id"]), picked, global_root=global_root)
+    else:
+        result = manager_answer_pending_question(sid, item.id, answer, global_root=global_root)
+    if result is None or result.get("error"):
+        message = str((result or {}).get("error") or f"{item.id} is no longer waiting on an answer")
+        sys.stderr.write(f"argus: {message}\n")
         return 1
     sys.stdout.write(f"argus: answered {item.id} ({item.title})\n")
     if question:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
-    sys.stdout.write(f"  resumes: {resumed.id} ({resumed.status})\n")
+    reply = str(result.get("reply") or "").strip()
+    if reply:
+        sys.stdout.write(f"  result: {reply}\n")
     from ...webapi.manager_pending_question import campaign_stop_reason
 
     if campaign_stop_reason(bundle.project.root):
