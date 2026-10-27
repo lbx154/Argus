@@ -181,3 +181,73 @@ def test_macos_hides_the_home_and_runtime_and_shows_the_workdir(tmp_path, monkey
     hidden, shown = command[2].split("(require-not ", 1)
     assert f'(subpath "{home}")' in hidden and f'(subpath "{workdir}")' in shown
     assert command[-1] == os.path.realpath("/bin/echo")
+
+
+def _codex_setup(tmp_path: Path) -> tuple[dict[str, str], dict[str, Path]]:
+    """A codex home whose config names files the way a real one does."""
+    home, codex, shared = tmp_path / "home", tmp_path / "codex", tmp_path / "shared"
+    for path in (home, codex, shared, codex / "prompts"):
+        path.mkdir(parents=True)
+    files = {
+        "catalog": shared / "models-1m.json",
+        "instructions": codex / "prompts" / "base.md",
+        "compact": home / "compact.md",
+        "profile": codex / "fast.config.toml",
+        "profile-catalog": shared / "fast-models.json",
+        "sibling": shared / "other-secret.txt",
+    }
+    for path in files.values():
+        path.write_text("{}\n")
+    (codex / "config.toml").write_text(
+        f'model_catalog_json = "{files["catalog"]}"\n'
+        'model_instructions_file = "prompts/base.md"\n'
+        'experimental_compact_prompt_file = "~/compact.md"\n'
+        f'experimental_instructions_file = "{shared}"\n'
+        f'[profiles.old]\nmodel_instructions_file = "{shared / "missing.md"}"\n'
+    )
+    files["profile"].write_text(f'model_catalog_json = "{files["profile-catalog"]}"\n')
+    return {**os.environ, "HOME": str(home), "CODEX_HOME": str(codex)}, files
+
+
+def _read_only_binds(command: list[str]) -> set[str]:
+    return {command[i + 1] for i, arg in enumerate(command) if arg == "--ro-bind-try"}
+
+
+def test_codex_brings_the_files_its_config_names_and_nothing_beside_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(sandbox, "sandbox_tool", lambda: "/usr/bin/bwrap")
+    env, files = _codex_setup(tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    command = sandbox.isolated_workdir_command(
+        ["/bin/echo", "exec", "--profile", "fast"], backend="codex", working_dir=workdir, env=env,
+    )
+    bound = _read_only_binds(command)
+    for label in ("catalog", "instructions", "compact", "profile", "profile-catalog"):
+        assert str(files[label]) in bound, label
+    assert str(files["catalog"].parent) not in bound  # a directory setting brings nothing
+    assert str(files["sibling"]) not in bound
+    assert str(files["catalog"].parent / "missing.md") not in bound
+
+    # Another backend, or a config codex cannot parse, brings nothing extra.
+    other = sandbox.isolated_workdir_command(["/bin/echo"], backend="claude", working_dir=workdir, env=env)
+    assert str(files["catalog"]) not in _read_only_binds(other)
+    (Path(env["CODEX_HOME"]) / "config.toml").write_text("model_catalog_json = [unclosed\n")
+    broken = sandbox.isolated_workdir_command(["/bin/echo"], backend="codex", working_dir=workdir, env=env)
+    assert str(files["catalog"]) not in _read_only_binds(broken)
+
+
+def test_codex_reads_its_model_catalog_inside_the_sandbox(tmp_path, monkeypatch, host_sandbox):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "state"))
+    env, files = _codex_setup(tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    script = f"cat {files['catalog']} && echo > {files['catalog']}; cat {files['sibling']}"
+    command = sandbox.isolated_workdir_command(
+        ["/bin/sh", "-c", script], backend="codex", working_dir=workdir, env=env,
+    )
+    result = subprocess.run(command, env=env, cwd=workdir, capture_output=True, text=True, timeout=60)
+    assert result.stdout == "{}\n", result.stderr
+    assert "Read-only file system" in result.stderr
+    assert "other-secret.txt" in result.stderr  # the catalog's neighbour stays out of sight
+    assert files["catalog"].read_text() == "{}\n"
