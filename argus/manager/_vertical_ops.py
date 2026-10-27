@@ -367,7 +367,7 @@ class _VerticalDecisionMixin:
             if not persisted_vertical:
                 # A project from before tickets, or work nobody handed over:
                 # held until the operator's next message brings the Manager's ticket.
-                raise vertical_select.VerticalResolutionError(
+                raise vertical_select.AwaitingManagerTicketError(
                     "Waiting for the Manager's ticket: no route has been chosen for this work yet."
                 )
             # Work the Manager already routed keeps the route its ticket chose.

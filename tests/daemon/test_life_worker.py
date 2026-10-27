@@ -1690,6 +1690,128 @@ def test_bounded_daemon_exits_when_manager_objective_is_not_dispatched(
     assert "event_validation" not in failed[0]
 
 
+def test_fresh_project_daemon_objective_is_dispatched_on_the_managers_ticket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``argus --daemon --continuous --objective ... --bounded`` on a new project.
+
+    Nothing routed it yet, so the daemon asks the Manager for its ticket, as
+    the front door does, instead of failing with "Waiting for the Manager's
+    ticket" before any model call.
+    """
+    from argus.apps._runtime_backends import _MemoryRunner
+    from argus.skills.vertical_select import resolve_vertical_if_decided
+    from tests.hand_off import ticket
+
+    global_root = tmp_path / "home"
+    life_dir = global_root / "projects" / "demo"
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(global_root))
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    turns: list[str] = []
+
+    def manager_turn(self, *, message, actions, **_kwargs):
+        turns.append(message)
+        actions.dispatch(*ticket("Write hello.py that prints hello."))
+        return SimpleNamespace(success=True, stop_reason="", delivery=None)
+
+    monkeypatch.setattr(_MemoryRunner, "manager_turn", manager_turn, raising=False)
+    seen: dict[str, Any] = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["objective"] = self.config.continuous_objective
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=global_root,
+            project_fingerprint="demo",
+            project_workdir=workdir,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective="write hello.py",
+            continuous_open_ended=False,
+        )
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert len(turns) == 1 and turns[0].startswith("write hello.py")
+    assert seen["objective"].startswith("Write hello.py that prints hello.")
+    assert resolve_vertical_if_decided(life_dir) == "software"
+    events = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    types = [event["type"] for event in events]
+    assert "life.manager.intent.completed" in types
+    assert "life.manager.intent.failed" not in types
+
+
+def test_fresh_project_daemon_objective_without_a_ticket_is_not_dispatched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.apps._runtime_backends import _MemoryRunner
+
+    global_root = tmp_path / "home"
+    life_dir = global_root / "projects" / "demo"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(global_root))
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    def manager_turn(self, *, sink, **_kwargs):
+        # The Manager only replies; no one reads a reply at daemon boot.
+        sink.handle_event({"type": "round.main.completed", "exit_code": 0, "last_message": "Sure."})
+        return SimpleNamespace(success=True, stop_reason="", delivery=None)
+
+    monkeypatch.setattr(_MemoryRunner, "manager_turn", manager_turn, raising=False)
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def run(self) -> dict[str, Any]:
+            raise AssertionError("an objective without a ticket must not drain")
+
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=global_root,
+            project_fingerprint="demo",
+            project_workdir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective="write hello.py",
+            continuous_open_ended=False,
+        )
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 2
+    failed = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"life.manager.intent.failed"' in line
+    ]
+    assert len(failed) == 1 and "no ticket for the team" in json.dumps(failed[0])
+
+
 def test_bounded_daemon_exits_after_project_done(
     tmp_path: Path,
 ) -> None:

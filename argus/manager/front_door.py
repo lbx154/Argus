@@ -1100,13 +1100,15 @@ def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
 
 def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                  on_fragment: Any = None, root_task_id: str | None = None,
-                 team_allowed: bool = True, setup: str = "") -> "tuple[str | None, HandOff | None]":
+                 team_allowed: bool = True, setup: str = "", runner: Any = None) -> "tuple[str | None, HandOff | None]":
     """Hand one operator message to the Manager's session: its reply, and what it handed off.
 
     The tasks paused on a question for the operator go with the message, so the
     Manager can apply its answer, and so do what the team told the operator
     since its last turn and a stage question still waiting for its ruling. ``setup`` is the state of a workflow setup
-    under way with the operator, which the message continues.
+    under way with the operator, which the message continues. ``runner`` is
+    the runner whose Manager takes the turn (the daemon's own); by default the
+    front door's.
 
     The reply is ``None`` only when no Manager is available. A failed turn
     replies with the failure and sets ``chat_state["_self_failure"]``.
@@ -1124,7 +1126,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
-    runner = _ensure_manager_runner(chat_state, mem)
+    runner = runner or _ensure_manager_runner(chat_state, mem)
     if runner is None:
         return None, None
     chinese = uses_cjk(body)
@@ -1234,6 +1236,27 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
 
 
+_STARTED_ON_OBJECTIVE = (
+    "The operator started the team from the command line on the objective above, "
+    "and no one reads a reply here: hand it to the team."
+)
+
+
+def manager_ticket(mem: Any, objective: str, runner: Any) -> Any:
+    """The route for an objective handed in without a conversation (the daemon's ``--objective``).
+
+    The Manager chooses it as at the front door: one turn of its session, whose
+    ``to=team`` ticket carries the route, checked by ``Manager.adopt_route``.
+    No one is there to read a reply, so anything but a ticket fails closed.
+    """
+    chat_state: dict[str, Any] = {}
+    reply, handoff = manager_turn(mem, f"{objective}\n\n{_STARTED_ON_OBJECTIVE}", chat_state, runner=runner)
+    if handoff is None or handoff.to != "team":
+        said = (chat_state.get("_self_failure") or {}).get("detail") or reply or "no reply"
+        raise ManagerHandoffError(f"the Manager wrote no ticket for the team: {said}")
+    return handoff.value
+
+
 def _extract_chat_reply_text(msg: str) -> str:
     """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
     msg = (msg or "").strip()
@@ -1266,6 +1289,7 @@ __all__ = [
     "manager_execution_task",
     "manager_bounded_handoff",
     "manager_continuous_handoff",
+    "manager_ticket",
     "manager_turn",
     "mission_is_running",
     "prepare_manager_execution_task",
