@@ -646,7 +646,7 @@ def test_an_answered_task_shows_the_operator_their_request_at_the_top(tmp_path: 
     request = "truncate 选 A 还是 B？"
     row = {
         "id": "t-1", "title": "确认 truncate 的取舍", "status": "running",
-        "objective": "Authoritative Manager operator-answer decision:\nA", "manager_decision": {"display_objective": request},
+        "objective": "Authoritative answer from the operator:\nA", "manager_decision": {"display_objective": request},
     }
     view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[row])
 

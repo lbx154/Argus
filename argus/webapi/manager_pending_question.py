@@ -563,8 +563,9 @@ def _resume_with_answer(
         }
 
     life_dir = Path(mem.project_root)
+    who = "OPERATOR" if decided_by == "operator" else "MANAGER"
     directive = (
-        "[MANAGER OPERATOR-ANSWER DECISION] "
+        f"[{who} ANSWER] "
         f"Task {item.id} was answered and resumes with this decision: {manager_decision} "
         "Treat this as authority/context and deactivate any stale waiting contract. "
         "Do not enqueue duplicate work for that task."

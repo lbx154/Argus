@@ -93,7 +93,7 @@ def test_an_answered_task_starts_and_ends_under_the_operator_s_request(tmp_path)
     decision brief once an answered task ran."""
     memory = LifeMemory.open(tmp_path / "life")
     memory.backlog.add(BacklogItem.new(
-        title="pick A", objective="Authoritative Manager operator-answer decision:\nA",
+        title="pick A", objective="Authoritative answer from the operator:\nA",
         tags=["scope:bounded"],
         manager_decision={
             "routed": True, "vertical": "software", "workflow_mode": "direct",

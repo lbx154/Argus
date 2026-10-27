@@ -474,6 +474,42 @@ def test_clicking_an_option_answers_with_its_words(tmp_path: Path) -> None:
     )
 
 
+def test_a_clicked_answer_reaches_the_team_as_the_operator_s(tmp_path: Path) -> None:
+    """Trial s-efe9deac events:2787-2788: the operator clicked an option, no
+    Manager ran, and the team read "[MANAGER OPERATOR-ANSWER DECISION]" with
+    an objective headed "Authoritative Manager operator-answer decision"."""
+    from argus.apps._inbox import claim_inbox_message
+
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _park(
+        life, "实现全部比较方法的共享训练入口并跑通真实训练路径",
+        "任务要求保存基础设施 Skill 并更新 Wiki，但本轮明确的可写路径不包含 .agents/skills 和 Wiki；"
+        "是否允许这两处写入，以完成记录后进入独立检查？",
+        (
+            {"label": "允许这两处项目目录写入",
+             "description": "保存已完成调查的可复用决策与有范围限定的事实，然后交独立检查。"},
+            {"label": "维持当前范围，允许记录另行交接",
+             "description": "本轮保留已有来源和命令，免除这两处写入，由获授权的后续任务完成。"},
+        ),
+    )
+
+    manager_pending_question.manager_resolve_operator_decision(
+        sid, item.operator_decision["id"], "option-1", "", global_root=tmp_path,
+    )
+
+    decision = "保存已完成调查的可复用决策与有范围限定的事实，然后交独立检查。"
+    relay = claim_inbox_message(life)
+    assert relay is not None and relay.text.startswith(
+        f"[OPERATOR ANSWER] Task {item.id} was answered and resumes with this decision: {decision}"
+    )
+    resumed = _resumed(life, item)
+    assert resumed.objective.startswith(f"Authoritative answer from the operator:\n{decision}")
+    assert "Manager" not in relay.text + resumed.objective + " ".join(resumed.tags)
+    (answered,) = _answered_events(life)
+    assert answered["decided_by"] == "operator"
+
+
 def test_a_written_answer_names_no_option(tmp_path: Path) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
@@ -797,6 +833,10 @@ def test_manager_answering_a_card_with_options_picks_one_of_them(
     assumption = read_autonomous_assumptions(life)[-1]
     assert assumption["source"] == "manager_decision"
     assert assumption["reading"].startswith("Ship the v2 schema")
+    from argus.apps._inbox import claim_inbox_message
+
+    assert claim_inbox_message(life).text.startswith(f"[MANAGER ANSWER] Task {item.id}")
+    assert resumed.objective.startswith("Authoritative answer from the Manager:\nShip the v2 schema")
 
 
 def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(
