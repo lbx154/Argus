@@ -437,8 +437,7 @@ select optgroup {
 }
 
 .icon-control,
-.compact-control,
-.send-control {
+.compact-control {
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
@@ -472,18 +471,6 @@ select optgroup {
 .composer-runtime button.composer-runtime-model { flex-shrink: 1; color: inherit; text-decoration: none; text-align: left; cursor: pointer; }
 .composer-runtime button.composer-runtime-model:hover { color: rgb(var(--blue)); text-decoration: underline; }
 .composer-runtime-next { color: rgb(var(--gold)); }
-
-.send-control {
-  border-color: transparent;
-  background: rgb(var(--accent));
-  color: rgb(var(--on-accent));
-  box-shadow: none;
-}
-
-.send-control:disabled {
-  background: rgb(var(--surface-2));
-  color: rgb(var(--ink-faint));
-}
 
 .session-card {
   border: 1px solid transparent;
@@ -624,11 +611,6 @@ select optgroup {
     color: rgb(var(--surface-1));
   }
 
-  .send-control:not(:disabled):hover {
-    border-color: transparent;
-    background: rgb(var(--accent-hover));
-    color: rgb(var(--on-accent));
-  }
   .brand-button-danger:hover { background: rgb(var(--err) / 14%); color: rgb(var(--err)); }
 }
 
@@ -1045,5 +1027,4 @@ button {
 @media (max-width: 640px), (pointer: coarse) {
   .result-card-actions button, .chat-context-tools button, .task-line-action { min-height: 44px; }
   .chat-context { padding: 8px 16px 6px; align-items: center; }
-  .project-overview-meta { display: none; }
 }

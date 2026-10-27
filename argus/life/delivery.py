@@ -549,45 +549,18 @@ def _is_test_path(path: str) -> bool:
     )
 
 
-_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"})
-_FIGURE_WORDS = re.compile(
-    r"图|绘|可视化|chart|plot|figure|graph|diagram|visuali[sz]|image|picture|\bpng\b|\bsvg\b",
-    re.IGNORECASE,
-)
-
-
-def asks_for_figure(*texts: object) -> bool:
-    """Whether a request or reply is about a chart, plot or other picture."""
-    return any(_FIGURE_WORDS.search(str(text or "")) for text in texts)
-
-
-def is_image_path(path: object) -> bool:
-    return Path(str(path or "")).suffix.lower() in _IMAGE_SUFFIXES
-
-
-def figures_first(targets: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Images lead (result first), keeping the order otherwise; tests never lead."""
-    return sorted(targets, key=lambda target: (
-        _is_test_path(str(target.get("path") or "")),
-        not is_image_path(target.get("path")),
-    ))
-
-
 def changed_workspace_paths(
     workspace: Path | str,
     before: dict[str, Any],
     after: dict[str, Any],
     *,
     named: Iterable[str] = (),
-    prefer_images: bool = False,
 ) -> list[str] | None:
     """Files that differ between two ``workspace_facts`` of ``workspace``, deliverables first.
 
     ``named`` files, which the caller knows changed (an ignored output the
     facts leave out, say), join them and lead; then docs and other outputs,
-    then tests. With ``prefer_images`` (the request is about a chart or
-    figure) a changed image leads: it is what the person looks at first, not
-    the code that drew it. Removed files are not deliverables and drop out.
+    then tests. Removed files are not deliverables and drop out.
     ``None`` when either side is unknown, which is never evidence that nothing
     changed.
     """
@@ -617,7 +590,7 @@ def changed_workspace_paths(
     return sorted(
         (path for path in paths if path and (root / path).is_file()),
         key=lambda path: (
-            _is_test_path(path), not (prefer_images and is_image_path(path)), path not in first,
+            _is_test_path(path), path not in first,
             Path(path).suffix.lower() not in _DOC_SUFFIXES, path,
         ),
     )
@@ -684,10 +657,6 @@ def build_delivery_receipt(
         )
         candidates.extend(_vertical_primary_targets(root, manifest_root, str(stage or "")))
 
-    if asks_for_figure(title, summary):
-        # A chart request is answered by the chart: rank images before the
-        # script that drew them, so the primary target is what to look at.
-        candidates = figures_first(candidates)
     targets: list[dict[str, str]] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -743,13 +712,10 @@ def build_delivery_receipt(
 __all__ = [
     "DELIVERY_SCHEMA_VERSION",
     "MAX_DELIVERY_TARGETS",
-    "asks_for_figure",
     "build_delivery_receipt",
     "changed_workspace_paths",
     "delivery_is_current",
     "delivery_snapshot_diff",
-    "figures_first",
-    "is_image_path",
     "read_delivery_snapshot",
     "snapshot_delivery_targets",
     "referenced_delivery_paths",

@@ -35,10 +35,10 @@ export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: s
  * The work behind one Argus reply: which tools ran, on what, and how each
  * ended. One compact line sits below the reply; details are opt-in.
  */
-export function TurnSteps({ steps, live, startedTs, status = '', replyShown = false }: {
+export function TurnSteps({ steps, live, startedTs, status = '', replied = false }: {
   steps: TurnStep[]; live: boolean; startedTs?: number; status?: string;
-  /** The reply text is already on screen; the turn is only wrapping up. */
-  replyShown?: boolean;
+  /** The final reply text is on screen, not an interim message mid-turn. */
+  replied?: boolean;
 }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
@@ -55,8 +55,9 @@ export function TurnSteps({ steps, live, startedTs, status = '', replyShown = fa
   const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
   const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
   const active = [...steps].reverse().find(step => step.status === 'running');
-  // Once the answer is visible a spinning "preparing a reply" would contradict it.
-  const finishing = live && replyShown;
+  // Once the final answer is visible a spinning "preparing a reply" would
+  // contradict it; an interim message leaves the turn working as before.
+  const finishing = live && replied;
   const summary = finishing ? (locale === 'zh-CN' ? '收尾中' : 'Wrapping up')
     : live
     ? `${active ? stepText(active, locale).primary : locale === 'zh-CN' ? '正在准备回复' : 'Preparing a reply'} · ${seconds}`

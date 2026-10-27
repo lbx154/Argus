@@ -1491,7 +1491,8 @@ export const api = {
           output: string;
         },
       ) => void;
-      onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
+      /** ``inProgress`` marks a snapshot of a reply still being written, not the final text. */
+      onDelta?: (block: string, messageId: string, fragmentMode: string, inProgress: boolean) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
     },
@@ -1534,6 +1535,7 @@ export const api = {
           String(f.text ?? ''),
           String(f.message_id ?? ''),
           String(f.fragment_mode ?? 'auto'),
+          f.live === true,
         );
       }
       else if (f.type === 'done') {

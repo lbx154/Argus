@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import artifacts
+from . import context
 from .context import BROWSER_COOKIE, ServerContext
 
 
@@ -172,7 +173,7 @@ def register_experience_routes(app, ctx: ServerContext) -> None:
     async def search(response: Response, q: str = Query(min_length=1, max_length=200),
                      limit: int = Query(50, ge=1, le=100)):
         response.headers["Cache-Control"] = "private, no-store"
-        projects = await ctx.machine_projects_async(limit=2000, include_empty=False)
+        projects = await ctx.machine_projects_async(limit=context.PROJECT_LIST_LIMIT, include_empty=False)
         return await ctx.query_executor.wait(ctx.query_executor.submit(lambda: search_projects(ctx, projects, q, limit)))
 
 
@@ -183,7 +184,8 @@ def search_projects(ctx: ServerContext, projects: list[dict], query: str, limit:
     results: list[dict] = []
     errors: list[str] = []
     scanned = 0
-    partial = len(projects) == 2000
+    # The openable project list is the whole search scope, not a read cap.
+    partial = False
 
     def match(sid, title, text, kind, **extra):
         nonlocal partial

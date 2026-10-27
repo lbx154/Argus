@@ -131,6 +131,20 @@ describe('project-scoped event stream', () => {
     expect(seeded.seen.size).toBe(2);
   });
 
+  it('says the fresh window has landed only after the seed, not after live pushes or a cached restore', () => {
+    // Deliveries settled before the project opened arrive in the seed; the
+    // side panel must not take its "new delivery" baseline before then.
+    const live = { type: 'ui.argus', event_id: 'live' } as EventMsg;
+    const restored = streamReducer({ sid: null, events: [], seen: new Set<string>() }, { kind: 'reset', sid: 's', events: [live] });
+    expect(restored.seeded).toBeFalsy();
+    const pushed = streamReducer(restored, { kind: 'push', sid: 's', ev: { type: 'ui.argus', event_id: 'next' } as EventMsg });
+    expect(pushed.seeded).toBeFalsy();
+    const seeded = streamReducer(pushed, { kind: 'seed', sid: 's', events: [live] });
+    expect(seeded.seeded).toBe(true);
+    expect(streamReducer(seeded, { kind: 'push', sid: 's', ev: { type: 'ui.argus', event_id: 'later' } as EventMsg }).seeded).toBe(true);
+    expect(streamReducer(seeded, { kind: 'reset', sid: 's2' }).seeded).toBeFalsy();
+  });
+
   it('requests an immediate artifact refresh for live-view and file events', () => {
     const unchanged = artifactRefreshEventKey([
       { type: 'engineer.progress', kind: 'assistant_message', ts: 1 } as EventMsg,

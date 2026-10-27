@@ -84,7 +84,7 @@ export function ComposerAttachmentChip({
         disabled={disabled}
         aria-label={removeLabel}
         title={removeLabel}
-        className="send-control h-8 w-8 shrink-0 rounded-full border-line/60 text-ink-faint hover:border-err/50 hover:bg-err/10 hover:text-err"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/60 text-ink-faint transition-colors hover:border-err/50 hover:bg-err/10 hover:text-err disabled:opacity-50"
       >
         ×
       </button>

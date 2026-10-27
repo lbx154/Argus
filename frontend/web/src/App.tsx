@@ -497,8 +497,6 @@ export default function App() {
   // Leaving a project "+ 新建" made, with nothing sent, typed or attached,
   // removes it (reversibly, to the trash) instead of leaving another
   // "未命名项目" in the list.
-  const leavingDraftRef = useRef(false);
-  leavingDraftRef.current = Boolean(composerDraft.trim() || composerAttachments.length);
   const previousSidRef = useRef(activeSid);
   useEffect(() => {
     const previous = previousSidRef.current;
@@ -506,13 +504,15 @@ export default function App() {
     if (!previous || previous === activeSid || untouchedNewRef.current !== previous) return;
     untouchedNewRef.current = null;
     const before = queryClient.getQueryData<Parameters<typeof isFreshProject>[0]>(['snapshot', previous]);
-    if (kiosk || leavingDraftRef.current || (before && !isFreshProject(before))) return;
+    const left = captureDraft(previous);
+    if (kiosk || left?.text.trim() || left?.attachments.length || left?.uploaded?.length
+      || (before && !isFreshProject(before))) return;
     void api.deleteProject(previous).then(() => {
       queryClient.setQueryData<{ projects: ProjectRow[]; local_cwd: string }>(['projects'], (current) => current
         ? { ...current, projects: current.projects.filter((project) => project.id !== previous) } : current);
       void projectsQ.refetch();
     }).catch(() => undefined);
-  }, [activeSid, kiosk, projectsQ, queryClient]);
+  }, [activeSid, captureDraft, kiosk, projectsQ, queryClient]);
   const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
   useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
   const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
@@ -546,7 +546,7 @@ export default function App() {
   }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected, restored: eventsRestored } = useEventStream(loadedSid, eventView.reconnectKey);
+  const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
   useEffect(() => {
@@ -1021,6 +1021,7 @@ export default function App() {
       reply: unknown,
       messageId = '',
       fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
+      inProgress = false,
     ) => {
       if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
       setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
@@ -1031,6 +1032,7 @@ export default function App() {
         messageId,
         Date.now(),
         fragmentMode,
+        inProgress,
       ));
     };
 
@@ -1106,7 +1108,7 @@ export default function App() {
                 ));
               }
             },
-            onDelta: (block, messageId, fragmentMode) => {
+            onDelta: (block, messageId, fragmentMode, inProgress) => {
               if (!isCurrent()) return;
               gotDelta = true;
               showManagerText(
@@ -1115,6 +1117,7 @@ export default function App() {
                 fragmentMode === 'append' || fragmentMode === 'snapshot'
                   ? fragmentMode
                   : 'auto',
+                inProgress,
               );
             },
             onDone: (result) => {
@@ -1557,7 +1560,7 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
-                      settings={loadedSid && freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
+                      settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
@@ -1630,6 +1633,7 @@ export default function App() {
                 requestedPathToken={previewPathRequest.token}
                 filesFirst
                 latestDelivery={deliveryHistory[0] ?? null}
+                deliveriesLoaded={eventsSeeded && transcriptQ.isFetchedAfterMount && Boolean(snap)}
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}

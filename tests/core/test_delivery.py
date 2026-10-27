@@ -53,6 +53,35 @@ def test_delivery_receipt_prefers_reviewer_evidence_and_rejects_unsafe_paths(
     assert [target["path"] for target in receipt["targets"]] == ["final.md"]
 
 
+def test_title_words_do_not_reorder_delivery_targets(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    (workspace / "paper").mkdir(parents=True)
+    state.mkdir()
+    (workspace / "paper" / "main.pdf").write_bytes(b"%PDF-1.4\n")
+    shots = [f"shots/screen_{index}.png" for index in range(7)]
+    for shot in shots:
+        (workspace / shot).parent.mkdir(exist_ok=True)
+        (workspace / shot).write_bytes(b"\x89PNG")
+
+    receipt = build_delivery_receipt(
+        item_id="task-1",
+        title="Figure out why the build fails; rewrite the first paragraph",
+        summary="修复登录失败：之前试图读取空配置",
+        success=True,
+        overall_complete=True,
+        status="done",
+        review_status="done",
+        final_submission_certified=False,
+        workspace=workspace,
+        state_root=state,
+        reviewer_artifacts=["paper/main.pdf", *shots],
+    )
+
+    assert receipt is not None
+    assert receipt["primary_target"]["path"] == "paper/main.pdf"
+
+
 def test_completion_links_resolve_to_safe_workspace_relative_files(
     tmp_path: Path,
 ) -> None:
