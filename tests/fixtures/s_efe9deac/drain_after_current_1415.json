@@ -1,0 +1,45 @@
+{
+ "note": "s-efe9deac 10-27: events (UTC epoch) and daemon log lines around the operator's stop-after-current at 14:15:56. The mission ran on helper parallel-1: the primary's pass ended claim_lost and was logged only when the helper's pass ended. daemon_log is in the host clock, UTC-07:00.",
+ "daemon_log_utc_offset": "-07:00",
+ "mission_owner": "parallel-1",
+ "events": [
+  {
+   "type": "life.mission.started",
+   "ts": 1793110218.6650946,
+   "item_id": "02a2583442f7"
+  },
+  {
+   "type": "daemon.command.submitted",
+   "ts": 1793110556.4891822,
+   "operation": "drain",
+   "status": "accepted"
+  },
+  {
+   "type": "daemon.command.completed",
+   "ts": 1793110559.4419706,
+   "operation": "drain",
+   "status": "applied"
+  },
+  {
+   "type": "life.mission.completed",
+   "ts": 1793111144.4098532,
+   "item_id": "02a2583442f7",
+   "status": "planner"
+  },
+  {
+   "type": "life.planner.start",
+   "ts": 1793111144.5983238
+  },
+  {
+   "type": "life.planner.idle",
+   "ts": 1793111333.730824
+  }
+ ],
+ "daemon_log": [
+  "2026-10-27 07:08:07,932 INFO argus.daemon._life_worker_run: daemon: drain pass stopped_by=awaiting_external suggested_sleep=300.0",
+  "2026-10-27 07:15:57,220 INFO argus.daemon.life_worker: daemon: received signal 15, requesting stop",
+  "2026-10-27 07:15:57,261 INFO argus.daemon.life_worker: daemon: received PID-bound drain request",
+  "2026-10-27 07:28:53,785 INFO argus.daemon._life_worker_run: daemon: drain pass stopped_by=claim_lost suggested_sleep=300.0",
+  "2026-10-27 07:28:53,790 INFO argus.daemon._life_worker_run: daemon: stopping cleanly (uptime=18481.9s missions=13)"
+ ]
+}

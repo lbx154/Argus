@@ -1901,7 +1901,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "apps": 41,
     "cli": 1,
     "core": 58,
-    "daemon": 36,
+    "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 19,
     "life": 183,
     "maintenance": 2,

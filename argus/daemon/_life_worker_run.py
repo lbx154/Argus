@@ -13,9 +13,8 @@ import logging
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
@@ -249,16 +248,27 @@ class LifeWorkerRunMixin:
             return supervisor.run()
         finally:
             self._supervisor_execution_threads.pop(worker_id, None)
+            # Per-run counters start again with the worker's next pass.
+            supervisor._missions_started = 0
+            supervisor._planning_cycles = 0
 
-    def _run_supervisor_passes(self, supervisors: list[Any]) -> dict:
-        """Run one primary pass with helpers kept busy for its whole length.
+    def _start_helpers(
+        self, supervisors: list[Any],
+    ) -> tuple[Callable[[], dict], list[threading.Thread]]:
+        """Start each helper on its own loop; return the primary pass and the helpers.
 
         A helper that finds nothing claimable looks again (after a wakeable
-        wait) for as long as the primary pass runs, so items the primary
-        plans or resumes mid-pass are taken up in parallel instead of the
-        primary chaining them one after another. Returns the primary summary.
+        wait) while a primary pass runs, so items the primary plans or
+        resumes mid-pass are taken up in parallel instead of the primary
+        chaining them one after another. Nothing waits for a helper's pass:
+        a long mission there carries on while the primary replans and passes
+        again on its own schedule. Once the worker stops, each helper ends
+        after the pass it is in.
         """
+        if len(supervisors) < 2:
+            return (lambda: self._run_supervisor_pass(supervisors[0])), []
         poll = float(getattr(getattr(self, "config", None), "poll_interval", 5.0) or 5.0)
+        primary_pass = threading.Event()
         resume_lock = threading.Lock()
         last_resume = [float("-inf")]
 
@@ -279,52 +289,49 @@ class LifeWorkerRunMixin:
                 except Exception:  # noqa: BLE001 - a failed resume retries next cycle
                     log.exception("daemon: resuming paused missions failed")
 
-        if len(supervisors) > 1:
-            for supervisor in supervisors:
-                supervisor._dispatcher_resumes = True
+        def run_primary() -> dict:
             resume_for_cycle()
-        with ThreadPoolExecutor(
-            max_workers=len(supervisors),
-            thread_name_prefix="argus-mission",
-        ) as executor:
-            # One copied context per submission: a single Context cannot be
-            # entered concurrently.
-            def submit(supervisor: Any):
-                return executor.submit(
-                    contextvars.copy_context().run,
-                    self._run_supervisor_pass,
-                    supervisor,
+            primary_pass.set()
+            try:
+                return self._run_supervisor_pass(supervisors[0])
+            finally:
+                primary_pass.clear()
+
+        def helper_loop(supervisor: Any) -> None:
+            while not self._stop.is_set():
+                resume_for_cycle()
+                baseline = _backlog_fingerprint(supervisor)
+                try:
+                    result = self._run_supervisor_pass(supervisor)
+                except Exception:  # noqa: BLE001 - like a primary pass, retry after a poll
+                    log.exception("daemon: helper pass raised; retrying")
+                    result = {"suggested_sleep": poll}
+                # Honour the supervisor's own backoff (it escalates for
+                # holds, pauses and lost claims, and each idle pass journals
+                # a status event), but wake early once the backlog changes:
+                # the primary planning, claiming or resuming an item writes
+                # the backlog, and that may have made work claimable.
+                suggested = result.get("suggested_sleep") if isinstance(result, dict) else 0
+                wait = max(float(suggested or 0), min(poll, 1.0))
+                self._wait_for_helper_wake(
+                    supervisor, wait, poll=poll, primary_pass=primary_pass, baseline=baseline,
                 )
 
-            primary = submit(supervisors[0])
-
-            def helper_loop(supervisor: Any) -> None:
-                while True:
-                    resume_for_cycle()
-                    baseline = _backlog_fingerprint(supervisor)
-                    result = self._run_supervisor_pass(supervisor)
-                    if primary.done() or self._stop.is_set():
-                        return
-                    # Honour the supervisor's own backoff (it escalates for
-                    # holds, pauses and lost claims, and each idle pass journals
-                    # a status event), but wake early once the backlog changes:
-                    # the primary planning, claiming or resuming an item writes
-                    # the backlog, and that may have made work claimable.
-                    suggested = result.get("suggested_sleep") if isinstance(result, dict) else 0
-                    wait = max(float(suggested or 0), min(poll, 1.0))
-                    if self._wait_for_helper_wake(
-                        supervisor, wait, poll=poll, primary=primary, baseline=baseline,
-                    ):
-                        return
-
-            helpers = [
-                executor.submit(contextvars.copy_context().run, helper_loop, supervisor)
-                for supervisor in supervisors[1:]
-            ]
-            summary = primary.result()
-            for future in helpers:
-                future.result()
-            return summary
+        for supervisor in supervisors:
+            supervisor._dispatcher_resumes = True
+        helpers = [
+            threading.Thread(
+                # One copied context per helper: a single Context cannot be
+                # entered concurrently.
+                target=contextvars.copy_context().run,
+                args=(helper_loop, supervisor),
+                name=f"argus-mission-{index}",
+            )
+            for index, supervisor in enumerate(supervisors[1:], 1)
+        ]
+        for helper in helpers:
+            helper.start()
+        return run_primary, helpers
 
     def _wait_for_helper_wake(
         self,
@@ -332,20 +339,20 @@ class LifeWorkerRunMixin:
         wait: float,
         *,
         poll: float,
-        primary: Any,
+        primary_pass: threading.Event,
         baseline: tuple | None,
-    ) -> bool:
-        """Sleep up to ``wait`` seconds; return True when the helper should stop.
+    ) -> None:
+        """Sleep ``wait`` seconds and on until a primary pass runs, or until stop.
 
-        Returns False early when the backlog changed since ``baseline`` (so a
-        newly ready item is claimed promptly). The checks are file stats only,
-        so watching for a change never journals anything.
+        Returns early when the backlog changed since ``baseline`` (so a newly
+        ready item is claimed promptly). Between primary passes an idle helper
+        sleeps on: it looked for work while the last one ran, and the next one
+        or any backlog write wakes it. The checks are file stats only, so
+        watching for a change never journals anything.
         """
         deadline = time.monotonic() + wait
         slice_s = max(0.01, min(_HELPER_WAKE_CHECK_SECONDS, poll))
-        while True:
-            if self._stop.is_set() or primary.done():
-                return True
+        while not self._stop.is_set():
             current = _backlog_fingerprint(supervisor)
             if current != baseline:
                 # Let an in-progress write (truncate-then-write, multi-row
@@ -356,12 +363,11 @@ class LifeWorkerRunMixin:
                     if settled == current or time.monotonic() >= deadline:
                         break
                     current = settled
-                return self._stop.is_set()
+                return
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            if self._stop.wait(min(slice_s, remaining)):
-                return True
+            if remaining <= 0 and primary_pass.is_set():
+                return
+            self._stop.wait(min(slice_s, remaining) if remaining > 0 else slice_s)
 
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:
@@ -623,6 +629,8 @@ class LifeWorkerRunMixin:
         call_guard.enable(
             on_trip=lambda labels: self._background_calls_paused(rf_state, labels)
         )
+        supervisors = getattr(rf_state, "supervisors", [rf_state.sup])
+        run_primary, helpers = self._start_helpers(supervisors)
         try:
             while not self._stop.is_set():
                 if self._deployment_handoff_gate():
@@ -634,20 +642,13 @@ class LifeWorkerRunMixin:
                 summary: dict = {}
                 self._supervisor_execution_active.set()
                 try:
-                    supervisors = getattr(
-                        rf_state,
-                        "supervisors",
-                        [rf_state.sup],
-                    )
                     if not supervisors:
                         summary = {
                             "stopped_by": "paused_workers",
                             "suggested_sleep": rf_state.cfg.poll_interval,
                         }
-                    elif len(supervisors) == 1:
-                        summary = self._run_supervisor_pass(rf_state.sup)
                     else:
-                        summary = self._run_supervisor_passes(supervisors)
+                        summary = run_primary()
                     if summary.get("stopped_by") == "project_done":
                         current = read_continuous_state(rf_state.runtime_root)
                         if (
@@ -724,12 +725,6 @@ class LifeWorkerRunMixin:
                     summary.get("stopped_by") or "",
                     summary.get("suggested_sleep") or 0,
                 )
-                # Reset per-run counters so future drain passes work.
-                for supervisor in (
-                    getattr(rf_state, "supervisors", None) or [rf_state.sup]
-                ):
-                    supervisor._missions_started = 0
-                    supervisor._planning_cycles = 0
                 if self._stop.is_set():
                     break
                 # Between passes the host sleeps on what it learned, when the
@@ -753,6 +748,10 @@ class LifeWorkerRunMixin:
         finally:
             from ..manager.supervision import shutdown_supervision
 
+            # Each helper ends after the pass it is in; a drain keeps its mission.
+            self._stop.set()
+            for helper in helpers:
+                helper.join()
             call_guard.disable()
             shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()

@@ -1,0 +1,60 @@
+{
+ "note": "s-efe9deac 10-27: events (UTC epoch) and backlog rows trimmed to the drain pass that ended at planner_retry; daemon_log is in the host clock, UTC-07:00.",
+ "daemon_log_utc_offset": "-07:00",
+ "events": [
+  {
+   "type": "life.mission.started",
+   "ts": 1793076770.8766384,
+   "item_id": "96a7237f3242"
+  },
+  {
+   "type": "life.mission.started",
+   "ts": 1793083292.7409549,
+   "item_id": "f9a8027c80f1"
+  },
+  {
+   "type": "life.mission.completed",
+   "ts": 1793084575.745666,
+   "item_id": "f9a8027c80f1"
+  },
+  {
+   "type": "life.planner.start",
+   "ts": 1793084608.1077747
+  },
+  {
+   "type": "life.planner.superseded",
+   "ts": 1793084612.5056438,
+   "reason": "planner superseded by newer continuous generation"
+  },
+  {
+   "type": "life.mission.completed",
+   "ts": 1793086368.277375,
+   "item_id": "96a7237f3242"
+  },
+  {
+   "type": "life.planner.start",
+   "ts": 1793086401.8308792
+  }
+ ],
+ "backlog": [
+  {
+   "id": "f9a8027c80f1",
+   "status": "done",
+   "running_owner": "primary",
+   "started_ts": 1793083292.4417439,
+   "finished_ts": 1793084575.689641
+  },
+  {
+   "id": "96a7237f3242",
+   "status": "done",
+   "running_owner": "parallel-1",
+   "started_ts": 1793076770.3895268,
+   "finished_ts": 1793086368.2467382
+  }
+ ],
+ "daemon_log": [
+  "2026-10-27 00:03:27,891 INFO argus.life.reflection: reflection after mission f9a8027c80f1 wrote 1 page(s), updated 0",
+  "2026-10-27 00:32:55,412 INFO argus.life.supervisor._core: backlog empty; exiting",
+  "2026-10-27 00:32:55,447 INFO argus.daemon._life_worker_run: daemon: drain pass stopped_by=planner_retry suggested_sleep=0"
+ ]
+}
