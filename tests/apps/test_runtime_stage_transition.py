@@ -146,3 +146,44 @@ def test_non_stage_closing_planner_node_cannot_move_pipeline_stage() -> None:
         preplanned=True,
         stage_closing=False,
     )
+
+
+def test_the_task_that_finishes_the_last_required_step_completes_the_project(tmp_path) -> None:
+    """The gate is handed the backlog task being judged, not its usage attempt, so its own
+    still-running row counts as the step's delivered work."""
+    from argus.apps._runtime import _SkillLoopRunner
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord
+    from argus.life.memory import Backlog, BacklogItem
+    from argus.manager import Manager
+    from argus.skills.vertical_select import persist_vertical
+    from argus.webapi import canvas as store
+
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    work.mkdir()
+    persist_vertical(state, "software", workflow_mode="direct")
+    _canvas, step = store.add_card(state, 0, kind="step", text="ship it")
+    item = Backlog(state / "backlog.jsonl").add(BacklogItem.new(title="ship", objective="ship", waypoint_id=step["id"]))
+    Backlog(state / "backlog.jsonl").update(item.id, status="running")
+
+    review = ReviewDecision(status="done", reason="verified", next_action="", review_source="engineer_self_review")
+    ex_state = _ExecuteState()
+    ex_state.workdir = work
+    ex_state.mission_scope = "bounded"
+    ex_state.outcome = LoopOutcome(
+        status="done", reason="", rounds=[RoundRecord(1, "work", 0, review, "", "")],
+        final_message="work", workdir=str(work),
+    )
+    runtime = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runtime.manager = Manager(project_root=state, execution_workdir=work, runner=object())
+    runtime._artifact_root = runtime._manager_session_root = state
+    runtime._set_usage_context = lambda _value: None
+    runtime._extract_execute_outcome_fields(ex_state)
+    runtime._maybe_decide_stage_transition(
+        ex_state, sink=SimpleNamespace(handle_event=lambda _event: None),
+        mission_id=item.id, usage_mission_id=f"{item.id}:attempt:1",
+        maintenance_mission=False, skip_stage_transition=False, preplanned=False, stage_closing=True,
+    )
+
+    assert ex_state.stage_transition["action"] == "complete", ex_state.stage_transition

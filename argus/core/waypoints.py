@@ -1,10 +1,12 @@
 """必经步骤 (waypoints): steps a person laid on the canvas that Argus must walk.
 
 A step is a card of kind ``step`` in the project's canvas record
-(``<life_dir>/canvas.json``, written by ``webapi.canvas``). A 先后 (``order``)
-link from one step to another puts them in order; numbered steps are the
-chained ones, ①②③ in the order the links give, and a step with no 先后 link
-to another step may come at any time. A step may carry ``checkpoint``: the
+(``<life_dir>/canvas.json``, written by ``webapi.canvas``). A chain of 先后
+(``order``) links from one step to another puts them in order, also when it
+passes through cards that are not steps (an idea a step was turned back into
+keeps the steps around it in order); numbered steps are the chained ones,
+①②③ in the order the links give, and a step no 先后 chain joins to another
+step may come at any time. A step may carry ``checkpoint``: the
 team finishes it, then waits for the person's OK before the next step.
 
 What binds the team:
@@ -125,8 +127,8 @@ def route_steps(canvas: Mapping[str, Any]) -> list[Step]:
 
     Numbers follow the 先后 links between steps, also through a card that is
     not a step (a topological order, earlier cards first where the links leave
-    a choice). A link that would close a
-    cycle is ignored, so a person's mistake never wedges the route.
+    a choice). A link that would close a cycle is ignored, so a person's
+    mistake never wedges the route.
     """
     cards = [
         card for card in canvas.get("cards") or ()

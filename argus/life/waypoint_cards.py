@@ -119,12 +119,15 @@ def raise_due_checkpoints(backlog: Any, emit: Callable[[dict[str, Any]], Any]) -
 
 def dispute_card(
     route: Iterable[StepState], step_id: str, question: str, options: Iterable[Mapping[str, Any]],
+    *, asks_only: bool,
 ) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
     """The answers and card fields for the Planner's question about a step.
 
     The person always gets keep / remove, and change when the Planner proposed
     new words (in that option's description); the Planner's own wording of
-    those answers is kept.
+    those answers is kept. ``asks_only`` says the card's row was made only to
+    ask, so answering closes it; otherwise the row is a task the Planner was
+    replanning, which resumes with the answer.
     """
     entry = next((row for row in route if row.step.id == step_id), None)
     zh = uses_cjk(question) or (entry is not None and uses_cjk(entry.step.text))
@@ -144,7 +147,7 @@ def dispute_card(
             "label": str((mine or {}).get("label") or label),
             "description": str((mine or {}).get("description") or description),
         })
-    fields = {"decision_kind": DISPUTE_DECISION, "waypoint_id": step_id}
+    fields = {"decision_kind": DISPUTE_DECISION, "waypoint_id": step_id, "asks_only": asks_only}
     if entry is not None:
         fields["waypoint_number"] = entry.step.number
     return tuple(out), fields

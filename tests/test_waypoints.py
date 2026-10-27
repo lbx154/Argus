@@ -246,6 +246,17 @@ def test_removing_a_middle_step_keeps_the_steps_around_it_in_order(life):
     assert [(s.id, s.number, s.after) for s in wp.read_route(life)] == [(one, 1, ()), (three, 2, (one,))]
 
 
+def test_deleting_a_card_closes_its_chain_within_the_link_limit(life, monkeypatch):
+    before = _route(life, ["a", "b"], chain=False)
+    middle, *after = _route(life, ["m", "x", "y", "z"], chain=False)
+    for source, target in [*((s, middle) for s in before), *((middle, t) for t in after)]:
+        store.add_link(life, store.read_canvas(life)["revision"], source=source, target=target, kind="order")
+    monkeypatch.setattr(store, "MAX_LINKS", 5)
+    with pytest.raises(store.CanvasError, match="5 links"):
+        store.delete_card(life, store.read_canvas(life)["revision"], middle)
+    assert any(c["id"] == middle for c in store.read_canvas(life)["cards"])
+
+
 def _checkpoint_card(life, backlog):
     one, _two = _route(life, ["写汇总", "画图"], checkpoint=(0,))
     done = _task(backlog, "t1", one, status="done")
@@ -298,6 +309,76 @@ def test_answering_a_doubt_parked_on_a_task_resumes_that_task_and_finishes_nothi
     resumed = next(i for i in backlog.active() if i.id == replanned)
     assert resumed.status == "pending" and not resumed.pending_question
     assert [s.status for s in wp.read_step_states(life, backlog.history())] == ["done", "todo", "todo"]
+
+
+def _doubt(life, backlog, step, revising=""):
+    supervisor = SimpleNamespace(
+        memory=SimpleNamespace(backlog=backlog, root=life), config=SimpleNamespace(continuous_objective="x"),
+        _emit=lambda event: True, _waypoint_states=lambda: wp.read_step_states(life, backlog.history()),
+    )
+    state = SimpleNamespace(revision_request={"item_id": revising}) if revising else None
+    assert LifeSupervisor._park_planner_question(supervisor, state, "这一步行不通？", "doubt", about_waypoint=step)
+    return next(i for i in backlog.active() if i.pending_question)
+
+
+def test_a_doubt_on_a_checkpoint_rework_resumes_the_rework_and_finishes_nothing(life, monkeypatch):
+    """A rework row keeps its question-card tags; only how the card was raised says it is real work."""
+    monkeypatch.setattr("argus.core.autonomy.operator_questions_can_be_asked", lambda *a, **k: True)
+    backlog = Backlog(life / "backlog.jsonl")
+    one, _done, checkpoint = _checkpoint_card(life, backlog)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    _apply_operator_answer(mem, checkpoint, "图要重画", manager_decision="图要重画")
+    rework = next(i for i in backlog.active() if i.id == checkpoint.id)
+    assert "operator_decision" in rework.tags and rework.waypoint_id == one
+    card_item = _doubt(life, backlog, one, revising=rework.id)
+    assert card_item.id == rework.id and card_item.operator_decision["asks_only"] is False
+    result = _apply_operator_answer(mem, card_item, "保留", manager_decision="保留", decision_option="keep",
+                                    decision_id=card_item.operator_decision["id"])
+    assert result["resolved"] and "照原话保留" in result["reply"]
+    resumed = next(i for i in backlog.active() if i.id == rework.id)
+    assert resumed.status == "pending" and "keeps" in resumed.objective
+    assert wp.read_step_states(life, backlog.history())[0].status == "running"
+    assert raise_due_checkpoints(backlog, lambda event: None) == 0
+
+
+def test_removing_a_step_a_parked_task_carries_unties_the_task_and_tells_the_planner_once(life, monkeypatch):
+    monkeypatch.setattr("argus.core.autonomy.operator_questions_can_be_asked", lambda *a, **k: True)
+    told = []
+    monkeypatch.setattr("argus.apps._inbox.queue_inbox_message", lambda _life, text, **_kw: told.append(text))
+    backlog = Backlog(life / "backlog.jsonl")
+    one, two = _route(life, ["a", "b"])
+    replanned = _task(backlog, "t2", two)
+    card_item = _doubt(life, backlog, two, revising=replanned)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    result = _apply_operator_answer(mem, card_item, "去掉", manager_decision="去掉", decision_option="remove",
+                                    decision_id=card_item.operator_decision["id"])
+    assert "去掉了" in result["reply"]
+    resumed = next(i for i in backlog.active() if i.id == replanned)
+    assert resumed.waypoint_id == "" and "removed" in resumed.objective
+    assert len(told) == 1 and "removed" in told[0]
+
+
+def test_a_card_raised_only_to_ask_closes_when_answered(life):
+    backlog = Backlog(life / "backlog.jsonl")
+    _one, two = _route(life, ["a", "b"])
+    card_item = _doubt(life, backlog, two)
+    assert card_item.operator_decision["asks_only"] is True
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    _apply_operator_answer(mem, card_item, "保留", manager_decision="保留", decision_option="keep",
+                           decision_id=card_item.operator_decision["id"])
+    assert next(i for i in backlog.history() if i.id == card_item.id).status == "done"
+
+
+def test_a_note_the_manager_writes_in_the_operators_place_is_told_as_the_managers(life, monkeypatch):
+    told = []
+    monkeypatch.setattr("argus.apps._inbox.queue_inbox_message", lambda _life, text, **_kw: told.append(text))
+    backlog = Backlog(life / "backlog.jsonl")
+    _one, _done, card_item = _checkpoint_card(life, backlog)
+    mem = SimpleNamespace(backlog=backlog, project_root=life)
+    _apply_operator_answer(mem, card_item, "这一步可以了", manager_decision="继续", decision_option="continue",
+                           decision_id=card_item.operator_decision["id"], decision_note="结果看起来完整",
+                           decided_by="manager")
+    assert told and "The Manager, in the operator's place," in told[0] and "The operator" not in told[0]
 
 
 def test_answering_a_checkpoint_from_the_command_line_approves_the_step(tmp_path, monkeypatch):

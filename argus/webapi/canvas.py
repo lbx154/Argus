@@ -255,16 +255,12 @@ def delete_card(life_dir: Path | str, revision: int, card_id: str) -> tuple[dict
         card = _human_card(canvas, card_id)
         canvas["cards"] = [c for c in canvas["cards"] if c["id"] != card_id]
         order = [link for link in canvas["links"] if link["kind"] == "order"]
-        links = [link for link in canvas["links"] if card_id not in (link["source"], link["target"])]
+        canvas["links"] = [link for link in canvas["links"] if card_id not in (link["source"], link["target"])]
         # A card leaving a 先后 chain closes the gap: the cards around it keep their order.
         for source in (link["source"] for link in order if link["target"] == card_id):
             for target in (link["target"] for link in order if link["source"] == card_id):
-                if source != target and not any(
-                    {link["source"], link["target"]} == {source, target} and link["kind"] == "order" for link in links
-                ):
-                    links.append({"id": f"hl-{uuid.uuid4().hex[:12]}", "source": source, "target": target,
-                                  "kind": "order", "created_ts": time.time()})
-        canvas["links"] = links
+                if source != target:
+                    _join(canvas, source, target, "order")
         canvas["positions"].pop(card_id, None)
         return card
 
@@ -283,17 +279,22 @@ def add_link(life_dir: Path | str, revision: int, *, source: str, target: str, k
         for end in (source, target):
             if end.startswith("hc-") and end not in human:
                 raise CanvasError("a link end names a card that was removed", 404)
-        for link in canvas["links"]:
-            if {link["source"], link["target"]} == {source, target} and link["kind"] == kind:
-                return link
-        if len(canvas["links"]) >= MAX_LINKS:
-            raise CanvasError(f"the canvas already holds {MAX_LINKS} links; remove some first", 413)
-        link = {"id": f"hl-{uuid.uuid4().hex[:12]}", "source": source, "target": target,
-                "kind": kind, "created_ts": time.time()}
-        canvas["links"].append(link)
-        return link
+        return _join(canvas, source, target, kind)
 
     return _mutate(life_dir, revision, change)
+
+
+def _join(canvas: dict[str, Any], source: str, target: str, kind: str) -> dict[str, Any]:
+    """The ``kind`` link between two cards, added unless one already joins them."""
+    for link in canvas["links"]:
+        if {link["source"], link["target"]} == {source, target} and link["kind"] == kind:
+            return link
+    if len(canvas["links"]) >= MAX_LINKS:
+        raise CanvasError(f"the canvas already holds {MAX_LINKS} links; remove some first", 413)
+    link = {"id": f"hl-{uuid.uuid4().hex[:12]}", "source": source, "target": target,
+            "kind": kind, "created_ts": time.time()}
+    canvas["links"].append(link)
+    return link
 
 
 def update_link(life_dir: Path | str, revision: int, link_id: str, *, kind: str) -> tuple[dict[str, Any], dict[str, Any]]:

@@ -350,41 +350,42 @@ class _StageDecisionMixin:
             required_steps_blocker,
         )
 
-        _completion_vertical = resolve_vertical(root)
-        _research_target_level = resolve_research_target_level(root)
-        # Direct mode is the operator's explicit one-package deliverable. It may
-        # complete without traversing unrelated later stages, including an
-        # Idea-only Research request. Paper production is routed as staged.
-        _allow_early_completion = (
-            not open_ended
-            and resolve_workflow_mode(root) == "direct"
-        )
-        _completion_blockers = [
-            blocker
-            for blocker in (
-                external_completion_gate_issue(self.execution_workdir),
-                required_steps_blocker(root, judged_item_id),
-            )
-            if blocker
-        ]
-        if (
-            _research_target_level in {"publishable", "doctoral"}
-            and not _allow_early_completion
-        ):
-            from ..verticals._base import load_vertical_contract
-
-            # Final completion re-runs the active provider's own strongest
-            # stage validator through the vertical contract, so the gate stays
-            # domain-blind and project-local research providers gate it too.
-            _completion_blockers.extend(
-                load_vertical_contract(_completion_vertical, project_root=root).completion_issues(
-                    stage=order[-1],
-                    project_root=self.execution_workdir,
-                    state_root=root,
-                )
-            )
-        _completion_blocker = "; ".join(_completion_blockers)
         if decision.action == "complete":
+            # Read only for a completion: an advance or a hold never reaches them.
+            _completion_vertical = resolve_vertical(root)
+            _research_target_level = resolve_research_target_level(root)
+            # Direct mode is the operator's explicit one-package deliverable. It may
+            # complete without traversing unrelated later stages, including an
+            # Idea-only Research request. Paper production is routed as staged.
+            _allow_early_completion = (
+                not open_ended
+                and resolve_workflow_mode(root) == "direct"
+            )
+            _completion_blockers = [
+                blocker
+                for blocker in (
+                    external_completion_gate_issue(self.execution_workdir),
+                    required_steps_blocker(root, judged_item_id),
+                )
+                if blocker
+            ]
+            if (
+                _research_target_level in {"publishable", "doctoral"}
+                and not _allow_early_completion
+            ):
+                from ..verticals._base import load_vertical_contract
+
+                # Final completion re-runs the active provider's own strongest
+                # stage validator through the vertical contract, so the gate stays
+                # domain-blind and project-local research providers gate it too.
+                _completion_blockers.extend(
+                    load_vertical_contract(_completion_vertical, project_root=root).completion_issues(
+                        stage=order[-1],
+                        project_root=self.execution_workdir,
+                        state_root=root,
+                    )
+                )
+            _completion_blocker = "; ".join(_completion_blockers)
             checks = dict(
                 current_stage=cur,
                 stage_order=order,

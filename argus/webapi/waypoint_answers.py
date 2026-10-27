@@ -14,7 +14,8 @@ hands them here before its ordinary resume:
   takes the new words the card offered, **remove** turns the step back into
   an idea card (their words stay on the canvas); a written answer is their
   reading of the step and goes to the Planner as such. A card raised only to
-  ask closes; a card parked on a task resumes that task with the answer.
+  ask (``asks_only``, set when it was raised) closes; a card parked on a task
+  resumes that task with the decision.
 
 The Planner hears every decision through the inbox, and a changed step
 through the route's new operator-context revision.
@@ -70,7 +71,12 @@ def apply_waypoint_answer(
     mem: Any, item: Any, answer: str, *, decision_option: str, decision_id: str,
     decision_note: str, manager_reply: str, decided_by: str,
 ) -> dict[str, Any] | None:
-    """Resolve a step's card; ``None`` lets the ordinary answer resume the task."""
+    """Resolve a step's card.
+
+    Returns the closed card's result; ``None`` lets the ordinary answer resume
+    the task as answered; ``{"resume_with": (decision, reply)}`` resumes it
+    with this decision and reply in place of the caller's.
+    """
     card = item.operator_decision or {}
     kind = card.get("decision_kind")
     if kind not in {CHECKPOINT_DECISION, DISPUTE_DECISION}:
@@ -79,7 +85,9 @@ def apply_waypoint_answer(
     step_id = str(card.get("waypoint_id") or "")
     option = decision_option.strip().lower()
     typed = option in {"", "custom"}
-    # What they wrote beside a click, or their whole message for a written answer.
+    # Whoever chose: the Manager's words in the operator's place are never theirs.
+    who = "The operator" if decided_by == "operator" else "The Manager, in the operator's place,"
+    # What was written beside a click, or the whole message for a written answer.
     said = " ".join((decision_note if decision_id else answer).split())
     zh = conversation_is_chinese(answer, item.pending_question)
     label, words = _step_label(life_dir, step_id, zh)
@@ -95,8 +103,8 @@ def apply_waypoint_answer(
         reply = manager_reply if manager_reply and manager_reply.strip() else (
             f"好，{label}通过了，接着往下做。" if zh else f"Good — {label} is approved; the team goes on."
         )
-        note = f"The operator approved {label} «{words}»; the next step may start." + (
-            f" They also wrote: {said}" if said else "")
+        note = f"{who} approved {label} «{words}»; the next step may start." + (
+            f" Also written: {said}" if said else "")
         return _close(mem, item, life_dir, option=CONTINUE_OPTION, decision=f"approved {label}",
                       reply=reply, note=note, decision_id=decision_id, decision_note=decision_note,
                       answer=answer, decided_by=decided_by)
@@ -104,27 +112,29 @@ def apply_waypoint_answer(
     if option == REMOVE_OPTION:
         _edit_step(life_dir, step_id, kind="idea")
         reply = f"{label}去掉了；卡片改回了想法，原话还在。" if zh else f"{label} is removed; the card is an idea again."
-        note = f"The operator removed {label} «{words}» from the required route."
+        note = f"{who} removed {label} «{words}» from the required route; no work is owed to it."
     elif option == CHANGE_OPTION:
         chosen = next((row for row in card.get("options") or () if isinstance(row, dict) and row.get("id") == CHANGE_OPTION), {})
         new_words = " ".join(str(chosen.get("description") or decision_note or "").split())
         if new_words:
             _edit_step(life_dir, step_id, text=new_words)
         reply = f"{label}改成了“{new_words}”。" if zh else f"{label} now reads “{new_words}”."
-        note = f"The operator changed {label} to «{new_words}»."
+        note = f"{who} changed {label} to «{new_words}»."
     else:
         kept = not typed
         reply = (f"好，{label}照原话保留。" if zh else f"{label} stays as written.") if kept else (
             "收到，按你的意思做这一步。" if zh else "Got it — the step is done your way.")
-        note = (f"The operator keeps {label} «{words}» as written; plan it."
-                if kept else f"About {label} «{words}», the operator answered: {answer}. "
-                "This is their reading of their own requirement; plan the step that way.")
-    if "operator_decision" not in item.tags:
-        # The card is parked on a task the Planner was replanning: that task
-        # resumes with the answer, as any answered task does.
-        _tell_planner(life_dir, note)
-        return None
+        note = (f"{who} keeps {label} «{words}» as written; plan it."
+                if kept else f"{who} answered about {label} «{words}»: {answer}. "
+                "This is their reading of the requirement; plan the step that way.")
     reply = manager_reply.strip() if manager_reply and manager_reply.strip() else reply
+    if not card.get("asks_only"):
+        # Parked on a task the Planner was replanning: that task resumes with
+        # the decision, and is no longer tied to a step that was removed.
+        if option == REMOVE_OPTION:
+            mem.backlog.update(item.id, waypoint_id="")
+            item.waypoint_id = ""
+        return {"resume_with": (note, reply)}
     return _close(mem, item, life_dir, option=option or "custom", decision=note, reply=reply, note=note,
                   decision_id=decision_id, decision_note=decision_note, answer=answer, decided_by=decided_by)
 

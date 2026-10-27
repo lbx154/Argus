@@ -1346,10 +1346,13 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     Clearing ``pending_question`` and resuming the same item is NOT enough,
     and looks like it is: the mission runs again, re-reads the objective that
     made it ask, and asks the identical question. One live campaign burned
-    five attempts that way, answered every time. ``resume_with_operator_reply``
-    is the path the cockpit uses — the resumed task's objective carries the
-    answer as authority over the one it asked under, so the next round reads
-    what it was told instead of the question it already asked.
+    five attempts that way, answered every time. So the answer goes through
+    the cockpit's own answer paths (``manager_answer_pending_question``, or
+    ``manager_resolve_operator_decision`` when it names one of the card's
+    answers): the resumed task's objective carries the answer as authority
+    over the one it asked under, every kind of card resolves as it does in the
+    cockpit, and a continuous campaign that was only waiting on this answer
+    runs again, while one the operator stopped stays stopped.
     """
     answer = (getattr(args, "answer", "") or "").strip()
     if not answer:

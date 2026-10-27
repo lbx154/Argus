@@ -132,3 +132,13 @@ def test_framework_deployment_answer_uses_the_decision_boundary(
         "global_root": tmp_path,
     }
     assert len(backlog.all()) == 1
+
+
+def test_an_answer_reopens_a_campaign_that_only_waited_on_it_as_the_cockpit_does(_project, capsys) -> None:
+    from argus.daemon.state import read_continuous_state, write_continuous_config
+
+    write_continuous_config(_project, enabled=False, objective="keep improving")
+    _paused(_backlog(_project), "m1", "may I install torch?")
+    assert _core._cmd_answer(_args(_project, answer="yes, install it")) == 0
+    assert read_continuous_state(_project).enabled
+    assert "still stopped" not in capsys.readouterr().out
