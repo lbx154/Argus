@@ -136,7 +136,6 @@ export function RuntimeControlPage({
             onClick={() => confirmRun('cwd', zh ? '更改后，后续工作将使用新的会话目录。确认更改？' : 'Future work will use the new session directory. Apply?',
               () => api.setWorkdir(sid, workdir), t('operations.workdirUpdated'))}><Check size={15} />{zh ? '应用目录' : 'Apply directory'}</button>
         </div>
-        <p>{zh ? '这是会话工作目录，不是安全沙箱边界。以下维护操作不删除任务历史。' : 'This is the session directory, not a sandbox boundary. Maintenance below preserves task history.'}</p>
         <div className="runtime-field-row">
           <button className="button" disabled={disabled} onClick={() => confirmRun('reset', zh ? '将清空当前对话的上下文，任务和文件会保留。确认重置？' : 'Clear conversation context? Tasks and files are preserved.',
             () => api.resetManager(sid), zh ? '对话上下文已重置。' : 'Conversation context reset.')}><RotateCcw size={15} />{zh ? '重置对话上下文' : 'Reset conversation context'}</button>

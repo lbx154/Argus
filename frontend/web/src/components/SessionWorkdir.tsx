@@ -16,9 +16,6 @@ export function SessionWorkdir({ session }: { session: Pick<Snapshot['session'],
     <div className="session-workdir__detail">
       <strong>{label}</strong>
       <code>{value}</code>
-      <p>{zh
-        ? '来自已加载会话快照的工作目录；不是每个任务的实际 cwd，也不是安全沙箱边界。'
-        : 'Working directory from the loaded session snapshot; not each task’s actual cwd or a security sandbox boundary.'}</p>
     </div>
   </details>;
 }
