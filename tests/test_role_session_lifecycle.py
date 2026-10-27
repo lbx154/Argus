@@ -349,7 +349,7 @@ def test_a_manager_decision_on_the_same_objective_keeps_the_planner_session(
     backend.queue("planner.cycle2", CannedResponse(action=plan('done', summary='done'), thread_id="p1"))
     events: list[dict] = []
     for cycle in range(2):
-        # A Manager WAIT or steer reserves the campaign: a new generation, same objective.
+        # The operator restating the campaign: a new generation, same objective.
         write_continuous_config(life, enabled=True, objective="pick A or B, then change truncate")
         Planner(backend).plan_next(
             continuous_objective="pick A or B, then change truncate",

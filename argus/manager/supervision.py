@@ -22,7 +22,8 @@ from ..core.handoff import HandOffActions, holder_of
 from ..core.models import RunnerOptions
 from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
-from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
+from ..core.workspace_facts import fact_text
+from ..daemon.state import _fsync_directory
 from ._helpers import _manager_backend_failure
 from ._session_ops import _ManagerSession
 from .observation import (
@@ -238,21 +239,16 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "", brief: st
     )
 
 
-def _owns_reserved_control(root: Path, record: dict[str, Any]) -> bool:
-    reserved = record.get("reserved_authority")
-    if not isinstance(reserved, dict):
-        return False
+def _control_as_judged(root: Path, record: dict[str, Any]) -> bool:
+    """Project control is still what the Manager judged, but for its own directive.
+
+    The directive write can precede the applied receipt; replayed, its stable
+    source proves it is this decision's, and all other control must still match.
+    """
     current = control_identity(root)
-    if current == reserved:
-        return True
-    # The directive write can precede its outbox checkpoint. Its stable source
-    # proves ownership of this one effect; all other authority must still match.
-    directive = current.get("directive", {})
-    return bool(
-        directive.get("source") == f"manager.supervision:{record['id']}"
-        and {key: value for key, value in current.items() if key != "directive"}
-        == {key: value for key, value in reserved.items() if key != "directive"}
-    )
+    if current["directive"].get("source") == f"manager.supervision:{record['id']}":
+        current["directive"] = json.loads(record["control_revision"])["directive"]
+    return fact_text(current) == record["control_revision"]
 
 
 def _obstacle_basis(event: dict[str, Any], observation: Any, item_id: str) -> tuple[str, str]:
@@ -364,10 +360,7 @@ def _apply(
         if not acquired:
             raise SupervisionBusy("daemon control is busy")
         observation = observe_project(root, event=event)
-        if cancelled() or not (
-            observation.control_revision == record["control_revision"]
-            or _owns_reserved_control(root, record)
-        ):
+        if cancelled() or not _control_as_judged(root, record):
             raise SupervisionSuperseded("newer project control")
         # Work that moved on while the Manager decided does not void its
         # decision; voided, the decision was lost and nobody asked again.
@@ -391,29 +384,9 @@ def _apply(
                 raise SupervisionSuperseded("no mission run to stop")
             effects.update(effect="mission parked", stopped_attempt=attempt)
             return effects
-        if not _owns_reserved_control(root, record):
-            # Reserve before any team-facing write. A crash before the
-            # reservation receipt is durable is conservatively superseded;
-            # generation equality alone never proves this command owns it.
-            before = control_identity(root)
-            continuous = observation.continuous
-            swapped = compare_and_swap_continuous_config(
-                root, expected=continuous, enabled=continuous.enabled,
-                objective=continuous.objective, open_ended=continuous.open_ended,
-                done_reason=continuous.done_reason,
-            )
-            if not swapped:
-                raise SupervisionSuperseded("supervision generation could not be reserved")
-            reserved = control_identity(root)
-            expected = {**before["continuous"], "generation": continuous.generation + 1}
-            expected["done_at"] = reserved["continuous"]["done_at"]
-            if reserved != {**before, "continuous": expected}:
-                raise SupervisionSuperseded("newer control after reservation")
-            record["reserved_authority"] = reserved
-            effects["continuous_generation"] = continuous.generation + 1
-            _write(path, record)
-        if cancelled() or not _owns_reserved_control(root, record):
-            raise SupervisionSuperseded("control changed before directive delivery")
+        # The continuous generation is the operator's word, and a running
+        # Planner stops when it moves, so a steer leaves it alone. Its directive
+        # is scoped to the objective judged here, which a newer one leaves inert.
         if decision["action"] == "steer":
             source = f"manager.supervision:{record['id']}"
             directive = load_active_manager_directive(root, expected_objective=observation.continuous.objective)
