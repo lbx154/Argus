@@ -678,8 +678,11 @@ def test_unwritable_knowledge_directories_still_judge_the_fact(
 
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
-    assert result["skipped"] == "knowledge directories are not writable"
+    assert result["failure"] == "knowledge directories are not writable"
     assert _labels(backend) == ["manager.reviewed_facts"]
+    from argus.life.reflection_status import learning_status
+    # Unable to keep anything is a failure, not "nothing to learn".
+    assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
 
 
 def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
@@ -695,6 +698,8 @@ def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
     result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     assert "raised" in result["skipped"]
+    from argus.life.reflection_status import learning_status
+    assert learning_status(roots.home, SID)["jobs"][0]["status"] == "failed"
     assert _labels(backend) == ["reflection"]
     digest = (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
     assert digest.count("A kept fact.") == 1
