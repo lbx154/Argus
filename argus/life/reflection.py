@@ -732,7 +732,8 @@ def _reflect_after_mission(
     except OSError:
         log.warning("reflection: could not prepare the knowledge directories", exc_info=True)
         judge_alone()
-        return {"skipped": "knowledge directories are not writable", "created": [], "updated": []}
+        # Not "nothing to learn": the host could not keep what it would learn.
+        return {"skipped": "", "failure": "knowledge directories are not writable", "created": [], "updated": []}
     project_wiki = _project_wiki_root(workspace, project_id)
     operator_root = _operator_root(global_root)
     # The digest path is the host's, derived here; never taken from the candidate.
