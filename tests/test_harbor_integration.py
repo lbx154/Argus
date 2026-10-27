@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from argus.core.knobs import KNOBS
 from argus.integrations.harbor import (
     ArgusHarborAgent,
     HarborUnavailableError,
@@ -250,6 +251,13 @@ def test_harbor_directly_installs_and_invokes_argus(
     assert runtime_call["timeout_sec"] == 900
     assert runtime_call["env"]["ARGUS_SKILL_RUNNER_BACKEND"] == "codex"
     assert runtime_call["env"]["ARGUS_SKILL_MODEL"] == "gpt-5.4-mini"
+    assert runtime_call["env"]["ARGUS_SKILL_PLAN_MODEL"] == "gpt-5.4-mini"
+    # Every model and effort setting the adapter passes is one Argus reads.
+    known = {knob.name for knob in KNOBS}
+    assert [
+        name for name in runtime_call["env"]
+        if name.endswith(("_MODEL", "_REASONING_EFFORT")) and name not in known
+    ] == []
     assert runtime_call["env"]["ARGUS_SKILL_REQUIRE_INDEPENDENT_REVIEW"] == "1"
     assert runtime_call["env"]["ARGUS_SKILL_FORCE_STAGE_CLOSING"] == "1"
     assert runtime_call["env"]["ARGUS_SKILL_OPERATOR_AVAILABLE"] == "false"
