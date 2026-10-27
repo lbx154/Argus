@@ -53,7 +53,7 @@ def test_revision_replaces_recall_and_vectors_and_rejects_stale_write(tmp_path: 
         evidence_refs=["review:correction"],
         title="verified sapphire",
         objective="verified sapphire",
-        lessons=["Use the revised measurement."],
+        factual_outcome="Use the revised measurement.",
     )
 
     assert updated.revision == 2
@@ -315,5 +315,5 @@ def test_explicit_embedding_adapter_reindexes_when_its_version_changes(tmp_path:
 @pytest.mark.parametrize("budget", [1, 20, 600, 6000])
 def test_recall_keeps_the_existing_prompt_character_budget(tmp_path: Path, budget: int) -> None:
     store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
-    store.append(experience("bounded", research_narrative="long context " * 200))
+    store.append(experience("bounded", factual_outcome="long context " * 200))
     assert len(store.render_context("bounded", max_chars=budget)) <= budget

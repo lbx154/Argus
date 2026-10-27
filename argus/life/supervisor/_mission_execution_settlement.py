@@ -1212,12 +1212,6 @@ class MissionExecutionSettlementMixin:
                 f"status={state.status}; stop_kind={state.stop_kind or 'none'}; "
                 f"reason={state.stop_reason or 'none'}"
             ),
-            # The round text the Reviewer read is not kept on the outcome; the
-            # engineer's own account of the run is the factual record we have.
-            host_round_log="",
-            run_reality=str(
-                getattr(outcome, "summary", "") or getattr(outcome, "final_message", "") or ""
-            ),
             emit=self._emit,
             elapsed_s=float(state.elapsed or 0.0),
             rounds=int(state.rounds or 0),
@@ -1258,10 +1252,9 @@ class MissionExecutionSettlementMixin:
             status = "iteration_" + str(state.iteration.get("status") or "incomplete")
         elif not success and status in {"done", "success", "completed"}:
             status = "review_" + review_status if review_status and review_status != "done" else "not_accepted"
-        final_message = str(getattr(outcome, "final_message", "") or "")
         review_reason = str(getattr(outcome, "final_review_reason", "") or getattr(outcome, "reason", "") or "")
         factual_outcome = (
-            state.stop_reason or final_message or review_reason or status
+            state.stop_reason or review_reason or status
             if success else str((state.iteration or {}).get("stop_reason") or state.stop_reason or state.err or status)
         )
         return experience_from_settled_mission(
@@ -1270,8 +1263,7 @@ class MissionExecutionSettlementMixin:
             created_at=float(getattr(item, "started_ts", None) or item.ts),
             title=item.title, objective=item.objective, status=status, success=success,
             reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
-            factual_outcome=factual_outcome, final_message=final_message, review_reason=review_reason,
-            stop_kind=str(state.stop_kind or ""),
+            factual_outcome=factual_outcome, stop_kind=str(state.stop_kind or ""),
             concepts=list(item.tags), artifact_refs=[ref for ref in refs if ref],
             non_goals=list(getattr(item, "non_goals", []) or []),
         )

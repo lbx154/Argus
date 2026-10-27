@@ -27,7 +27,7 @@ def capsule(service: ExperienceToolService):
 def correction(identity: str, revision: int = 1) -> dict:
     return {"experience_id": identity, "expected_revision": revision,
             "evidence_refs": ["workspace:evidence.txt"], "reason": "The controlled retry corrects the interpretation.",
-            "changes": {"factual_outcome": "corrected observation", "lessons": ["Recheck the boundary conditions."]}}
+            "changes": {"factual_outcome": "corrected observation", "retry_conditions": ["Recheck the boundary conditions."]}}
 
 
 def test_cli_revises_same_identity_and_retracts_through_call_bound_bridge(tmp_path, monkeypatch, capsys):

@@ -132,8 +132,6 @@ class _Roots:
             review_status="done",
             review_reason="The number matched; the run log is attached.",
             stop_reason="status=done; stop_kind=none; reason=none",
-            host_round_log="round 1: installed torch again (40 min)",
-            run_reality="One round; the venv already carried torch.",
             emit=self.events.append,
             elapsed_s=900.0,
             rounds=2,
@@ -211,8 +209,6 @@ def test_lesson_page_is_indexed_journaled_announced_and_receipted(roots: _Roots)
         "Reproduce the baseline number on the small split.",
         "The number is within 0.5 of the paper.",
         "The number matched; the run log is attached.",
-        "round 1: installed torch again (40 min)",
-        "One round; the venv already carried torch.",
         "- An older lesson",
         str(lesson_path.parent),
         "Judge novelty against the saved libraries",
@@ -306,7 +302,7 @@ def test_a_saved_page_the_mission_showed_outdated_is_retired_with_who_and_why(ro
     ]}])
 
     result = roots.reflect(
-        backend, run_reality="All tests pass without PYTHONPATH; the recalled lesson "
+        backend, review_reason="All tests pass without PYTHONPATH; the recalled lesson "
         f"{stale} no longer holds because PYTHONSAFEPATH is unset.",
     )
 
@@ -540,8 +536,6 @@ def test_settlement_hands_the_mission_facts_to_reflection(
     assert captured["vertical"] == VERTICAL
     assert captured["review_status"] == "done"
     assert captured["review_reason"] == "The number matched."
-    assert captured["run_reality"] == "One round; the venv already carried torch."
-    assert captured["host_round_log"] == ""
     assert captured["stop_reason"].startswith("status=done;")
     assert captured["rounds"] == 1
     assert captured["mission_accepted"] is True
@@ -593,7 +587,7 @@ def test_the_prompt_keeps_the_operator_s_own_affairs_out_of_shared_pages(tmp_pat
 
     prompt = build_reflection_prompt(
         project_id="s-1", vertical="research", mission_id="m", title="t", objective="o", acceptance="a",
-        review_status="done", review_reason="", stop_reason="", host_round_log="", run_reality="",
+        review_status="done", review_reason="", stop_reason="",
         vertical_root=tmp_path, project_wiki=None, skills_dir=tmp_path / "skills", existing_lessons=[],
     )
     assert "keep the operator's own affairs out" in prompt
@@ -723,16 +717,18 @@ def test_a_failed_reflection_leaves_the_fact_unrecorded(roots: _Roots) -> None:
     assert not (roots.home / "reviewed-facts.md").exists()
 
 
-def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
+def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
     refs = [f"evidence/run-{index:03d}.json" for index in range(120)]
     backend = _ReplyBackend()
+    monkeypatch.setattr(reflection, "PROMPT_CHAR_LIMIT", 6_000)
 
     roots.reflect(
         backend, reviewed_fact=_fact_candidate(refs=refs),
-        objective="x" * 20_000, host_round_log="y" * 20_000, run_reality="z" * 20_000,
+        objective="x" * 20_000, acceptance="y" * 20_000, review_reason="z" * 20_000,
     )
 
     prompt = backend.calls[0]["prompt"]
+    assert "x" * 1_999 not in prompt, "the bounded part was cut"
     assert "Allowed evidence refs:" in prompt
     assert all(f"- {ref}" in prompt for ref in refs)
     assert "verified_new_result" in prompt
