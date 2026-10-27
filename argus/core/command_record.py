@@ -1,9 +1,9 @@
 """What the agent CLI reported of a role's commands, kept in host memory for one turn.
 
-A Reviewer whose tools only read and search cannot rerun a check. What it can
-weigh instead is what the host recorded from the agent CLI's output stream:
-which commands the CLI reported starting and the exit codes it reported for
-them. The command text and its output are still the Engineer's (its command
+A Reviewer has the Engineer's tools and reruns the decisive check itself. Beside
+that, and where the sandbox blocks a rerun, it weighs what the host recorded
+from the agent CLI's output stream: which commands the CLI reported starting
+and the exit codes it reported for them. The command text and its output are still the Engineer's (its command
 printed them), so they are evidence to read, not facts to trust.
 
 The record is not tamper-proof. A command can write CLI-shaped lines to the
