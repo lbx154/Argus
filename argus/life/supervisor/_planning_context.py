@@ -195,11 +195,6 @@ class PlanningContextMixin:
         execution_workdir = str(
             getattr(item, "execution_workdir", "") or ""
         ).strip()
-        owns_paths = [
-            str(path).strip()
-            for path in getattr(item, "owns_paths", [])
-            if str(path).strip()
-        ]
         non_goals = [
             str(value).strip() for value in getattr(item, "non_goals", []) if str(value).strip()
         ]
@@ -214,7 +209,6 @@ class PlanningContextMixin:
             and not expected_regressions
             and not decision_rule
             and not execution_workdir
-            and not owns_paths
             and not non_goals
         ):
             return ""
@@ -229,12 +223,6 @@ class PlanningContextMixin:
         if execution_workdir:
             lines.append(
                 "- execution_repository_request: " + execution_workdir
-            )
-        if owns_paths:
-            lines.append("- writable_paths: " + ", ".join(owns_paths))
-            lines.append(
-                "  Do not write outside these paths; sibling missions may be "
-                "working concurrently."
             )
         if self._item_requires_independent_review(item):
             lines.append(

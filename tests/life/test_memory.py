@@ -308,7 +308,7 @@ def test_render_prelude_never_reinjects_planner_error_verdict_body(
 
 
 def _cards(total, busy=()):
-    return tuple((index, index in set(busy)) for index in range(total))
+    return tuple(index in set(busy) for index in range(total))
 
 
 def _gpu_backlog(tmp_path, monkeypatch, cards):
@@ -319,23 +319,34 @@ def _gpu_backlog(tmp_path, monkeypatch, cards):
     return memory.backlog
 
 
-def test_cards_busy_with_another_process_are_not_offset_by_our_reservations(tmp_path, monkeypatch):
-    # Two cards run someone else's training; our task reserved the other two
-    # but has not started its job yet. Nothing is free.
-    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4, busy={2, 3}))
-    first = backlog.add(BacklogItem.new(
-        title="arm a", objective="train", gpu_count=2,
-        parallel_safe=True, owns_paths=["runs/a"],
-    ))
-    second = backlog.add(BacklogItem.new(
-        title="arm b", objective="train", gpu_count=1,
-        parallel_safe=True, owns_paths=["runs/b"],
-    ))
-    claimed = backlog.claim_next(parallel_only=True)
-    assert claimed is not None and claimed.id == first.id
-    assert backlog.gpu_summary()["free"] == 0
+def _arm(name, gpu_count):
+    return BacklogItem.new(
+        title=f"arm {name}", objective="train", gpu_count=gpu_count,
+        parallel_safe=True, owns_paths=[f"runs/{name}"],
+    )
+
+
+def test_cards_busy_with_another_process_hold_back_claims(tmp_path, monkeypatch):
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4, busy={0, 1, 2}))
+    backlog.add(_arm("a", 2))
+    assert backlog.gpu_summary() == {"total": 4, "busy": 3, "reserved": 0, "free": 1}
     assert backlog.claim_next(parallel_only=True) is None
-    assert next(row for row in backlog.all() if row.id == second.id).status == "pending"
+
+
+def test_a_running_tasks_cards_count_once_whether_or_not_its_job_started(tmp_path, monkeypatch):
+    from argus.life import memory as memory_module
+
+    backlog = _gpu_backlog(tmp_path, monkeypatch, _cards(4))
+    first, second, third = (backlog.add(_arm(name, 2)) for name in "abc")
+    assert backlog.claim_next(parallel_only=True).id == first.id
+    assert backlog.gpu_summary() == {"total": 4, "busy": 0, "reserved": 2, "free": 2}
+    # Its Engineer starts the job on two cards of its own choosing, now both
+    # busy and reserved.
+    monkeypatch.setattr(memory_module, "_gpu_cards", lambda: _cards(4, busy={2, 3}))
+    assert backlog.gpu_summary() == {"total": 4, "busy": 2, "reserved": 2, "free": 2}
+    assert backlog.claim_next(parallel_only=True).id == second.id
+    assert backlog.claim_next(parallel_only=True) is None
+    assert next(row for row in backlog.all() if row.id == third.id).status == "pending"
 
 
 def test_without_a_visible_gpu_nothing_is_gated(tmp_path, monkeypatch):
