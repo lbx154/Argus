@@ -14,7 +14,7 @@ from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.workspace_facts import fact_text
-from ..memory import _TERMINAL_STATUSES, BacklogItem, manager_direct_in_hand
+from ..memory import BacklogItem, manager_direct_in_hand
 from ._constants import (
     PLAN_AWAITING,
     PLAN_RETRY,
@@ -23,7 +23,6 @@ from ._constants import (
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
-from ._planner_failure_backoff import planner_failure_kind
 
 log = logging.getLogger(__name__)
 
@@ -747,9 +746,8 @@ class PlanningContextMixin:
     def _record_planner_handoff(self, verdict: Any, state: Any = None) -> str:
         """The Planner adds no work now and names who acts next.
 
-        Nothing is watched on its behalf: it is called again when something
-        new is handed to it -- a mission ends, the operator writes, the Manager
-        directs -- because its inputs then differ from the turn it answered.
+        Nothing is watched on its behalf: with nothing running, the next pass
+        after this backoff asks it again, whatever it answered now.
         A question for the operator goes on the planning slot's card, which the
         operator answers, or the Manager while the operator cannot be asked.
         """
@@ -850,23 +848,15 @@ class PlanningContextMixin:
         record = load_active_manager_directive(operator_context_state_root(self.memory))
         return [record.planner_revision] if record is not None and record.planner_revision else []
 
-    def _planner_visible_input_signature(
-        self,
-        *,
-        operator_context_revision: int = 0,
-    ) -> str:
+    def _current_planner_input_signature(self) -> str:
         """The decision inputs a fresh Planner call would read now, as comparable text.
 
-        Two cycles with equal inputs would hand the Planner the same
-        objective, backlog, journal window, research plan, standing operator
-        context, Manager feedback, and background-job states —
-        so a second model call can only repeat the first answer. Wall-clock
-        facts (operator presence, log churn from healthy live jobs, git status
-        noise) are deliberately left out: live jobs rewrite their own files
-        continuously. Unchanged inputs keep the Planner silent until they change.
-
-        Fail-soft: an empty string disables the unchanged-input skip for this
-        cycle rather than guessing.
+        The objective, backlog, journal window, research plan, standing
+        operator context, Manager feedback, and background-job states. A spare
+        slot beside running work asks the Planner again when they move.
+        Wall-clock facts (operator presence, log churn from healthy live jobs,
+        git status noise) are deliberately left out: live jobs rewrite their
+        own files continuously. Empty when an input cannot be read.
         """
         try:
             entries = self._planner_journal_window()
@@ -881,7 +871,9 @@ class PlanningContextMixin:
                     self._planner_journal_entry_key(entry) for entry in entries
                 ),
                 "research_plan": self._render_research_plan_for_planner(),
-                "operator_context_revision": int(operator_context_revision),
+                "operator_context_revision": int(
+                    getattr(self, "_planning_operator_context_revision", 0) or 0
+                ),
                 # The Manager's advisory direction reaches the Planner through
                 # OperatorContext without moving its revision counter.
                 "manager_directive": self._manager_directive_signature(),
@@ -902,112 +894,10 @@ class PlanningContextMixin:
                     getattr(self, "_planner_dropped_parallel_marks", []) or []
                 ),
             }
-        except Exception:  # noqa: BLE001 - an unreadable input disables the skip
-            log.debug("planner inputs unreadable; skip disabled", exc_info=True)
+        except Exception:  # noqa: BLE001 - an unreadable input is no fact
+            log.debug("planner inputs unreadable", exc_info=True)
             return ""
         return fact_text(payload)
-
-    def _maybe_skip_unchanged_planner_cycle(self, state: Any) -> str | None:
-        """Keep the last decision without new work when nothing the Planner reads moved.
-
-        The previous Planner call already answered exactly this input state
-        with no new work; asking again buys the same answer at model price.
-        Nor is anything the Planner's while every live task is one the Manager
-        handed straight to an Engineer, still in that Engineer's or the
-        operator's hands: the Planner hears of it when it ends. This is how the
-        Planner is called only when something is handed to it. The gate runs
-        only after every earlier intake short circuit has declined; elapsed
-        time alone is not news. Returns the plan-cycle outcome when skipping,
-        else ``None`` — and always leaves the freshly computed signature on
-        ``state`` so the cycle's real outcome can arm the next skip.
-
-        The record stays in memory: a turn without new work never acknowledges
-        the operator input it read, so it is reconsidered after a restart, and a
-        turn that carried operator words does not arm it.
-        """
-        current = self._planner_visible_input_signature(
-            operator_context_revision=int(
-                getattr(state, "operator_context_revision", 0) or 0
-            )
-        )
-        transient_ids = [
-            message.delivery_id
-            for message in getattr(state, "inbox_delivery_messages", ())
-            if getattr(message, "delivery_id", "")
-            and not getattr(message, "host_report", False)
-        ]
-        if current and transient_ids:
-            current += ":inbox:" + fact_text(sorted(transient_ids))
-        state.planner_input_signature = current
-        live = [
-            item for item in self.memory.backlog.active()
-            if item.status not in _TERMINAL_STATUSES
-        ]
-        direct_only = bool(live) and all(manager_direct_in_hand(item) for item in live)
-        armed = str(getattr(self, "_planner_unchanged_skip_signature", "") or "")
-        if not direct_only and (not current or current != armed):
-            return None
-        # Preserve whichever backoff family the campaign is already in: an
-        # armed idle-exit clock keeps running, a recoverable pause stays one.
-        if getattr(self, "_idle_since", None) is not None:
-            self._enter_idle_backoff()
-        else:
-            self._enter_pause_backoff()
-        # While live work holds a question, the next move is the operator's.
-        handoff = "operator" if any(item.pending_question.strip() for item in live) else ""
-        # Said once when the Planner starts waiting, not on every pass that finds nothing new.
-        if self._should_journal_idle_repeat(
-            f"{'direct_handoff' if direct_only else 'inputs_unchanged'}:{handoff}"
-        ):
-            self._emit({
-                "type": EventType.LIFE_PLANNER_IDLE,
-                "cycle": self._planning_cycles,
-                "reason": (
-                    "every live task is the Manager's direct handoff; the "
-                    "Planner is asked when one ends"
-                    if direct_only else
-                    "nothing the Planner reads has changed since its last "
-                    "decision; keeping that decision without another model call"
-                ),
-                "handoff": handoff,
-                "model_call_skipped": True,
-            })
-        return PLAN_AWAITING
-
-    def _arm_unchanged_planner_skip(self, state: Any) -> None:
-        """Record or clear the unchanged-input skip after a real Planner call.
-
-        Armed when the model answered this cycle without proposing work,
-        whatever it said: the same inputs would only buy the same answer
-        again, so the Planner is asked next when something it reads changes.
-        Proposed work (enqueued or not), a completion accepted, a failed
-        backend call (which may be transient), or a call cut off because a
-        newer instruction superseded it clears the record. Cycles that never
-        reached the model, including the skip itself, leave the record
-        untouched so consecutive unchanged cycles keep skipping until an input
-        changes.
-
-        A superseded call never answered: arming on it kept a research
-        campaign silent for hours after one stage (trial s-efe9deac), because
-        the steer that cut it off was meant for the team and changed nothing
-        the Planner reads.
-        """
-        if not bool(getattr(state, "planner_invoked", False)):
-            return
-        from ...planner import PLANNER_SUPERSEDED_ERROR
-
-        verdict = state.verdict
-        if (
-            str(getattr(state, "planner_input_signature", "") or "")
-            and verdict is not None
-            and not planner_failure_kind(verdict)
-            and not str(getattr(verdict, "error", "") or "").startswith(PLANNER_SUPERSEDED_ERROR)
-            and not getattr(verdict, "new_tasks", None)
-            and not state.completion_accepted
-        ):
-            self._planner_unchanged_skip_signature = state.planner_input_signature
-        else:
-            self._planner_unchanged_skip_signature = ""
 
     def _backlog_planning_signature(self) -> str:
         """Digest of live backlog item ids and statuses.
@@ -1198,14 +1088,6 @@ class PlanningContextMixin:
             "invariant. Re-plan now from the rejection reason and current evidence. "
             f"{task_instruction} Do not repeat the rejected "
             "verdict without new evidence."
-        )
-
-    def _current_planner_input_signature(self) -> str:
-        """The Planner-visible inputs now, for deciding whether to ask again."""
-        return self._planner_visible_input_signature(
-            operator_context_revision=int(
-                getattr(self, "_planning_operator_context_revision", 0) or 0
-            )
         )
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:

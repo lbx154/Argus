@@ -127,7 +127,7 @@ def test_each_turn_another_role_ends_is_looked_at_once(team):
 def test_a_planner_turn_that_was_never_called_is_not_looked_at(team):
     """2026-10-20: skipped Planner calls woke the Observer, whose remarks woke
     the Manager, whose steers woke the Planner. A turn nobody took is no turn."""
-    team.supervisor._emit({"type": EventType.LIFE_PLANNER_IDLE, "reason": "unchanged", "model_call_skipped": True})
+    team.supervisor._emit({"type": EventType.LIFE_PLANNER_IDLE, "reason": "held", "model_call_skipped": True})
     _settle(team)
     assert team.backend.calls == []
 

@@ -25,6 +25,9 @@ from ..core.runner_errors import (
 )
 
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
+# Refused before it reached the model (core/call_guard.py): no answer, and
+# not the Planner or its backend failing.
+PLANNER_PAUSED_ERROR = "planner call paused before it reached the model"
 
 
 @dataclass
@@ -351,6 +354,13 @@ class Planner:
                     summary="Planner execution host is unavailable; repair it before retrying.",
                         raw_text=text or details,
                     error=fatal,
+                )
+            if getattr(result, "stop_kind", None) == "operator_pause":
+                return PlannerVerdict(
+                    project_done=False,
+                    summary=PLANNER_PAUSED_ERROR,
+                    raw_text=text or details,
+                    error=f"{PLANNER_PAUSED_ERROR}: {fatal}",
                 )
             if PLANNER_SUPERSEDED_ERROR in details:
                 return PlannerVerdict(

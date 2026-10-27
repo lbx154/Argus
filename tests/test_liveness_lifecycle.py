@@ -503,17 +503,18 @@ def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
 # I2/I1: a Manager WAIT holds only the evidence it judged.
 
 
-# I2/I3: a Planner that hands a stuck process to the Manager is not called again on nothing new.
+# I2/I3: a Planner that hands a stuck process to the Manager asks no stage decision.
 
 _MANAGER_HANDOFF = plan("manager", summary="The vendor has not published the dataset the stage needs.")
 
 
 @pytest.mark.parametrize("open_ended", [False, True])
-def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
+def test_a_handoff_to_the_manager_asks_no_stage_decision(
     tmp_path: Path, monkeypatch, open_ended: bool,
 ) -> None:
     """The Planner hands a stuck process to the Manager: no stage decision is
-    asked, and while nothing changes the Planner is not called again."""
+    asked, and each cycle asks the Planner again (s-efe9deac: a skip on
+    unchanged inputs held it fifteen hours)."""
     project = _project(tmp_path, monkeypatch)
     planner = _PlannerBackend([_MANAGER_HANDOFF] * 10)
     supervisor = _supervisor(project, tmp_path / "life", planner)
@@ -525,7 +526,7 @@ def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
         supervisor._plan_next_work()
 
     assert manager.calls == []
-    assert len(planner.calls) == 1
+    assert len(planner.calls) == 10
 
 
 def _answered(backlog, question: str, answer: str, asked_at: float) -> BacklogItem:

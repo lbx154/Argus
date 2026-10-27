@@ -262,12 +262,19 @@ class PlanningCycleVerdictMixin:
         verdict = state.verdict
 
         if verdict.error:
-            from ...planner import PLANNER_SUPERSEDED_ERROR
+            from ...planner import PLANNER_PAUSED_ERROR, PLANNER_SUPERSEDED_ERROR
 
             if is_execution_host_startup_error(verdict.error):
                 return self._pause_planner_execution_host(
                     verdict.error, expected=getattr(state, "planner_continuous_state", None),
                 )
+            if str(verdict.error).startswith(PLANNER_PAUSED_ERROR):
+                # No Planner turn took place: nothing failed or answered. The
+                # guard told the operator; progress lifts it.
+                state.planner_invoked = False
+                self._emit_status(f"planner: {verdict.error}")
+                self._enter_pause_backoff()
+                return PLAN_AWAITING
             if str(verdict.error).startswith(PLANNER_SUPERSEDED_ERROR):
                 self._emit({
                     "type": "life.planner.superseded",

@@ -25,8 +25,8 @@ def _supervision(outcome: str, sid: str, **fields) -> dict:
     return {"type": f"life.manager.supervision.{outcome}", "supervision_id": sid, **fields}
 
 
-# The older generation: one Planner turn that added no work, then two
-# turns the ledger answered without a model call (logged under the old name).
+# The older generation: one Planner turn that added no work, then two waits
+# an older release logged as skipped calls (under the old name); they count nothing.
 OLDER = [
     {"type": "life.planner.start"},
     _usage("p1", "planner.cycle0", 1.0, 100, cached_input_tokens=80, cache_write_tokens=20),
@@ -105,7 +105,7 @@ def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture
     assert main([str(project)]) == 0
     table = capsys.readouterr().out
     assert table.startswith(f"{project}: 17 calls, $17.50\ncost per passed task: $8.75")
-    assert "planner no new work      2   4    2.00        2" in table
+    assert "planner no new work      2   4    2.00" in table.splitlines()
 
     assert main([str(project), "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == efficiency_report(project)

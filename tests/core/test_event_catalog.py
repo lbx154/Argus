@@ -36,7 +36,7 @@ def test_manager_intent_legacy_event_without_ids_gets_local_correlation() -> Non
 
 
 def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
-    # A daemon that skips an unchanged Planner turn, or restores an already
+    # A daemon that holds a repeatedly failing Planner turn, or restores an already
     # delivered terminal conclusion from the outbox, emits these before any
     # planning cycle has run in the new process. There, cycle == 0 is the
     # honest count of cycles completed so far -- the same convention
@@ -44,7 +44,7 @@ def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> Non
     idle = normalize_event_envelope({
         "type": EventType.LIFE_PLANNER_IDLE,
         "cycle": 0,
-        "reason": "nothing the Planner reads has changed",
+        "reason": "backing off after repeated failed Planner turns",
         "model_call_skipped": True,
     })
     assert "event_validation" not in idle

@@ -13,7 +13,7 @@ has flowed so far from ``events.jsonl``, with the Engineer's access and only
 the tools reading needs. Within a task it resumes its session and reads only
 the events added since its last look; the session ends with the task, and
 planning, which belongs to no task, is looked at afresh each time. A turn
-nobody took, such as a Planner call skipped on unchanged inputs, is not looked
+nobody took, such as a Planner call held after repeated failures, is not looked
 at, nor the turn that ends the work (a handoff to done, or the Planner declaring
 the project done): after it nothing is left to flow. Each look ends with the
 ``observe`` form; when all is well it leaves the remark out and no record of

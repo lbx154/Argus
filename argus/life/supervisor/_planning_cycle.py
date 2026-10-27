@@ -455,8 +455,7 @@ class PlanningCycleMixin(
         if result is None:
             result = self._pc_emit_final_verdict(state)
         # Reading a prompt is not handling its input. Checkpoint only committed
-        # work or an accepted completion; a turn without new work can use the
-        # unchanged-input skip but must be reconsidered after restart.
+        # work or an accepted completion; a turn without new work reads it again.
         if (
             state.planner_invoked
             and state.verdict is not None
@@ -489,7 +488,6 @@ class PlanningCycleMixin(
                     reason=f"planner cycle {self._planning_cycles} reached the model service",
                     outage_only=True,
                 )
-        self._arm_unchanged_planner_skip(state)
         self._record_planner_turn_outcome(state, result)
         return result
 
