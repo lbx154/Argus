@@ -938,12 +938,12 @@ button.map-overview-item:hover, .map-overview-link:hover { border-color: rgb(var
 .map-attention-detail > div > p { margin: 0 0 2px; }
 .map-attention-detail details { color: rgb(var(--ink-dim)); }
 
-/* Full canvas (App mapImmersive): the map fills the window. The project
- * header, overview, status line and legend step aside; the toolbar keeps its
- * buttons as icons, and the toggle brings everything back. */
+/* Full canvas (mapImmersive): the map fills the window. The project header,
+ * the overview's goal and results, and the legend step aside; the team line
+ * (with 暂停团队) and the status line with what waits on the person stay. The
+ * toolbar keeps its buttons as icons, and the toggle brings everything back. */
 .argus-map[data-immersive="true"] .map-header,
-.argus-map[data-immersive="true"] .map-overview,
-.argus-map[data-immersive="true"] .map-status-row,
+.argus-map[data-immersive="true"] .map-overview > dl,
 .argus-map[data-immersive="true"] .map-final-review,
 .argus-map[data-immersive="true"] .map-legend {
   display: none;

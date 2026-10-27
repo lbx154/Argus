@@ -408,3 +408,17 @@ it("keeps a request that started no task yet by the composer, and explains the c
     typeof node === "string" ? node : node.children.map(text).join("");
   expect(text(key)).toContain("任务卡 = 团队拆出来、能单独完成和验收的一件事");
 });
+
+it("keeps the team line, 暂停团队 and what waits on the person on the full canvas map", () => {
+  const css = ["map.css", "design.css", "canvas.css"].map((name) => readFileSync(new URL(`../map/${name}`, import.meta.url), "utf8")).join("\n");
+  const hidden = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter(([, , body]) => /display:\s*none/.test(body))
+    .flatMap(([, selectors]) => selectors.split(",").map((s) => s.replace(/\/\*[\s\S]*?\*\//g, "").trim()))
+    .filter((s) => s.includes('[data-immersive="true"]'));
+  expect(hidden.some((s) => /\.map-overview$/.test(s) || s.includes(".map-status-row") || s.includes(".map-attention-link"))).toBe(false);
+  // The team line sits outside the overview's folded list.
+  const next = { ...props, actions: { ...props.actions, teamStatus: <div data-testid="team-line"><button>暂停团队</button></div> } };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...next} immersive /></QueryClientProvider>));
+  const overview = renderer.root.findByProps({ "data-testid": "map-overview" });
+  expect(overview.findByProps({ "data-testid": "team-line" }).parent).toBe(overview);
+});
