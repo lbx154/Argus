@@ -49,7 +49,7 @@ export function TeamPauseButton({ snapshot, locale, onPause, onResume, busy = fa
   }
   if (daemon.alive && onPause) {
     return <button type="button" disabled={busy} onClick={onPause} className={className} data-testid="team-pause"
-      title={zh ? '让后台团队做完当前任务后暂停，不会打断它。经理的回复不受影响。' : 'The background team finishes its current task, then pauses. Manager replies are unaffected.'}>
+      title={zh ? '做完当前任务后暂停。' : 'Pauses after the current task finishes.'}>
       {zh ? '暂停团队' : 'Pause team'}
     </button>;
   }

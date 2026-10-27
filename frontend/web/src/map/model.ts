@@ -187,7 +187,6 @@ export interface MapGraph {
   tasks: MapTask[];
   links: MapLink[];
   missing: number;
-  cyclic: boolean;
 }
 
 export const ACTIVE = new Set(["running", "in_progress", "claimed"]);
@@ -390,7 +389,6 @@ export function buildMap(tasks: MapTask[]): MapGraph {
       if (indegree.get(child) === 0) queue.push(child);
     }
   }
-  const cyclic = processed !== all.length;
   // Recorded relations, drawn from what a card is about to the card itself.
   const related = new Set<string>();
   for (const task of ordered)
@@ -421,7 +419,7 @@ export function buildMap(tasks: MapTask[]): MapGraph {
       target_count: targets.length,
     });
   }
-  if (cyclic) {
+  if (processed !== all.length) {
     // Kahn's residual includes work blocked downstream of a cycle. Only an
     // edge inside one strongly connected component actually belongs to a cycle.
     const component = dependencyComponents(children);
@@ -439,7 +437,6 @@ export function buildMap(tasks: MapTask[]): MapGraph {
     tasks: all,
     links,
     missing: missing.size,
-    cyclic,
   };
 }
 
@@ -522,8 +519,8 @@ export function connectMap(
           ? "Same plan"
           : "Same study",
       evidence: zh
-        ? "属于同一研究会话，按时间排列；不表示执行依赖。"
-        : "Shared research context, arranged in time; no execution dependency is implied.",
+        ? "同一研究会话，按时间排列。"
+        : "Same research session, in time order.",
     });
     join(previous.id, task.id);
   }

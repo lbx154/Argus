@@ -131,8 +131,8 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
   const ask = async () => {
     const excerpt = selection || content;
     const prompt = zh
-      ? `请修改文件 ${path} 的${selection ? '以下选中部分' : '以下修改稿'}。这是未复审草稿，请保留原始交付文件，不要覆盖已审核成果。\n\n${excerpt}\n\n我的修改要求：`
-      : `Revise ${selection ? 'this selection from' : 'this draft of'} ${path}. This is an unreviewed draft. Preserve the original delivered file.\n\n${excerpt}\n\nMy requested changes:`;
+      ? `请修改文件 ${path} 的${selection ? '以下选中部分' : '以下修改稿'}，另存为新版本，不要覆盖原文件。\n\n${excerpt}\n\n我的修改要求：`
+      : `Revise ${selection ? 'this selection from' : 'this draft of'} ${path} and save it as a new version without overwriting the original.\n\n${excerpt}\n\nMy requested changes:`;
     if (prompt.length > 32_000) { setError(zh ? '内容过长，请先选中要修改的片段。' : 'Select a shorter passage before requesting a revision.'); return; }
     if (dirty && !await save()) return;
     onRequest(prompt);
@@ -169,7 +169,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
             onSelect={() => { const input = textarea.current; if (input) setSelection(input.value.slice(input.selectionStart, input.selectionEnd)); }} />}
           </section>
         </div>
-        <p className="experience-caption">{zh ? '修改稿单独保存，不覆盖原文件，也不会继承原成果的审核状态。保存不调用模型。' : 'Editions are separate and unreviewed. Saving never overwrites the original or calls a model.'}</p>
+        <p className="experience-caption">{zh ? '修改稿单独保存，不覆盖原文件。' : 'Editions are saved separately from the original.'}</p>
       </>}
       {error && <div role="alert" className="experience-notice text-err">{error}<Button onClick={() => void query.refetch()}>{zh ? '重新读取版本（会放弃未保存修改）' : 'Reload versions (discard unsaved changes)'}</Button></div>}
       </div>
@@ -203,7 +203,7 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
   const [prompt, setPrompt] = useState(target.prompt);
   const [edition, setEdition] = useState<Edition | null>(null);
   return <Modal open onClose={onClose} label={zh ? '对话修订与版本' : 'Conversation revisions and versions'} width="max-w-3xl">
-    <ModalHeader title={zh ? '对话修订与版本' : 'Conversation revisions and versions'} sub={zh ? '保留原始记录，准备新的对话草稿' : 'Keep the original and prepare a new chat draft'} />
+    <ModalHeader title={zh ? '对话修订与版本' : 'Conversation revisions and versions'} sub={zh ? '准备新的对话草稿' : 'Prepare a new chat draft'} />
     <div className="experience-panel">
       {query.isError && <p role="alert" className="text-err">{errorText(query.error)}</p>}
       <select className="experience-select" aria-label={zh ? '对话版本' : 'Conversation version'} value={edition?.version ?? 0} onChange={event => {
@@ -221,7 +221,6 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
         <h3>{zh ? '对应回答' : 'Recorded answer'}</h3>
         <MarkdownContent>{edition?.content || target.answer}</MarkdownContent>
       </section>}
-      <p className="experience-caption">{zh ? '确认发送后才会调用模型，不会重新提交研究任务。' : 'Only sending calls the model. Research tasks are not resubmitted.'}</p>
       <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
         onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
         {target.mode === 'regenerate' ? zh ? '准备重新回答（仅对话）' : 'Prepare another answer (chat only)' : zh ? '放入对话草稿' : 'Put in chat draft'}
@@ -261,7 +260,7 @@ export function DeviceAccess({ open, onClose }: { open: boolean; onClose: () => 
       </div>
       <div className="experience-section device-disconnect">
       <div><h3>{zh ? '当前浏览器' : 'This browser'}</h3>
-        <p className="experience-caption">{zh ? '退出只断开本浏览器，不删除项目或停止研究。' : 'Signing out disconnects this browser. Projects and running research are unaffected.'}</p></div>
+        <p className="experience-caption">{zh ? '退出只断开本浏览器。' : 'Signing out disconnects only this browser.'}</p></div>
       <Button variant="danger" disabled={busy} onClick={async () => {
         setBusy(true); setError('');
         try { await api.disconnectBrowser(); window.location.reload(); }

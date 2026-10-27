@@ -332,21 +332,21 @@ def generate_foundation(
         if not markdown:
             raise ValueError("question foundation is empty")
         introduction, question_heading = (
-            ("这是一份用于理解原问题的背景说明。研究进展与复核结论请查看对应任务记录。", "原问题")
+            ("这是一份用于理解原问题的背景说明。", "原问题")
             if record["locale"] == "zh-CN" else
-            ("Background reading for understanding the original question. Research progress and reviewed results are tracked with the task.", "Original question")
+            ("Background reading for understanding the original question.", "Original question")
         )
         if clarification:
             introduction, question_heading = (
-                ("这是一份针对阅读疑点的补充回答。原说明保留不变，背景讨论不计作研究进展。", "这次追问")
+                ("这是一份针对阅读疑点的补充回答。", "这次追问")
                 if record["locale"] == "zh-CN" else
-                ("A clarification of the saved reading. The original documents are unchanged; this discussion is not research progress.", "Your follow-up question")
+                ("A clarification of the saved reading.", "Your follow-up question")
             )
             if record["source_snapshot"].get("progress_source") is not None:
                 introduction, question_heading = (
-                    ("这是一份针对所选进展解释的阅读回答，依据选择的说明和为这次提问保留的步骤记录。它不会修改任务或研究指令，也不计作新的研究进展。", "这次问题")
+                    ("这是一份针对所选进展解释的阅读回答。", "这次问题")
                     if record["locale"] == "zh-CN" else
-                    ("A reading answer about the selected progress explanation and the step's records kept for the question. It does not change tasks or research instructions and is not new research progress.", "Your question")
+                    ("A reading answer about the selected progress explanation.", "Your question")
                 )
         references = ""
         if clarification:

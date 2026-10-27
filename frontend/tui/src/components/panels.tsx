@@ -605,10 +605,7 @@ function ArtifactPanel({ artifact, page, pageSize }: { artifact: ArtifactInfo; p
           ) : null}
         </>
       ) : (
-        <>
-          <Text dimColor>{artifact.kind === 'binary' ? 'No safe inline preview for this file type.' : `${artifact.kind.toUpperCase()} preview is available in the Web UI.`}</Text>
-          <Text dimColor>Use the authenticated Web cockpit to preview or download it.</Text>
-        </>
+        <Text dimColor>{artifact.kind === 'binary' ? 'No preview here; open it in the Web UI.' : `${artifact.kind.toUpperCase()} preview is available in the Web UI.`}</Text>
       )}
     </Frame>
   );

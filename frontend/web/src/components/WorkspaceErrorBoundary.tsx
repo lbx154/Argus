@@ -19,8 +19,8 @@ export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; loc
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue">{applicationBrand().name}</p>
           <h1 className="text-lg font-semibold">{zh ? '工作台暂时无法显示' : 'The workspace could not be displayed'}</h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-dim">
-            {zh ? '页面资源未能正确加载。后端任务不会因此被停止；你仍可使用桌面菜单查看日志或设置。重新加载会丢弃页面中尚未发送的输入。'
-              : 'A page resource failed to load. Backend work has not been stopped. Desktop menus remain available for logs and settings. Reloading discards unsent input on this page.'}
+            {zh ? '页面资源没能加载。你仍可使用桌面菜单查看日志或设置。重新加载会丢弃尚未发送的输入。'
+              : 'A page resource failed to load. Desktop menus remain available for logs and settings. Reloading discards unsent input on this page.'}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button type="button" className="rounded-md bg-blue px-4 py-2 text-sm text-on-accent" onClick={() => window.location.reload()}>

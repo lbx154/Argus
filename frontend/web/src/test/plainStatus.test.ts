@@ -30,7 +30,7 @@ describe('plainStatus', () => {
     const backend = { kind: 'round_not_judged', language: 'zh' };
     expect(plainStatus('这一轮没有人审阅。', 'zh-CN', backend)).toBe('这一轮没有人审阅。');
     expect(plainStatus('这一轮没有人审阅。', 'en', backend)).toBe('No one reviewed this round.');
-    expect(plainStatus('', 'en', { kind: 'mission_paused' })).toBe('The task was paused before it finished; its progress is saved and it can be resumed.');
+    expect(plainStatus('', 'en', { kind: 'mission_paused' })).toBe('The task was paused; its progress is saved and it can be resumed.');
     // Trial s-36ca9747: one item was done while the other waited on the reader's answer.
     expect(plainStatus('', 'zh-CN', { kind: 'item_done' })).toBe('这一项做完了；另一项在等你回答。');
     expect(plainStatus('some text nobody mapped', 'en', { kind: 'unknown_kind', language: 'zh' })).toBe('some text nobody mapped');
@@ -110,7 +110,7 @@ describe('plainStatus', () => {
     expect(plainDetail('backend failure; retrying in a fresh Codex session after 15.0s', 'en').text)
       .toBe('The model service call failed; retrying in a fresh session after 15.0 seconds.');
     expect(plainDetail('The backend has failed the same way 9 times in a row (Copilot CLI exited with code 1.). Waiting 3600s before the next attempt so a standing failure stops costing money; if this is a configuration problem, fix it first.', 'zh-CN'))
-      .toEqual({ text: '模型服务已连续 9 次以同样的方式失败；为了不让持续的故障白白花钱，3600 秒后再试。', technical: 'Copilot CLI exited with code 1.' });
+      .toEqual({ text: '模型服务已连续 9 次同样失败，3600 秒后再试。', technical: 'Copilot CLI exited with code 1.' });
   });
 
   it('passes an unfamiliar detail through untouched', () => {

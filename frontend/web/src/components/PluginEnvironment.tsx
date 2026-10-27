@@ -49,7 +49,7 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
       <button type="button" className="inline-flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink disabled:opacity-45"
         disabled={running} onClick={() => { setExpanded(true); void act('health'); }}><RefreshCw size={12}/>{tr("检查环境")}</button>
     </div>
-    {health?.stale && <p role="status" className="mt-2 text-xs leading-relaxed text-ink-dim">{tr("下方为本次操作前的检查结果；请以上方最新错误为准，或重新检查环境。")}</p>}
+    {health?.stale && <p role="status" className="mt-2 text-xs leading-relaxed text-ink-dim">{tr("下方是上次检查的结果，可重新检查环境。")}</p>}
     {tr((needLicense || needRepair || !health?.checked) && <p className="mt-2 text-xs leading-relaxed text-ink-faint">{tr(" 免费科学组件自动配置；SHELX 需要你在官网取得学术授权后输入下载凭据。 ")}</p>)}
     <div className="mt-3 flex flex-wrap gap-2">
       {tr((needRepair || !health?.checked || health.stale) && <button className={control} disabled={running} onClick={() => { setExpanded(true); void act('repair'); }}><Download size={14}/>{tr("修复依赖")}</button>)}
@@ -101,7 +101,7 @@ export function PluginEnvironment({ health, setup, running, act, platform, machi
         <p className="mt-1.5 text-xs text-ink-faint">{tr("填写运行 Argus 的电脑上的路径，验证成功后生效。")}</p>
         <div className="mt-3 flex gap-3"><button className={control} disabled={running}>{tr("验证并使用")}</button><button type="button" className="text-xs text-ink-faint" onClick={() => setManual(null)}>{tr("取消")}</button></div>
       </form>)}
-      {tr(health?.checked && <p className="mt-2 text-[11px] text-ink-faint">{tr("最近检查 ")}{tr(new Date(health.checked * 1000).toLocaleString())}{tr(" · 检查不调用模型")}</p>)}
+      {tr(health?.checked && <p className="mt-2 text-[11px] text-ink-faint">{tr("最近检查 ")}{tr(new Date(health.checked * 1000).toLocaleString())}</p>)}
     </div>}
   </div>;
 }

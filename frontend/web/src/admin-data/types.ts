@@ -127,7 +127,6 @@ export interface Overview {
     observed_events: number;
   };
   purpose: Purpose;
-  limitations: string[];
   global_complete: boolean;
   completeness: Completeness;
 }
@@ -199,7 +198,6 @@ export interface CollaborationEpisode {
 export interface CollaborationDetail extends CollaborationTask {
   project: CollaborationProject;
   purpose: Purpose;
-  limitations: string[];
   completeness: Completeness;
   segments: CollaborationSegment[];
   episodes: CollaborationEpisode[];

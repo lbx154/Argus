@@ -54,8 +54,6 @@ describe('deriveProgressEstimate', () => {
     expect(result.currentDetail).toContain('run_probe.py');
     expect(result.workCompletion).toBe(.5);
     expect(busy.workCompletion).toBe(result.workCompletion);
-    expect(result.workScope).toContain('不代表整体目标已成立');
-    expect(result.etaUnavailableReason).toContain('没有可比较的固定工作量基线');
   });
 
   it('keeps bookkeeping receipts out of the current action and public work timeline', () => {
@@ -88,7 +86,6 @@ describe('deriveProgressEstimate', () => {
     const result = deriveProgressEstimate(snapshot(), [...events, { type: 'round.main.completed', item_id: 'active', round_index: 1, ts: 980, status: 'failed', exit_code: 1 }], 1_000, 'en');
     const ended = result.checkpoints.find((checkpoint) => checkpoint.id === 'handoff');
     expect(ended?.label).toBe('Round execution ended');
-    expect(ended?.detail).toContain('results still need to be checked');
     expect(result.review.state).toBe('pending');
     expect(result.workCompletion).toBe(.5);
   });
@@ -112,7 +109,6 @@ describe('deriveProgressEstimate', () => {
     const result = deriveProgressEstimate(snapshot({ alive: false }), events, 1_000);
     expect(result.runtime.state).toBe('paused');
     expect(result.currentStep).toBe('当前任务未在运行');
-    expect(result.etaUnavailableReason).toContain('运行已停止');
     expect(result.elapsedSeconds).toBe(50);
     expect(deriveProgressEstimate(snapshot({ alive: false }), events, 2_000).elapsedSeconds).toBe(50);
     expect(result.checkpoints.every((checkpoint) => checkpoint.status !== 'active')).toBe(true);
@@ -136,7 +132,6 @@ describe('deriveProgressEstimate', () => {
     expect(result.workCompletion).toBe(1);
     expect(result.currentStep).not.toContain('项目已完成');
     expect(result.review.state).toBe('pending');
-    expect(result.etaUnavailableReason).toContain('开放研究');
   });
 
   it.each([
@@ -179,7 +174,6 @@ describe('deriveProgressEstimate', () => {
     const result = deriveProgressEstimate(snapshot(), [...events, reviewEvent()], 1_000);
     expect(result.review.state).toBe('passed');
     expect(reviewCheckpoint(result)?.status).toBe('done');
-    expect(result.review.scope).toContain('整体目标是否成立');
     expect(result.workCompletion).toBe(.5);
     expect(result.checkpoints.find((checkpoint) => checkpoint.id === 'handoff')?.status).not.toBe('done');
   });
@@ -250,7 +244,6 @@ describe('deriveProgressEstimate', () => {
     const value = snapshot();
     value.backlog.push(...['failed', 'paused_operator', 'paused_no_breakthrough', 'done'].map((status, i) => ({ id: `history-${i}`, title: 'Different workload', objective: '', status, priority: 1, started_ts: 1, finished_ts: 50_000 })));
     const result = deriveProgressEstimate(value, events, 1_000);
-    expect(result.etaUnavailableReason).toContain('没有可比较的固定工作量基线');
     expect(result).not.toHaveProperty('eta');
     expect(result).not.toHaveProperty('estimate');
   });
@@ -258,7 +251,6 @@ describe('deriveProgressEstimate', () => {
   it('makes replanning visible without inferring a completion percentage', () => {
     const result = deriveProgressEstimate(snapshot({ reviewStatus: 'replan_requested' }), events, 1_000);
     expect(result.review.state).toBe('needs_work');
-    expect(result.etaUnavailableReason).toContain('调整工作范围');
     expect(result.workCompletion).toBe(.5);
   });
 
@@ -345,7 +337,7 @@ describe('ExperimentsPage recorded work presentation', () => {
     expect(markup).toContain('Completed task');
     expect(markup).toContain('Conclusion awaiting review');
     expect(markup).toContain('Prove the lemma without assuming the full conjecture.');
-    expect(markup).toContain('Recorded stage');
+    expect(markup).toContain('Current stage');
     expect(markup).toContain('Solve the current question');
     expect(markup).toContain('Open research');
     expect(markup).not.toContain('research-stage-rail');

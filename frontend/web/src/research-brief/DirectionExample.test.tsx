@@ -52,7 +52,6 @@ it('updates the real arrows, selected buttons and explanation together using loc
   expect(result()).toContain('1 independent direction');
   expect(root.findAllByProps({ 'data-testid': 'direction-b' })).toHaveLength(0);
   expect(root.findByProps({ 'data-testid': 'direction-b-zero' }).props).toMatchObject({ cx: 62, cy: 116 });
-  expect(JSON.stringify(renderer!.toJSON())).toContain('Finding some independent directions does not establish');
   select('up');
   expect(result()).toContain('2 independent directions');
   expect(request).not.toHaveBeenCalled();

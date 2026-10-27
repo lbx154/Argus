@@ -731,10 +731,7 @@ def test_round_the_model_service_dropped_is_explained_without_runtime_words(
     assert entry["kind"] == "round_not_judged"
     assert entry["cause"] == "engineer_service_dropped"
     assert entry["title"] == "这一轮没有人审阅。"
-    assert entry["detail"] == (
-        "模型服务在工程师得出可核对的结果之前中断了会话，因此没有可以审阅的内容。"
-        "Argus 会换一个新会话重试。"
-    )
+    assert entry["detail"] == "模型服务中断了工程师的会话，Argus 会换一个新会话重试。"
     assert entry["technical"] == (
         "backend_failure_streak=9/2; error=Copilot CLI exited with code 1."
     )

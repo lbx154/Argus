@@ -41,7 +41,7 @@ function alertOf(event: EventMsg, zh: boolean): GuardianAlert | null {
     return {
       tone: 'warn',
       kind: 'validation',
-      text: say("Argus skipped a record it couldn't read; your work is not affected.", 'Argus 跳过了一条读不懂的记录，不影响你的工作。'),
+      text: say("Argus skipped a record it couldn't read.", 'Argus 跳过了一条读不懂的记录。'),
     };
   }
   if (BUDGET_ALARM_TYPES.has(type)) {

@@ -299,7 +299,7 @@ class IdleCycleMixin:
         except Exception:  # noqa: BLE001 - durable peers retry at the next boundary
             log.warning("peer inbox remains pending", exc_info=True)
 
-    def _operator_inbox_unread(self, exc: Exception) -> None:
+    def _operator_inbox_unread(self) -> None:
         log.warning("operator inbox unread; planning goes on without it", exc_info=True)
         if getattr(self, "_operator_inbox_alerted", False):
             return
@@ -309,8 +309,8 @@ class IdleCycleMixin:
             "operator_alert": True,
             "reason": "operator_inbox_unread",
             "text": (
-                f"Operator messages could not be read ({exc}); they stay queued and "
-                "are delivered once the inbox reads again. Work goes on meanwhile."
+                "你的消息暂时没能送达，稍后会再送。" if self._operator_chinese()
+                else "Your messages couldn't be delivered just now; they'll go through later."
             ),
         })
 
@@ -347,9 +347,9 @@ class IdleCycleMixin:
                         mission_id=mission_id,
                         limit=max_messages, cancelled=cancelled,
                     )
-            except Exception as exc:  # noqa: BLE001 - read again at the next boundary
+            except Exception:  # noqa: BLE001 - read again at the next boundary
                 if not cancelled():
-                    self._operator_inbox_unread(exc)
+                    self._operator_inbox_unread()
                 return []
             self._operator_inbox_alerted = False
             if received:

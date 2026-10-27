@@ -150,7 +150,7 @@ describe('project overview', () => {
     const html = renderToStaticMarkup(<ProjectOverviewStrip snapshot={busy} view={view}
       notifications={{ supported: true, enabled: false, denied: false, enable: async () => undefined, disable: () => undefined }} />);
     expect(html).toContain('任务 1/2 已完成');
-    expect(html).toContain('阶段成果 · 整体目标未完成');
+    expect(html).toContain('<span class="shrink-0">阶段成果：</span>');
     expect(html).toContain('开启提醒');
   });
 });

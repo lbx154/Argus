@@ -69,8 +69,8 @@ def acceptance_guard_outcome(supervisor: Any, state: Any) -> Any | None:
     fingerprint = contract_fingerprint(contract)
     chinese = uses_cjk(contract.get("original_objective") or contract.get("objective"))
     unavailable = (
-        "任务开始前的内部检查暂时无法运行，已有工作已保留。"
-        if chinese else "The internal check before starting work is temporarily unavailable; existing work is preserved."
+        "开工前的检查暂时没法运行，已有工作保留。"
+        if chinese else "The check before starting work is temporarily unavailable; existing work is kept."
     )
 
     def check_claim(assessment=None):
@@ -175,8 +175,8 @@ def acceptance_guard_outcome(supervisor: Any, state: Any) -> Any | None:
             # an ambiguous operator requirement and must never create a popup
             # asking the user to design our receipt schema or storage layout.
             return stopped_if_current(
-                "内部检查重试后仍未完成，已有论文和修改均已保留。"
-                if chinese else "The internal check did not finish after a retry; existing work is preserved.",
+                "开工前的检查重试后仍没完成，已有工作保留。"
+                if chinese else "The check before starting work did not finish after a retry; existing work is kept.",
                 stop_kind="backend_unavailable",
             )
     current, recorded = check_claim(assessment)

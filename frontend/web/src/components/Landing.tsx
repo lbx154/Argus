@@ -80,7 +80,6 @@ export function Landing({
       {!loading && !error && !hasProjects && canCreate && <section className="landing-starters">
         <h2>{locale === 'zh-CN' ? '也可以从这里开始' : 'Or start with an idea'}</h2>
         <StartPrompts onPick={onSubmit ? text => { setText(text); setFocus(value => value + 1); } : onNew} disabled={creating} />
-        <p className="landing-caption">{locale === 'zh-CN' ? '示例只填入草稿，不会自动开始任务。' : 'Examples fill an editable draft. They never start work automatically.'}</p>
       </section>}
     </div>
   );

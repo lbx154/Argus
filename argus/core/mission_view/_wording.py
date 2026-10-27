@@ -38,10 +38,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "I couldn't determine how to handle this request.",
         "没能确定该如何处理这项请求。",
     ),
-    "goal_not_understood_detail": (
-        "Nothing was queued. See the recorded diagnostic for details.",
-        "没有安排任何工作；详情见记录的诊断信息。",
-    ),
     "stage_advanced": (
         "The project moved on to the {stage} stage.",
         "项目进入{stage}阶段。",
@@ -107,8 +103,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     # What the operator is told while work waits or stops. Each names what
     # happened and what happens next, never the mechanism behind it.
     "waiting_for_answer": (
-        "Waiting for your answer: {question} (work that doesn't need it carries on)",
-        "在等你回答：{question}（不需要这个答复的工作照常进行）",
+        "Waiting for your answer: {question}",
+        "在等你回答：{question}",
     ),
     "planner_failing": (
         "The Planner hasn't had an answer from the model service for {minutes} "
@@ -190,13 +186,12 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "任务没能完成。",
     ),
     "mission_paused": (
-        "The task was paused before it finished because {why}; "
-        "its progress is saved and it can be resumed.",
-        "任务在完成前暂停，因为{why}；进度已保存，可以继续。",
+        "The task was paused because {why}; its progress is saved and it can be resumed.",
+        "任务已暂停，因为{why}；进度已保存，可以继续。",
     ),
     "mission_ended": (
-        "The task ended without a recorded outcome.",
-        "任务已结束，没有记录到明确的结果。",
+        "The task ended.",
+        "任务已结束。",
     ),
     # Rounds of Engineer work.
     "round_in_progress": (
@@ -259,11 +254,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "这一轮没有人审阅。",
     ),
     "cause_engineer_service_dropped": (
-        "The model service dropped the Engineer's session before it produced "
-        "a result that could be checked, so there was nothing to judge. "
-        "Argus retries in a fresh session.",
-        "模型服务在工程师得出可核对的结果之前中断了会话，因此没有可以审阅"
-        "的内容。Argus 会换一个新会话重试。",
+        "The model service dropped the Engineer's session; Argus retries in a fresh session.",
+        "模型服务中断了工程师的会话，Argus 会换一个新会话重试。",
     ),
     "cause_reviewer_unreachable": (
         "The Reviewer's session ended before it reached a conclusion. "
@@ -273,6 +265,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "cause_argus_stopped": (
         "Argus was stopped while this round was running; the work so far is saved.",
         "Argus 在这一轮进行中被停止；已完成的工作已保存。",
+    ),
+    "resume_after_restart": (
+        "When Argus starts again it resumes from the saved progress.",
+        "Argus 重新启动后会从保存的进度继续。",
     ),
     "cause_task_cancelled": (
         "You cancelled this task.",
@@ -389,9 +385,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "任务停了下来，因为{why}。",
     ),
     "review_interrupted": (
-        "The Reviewer could not finish reading this round because {why}; "
-        "nothing here is a judgment on the work.",
-        "审阅者没能读完这一轮，因为{why}；这里没有任何对工作本身的评价。",
+        "The Reviewer could not finish reading this round because {why}.",
+        "审阅者没能读完这一轮，因为{why}。",
     ),
     # Questions Argus itself puts to the operator.
     "ask_adopt_reviewed_change": (
@@ -401,10 +396,10 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     "ask_fix_model_configuration": (
         "The model configuration for this task has failed the same way {streak} "
-        "times in a row: {reason} I have stopped retrying this configuration so the "
-        "failures stop costing money. Fix the model name or provider access, then "
-        "reply here to resume this task — or tell me to drop it.",
-        "这项任务用的模型配置已经连续 {streak} 次以同样的方式失败：{reason} 为了不再白花钱，"
+        "times in a row: {reason} I have stopped retrying this configuration. Fix the "
+        "model name or provider access, then reply here to resume this task — or tell "
+        "me to drop it.",
+        "这项任务用的模型配置已经连续 {streak} 次以同样的方式失败：{reason} "
         "我已停止用这个配置重试。修好模型名称或服务的访问权限后在这里回复，就会继续这项任务；"
         "也可以让我放下它。",
     ),
@@ -511,11 +506,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "这一部分做完了，长期目标还在继续。",
     ),
     "results_in": ("The results are in {paths}.", "结果在 {paths}。"),
-    "summary_unchecked": (
-        "(The model service was unavailable while this summary was written, "
-        "so the final files were not checked one by one.)",
-        "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）",
-    ),
     # Notices Argus posts to the operator's conversation on its own.
     "planner_retries_stopped_internal": (
         "Planning kept hitting an internal error in Argus for {hours} hours, so I "
@@ -533,20 +523,20 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     "wrap_up_paused": (
         "I've tried to wrap this project up {count} times in a row, and each time it "
-        "was turned back for the same reason: {reason}\nI'm pausing those attempts so "
-        "they stop costing money. I'll try again when the work changes or you reply "
-        "here; if the requirement itself is wrong, tell me and I'll take a different path.",
+        "was turned back for the same reason: {reason}\nI'm pausing those attempts. "
+        "I'll try again when the work changes or you reply here; if the requirement "
+        "itself is wrong, tell me and I'll take a different path.",
         "我已经连续 {count} 次想收尾，每次都因为同一个原因被退回：{reason}\n"
-        "为了不再白花钱，我先不试了。等任务有变化或你回复后再试；"
+        "我先不试了。等任务有变化或你回复后再试；"
         "如果这个要求本身不对，直接告诉我，我换个做法。",
     ),
     "background_calls_paused": (
         "The background made {calls} model calls in a row without any progress: no "
         "new task, no finished work, and no message from you. I've stopped those "
-        "background calls so they stop costing money; running tasks are not affected. "
-        "They resume as soon as something changes or you reply here.",
+        "background calls; running tasks are not affected, and the calls resume as "
+        "soon as something changes or you reply here.",
         "后台连着调用了 {calls} 次模型，一直没有进展：没有新任务、没有做完的工作，"
-        "你也没发新消息。为了不再白花钱，我先停了这些后台调用，正在做的任务不受影响。"
+        "你也没发新消息。我先停了这些后台调用，正在做的任务不受影响；"
         "一有新进展，或者你在这里回一句，就会恢复。",
     ),
     "proxy_undecided": (
@@ -572,7 +562,7 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
-    "manager_unavailable": ("The Manager is not available right now; nothing was queued.", "经理现在不可用，没有安排任何任务。"),
+    "manager_unavailable": ("The Manager is not available right now; please send it again later.", "经理现在不可用，请稍后再发。"),
     "steer_taken": ("Got it, carrying on in that direction.", "好，接下来按你说的方向做。"),
     "steer_taken_ongoing": (
         "Got it, carrying on in that direction. This is now ongoing work; "
@@ -595,8 +585,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     "gathering_options": ("Putting together options for this task…", "正在结合你的任务整理几个选项…"),
     "options_failed": (
-        "I couldn't put the options together just now. Your task and answer are "
-        "kept; please try again in a moment.",
+        "I couldn't put the options together just now; your task and answer are "
+        "kept. Please try again in a moment.",
         "这次没能整理出选项，你的任务和回答都保留着，稍后再试一次吧。",
     ),
     "reply_empty": (
@@ -611,9 +601,9 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     # The first reply to a task the operator hands over.
     "ack_plan_awaits_start": (
-        "The plan is ready, but nothing has started. Check what I understood and "
-        "the plan in the card above; work starts when you press Start.",
-        "计划排好了，还没开始。请在上面的卡片里看看我的理解和计划，点“开始执行”后才会开始。",
+        "The plan is ready. Check what I understood and the plan in the card above; "
+        "press Start to begin.",
+        "计划排好了。请在上面的卡片里看看我的理解和计划，点“开始执行”就开始。",
     ),
     "ack_needs_your_call": ("Before I start, I need your call:\n{question}", "开始之前需要你定一下：\n{question}"),
     "ack_waits_for_slot": (
@@ -626,9 +616,9 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "记下了，正在确认能不能开始，稍后告诉你。",
     ),
     "ack_start_failed": (
-        "Saved, but the work couldn't start. Your request is kept; see the "
-        "startup details for why, or try again later.",
-        "记下了，但没能开始工作。你的要求已经保存，可以点“启动详情”看原因，或者稍后再试。",
+        "Saved, but the work couldn't start; see the startup details for why, or "
+        "try again later.",
+        "记下了，但没能开始工作；可以在“启动详情”里看原因，或稍后再试。",
     ),
     "ack_already_asked": (
         "You already asked for this ({state}); I didn't add it again.",
@@ -662,8 +652,8 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     ),
     "answer_stopped": ("Stopped. The work done so far is kept.", "已停下，做到的部分都保留着。"),
     "answer_dropped": (
-        "Dropped this task; the rest of the work carries on.",
-        "已放下这项任务，其余工作照常。",
+        "Dropped this task.",
+        "已放下这项任务。",
     ),
     "answer_dropped_while_stopped": (
         "Dropped this task. Everything else stays stopped until you resume it.",

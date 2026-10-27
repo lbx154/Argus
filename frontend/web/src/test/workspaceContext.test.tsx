@@ -38,13 +38,12 @@ function topbar(snapshot = snap) {
 }
 
 describe('A3 snapshot-only session context', () => {
-  it.each(['en', 'zh-CN'] as const)('shows the session directory and honest bounds in %s without requests', locale => {
+  it.each(['en', 'zh-CN'] as const)('shows the session directory in %s without requests', locale => {
     const html = markup(topbar(), locale);
     expect(html).toContain(locale === 'en' ? 'Session directory' : '项目目录');
     expect(html).toContain(snap.session.workdir);
     expect(html).toContain('<summary');
     expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).not.toContain(snap.session.workdir);
-    expect(html).toContain(locale === 'en' ? 'not each task’s actual cwd or a security sandbox boundary' : '不是每个任务的实际 cwd，也不是安全沙箱边界');
     expect(html).toContain(locale === 'en' ? 'Manage project' : '管理项目');
     expect(html).not.toContain(locale === 'en' ? 'Run Argus' : '运行 Argus');
     expect(fetch).not.toHaveBeenCalled();
@@ -76,11 +75,10 @@ describe('A3 snapshot-only session context', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each(['en', 'zh-CN'] as const)('describes the IDE view, not Agent write permissions, in %s', locale => {
+  it.each(['en', 'zh-CN'] as const)('describes the IDE view in %s', locale => {
     const html = markup(<IdePage {...props} />, locale);
     expect(html).toContain(locale === 'en' ? 'Code workspace' : '代码工作区');
     expect(html).toContain(locale === 'en' ? 'This view is read-only' : '此视图只读');
-    expect(html).toContain(locale === 'en' ? 'does not restrict the Agent’s file write permissions' : '不限制 Agent 本身的文件写入权限');
     expect(html).not.toMatch(/Server code workspace|服务器代码工作区|Read-only safe mode|只读安全模式/);
     expect(fetch).not.toHaveBeenCalled();
   });

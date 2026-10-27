@@ -47,7 +47,6 @@ describe('source-bound Chinese display guides (not runtime instructions)', () =>
     expect(libraryVertical('research', 'zh-CN')).toBe('科研');
     expect(libraryVertical('new-domain', 'zh-CN')).toBe('new-domain');
     expect(knowledgePurpose('unknown', 'zh-CN')).toContain('一般参考资料');
-    expect(knowledgePurpose('lesson', 'zh-CN')).toContain('不能代替当前证据');
-    expect(knowledgeScopePurpose('private', 'zh-CN')).toContain('不改变既有读取权限');
+    expect(knowledgeScopePurpose('unknown' as never, 'zh-CN')).toBe('范围未注明。');
   });
 });

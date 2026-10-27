@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 
 from ..core.http_status import has_http_status
+from ..core.mission_view import say
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
 
@@ -678,6 +679,7 @@ def daemon_stop_review_decision(
     *,
     fatal_error: str | None,
     exit_code: int,
+    chinese: bool,
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
@@ -687,14 +689,11 @@ def daemon_stop_review_decision(
         # having to parse ``reason`` prose.
         backend_stop_kind="daemon_shutdown",
         reason=(
-            "The Argus background service stopped or restarted in the middle of "
-            "this round; the Engineer's work so far is kept and nothing was retried. "
-            f"Technical record: error={error_text}"
+            say("cause_argus_stopped", chinese)
+            + (" 技术记录：" if chinese else " Technical record: ")
+            + f"error={error_text}"
         ),
-        next_action=(
-            "When Argus is started again it continues from the saved project "
-            "state and picks the next concrete task."
-        ),
+        next_action=say("resume_after_restart", chinese),
     )
 
 

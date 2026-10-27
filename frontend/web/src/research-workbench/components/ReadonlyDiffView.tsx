@@ -57,10 +57,8 @@ export function ReadonlyDiffView({ diff, truncated = false }: { diff: string; tr
       </button>}
       {diff && <CopyButton text={diff} label={text('复制原始差异', 'Copy original diff')} copiedLabel={text('已复制', 'Copied')} />}
     </div>
-    <p className="readonly-diff__hint">{text('不代表所有变更都来自当前 Agent 或任务。', 'Changes are not necessarily from this Agent or task.')}</p>
     {truncated && <p role="status" className="readonly-diff__notice">{text('后端返回的差异已截断，当前内容不完整。', 'The backend truncated this diff; the displayed content is incomplete.')}</p>}
-    {!diff ? <p className="readonly-diff__hint">{text('没有工作区差异。', 'No workspace diff.')}</p>
-      : !lines ? <p className="readonly-diff__hint">{text('无法识别、二进制或较大差异：显示原始文本。', 'Unrecognized, binary or large diff: showing original text.')}</p> : null}
+    {!diff && <p className="readonly-diff__hint">{text('没有工作区差异。', 'No workspace diff.')}</p>}
     <pre className="readonly-diff__text" tabIndex={0} aria-label={text('工作区差异文本', 'Workspace diff text')} data-diff-mode={colored ? 'highlighted' : 'raw'}>
       {colored ? lines.map((line, index) => <span key={index} data-diff-kind={line.kind} className={`readonly-diff__line--${line.kind}`}>{line.text}</span>) : diff}
     </pre>

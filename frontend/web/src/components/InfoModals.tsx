@@ -270,7 +270,7 @@ export function ConfigModal({
       <div className="settings-body">
         {themeMode && onCycleTheme && <section className="settings-section mb-4 flex items-center gap-3">
           <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">{locale === 'zh-CN' ? '此浏览器的偏好' : 'Preferences for this browser'}</h3>
-            <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '语言与明暗外观，不改变项目和任务设置。' : 'Language and light/dark appearance. Project and task settings are unchanged.'}</p></div>
+            <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '语言与明暗外观。' : 'Language and light/dark appearance.'}</p></div>
           <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
         </section>}
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}

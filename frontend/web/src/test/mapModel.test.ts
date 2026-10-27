@@ -132,7 +132,6 @@ describe("progress map data semantics", () => {
   });
   it("retains and identifies cyclic dependencies", () => {
     const graph = buildMap([task("a", ["b"]), task("b", ["a"])]);
-    expect(graph.cyclic).toBe(true);
     expect(graph.links.filter((e) => e.kind === "dependency")).toHaveLength(2);
     expect(graph.links.every((l) => l.cycle)).toBe(true);
   });
@@ -145,7 +144,6 @@ describe("progress map data semantics", () => {
       task("downstream", ["d"]),
       task("self", ["self"]),
     ]);
-    expect(graph.cyclic).toBe(true);
     expect(graph.links.filter((link) => link.cycle).map((link) => [link.source, link.target]))
       .toEqual([["b", "a"], ["a", "b"], ["d", "c"], ["c", "d"], ["self", "self"]]);
     expect(graph.links).toHaveLength(7);

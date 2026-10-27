@@ -1294,7 +1294,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         sys.stderr.write(
             "argus: --ask cannot answer inline"
             + (f": {reason}" if reason else "")
-            + " — nothing was queued\n"
+            + "\n"
         )
         return 1
     operator_context, _revision = build_operator_context_block(
@@ -1319,16 +1319,14 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     fatal_error = str(getattr(result, "fatal_error", "") or "").strip()
     if exit_code != 0 or fatal_error:
         sys.stderr.write(
-            "argus: --ask refused before answering inline"
+            "argus: --ask could not answer"
             + (f": {fatal_error}" if fatal_error else f" (exit {exit_code})")
-            + "; nothing was queued\n"
+            + "\n"
         )
         return 1
     reply = (result.last_agent_message or "").strip()
     if not reply:
-        sys.stderr.write(
-            "argus: --ask received an empty reply; nothing was queued\n"
-        )
+        sys.stderr.write("argus: --ask received an empty reply\n")
         return 1
     sys.stdout.write(reply.rstrip() + "\n")
     return 0

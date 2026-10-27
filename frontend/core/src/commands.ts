@@ -30,7 +30,7 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'events', name: '/events', arg: '[filter] [query]', argument: 'optional', desc: 'search feed: all / watch / milestones / messages', group: 'Everyday', kind: 'panel' },
   { id: 'find', name: '/find', arg: '<text>', argument: 'required', desc: 'search the current event buffer', group: 'Everyday', kind: 'panel' },
   { id: 'cancel', name: '/cancel', argument: 'none', desc: 'stop waiting for the current Manager reply', group: 'Everyday', kind: 'local' },
-  { id: 'ask', name: '/ask', arg: '<question>', argument: 'required', desc: 'answer inline — no task queued, no Planner/Engineer/Reviewer', aliases: ['/chat'], group: 'Everyday', kind: 'action' },
+  { id: 'ask', name: '/ask', arg: '<question>', argument: 'required', desc: 'answer inline without queuing work', aliases: ['/chat'], group: 'Everyday', kind: 'action' },
   { id: 'crystalpilot', name: '/crystalpilot', arg: '[status|off|use <path>]', argument: 'optional', desc: 'enable crystallography tools in this Argus conversation', group: 'Everyday', kind: 'action' },
   { id: 'task', name: '/task', arg: '<text>', argument: 'required', desc: 'queue work directly', aliases: ['/add'], group: 'Task management', kind: 'action' },
   { id: 'plan', name: '/plan', arg: '<objective>', argument: 'required', desc: 'preview a Planner-authored execution plan', group: 'Task management', kind: 'action' },

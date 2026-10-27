@@ -18,7 +18,6 @@ it('offers an empty workspace a direct start, four draft examples and the phone 
   expect(html).toContain('What would you like to accomplish?');
   expect(html).toContain('landing.new');
   expect(html.match(/<button /g)).toHaveLength(6);
-  expect(html).toContain('never start work automatically');
   expect(html).toContain('landing.menu');
   expect(html).toContain('class="landing-navigation lg:hidden"');
   expect(html.match(/class="[^"]*landing-mark text-ink"/g)).toHaveLength(1);

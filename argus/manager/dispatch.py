@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG
+from ..core.mission_view import uses_cjk
 from ..core.operator_messages import brief_title
 from . import front_door
 
@@ -349,8 +350,8 @@ def enqueue_mission(
         except OSError as exc:
             chat_state.setdefault("_pending_missions", []).append((item,))
             raise MissionPersistenceError(
-                f"Could not persist mission to {mem.backlog.path}: {exc}. "
-                "The mission remains pending in memory and was not dispatched."
+                f"这项任务没能保存（{exc}），请再试一次。" if uses_cjk(body)
+                else f"Couldn't save this task ({exc}); please try again."
             ) from exc
         persisted["item"] = item
         from ..life.event_log import JsonlEventSink

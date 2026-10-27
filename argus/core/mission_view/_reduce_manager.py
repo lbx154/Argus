@@ -140,7 +140,6 @@ def reduce_manager_event(
         mission["status"] = "failed"
         chinese = session_is_chinese(view, _text(event, "objective", 2000))
         title = say("goal_not_understood", chinese)
-        detail = say("goal_not_understood_detail", chinese)
         _set_role(view, "manager", "error", title, ts, kind="goal_not_understood")
         _timeline(
             view,
@@ -148,7 +147,6 @@ def reduce_manager_event(
             role="manager",
             kind="goal_not_understood",
             title=title,
-            detail=detail,
             tone="error",
         )
         _role_work(
@@ -157,7 +155,6 @@ def reduce_manager_event(
             role="manager",
             kind="grounding",
             title=title,
-            detail=detail,
             status="error",
         )
 

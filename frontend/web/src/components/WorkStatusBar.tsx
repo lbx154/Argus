@@ -21,18 +21,16 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   // Compact (chat header) keeps one line; only a step that needs the person adds a hint.
   const actionable = ['launch_confirm', 'operator_input', 'task_failed'].includes(status.reason);
   const next = compact && !actionable ? '' : status.reason === 'launch_confirm'
-    ? zh ? '核对上方卡片里的理解和计划，点“开始执行”后才会开始。' : 'Check the plan in the card above; work starts only when you press Start.'
+    ? zh ? '核对上方卡片里的理解和计划，点“开始执行”就开始。' : 'Check the plan in the card above; press Start to begin.'
     : status.reason === 'operator_input'
     ? zh ? '需要你的决定。查看下方问题，确认后继续。' : 'Your decision is needed. Review the question below to continue.'
     : status.reason === 'task_failed'
-      ? zh ? '这一步未完成。已有记录、文件和已交付的成果仍保留，可在对话中调整要求或请求继续。' : 'This step did not finish. Existing records, files and delivered results are retained; adjust the request or ask to continue in the conversation.'
+      ? zh ? '这一步没做完，已有文件和成果保留；可以在对话中调整要求或让它继续。' : 'This step did not finish; existing files and results are kept. Adjust the request or ask to continue in the conversation.'
       : status.state === 'paused'
         ? zh ? '当前没有继续执行。你可以调整要求，或在运行控制中查看恢复方式。' : 'Work is not continuing. Adjust the request or check runtime controls before resuming.'
         : status.state === 'step_finished'
           ? zh ? '可以查看文件与成果，或在下方提出新的要求。' : 'Review the files and results, or add your next request below.'
-          : status.state === 'running'
-            ? zh ? '你可以继续阅读记录或补充要求，不必停留在这个页面。' : 'You can read the history or add context while work continues.'
-            : '';
+          : '';
   // A project nobody has written to yet has finished nothing: say it waits
   // for the person instead of "已完成 · 可以开始新任务" (rule 6).
   const untouched = isFreshProject(snapshot) && status.state === 'idle' && status.activityAgeSeconds === null
@@ -55,7 +53,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
       {snapshot && (onPauseTeam || onResumeTeam) ? <TeamPauseButton snapshot={snapshot} locale={locale} onPause={onPauseTeam} onResume={onResumeTeam} busy={teamBusy}
         className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-dim hover:bg-sunken hover:text-ink disabled:opacity-50" /> : null}
     </div>
-    {!connected ? <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{zh ? '这里保留的是已收到的记录；连接恢复后继续更新。' : 'These are the records already received. Updates resume when the connection returns.'}</p>
+    {!connected ? <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{zh ? '连接恢复后继续更新。' : 'Updates resume when the connection returns.'}</p>
       : !compact && status.title ? <p className="mt-1 line-clamp-2 pl-[15px] leading-5 text-ink-dim" title={status.title}>{status.title}</p> : null}
     {connected && next && <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{next}</p>}
   </div>;

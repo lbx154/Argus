@@ -74,7 +74,7 @@ export function TimelinePage({ sid }: { sid: string }) {
     try {
       const entry = await api.timelineSave(sid, input, saved?.version ?? 0, reason);
       setSaved(entry); setInput(entry.input); setReport(entry.report); setReason('');
-      setNotice(text(`已保存版本 ${entry.version}，刷新页面后仍可查看。`, `Version ${entry.version} saved. It survives a page refresh.`));
+      setNotice(text(`已保存版本 ${entry.version}。`, `Version ${entry.version} saved.`));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -94,7 +94,7 @@ export function TimelinePage({ sid }: { sid: string }) {
   return <div className="mx-auto w-full max-w-7xl space-y-5 p-4 sm:p-6">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><div className="text-xs text-blue">PROPOSAL → EXPERIMENT → PAPER</div><h2 className="mt-1 text-xl font-semibold">{text('研究排期', 'Research timeline')}</h2>
-        <p className="mt-2 text-sm text-ink-faint">{text('填写研究目标、任务和工期估计，比较排期并记录调整原因。这里制定计划，不会自动启动实验。', 'Enter your goal, tasks and duration estimates to compare schedules and record revisions. Planning here does not start experiments.')}</p></div>
+        <p className="mt-2 text-sm text-ink-faint">{text('填写研究目标、任务和工期估计，比较排期并记录调整原因。', 'Enter your goal, tasks and duration estimates to compare schedules and record revisions.')}</p></div>
       <div className="flex flex-wrap gap-2">
         <button className={button} disabled={busy || !ready} onClick={loadExample}>{text('加载论文示例', 'Load paper example')}</button>
         <button className={button} disabled={busy} onClick={() => setReload((n) => n + 1)}>{text('重新载入已保存计划', 'Reload saved timeline')}</button>
@@ -116,7 +116,7 @@ export function TimelinePage({ sid }: { sid: string }) {
             <label className="text-xs">{text('已过去时间（小时）', 'Elapsed time (hours)')}<input className={field} type="number" min="0" step="any" value={input.now_hours} onChange={(e) => setInput({ ...input, now_hours: Number(e.target.value) })} /></label>
             {Object.entries(input.resources).map(([name, count]) => <label className="text-xs" key={name}>{name} {text('可用槽位', 'available slots')}<input className={field} type="number" min="1" step="1" value={count} onChange={(e) => setInput({ ...input, resources: { ...input.resources, [name]: Number(e.target.value) } })} /></label>)}
           </div>
-          <p className="text-xs text-ink-faint">{text('所有时间从项目开始计时；例如 120 小时 = 第 5 天。资源按持续可用计算。', 'All times count from project start; 120 hours means day 5. Resources are assumed continuously available.')}</p>
+          <p className="text-xs text-ink-faint">{text('所有时间从项目开始计时（120 小时 = 第 5 天），资源按持续可用计算。', 'All times count from project start (120 hours = day 5); resources are assumed continuously available.')}</p>
           {!Object.keys(input.resources).length && <p className="text-xs text-ink-faint">{text('尚未设置共享资源限制，当前估计不含资源排队时间。可通过高级导入设置资源容量。', 'No shared resource limits are set, so estimates exclude resource queueing. Configure capacities through advanced import.')}</p>}
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={input.adapt_to_deadline ?? false} onChange={(e) => setInput({ ...input, adapt_to_deadline: e.target.checked })} />{text('根据期限自动重排任务、选择替代做法并更新区间', 'Adapt task order, execution options and estimate ranges to the deadline')}</label>
           <p className="text-xs text-ink-faint">{text('缩短期限时优先调整关键路径；延长期限时恢复原做法和可选工作。替代做法可在任务中编辑。', 'Tighter deadlines prioritize the critical path; longer deadlines restore preferred approaches and optional work. Edit alternatives inside each task.')}</p>
@@ -131,7 +131,6 @@ export function TimelinePage({ sid }: { sid: string }) {
           <label className="block text-xs">{text('本次保存 / 调整原因', 'Reason for this revision')}<textarea aria-label={text('本次保存 / 调整原因', 'Reason for this revision')} className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('说明为什么改变计划；延期请在具体任务中填写证据', 'Explain the change; add delay evidence on the affected task')} /></label>
           <div className="flex items-center justify-between gap-2"><span className="text-xs text-ink-faint">{saved ? text(`已保存 v${saved.version}`, `Saved v${saved.version}`) : text('未保存', 'Not saved')}{dirty ? text(' · 有未保存修改', ' · Unsaved changes') : ''}</span>
             <button className={`${button} border-blue bg-blue/10`} disabled={!ready || !dirty || !report || computing || Boolean(estimateError) || !reason.trim()} onClick={save}>{text('保存计划版本', 'Save timeline version')}</button></div>
-          <p className="text-xs text-ink-faint">{text('保存计划不会启动实验。实际进展和失败原因由实验结果或你来更新。', 'Saving a timeline does not start experiments. Update progress and failure reasons from actual results.')}</p>
         </section>
       </fieldset>
       <div className="min-w-0 space-y-3">
@@ -167,7 +166,7 @@ function TimelineStartForm({ disabled, text, onCreate }: {
   }}>
     <fieldset disabled={disabled} className="space-y-4">
       <legend className="mb-2 font-medium">{text('创建自己的研究计划', 'Create your research plan')}</legend>
-      <p className="text-sm text-ink-faint">{text('先填写目标和第一个任务，之后可以添加任务、前置关系和候选方案。工期由你估计，不是系统测得的实验数据。', 'Start with a goal and a first task, then add tasks, dependencies and alternatives. Durations are your planning estimates, not measured experimental data.')}</p>
+      <p className="text-sm text-ink-faint">{text('先填写目标和第一个任务，之后可以添加任务、前置关系和候选方案。', 'Start with a goal and a first task, then add tasks, dependencies and alternatives.')}</p>
       <label className="block text-xs">{text('研究目标 / 计划名称', 'Research goal / plan name')}<input className={field} required value={title} onChange={event => setTitle(event.target.value)} /></label>
       <label className="block text-xs">{text('第一个任务', 'First task')}<input className={field} required value={task} onChange={event => setTask(event.target.value)} /></label>
       <div className="grid gap-3 sm:grid-cols-3">
@@ -179,7 +178,7 @@ function TimelineStartForm({ disabled, text, onCreate }: {
         placeholder={text('说明参考经验或假设；没有实测依据也请注明', 'Explain the experience or assumptions; state if no measurements are available')} /></label>
       <label className="block text-xs">{text('期望完成时间（小时，可选）', 'Target finish (hours, optional)')}<input className={field} type="number" min="0" step="any" value={deadline} onChange={event => setDeadline(event.target.value)} placeholder={text('从项目开始计时，不填则不限', 'From project start; leave blank for no deadline')} /></label>
       <button type="submit" className={`${button} border-blue bg-blue/10`} disabled={!complete}>{text('创建计划草稿', 'Create plan draft')}</button>
-      <p className="text-xs text-ink-faint">{text('草稿可修改，点击“保存计划版本”才会保存。示例入口仅供演示，不会填充你的研究结果。', 'Drafts remain editable and are persisted only with Save timeline version. The example is illustrative, not your research results.')}</p>
+      <p className="text-xs text-ink-faint">{text('草稿需点击“保存计划版本”才会保存。', 'Drafts are saved only when you click Save timeline version.')}</p>
     </fieldset>
   </form>;
 }

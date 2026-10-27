@@ -39,7 +39,7 @@ it('unifies navigation into four categories while keeping private records, index
   const nav = view!.root.findByType('nav');
   expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
   expect(nav.findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
-  expect(content(view!.root)).toContain('个人记录 · 原私有范围，不共享');
+  expect(content(view!.root)).toContain('个人记录');
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
   expect(content(view!.root)).toContain('No automatic translation.');
@@ -53,7 +53,8 @@ it('reads skills in the unified browser and resets selection on a project switch
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   act(() => view!.root.findAllByType('button').find(node => content(node).includes('可编辑演示文稿'))!.props.onClick()); await settle();
   expect(api.skillDocument).toHaveBeenCalledWith('s-A', builtin.library, builtin.path, expect.any(AbortSignal));
-  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('不会运行工具或发起模型任务');
+  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('任务用得上时会自动参考');
+  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('前置条件和软件许可以原文为准。');
   await act(async () => view!.update(<QueryClientProvider client={client}><LearningLibrary sid="s-B" initialScope="global"
     initialSelection={{ kind: 'skill', item: builtin }} /></QueryClientProvider>)); await settle();
   expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
@@ -67,9 +68,8 @@ it('adds only an explicitly selected, loaded document with its original scope to
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(button('用于当前对话').props.disabled).toBe(false);
   act(() => button('用于当前对话').props.onClick());
-  expect(onUse).toHaveBeenCalledWith(wiki.title, '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', expect.stringContaining('原私有范围'));
+  expect(onUse).toHaveBeenCalledWith(wiki.title, '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', expect.stringContaining('个人记录'));
   expect(onUse.mock.calls[0][2]).toContain(wiki.path);
-  expect(content(view!.root)).toContain('不会自动执行技能');
 });
 
 it('does not offer an unreadable document as usable context', async () => {
@@ -84,7 +84,6 @@ it('does not offer an unreadable document as usable context', async () => {
 it('separates real learning records from file updates and reports source failures explicitly', async () => {
   vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('synthetic failure'));
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="feed" /></QueryClientProvider>); }); await settle();
-  expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
   expect(content(view!.root)).toContain('知识无法加载');
   expect(content(view!.root)).toContain(custom.name);
   expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');

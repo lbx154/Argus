@@ -99,7 +99,7 @@ export function IdePage(props: ActiveWorkbenchPageProps) {
 
   return (
     <div className="ros-page ide-v3">
-      <header className="ros-page-header"><div><h1>{text('代码工作区', 'Code workspace')}</h1><p>{text('此视图只用于浏览文件、Git 状态与 Argus 活动；不限制 Agent 本身的文件写入权限。', 'This view only browses files, Git state and Argus activity; it does not restrict the Agent’s file write permissions.')}</p></div><Badge tone="info"><LockKeyhole size={12} />{text('此视图只读', 'This view is read-only')}</Badge></header>
+      <header className="ros-page-header"><div><h1>{text('代码工作区', 'Code workspace')}</h1></div><Badge tone="info"><LockKeyhole size={12} />{text('此视图只读', 'This view is read-only')}</Badge></header>
       <div className="ide-context-strip"><Server size={15} /><select aria-label={text('选择已批准工作区', 'Select approved workspace')} value={workspaceId} onChange={(event) => workspace.setWorkspaceId(event.target.value)}>{workspace.profiles.data?.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select><code>{root}</code>{tree.isError ? <Badge tone="danger">{text('连接失败', 'Connection failed')}</Badge> : tree.isFetching ? <Badge tone="live" dot>{text('同步中', 'Syncing')}</Badge> : <Badge tone="success"><CheckCircle2 size={11} />{text('已同步', 'Synced')}</Badge>}<small>{shownEntries.length} {text('项', 'entries')}{hiddenCount > 0 ? text(`（另有 ${hiddenCount} 项内部文件已隐藏）`, ` (${hiddenCount} internal hidden)`) : ''}</small><button type="button" onClick={() => { void tree.refetch(); void git.refetch(); }} aria-label={text('刷新工作区', 'Refresh workspace')}><RefreshCw size={14} /></button></div>
 
       <div className="vscode-shell">

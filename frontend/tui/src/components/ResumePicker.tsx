@@ -76,10 +76,9 @@ export function ResumePicker({
       })}
       <Box marginTop={1}>
         <Text dimColor>
-          {`↑/↓ select · PgUp/PgDn page · Enter resume · Esc quit${rows.length > pageSize ? ` · page ${page + 1}/${Math.ceil(rows.length / pageSize)}` : ''}`}
+          {`↑/↓ select · PgUp/PgDn page · Enter resume · Esc quit (executors keep running)${rows.length > pageSize ? ` · page ${page + 1}/${Math.ceil(rows.length / pageSize)}` : ''}`}
         </Text>
       </Box>
-      <Text dimColor>Exit closes this UI; the API and existing executors keep running.</Text>
     </Box>
   );
 }

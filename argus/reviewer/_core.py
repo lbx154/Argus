@@ -948,12 +948,12 @@ class Reviewer:
                 normalize_stop_kind(getattr(result, "stop_kind", None))
                 or stop_kind_from_external_interrupt(fatal)
             )
+            chinese = uses_cjk(objective)
             if fatal or result.exit_code != 0:
                 # Plain words first, in the language of the task; the transport
                 # details ride behind a "Technical record:" marker so a consumer
                 # can set them aside.
                 interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
-                chinese = uses_cjk(objective)
                 if interrupted:
                     sentence = say(
                         "review_interrupted", chinese,
@@ -975,12 +975,7 @@ class Reviewer:
                 return with_call_metadata(ReviewDecision(
                     status="blocked",
                     reason=reason,
-                    next_action=(
-                        "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
-                        if chinese
-                        else "The check did not reach a conclusion; treat this round as "
-                        "not yet judged rather than as feedback on the work."
-                    ),
+                    next_action="",
                     backend_unavailable=True,
                     backend_fatal_error=fatal,
                     backend_exit_code=result.exit_code,
@@ -990,8 +985,9 @@ class Reviewer:
                 return with_call_metadata(ReviewDecision(
                     status="blocked",
                     reason=(
-                        "The Reviewer ended without handing the work on. "
-                        "Its reply was not interpreted as acceptance or rejection."
+                        "审阅者没有交接就结束了。"
+                        if chinese
+                        else "The Reviewer ended without handing the work on."
                     ),
                     next_action=(
                         "Ask the independent Reviewer to submit its judgment through "

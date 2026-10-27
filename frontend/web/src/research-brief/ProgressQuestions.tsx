@@ -248,7 +248,7 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
             {answerComplete
               ? <SavedReading sid={current.sid} path={answer.path} artifacts={artifactReferences} onOpenArtifact={openArtifact} />
               : <p role="status" className="text-xs text-ink-faint">{answer.reader_foundation!.state === 'generating'
-                ? zh ? '回答仍在整理，尚未确认结束。' : 'The answer is still being prepared; completion is unconfirmed.'
+                ? zh ? '回答还在整理。' : 'The answer is still being prepared.'
                 : zh ? '这次回答未完成，原问题已保留。' : 'This answer did not finish; its question is retained.'}</p>}
             {!readOnly && answer.exists && answer.reader_foundation!.state === 'complete' ? <Button className="text-xs" disabled={request.creationBlocked}
               onClick={() => setDraft({ question: '', progressSource: { ...source }, parentId: answer.reader_foundation!.id,
@@ -267,8 +267,8 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
           {questionIsBusy ? <ReaderExplanationStatus generating phase={pendingHere ? request.progress.phase : undefined} /> : null}
           {pendingHere ? <div className="space-y-2 text-xs text-ink-faint" data-pending-reading-question={pendingHere.id}>
             <p className="whitespace-pre-wrap break-words">{pendingHere.draft.question}</p>
-            {rejectedHere ? <p role="status">{zh ? '引用的说明目前不可用，这次追问未发起。问题与原来源已保留。' : 'The reading source is unavailable, so this question was not started. Its question and original source are saved.'}</p>
-              : unknownHere ? <p role="status">{zh ? '这次请求的结果尚未确认；刷新不会重新生成。' : 'The result of this request is unconfirmed. Refreshing does not generate it again.'}</p> : null}
+            {rejectedHere ? <p role="status">{zh ? '引用的说明目前不可用，这次追问没有发出。' : 'The reading source is unavailable, so this question was not sent.'}</p>
+              : unknownHere ? <p role="status">{zh ? '这次请求的结果还不确定。' : 'The result of this request is not known yet.'}</p> : null}
             {!readOnly && !request.creating && !request.waiting ? <Button className="text-xs" onClick={() => {
               if (rejectedHere) { setDraft({ ...pendingHere.draft }); request.generation.reset(); }
               else request.retrySavedRequest(pendingHere);

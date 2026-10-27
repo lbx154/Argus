@@ -103,7 +103,7 @@ describe('operator decision cards', () => {
         onSubmit={vi.fn()}
       />,
     );
-    expect(html).toContain('Recorded reason this task needs input');
+    expect(html).toContain('Why we&#x27;re asking');
     expect(html).toContain('Provider log');
     expect(html).toContain('Use local fallback');
     expect(html).toContain('Stop this campaign');
@@ -154,7 +154,6 @@ describe('operator decision cards', () => {
       expect(html).toContain('Paused');
       expect(html).toContain(`dateTime="${new Date(askedAt * 1000).toISOString()}"`);
     }
-    expect(dialog).toContain('Your answer applies to this task.');
     expect(dialog).not.toContain('before work resumes');
     const [unknown] = operatorDecisionCards([{ ...pending[0], operator_decision: card }], []);
     expect(unknown.asked_at).toBeUndefined();

@@ -291,7 +291,7 @@ def test_drop_continues_an_armed_campaign(tmp_path: Path) -> None:
     )
 
     assert result["dropped"] is True and result["resume_requested"] is True
-    assert "carries on" in result["reply"]
+    assert result["reply"] == "Dropped this task."
     campaign = read_continuous_state(life)
     assert campaign.enabled is True
     assert campaign.objective == "keep optimizing"

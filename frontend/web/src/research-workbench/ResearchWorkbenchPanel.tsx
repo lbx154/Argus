@@ -75,7 +75,7 @@ export function ResearchWorkbenchPanel({ sid, active, readOnly = false, runtimeR
         </div>
       </nav>
       {projectsQ.isError && !project || data.snapshot.isError && !data.snapshot.data ? (
-        <EmptyState title={locale === 'zh-CN' ? '工作台读取失败' : 'Workbench unavailable'} description="Argus API did not return the selected project." />
+        <EmptyState title={locale === 'zh-CN' ? '工作台读取失败' : 'Workbench unavailable'} />
       ) : !pageProps ? (
         <div className="boot-state"><Spinner label={locale === 'zh-CN' ? '正在载入工作台' : 'Loading workbench'} /></div>
       ) : WORKBENCH_MODULES.filter(({ id }) => openedPages.has(id)).map(({ id }) => (

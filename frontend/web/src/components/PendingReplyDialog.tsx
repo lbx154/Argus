@@ -119,8 +119,8 @@ export function PendingReplyDialog({
         ) : null}
 
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-faint">{intake ? (zh ? '确认后继续这次任务。' : 'Confirm to continue this request.') : t('decision.resumeHint')}</span>
-          <div className="flex gap-2">
+          {intake && <span className="text-xs text-ink-faint">{zh ? '确认后继续这次任务。' : 'Confirm to continue this request.'}</span>}
+          <div className="ml-auto flex gap-2">
             {/* The answer is delivered synchronously and the Manager may work
                 for a while before it returns; the dialog can be put away
                 meanwhile and the work continues in the map. */}

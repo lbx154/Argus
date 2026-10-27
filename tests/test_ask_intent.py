@@ -63,4 +63,4 @@ def test_the_shared_command_table_lists_ask() -> None:
 
     assert "id: 'ask'" in commands
     # The description has to say what it does not do, or nobody reaches for it.
-    assert "no task queued" in commands
+    assert "without queuing work" in commands

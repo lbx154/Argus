@@ -273,21 +273,21 @@ function renderWhitelisted(ev: EventMsg): Rendered | null {
   // at work. The hundred-eyed watcher voice; anything flagged operator_alert is
   // surfaced loud regardless of type.
   if (t === 'round.reviewer_backend_failure')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: `the Reviewer's model service is unreachable — waiting rather than going on unchecked · ${trunc(S(ev, 'text'), 150)}`, tone: 'err', rule: true };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: `the Reviewer's model service is unreachable — waiting · ${trunc(S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'round.stall')
-    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'no progress this round — keeping a close eye on it', 170), tone: 'warn' };
+    return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'no progress this round', 170), tone: 'warn' };
   if (t === 'round.escalated')
     return { role: 'system', label: 'Watch', glyph: '👁', text: trunc(S(ev, 'text') || 'many rounds without a finish — raising what is blocking the work', 170), tone: 'warn' };
   if (t === 'life.planner.stall_escalation')
     return { role: 'system', label: 'Watch', glyph: '👁', text: `the Planner is stuck — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
   if ((t === 'life.budget.pause' || t === 'budget.reservation.denied') && S(ev, 'stop_kind') === 'cost_unreconciled')
-    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation — not budget exhaustion', tone: 'warn' };
+    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation', tone: 'warn' };
   if (t === 'life.budget.pause')
     return { role: 'system', label: 'Watch', glyph: '⏸', text: `budget cap reached — paused · ${trunc(S(ev, 'text') || S(ev, 'reason'), 140)}`, tone: 'warn' };
   if (t === 'budget.reservation.denied')
     return { role: 'system', label: 'Budget', glyph: '$', text: `budget denied — ${trunc(S(ev, 'reason') || S(ev, 'text'), 160)}`, tone: 'err', rule: true };
   if (t === 'budget.unpriced.blocked')
-    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation — not budget exhaustion', tone: 'warn' };
+    return { role: 'system', label: 'Budget', glyph: '$', text: 'Provider usage awaits reconciliation', tone: 'warn' };
   if (t === 'budget.unpriced.acknowledged')
     return { role: 'system', label: 'Budget', glyph: '$', text: 'Single-call cost risk approved; original usage remains pending', tone: 'warn' };
   if (t === 'life.lifecycle.block')

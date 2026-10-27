@@ -53,7 +53,7 @@ it('shows nothing for a finished check that added nothing, in the workspace or a
 
 it('says plainly when learning did not finish', async () => {
   await mount('failed');
-  expect(content(renderer.root)).toContain('任务结束后的学习没有完成，任务结果不受影响');
+  expect(content(renderer.root)).toContain('任务结束后的学习没有完成。');
   expect(content(renderer.root)).not.toContain('知识库更新未完成');
   expect(renderer.root.findAllByType('button')).toHaveLength(0);
 });

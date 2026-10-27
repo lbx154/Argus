@@ -31,7 +31,7 @@ it("preserves embedded previews on deployed APIs without the new page endpoint",
   const html = render();
   expect(html).toContain('srcDoc="&lt;h1&gt;Website&lt;/h1&gt;"');
   expect(html).not.toContain('src="/api/');
-  expect(html).toContain("does not yet support standalone preview");
+  expect(html).toContain("Interactive scripts may not run in this preview.");
   expect(html).toContain('sandbox="allow-scripts allow-downloads"');
 });
 

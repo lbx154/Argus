@@ -90,7 +90,6 @@ describe('starting and revisiting work', () => {
     expect(view.root.findByType(StartPrompts).findAllByType('button')).toHaveLength(4);
     act(() => button('调研清楚，帮我做决策').props.onClick());
     expect(onNew).toHaveBeenCalledWith(expect.stringContaining('不编造依据'));
-    expect(text(view.root)).toContain('不会自动开始任务');
   });
 
   it('prevents a second starting-point selection while project creation is pending', () => {
@@ -165,15 +164,18 @@ describe('project organization', () => {
     act(() => button('待跟进').props.onClick());
     expect(text(view.root)).toContain('Beta');
     expect(text(view.root)).not.toContain('Alpha');
-    expect(text(view.root)).toContain('不代表后台任务状态');
+    expect(text(view.root)).toContain('你标记为待跟进的项目');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
     await act(async () => button('归档项目').props.onClick());
     expect(text(view.root)).not.toContain('Beta');
+    expect(text(view.root)).toContain('已归档，可在“已归档”中找回。');
     expect(props.onManage).not.toHaveBeenCalled();
     act(() => button('已归档').props.onClick());
     expect(text(view.root)).toContain('Beta');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
     await act(async () => button('移出归档').props.onClick());
+    expect(text(view.root)).toContain('已移回最近。');
+    expect(text(view.root)).not.toContain('已归档，可在');
     act(() => button('最近').props.onClick());
     expect(text(view.root)).toContain('Beta');
     expect(storage.get('argus.project.organization.v1')).toContain('"archived":false');

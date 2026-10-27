@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.autonomy import record_assumptions
 from ..core.event_catalog import EventType
-from ..core.mission_view import uses_cjk
 from ..core.models import ReviewDecision, RoundRecord
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
@@ -842,6 +841,7 @@ class RoundReviewerMixin:
                 interrupted_review = daemon_stop_review_decision(
                     fatal_error=reviewer_fatal_error,
                     exit_code=reviewer_exit_code,
+                    chinese=state.chinese,
                 )
                 if on_event:
                     on_event(_review_event_payload(
@@ -949,14 +949,12 @@ class RoundReviewerMixin:
                 # what the operator reads when the task stops.
                 attempts = state.reviewer_backend_failure_streak
                 stopped_because = (
-                    f"审阅者连续 {attempts} 次没能给出判断，Argus 选择停下这项"
-                    "任务，而不是在没有真正审阅的情况下结束这一轮。"
-                    if uses_cjk(objective)
+                    f"审阅者连续 {attempts} 次没能给出判断，这项任务先停下了。"
+                    if state.chinese
                     else (
                         f"The Reviewer could not reach a judgment {attempts} "
                         f"time{'s' if attempts != 1 else ''} in a row, so Argus "
-                        "stopped this task rather than settle the round "
-                        "without a real judgment. "
+                        "stopped this task. "
                     )
                 )
                 return control_return((

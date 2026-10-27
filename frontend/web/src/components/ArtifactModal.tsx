@@ -140,7 +140,7 @@ export function ArtifactModal({
     >
       {delivery && !expanded && <header className="delivery-header">
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
-          <p>{isStagePackage(delivery) ? (zh ? '阶段成果 · 整体目标仍在进行' : 'Stage result · goal still open') : (zh ? '交付成果' : 'Your results')}</p>
+          {!isStagePackage(delivery) && <p>{zh ? '交付成果' : 'Your results'}</p>}
           <h2>{t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>

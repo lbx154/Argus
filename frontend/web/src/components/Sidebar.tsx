@@ -171,18 +171,20 @@ export function Sidebar({
     return () => { cancelled = true; };
   }, [projectIds, syncAttempt, zh]);
   const organize = async (id: string, field: keyof ProjectPreference) => {
+    const next = !preference(id)[field];
     setSyncingOrganization(true);
     try {
-      const remote = await api.organize(id, field, !preference(id)[field]);
+      const remote = await api.organize(id, field, next);
       setOrganization({ values: remote.value, error: !writeLocalStorage(ORGANIZATION_KEY, JSON.stringify(remote.value)) });
     } catch (problem) {
       setOrganizationNotice(`${zh ? '标记未保存：' : 'Marker not saved: '}${errorText(problem)}`);
       return;
     } finally { setSyncingOrganization(false); }
     setOrganizing(null);
-    setOrganizationNotice(field === 'archived'
-      ? zh ? '归档状态已同步；不删除文件、不停止工作。可在“已归档”中找回。' : 'Archive synced. No files are deleted and no work is stopped. Restore from Archived.'
-      : zh ? '标记已同步。' : 'Marker synced.');
+    setOrganizationNotice(field !== 'archived'
+      ? zh ? '标记已同步。' : 'Marker synced.'
+      : next ? zh ? '已归档，可在“已归档”中找回。' : 'Archived. Restore it from Archived.'
+        : zh ? '已移回最近。' : 'Moved back to Recent.');
   };
   useEffect(() => { setOrganizing(null); setSettingsHint(false); }, [activeId]);
   const slim = collapsed && !mobileOpen;
@@ -313,12 +315,10 @@ export function Sidebar({
               {filter === 'active' ? zh ? '最近' : 'Recent' : filter === 'followup' ? zh ? '待跟进' : 'Follow up' : zh ? '已归档' : 'Archived'}
             </button>)}
           </div>
-          {organization.error && <p role="alert" className="px-4 pb-2 text-xs text-warn">{zh ? '浏览器无法读取或保存项目标记；服务器项目不受影响。' : 'This browser cannot read or save project markers. Server projects are unaffected.'}</p>}
+          {organization.error && <p role="alert" className="px-4 pb-2 text-xs text-warn">{zh ? '浏览器无法读取或保存项目标记。' : 'This browser cannot read or save project markers.'}</p>}
           {organizationNotice && <p role="status" className="px-4 pb-2 text-[11px] leading-5 text-ink-faint">{organizationNotice}
             <button type="button" disabled={syncingOrganization} onClick={() => setSyncAttempt(value => value + 1)} className="ml-2 underline">{zh ? '重新同步' : 'Sync again'}</button></p>}
-          {projectFilter !== 'active' && <p className="px-4 pb-2 text-[11px] text-ink-faint">{projectFilter === 'followup'
-            ? zh ? '你手动标记的项目，不代表后台任务状态。' : 'Projects you marked manually, not background task status.'
-            : zh ? '归档只收起列表，项目内容和运行不受影响。' : 'Archiving only hides list entries. Project data and running work are unchanged.'}</p>}
+          {projectFilter === 'followup' && <p className="px-4 pb-2 text-[11px] text-ink-faint">{zh ? '你标记为待跟进的项目。' : 'Projects you marked to follow up.'}</p>}
 
           <div className="mobile-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
             {loading && projects.length === 0 ? <div className="px-1 py-3 text-xs text-ink-faint">{t('common.loading')}</div> : null}

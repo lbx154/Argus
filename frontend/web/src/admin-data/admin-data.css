@@ -87,8 +87,6 @@
 .admin-data-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 32px 16px; font-size: 12px; line-height: 1.7; color: rgb(var(--ink-faint)); }
 .admin-data-record-empty { min-height: 160px; justify-content: center; border: 1px dashed rgb(var(--line)); border-radius: 12px; }
 .admin-data-load-more { display: flex; justify-content: center; padding: 18px 0 8px; }
-.admin-data-bottom-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 20px; font-size: 10px; line-height: 1.7; color: rgb(var(--ink-faint)); }
-.admin-data-bottom-note svg { flex-shrink: 0; margin-top: 2px; }
 .admin-data-activity { margin-top: 12px; }
 .admin-data-activity > div { display: grid; grid-template-columns: 60px minmax(0, 1fr) 130px; gap: 12px; padding: 11px 0; border-top: 1px solid rgb(var(--line)); font-size: 11px; }
 .admin-data-activity time { color: rgb(var(--ink-faint)); font-size: 10px; }

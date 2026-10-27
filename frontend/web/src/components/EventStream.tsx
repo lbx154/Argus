@@ -1318,7 +1318,7 @@ export function EventStream({
             {t('stream.historyRetry')}
           </button> : null}
       </div> : null}
-      {readingError && <p role="status" className="px-4 py-1 text-xs text-warn">{locale === 'zh-CN' ? '浏览器无法恢复或保存阅读位置；对话记录不受影响。' : 'This browser could not restore or save the reading position. Conversation records are unaffected.'}</p>}
+      {readingError && <p role="status" className="px-4 py-1 text-xs text-warn">{locale === 'zh-CN' ? '浏览器无法恢复或保存阅读位置。' : 'This browser could not restore or save the reading position.'}</p>}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading' || refreshingKept}>
         <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
@@ -1326,7 +1326,6 @@ export function EventStream({
             <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
             <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
             <StartPrompts onPick={onCompose} />
-            <p className="mt-4 text-xs text-ink-faint">{locale === 'zh-CN' ? '选择只准备草稿。你确认发送后，Argus 才开始处理。' : 'A selection only prepares a draft. Argus starts after you send it.'}</p>
           </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>

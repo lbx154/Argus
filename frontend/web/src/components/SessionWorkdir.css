@@ -41,4 +41,3 @@
   box-shadow: 0 8px 24px rgb(var(--ink) / .12);
 }
 .session-workdir__detail > code { display: block; margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.session-workdir .session-workdir__detail > p { display: block; overflow: visible; margin: 8px 0 0; color: rgb(var(--ink-dim)); font-size: 11px; line-height: 1.5; }

@@ -155,20 +155,17 @@ Usage: argus resume [SID] [--all]
              [--unknown-event-policy hide|greppable] [--density compact|full]
              [--show-reasoning]  # NDJSON stdin to one plain-text line per event
 
-Every launch compares the local source identity with the running backend. It
-auto-starts a missing backend and safely replaces an outdated backend only when
-process ownership is proven; unrelated port occupants are never signalled.
-Without an explicit port, Argus reuses a compatible backend or selects the
-first available port starting at 8799. A
+Each launch starts the local backend if it is missing, and restarts an
+outdated one that Argus started. Without an explicit port, Argus reuses a
+compatible backend or selects the first available port starting at 8799. A
 plain interactive launch reattaches to a live executor from this directory, or
 creates a fresh idle session when none is running. argus resume shows
 conversations from this directory; add --all for every account session.
 On Windows, a plain interactive launch also opens the Web UI.
 
-The terminal UI, local API server, and per-session executor are separate
-processes. Ctrl-D (or Ctrl-C twice in the live view) exits only this UI by
-default; the API and executor remain available for Web/reconnect. Use an exit
-policy when this invocation should also perform graceful cleanup.
+Ctrl-D (or Ctrl-C twice in the live view) exits only this UI by default; the
+API and executor remain available for Web/reconnect. Use an exit policy when
+this invocation should also perform graceful cleanup.
 
 Options:
   --host H       API host (default 127.0.0.1, env ARGUS_TUI_HOST)
@@ -184,7 +181,7 @@ Options:
   --no-open      do not launch a browser (including the Windows interactive default)
   --objective X  create and immediately start a fresh campaign with objective X
   --exit-policy P  detach (default), stop-api, or stop-all
-                   stop-api stops only an API safely owned by this invocation;
+                   stop-api stops only an API this invocation started;
                    stop-all first stops the current executor, then that API
                    (env ARGUS_TUI_EXIT_POLICY)
   --once --json  connect, print a JSON snapshot+events sample, exit 0 (CI/headless)

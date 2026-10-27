@@ -113,7 +113,7 @@ def prepare(resources_root: Path, *, accept_license: bool = False, progress=prin
         setup = work / "setup.exe"
         _write_new(extractor, _member(extractor_archive, "innoextract.exe"))
         _write_new(setup, _member(taskbar, "setup.exe"))
-        progress("正在提取官方 Salford 运行库（不执行系统安装程序）…")
+        progress("正在提取官方 Salford 运行库…")
         extracted = work / "extracted"
         # setup.exe is input DATA to the version-pinned extractor, never a
         # command. Inno 5 installers use platform-specific internal path

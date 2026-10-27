@@ -236,7 +236,7 @@ def _build_handoff(life_dir: Any) -> str:
 def _cancelled_result() -> dict[str, Any]:
     return {
         "kind": "cancelled",
-        "reply": "Manager request cancelled; no task was dispatched.",
+        "reply": "Cancelled.",
     }
 
 
@@ -521,11 +521,8 @@ def _standing_notice_text(instruction: str) -> str:
     if len(text) > 60:
         text = text[:59] + "…"
     if any("\u3400" <= ch <= "\u9fff" for ch in text):
-        return f"已记为长期指令：{text}（之后每一轮都会遵守；说“取消这条长期指令”即可撤销）"
-    return (
-        f"Saved as a standing instruction: {text} (applies to every later turn; "
-        "say “cancel that standing instruction” to revoke it)"
-    )
+        return f"已记为长期指令：{text}（说“取消这条长期指令”即可撤销）"
+    return f"Saved as a standing instruction: {text} (say “cancel that standing instruction” to revoke it)"
 
 
 def _announce_standing_directive(
@@ -766,10 +763,9 @@ def _handle_pause_control(
         )
     elif daemon_stop_failed:
         reply = (
-            "任务已暂停，现有工作已保存，但后台工作进程未能停止。"
-            "恢复前请检查其状态。"
+            "任务已暂停，已有工作保留，但后台工作进程没能停下，恢复前请检查它的状态。"
             if chinese
-            else "The task is paused and your work is saved, but the background "
+            else "The task is paused and existing work is kept, but the background "
             "worker did not stop. Check its status before resuming."
         )
     else:

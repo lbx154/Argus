@@ -1185,6 +1185,7 @@ export function MapCanvas({
   const replacementCount = graph.links.filter(
     (e) => e.kind === "replacement",
   ).length;
+  const cyclic = graph.links.some((link) => link.cycle);
   const counted = useMemo(() => data.tasks.filter((task) => !COUNTED_OUT.has(task.status)), [data.tasks]);
   // One pass, one bucket per task: the strip must partition, not double-count
   // a failed task that also carries a question.
@@ -1792,13 +1793,7 @@ export function MapCanvas({
           )}
           {data.kind === "live" && replaying && playbackStrip}
           <div className="map-legend nowheel">
-            <span
-              title={
-                zh
-                  ? "内容相关的工作，不是执行依赖"
-                  : "Related in content, not an execution dependency"
-              }
-            >
+            <span title={zh ? "内容相关的工作" : "Related in content"}>
               <b className="dashed" />
               {zh ? "内容关联" : "Related work"}
             </span>
@@ -1809,7 +1804,7 @@ export function MapCanvas({
               </span>
             ))}
             {humanEdges.some((edge) => !edge.data?.recorded) && (
-              <span title={zh ? "你在画布上拉的线，Argus 不会改动" : "Lines you drew on the canvas; Argus never changes them"}>
+              <span title={zh ? "你在画布上拉的线" : "Lines you drew on the canvas"}>
                 <b className="human-link" />
                 {zh ? "你画的线" : "Your links"}
               </span>
@@ -2000,12 +1995,12 @@ export function MapCanvas({
               </div>
             </div>
           )}
-          {(graph.cyclic || graph.missing > 0) && (
+          {(cyclic || graph.missing > 0) && (
             <div className="map-graph-warning">
-              {graph.cyclic
+              {cyclic
                 ? zh
-                  ? "检测到循环引用，保留原始连线。"
-                  : "Cyclic references retained."
+                  ? "检测到循环依赖（红线）"
+                  : "Cycle detected (red links)"
                 : `${graph.missing} ${zh ? "个依赖不在当前记录范围内" : "dependencies outside the available history"}`}
             </div>
           )}
@@ -2404,7 +2399,7 @@ export const MapPanel = memo(function MapPanel({
       )}
       {approved && data && (source === "live" ? live.isError : dataset.isError) && (
         <div className="map-data-error" role="status">
-          {zh ? "暂时无法更新，已保留加载的地图。" : "Updates are unavailable. Your loaded map is preserved."}
+          {zh ? "地图暂时无法更新。" : "The map can't update right now."}
           <button onClick={() => void (source === "live" ? live.refetch() : dataset.refetch())}>{zh ? "重试" : "Retry"}</button>
         </div>
       )}

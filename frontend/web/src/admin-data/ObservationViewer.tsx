@@ -117,7 +117,7 @@ export function ObservationViewer({ episode, readonly, onDownload }: {
       <span>{text('已加载', 'Loaded')} {loaded.toLocaleString(locale)} / {total.toLocaleString(locale)} {text('条事件', 'events')}</span>
       {episode.runtime.run_label ? <code>{episode.runtime.run_label}</code> : null}</div>
     {!episode.collection.complete || episode.collection.historical_data_unavailable || loaded < total ? <p className="admin-data-notice">
-      {loaded < total ? text('当前仅显示已加载的部分事件，后续页可能包含更多记录。', 'Only part of this process is loaded; later pages may contain more records.') : text('这段过程存在缺失或未记录结束；不能据此认定任务已完成。', 'This process has gaps or no recorded ending; it does not establish task completion.')}
+      {loaded < total ? text('当前仅显示已加载的部分事件，后续页可能包含更多记录。', 'Only part of this process is loaded; later pages may contain more records.') : text('这段过程有缺失或没有记录结束。', 'This process has gaps or no recorded ending.')}
     </p> : null}
     {episode.collection.issues?.length ? <RawDisclosure label={text('查看采集问题', 'Capture issues')}><pre className="admin-data-code">{stringify(episode.collection.issues)}</pre></RawDisclosure> : null}
     <div className="admin-data-filter-row" role="group" aria-label={text('事件类型', 'Event type')}>

@@ -76,7 +76,7 @@ export function ResourceStatusView({
             }))}
           </div>
           {!!status.accelerators.some(accelerator => accelerator.device_count > 0 && !accelerator.devices) && <p className="mt-3 text-xs text-ink-faint">{zh ? '当前服务尚未提供单卡详情，不能判断各卡使用情况。' : 'This server has no per-device details; individual usage is unknown.'}</p>}
-          <p className="mt-3 text-xs text-ink-faint">{zh ? '编号与主机一致。负载和显存包含其他程序，少量显存可能来自驱动；“暂无活动”是采样结果，不保证可独占使用。' : 'Numbers match host GPU indices. Load and memory include other programs; small memory use can come from drivers. “No activity” is a sample, not a guarantee of exclusive availability.'}</p>
+          <p className="mt-3 text-xs text-ink-faint">{zh ? '编号与主机一致；负载和显存含其他程序。' : 'Numbers match host GPU indices; load and memory include other programs.'}</p>
         </>
       ) : null}
     </section>

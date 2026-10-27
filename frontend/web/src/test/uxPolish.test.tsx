@@ -74,7 +74,6 @@ describe('launch setting: when to ask me', () => {
 describe('questions, paths and header', async () => {
   const { splitReplyOptions, readableQuestions, ReplyOptionButtons, ReplyChoiceContext } = await import('../components/ReplyOptions');
   const { relativizeWorkspacePaths } = await import('../lib/workspacePaths');
-  const { spendEstimateLabel } = await import('../lib/projectOverview');
 
   it('turns numbered options into buttons and keeps the rest of the text', () => {
     const text = '“更适合发票”希望采用哪套规则？\n\n可选（回复编号即可）：\n1. 金额 1,234.50；百分比 12.50%\n2. 金额 1,234.50；百分比 12.5%\n\n直接回复，或在网页端处理。';
@@ -97,9 +96,5 @@ describe('questions, paths and header', async () => {
     const root = '/fastdata/v-boxiuli/argus-trial-1023';
     expect(relativizeWorkspacePaths(`在 ${root}/demo/c1-review 的 moneyfmt 中，见 [README](${root}/demo/c1-review/README.md)`, root))
       .toBe('在 demo/c1-review 的 moneyfmt 中，见 [README](demo/c1-review/README.md)');
-  });
-
-  it('labels cost as an API-price estimate', () => {
-    expect(spendEstimateLabel({ spendUsd: 4.63, spendStatus: 'priced' } as never, true)).toBe('估算 ≈$4.63（按 API 价）');
   });
 });

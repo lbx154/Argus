@@ -149,7 +149,7 @@ export function dispatchSlashCommand(line: string, deps: SlashDispatchDeps): voi
           showOutput(`Planner could not draft a plan: ${plan.error}`);
           return;
         }
-        const lines = ['Planner preview (nothing queued):'];
+        const lines = ['Planner preview:'];
         plan.steps.forEach((step, index) => {
           lines.push(`${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`);
         });

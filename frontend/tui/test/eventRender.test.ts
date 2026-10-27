@@ -98,7 +98,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '■',
-      text: 'The task ended without a recorded outcome.',
+      text: 'The task ended.',
       tone: 'info',
       rule: true,
     },

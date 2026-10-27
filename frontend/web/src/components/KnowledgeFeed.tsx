@@ -122,8 +122,7 @@ export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query
   if (rows.length === 0) {
     return <p className="p-3 text-sm leading-relaxed text-ink-faint">{needle
       ? (zh ? '没有匹配的学习动态。' : 'No feed lines match the search.')
-      : (zh ? '还没有学习动态。Argus 在任务后反思写下教训、把已有知识读进提示、或把评审通过的页面提升到共享层时，都会在这里留下一行。'
-        : 'Nothing learned yet. A line appears here whenever Argus writes a lesson after a mission, reads existing knowledge into a prompt, or promotes a reviewed page to a shared level.')}</p>;
+      : (zh ? '还没有学习动态。' : 'Nothing learned yet.')}</p>;
   }
   return <ol className="space-y-1" aria-label={zh ? '学习动态' : 'Learning feed'}>
     {rows.map(row => row.kind === 'single'

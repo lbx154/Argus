@@ -129,7 +129,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
     && (!query || `${entry.search} ${entry.vertical}`.toLocaleLowerCase().includes(query)));
   const verticals = [...new Set([...(wiki.data?.verticals ?? []), ...(skills.data?.verticals ?? [])])].sort();
   const location = (entry: Entry) => entry.scope === 'private'
-    ? (zh ? '个人记录 · 原私有范围，不共享' : 'Personal record · private, not shared')
+    ? (zh ? '个人记录' : 'Personal record')
     : `${labels[entry.scope]}${entry.vertical ? ` · ${libraryVertical(entry.vertical, locale)}` : ''}`;
   const kind = (entry: Entry) => entry.kind === 'skill' ? (zh ? '技能' : 'Skill')
     : entry.kind === 'knowledge' ? wikiKindLabels[zh ? 'zh' : 'en'][pageKind(entry.item)]
@@ -144,7 +144,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
 
   return <div className="flex h-[min(780px,84dvh)] min-h-0 flex-col" data-learning-library>
     <ModalHeader title={zh ? '知识与技能' : 'Knowledge & skills'}
-      sub={zh ? '浏览知识、可复用的方法和原始资料，不会运行任务或安装插件。学习记录在“学习动态”中查看。' : 'Browse knowledge, reusable methods and original sources without running tasks or installing plugins. Open Learning feed for learning history.'} />
+      sub={zh ? '浏览知识、可复用的方法和原始资料。' : 'Browse knowledge, reusable methods and original sources.'} />
     <LearningStatus sid={sid} onOpenKnowledge={() => pick('feed')} onOpenSkills={() => pick('feed')} />
     <nav aria-label={zh ? '学习资源分类' : 'Learning resource categories'} className="flex shrink-0 overflow-x-auto border-b border-line/60 px-4">
       {scopes.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pick(value)}
@@ -161,8 +161,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
             <option value="">{zh ? '所有领域' : 'All verticals'}</option>
             {verticals.map(value => <option key={value} value={value}>{libraryVertical(value, locale)}</option>)}
           </select>}
-          {scope === 'feed' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '学习记录与文件更新分开展示。文件变更不等于知识已验证。' : 'Learning records and file updates are separate. An update does not prove knowledge is verified.'}</p>}
-          {scope === 'global' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '跨项目共享的知识和方法；个人记录保留原私有范围，不会被共享。' : 'Shared knowledge and methods across projects. Personal records retain their private scope.'}</p>}
+          {scope === 'global' && <p className="text-xs leading-relaxed text-ink-faint">{zh ? '跨项目共享的知识和方法。' : 'Shared knowledge and methods across projects.'}</p>}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {wiki.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '知识无法加载。' : 'Knowledge could not load.'} <button className="underline" onClick={() => void wiki.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
@@ -203,7 +202,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
                 if (content) onUse(selected.title, content, `${location(selected)} · ${selected.path}${knowledge && wikiDocument.data?.truncated ? (zh ? ' · 仅当前可见节选' : ' · Visible excerpt only') : ''}`);
               }}
               className="rounded-lg border border-blue/30 bg-blue/5 px-3 py-2 text-sm text-blue disabled:opacity-40">{zh ? '用于当前对话' : 'Use in this conversation'}</button>
-            <span className="text-xs text-ink-faint">{zh ? '加入附件草稿；发送前可移除，不会自动执行技能。' : 'Adds a draft attachment you can remove before sending. It does not run a skill.'}
+            <span className="text-xs text-ink-faint">{zh ? '加入附件草稿，发送前可移除。' : 'Adds a draft attachment you can remove before sending.'}
               {selected.scope === 'private' && <span className="mt-1 block text-warn">{zh ? '这份资料来自私有范围。发送后，所选内容会作为附件保存在当前项目；请先确认范围合适。' : 'This material comes from a private scope. Sending saves the selected content as an attachment in the current project; confirm that this scope is appropriate.'}</span>}
             </span>
           </div>}
@@ -218,7 +217,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
                 <MarkdownContent>{document.data.content}</MarkdownContent></details> : <MarkdownContent>{document.data.content}</MarkdownContent>)}
             </> : <MarkdownContent>{selected.content}</MarkdownContent>}
           </div>
-        </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择资料，阅读原文与使用条件。查看不会执行技能。' : 'Select material to read its original and conditions. Reading does not execute a skill.'}</div>}
+        </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>
     </div>
   </div>;

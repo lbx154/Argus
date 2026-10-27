@@ -20,7 +20,7 @@ const DESCRIPTIONS: Record<CommandId, string> = {
   events: '搜索动态：all / watch / milestones / messages',
   find: '搜索当前事件缓冲区',
   cancel: '不再等这次回复',
-  ask: '直接回答，不安排任务、不交给团队',
+  ask: '直接回答，不安排任务',
   task: '直接交给团队做',
   plan: '预览规划者排的计划',
   rewrite: '发送前先帮你改写一下',

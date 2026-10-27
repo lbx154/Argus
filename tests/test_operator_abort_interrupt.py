@@ -14,6 +14,7 @@ infinite retry loop.
 from __future__ import annotations
 
 from argus.engineer.runner import (
+    daemon_stop_review_decision,
     operator_abort_review_decision,
 )
 
@@ -40,6 +41,17 @@ def test_operator_abort_review_decision_is_honest_daemon_keeps_running() -> None
     assert "restart the daemon" not in decision.next_action.lower()
     assert "daemon process itself keeps running" in decision.next_action.lower()
     assert "next" in decision.next_action.lower() or "ready backlog" in decision.next_action.lower()
+
+
+def test_daemon_stop_review_decision_speaks_the_operator_language() -> None:
+    decision = daemon_stop_review_decision(fatal_error="x", exit_code=1, chinese=True)
+    assert decision.backend_stop_kind == "daemon_shutdown"
+    assert decision.reason.startswith("Argus 在这一轮进行中被停止")
+    assert "技术记录：error=x" in decision.reason
+    assert decision.next_action == "Argus 重新启动后会从保存的进度继续。"
+    english = daemon_stop_review_decision(fatal_error="x", exit_code=1, chinese=False)
+    assert english.reason.startswith("Argus was stopped while this round was running")
+    assert english.next_action == "When Argus starts again it resumes from the saved progress."
 
 
 # --------------------------------------------------------------------------- #

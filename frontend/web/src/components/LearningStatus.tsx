@@ -56,9 +56,9 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
     <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
       {busy ? <LoaderCircle className="h-3 w-3 animate-spin text-blue" />
         : settled ? <Info className="h-3 w-3 text-ink-faint" /> : <Sparkles className="h-3 w-3 text-blue" />}
-      {paused && <span>{zh ? `任务结束后没有学习：${pauseReason}。任务结果不受影响。` : `No learning after the mission: ${pauseReason}. The mission result is unaffected.`}</span>}
-      {!busy && job.status === 'failed' && <span>{zh ? '任务结束后的学习没有完成，任务结果不受影响。'
-        : 'Learning after the mission did not finish. The mission result is unaffected.'}</span>}
+      {paused && <span>{zh ? `任务结束后没有学习：${pauseReason}。` : `No learning after the mission: ${pauseReason}.`}</span>}
+      {!busy && job.status === 'failed' && <span>{zh ? '任务结束后的学习没有完成。'
+        : 'Learning after the mission did not finish.'}</span>}
       {!settled && channels.map(kind => <span key={kind}>{message(kind)}</span>)}
       {query.data.pending > 1 && <span>{zh ? `还有 ${query.data.pending - 1} 个任务在学习` : `${query.data.pending - 1} more missions learning`}</span>}
     </div>

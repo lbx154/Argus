@@ -104,7 +104,7 @@ export function WorkflowWorkbench({ api, initialProject = '', initialObjective =
         setSelected(created.id);
         setCatalog(await api.workflows.catalog());
         setField(null);
-        setNotice('Created without model calls. /run starts engineering; plain messages ask Coordinator.');
+        setNotice('Created. /run starts engineering; plain messages ask Coordinator.');
         setEdit(EMPTY);
         return;
       }
