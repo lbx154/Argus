@@ -524,7 +524,7 @@ def external_pause_review_decision(
         )
     why = stop_kind_clause(stop_kind, neutral=True)
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         reason=(
             f"The work was paused before the Engineer finished this round "
             f"because {why}, so this round was not judged; it resumes from "
@@ -545,7 +545,7 @@ def execution_host_review_decision(
     """A missing tool host needs repair before an explicit mission retry."""
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         reason=(
             "The tool environment the Engineer needs could not be started, so "
             "this round did not run and was not judged. "
@@ -600,7 +600,7 @@ def infrastructure_failure_review_decision(
         "so this round was not judged; "
     )
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         reason=(
             f"{named}. {session_result}"
             "Argus pauses this task and retries it after a short wait. "
@@ -623,7 +623,7 @@ def model_configuration_review_decision(
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         reason=(
             "The configured model is unavailable, so neither the Engineer nor "
             "the Reviewer could run this round. "
@@ -681,7 +681,7 @@ def daemon_stop_review_decision(
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         # An intentional shutdown, recorded structurally so a consumer reading
         # this decision alone can tell it apart from a real failure instead of
         # having to parse ``reason`` prose.
@@ -705,7 +705,7 @@ def operator_abort_review_decision(
     engineer_aborted_before_review: bool = False,
 ) -> ReviewDecision:
     return ReviewDecision(
-        status="manager",
+        status="blocked",
         # Same contract as the daemon-stop sibling: this was an operator's
         # deliberate abort of ONE mission, not a crash and not a daemon
         # shutdown. Keep it structural so the distinction survives being read

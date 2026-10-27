@@ -7,7 +7,7 @@ import { eventDetail, eventTitle } from './utils';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
-const NEEDS_WORK = /engineer|planner|manager|operator|reject|fail|error|incomplete|revoked/;
+const NEEDS_WORK = /engineer|planner|manager|operator|blocked|reject|fail|error|incomplete|revoked/;
 const PUBLIC_MESSAGE_KINDS = new Set(['assistant_message', 'agent_message', 'message']);
 const WORK_EVENTS = new Set([
   'life.planner.task_added', 'life.mission.started', 'life.mission.completed', 'life.mission.failed',

@@ -77,6 +77,6 @@ def test_a_missing_venue_assessment_drops_the_judgments(paper):
 
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
-    assert review.status == "manager"
+    assert review.status == "blocked"
     assert not review.learning and not review.learning_reason
     assert "learning" not in review.to_event_payload()

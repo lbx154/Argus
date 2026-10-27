@@ -11,15 +11,40 @@ from argus.life.mission_outcome import mission_outcome_dimensions, outcome_dimen
 @pytest.mark.parametrize(("old", "question", "holder"), [
     ("continue", "", "engineer"),
     ("replan_requested", "", "planner"),
-    ("blocked", "", "manager"),
     ("blocked", "A or B?", "operator"),
-    ("research_incomplete", "", "engineer"),
-    ("paused_no_breakthrough", "", "planner"),
-    ("exhausted_current_methods", "", "planner"),
     ("Continue", "", "engineer"),
 ])
 def test_an_older_round_status_reads_as_its_holder(old: str, question: str, holder: str) -> None:
     assert holder_of(old, question) == holder
+
+
+@pytest.mark.parametrize("status", [
+    # The host stopped the round, or refused the task: nobody was handed the work.
+    "blocked",
+    # Older research verdicts are parks (core.stop_kinds), not a request for a new plan.
+    "research_incomplete", "paused_no_breakthrough", "exhausted_current_methods",
+])
+def test_a_status_that_names_no_holder_reads_as_itself(status: str) -> None:
+    assert holder_of(status) == status
+
+
+def test_a_host_stop_hands_the_work_to_nobody() -> None:
+    """A budget pause, a model-service outage or a shutdown is recorded, not a
+    handoff: the task's outcome says nothing was judged, never "the Manager"."""
+    from argus.engineer import round_stop_signals as stops
+
+    records = [
+        stops.external_pause_review_decision(stop_kind="budget_exhausted", fatal_error="", exit_code=0),
+        stops.execution_host_review_decision(fatal_error="no host", exit_code=1),
+        stops.model_configuration_review_decision(fatal_error="no model", exit_code=1),
+        stops.daemon_stop_review_decision(fatal_error="stop", exit_code=1),
+        stops.operator_abort_review_decision(fatal_error="abort", exit_code=1),
+    ]
+    for record in records:
+        assert record.status == "blocked"
+        assert mission_outcome_dimensions(
+            status="parked", success=False, review_status=record.status, park_reason="budget_exhausted",
+        )["review_status"] == "not_assessed"
 
 
 @pytest.mark.parametrize("holder", ["engineer", "planner", "manager", "operator", "done", "skipped", ""])

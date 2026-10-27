@@ -68,7 +68,7 @@ def _review(round_index: int, **extra) -> dict:
 
 
 def test_an_engineer_handing_the_work_over_reaches_the_manager(admitted):
-    event = admitted(_review(2, status="blocked", review_source="engineer_handoff",
+    event = admitted(_review(2, status="manager", review_source="engineer_handoff",
                              reason="The fixture needs a credential only you can grant."))
     assert event["consult_reason"] == (
         "the Engineer handed the work to you, so the process is stuck: "
@@ -178,7 +178,7 @@ def test_new_planning_goes_to_the_planner(tmp_path):
     backend = _Backend(judged(
         "Plan the grouping repair apart.", to="planner", note="Split the repair into two tasks.",
     ))
-    event = {**_review(2, status="blocked", review_source="engineer_handoff"),
+    event = {**_review(2, status="manager", review_source="engineer_handoff"),
              "consult_reason": "the Engineer handed the work to you"}
     record = supervision.supervise(Manager(tmp_path, runner=backend), tmp_path, event)
 

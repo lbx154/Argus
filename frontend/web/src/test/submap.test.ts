@@ -37,12 +37,11 @@ describe("task submap evidence", () => {
       event("e1", "life.mission.started"),
       event("e2", "round.start", { round_index: 1 }),
       event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict." }),
-      event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "blocked",
+      event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "manager",
         text: "Requirements conflict." }),
     ], true);
     expect(rows.some((row) => row.kind === "review")).toBe(false);
     const round = rows.find((row) => row.round === 1)!;
-    // An older record's `blocked` names the Manager as the work's holder.
     expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "manager", ["e2", "e3", "e4"]]);
   });
 

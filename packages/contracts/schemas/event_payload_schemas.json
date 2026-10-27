@@ -1579,7 +1579,7 @@
             "paused_no_breakthrough",
             "exhausted_current_methods"
           ],
-          "description": "The holder the round settled on, or done. The other values are what older releases wrote; core/handoff.py holder_of reads them, nothing writes them."
+          "description": "The holder the round settled on, or done; blocked when the host stopped the round and nothing was judged. The other values are what older releases wrote; core/handoff.py holder_of reads them, nothing writes them."
         },
         "reason": {
           "type": "string"

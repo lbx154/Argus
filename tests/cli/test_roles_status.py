@@ -332,3 +332,21 @@ def test_planner_idle_event_projects_idle_label(tmp_path, event_type):
     assert planner.label == "nothing new to start"
     assert planner.status == "idle"
     assert planner.active is False
+
+
+@pytest.mark.parametrize(("event_type", "status"), [
+    ("round.review.completed", "manager"),
+    ("round.review.completed", "operator"),
+    ("round.review.completed", "engineer"),
+    ("loop.done", "parked"),
+    ("loop.done", "failed"),
+])
+def test_a_settled_verdict_or_task_is_not_live_work(tmp_path, event_type, status):
+    """Handing the work on ends the role's turn, wherever the work went."""
+    now = time.time()
+    _write_events(tmp_path, [{"type": event_type, "status": status, "ts": now - 3}])
+
+    role = "reviewer" if event_type == "round.review.completed" else "engineer"
+    activity = role_activity(tmp_path, now=now)[role]
+    assert activity.active is False
+    assert status in activity.label

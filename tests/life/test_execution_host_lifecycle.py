@@ -228,5 +228,5 @@ def test_an_infrastructure_park_skips_the_stage_judge(
     assert result.final_submission_certified is False
     # A park never moves the stage; only a host failure drops the review credit.
     assert stage_calls == []
-    assert result.final_review_status == ("not_assessed" if host_failure else "manager")
+    assert result.final_review_status == ("not_assessed" if host_failure else "blocked")
     assert result.stage_transition == {}

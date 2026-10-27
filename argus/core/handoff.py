@@ -26,13 +26,10 @@ LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 
 
 #: What older releases wrote where a round or task now names its holder: read
-#: here, never written. ``blocked`` was the Manager's, or with a question the
-#: operator's; the research verdicts asked for more work or a new plan.
-_OLD_HOLDERS = {
-    "continue": "engineer", "research_incomplete": "engineer",
-    "replan_requested": "planner", "paused_no_breakthrough": "planner",
-    "exhausted_current_methods": "planner", "blocked": "manager",
-}
+#: here, never written. ``blocked`` names no holder (the host stopped the round
+#: or refused the task) unless it asks the operator a question; the old research
+#: verdicts are parks (``core.stop_kinds``), not holders.
+_OLD_HOLDERS = {"continue": "engineer", "replan_requested": "planner"}
 
 
 def holder_of(status: Any, operator_question: Any = "") -> str:
