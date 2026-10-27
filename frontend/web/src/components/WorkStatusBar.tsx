@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
-import { TeamPauseButton, teamPhase, teamPhaseLabel } from './TeamControls';
+import { PHASE_TONE, TeamPauseButton, teamPhase, teamPhaseLabel } from './TeamControls';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/launch';
 
@@ -45,9 +45,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   const label = workStatusLabel(status, locale, connected);
   // The label may already name the task ("正在处理：X"); do not say it twice.
   const shortTitle = status.title.replace(/\s+/g, ' ').trim().slice(0, 20);
-  const tone = !connected ? 'idle' : status.reason === 'task_failed' ? 'failed' : status.state === 'running' ? 'running'
-    : status.state === 'waiting' || ['operator_input', 'launch_confirm'].includes(status.reason) ? 'waiting'
-    : status.state === 'step_finished' ? 'done' : 'idle';
+  const tone = !connected || untouched ? 'idle' : PHASE_TONE[phase];
   return <div className="work-status shrink-0 px-4 py-2 text-xs sm:px-5" data-testid="work-status" data-state={status.state}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="status-dot" data-tone={tone} aria-hidden="true" />

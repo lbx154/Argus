@@ -3,7 +3,7 @@ import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
-import { teamPhase, teamPhaseLabel, type TeamPhase } from './TeamControls';
+import { PHASE_TONE, teamPhase, teamPhaseLabel } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
@@ -17,9 +17,6 @@ export type ThemeMode = 'light' | 'dark';
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
 
 /** Status = one small dot + words; colour lives only on the dot. */
-const PHASE_TONE: Record<TeamPhase, string> = {
-  running: 'running', waiting_you: 'waiting', paused: 'idle', stopped: 'failed', done: 'done', unknown: 'idle',
-};
 
 export function TopBar({
   snap,
