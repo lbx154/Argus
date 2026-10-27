@@ -53,7 +53,7 @@ describe('file reading experience', () => {
 });
 
 describe('following the newest delivery', () => {
-  it('keeps the chosen file when older deliveries load late, and follows one made after opening', () => {
+  it('keeps the chosen file while older deliveries load, and follows one made after opening by the server clock alone', () => {
     const stored = new Map([['argus.preview.file.v1:s', 'chosen.md']]);
     vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) });
     const artifact = (path: string): ArtifactInfo => ({ path, name: path, exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, why: 'fixture' });
@@ -63,10 +63,12 @@ describe('following the newest delivery', () => {
     }) as unknown as DeliveryReceipt;
     const props = { sid: 's', filesFirst: true, missionView: emptyMissionView(), artifacts: ['chosen.md', 'old-a.md', 'old-b.md', 'new.md'].map(artifact), onExpand: vi.fn() };
     let renderer!: ReturnType<typeof create>;
-    act(() => { renderer = create(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d1', 'old-a.md', 1) })); });
-    act(() => renderer.update(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d2', 'old-b.md', 2) })));
+    // Server times sit far behind this browser's clock: only server stamps are compared.
+    act(() => { renderer = create(createElement(ResearchCanvas, { ...props, deliveriesLoaded: false, latestDelivery: receipt('d1', 'old-a.md', 1_000) })); });
+    act(() => renderer.update(createElement(ResearchCanvas, { ...props, deliveriesLoaded: false, latestDelivery: receipt('d2', 'old-b.md', 2_000) })));
+    act(() => renderer.update(createElement(ResearchCanvas, { ...props, deliveriesLoaded: true, latestDelivery: receipt('d2', 'old-b.md', 2_000) })));
     expect(stored.get('argus.preview.file.v1:s')).toBe('chosen.md');
-    act(() => renderer.update(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d3', 'new.md', Date.now() / 1000 + 5) })));
+    act(() => renderer.update(createElement(ResearchCanvas, { ...props, deliveriesLoaded: true, latestDelivery: receipt('d3', 'new.md', 2_005) })));
     expect(stored.get('argus.preview.file.v1:s')).toBe('new.md');
     act(() => renderer.unmount());
     vi.unstubAllGlobals();

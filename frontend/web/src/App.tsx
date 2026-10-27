@@ -1631,6 +1631,7 @@ export default function App() {
                 requestedPathToken={previewPathRequest.token}
                 filesFirst
                 latestDelivery={deliveryHistory[0] ?? null}
+                deliveriesLoaded={!transcriptQ.isPending && Boolean(snap)}
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}

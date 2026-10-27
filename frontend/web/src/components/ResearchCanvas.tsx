@@ -284,6 +284,7 @@ export function ResearchCanvas({
   onRetry,
   loading = false,
   latestDelivery,
+  deliveriesLoaded = true,
   onOpenDelivery,
 }: {
   sid: string | null;
@@ -309,6 +310,8 @@ export function ResearchCanvas({
   loading?: boolean;
   /** Newest delivered result, pinned above the file list so phones see it first. */
   latestDelivery?: DeliveryReceipt | null;
+  /** Every delivery made before the project was opened is known. */
+  deliveriesLoaded?: boolean;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { t, locale } = useI18n();
@@ -352,18 +355,20 @@ export function ResearchCanvas({
 
   // A new delivery replaces what the panel showed before: the newest result
   // is what the person wants to see (the old chart must not linger). New means
-  // delivered after the project was opened; older receipts that load late
-  // (snapshot, transcript and events arrive separately) are not new.
-  const followed = useRef<{ sid: string | null; since: number; id: string }>({ sid: null, since: 0, id: '' });
+  // delivered after the newest one known once the project loaded, both times
+  // stamped by the server, so the browser clock plays no part.
+  const followed = useRef<{ sid: string | null; since: number | null }>({ sid: null, since: null });
   const [newestPaths, setNewestPaths] = useState<string[]>([]);
   useEffect(() => {
-    if (followed.current.sid !== sid) followed.current = { sid, since: Date.now() / 1000, id: '' };
+    if (followed.current.sid !== sid) followed.current = { sid, since: null };
     const seen = followed.current;
-    const id = latestDelivery?.delivery_id || '';
-    if (!filesFirst || !latestDelivery || !id || id === seen.id || latestDelivery.delivered_at <= seen.since) return;
-    seen.id = id;
+    if (!deliveriesLoaded) return;
+    const at = latestDelivery?.delivered_at ?? 0;
+    if (seen.since === null) seen.since = at;
+    if (!filesFirst || !latestDelivery || at <= seen.since) return;
+    seen.since = at;
     setNewestPaths(deliveryFiles(latestDelivery).map((file) => file.path));
-  }, [latestDelivery, sid, filesFirst]);
+  }, [latestDelivery, deliveriesLoaded, sid, filesFirst]);
   useEffect(() => {
     if (!newestPaths.length) return;
     const target = newestPaths.find((path) => previewArtifacts.some((item) => item.path === path && item.exists));
