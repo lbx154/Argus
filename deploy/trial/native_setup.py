@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -36,10 +35,9 @@ def initialize(args) -> dict:
         for part in ('home', 'home/.copilot', 'state', 'run', 'workspace', 'bin'):
             (directory / part).mkdir(mode=0o700)
         node = args.node_runtime.resolve()
-        wrapper = directory / 'bin/copilot'
-        wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(node / 'bin/node')) + ' ' +
-                           shlex.quote(str(node / 'lib/node_modules/@github/copilot/npm-loader.js')) + ' "$@"\n')
-        wrapper.chmod(0o700)
+        # A link, not a shell wrapper: Argus's agent sandbox reads the loader's
+        # ``#!/usr/bin/env node`` and brings node and the package in with it.
+        (directory / 'bin/copilot').symlink_to(node / 'lib/node_modules/@github/copilot/npm-loader.js')
         (directory / 'state/identity.md').write_text(
             '你是研究和编程助手。用简明中文说明做了什么、得到什么结果、还需要什么信息。'
             '默认工作目录为 /tenant/workspace。解释结果时少用内部代码、角色名和工具参数。\n')
