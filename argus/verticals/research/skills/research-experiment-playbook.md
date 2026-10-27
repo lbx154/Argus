@@ -313,10 +313,12 @@ from those numbers. It is development evidence, not a claim-bearing result.
 
 Once a real comparison on the operator's data has been reviewed, the Planner
 schedules one stage package task (`TASK_STAGE_PACKAGE=true`) before more
-diagnosis: the results table with its sources, the current method, the
-command that reproduces each number, what failed and why, which operator
-requirements remain unmet, and what the next round would test. Its Reviewer
-checks every number against its source file. The package is labelled "stage
+diagnosis: the results table with its sources, a figure for each result that
+has a visual form (the comparison plotted, the built model rendered) placed
+first, the current method, the command that reproduces each number, what
+failed and why, which operator requirements remain unmet, and what the next
+round would test. Its Reviewer checks every number against its source file and
+that each figure renders and shows the same numbers. The package is labelled "stage
 package, overall goal not complete", earns a non-terminal delivery, and the
 campaign continues; it never changes the publication target or completes the
 goal. Schedule another only when the evidence has materially changed.

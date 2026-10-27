@@ -13,6 +13,13 @@
     "source": "argus/builtin_skills/engineer/presentation-master.md",
     "sourceBytes": 4217
   },
+  "global/engineer/robot-embodiment-urdf.md": {
+    "title": "机器人本体与机构的 URDF 交付",
+    "summary": "设计或分析机器人本体、连杆机构时，交付可加载的 URDF（质量和惯量由几何算出，闭链另附约束文件）、真正解析并检查它的脚本、多个关节姿态的预览图和说明；评审者按同样的检查复核。",
+    "originalName": "Robot Body and Mechanism as a Loadable URDF",
+    "source": "argus/builtin_skills/engineer/robot-embodiment-urdf.md",
+    "sourceBytes": 5784
+  },
   "global/engineer/skill-authoring-guide.md": {
     "title": "编写与审阅技能和 Wiki 页面",
     "summary": "只在证据表明有可复用做法时写技能；先学操作者材料再忠实编辑；Wiki 更新来自一手来源；审阅者按证据真实、无冗余、不倒退、层级正确来判断一次修改。",
@@ -92,10 +99,10 @@
   },
   "global/planner/dependency-aware-task-decomposition.md": {
     "title": "规划者的职责与按依赖拆解任务",
-    "summary": "规划者负责新建、拆分、排序、撤下和替换任务，评审的质疑直接作为它的输入；它只提议阶段就绪或完成，由完成闸门按证据决定；流程卡住交给经理排查。",
+    "summary": "规划者负责新建、拆分、排序、撤下和替换任务，评审的质疑直接作为它的输入；它只提议阶段就绪或完成，由完成闸门按证据决定；流程卡住交给经理排查；成果有可视形式时，验收标准把该图、模型或页面列为主要产出。",
     "originalName": "The Planner's role and dependency-aware task decomposition",
     "source": "argus/builtin_skills/planner/dependency-aware-task-decomposition.md",
-    "sourceBytes": 4280
+    "sourceBytes": 4585
   },
   "global/project-venv-package-management.md": {
     "title": "项目环境、依赖与运行前核查",
@@ -106,10 +113,10 @@
   },
   "global/reviewer/argus-reviewer-role.md": {
     "title": "评审者的职责与给执行者的下一步",
-    "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明。",
+    "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明；有可视形式的成果要实际打开图、模型或页面，核对它能渲染且与文中数字一致。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 5785
+    "sourceBytes": 6593
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
@@ -732,7 +739,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34388
+    "sourceBytes": 34557
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",

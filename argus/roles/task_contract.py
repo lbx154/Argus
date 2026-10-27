@@ -38,7 +38,12 @@ NATIVE_WINDOWS_SHELL_SUMMARY = (
 
 EXPERIMENT_EVIDENCE_CONTRACT = (
     "Evidence: require relevant source, inputs and results, not unrelated logs. "
-    "Keep failures; readiness never replaces required independent validation."
+    "Keep failures; readiness never replaces required independent validation. "
+    "A result with a visual form (a plot of the numbers, a rendered robot body or "
+    "mechanism, an interactive page) is delivered with that visual as its primary "
+    "output, named first, because people judge such results by seeing them and "
+    "prose hides a wrong shape or trend; the review opens it and checks it renders "
+    "and matches the reported numbers."
 )
 
 

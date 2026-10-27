@@ -90,6 +90,20 @@ the sufficiency of the evidence, how the source files feed one another, the
 freshness of any generated review, and where each figure and table comes from,
 then make the smallest complete root-cause repair.
 
+## Visual results
+
+When a result has a visual form (a plot of the numbers, a rendered robot body
+or mechanism, an interactive page), the visual is part of the deliverable, not
+decoration: a person judges such a result by looking at it, and a picture
+exposes a wrong shape or trend that prose hides. Check that it exists, open or
+load it the way a person will (render the image, load the model, open the page)
+rather than trusting that the file is present, and check that what it shows
+agrees with the numbers in the text. A missing or broken visual for a result
+that admits one is a material gap for the Engineer. Name the primary visual
+first among the files your verdict cites: the delivery opens the first named
+file. For a robot body or mechanism, the checks are in
+`engineer/robot-embodiment-urdf.md`.
+
 ## Figures and the paper
 
 Review the actual visible figure and let it stand once it is readable,

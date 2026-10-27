@@ -130,6 +130,39 @@ def test_framework_format_lists_recover_only_safe_explicit_files(tmp_path: Path)
     ]
 
 
+def test_a_visual_named_first_without_markup_becomes_the_primary_target(tmp_path: Path) -> None:
+    # A verdict that names its plot or diagram as a bare path must deliver it,
+    # and first, so the result opens on what the reader is meant to see.
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    (workspace / "figures").mkdir(parents=True)
+    state.mkdir()
+    (workspace / "figures" / "compare.svg").write_text("<svg/>", encoding="utf-8")
+    (workspace / "figures" / "sweep.gif").write_bytes(b"GIF89a")
+    (workspace / "report.md").write_text("# Report\n", encoding="utf-8")
+
+    paths = referenced_delivery_paths(workspace, [
+        "Accepted: figures/compare.svg matches table 2; figures/sweep.gif and report.md agree.",
+    ])
+    assert paths == ["figures/compare.svg", "figures/sweep.gif", "report.md"]
+
+    receipt = build_delivery_receipt(
+        item_id="task-visual",
+        title="Compare the variants",
+        summary="Verified.",
+        success=True,
+        overall_complete=True,
+        status="done",
+        review_status="done",
+        final_submission_certified=False,
+        workspace=workspace,
+        state_root=state,
+        reviewer_artifacts=paths,
+    )
+    assert receipt is not None
+    assert receipt["primary_target"]["path"] == "figures/compare.svg"
+
+
 def _stage_package_receipt(tmp_path: Path, **overrides):
     workspace = tmp_path / "workspace"
     state = tmp_path / "state"
