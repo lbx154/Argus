@@ -52,14 +52,6 @@ describe('progress health', () => {
     expect(progressHealth(snapshot(backlog, false, restarted), accepted + 45 * 3600)).toBeNull();
   });
 
-  it('says the host’s routing record plainly, in the reader’s language', () => {
-    const climb = 'Nothing changed since the engineer and the planner last held this work, and nothing new arrived from outside, so it went one rung up, to the manager.';
-    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1"
-      health={{ problem: 'no_accepted_result', key: 'quiet:1', failures: 1, hoursWithoutAccepted: 13, latestFailure: { title: '形成新机制路线', reason: climb } }} />);
-    expect(html).toContain('最近一次：形成新机制路线——这条路没有新进展，团队正在换个思路。');
-    expect(html).not.toMatch(/Nothing changed|rung|planner|规划者|经理/);
-  });
-
   it('renders a dismissible banner with the two remedies', () => {
     const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onPause={() => undefined} onAdjust={() => undefined}
       health={{ problem: 'repeated_failures', key: 'failures:d', failures: 3, hoursWithoutAccepted: 0, latestFailure: { title: '训练', reason: 'OOM' } }} />);

@@ -4,9 +4,7 @@ import type { Locale } from '../i18n';
 import { readableRecord } from '../map/submap';
 import { plainToolLabel } from './feedSteps';
 import { plainDetail, type PlainDetail } from './plainStatus';
-import { plainInternalReason, STATUS_TAIL } from '../../../core/src/plainWords';
-
-export { plainInternalReason };
+import { STATUS_TAIL } from '../../../core/src/plainWords';
 
 /**
  * The project work progress feed in the words of the person who asked for the
@@ -44,7 +42,7 @@ function firstLine(text: string): string {
 
 /** A verdict as one plain sentence — the judge's own reason — with its full record folded. */
 function verdictText(phrase: string, reason: string, rest: string, locale: Locale): ProgressText {
-  const said = plainInternalReason(reason, locale);
+  const said = reason.trim();
   const line = firstLine(said);
   const text = line && !foreignText(line, locale) ? line : phrase;
   const full = [phrase, said, rest].map(part => part.trim()).filter(Boolean).join('\n\n');
@@ -90,7 +88,7 @@ export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, task
   const said = MESSAGE_KINDS.has(kind) ? readableRecord(r.text) : r.text;
   const statusOnly = MESSAGE_KINDS.has(kind) && STATUS_TAIL.test(said) && !said.replace(STATUS_TAIL, '').trim();
   // A bare status ending a message is the verdict, which its own row says in words.
-  const cleaned = plainInternalReason(statusOnly ? said : said.replace(STATUS_TAIL, ''), locale);
+  const cleaned = (statusOnly ? said : said.replace(STATUS_TAIL, '')).trim();
   return plainDetail(cleaned, locale);
 }
 

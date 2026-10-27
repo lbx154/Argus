@@ -138,29 +138,27 @@ def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
     )
 
 
-def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | None = None) -> ReviewDecision:
-    """The host's record that unchanged work climbed past ``passed`` to ``holder``.
+def climb_record(holder: str, *, chinese: bool, handed: ReviewDecision | None = None) -> ReviewDecision:
+    """The host's record that unchanged work climbed to ``holder``.
 
-    When the Reviewer's verdict ``handed`` it on, the round keeps that one
-    record: the verdict's findings stay, its own words in ``reviewer_words``,
-    and where the work went is the host's.
+    Said once, in the task's language, as what it means for the work: the
+    person reads it as written, so it names no role. ``review_source`` says
+    it climbed. When the Reviewer's verdict ``handed`` it on, the round keeps
+    that one record: the verdict's findings and words stay, the words in
+    ``reviewer_words`` too, and where the work went is the host's.
     """
-    who = " and the ".join(passed)
-    reason = (
-        f"Nothing changed since the {who} last held this work, and nothing new "
-        f"arrived from outside, so it went one rung up, to the {holder}."
-    )
-    if handed is not None:
-        reason += f" The Reviewer had handed it to the {passed[0]}: {handed.reason}"
+    if holder == "operator":
+        reason = ("这条路没有新进展，需要你决定怎么继续。" if chinese else
+                  "This path is making no new progress; it needs your decision on how to go on.")
+    else:
+        reason = ("这条路没有新进展，团队正在换个思路。" if chinese else
+                  "This path is making no new progress, so the team is trying a different approach.")
     return replace(
         handed or ReviewDecision(status="engineer", reason="", next_action=""),
         status=holder,
-        reason=reason,
+        reason=reason + ("" if handed is None else ("" if chinese else " ") + handed.reason),
         next_action="",
-        operator_question=(
-            f"Nothing changed since the {who} last held this work. How should it go on?"
-            if holder == "operator" else ""
-        ),
+        operator_question=reason if holder == "operator" else "",
         review_source="unchanged_return",
         host_placeholder="unchanged_return",
         reviewer_authored=False,
@@ -211,8 +209,8 @@ def reused_record(verdict: dict) -> ReviewDecision:
 class RoundRoutingMixin:
     """Hand a turn to the holder its hand_off names."""
 
-    def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, list[str]]:
-        """Where work handed to ``holder`` goes, and the holders it climbed past.
+    def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, bool]:
+        """Where work handed to ``holder`` goes, and whether it climbed past any holder.
 
         Up to the operator, each holder that already held the work as snapshot
         ``label`` shows it, with nothing new since, passes it one rung up;
@@ -220,14 +218,14 @@ class RoundRoutingMixin:
         Planner and the Manager hold it from here; the Engineer and the
         Reviewer record their own hold when their turn completes.
         """
-        passed: list[str] = []
+        passed = False
         while holder in LADDER[:-1] and returned_unchanged(holder, state, label):
             verdict = accepted_as_is(state, label) if holder == "reviewer" else None
             if verdict:
                 # This task's Reviewer holds the acceptance the work stands on.
                 state.snapshots.hold("reviewer", label, outside_inputs(state), verdict)
                 return "done", passed
-            passed.append(holder)
+            passed = True
             holder = LADDER[LADDER.index(holder) + 1]
         if holder in {"planner", "manager"} and state.snapshots is not None:
             state.snapshots.hold(holder, label, outside_inputs(state))
@@ -243,9 +241,13 @@ class RoundRoutingMixin:
         state: RoundLoopState,
         review_completed_hook,
         on_event: Callable[[dict], None] | None,
+        chinese: bool,
         climbed: bool = False,
     ) -> RoundControl:
-        """Route the turn by its hand_off; ``climbed``: no turn ran, the work climbed past the Engineer."""
+        """Route the turn by its hand_off; ``climbed``: no turn ran, the work climbed past the Engineer.
+
+        ``chinese``: the task is written in Chinese, so a climb is said in it.
+        """
         state.backend_failure_streak = 0
         # A turn that reached this phase was not a backend failure, so it ends
         # any run of identical failures: the same-cause count restarts from
@@ -265,9 +267,8 @@ class RoundRoutingMixin:
             state.snapshots.hold("engineer", "turn", state.handed_inputs, {"holder": wanted})
         holder, passed = (
             self._deliver(wanted, state=state, label="now")
-            if state.snapshots is not None and state.snapshots.take("now") else (wanted, [])
+            if state.snapshots is not None and state.snapshots.take("now") else (wanted, False)
         )
-        passed = list(dict.fromkeys(["engineer", *passed])) if climbed else passed
         if holder == "engineer":
             return control_continue_loop()
         if holder == "reviewer":
@@ -279,8 +280,8 @@ class RoundRoutingMixin:
         )
         if verdict:
             review = reused_record(verdict)
-        elif passed:
-            review = climb_record(passed, holder)
+        elif passed or climbed:
+            review = climb_record(holder, chinese=chinese)
         else:
             review = _handoff_record(holder, outcome.handoff)
         return self._settle_round(

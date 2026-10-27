@@ -278,17 +278,10 @@ test('render-events streams semantic-core corpus events as one plain line per ND
   );
 });
 
-test('internal status words and routing reasons read as plain words', () => {
+test('internal status words read as plain words', () => {
   const said = (text: string) => renderEvent({ type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text } as EventMsg)?.text;
   assert.equal(said('replan_requested'), 'Asked for a new plan.');
   assert.equal(said('I fixed the parser.\n\ncontinue'), 'I fixed the parser.');
-  const climbed = renderEvent({
-    type: 'life.manager.stage_decision',
-    action: 'escalate',
-    reason: 'Nothing changed since the reviewer last held this work, and nothing new arrived from outside, so it went one rung up, to the planner.',
-  } as EventMsg)?.text ?? '';
-  assert.match(climbed, /This path is making no new progress, so the team is trying a different approach\./);
-  assert.doesNotMatch(climbed, /one rung up/);
   // The conversation itself stays as written.
   assert.equal(renderEvent({ type: 'ui.argus', text: 'done', message_id: 'm-argus' } as EventMsg)?.text, 'done');
 });

@@ -326,4 +326,4 @@ def test_an_unchanged_paper_is_not_reviewed_again(paper, tmp_path_factory):
     status, reason, engineer_calls, reviewer_calls = _final_review(paper, tmp_path_factory.mktemp("state"))
     assert (engineer_calls, reviewer_calls) == (2, 1)
     assert status == "planner"
-    assert "Nothing changed since the reviewer" in reason
+    assert reason.startswith("This path is making no new progress")
