@@ -241,7 +241,10 @@ export function MarkdownContent({
     td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
     strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
     img: ({ src, alt }) => {
-      const path = artifactPathFromHref(src, live.current.artifacts, live.current.basePath);
+      // A workspace-relative image the artifact list has not caught up with
+      // yet is still a workspace file, not a path on this web server.
+      const path = artifactPathFromHref(src, live.current.artifacts, live.current.basePath)
+        ?? (live.current.sid && src && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src) ? localFileReference(src) || null : null);
       return <WorkspaceImage src={src} alt={alt} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
     },
   }), []);
