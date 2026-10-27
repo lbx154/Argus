@@ -105,7 +105,7 @@ that fixes it.
 - `argus/maintenance/` (delivery) - the Doctor: read-only findings, closed repair registry, installed-Agent advisor, and the deployment boundary. Not the `argus_maintenance` vertical and not the `~/.argus-skill/maintenance/` decision cards; renamed `doctor/` in phase 6.
 - `argus/trial/` (delivery) - the server-metered hosted trial: gateway, egress, compute queue, portal, admin, training capture. 40 files (39 `.py`) ship in the wheel; the product proper uses about four of them. Needs the `[trial]` extra.
 - `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent. Distinct from the top-level `integrations/` directory below.
-- `argus/release_tools/` (delivery) - release and CI tooling: plugin wheel build, event fixture and TypeScript type generators, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
+- `argus/release_tools/` (delivery) - release and CI tooling: release build, plugin wheel build, manifest and artifact checks, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
 - Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5), `desktop_backend_entry.py` (PyInstaller entry for the frozen desktop backend).
 
 ## Repository top level

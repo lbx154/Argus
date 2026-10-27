@@ -123,54 +123,17 @@ def test_payload_schema_is_standard_json_schema_and_generated_types_are_current(
     assert all(event_type in generated for event_type in payload["events"])
 
 
-def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
-    from argus.release_tools import generate_event_fixtures
+def test_generated_event_renderer_corpus_covers_every_event() -> None:
+    root = Path(__file__).parents[2]
+    corpus = json.loads((root / "frontend/core/fixtures/eventCorpus.generated.json").read_text(encoding="utf-8"))
 
-    corpus = json.loads(generate_event_fixtures.CORPUS_PATH.read_text(encoding="utf-8"))
-    report = json.loads(generate_event_fixtures.COVERAGE_PATH.read_text(encoding="utf-8"))
-    expected_types = {event.value for event in EventType}
-
-    assert {row["event"]["type"] for row in corpus["fixtures"]} == expected_types
+    assert {row["event"]["type"] for row in corpus["fixtures"]} == {event.value for event in EventType}
     assert all(validate_event_envelope(row["event"]).valid for row in corpus["fixtures"])
-    assert set(report["event_types"]) == expected_types
-    assert generate_event_fixtures.CORPUS_PATH.read_text(encoding="utf-8") == (
-        generate_event_fixtures._json_text(generate_event_fixtures._corpus())
-    )
-    assert generate_event_fixtures.COVERAGE_PATH.read_text(encoding="utf-8") == (
-        generate_event_fixtures._json_text(generate_event_fixtures._coverage())
-    )
-    assert generate_event_fixtures.TYPES_PATH.read_text(encoding="utf-8") == (
-        generate_event_fixtures._types()
-    )
 
 
-def test_resource_status_schema_and_generated_contracts_are_current() -> None:
-    from argus.release_tools import generate_resource_status
-
-    schema = json.loads(generate_resource_status.SCHEMA_PATH.read_text(encoding="utf-8"))
-    jsonschema.Draft202012Validator.check_schema(schema)
-    assert generate_resource_status.OUTPUT_PATH.read_text(encoding="utf-8") == (
-        generate_resource_status.render()
-    )
-    assert generate_resource_status.PYTHON_OUTPUT_PATH.read_text(encoding="utf-8") == (
-        generate_resource_status.render_python()
-    )
-
-
-def test_resource_status_generator_writes_reproducible_lf_bytes(tmp_path, monkeypatch) -> None:
-    import sys
-
-    from argus.release_tools import generate_resource_status
-
-    typescript = tmp_path / "resource_status.generated.ts"
-    python = tmp_path / "status_schema_generated.py"
-    monkeypatch.setattr(generate_resource_status, "OUTPUT_PATH", typescript)
-    monkeypatch.setattr(generate_resource_status, "PYTHON_OUTPUT_PATH", python)
-    monkeypatch.setattr(sys, "argv", ["generate_resource_status"])
-    assert generate_resource_status.main() == 0
-    assert typescript.read_bytes() == generate_resource_status.render().encode("utf-8")
-    assert python.read_bytes() == generate_resource_status.render_python().encode("utf-8")
-    assert b"\r\n" not in python.read_bytes()
+def test_resource_status_schema_is_standard_json_schema() -> None:
+    schema_path = Path(__file__).parents[2] / "packages/contracts/schemas/resource_status.json"
+    jsonschema.Draft202012Validator.check_schema(json.loads(schema_path.read_text(encoding="utf-8")))
 
 
 # Modules whose dotted ``type`` strings are not events.jsonl rows: each writes

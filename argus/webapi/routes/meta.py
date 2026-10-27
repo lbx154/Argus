@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import functools
+import json
 import shlex
 from typing import Any
 
 from fastapi import Depends, HTTPException, Request, Response
+from jsonschema import Draft202012Validator
 
 from ...core import metrics
+from ...core.contract_resources import contract_schema_path
 from .. import mission_items, project_state, source_update
 from .context import ServerContext
 from .models import ConfigSetIn, IdentitySetIn, SkillsIn
 
 
-def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
-    from ...tools.resource_ledger.status_schema_generated import validate_resource_status
+@functools.cache
+def _resource_status_validator() -> Draft202012Validator:
+    schema = json.loads(contract_schema_path("resource_status.json").read_text(encoding="utf-8"))
+    return Draft202012Validator(schema)
 
-    return validate_resource_status({
+
+def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
+    payload = {
         "schema_version": 1,
         "enforcement": snapshot["enforcement"],
         "accelerators": [
@@ -38,7 +46,9 @@ def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
             }
             for accelerator in snapshot["accelerators"]
         ],
-    })
+    }
+    _resource_status_validator().validate(payload)
+    return payload
 
 
 def register_meta_routes(app, ctx: ServerContext) -> None:

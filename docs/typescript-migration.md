@@ -21,11 +21,12 @@ and stage transitions during the staged migration.
   listings and snapshots use Python projections; project costs are now computed
   in Node from a stream of normalized usage records. There is no command
   operation.
-- `python -m argus.release_tools.generate_event_types` is a compatibility entry
-  point for the Node generator. Python event producers continue using the Python
-  validator; the new TS envelope validator has shared behavioural fixtures.
-  It preserves the existing validator's limited payload checks, including legacy
-  replay, rather than claiming to implement the complete JSON Schema standard.
+- `npm run contracts:generate` writes every generated contract artifact (event
+  payload and resource-status types, the renderer fixture corpus). Python event
+  producers continue using the Python validator; the new TS envelope validator
+  has shared behavioural fixtures. It preserves the existing validator's limited
+  payload checks, including legacy replay, rather than claiming to implement the
+  complete JSON Schema standard.
 - `packages/runtime` exports an experimental Pi JSON-stream adapter. It supports
   stdin prompts, explicit model/provider and tool policy, session directories and
   resume, UTF-8 streaming, final receipts, cancellation, idle/wall deadlines,
