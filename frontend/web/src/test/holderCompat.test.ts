@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import { renderLine } from '../../../core/src/eventRender';
 import { missionOutcomePresentation, parkReason, settledStatus } from '../../../core/src/missionOutcome';
+import { outcomeLabels } from '../lib/enumLabels';
 
 describe('statuses an older release wrote', () => {
   it('read a round status as the holder it named', () => {
     expect(settledStatus({ status: 'continue' })).toBe('engineer');
     expect(settledStatus({ status: 'replan_requested' })).toBe('planner');
-    expect(settledStatus({ status: 'blocked' })).toBe('manager');
     expect(settledStatus({ status: 'blocked', operator_question: 'A or B?' })).toBe('operator');
-    expect(settledStatus({ status: 'paused_no_breakthrough' })).toBe('planner');
     for (const holder of ['engineer', 'planner', 'manager', 'operator', 'done']) {
       expect(settledStatus({ status: holder })).toBe(holder);
+    }
+  });
+
+  it('read a status that names no holder as itself', () => {
+    // A host stop or a refused task hands the work to nobody; an old research
+    // verdict is a park, not a request for a new plan.
+    for (const status of ['blocked', 'paused_no_breakthrough', 'exhausted_current_methods', 'research_incomplete']) {
+      expect(settledStatus({ status })).toBe(status);
     }
   });
 
@@ -18,6 +26,7 @@ describe('statuses an older release wrote', () => {
     expect(parkReason('paused_operator')).toBe('operator_pause');
     expect(parkReason('parked', 'provider_fence')).toBe('provider_fence');
     expect(parkReason('running')).toBeNull();
+    expect(parkReason('operator')).toBe('operator_question');
   });
 });
 
@@ -30,5 +39,27 @@ describe('a task handed past the team', () => {
     const handed = missionOutcomePresentation({ type: 'life.mission.completed', status: 'manager', success: false } as never);
     expect(handed.outcomeClass).not.toBe('failed');
     expect(handed.tone).not.toBe('err');
+  });
+});
+
+describe('a task outcome a review settled', () => {
+  const t = (key: string) => key;
+
+  it('is labelled by the holder the review handed the work to', () => {
+    const labels = (review_status: string) => outcomeLabels({ execution_status: 'paused', review_status } as never, t);
+    expect(labels('engineer')).toContain('label.outcome.reviewNeedsChanges');
+    expect(labels('continue')).toContain('label.outcome.reviewNeedsChanges');
+    expect(labels('planner')).toContain('label.outcome.needsPlan');
+    expect(labels('manager')).toContain('label.outcome.reviewBlocked');
+    expect(labels('operator')).toContain('label.outcome.waitingForYou');
+  });
+});
+
+describe('the feed line for a review', () => {
+  it('says a Reviewer handing the work to the Planner asked for a new plan, not another pass', () => {
+    const text = renderLine({ type: 'round.review.completed', status: 'planner', reason: 'Split it.' } as never, {
+      locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact',
+    })!.text;
+    expect(text).toBe('the Reviewer asked the Planner for a new plan · Split it.');
   });
 });

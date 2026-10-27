@@ -553,6 +553,9 @@ class EventJournal:
             kind = "provider_pause"
         elif park in {"research_open", "infra"}:
             kind = "research_pause"
+        elif park is not None:
+            # Any other park (a question to the operator, a pause) waits; it never failed.
+            kind = "mission_parked"
         else:
             kind = {
                 EventType.LIFE_MISSION_STARTED: "mission_started",

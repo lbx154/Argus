@@ -80,7 +80,7 @@ def test_a_reviewer_that_never_answered_is_not_credited_or_staged(tmp_path: Path
         workdir=tmp_path,
     )
     assert status == "error"
-    assert rounds[-1].review.status == "manager"
+    assert rounds[-1].review.status == "blocked"
     assert rounds[-1].review.review_source == "reviewer_unavailable"
 
     state = _ExecuteState()
@@ -106,7 +106,7 @@ def test_a_reviewer_that_never_answered_is_not_credited_or_staged(tmp_path: Path
 
     assert stage_calls == []
     assert result.final_review_source != "reviewer"
-    assert result.final_review_status == "manager"
+    assert result.final_review_status == "blocked"
 
 
 def test_a_turn_limit_restart_keeps_the_reviewers_pending_request() -> None:

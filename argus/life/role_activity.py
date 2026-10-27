@@ -228,8 +228,9 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         return "reviewing", "running"
     if etype == "round.review.deferred":
         return "continuing before review", "running"
+    # A settled verdict or task ends the role's turn, wherever it sends the work.
     if etype == "round.review.completed":
-        return f"verdict {status or 'done'}", status or "done"
+        return f"verdict {status or 'done'}", "done"
     if etype == "round.start":
         rnd = event.get("round_index")
         return (f"round {rnd}" if rnd is not None else "new round"), "running"
@@ -237,7 +238,7 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         return "starting mission", "running"
     if etype == "loop.done" or etype == "life.mission.completed":
         lab = "done" if (not status or status == "done") else f"done · {status}"
-        return lab, status or "done"
+        return lab, "done"
     if etype.startswith("life.planner"):
         verdict = str(event.get("verdict") or event.get("decision") or "")
         if etype.endswith("start"):

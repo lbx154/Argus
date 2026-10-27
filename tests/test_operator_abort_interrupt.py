@@ -27,7 +27,7 @@ def test_operator_abort_review_decision_is_honest_daemon_keeps_running() -> None
         fatal_error="External interrupt: operator abort requested: stop now",
         exit_code=0,
     )
-    assert decision.status == "manager"
+    assert decision.status == "blocked"
     assert decision.backend_stop_kind == "operator_abort"
     assert decision.engineer_aborted_before_review is False
     assert decision.reason == "The operator requested this mission be aborted."

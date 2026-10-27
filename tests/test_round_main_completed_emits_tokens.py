@@ -104,7 +104,7 @@ def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
         config=ReviewerConfig(model="stub"),
     )
 
-    assert decision.status == "manager"
+    assert decision.status == "blocked"
     assert decision.backend_unavailable is True
     assert "response.failed" in decision.reason
     assert decision.input_tokens == 42
@@ -133,7 +133,7 @@ def test_reviewer_partial_message_with_interrupt_is_not_parsed_as_verdict() -> N
         config=ReviewerConfig(model="stub"),
     )
 
-    assert decision.status == "manager"
+    assert decision.status == "blocked"
     assert decision.backend_unavailable is True
     assert decision.backend_fatal_error == fatal
     assert decision.backend_exit_code == -15
@@ -196,5 +196,5 @@ def test_reviewer_runner_exception_returns_blocked_decision() -> None:
         config=ReviewerConfig(model="stub"),
     )
 
-    assert decision.status == "manager"
+    assert decision.status == "blocked"
     assert "RuntimeError: reviewer subprocess disappeared" in decision.reason

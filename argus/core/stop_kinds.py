@@ -230,11 +230,14 @@ def park_reason_of(status: Any, recorded: Any = "") -> str | None:
 
     ``recorded`` is the reason a ``parked`` row or event carries. An older
     status names its own, and a ``paused_*`` status this table does not know
-    is a park whose reason is unknown (``""``).
+    is a park whose reason is unknown (``""``). A task handed to the operator
+    waits, parked, on the question it asks them.
     """
     status = str(status or "").strip().lower()
     if status == "parked":
         return str(recorded or "").strip().lower()
+    if status == "operator":
+        return "operator_question"
     if status in _LEGACY_PARK_REASONS:
         return _LEGACY_PARK_REASONS[status]
     return "" if status.startswith("paused_") else None

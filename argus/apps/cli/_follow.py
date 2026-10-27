@@ -409,6 +409,7 @@ def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -
                 "engineer": "another pass is needed",
                 "manager": "it cannot move without an outside decision",
                 "operator": "it cannot move without an outside decision",
+                "blocked": "it cannot move without an outside decision",
             }.get(holder_of(status), f"finished reading ({status or '?'})")
             return f"💭 the reviewer's read: {reading}." + (
                 f" {reason}" if reason else ""
@@ -759,6 +760,7 @@ def _format_follow_event_body(
             "engineer": f"Requested another pass after round {round_index}.",
             "manager": f"Needs an external decision after round {round_index}.",
             "operator": f"Needs an external decision after round {round_index}.",
+            "blocked": f"Needs an external decision after round {round_index}.",
         }.get(holder_of(status), f"Finished checking round {round_index}.")
         return f"✅ [{_follow_layer_label('reviewer')}] {verdict}" + (
             f" {reason}" if reason else ""

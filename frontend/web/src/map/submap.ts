@@ -462,7 +462,7 @@ export function buildSubmap(
           ? zh ? "审阅：要求再改一轮" : "Review: another pass asked for"
           : status === "operator"
             ? zh ? "审阅：等你决定" : "Review: your decision is needed"
-          : ["manager", "planner"].includes(status)
+          : ["manager", "planner", "blocked"].includes(status)
             ? zh ? "审阅：建议调整方向" : "Review: a change of course asked for"
             : status === "failed"
               ? zh ? "审阅未通过" : "Review not passed"
@@ -639,7 +639,7 @@ export function taskConclusion(steps: SubmapStep[], zh: boolean, active = true):
   const parts: string[] = [];
   const attempt = Math.max(0, ...steps.map((step) => step.episode ?? 0));
   const review = [...steps].reverse().find((step) => step.kind === "review" && (step.episode ?? 0) === attempt
-    && ["done", "engineer", "operator", "manager", "planner", "failed"].includes(step.status));
+    && ["done", "engineer", "operator", "manager", "planner", "blocked", "failed"].includes(step.status));
   if (review) {
     parts.push(review.status === "done" ? zh ? "审阅通过" : "review passed"
       : review.status === "engineer" ? zh ? "审阅要求再改一轮" : "the review asked for another pass"

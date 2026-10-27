@@ -365,7 +365,10 @@ baton any more, and no named pause state beside it.
   itself (`engineer`, `planner`, `manager`, `operator`, `done`); nothing
   translates it back. A record an older release wrote is read once, in
   `holder_of` (argus/core/handoff.py) and `settledStatus`
-  (frontend/core/src/missionOutcome.ts), and never written.
+  (frontend/core/src/missionOutcome.ts), and never written. `blocked` stays
+  on a record the host writes when it stopped the round and nothing was
+  judged (a pause, an outage, a Reviewer that never answered): it names no
+  holder, so nobody is told the Manager is deciding.
 - A task handed to the Manager or the operator is parked in their hands, never
   failed, whoever handed it: a question the Manager puts to the operator parks
   that same task, and the answer resumes it, never a copy.
