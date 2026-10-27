@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useI18n } from '../i18n';
 import type { ProgressHealth } from '../lib/progressHealth';
-import { plainInternalReason } from '../lib/plainProgress';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
 /** A persistent, dismissible notice when work goes in circles; it returns for the next occurrence. */
@@ -17,8 +16,7 @@ export function ProgressHealthBanner({ sid, health, onPause, onAdjust }: {
   const [dismissed, setDismissed] = useState(() => readLocalStorage(storageKey) || '');
   if (!health || dismissed === health.key) return null;
   const failure = health.latestFailure;
-  // The host's routing words are said for the person, never shown raw.
-  const reason = failure?.reason ? plainInternalReason(failure.reason, zh ? 'zh-CN' : 'en') : '';
+  const reason = failure?.reason || '';
   const detail = failure ? `${zh ? '最近一次：' : 'Latest: '}${failure.title}${reason ? `${zh ? '——' : ' — '}${reason}` : ''}` : '';
   const message = health.problem === 'repeated_failures'
     ? (zh ? `最近 ${health.failures} 个任务都没有完成。Argus 还会继续尝试，但可能卡在同一个问题上。`

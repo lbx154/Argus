@@ -3,24 +3,12 @@ import type { EventMsg } from '../api';
 import { earlierRoleWork } from '../components/agentActivityModel';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { renderFeedRows } from '../lib/feedSteps';
-import { plainInternalReason, plainRowText, roleHeadline } from '../lib/plainProgress';
+import { plainRowText, roleHeadline } from '../lib/plainProgress';
 
 const rows = (events: EventMsg[], locale: 'en' | 'zh-CN' = 'zh-CN') => renderFeedRows(events, { locale, showReasoning: false }).list;
-const climb = 'Nothing changed since the reviewer last held this work, and nothing new arrived from outside, so it went one rung up, to the planner.';
+const climb = '这条路没有新进展，团队正在换个思路。';
 
 describe('the progress feed in the reader’s words', () => {
-  it('says the host’s English routing reason in Chinese and in English', () => {
-    // What it means for the work, never the internal hand-off between roles.
-    expect(plainInternalReason(climb, 'zh-CN')).toBe('这条路没有新进展，团队正在换个思路。');
-    expect(plainInternalReason(climb, 'en')).toBe('This path is making no new progress, so the team is trying a different approach.');
-    expect(plainInternalReason(climb.replace('planner.', 'operator.'), 'zh-CN')).toBe('这条路没有新进展，需要你决定怎么继续。');
-    // The Reviewer's own words after the hand-on stay.
-    expect(plainInternalReason(`${climb} The Reviewer had handed it to the planner: 计划需要调整。`, 'zh-CN'))
-      .toBe('这条路没有新进展，团队正在换个思路。计划需要调整。');
-    // A role's own words are left as written.
-    expect(plainInternalReason('综述内容已通过完整独立核查。', 'zh-CN')).toBe('综述内容已通过完整独立核查。');
-  });
-
   it('names the task a round belongs to, so a new task’s round 1 does not read as starting over', () => {
     const [started] = rows([{ type: 'round.review.started', round_index: 1, item_id: 't4', ts: 1 }]);
     expect(plainRowText(started.ev, started.r, 'zh-CN', id => (id === 't4' ? '依据当前证据验收综述' : '')).text).toBe('审阅者开始检查「依据当前证据验收综述」第 1 轮');
