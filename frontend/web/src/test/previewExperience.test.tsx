@@ -41,7 +41,7 @@ describe('file reading experience', () => {
     const file: ArtifactInfo = { path: 'preview.pdf', name: 'preview.pdf', exists: true, source: 'delivery', kind: 'pdf', mime: 'application/pdf', size: 100, mtime: 1, why: 'fixture' };
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(createElement(ResearchCanvas, {
-      sid: 'fixture', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), onOpenFile,
+      sid: 'fixture', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), onOpenFile, deliveriesLoaded: true,
     })); });
     expect(onOpenFile).not.toHaveBeenCalled();
     act(() => renderer.root.findByType('select').props.onChange({ target: { value: 'preview.pdf' } }));

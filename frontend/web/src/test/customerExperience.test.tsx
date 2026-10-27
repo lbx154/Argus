@@ -100,7 +100,7 @@ describe('starting and revisiting work', () => {
 
   it('opens files rather than progress, and retains the selected file across project reloads', () => {
     const file: ArtifactInfo = { path: 'report.md', name: 'report.md', exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 100, mtime: 1, why: 'fixture' };
-    const props = { sid: 's-A', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), filesFirst: true };
+    const props = { sid: 's-A', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), filesFirst: true, deliveriesLoaded: true };
     const onRevise = vi.fn();
     act(() => { view = create(<ResearchCanvas {...props} onRevise={onRevise} />); });
     expect(view.root.findByType('select').props.value).toBe(FILES_PATH);

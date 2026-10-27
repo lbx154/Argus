@@ -545,7 +545,7 @@ export default function App() {
   }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected, restored: eventsRestored } = useEventStream(loadedSid, eventView.reconnectKey);
+  const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
   useEffect(() => {
@@ -1631,7 +1631,7 @@ export default function App() {
                 requestedPathToken={previewPathRequest.token}
                 filesFirst
                 latestDelivery={deliveryHistory[0] ?? null}
-                deliveriesLoaded={!transcriptQ.isPending && Boolean(snap)}
+                deliveriesLoaded={eventsSeeded && transcriptQ.isFetchedAfterMount && Boolean(snap)}
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}

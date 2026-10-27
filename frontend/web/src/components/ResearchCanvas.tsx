@@ -284,7 +284,7 @@ export function ResearchCanvas({
   onRetry,
   loading = false,
   latestDelivery,
-  deliveriesLoaded = true,
+  deliveriesLoaded,
   onOpenDelivery,
 }: {
   sid: string | null;
@@ -310,8 +310,8 @@ export function ResearchCanvas({
   loading?: boolean;
   /** Newest delivered result, pinned above the file list so phones see it first. */
   latestDelivery?: DeliveryReceipt | null;
-  /** Every delivery made before the project was opened is known. */
-  deliveriesLoaded?: boolean;
+  /** This visit's snapshot, transcript and event window have all landed. */
+  deliveriesLoaded: boolean;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { t, locale } = useI18n();
