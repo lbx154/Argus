@@ -331,3 +331,17 @@ def test_the_manager_sees_each_recorded_assumption_once_before_deciding(tmp_path
     prompt = _prompt(observation)
     assert "非负字节数除以 1024**2 后丢弃小数" in prompt
     assert "only a reading this decision chooses for the first time" in prompt
+
+
+def test_every_decision_taken_for_the_operator_is_listed(tmp_path) -> None:
+    # HO-6: the completion message kept only the last 8; each one is the
+    # operator's to review.
+    from argus.core.autonomy import record_autonomous_assumption, render_autonomous_assumptions
+
+    for index in range(12):
+        record_autonomous_assumption(
+            tmp_path, item_id=f"t{index}", conflict=f"Question {index}?", reading=f"Answer {index}.",
+            source="manager_decision",
+        )
+    lines = render_autonomous_assumptions(tmp_path).splitlines()[1:]
+    assert len(lines) == 12 and "Answer 0." in lines[0]

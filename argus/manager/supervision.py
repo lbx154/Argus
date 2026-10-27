@@ -303,6 +303,15 @@ def _apply_risk_decision(
     if entry is not None:
         effects["residual_risk_accepted"] = f"[{entry['id']}] {describe(entry)}"
         effects["residual_risk_basis_source"] = basis_source or "task"
+        # Accepting it was the operator's decision, taken in their place: it is
+        # listed with the others wherever those are shown.
+        from ..core.autonomy import record_autonomous_assumption
+
+        record_autonomous_assumption(
+            root, item_id=item_id, source="manager_decision", key=f"{source}:{entry['id']}",
+            conflict=f"Leave the check “{entry['check']}” unverified?",
+            reading=f"Accepted the risk: {entry['risk']}", evidence_refs=record["decision"].get("cited_refs") or (),
+        )
 
 
 def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
