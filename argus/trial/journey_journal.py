@@ -309,7 +309,7 @@ def _lifecycle(kind, payload):
     status = payload.get("status") or payload.get("to_state")
     if isinstance(status, str):
         status = status.lower()
-        if park_reason_of(status) is not None or holder_of(status) in {"manager", "operator"}:
+        if park_reason_of(status) is not None or holder_of(status) in {"manager", "operator", "blocked"}:
             return "pause"
         if status in {"cancelled", "canceled", "aborted"}:
             return "cancel"

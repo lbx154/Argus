@@ -1119,32 +1119,13 @@ class SkillLoopExecuteMixin:
                     getattr(_final_review, "next_action", "") or ""
                 ).strip()
                 final_learning = str(getattr(_final_review, "learning", "") or "")
-                manager = getattr(self, "manager", None)
-                if manager is not None:
-                    challenge_decision = manager.adjudicate_plan_challenge(
-                        reviewer_status=final_review_status,
-                        review_reason=str(
-                            getattr(_final_review, "reason", "") or ""
-                        ),
-                        next_action=final_review_next_action,
-                    )
-                else:
-                    from ..manager import adjudicate_plan_challenge
-
-                    challenge_decision = adjudicate_plan_challenge(
-                        reviewer_status=final_review_status,
-                        review_reason=str(
-                            getattr(_final_review, "reason", "") or ""
-                        ),
-                        next_action=final_review_next_action,
-                    )
-                if challenge_decision.action != "keep":
+                if final_review_status == "planner":
+                    # The Reviewer's challenge goes straight to the Planner as
+                    # new input: the Planner owns the plan, nobody adjudicates.
                     plan_challenge = {
-                        "manager_action": challenge_decision.action,
-                        "manager_reason": challenge_decision.reason,
-                        "challenge": challenge_decision.challenge,
-                        "alternative": challenge_decision.alternative,
-                        "source": challenge_decision.source,
+                        "challenge": str(getattr(_final_review, "reason", "") or "").strip(),
+                        "alternative": final_review_next_action,
+                        "source": "reviewer",
                         "raised_at": time.time(),
                     }
                 if _final_review.reviewer_authored or review_source.startswith("engineer_"):
@@ -1214,14 +1195,13 @@ class SkillLoopExecuteMixin:
         stage_closing: bool,
         holds_stage_authority: bool = True,
     ) -> None:
-        """Hand this round's structured completion verdict to the Manager's
-        stage authority when this round is eligible to move the pipeline stage.
+        """Hand this round's structured completion verdict to the completion
+        gate when this round is eligible to move the pipeline stage.
 
-        STAGE AUTHORITY: the Manager is the SOLE writer of the
-        pipeline stage. After this round's independent Reviewer verdict, the
-        Manager makes
-        its OWN judgment (advance / hold / rollback / complete) and writes
-        PIPELINE_STATE.json. See ``_decide_stage_transition``.
+        STAGE AUTHORITY: the completion gate is the one writer of the pipeline
+        stage. It reads the evidence (the accepted candidate, the vertical's
+        stage checks, the person's required steps) and asks no model. See
+        ``_decide_stage_transition``.
         """
         outcome = ex_state.outcome
         effective_status = str(outcome.status)
@@ -1270,7 +1250,7 @@ class SkillLoopExecuteMixin:
                     rounds_list=ex_state.rounds_list,
                     workdir=ex_state.workdir,
                     sink=sink,
-                    root_task_id=usage_mission_id or mission_id,
+                    root_task_id=mission_id or usage_mission_id,
                     mission_scope=ex_state.mission_scope,
                     open_ended=bool(getattr(ex_state.config, "open_ended", False)),
                     continuous_objective=str(

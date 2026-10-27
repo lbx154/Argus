@@ -185,8 +185,8 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
 const MAX_EVENTS = 2_000;
 
 // `restored` counts the leading events kept from this project's previous visit;
-// the fresh seed replaces them.
-type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string>; restored?: number };
+// the fresh seed replaces them. `seeded` says that seed has landed.
+type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string>; restored?: number; seeded?: boolean };
 type StreamAction =
   | { kind: 'seed'; sid: string; events: EventMsg[] }
   | { kind: 'push'; sid: string; ev: EventMsg }
@@ -214,6 +214,7 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
       sid: state.sid,
       events: retained,
       seen: new Set(retained.map((ev) => eventKey(ev))),
+      seeded: true,
     };
   }
   // Live provider streams may deliver many fragments in one display frame.
@@ -240,7 +241,7 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
     removed.forEach((ev) => seen.delete(eventKey(ev)));
     if (restored) restored = Math.max(0, restored - removed.length);
   }
-  return { sid: state.sid, events, seen, ...(restored ? { restored } : {}) };
+  return { sid: state.sid, events, seen, ...(restored ? { restored } : {}), ...(state.seeded ? { seeded: true } : {}) };
 }
 
 export interface StreamHandle {
@@ -248,6 +249,8 @@ export interface StreamHandle {
   connected: boolean;
   /** The events are the previous visit's window until the fresh seed lands. */
   restored?: boolean;
+  /** This visit's fresh window has landed. */
+  seeded: boolean;
 }
 
 // Twenty-five visual updates per second is ample for a readable event stream
@@ -398,5 +401,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
     events: state.sid === sid ? state.events : [],
     connected: browserOnline && connection.sid === sid && connection.connected,
     restored: state.sid === sid && Boolean(state.restored),
+    seeded: state.sid === sid && Boolean(state.seeded),
   };
 }

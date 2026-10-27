@@ -116,6 +116,8 @@ class EventType(StrEnum):
     LIFE_MANAGER_INTENT_SUPERSEDED = "life.manager.intent.superseded"
     LIFE_MANAGER_GOAL_CONTRACT_FAILED = "life.manager.goal_contract.failed"
     LIFE_MANAGER_STAGE_DECISION = "life.manager.stage_decision"
+    # Written by releases where the Manager adjudicated a Reviewer challenge;
+    # read in old logs only, never written now.
     LIFE_MANAGER_PLAN_CHALLENGE_DECIDED = "life.manager.plan_challenge.decided"
     LIFE_MANAGER_FEEDBACK_PERSISTED = "life.manager.feedback.persisted"
     LIFE_MANAGER_FEEDBACK_UNRESOLVED = "life.manager.feedback.unresolved"

@@ -115,12 +115,19 @@ class SelfReplyMixin:
         state_root = self._manager_state_path()
         sink = _PhaseSink(sink, phase_cb, str(workdir))
         libraries = self_skill_context(self.manager, task=message, on_event=sink.handle_event)
-        # The page goes once per conversation; later turns are the message alone.
-        prompt = message.strip() if seed_thread_id else "\n\n".join(
-            block for block in (libraries.block, build_manager_prompt(
-                message, workspace=workdir, state_root=state_root,
-            )) if block
-        )
+        # The page goes once per conversation; later turns are the message and
+        # the Skill libraries block, which the run gateway drops while the
+        # thread already holds it verbatim. After an upgrade moves the
+        # libraries, the thread's paths are stale and the new block goes again
+        # (2026-10-26: a Manager turn searched two release trees for its Skills).
+        # The block comes after the page so its sections are byte-identical in
+        # both prompts (the page has no heading of its own to end them).
+        prompt = "\n\n".join(block for block in (message.strip(), libraries.block) if block) \
+            if seed_thread_id else "\n\n".join(
+                block for block in (build_manager_prompt(
+                    message, workspace=workdir, state_root=state_root,
+                ), libraries.block) if block
+            )
         operator_context, operator_context_revision = build_operator_context_block(
             "manager", getattr(self, "_manager_session_root", None), consume_once=False,
         )
@@ -241,7 +248,6 @@ class SelfReplyMixin:
         """
         from ..core.secret_guard import redact_secrets_text
         from ..life.delivery import (
-            asks_for_figure,
             build_delivery_receipt,
             changed_workspace_paths,
             referenced_delivery_paths,
@@ -255,7 +261,6 @@ class SelfReplyMixin:
         ]
         changed = None if before is None else changed_workspace_paths(
             workdir, before, SelfReplyMixin._workspace_facts(workdir, state_root), named=named,
-            prefer_images=asks_for_figure(safe_reply),
         )
         paths = named if changed is None else changed
         if not paths:

@@ -1,4 +1,4 @@
-import { parkReason } from '../../../core/src/missionOutcome';
+import { parkReason, settledStatus } from '../../../core/src/missionOutcome';
 import type { MissionOutcomeDimensions, MissionView } from '../../../core/src/types';
 import { agentRoleName, isAgentRole } from './agentRoles';
 
@@ -75,12 +75,16 @@ const EXECUTION_KEYS: Record<string, string> = {
   supervisor_error: 'label.outcome.workFailed',
 };
 
+// Keyed by the holder the review handed the work to (settledStatus reads older values).
 const REVIEW_KEYS: Record<string, string> = {
   accepted: 'label.outcome.reviewPassed',
   done: 'label.outcome.reviewPassed',
   passed: 'label.outcome.reviewPassed',
-  continue: 'label.outcome.reviewNeedsChanges',
+  engineer: 'label.outcome.reviewNeedsChanges',
   rejected: 'label.outcome.reviewNeedsChanges',
+  planner: 'label.outcome.needsPlan',
+  manager: 'label.outcome.reviewBlocked',
+  operator: 'label.outcome.waitingForYou',
   blocked: 'label.outcome.reviewBlocked',
   stale: 'label.outcome.reviewOutdated',
   pending: 'label.outcome.reviewPending',
@@ -145,7 +149,7 @@ export function outcomeLabels(
   const rows = [
     t(EXECUTION_KEYS[outcome.execution_status.toLowerCase()] ?? 'label.outcome.workUpdated'),
   ];
-  const review = REVIEW_KEYS[String(outcome.review_status ?? '').toLowerCase()];
+  const review = REVIEW_KEYS[settledStatus({ status: outcome.review_status })];
   const certification = CERTIFICATION_KEYS[String(outcome.stage_certification ?? '').toLowerCase()];
   const interruption = INTERRUPTION_KEYS[String(outcome.interruption_kind ?? '').toLowerCase()];
   if (review) rows.push(t(review));

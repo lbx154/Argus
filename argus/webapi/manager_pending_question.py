@@ -330,9 +330,13 @@ def _apply_framework_deployment_decision(
     option_id: str,
     decision_id: str,
     note: str,
+    manager_reply: str = "",
     decided_by: str = "operator",
 ) -> dict[str, Any]:
-    """Apply the existing adopt/decline decision without another validation run."""
+    """Apply the existing adopt/decline decision without another validation run.
+
+    The Manager's reply, when it gave one, is what the operator reads once it applies.
+    """
     import subprocess
 
     from ..core.secret_guard import redact_secrets_text
@@ -371,17 +375,20 @@ def _apply_framework_deployment_decision(
         except (OSError, KeyError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
             reason = redact_secrets_text(str(exc))[-1200:]
             mem.backlog.update(item.id, last_error=reason)
+            # The card stays pending: the operator reads why, not "already answered".
+            error = ("Could not apply the reviewed change: " + reason
+                     + ". The runtime has not been switched; the reviewed work is retained.")
             return {
                 "answered_item_id": item.id, "decision_id": decision_id,
                 "resolved": False, "application_status": "retryable", "resume_requested": False,
-                "error": "Could not apply the reviewed change: " + reason
-                    + ". The runtime has not been switched; the reviewed work is retained.",
+                "error": error, "reply": error,
             }
         reply = (
             "The reviewed commit is published on origin/main. "
             "The daemon will adopt it at a task boundary."
         )
         status, last_error = "done", ""
+    reply = manager_reply.strip() or reply
 
     card.update({
         "status": "resolved", "selected_option": option_id, "note": note.strip(),
@@ -435,11 +442,21 @@ def _apply_operator_answer(
     operator_context_revision: int = 0,
     decided_by: str = "operator",
 ) -> dict[str, Any]:
-    """Persist an explicit answer and resume the task it parked.
+    """Persist an explicit answer and resolve the card it answers.
 
     ``decided_by`` is ``"manager"`` when the Manager answered in the operator's
-    place; the answer is then never recorded as the operator's.
+    place; the answer is then never recorded as the operator's. ``manager_reply``
+    is the one acknowledgement the operator reads when the answer applies; the
+    result always carries a ``reply``, and a resolved answer settles its
+    once-input record whatever kind of card it answered.
     """
+    from .waypoint_answers import apply_waypoint_answer
+
+    question = str(item.pending_question or "").strip()
+    # Typed words are the operator's own language. A clicked option is in the card's words
+    # (often code or English), so for a click the question's language decides.
+    clicked = decision_option.strip().lower() not in ("", "custom")
+    zh = conversation_is_chinese(*((question, answer) if clicked else (answer, question)), item.title)
     if item.operator_decision.get("decision_kind") == "framework_deployment":
         option_id = decision_option.strip().lower()
         if option_id == "custom":
@@ -449,43 +466,74 @@ def _apply_operator_answer(
             for option in item.operator_decision.get("options", ())
             if isinstance(option, dict)
         }
-        if option_id not in available_options:
-            return {
-                "error": "choose an available deployment option",
-                "answered_item_id": item.id,
-            }
-        return _apply_framework_deployment_decision(
+        result = _apply_framework_deployment_decision(
             mem,
             item,
             option_id=option_id,
             decision_id=(decision_id or str(item.operator_decision.get("id") or "")),
             note=decision_note,
+            manager_reply=manager_reply,
+            decided_by=decided_by,
+        ) if option_id in available_options else {
+            "error": "choose an available deployment option",
+            "answered_item_id": item.id,
+        }
+    else:
+        step_answer = apply_waypoint_answer(
+            mem, item, answer, decision_option=decision_option, decision_id=decision_id,
+            decision_note=decision_note, manager_reply=manager_reply, decided_by=decided_by,
+        )
+        # A dispute card parked on real work resumes that work with the route
+        # decision in place of the answer's own decision and acknowledgement.
+        if step_answer is not None and "resume_with" in step_answer:
+            manager_decision, manager_reply = step_answer.pop("resume_with")
+            step_answer = None
+        result = step_answer or _resume_with_answer(
+            mem, item, answer, question=question, zh=zh, manager_decision=manager_decision,
+            manager_reply=manager_reply, decision_option=decision_option, decision_id=decision_id,
+            decision_note=decision_note, operator_context_persisted=operator_context_persisted,
             decided_by=decided_by,
         )
+    if result.get("resolved") and operator_context_revision:
+        from ..core.operator_context import OperatorContextStore
 
-    from .waypoint_answers import apply_waypoint_answer
+        OperatorContextStore(Path(mem.project_root)).settle_once(operator_context_revision)
+    # A failed answer keeps its diagnostic in ``error``; the operator reads
+    # what happened to their answer, in the conversation's language.
+    if not str(result.get("reply") or "").strip():
+        result["reply"] = say("answer_not_applied", zh)
+    return result
 
-    step_answer = apply_waypoint_answer(
-        mem, item, answer, decision_option=decision_option, decision_id=decision_id,
-        decision_note=decision_note, manager_reply=manager_reply, decided_by=decided_by,
-    )
-    if step_answer is not None:
-        if step_answer.get("resolved") and operator_context_revision:
-            from ..core.operator_context import OperatorContextStore
 
-            OperatorContextStore(Path(mem.project_root)).settle_once(operator_context_revision)
-        return step_answer
-
+def _resume_with_answer(
+    mem: Any,
+    item: Any,
+    answer: str,
+    *,
+    question: str,
+    zh: bool,
+    manager_decision: str,
+    manager_reply: str,
+    decision_option: str,
+    decision_id: str,
+    decision_note: str,
+    operator_context_persisted: bool,
+    decided_by: str,
+) -> dict[str, Any]:
+    """Resume the task a free question parked, with the answer in its objective."""
     from ..apps._inbox import queue_inbox_message
     from ..core.event_catalog import EventType
     from ..life.event_log import JsonlEventSink
 
-    question = str(item.pending_question or "").strip()
-    # Typed words are the operator's own language. A clicked option is in the card's words
-    # (often code or English), so for a click the question's language decides.
-    clicked = decision_option.strip().lower() not in ("", "custom")
-    zh = conversation_is_chinese(question, answer) if clicked else conversation_is_chinese(answer, question)
-    manager_reply = manager_reply or say("answer_taken", zh)
+    # The option chosen, in the words the card offered it; none for a written answer.
+    chosen = next((
+        str(option.get("label") or "").strip()
+        for option in item.operator_decision.get("options", ())
+        if isinstance(option, dict) and option.get("id") == decision_option
+    ), "")
+    manager_reply = manager_reply.strip() or (
+        say("answer_continue_with", zh, choice=chosen) if chosen else say("answer_taken", zh)
+    )
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
@@ -522,12 +570,6 @@ def _apply_operator_answer(
         "Do not enqueue duplicate work for that task."
     )
     queue_inbox_message(life_dir, directive, source="manager.answer")
-    # The option chosen, in the words the card offered it; none for a written answer.
-    chosen = next((
-        str(option.get("label") or "")
-        for option in item.operator_decision.get("options", ())
-        if isinstance(option, dict) and option.get("id") == decision_option
-    ), "")
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
         "item_id": item.id,
@@ -540,10 +582,6 @@ def _apply_operator_answer(
         ),
         "decided_by": decided_by,
     })
-    if operator_context_revision:
-        from ..core.operator_context import OperatorContextStore
-
-        OperatorContextStore(life_dir).settle_once(operator_context_revision)
     return {
         "answered_item_id": item.id,
         "answer_intent": True,
@@ -562,28 +600,26 @@ def _apply_operator_answer(
 def apply_manager_answer(mem: Any, handoff: Any, operator_text: str, *, reply: str = "") -> dict[str, Any]:
     """Apply the operator's answer the Manager read off its turn (``answer`` of the ``manager`` form).
 
-    The form's check already tied it to a task waiting on a question. ``reply``
-    is the Manager's own words to the operator in that turn: when the answer
-    applies they are its one acknowledgement (``result["reply"]``), not a second
-    line after them; a canned line stands in only when the Manager said nothing.
+    The form's check tied it to a task waiting on a question. ``reply`` is the
+    Manager's own words to the operator in that turn: when the answer applies
+    they are its one acknowledgement (``result["reply"]``), not a second line
+    after them. The result always carries the ``reply`` the operator reads.
     """
     from ..core.operator_context import persist_once_answer
 
     answer = handoff.get("answer")
-    item = next(row for row in mem.backlog.active() if row.id == answer["item"])
+    item = next((row for row in mem.backlog.active() if row.id == answer["item"]), None)
+    if item is None:
+        # The task ended during the Manager's turn: nothing is waiting any more.
+        return {
+            "error": "question is no longer pending", "answered_item_id": answer["item"],
+            "reply": say("answer_not_applied", conversation_is_chinese(operator_text, reply)),
+        }
     record = persist_once_answer(
         mem.project_root, operator_text, source="operator.pending_answer", mission_id=str(item.id),
     )
-    # The reply speaks to the person; ``summary`` is the Manager's note for the team.
-    options = (item.operator_decision or {}).get("options") or ()
-    picked = next((str(option.get("label") or "").strip() for option in options
-                   if isinstance(option, dict) and option.get("id") == answer.get("option")), "")
-    zh = conversation_is_chinese(operator_text, item.pending_question, item.title)
     result = _apply_operator_answer(
-        mem, item, operator_text, manager_decision=answer["decision"],
-        manager_reply=reply.strip() or (
-            say("answer_continue_with", zh, choice=picked) if picked else say("answer_taken", zh)
-        ),
+        mem, item, operator_text, manager_decision=answer["decision"], manager_reply=reply,
         decision_option=answer.get("option", "custom"),
         operator_context_persisted=True, operator_context_revision=record.revision,
     )
@@ -685,9 +721,7 @@ def manager_answer_pending_question(
                 result["continuous"] = True
             if projection_error:
                 result["projection_error"] = projection_error
-        # A failed answer keeps its diagnostic in ``error``; the operator
-        # reads what happened to their answer.
-        reply = str(result.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(text))
+        reply = result["reply"]
         append_turn(
             mem.project_root,
             "argus",

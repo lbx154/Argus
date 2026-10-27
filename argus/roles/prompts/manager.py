@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
 from ...core.role_reply import decision_footer_instruction
-from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, argus_command
-from .types import ChecklistMode, RoleName, RolePromptRequest
+from ..task_contract import argus_command
 from .voice import RESEARCHER_VOICE
 
 STAGE_DECISION = "stage_decision"
@@ -351,201 +350,6 @@ def assemble_manager_prompt(
     return MODEL_INTEGRITY_BOUNDARY + "\n\n" + with_skill
 
 
-def _advisory_planner(planner_verdict: Any) -> str:
-    if planner_verdict is None:
-        return "(none)"
-    for attr in ("reason", "headline"):
-        value = getattr(planner_verdict, attr, None)
-        if value:
-            return str(value)
-    if isinstance(planner_verdict, dict):
-        return str(
-            planner_verdict.get("reason") or planner_verdict.get("headline") or planner_verdict
-        )
-    return str(planner_verdict)
-
-
-def build_stage_decision_prompt(
-    *,
-    current_stage: str,
-    next_stage: str,
-    later_stages: Sequence[str] = (),
-    earlier_stages: Sequence[str],
-    checklist_md: str,
-    review: Any,
-    planner_verdict: Any = None,
-    open_ended: bool = False,
-    continuous_objective: str = "",
-    allow_rollback: bool = True,
-    allow_early_completion: bool = False,
-) -> str:
-    """Build the Manager's stage-transition prompt with a concrete target example."""
-    # Normalize a stray string to one stage instead of iterating over its characters.
-    stages = [earlier_stages] if isinstance(earlier_stages, str) else list(earlier_stages)
-    earlier = ", ".join(f"`{stage}`" for stage in stages if str(stage).strip()) or (
-        "(none — already first)"
-    )
-    advance_target = f"`{next_stage}`" if next_stage else "(none — already the final stage)"
-    legal_advance = (
-        ", ".join(f"`{stage}`" for stage in later_stages if str(stage).strip())
-        or advance_target
-    )
-    status = str(getattr(review, "status", "") or "")
-    reason = str(getattr(review, "reason", "") or "")
-    review_source = str(getattr(review, "review_source", "reviewer") or "reviewer").strip()
-    source_instructions = ""
-    if review_source == "engineer_self_review":
-        source_instructions = (
-            "The Engineer used the self-review allowed for small tasks. No "
-            "Reviewer assessment is therefore expected. The waiver "
-            "itself is not evidence: inspect CHECKPOINT.md and the project outputs "
-            "against every applicable requirement for the current stage. You "
-            "may advance when that evidence genuinely satisfies the stage; hold "
-            "otherwise. A final-submission or explicitly independent-review task "
-            "still requires a real Reviewer assessment.\n"
-        )
-
-    open_ended_block = ""
-    if open_ended:
-        if allow_rollback:
-            open_ended_block = (
-                "## Open-ended research objective\n"
-                "This is an open-ended campaign. Completing the final-stage checkpoint "
-                "does not complete the operator objective by itself. If the original "
-                "objective remains unresolved and the Planner identifies further "
-                "high-impact work that belongs to an earlier stage, roll back to the "
-                "earliest stage needed for that work. Hold only when no legal work can "
-                "run yet; do not mark the campaign complete merely because a report or "
-                "review file exists.\n\n"
-            )
-        else:
-            open_ended_block = (
-                "## Open-ended research objective\n"
-                "This is an open-ended forward-only campaign. Completing a checkpoint "
-                "does not complete the operator objective by itself. Keep the current "
-                "stage and schedule any remaining repair work there; never move to an "
-                "earlier stage.\n\n"
-            )
-    objective_block = (
-        "## Operator objective\n"
-        f"{continuous_objective.strip()}\n\n"
-        if continuous_objective.strip()
-        else ""
-    )
-    objective_block += EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
-
-    harness_control = getattr(review, "harness_control", None)
-    mission_scope_change = bool(
-        isinstance(harness_control, dict)
-        and harness_control.get("mission_scope_change_required") is True
-    )
-    mission_scope_block = ""
-    if mission_scope_change:
-        rollback_sentence = (
-            "roll back only when earlier-stage evidence is genuinely broken; "
-            if allow_rollback
-            else "never move this sequence of stages backward; "
-        )
-        mission_scope_block = (
-            "## Mission-scope arbitration\n"
-            "The Reviewer found that the proposed next work cannot legally run "
-            "as another Engineer round within the current mission's agreed scope. "
-            "Reviewer advice is not authorization. Hold the current stage when "
-            "the repair belongs in this stage so Planner can replace the mission; "
-            f"{rollback_sentence}"
-            "Advance only when independent review finds every current-stage requirement met. "
-            "Do not rewrite implementation details yourself.\n\n"
-        )
-
-    rollback_rule = (
-        "- move=rollback only when evidence from an earlier stage is broken; name the "
-        "earliest affected stage.\n"
-        if allow_rollback
-        else (
-            "- This vertical is forward-only. Keep the current stage and schedule "
-            "repairs there; never roll back.\n"
-        )
-    )
-    rollback_targets = (
-        f"Rollback targets (earlier stages): {earlier}\n\n"
-        if allow_rollback
-        else "Rollback targets: none (forward-only vertical)\n\n"
-    )
-    completion_rule = (
-        "- to=done when the independently reviewed direct objective is fully "
-        "satisfied. Do not advance merely because later stages exist; they are "
-        "outside this direct request. Open-ended campaigns never complete "
-        "automatically.\n"
-        if allow_early_completion
-        else (
-            "- to=done only at the final stage of a finite objective. Open-ended "
-            "campaigns never complete automatically.\n"
-        )
-    )
-    return (
-        "Decide how the work should proceed from the evidence below, and record it "
-        "with hand_off. Reviewer and Planner advise; you decide: to=team with "
-        "move=advance (on to a later stage), move=hold (stay and keep working) or "
-        "move=rollback (back to an earlier stage), or to=done (finish the objective). "
-        "You only judge here: you change no files and run no builds or tests, since "
-        "the work and its checks are the team's.\n\n"
-        "## Your decision\n"
-        "- Advance only when concrete evidence supports the stage's requirements.\n"
-        "- Hold when work remains or evidence is unclear, including when Reviewer asks "
-        "for replanning inside this stage.\n"
-        + rollback_rule
-        + completion_rule
-        + "- A weak proxy or one failed attempt is not completion. Do not repeat the "
-        "Reviewer's checks without a contradiction. When unsure, hold.\n"
-        "- Judge the science, not the bookkeeping. A missing or outdated note for the "
-        "next stage, review file, template detail, or file marker is repair work for the "
-        "next round; it is never by itself a reason to hold a stage whose work "
-        "the Reviewer found sound.\n"
-        "- Evidence scale is part of the science. The stated requirements may appear met by a "
-        "handful of items or one model; when the objective's claim is broader than what "
-        "was measured, hold for the wider evidence rather than advance on a narrow win.\n\n"
-        + RESEARCHER_VOICE + "\n\n"
-        # The objective and the stage's requirements hold across the
-        # campaign's decisions; the wait and scope arbitration, the evidence
-        # and the Planner note belong to this one decision, so they close the
-        # prompt and the provider can reuse the cached prefix.
-        f"{objective_block}"
-        f"{open_ended_block}"
-        f"Current stage: `{current_stage}`\n"
-        f"Advance targets (later stages): {legal_advance}\n"
-        f"{rollback_targets}"
-        "## What the current stage requires\n"
-        f"{checklist_md}\n\n"
-        f"{mission_scope_block}"
-        "## Latest completion evidence\n"
-        f"source: {review_source}\n"
-        f"status: {status}\n"
-        f"reason: {reason}\n"
-        f"{source_instructions}\n"
-        "## Planner note (advisory)\n"
-        f"{_advisory_planner(planner_verdict)}\n\n"
-    )
-
-
-def stage_decision_request(
-    project_root: Path | str,
-    *,
-    stage: str,
-) -> RolePromptRequest:
-    return RolePromptRequest(
-        role=RoleName.MANAGER,
-        operation=STAGE_DECISION,
-        project_root=project_root,
-        stage=stage,
-        checklist_mode=ChecklistMode.STAGE,
-        # Preserve the existing stage-decision framing, which asks for the
-        # Planner view of the current checklist.
-        checklist_role=RoleName.PLANNER,
-        # The vertical's live facts (research notes) close the prompt.
-        include_role_context=True,
-    )
-
-
 __all__ = [
     "GROUNDED_VERTICAL_DECISION",
     "LIVE_VIEW",
@@ -561,6 +365,4 @@ __all__ = [
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_skill_placements_prompt",
-    "build_stage_decision_prompt",
-    "stage_decision_request",
 ]

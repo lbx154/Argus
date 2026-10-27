@@ -147,7 +147,8 @@ describe('shared frontend core', () => {
     expect(css).toContain('.glass-card');
     expect(css).toContain('.icon-control');
     expect(css).toContain('.compact-control');
-    expect(css).toContain('.send-control');
+    // The accent fill belongs to the send button only; no shared class paints other controls with it.
+    expect(css).not.toContain('.send-control');
     expect(css).toContain('.session-card');
     for (const selector of [
       '.ambient-canvas',
@@ -579,6 +580,11 @@ describe('shared frontend core', () => {
     expect(html.match(/rel="preload"/g)).toHaveLength(2);
     expect(canvas).not.toContain('key={showLiveProgress');
     expect(canvas).not.toContain('gsap.fromTo');
+  });
+
+  it('never hides the overview row that holds the alerts toggle and disk warning', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    expect(css).not.toMatch(/\.project-overview-meta\s*\{[^}]*display:\s*none/);
   });
 
   it('favicon uses monochrome Rounded 02 geometry', () => {

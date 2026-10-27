@@ -149,10 +149,12 @@ def test_idea_bar_is_a_solid_paper_and_overlap_is_a_risk() -> None:
     playbook = (skills / "research-idea-playbook.md").read_text(encoding="utf-8")
     assert "aspiration, not a gate" in playbook
     assert "Related work existing is not a rejection" in playbook
-    assert "about the 5–8" in playbook
+    # No fixed source count or one-copy rule: depth follows the route.
+    assert "5–8" not in playbook and "raw download" not in playbook
     assert "pass and list the risks" in playbook
     novelty = (skills / "engineer/novelty-check.md").read_text(encoding="utf-8")
-    assert "not a raw download beside an extracted text" in novelty
+    assert "5–8" not in novelty and "raw download" not in novelty
+    assert "without repeating the search" in novelty
 
     idea_review = render_role_prompt_fragment(
         role="reviewer", operation="evaluate", stage="idea", scope="", project_root=None

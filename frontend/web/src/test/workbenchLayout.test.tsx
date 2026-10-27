@@ -61,3 +61,44 @@ describe('conversation as the starting view', () => {
     expect(layout.workspaceView).toBe('activity');
   });
 });
+
+describe('full canvas map', () => {
+  it('makes Ctrl/Cmd+B on the full canvas map unfold the project list instead of silently flipping the saved choice', () => {
+    storage.set('argus.workspace.view.v3', 'map');
+    mount();
+    expect(layout.mapImmersive).toBe(true);
+    expect(layout.sidebarShown).toBe(false);
+    act(() => layout.toggleSidebar());
+    expect(layout.mapImmersive).toBe(false);
+    expect(layout.sidebarShown).toBe(true);
+    expect(storage.get('argus.map.fullscreen.v1')).toBe('0');
+    expect(storage.get('argus.sidebar.expanded.v4')).toBe('true');
+    act(() => layout.toggleSidebar());
+    expect(layout.sidebarShown).toBe(false);
+    expect(storage.get('argus.sidebar.expanded.v4')).toBe('false');
+  });
+
+  it('sizes the results panel against the 56px rail the full canvas map shows', () => {
+    storage.set('argus.workspace.view.v3', 'map');
+    storage.set('argus.sidebar.width.v2', '400');
+    window.innerWidth = 1100;
+    mount();
+    const shown = layout.rightWidth;
+    act(() => layout.openPreview());
+    const onRail = layout.rightWidth;
+    act(() => tree.unmount());
+    storage.set('argus.map.fullscreen.v1', '0');
+    storage.set('argus.preview.width.v2', String(shown));
+    mount();
+    act(() => layout.openPreview());
+    expect(onRail).toBeGreaterThan(layout.rightWidth);
+  });
+
+  it('offers no full canvas toggle in presentation mode, where it could not take effect', () => {
+    window.location.search = '?kiosk=1';
+    mount();
+    expect(layout.workspaceView).toBe('map');
+    expect(layout.mapImmersive).toBe(false);
+    expect(layout.setMapFull).toBeUndefined();
+  });
+});

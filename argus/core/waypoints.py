@@ -1,10 +1,12 @@
 """必经步骤 (waypoints): steps a person laid on the canvas that Argus must walk.
 
 A step is a card of kind ``step`` in the project's canvas record
-(``<life_dir>/canvas.json``, written by ``webapi.canvas``). A 先后 (``order``)
-link from one step to another puts them in order; numbered steps are the
-chained ones, ①②③ in the order the links give, and a step with no 先后 link
-to another step may come at any time. A step may carry ``checkpoint``: the
+(``<life_dir>/canvas.json``, written by ``webapi.canvas``). A chain of 先后
+(``order``) links from one step to another puts them in order, also when it
+passes through cards that are not steps (an idea a step was turned back into
+keeps the steps around it in order); numbered steps are the chained ones,
+①②③ in the order the links give, and a step no 先后 chain joins to another
+step may come at any time. A step may carry ``checkpoint``: the
 team finishes it, then waits for the person's OK before the next step.
 
 What binds the team:
@@ -123,9 +125,10 @@ def read_canvas_file(life_dir: Path | str) -> dict[str, Any]:
 def route_steps(canvas: Mapping[str, Any]) -> list[Step]:
     """The steps on ``canvas``: numbered ones in chain order, then any-order ones.
 
-    Numbers follow the 先后 links between steps (a topological order, earlier
-    cards first where the links leave a choice). A link that would close a
-    cycle is ignored, so a person's mistake never wedges the route.
+    Numbers follow the 先后 links between steps, also through a card that is
+    not a step (a topological order, earlier cards first where the links leave
+    a choice). A link that would close a cycle is ignored, so a person's
+    mistake never wedges the route.
     """
     cards = [
         card for card in canvas.get("cards") or ()
@@ -145,6 +148,26 @@ def route_steps(canvas: Mapping[str, Any]) -> list[Step]:
         (link for link in canvas.get("links") or () if isinstance(link, dict)),
         key=lambda link: float(link.get("created_ts") or 0.0),
     )
+    order_into: dict[str, list[str]] = {}
+    for link in links:
+        if link.get("kind") == "order":
+            order_into.setdefault(str(link.get("target") or ""), []).append(str(link.get("source") or ""))
+
+    def steps_before(card_id: str) -> list[str]:
+        """The step an order link leaves, or the steps before the card it leaves:
+        a step turned back into an idea keeps the steps around it in order."""
+        found, stack, seen = [], [card_id], set()
+        while stack:
+            key = stack.pop()
+            if key in seen:
+                continue
+            seen.add(key)
+            if key in by_id:
+                found.append(key)
+            else:
+                stack.extend(order_into.get(key, ()))
+        return found
+
     chained: set[str] = set()
     materials: dict[str, list[str]] = {key: [] for key in by_id}
     for link in links:
@@ -155,15 +178,16 @@ def route_steps(canvas: Mapping[str, Any]) -> list[Step]:
                 if file_id in files and step_id in by_id and files[file_id] and files[file_id] not in materials[step_id]:
                     materials[step_id].append(files[file_id])
             continue
-        if kind != "order" or source not in by_id or target not in by_id or source == target:
+        if kind != "order" or target not in by_id:
             continue
-        if source in reach[target] or source in after[target]:
-            continue  # closes a cycle, or repeats a link
-        after[target].append(source)
-        chained.update((source, target))
-        for key, reachable in reach.items():
-            if source in reachable:
-                reachable |= reach[target]
+        for source in steps_before(source):
+            if source == target or source in reach[target] or source in after[target]:
+                continue  # closes a cycle, or repeats a link
+            after[target].append(source)
+            chained.update((source, target))
+            for key, reachable in reach.items():
+                if source in reachable:
+                    reachable |= reach[target]
     numbers: dict[str, int] = {}
     waiting = {key: set(after[key]) for key in chained}
     while waiting:
@@ -368,26 +392,6 @@ def due_checkpoints(states: Iterable[StepState]) -> list[StepState]:
             if entry.status == "review" and entry.step.checkpoint and not entry.question_item_id]
 
 
-def next_step_for_new_work(states: Iterable[StepState]) -> StepState | None:
-    """The step a new operator task carries out, or ``None``.
-
-    While the route is being walked (a step has open work, waits for the
-    person's OK, or has a question) new work is not tied to a step. Otherwise
-    it is the first step not done whose earlier steps are complete: on a fresh
-    route, step ①.
-    """
-    states = list(states)
-    if any(entry.open_task_ids or entry.question_item_id or entry.status in {"review", "question"}
-           for entry in states):
-        return None
-    complete = {entry.step.id for entry in states if entry.complete}
-    before = ancestors(entry.step for entry in states)
-    return next(
-        (entry for entry in states if not entry.complete and before.get(entry.step.id, set()) <= complete),
-        None,
-    )
-
-
 def scope_to_step(objective: str, step: Step) -> tuple[str, str]:
     """The objective and acceptance check of a task that carries out ``step`` only."""
     return (
@@ -533,7 +537,7 @@ __all__ = [
     "CANVAS_FILENAME", "CHANGE_OPTION", "CHECKPOINT_DECISION", "CHECKPOINT_TAG", "CONTINUE_OPTION",
     "DISPUTE_DECISION", "KEEP_OPTION", "REMOVE_OPTION", "REVISE_OPTION", "ROUTE_SOURCE",
     "STATE_FILENAME", "STATUSES", "STEP_KIND", "Step", "StepState", "ancestors", "approve_step",
-    "due_checkpoints", "held_item_ids", "next_step_for_new_work", "scope_to_step", "open_steps", "open_steps_blocker", "read_canvas_file",
+    "due_checkpoints", "held_item_ids", "scope_to_step", "open_steps", "open_steps_blocker", "read_canvas_file",
     "read_route", "read_state", "read_step_states", "route_blocker", "route_digest_lines", "route_directive_text",
     "route_status_block", "route_steps", "status_word", "step_states", "sync_route_directive",
 ]

@@ -63,7 +63,8 @@ class _CapturingStageRunner:
         )
 
 
-def test_manager_stage_decision_is_read_only(tmp_path: Path) -> None:
+def test_the_stage_gate_asks_no_model(tmp_path: Path) -> None:
+    """One owner decides the stage: the completion gate, on evidence. No Manager stage turn runs."""
     runner = _CapturingStageRunner()
 
     decision = Manager(project_root=tmp_path, runner=runner).decide_stage_transition(
@@ -72,10 +73,7 @@ def test_manager_stage_decision_is_read_only(tmp_path: Path) -> None:
     )
 
     assert decision.action == "hold"
-    call = runner.calls[0]
-    assert call["run_label"] == "manager-stage"
-    assert call["options"].sandbox_mode == "read-only"
-    assert call["options"].dangerous_yolo is False
+    assert runner.calls == []
 
 
 def test_manager_reports_lead_with_the_result_and_leave_out_team_mechanics() -> None:

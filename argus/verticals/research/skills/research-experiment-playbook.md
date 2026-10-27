@@ -458,7 +458,7 @@ least one scientifically meaningful dimension. Do not require a hard numeric
 margin, wins on every headline metric, or dominance over every strong
 baseline. Keep uncertainty, relevant losses, and tradeoffs visible; state the
 claim's scope as the card states it, not narrowed to the cells that won.
-Manager alone advances the stage.
+The completion gate alone advances the stage, on this evidence.
 
 ## Research notes
 

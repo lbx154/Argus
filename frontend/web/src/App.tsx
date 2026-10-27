@@ -10,7 +10,7 @@ import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
 import { ReplyChoiceContext } from './components/ReplyOptions';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import { EventStream, latestConversationDelivery, WorkspaceRootsContext } from './components/EventStream';
+import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
@@ -67,6 +67,7 @@ import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
 import { useSyncedDraft } from './useSyncedDraft';
+import { hostedTrialBuild } from './lib/verticalStore';
 import { ArtifactEditor, ConversationEditor, DeviceAccess, DraftSyncStatus, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
@@ -148,7 +149,6 @@ function useThrottledValue<T>(value: T, ms: number): T {
   return current;
 }
 
-const MAP_FULL_KEY = 'argus.map.fullscreen.v1';
 
 export default function App() {
   const { locale, t } = useI18n();
@@ -190,16 +190,16 @@ export default function App() {
   const {
     cycleTheme,
     kiosk,
-    leftPanelOpen,
     leftWidth,
+    mapImmersive,
     mobileView,
     openPreview: expandPreview,
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
     setKiosk,
-    setLeftPanelOpen,
     setLeftWidth,
+    setMapFull,
     setMobileView,
     setRightPanelOpen,
     setRightWidth,
@@ -209,21 +209,12 @@ export default function App() {
     shellRef,
     showReasoning,
     sidebarOpen,
+    sidebarShown,
     themeMode,
+    toggleSidebar,
     workspaceView,
   } = useWorkbenchLayout();
   const [workbenchOpened, setWorkbenchOpened] = useState(workspaceView === 'workbench');
-  // The research map opens full-window: the project list folds to its rail and
-  // the map's own header, overview and legend step aside, so a person has the
-  // whole canvas to draw on. Their choice to unfold it is remembered here.
-  const [mapFull, setMapFull] = useState(() => {
-    try { return window.localStorage.getItem(MAP_FULL_KEY) !== '0'; } catch { return true; }
-  });
-  const changeMapFull = useCallback((next: boolean) => {
-    setMapFull(next);
-    try { window.localStorage.setItem(MAP_FULL_KEY, next ? '1' : '0'); } catch { /* kept for this visit only */ }
-  }, []);
-  const mapImmersive = workspaceView === 'map' && mapFull && !kiosk;
   const [runtimeRequest, setRuntimeRequest] = useState(0);
   const openRuntimeControls = useCallback(() => {
     setOverlay('none');
@@ -496,8 +487,6 @@ export default function App() {
   // Leaving a project "+ 新建" made, with nothing sent, typed or attached,
   // removes it (reversibly, to the trash) instead of leaving another
   // "未命名项目" in the list.
-  const leavingDraftRef = useRef(false);
-  leavingDraftRef.current = Boolean(composerDraft.trim() || composerAttachments.length);
   const previousSidRef = useRef(activeSid);
   useEffect(() => {
     const previous = previousSidRef.current;
@@ -505,13 +494,15 @@ export default function App() {
     if (!previous || previous === activeSid || untouchedNewRef.current !== previous) return;
     untouchedNewRef.current = null;
     const before = queryClient.getQueryData<Parameters<typeof isFreshProject>[0]>(['snapshot', previous]);
-    if (kiosk || leavingDraftRef.current || (before && !isFreshProject(before))) return;
+    const left = captureDraft(previous);
+    if (kiosk || left?.text.trim() || left?.attachments.length || left?.uploaded?.length
+      || (before && !isFreshProject(before))) return;
     void api.deleteProject(previous).then(() => {
       queryClient.setQueryData<{ projects: ProjectRow[]; local_cwd: string }>(['projects'], (current) => current
         ? { ...current, projects: current.projects.filter((project) => project.id !== previous) } : current);
       void projectsQ.refetch();
     }).catch(() => undefined);
-  }, [activeSid, kiosk, projectsQ, queryClient]);
+  }, [activeSid, captureDraft, kiosk, projectsQ, queryClient]);
   const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
   useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
   const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
@@ -545,7 +536,7 @@ export default function App() {
   }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected, restored: eventsRestored } = useEventStream(loadedSid, eventView.reconnectKey);
+  const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
   useEffect(() => {
@@ -927,7 +918,7 @@ export default function App() {
     toggleKiosk: () => setKiosk((value) => !value),
     togglePalette: () => setOverlay((current) => current === 'palette' ? 'none' : 'palette'),
     toggleReasoning: () => setShowReasoning((value) => !value),
-    toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
+    toggleSidebarCollapse: toggleSidebar,
   });
 
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
@@ -1020,6 +1011,7 @@ export default function App() {
       reply: unknown,
       messageId = '',
       fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
+      inProgress = false,
     ) => {
       if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
       setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
@@ -1030,6 +1022,7 @@ export default function App() {
         messageId,
         Date.now(),
         fragmentMode,
+        inProgress,
       ));
     };
 
@@ -1105,7 +1098,7 @@ export default function App() {
                 ));
               }
             },
-            onDelta: (block, messageId, fragmentMode) => {
+            onDelta: (block, messageId, fragmentMode, inProgress) => {
               if (!isCurrent()) return;
               gotDelta = true;
               showManagerText(
@@ -1114,6 +1107,7 @@ export default function App() {
                 fragmentMode === 'append' || fragmentMode === 'snapshot'
                   ? fragmentMode
                   : 'auto',
+                inProgress,
               );
             },
             onDone: (result) => {
@@ -1276,7 +1270,7 @@ export default function App() {
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
-      { id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) },
+      ...(hostedTrialBuild() ? [] : [{ id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) }]),
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
@@ -1400,19 +1394,20 @@ export default function App() {
           resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
           onSearch={() => setSearchOpen(true)}
-          onDevices={() => setDevicesOpen(true)}
+          // The trial portal owns sign-in; device pairing is for self-hosted Argus.
+          onDevices={hostedTrialBuild() ? undefined : () => setDevicesOpen(true)}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
           onRetry={() => void projectsQ.refetch()}
           mobileOpen={sidebarOpen}
-          collapsed={!leftPanelOpen || mapImmersive}
-          onToggleCollapse={() => mapImmersive ? (changeMapFull(false), setLeftPanelOpen(true)) : setLeftPanelOpen((value) => !value)}
+          collapsed={!sidebarShown}
+          onToggleCollapse={toggleSidebar}
           themeMode={themeMode}
           onCycleTheme={cycleTheme}
         />
       ) : null}
-      {!kiosk && leftPanelOpen && !mapImmersive ? (
+      {!kiosk && sidebarShown ? (
         <SplitHandle
           label={t('common.resizeSessions')}
           value={leftWidth}
@@ -1424,6 +1419,9 @@ export default function App() {
         />
       ) : null}
 
+      {/* Both conversations (activity and the map's) show this project's files. */}
+      <SessionIdContext.Provider value={snap?.session.id ?? null}>
+      <WorkspaceRootsContext.Provider value={workspaceRoots}>
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
@@ -1457,7 +1455,7 @@ export default function App() {
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={changeMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1492,7 +1490,6 @@ export default function App() {
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <ReplyChoiceContext.Provider value={kiosk ? null : replyChoice}>
-                  <WorkspaceRootsContext.Provider value={workspaceRoots}>
                   <EventStream
                     key={loadedSid}
                     snapshot={snap}
@@ -1520,7 +1517,6 @@ export default function App() {
                     latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
                   />
-                  </WorkspaceRootsContext.Provider>
                   </ReplyChoiceContext.Provider>
                   </div>
                 {!kiosk ? (
@@ -1555,7 +1551,7 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
-                      settings={loadedSid && freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
+                      settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
@@ -1628,6 +1624,7 @@ export default function App() {
                 requestedPathToken={previewPathRequest.token}
                 filesFirst
                 latestDelivery={deliveryHistory[0] ?? null}
+                deliveriesLoaded={eventsSeeded && transcriptQ.isFetchedAfterMount && Boolean(snap)}
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}
@@ -1667,6 +1664,8 @@ export default function App() {
           />
         )}
       </main>
+      </WorkspaceRootsContext.Provider>
+      </SessionIdContext.Provider>
 
       {/* global overlays */}
       <HistorySearch open={searchOpen} onClose={() => setSearchOpen(false)} onChoose={result => {

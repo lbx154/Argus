@@ -200,7 +200,9 @@ class RunnerResult:
 class ReviewDecision:
     """Reviewer verdict on one Engineer round."""
 
-    status: Holder
+    # The holder the verdict hands the work to; ``blocked`` on a record the
+    # host wrote when the round was stopped and not judged: it names no holder.
+    status: Holder | Literal["blocked"]
     reason: str
     next_action: str
     operator_question: str = ""

@@ -151,7 +151,7 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
         assert review.final_submission_certified and not review.backend_unavailable
         assert read_pipeline_state(paper)["current_verdict"] == "done"
     else:
-        assert review.status == "manager" and review.backend_unavailable
+        assert review.status == "blocked" and review.backend_unavailable
         assert not review.final_submission_certified
         assert review.backend_exit_code == 0
         assert error in review.reason

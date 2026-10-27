@@ -76,9 +76,3 @@ def test_an_unreadable_vertical_keeps_the_strict_rule() -> None:
 
 
 # -- the log has to say what happened ----------------------------------------
-
-
-def test_a_hold_with_no_reason_still_reads_as_an_override() -> None:
-    from argus.manager.stage_decider import completion_trigger_reason
-
-    assert "overriding" in completion_trigger_reason("hold", "")

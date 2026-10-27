@@ -340,6 +340,7 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
         "engineer": "↻ more work is needed",
         "manager": "⛔ cannot continue yet",
         "operator": "⛔ cannot continue yet",
+        "blocked": "⛔ cannot continue yet",
         "planner": "↺ the current route needs revision",
         "no_progress": "🚫 no useful change was found",
     }.get(holder_of(status), "review finished")

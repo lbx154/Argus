@@ -15,7 +15,7 @@ vi.mock('../i18n', async (importOriginal) => {
 
 const { deliveryHeadingKey, isStagePackage } = await import('../lib/deliveryKind');
 const { DEFAULT_LAUNCH_SETTINGS, describeRequirement, isFreshProject, launchSettingsSummary, stripLaunchNote } = await import('../lib/launch');
-const { durationLabel, projectOverview, spendLabel } = await import('../lib/projectOverview');
+const { durationLabel, projectOverview, spendEstimateLabel } = await import('../lib/projectOverview');
 const { projectAttention } = await import('../lib/attention');
 const { errorText } = await import('../lib/format');
 const { LaunchHoldCard, LaunchSettingsBar } = await import('../components/LaunchPanel');
@@ -141,8 +141,8 @@ describe('project overview', () => {
     expect(overview).toMatchObject({ done: 1, total: 2, active: 1, elapsedSeconds: 7200, goal: '研究视频去噪' });
     expect(durationLabel(7200, true)).toBe('2 小时');
     expect(durationLabel(90000, true)).toBe('1 天 1 小时');
-    expect(spendLabel(overview, true)).toBe('$12.3');
-    expect(spendLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('至少 $3.00');
+    expect(spendEstimateLabel(overview, true)).toBe('估算 ≈$12.3（按 API 价）');
+    expect(spendEstimateLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('估算 ≥$3.00（按 API 价）');
     expect(projectOverview(snapshot(), view, 0)).toBeNull();
   });
 

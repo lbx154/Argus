@@ -326,16 +326,11 @@ class CommandRouter:
         # What a person placed on the canvas, as in the web chat: context for this turn only.
         canvas = manager_canvas_context(self.life_dir)
         reply, handoff = manager_turn(manager_mem, f"{text}\n\n{canvas}" if canvas else text, self._state)
-        if ruling := self._state.pop("_stage_ruling", None):
-            from ...apps._inbox import queue_inbox_message
-
-            queue_inbox_message(self.life_dir, ruling, source="manager.stage")
         if handoff is not None and handoff.get("answer"):
-            from ...core.mission_view import say, uses_cjk
             from ...webapi.manager_pending_question import apply_manager_answer
 
             applied = apply_manager_answer(manager_mem, handoff, text, reply=reply or "")
-            self._reply(_esc(applied.get("reply") or say("answer_not_applied", uses_cjk(text))))
+            self._reply(_esc(applied["reply"]))
             return
         intents = config_intents(handoff.get("config", ())) if handoff is not None else ()
         if intents:

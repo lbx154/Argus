@@ -1,10 +1,9 @@
-"""What the team tells the operator, and the decisions it puts to the Manager.
+"""What the team tells the operator.
 
 A result, failure or question goes straight into the project's chat when it
 happens; the Manager reads what was said since its last turn at the start of
-its next one. A decision only the Manager makes is pushed to the web server
-that owns the Manager's session (``manager-endpoint.json``), which runs the
-turn at once; with no server it waits for the Manager's next turn.
+its next one. No team decision waits on a Manager turn: stages move through
+the completion gate, and a stuck process reaches the Manager's supervision.
 """
 from __future__ import annotations
 
@@ -12,16 +11,13 @@ import json
 import logging
 import os
 import tempfile
-import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from .transcript import read_turns
 
 log = logging.getLogger(__name__)
 
-_ENDPOINT = "manager-endpoint.json"
 _READ_THROUGH = "manager-read-through.json"
 _CONTEXT_LIMIT = 5
 
@@ -73,32 +69,3 @@ def mark_team_messages_read(life_dir: Path | str, through: float) -> None:
     path = Path(life_dir) / _READ_THROUGH
     if through > float(_read_json(path).get("through") or 0):
         _write_json(path, {"through": through})
-
-
-def publish_manager_endpoint(global_root: Path | str, *, url: str, token: str) -> None:
-    """Where a project process reaches the Manager's session owner; only they read it."""
-    path = Path(global_root) / _ENDPOINT
-    if _read_json(path) != {"url": url, "token": token}:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(path, {"url": url, "token": token}, mode=0o600)
-
-
-def push_to_manager(life_dir: Path | str, *, message_id: str, text: str) -> bool:
-    """Have the Manager's session owner run this turn now; False when no owner answers."""
-    life_dir = Path(life_dir)
-    endpoint = _read_json(life_dir.parent.parent / _ENDPOINT)
-    if not endpoint.get("url"):
-        return False
-    request = urllib.request.Request(
-        f"{str(endpoint['url']).rstrip('/')}/api/projects/{quote(life_dir.name, safe='')}/manager/team-turn",
-        data=json.dumps({"message_id": message_id, "text": text}).encode(),
-        headers={"Content-Type": "application/json",
-                 **({"Authorization": f"Bearer {endpoint['token']}"} if endpoint.get("token") else {})},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:  # noqa: S310 - the local owner
-            return 200 <= response.status < 300
-    except OSError:
-        log.info("Manager session owner unreachable; %s waits for its next turn", message_id, exc_info=True)
-        return False

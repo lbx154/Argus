@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import artifacts
+from . import context
 from .context import BROWSER_COOKIE, ServerContext
 
 
@@ -139,15 +140,21 @@ def register_experience_routes(app, ctx: ServerContext) -> None:
     def editions(sid: str, kind: Literal["artifact", "conversation"], response: Response,
                  source: str = Query(min_length=1, max_length=512)):
         response.headers["Cache-Control"] = "private, no-store"
-        original = source_document(sid, source) if kind == "artifact" else ""
         with browser_store(ctx.resolve_or_404(sid)) as db:
-            rows = db.execute("SELECT version, content, note, created FROM editions WHERE kind=? AND source=? ORDER BY version",
-                              (kind, source)).fetchall()
-        return {"original": original, "versions": [dict(row) for row in rows]}
+            versions = [dict(row) for row in db.execute(
+                "SELECT version, content, note, created FROM editions WHERE kind=? AND source=? ORDER BY version",
+                (kind, source))]
+        # Version 0 keeps the original once anything is saved, so saved editions
+        # stay readable after the delivered file moves or changes.
+        if versions:
+            original = versions[0]["content"]
+        else:
+            original = source_document(sid, source) if kind == "artifact" else ""
+        return {"original": original, "versions": versions}
 
     @app.post("/api/projects/{sid}/editions/{kind}", dependencies=[Depends(ctx.require_auth)])
     def save_edition(sid: str, kind: Literal["artifact", "conversation"], body: EditionIn):
-        original = source_document(sid, body.source) if kind == "artifact" else body.original
+        original = "" if body.base_version else source_document(sid, body.source) if kind == "artifact" else body.original
         with browser_store(ctx.resolve_or_404(sid)) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT MAX(version) FROM editions WHERE kind=? AND source=?", (kind, body.source)).fetchone()
@@ -166,7 +173,7 @@ def register_experience_routes(app, ctx: ServerContext) -> None:
     async def search(response: Response, q: str = Query(min_length=1, max_length=200),
                      limit: int = Query(50, ge=1, le=100)):
         response.headers["Cache-Control"] = "private, no-store"
-        projects = await ctx.machine_projects_async(limit=2000, include_empty=False)
+        projects = await ctx.machine_projects_async(limit=context.PROJECT_LIST_LIMIT, include_empty=False)
         return await ctx.query_executor.wait(ctx.query_executor.submit(lambda: search_projects(ctx, projects, q, limit)))
 
 
@@ -177,7 +184,8 @@ def search_projects(ctx: ServerContext, projects: list[dict], query: str, limit:
     results: list[dict] = []
     errors: list[str] = []
     scanned = 0
-    partial = len(projects) == 2000
+    # The openable project list is the whole search scope, not a read cap.
+    partial = False
 
     def match(sid, title, text, kind, **extra):
         nonlocal partial

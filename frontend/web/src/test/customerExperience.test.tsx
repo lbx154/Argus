@@ -10,7 +10,7 @@ import { ActionNotice } from '../components/ActionNotice';
 import { ChatBox } from '../components/ChatBox';
 import { matchesQuery, verticalTitle } from '../lib/verticalStore';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HistorySearch } from '../components/ExperiencePanels';
+import { DraftSyncStatus, HistorySearch } from '../components/ExperiencePanels';
 
 vi.mock('../i18n', () => ({ useI18n: () => ({
   locale: 'zh-CN', setLocale: vi.fn(),
@@ -100,7 +100,7 @@ describe('starting and revisiting work', () => {
 
   it('opens files rather than progress, and retains the selected file across project reloads', () => {
     const file: ArtifactInfo = { path: 'report.md', name: 'report.md', exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 100, mtime: 1, why: 'fixture' };
-    const props = { sid: 's-A', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), filesFirst: true };
+    const props = { sid: 's-A', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), filesFirst: true, deliveriesLoaded: true };
     const onRevise = vi.fn();
     act(() => { view = create(<ResearchCanvas {...props} onRevise={onRevise} />); });
     expect(view.root.findByType('select').props.value).toBe(FILES_PATH);
@@ -187,5 +187,12 @@ describe('project organization', () => {
     expect(verticalTitle(row, 'zh-CN')).toBe('软件开发');
     expect(matchesQuery(row, '软件开发')).toBe(true);
     expect(row.name).toBe('software');
+  });
+});
+
+describe('draft sync status', () => {
+  it('does not claim a trial space outside the hosted trial', () => {
+    act(() => { view = create(<DraftSyncStatus sync={{ status: 'ready', pending: false, error: undefined, resolve: vi.fn(), retry: vi.fn() }} />); });
+    expect(text(view.root.findByProps({ role: 'status' }))).toBe('草稿已同步');
   });
 });

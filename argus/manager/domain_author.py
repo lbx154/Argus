@@ -199,6 +199,8 @@ class VerticalDecision:
     workflow_requested_stages: tuple[str, ...] = ()
     # The plan file the Manager wrote for the ticket: ``{"path", "summary"}``, or empty.
     plan: dict[str, str] = field(default_factory=dict)
+    # The operator's required step (必经步骤) the ticket carries out, by id; "" for other work.
+    waypoint_id: str = ""
 
 
 def _listed(payload: Mapping[str, Any], key: str) -> tuple[str, ...]:
@@ -250,10 +252,25 @@ class RouteContext:
             assumptions=tuple(payload["assumptions"]),
             session_title=topic_name(payload.get("session_title")),
             plan=dict(payload.get("plan", {})),
+            waypoint_id=self._waypoint(payload),
         )
         if choice == "new":
             return self._new(payload, decision)
         return self._existing(payload, decision)
+
+    def _waypoint(self, payload: dict[str, Any]) -> str:
+        """The required step the ticket names, which must be one on the operator's route."""
+        step_id = str(payload.get("waypoint_id") or "").strip()
+        if step_id and self.project_root:
+            from ..core.waypoints import read_route
+
+            ids = [step.id for step in read_route(str(self.project_root))]
+            if step_id not in ids:
+                raise ValueError(
+                    f"waypoint_id: name one of the operator's required steps ({', '.join(ids) or 'none laid'}), "
+                    "or leave it out for work that is not one of them."
+                )
+        return step_id
 
     def _new(self, payload: dict[str, Any], decision: VerticalDecision) -> VerticalDecision:
         if payload.get("workflow_profile") or payload.get("workflow_stages"):

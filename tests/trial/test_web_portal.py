@@ -515,6 +515,18 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
     assert not portal.permitted(path, "PUT")
 
 
+def test_hosted_users_can_save_drafts_editions_and_project_markers():
+    assert portal.permitted("/api/projects/s-a/browser-draft", "POST")
+    assert portal.permitted("/api/projects/s-a/editions/artifact", "POST")
+    assert portal.permitted("/api/projects/s-a/editions/conversation", "POST")
+    assert portal.permitted("/api/browser-state/organization", "POST")
+    assert not portal.permitted("/api/projects/s-a/editions/other", "POST")
+    assert not portal.permitted("/api/browser-state/other", "POST")
+    # The portal owns sign-in; backend browser cookies never reach hosted users.
+    assert not portal.permitted("/api/pairing-links", "POST")
+    assert not portal.permitted("/api/browser-session", "DELETE")
+
+
 def test_research_lifespan_replay_feedback_export_deletion_and_restart(provisioned, tmp_path, monkeypatch):
     from argus.trial.analytics import Analytics
 

@@ -60,10 +60,12 @@ const LEGACY_PARK_REASONS: Record<string, string> = {
 };
 
 /** Why a row or event with `status` is parked, or `null` when it is not. A `parked`
- * status carries its reason in `recorded`; an older status names its own. */
+ * status carries its reason in `recorded`; an older status names its own; a task
+ * handed to the operator waits on their question. */
 export function parkReason(status: unknown, recorded?: unknown): string | null {
   const value = normalizedString(status);
   if (value === 'parked') return normalizedString(recorded);
+  if (value === 'operator') return 'operator_question';
   if (Object.hasOwn(LEGACY_PARK_REASONS, value)) return LEGACY_PARK_REASONS[value];
   return value.startsWith('paused_') ? '' : null;
 }
@@ -75,14 +77,11 @@ export function isPauseStatus(status: unknown): boolean {
 }
 
 // What older releases wrote where a round or task now names its holder; mirrors
-// `holder_of` in argus/core/handoff.py. Read here, never written.
+// `holder_of` in argus/core/handoff.py. Read here, never written. `blocked`
+// names no holder unless it asks the operator; the old research verdicts are parks.
 const OLD_HOLDERS: Record<string, string> = {
   continue: 'engineer',
-  research_incomplete: 'engineer',
   replan_requested: 'planner',
-  paused_no_breakthrough: 'planner',
-  exhausted_current_methods: 'planner',
-  blocked: 'manager',
 };
 
 /** The holder a review or a task settled on (`engineer`, `planner`, `manager`,

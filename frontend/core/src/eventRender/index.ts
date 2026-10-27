@@ -374,8 +374,9 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         // Approved with one check left unverified on an accepted risk: never a plain pass.
         return model('reviewer', 'role.reviewer', '⚠', `${localized(context, 'verified with residual risk', '已验证，但有残余风险')}: ${residualRisk} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'warn');
       }
-      const tone: RenderTone = status === 'done' ? 'ok' : status === 'manager' || status === 'no_progress' ? 'err' : 'warn';
-      const glyph = status === 'done' ? '✅' : status === 'manager' || status === 'no_progress' ? '⛔' : status === 'operator' ? '❓' : '↻';
+      const stuck = ['manager', 'blocked', 'no_progress'].includes(status);
+      const tone: RenderTone = status === 'done' ? 'ok' : stuck ? 'err' : 'warn';
+      const glyph = status === 'done' ? '✅' : stuck ? '⛔' : status === 'operator' ? '❓' : '↻';
       const verdict = roundVerdict(event, status, context);
       return model(verdict.role, `role.${verdict.role}`, glyph, `${verdict.text} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
     }
@@ -738,7 +739,10 @@ function roundVerdict(event: TypedArgusEvent, status: string, context: RenderCon
     reviewer: {
       done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
       manager: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
+      // The host stopped the round, or an older release's Reviewer found it stuck.
+      blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
       operator: ['the Reviewer leaves the choice to you', '审阅者把选择交给你'],
+      planner: ['the Reviewer asked the Planner for a new plan', '审阅者请规划者重新安排'],
       no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
       '': ['the Reviewer gave no verdict', '审阅者没有给出结论'],
       other: ['the Reviewer asked for another pass', '审阅者要求再改一轮'],
@@ -747,6 +751,8 @@ function roundVerdict(event: TypedArgusEvent, status: string, context: RenderCon
     engineer: {
       done: ['the Engineer checked its own work and called it done', '工程师自查后认为做完了'],
       manager: ['the Engineer handed the work to the Manager to decide', '工程师把工作交给经理定夺'],
+      // An older release wrote an Engineer's handoff to the Manager as `blocked`.
+      blocked: ['the Engineer handed the work to the Manager to decide', '工程师把工作交给经理定夺'],
       operator: ['the Engineer leaves the choice to you', '工程师把选择交给你'],
       planner: ['the Engineer asked the Planner for a new plan', '工程师请规划者重新安排'],
       other: ['the Engineer goes on with another round', '工程师接着再做一轮'],

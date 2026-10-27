@@ -681,7 +681,9 @@ class TestManagerMessageLifecycleErrors:
         result = manager_bridge.manager_message(sid, "add a new feature", global_root=tmp_path)
 
         assert result["kind"] == "error", f"expected error response, got {result!r}"
-        assert "nothing was queued or executed" in result["reply"]
+        # The failure says what happens next, in the conversation's language.
+        assert "Nothing was changed; send it again" in result["reply"]
+        assert "nothing was queued or executed" not in result["reply"]
         assert state not in result["reply"]
 
     """resume_done_lifecycle_for_team_dispatch resumes a done project on TEAM."""

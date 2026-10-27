@@ -10,7 +10,6 @@ from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.json_codec import loads_finite_json
 from ..core.mission_view import operator_objective
 from ..core.operator_decision import card_answer
-from ..core.operator_messages import served_task
 from ..core.progress_step import describe_progress_step, plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
@@ -707,7 +706,7 @@ def read_map(
     memory = LifeMemory.open(life_dir)
     tasks = []
     for item in memory.backlog.history():
-        raw = served_task(item)
+        raw = item.to_jsonable()
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         if reason := park_reason(item):
             task["park_reason"] = reason

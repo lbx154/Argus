@@ -60,6 +60,20 @@ def test_editions_preserve_source_and_handle_concurrent_saves(tmp_path):
         assert client.post(path, headers=AUTH, json={**body, "source": "../outside.md"}).status_code == 404
 
 
+def test_saved_editions_stay_readable_after_the_source_file_disappears(tmp_path):
+    _life, workspace = project(tmp_path)
+    path = "/api/projects/s-experience/editions/artifact"
+    original = (workspace / "report.md").read_text()
+    with TestClient(create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        assert client.post(path, headers=AUTH, json={"source": "report.md", "base_version": 0, "content": "v1"}).status_code == 200
+        (workspace / "report.md").unlink()
+        listed = client.get(path, headers=AUTH, params={"source": "report.md"})
+        assert listed.status_code == 200
+        assert listed.json()["original"] == original
+        assert [item["content"] for item in listed.json()["versions"]] == [original, "v1"]
+        assert client.post(path, headers=AUTH, json={"source": "report.md", "base_version": 1, "content": "v2"}).json()["version"] == 2
+
+
 def test_searches_old_messages_results_and_editions_but_not_unregistered_files(tmp_path):
     life, _ = project(tmp_path)
     for index in range(130):
@@ -109,3 +123,20 @@ def test_browser_session_uses_httponly_cookie_and_rejects_cross_origin_mutations
         assert client.post(path, headers={"Origin": "http://testserver"}, json=body).status_code == 200
         assert client.delete("/api/browser-session", headers={"Origin": "http://testserver"}).status_code == 200
         assert client.get("/api/projects").status_code == 401
+
+
+def test_search_only_returns_projects_the_project_list_can_open(tmp_path, monkeypatch):
+    from argus.webapi.routes import context
+
+    monkeypatch.setattr(context, "PROJECT_LIST_LIMIT", 1)
+    project(tmp_path, "s-older")
+    project(tmp_path, "s-newer")
+    with TestClient(create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        listed = {item["id"] for item in client.get("/api/projects", headers=AUTH).json()["projects"]}
+        costed = {item["id"] for item in client.get("/api/projects/costs", headers=AUTH).json()["projects"]}
+        found = client.get("/api/search?q=证据", headers=AUTH).json()
+        assert len(listed) == 1
+        assert costed == listed
+        assert {item["sid"] for item in found["results"]} == listed
+        # A full project list is the search scope, not a read cap that more keywords could get past.
+        assert not found["partial"]

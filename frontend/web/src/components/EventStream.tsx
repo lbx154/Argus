@@ -4,7 +4,7 @@ import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
-import { isReasoning, type EventViewFilter } from '../../../core/src/events';
+import { isDraftReply, isReasoning, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -18,6 +18,7 @@ import {
 } from '../lib/feedSteps';
 import { theme, toneColor } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
+import { durableMessageId } from '../lib/conversationEvents';
 import { EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
@@ -65,9 +66,9 @@ const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was 
 const WorkspaceContext = createContext('');
 const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
 /** The project whose files the conversation shows, for inline images. */
-const SessionIdContext = createContext<string | null>(null);
-/** Opens the project's work log ("how it was made") when there is one. */
-const OpenWorkContext = createContext<(() => void) | null>(null);
+export const SessionIdContext = createContext<string | null>(null);
+/** Opens one task's work log ("how it was made"); undefined when it left none. */
+const OpenWorkContext = createContext<(taskId: string) => (() => void) | undefined>(() => undefined);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
 
@@ -397,7 +398,7 @@ function ConversationRow({
               }) : clockOf(ev)}{responseLatency}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
-            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replyShown={Boolean(reportText)}
+            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText) && !isDraftReply(ev)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
@@ -659,13 +660,15 @@ function DeliveryCard({
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const sid = useContext(SessionIdContext);
-  const openWork = useContext(OpenWorkContext);
-  const howMade = onHowMade ?? openWork ?? undefined;
+  const workFor = useContext(OpenWorkContext);
+  const howMade = onHowMade ?? workFor(delivery.item_id);
   const stage = isStagePackage(delivery);
   const files = deliveryFiles(delivery);
   // Result first: a delivered chart or picture shows itself, not just a button.
-  const image = files.find((file) => IMAGE_FILE.test(file.path));
-  const listed = files.filter(file => file !== image).slice(0, 3);
+  // Without a project to load it from, it stays in the file list.
+  const image = sid ? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
+  const others = files.filter(file => file !== image);
+  const listed = others.slice(0, 3);
   return (
     <aside
       data-delivery-kind={delivery.kind}
@@ -688,7 +691,7 @@ function DeliveryCard({
           {listed.map(file => <li key={file.path} title={file.path}>
             <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
           </li>)}
-          {files.length - (image ? 1 : 0) > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${files.length - (image ? 1 : 0) - listed.length} 个文件` : `${files.length - (image ? 1 : 0) - listed.length} more files`}</li> : null}
+          {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}
         {onOpen || howMade ? <div className="result-card-actions">
           {onOpen ? <button type="button" onClick={() => onOpen(delivery)} className="result-card-open"
@@ -916,8 +919,10 @@ function ConversationThread({
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
   const argusRows = group.rows.filter((row) => row.ev.type === 'ui.argus');
-  const revision: ConversationRevision | undefined = group.operator ? {
-    source: String(group.operator.ev.message_id || group.operator.ev.ts),
+  // Editions are stored by message id, so only a transcript id can key them.
+  const source = group.operator && durableMessageId(group.operator.ev);
+  const revision: ConversationRevision | undefined = group.operator && source ? {
+    source,
     prompt: group.operator.r.text,
     answer: argusRows.filter(row => row.ev.mission_result !== true).map(row => row.r.text).join('\n\n'),
     mode: 'edit', baseVersion: 0,
@@ -1149,7 +1154,14 @@ export function EventStream({
   }, [rows.list]);
   // The full progress feed opens beside the conversation instead of above it.
   const [workOpen, setWorkOpen] = useState(false);
-  const openWork = () => setWorkOpen(true);
+  // A result card opens its own task's log; elsewhere the drawer shows all work.
+  const [workTask, setWorkTask] = useState<string | null>(null);
+  const openWork = () => { setWorkTask(null); setWorkOpen(true); };
+  const taskBlock = (taskId: string | null) => timeline.blocks.find((block): block is Extract<TimelineBlock, { kind: 'task' }> =>
+    block.kind === 'task' && Boolean(taskId) && block.taskId === taskId);
+  const workFor = (taskId: string) => taskBlock(taskId)?.rows.length ? () => { setWorkTask(taskId); setWorkOpen(true); } : undefined;
+  const drawerTask = taskBlock(workTask);
+  const drawerRows = drawerTask?.rows ?? timeline.workRows;
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
     const completed = [...block.rows].reverse().find(row => row.ev.type === 'life.mission.completed');
@@ -1259,9 +1271,9 @@ export function EventStream({
   return (
     <ConversationActionContext.Provider value={onConversationAction}>
     <StepProcessContext.Provider value={stepProcess}>
-    <WorkspaceContext.Provider value={workspace}><SessionIdContext.Provider value={snapshot?.session.id ?? null}>
+    <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
-    <OpenWorkContext.Provider value={timeline.workRows.length > 0 ? openWork : null}>
+    <OpenWorkContext.Provider value={workFor}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1271,7 +1283,7 @@ export function EventStream({
           {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} latestDelivery={latestDelivery} /> : null}
         </div>
         {showHeader ? <div className="chat-context-tools">
-          {timeline.workRows.length > 0 ? <button type="button" onClick={() => setWorkOpen(value => !value)} aria-expanded={workOpen}>
+          {timeline.workRows.length > 0 ? <button type="button" onClick={() => (workOpen && !drawerTask ? setWorkOpen(false) : openWork())} aria-expanded={workOpen && !drawerTask}>
             {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
           </button> : null}
           <button type="button" onClick={onToggleReasoning} aria-pressed={showReasoning} title={t('stream.toggleReasoning')}>
@@ -1327,7 +1339,7 @@ export function EventStream({
                 onOpenDelivery={onOpenDelivery}
               />;
               return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
-                snapshot={snapshot} view={missionView} events={deferredEvents} onOpenWork={() => setWorkOpen(true)}
+                snapshot={snapshot} view={missionView} events={deferredEvents} onOpenWork={openWork}
                 onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
             })}
           </>
@@ -1349,21 +1361,21 @@ export function EventStream({
         aria-label={locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
         className={`${workOpen ? 'flex' : 'hidden'} absolute inset-y-0 right-0 z-30 w-full max-w-md flex-col border-l border-line/80 bg-panel shadow-glow`}>
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-          {locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
-          <span className="font-mono font-normal tracking-normal">{timeline.workRows.length}</span>
+          <span data-work-heading className={`min-w-0 truncate ${drawerTask ? 'normal-case tracking-normal' : ''}`}>{drawerTask ? blockTitle(drawerTask) : locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}</span>
+          <span className="font-mono font-normal tracking-normal">{drawerRows.length}</span>
           <button type="button" onClick={() => setWorkOpen(false)}
             className="ml-auto rounded px-1.5 py-0.5 text-xs font-normal normal-case tracking-normal text-ink-dim hover:bg-bg hover:text-ink">
             {locale === 'zh-CN' ? '关闭' : 'Close'}
           </button>
         </div>
         <section data-project-work className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-          <RoleLogCollection rows={timeline.workRows} live={live} followLatest activeRole={work?.role} activeTaskId={work?.taskId} />
+          <RoleLogCollection rows={drawerRows} live={live} followLatest activeRole={drawerTask ? undefined : work?.role} activeTaskId={drawerTask?.taskId ?? work?.taskId} />
         </section>
       </aside> : null}
     </section>
     </OpenWorkContext.Provider>
     </TaskTitleContext.Provider>
-    </SessionIdContext.Provider></WorkspaceContext.Provider>
+    </WorkspaceContext.Provider>
     </StepProcessContext.Provider>
     </ConversationActionContext.Provider>
   );

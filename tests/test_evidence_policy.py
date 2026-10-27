@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from argus.core.knob_store import write_persisted_knob
 from argus.core.knobs import cockpit_editable_names, format_config_help
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
-from argus.roles.prompts.manager import build_stage_decision_prompt
 from argus.roles.task_contract import EXPERIMENT_EVIDENCE_CONTRACT
 
 RETIRED_KNOB = "ARGUS_SKILL_EVIDENCE_POLICY"
@@ -24,11 +21,6 @@ def test_every_role_gets_the_one_evidence_contract_and_old_policy_is_ignored(
         build_mission_prompt(task="Repair the failing setup step.", skill_text="", next_action=None),
         build_mission_prompt(
             task="Repair the failing setup step.", skill_text="", next_action=None, compact_team=True,
-        ),
-        build_stage_decision_prompt(
-            current_stage="implement", next_stage="verify", earlier_stages=[],
-            checklist_md="Check this stage's actual deliverable.",
-            review=SimpleNamespace(status="done", reason="Current evidence accepted."),
         ),
         Reviewer(runner=None)._build_prompt(
             objective="Repair the failing setup step.", operator_messages=[],

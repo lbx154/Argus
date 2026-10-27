@@ -553,6 +553,23 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "I couldn't decide “{title}” for you, so it waits for your answer.",
         "“{title}”我没法替你决定，等你回来再定。",
     ),
+    # The Manager's one short paragraph when the completion gate moves a stage.
+    "stage_moved": (
+        "The {from_stage} stage is complete: its accepted work passed the stage checks. "
+        "Moving on to {to_stage}.",
+        "「{from_stage}」阶段完成：验收过的成果通过了这个阶段的检查。接下来进入「{to_stage}」。",
+    ),
+    "stage_reopened": (
+        "Going back to {to_stage}: a check that must pass before finishing is still open, "
+        "so that stage gets more work.",
+        "回到「{to_stage}」阶段：收尾前必须通过的检查还没过，这个阶段要补做。",
+    ),
+    # A team hand-off whose commit failed, told in the conversation's language.
+    "handoff_failed": (
+        "I couldn't add this to the team's work (the project state could not be updated). "
+        "Nothing was changed; send it again and I'll retry.",
+        "这条没能交给团队（项目状态没能更新），什么都没有改。再发一次，我会重新安排。",
+    ),
     # Replies in the conversation with the operator.
     "working_out_reply": ("Working out a reply…", "正在想怎么回复…"),
     "manager_unavailable": ("The Manager is not available right now; nothing was queued.", "经理现在不可用，没有安排任何任务。"),

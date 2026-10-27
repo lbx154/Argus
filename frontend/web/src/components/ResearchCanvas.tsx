@@ -284,6 +284,7 @@ export function ResearchCanvas({
   onRetry,
   loading = false,
   latestDelivery,
+  deliveriesLoaded,
   onOpenDelivery,
 }: {
   sid: string | null;
@@ -309,6 +310,8 @@ export function ResearchCanvas({
   loading?: boolean;
   /** Newest delivered result, pinned above the file list so phones see it first. */
   latestDelivery?: DeliveryReceipt | null;
+  /** This visit's snapshot, transcript and event window have all landed. */
+  deliveriesLoaded: boolean;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { t, locale } = useI18n();
@@ -351,16 +354,21 @@ export function ResearchCanvas({
   }, [previewArtifacts, requestedPath, requestedPathToken, filesFirst, sid]);
 
   // A new delivery replaces what the panel showed before: the newest result
-  // is what the person wants to see (the old chart must not linger).
-  const seenDelivery = useRef<{ sid: string | null; id: string } | null>(null);
+  // is what the person wants to see (the old chart must not linger). New means
+  // delivered after the newest one known once the project loaded, both times
+  // stamped by the server, so the browser clock plays no part.
+  const followed = useRef<{ sid: string | null; since: number | null }>({ sid: null, since: null });
   const [newestPaths, setNewestPaths] = useState<string[]>([]);
   useEffect(() => {
-    const id = latestDelivery?.delivery_id || '';
-    const previous = seenDelivery.current;
-    seenDelivery.current = { sid, id };
-    if (!filesFirst || !latestDelivery || !id || !previous?.id || previous.sid !== sid || previous.id === id) return;
+    if (followed.current.sid !== sid) followed.current = { sid, since: null };
+    const seen = followed.current;
+    if (!deliveriesLoaded) return;
+    const at = latestDelivery?.delivered_at ?? 0;
+    if (seen.since === null) seen.since = at;
+    if (!filesFirst || !latestDelivery || at <= seen.since) return;
+    seen.since = at;
     setNewestPaths(deliveryFiles(latestDelivery).map((file) => file.path));
-  }, [latestDelivery, sid, filesFirst]);
+  }, [latestDelivery, deliveriesLoaded, sid, filesFirst]);
   useEffect(() => {
     if (!newestPaths.length) return;
     const target = newestPaths.find((path) => previewArtifacts.some((item) => item.path === path && item.exists));

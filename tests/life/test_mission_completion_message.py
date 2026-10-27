@@ -107,7 +107,7 @@ def test_a_handoff_to_the_manager_says_the_reason_once_and_who_decides(tmp_path)
         "success": False, "status": "parked", "park_reason": "research_open",
         "review_source": "engineer_handoff", "stop_reason": reason, "failure_reason": reason,
         "summary": " ".join(reason.split()), "operator_question": "",
-        "outcome": {"review_status": "blocked", "execution_status": "paused"},
+        "outcome": {"review_status": "manager", "execution_status": "paused"},
     })
 
     text = _reports(tmp_path)[-1]["text"]
@@ -144,7 +144,7 @@ def test_a_review_handed_to_the_manager_says_the_manager_decides(tmp_path) -> No
         "success": False, "status": "parked", "park_reason": "research_open", "review_source": "reviewer",
         "stop_reason": review, "failure_reason": review, "next_action": review,
         "summary": " ".join(review.split()), "operator_question": "",
-        "outcome": {"review_status": "blocked", "execution_status": "paused"},
+        "outcome": {"review_status": "manager", "execution_status": "paused"},
     }, memory.root) == (
         "「为 timefmt 添加整小时格式化函数」暂时做不下去了。\n"
         "原因：format_hours 尚未交付；现有整单位函数的舍入规则不一致，需要先明确小时函数应遵循哪一种规则。\n"

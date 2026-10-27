@@ -597,10 +597,12 @@ class OperatorContextStore:
     def has_unhandled_input(self, role: Role) -> bool:
         """True while some revision above what ``role`` acknowledged still carries input for it.
 
+        The one rule for "is there new input for this role": every gate asks it.
         A one-shot answer already settled on the task it answered carries none:
         that task took it in and no role is shown it again. Counting it kept a
         delivered bounded project "安排接下来要做的事" for a whole Planner call
-        after the chat said done (k1-split-cents, 2026-10-24).
+        after the chat said done (k1-split-cents, 2026-10-24). Nor does a record
+        meant for other roles: ``role`` is never shown it.
         """
         if role not in _ROLES:
             raise ValueError(f"unknown operator context role: {role}")
@@ -610,15 +612,18 @@ class OperatorContextStore:
             if doc.revision <= acknowledged:
                 return False
             consumed = {int(value) for value in doc.state.get("consumed_once", [])}
-            settled = {
+            handled = {
                 int(row["revision"])
                 for row in doc.records
-                if row.get("type") == "directive"
-                and row.get("lifetime") == "once"
-                and int(row["revision"]) in consumed
+                if not _applies_to(row.get("applies_to_roles", "all"), role)
+                or (
+                    row.get("type") == "directive"
+                    and row.get("lifetime") == "once"
+                    and int(row["revision"]) in consumed
+                )
             }
             # A revision not in the records (compacted away) counts as unhandled.
-            return any(revision not in settled for revision in range(acknowledged + 1, doc.revision + 1))
+            return any(revision not in handled for revision in range(acknowledged + 1, doc.revision + 1))
 
     def acknowledge(
         self, role: Role, revision: int, *, settle: Iterable[int] = ()
@@ -1525,7 +1530,10 @@ def append_operator_context(prompt: str, operator_context: str) -> str:
     steering the strongest recency position without changing its contents.
     """
     context = str(operator_context or "").strip()
-    return str(prompt) + ("\n\n" + context if context else "")
+    if not context or context in str(prompt):
+        # A caller that already carries this exact block keeps one copy.
+        return str(prompt)
+    return str(prompt) + "\n\n" + context
 
 
 def operator_context_revision_from_text(text: str) -> int:

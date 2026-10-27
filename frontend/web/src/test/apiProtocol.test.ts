@@ -597,7 +597,7 @@ describe('web API protocol handshake', () => {
     await expect(api.messageStream('s-test', 'do something', { onDelta })).rejects.toThrow(
       'ended before a terminal event',
     );
-    expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto');
+    expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto', false);
   });
 
   it('keeps JSON on streamed chunks and reuses attachment ids in message requests', async () => {

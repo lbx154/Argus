@@ -153,7 +153,7 @@ def test_a_second_closing_step_on_unchanged_files_is_not_reviewed_or_replanned(t
     # so the work reaches the Manager.
     assert labels == ["engineer-r1"]
     assert status == "manager"
-    assert "reviewer and the planner" in rounds[-1].review.reason
+    assert rounds[-1].review.review_source == "unchanged_return"
 
 
 def test_the_climb_reads_as_plain_chinese() -> None:
@@ -162,7 +162,7 @@ def test_the_climb_reads_as_plain_chinese() -> None:
 
     text = render_operator_update(
         title="独立验收中文综述的完整交付", status="planner",
-        reason=climb_record(["reviewer"], "planner").reason, holder="planner",
+        reason=climb_record("planner", chinese=True).reason, holder="planner",
     )
 
     assert "Nothing changed" not in text and "rung" not in text

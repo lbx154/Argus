@@ -17,6 +17,11 @@ export function teamPhase(status: WorkStatus, snapshot?: Snapshot): TeamPhase {
   return 'unknown';
 }
 
+/** The status dot's tone for a phase: one rule for every status line. */
+export const PHASE_TONE: Record<TeamPhase, string> = {
+  running: 'running', waiting_you: 'waiting', paused: 'idle', stopped: 'failed', done: 'done', unknown: 'idle',
+};
+
 export function teamPhaseLabel(phase: TeamPhase, locale: Locale): string {
   const zh = locale === 'zh-CN';
   const labels: Record<TeamPhase, [string, string]> = {

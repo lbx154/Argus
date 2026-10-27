@@ -170,7 +170,6 @@ def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) ->
     assert status == "planner"
     climbed = rounds[-1].review
     assert climbed.review_source == "unchanged_return"
-    assert "reviewer" in climbed.reason and "planner" in climbed.reason
 
 
 def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
@@ -189,7 +188,7 @@ def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
     assert labels == []
     assert status == "operator"
     assert rounds[-1].review.operator_question
-    assert "engineer and the reviewer and the planner and the manager" in rounds[-1].review.reason
+    assert rounds[-1].review.review_source == "unchanged_return"
 
 
 def test_without_snapshots_nothing_climbs(tmp_path: Path) -> None:

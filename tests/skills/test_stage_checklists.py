@@ -147,7 +147,7 @@ def test_parallel_review_prefers_returned_control_stop_over_generic_exception(
     )
 
     assert decision is not None
-    assert decision.status == "manager"
+    assert decision.status == "blocked"
     assert decision.backend_stop_kind == "operator_abort"
     assert decision.backend_fatal_error == "operator stopped review"
     assert decision.input_tokens == 4

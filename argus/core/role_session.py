@@ -1,8 +1,9 @@
 """Role-isolated coding-agent sessions.
 
 A role resumes its provider thread whenever the backend can resume one; other
-runners stay fresh. The backend owns its context window and compaction, so a
-session is replaced only when what it was opened for changes. Each role owns
+runners stay fresh. The backend owns its context window and compaction; a
+session is replaced when what it was opened for changes, or when its history
+grows past a budget a fresh turn with the full prompt undercuts. Each role owns
 one small durable capsule; no transcript or other role's private context is
 copied into it.
 """
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .secret_guard import known_secret_values, redact_secrets_text
+from .session_ledger import session_size_tokens
 
 _RESUMABLE_ROLE_SESSION_BACKENDS = frozenset({
     "codex", "claude", "copilot", "cursor", "grok", "opencode", "pi", "qoder",
@@ -31,6 +33,12 @@ ROLE_SESSION_SIGNALS = frozenset({
 #: A capsule from another version is rotated, never resumed: version 3 threads
 #: hand work on with ``hand_off`` (core.handoff), not baton lines.
 ROLE_SESSION_SCHEMA_VERSION = 3
+#: A resumed thread re-sends its whole history with every request. Past about
+#: this many tokens of Argus prompts and tool output the history is mostly
+#: material the next turn does not need (2026-10-26: an Engineer review fix
+#: resumed a 250k-token literature round; a Planner's seventh cycle started at
+#: 150k), so the role starts a fresh session with its full prompt instead.
+ROLE_SESSION_RESUME_BUDGET_TOKENS = 60_000
 _SEEN_THREAD_IDS_LIMIT = 64
 
 log = logging.getLogger(__name__)
@@ -302,6 +310,8 @@ class RoleSessionCapsule:
         if branch != self.branch:
             self.branch = branch
             self.rotate("branch_changed")
+        if self.thread_id and session_size_tokens(self.thread_id) > ROLE_SESSION_RESUME_BUDGET_TOKENS:
+            self.rotate("context_budget")
         if self.thread_id:
             self.action = "resumed"
             self.rotation_reason = ""

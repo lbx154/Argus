@@ -127,21 +127,3 @@ def test_task_handed_on_from_a_card_links_back_and_a_question_is_about_its_card(
     assert relations["export"] == [{"kind": "from", "target": "hc-idea"}, {"kind": "carries_out", "target": "turn:web-1"}]
     assert relations["turn:web-2"] == [{"kind": "about", "target": "export"}]
     assert relations["turn:web-3"] == [{"kind": "about", "target": "hc-idea"}]
-
-
-def test_team_report_turn_reads_the_canvas_too(tmp_path, monkeypatch):
-    """A decision the team waits on is a Manager turn like any other: it sees the canvas."""
-    sid = "s-canvas-team"
-    life = _project(tmp_path, sid)
-    store.add_card(life, 0, kind="idea", text="评测只用公开数据集")
-    manager_state._STATES.clear()
-    seen: dict[str, str] = {}
-
-    def triage(mem, body, chat_state, **kwargs):
-        seen["body"] = body
-        return "继续。"
-
-    monkeypatch.setattr(front_door, "manager_turn", replying(triage))
-    manager_bridge.manager_team_report(sid, "阶段完成，下一步？", message_id="m-1", event_fields={}, global_root=tmp_path)
-    assert seen["body"].startswith("Team report:\n阶段完成，下一步？")
-    assert store.CONTEXT_HEADER in seen["body"] and "评测只用公开数据集" in seen["body"]

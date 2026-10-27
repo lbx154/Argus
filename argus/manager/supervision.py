@@ -164,6 +164,12 @@ def _check(
     payload: dict[str, Any], *, root: Path, event: dict[str, Any], observation: ManagerObservation,
 ) -> dict[str, Any]:
     """The decision a supervise call records, or a refusal the Manager can act on."""
+    from .process_debug import is_process_stuck, rung_refusal
+
+    if is_process_stuck(event):
+        refusal = rung_refusal(payload, operator_can_be_asked=not _manager_holds_operator_authority(root))
+        if refusal:
+            raise ValueError(refusal)
     available = {ref["path"] for ref in observation.facts["evidence_refs"]}
     cited = list(dict.fromkeys(payload["evidence_refs"]))
     outside = [ref for ref in cited if ref not in available]
@@ -211,11 +217,12 @@ def _check(
     }
 
 
-def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
+def _prompt(observation: ManagerObservation, consult_reason: str = "", brief: str = "") -> str:
     from ..core.mission_view import load_mission_view, session_is_chinese
     from ..roles.prompts.voice import operator_language
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
+    asked += f"\n{brief}\n\n" if brief else ""
     root = getattr(observation, "root", None)
     # The summary is shown to the operator as written, like the Observer's remark.
     language = operator_language(root is not None and session_is_chinese(load_mission_view(root)))
@@ -437,6 +444,12 @@ def _deliver(
     path = root / "manager-supervision" / f"{record['id']}.json"
     try:
         record["effects"] = _apply(root, event, record, cancelled=cancelled)
+        if (record.get("trigger") or {}).get("process_stuck"):
+            from .process_debug import record_diagnosis
+
+            # The Manager's rung: its diagnosis goes on the stuck task's own
+            # record, and a fixed cause resumes the task for its holder.
+            record["effects"].update(record_diagnosis(root, record))
         record["status"] = "applied"
         record["applied_at"] = time.time()
         record["completed_at"] = time.time()
@@ -555,7 +568,9 @@ def supervise(
                 "version": 1, "id": identity,
                 "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
-                "trigger": {key: event[key] for key in ("type", "item_id", "event_id", "round_index", "consult_reason") if key in event},
+                "trigger": {key: event[key] for key in (
+                    "type", "item_id", "event_id", "round_index", "consult_reason", "process_stuck",
+                ) if key in event},
                 "source_event": (observation.facts["recent_events"][-1]
                                  if observation.facts["recent_events"] else {
                     key: event[key] for key in ("type", "item_id", "event_id", "agent_layer", "round_index") if key in event
@@ -594,8 +609,12 @@ def supervise(
                 actions = HandOffActions(
                     "supervise", check=partial(_check, root=root, event=event, observation=observation),
                 )
+                from .process_debug import is_process_stuck, process_stuck_brief
+
+                brief = process_stuck_brief(root, event) if is_process_stuck(event) else ""
+                prompt = _prompt(observation, str(event.get("consult_reason") or ""), brief)
                 with run_interrupt_scope(interrupt_reason), role_actions(session, options, actions) as bound:
-                    result = run_exec(session, prompt=_prompt(observation, str(event.get("consult_reason") or "")), options=bound, run_label="manager-supervision")
+                    result = run_exec(session, prompt=prompt, options=bound, run_label="manager-supervision")
                 record["call_id"] = getattr(result, "call_id", "") or ""
                 record["backend_exit_code"] = int(getattr(result, "exit_code", 0) or 0)
                 backend_failed, _ = _manager_backend_failure(result)
@@ -735,7 +754,7 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
         and not event.get("review_skipped")
     ):
         why = " ".join(str(event.get("reason") or "").split())[:200]
-        return f"{handed}: {why}"
+        return f"{handed}, so the process is stuck: {why}"
     if str(event.get("verification_obstacle") or "").strip() and _manager_holds_operator_authority(root):
         return "a check the Reviewer cannot make here, whose risk is yours to accept or not"
     return ""
@@ -753,6 +772,15 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     elif event_type == EventType.ROUND_REVIEW_COMPLETED and (
             holder_of(event.get("status")) in {"engineer", "manager", "operator"} or event.get("changed_during_review")):
         reason = _review_consult_reason(project_root, event)
+        if reason and HANDED_TO_MANAGER.get(str(event.get("review_source") or "")) and holder_of(
+            event.get("status"), event.get("operator_question"),
+        ) == "manager":
+            # Work that climbed or was handed to the Manager: its rung is process debugging.
+            event = {**event, "process_stuck": True}
+    elif event_type == EventType.LIFE_PLANNER_IDLE and event.get("handoff") == "manager":
+        why = " ".join(str(event.get("reason") or "").split())[:200]
+        reason = f"the Planner says the process is stuck: {why}"
+        event = {**event, "process_stuck": True}
     elif event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled":
         reason = (
             f"{event.get('text')}; to=team without a note keeps waiting on that turn, "

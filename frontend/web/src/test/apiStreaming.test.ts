@@ -377,6 +377,7 @@ it('preserves ordinary JSON messages and Manager phase, delta and done callbacks
     }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     response.end(frame({ type: 'phase', label: 'Reviewing', role: 'manager', heartbeat: true, quiet_s: 5 })
+      + frame({ type: 'delta', text: '我先看一下', message_id: 'm1', fragment_mode: 'snapshot', live: true })
       + frame({ type: 'delta', text: '完整回答', message_id: 'm1', fragment_mode: 'append' })
       + frame({ type: 'done', result }));
   });
@@ -390,7 +391,8 @@ it('preserves ordinary JSON messages and Manager phase, delta and done callbacks
   expect(requests.map(request => request.path)).toEqual(['/api/projects/s-research/message', '/api/projects/s-research/message/stream']);
   expect(requests.map(request => request.body)).toEqual([0, 1].map(() => ({ text: 'Explain this', attachments: options.attachments, route_override: 'task' })));
   expect(onPhase).toHaveBeenCalledWith('Reviewing', 'manager', expect.objectContaining({ heartbeat: true, quietS: 5 }));
-  expect(onDelta).toHaveBeenCalledWith('完整回答', 'm1', 'append');
+  expect(onDelta).toHaveBeenCalledWith('我先看一下', 'm1', 'snapshot', true);
+  expect(onDelta).toHaveBeenCalledWith('完整回答', 'm1', 'append', false);
   expect(onDone).toHaveBeenCalledExactlyOnceWith(result);
   expect(onError).not.toHaveBeenCalled();
   expect(fetch).toHaveBeenCalledTimes(2);

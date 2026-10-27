@@ -158,26 +158,3 @@ def test_trial_failures_explain_next_action_without_stack_traces(reason, expecte
     assert expected in text
     assert '管理员' in text
     assert 'sea-loader' not in text and 'HTTP 402' not in text
-
-
-def test_the_hosts_climb_record_is_said_as_what_it_means_for_the_work() -> None:
-    """Trial s-efe9deac: a Chinese banner showed the host's English climb record."""
-    from argus.core.models import ReviewDecision
-    from argus.core.operator_messages import plain_routing_reason, plain_stop_reason
-    from argus.engineer.round_routing import climb_record
-
-    climb = climb_record(["engineer", "planner"], "manager").reason
-    asked = climb_record(["reviewer", "planner", "manager"], "operator").reason
-    handed = climb_record(
-        ["reviewer"], "planner", handed=ReviewDecision(status="replan_requested", reason="计划需要调整。", next_action=""),
-    ).reason
-
-    assert humanize_runtime_reason(climb, language_hint="中文") == "这条路没有新进展，团队正在换个思路。"
-    assert humanize_runtime_reason(climb) == "This path is making no new progress, so the team is trying a different approach."
-    assert humanize_runtime_reason(asked, language_hint="中文") == "这条路没有新进展，需要你决定怎么继续。"
-    assert plain_routing_reason(handed, chinese=True) == "这条路没有新进展，团队正在换个思路。计划需要调整。"
-    assert plain_stop_reason(climb, "形成新机制路线") == "这条路没有新进展，团队正在换个思路。"
-    # Anything else is left as written.
-    assert plain_stop_reason("CUDA out of memory", "训练") == "CUDA out of memory"
-    for said in (humanize_runtime_reason(climb), plain_routing_reason(asked, chinese=False)):
-        assert not any(word in said.lower() for word in ("rung", "planner", "manager", "engineer", "nothing changed"))

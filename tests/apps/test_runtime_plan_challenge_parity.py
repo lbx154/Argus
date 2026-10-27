@@ -1,8 +1,9 @@
-"""A Reviewer replan with an alternative replaces the plan.
+"""A Reviewer replan reaches the Planner as the Reviewer wrote it.
 
 These cases pin the outcome the runtime records for a replan that carries an
 alternative, with an operator present: words in the challenge or the
-alternative never route it elsewhere.
+alternative never route it elsewhere, and no Manager action is chosen for the
+Planner (the Planner owns the plan).
 """
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
     _Harness()._extract_execute_outcome_fields(state)
     return {
         key: state.plan_challenge.get(key)
-        for key in ("manager_action", "alternative", "source")
+        for key in ("manager_action", "challenge", "alternative", "source")
     }
 
 
@@ -81,5 +82,7 @@ def test_replan_with_alternative_matches_dev_with_an_operator(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     routed = _route(tmp_path, report, question=question)
-    assert routed["manager_action"] == "replace"
+    assert routed["manager_action"] is None
+    assert routed["source"] == "reviewer"
+    assert routed["challenge"] == report["challenge"]
     assert routed["alternative"] == report["alternative"]

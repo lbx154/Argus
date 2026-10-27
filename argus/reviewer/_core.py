@@ -310,7 +310,7 @@ def _parallel_final_review_passes(
     fork = getattr(runner, "fork", None)
     if not callable(fork):
         return ReviewDecision(
-            status="manager",
+            status="blocked",
             reason="The reviewer backend cannot create independent parallel calls.",
             next_action="Use a reviewer backend that supports independent calls.",
             backend_unavailable=True,
@@ -341,7 +341,7 @@ def _parallel_final_review_passes(
         or len({id(backend) for backend in pass_runners.values()}) != len(prompts)
     ):
         return ReviewDecision(
-            status="manager",
+            status="blocked",
             reason="The reviewer backend returned shared instances for parallel calls.",
             next_action="Use a reviewer backend that supports independent calls.",
             backend_unavailable=True,
@@ -390,7 +390,7 @@ def _parallel_final_review_passes(
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
             return ReviewDecision(
-                status="manager",
+                status="blocked",
                 reason=f"Rendered paper review inputs are unavailable: {exc}",
                 next_action="Restore PDF page rendering before running the paper review.",
                 backend_unavailable=True,
@@ -493,7 +493,7 @@ def _parallel_final_review_passes(
     if failures:
         _, _, stop_kind, fatal, failed_exit_code, reason = min(failures)
         return ReviewDecision(
-            status="manager",
+            status="blocked",
             reason=reason,
             next_action="Resolve the failed review provider call before retrying.",
             backend_unavailable=True,
@@ -510,7 +510,7 @@ def _parallel_final_review_passes(
     empty = next((label for label, text in findings.items() if not text), "")
     if empty:
         return ReviewDecision(
-            status="manager",
+            status="blocked",
             reason=f"{empty} review returned no assessment",
             next_action="Retry the missing review pass.",
             backend_unavailable=True,
@@ -973,7 +973,7 @@ class Reviewer:
                     + (f"; fatal_error={fatal}" if fatal else "")
                 )
                 return with_call_metadata(ReviewDecision(
-                    status="manager",
+                    status="blocked",
                     reason=reason,
                     next_action=(
                         "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
@@ -988,7 +988,7 @@ class Reviewer:
                 ))
             if decision is None:
                 return with_call_metadata(ReviewDecision(
-                    status="manager",
+                    status="blocked",
                     reason=(
                         "The Reviewer ended without handing the work on. "
                         "Its reply was not interpreted as acceptance or rejection."
@@ -1023,7 +1023,7 @@ class Reviewer:
             msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
             log.exception("reviewer runner raised")
             return with_call_metadata(ReviewDecision(
-                status="manager",
+                status="blocked",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
                 backend_unavailable=True,

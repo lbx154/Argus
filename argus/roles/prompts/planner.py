@@ -295,7 +295,7 @@ def build_continuous_prompt(
             f"- current: `{stage}`\n"
             f"- sequence: {', '.join(_vstage_order) or '(none)'}\n"
             "Use the stage as context, not a boundary. Choose the operator's most valuable "
-            "next milestone; Manager updates stages from mission results."
+            "next milestone; the completion gate moves stages on the mission results' evidence."
         )
 
     # The Planner gets the same library paths as other roles and searches them

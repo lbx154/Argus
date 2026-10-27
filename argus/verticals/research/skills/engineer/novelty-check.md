@@ -9,13 +9,11 @@ Use this only during an independent route review in Idea, before the one-time
 selector. Do not execute candidate code or experiments.
 
 Identify the mechanism on which the route depends and the distinction it claims. Search
-current primary literature using a few conceptually different phrasings,
-including the mechanism, problem, and nearest method family. Read about the
-5–8 closest papers rather than judging from titles; this is not an exhaustive
-survey. Keep one copy of a source you need (its URL and the passage that
-matters), not a raw download beside an extracted text. Run the check once per
-route version; the Reviewer judges its result as written and opens a source
-only to settle a specific doubt, without repeating the search.
+current primary literature using several conceptually different phrasings,
+including the mechanism, problem, and nearest method family. Read the closest
+papers rather than judging from titles. Run the check once per route version;
+the Reviewer judges its result as written and opens a source only to settle a
+specific doubt, without repeating the search.
 
 Return through the route's internal review result:
 

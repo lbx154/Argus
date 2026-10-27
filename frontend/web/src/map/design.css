@@ -677,17 +677,18 @@
 .argus-map .macro-summary .map-card .map-card-top { padding: 0 0 10px; gap: 10px; justify-content: flex-start; }
 .argus-map .macro-summary .map-card .map-card-number { font-size: 11px; letter-spacing: .04em; color: rgb(var(--ink-faint)); }
 .argus-map .macro-summary .map-status {
-  margin-left: auto; padding: 0; border-radius: 0; background: none; font-size: 11.5px; font-weight: 500;
+  margin-left: auto; padding: 0; border-radius: 0; background: none; font-size: var(--status-size, 11.5px); font-weight: 500;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
   color: rgb(var(--ink-dim));
 }
 .argus-map .macro-summary .map-status svg { display: none; }
 .argus-map .macro-summary .map-status::before {
-  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  content: ""; display: inline-block; width: .52em; height: .52em; margin-right: .52em; border-radius: 50%;
   background: var(--state); vertical-align: 0.1em;
 }
 /* Waiting for the person: the gold dot wears a ring. */
 .argus-map .macro-summary .map-state-question .map-status::before,
-.argus-map .macro-summary .map-status.map-state-question::before { box-shadow: 0 0 0 2px var(--map-paper), 0 0 0 3px var(--state); }
+.argus-map .macro-summary .map-status.map-state-question::before { box-shadow: 0 0 0 .17em var(--map-paper), 0 0 0 .26em var(--state); }
 .argus-map .macro-summary .map-state-dot { display: none; }
 .argus-map .macro-summary .map-card h3 {
   margin: 0 0 6px; min-height: 0; font-family: var(--map-title-serif);
@@ -713,26 +714,29 @@
 .argus-map .macro-summary .map-card-copy { transition: opacity 180ms ease; }
 .argus-map .map-macro:not(:hover):not([data-hovered="true"]):not([data-focused="true"]) .macro-summary .map-card:not(:focus-visible) :is(.map-card-course, .map-card-bottom) { opacity: 0; }
 
-/* Seen from afar the card becomes its title. Without re-rendering on zoom
-   (the markup is the same at every zoom): --on-screen is how large one card
-   pixel is on screen; below about 0.8 the 19px title would read under 15px,
-   so it grows to stay near 15 screen px (capped to fit three lines) while the
-   rest of the card fades out (--near goes from 1 to 0). */
+/* Seen from afar the card becomes its title and its state. Without
+   re-rendering on zoom (the markup is the same at every zoom): --on-screen is
+   how large one card pixel is on screen; below about 0.8 the 19px title would
+   read under 15px, so it grows to stay near 15 screen px (capped to fit three
+   lines), the state dot and word grow to stay near 11 screen px, and the rest
+   of the card fades out (--near goes from 1 to 0). */
 .argus-map .macro-summary {
   --on-screen: calc(var(--z, 0.24) * var(--summary-scale, 5));
   --near: clamp(0, calc((var(--on-screen) - 0.62) * 5), 1);
+  --status-size: clamp(11.5px, calc(11px / var(--on-screen)), 36px);
 }
 /* Three whole lines always fit the card (its height less the status row and
    padding, over 3 × 1.35 lines), so the clamp ends on an ellipsis instead of
    the card cutting through a line of glyphs. */
 .argus-map .macro-summary .map-card h3 {
-  font-size: max(19px, min(56px, calc(15px / var(--on-screen)), calc((var(--summary-height, 300px) - 72px) / 4.2)));
+  font-size: max(19px, min(56px, calc(15px / var(--on-screen)), calc((var(--summary-height, 300px) - 55px - 1.5 * var(--status-size)) / 4.2)));
   font-weight: 500;
   -webkit-line-clamp: 3;
   overflow: hidden;
   padding-right: 4px;
 }
-.argus-map .macro-summary .map-card > :not(h3) { opacity: var(--near); }
+.argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
+.argus-map .macro-summary .map-card .map-card-number { opacity: var(--near); }
 .argus-map .macro-summary .map-card h3 .macro-note-badge { opacity: var(--near); }
 
 /* Full canvas: the toolbar is a few quiet floating icons until pointed at. */

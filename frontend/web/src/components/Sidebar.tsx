@@ -182,7 +182,7 @@ export function Sidebar({
     setOrganizing(null);
     setOrganizationNotice(field === 'archived'
       ? zh ? '归档状态已同步；不删除文件、不停止工作。可在“已归档”中找回。' : 'Archive synced. No files are deleted and no work is stopped. Restore from Archived.'
-      : zh ? '标记已同步至此试用空间。' : 'Marker synced to this trial space.');
+      : zh ? '标记已同步。' : 'Marker synced.');
   };
   useEffect(() => { setOrganizing(null); setSettingsHint(false); }, [activeId]);
   const slim = collapsed && !mobileOpen;

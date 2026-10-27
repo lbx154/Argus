@@ -863,14 +863,6 @@ def ask_text(handoff: Any, chinese: bool) -> str:
     return "\n\n".join(part for part in (handoff.question, numbered_options(handoff.options, chinese)) if part)
 
 
-def tell_team_stage_ruling(life_dir: Any, chat_state: dict[str, Any]) -> None:
-    """Put the stage ruling the Manager's turn carried out, if any, in the team's inbox."""
-    from ..apps._inbox import queue_inbox_message
-
-    if text := chat_state.pop("_stage_ruling", None):
-        queue_inbox_message(life_dir, text, source="manager.stage")
-
-
 def _settle_manager_turn(
     mem: Any,
     reply: str,
@@ -914,10 +906,7 @@ def _settle_manager_turn(
         # "resuming" that did not happen (k1-split-cents, 2026-10-24: the
         # Manager's reply and Argus's confirmation both acknowledged it).
         applied = apply_manager_answer(mem, handoff, operator_text, reply=reply)
-        return emitter.respond(
-            str(applied.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(operator_text)),
-            {**result, "kind": "pending_question", **applied},
-        )
+        return emitter.respond(applied["reply"], {**result, "kind": "pending_question", **applied})
     # Argus applies what the Manager filed and confirms it after its reply.
     emitter.journal(reply, result)
     emitter.turn_id = f"{emitter.turn_id}-applied"

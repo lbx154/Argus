@@ -127,34 +127,3 @@ def test_a_new_domain_takes_no_profile_and_needs_a_slug() -> None:
     assert (decision.vertical, decision.proposal.rationale) == ("robotics_sim", "why this route")
     assert "no workflow profiles" in _refused(choice="new", vertical="robotics_sim", workflow_profile="full")
     assert "slug" in _refused(choice="new", vertical="!!")
-
-
-def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:
-    """`Sequence[str]` accepts a bare string, which iterates as characters.
-
-    A live Manager run on 2026-07-26 was handed a malformed "(none)" and
-    reasoned about `(`, `n`, `o`, `n`, `e`, `)` as six rollback targets. It
-    caught the nonsense itself, but the prompt should not have been able to say
-    it. Production passes a real list; this makes the mistake impossible.
-    """
-    from types import SimpleNamespace
-
-    from argus.roles.prompts.manager import build_stage_decision_prompt
-
-    review = SimpleNamespace(
-        status="done", reason="r", next_action="", operator_question="", checklist=[]
-    )
-    prompt = build_stage_decision_prompt(
-        current_stage="delivery",
-        next_stage="",
-        later_stages=[],
-        earlier_stages="scope",
-        checklist_md="- x",
-        review=review,
-        planner_verdict=None,
-        open_ended=True,
-        continuous_objective="obj",
-    )
-
-    assert "`scope`" in prompt
-    assert "`s`, `c`, `o`" not in prompt

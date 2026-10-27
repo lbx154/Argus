@@ -917,7 +917,8 @@ def test_direct_objective_is_not_queued_again_once_its_replacement_is_reviewed(
 
     assert supervisor._plan_next_work() == PLAN_RETRY
     assert [row.id for row in backlog.history()] == [asked.id, replacement.id]
-    assert backend.manager_calls == 1
+    # The completion gate closed it on the accepted replacement: no model was asked.
+    assert backend.manager_calls == 0
     assert any(
         event.get("type") == "life.manager.stage_decision"
         and event.get("action") == "complete"
@@ -989,15 +990,15 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.outcome["stage_certification"] == "not_certified"
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 0
     assert any(
         event.get("type") == "life.manager.stage_decision"
-        and event.get("source") == "stage_completion_gate_hold"
+        and event.get("diagnostic") == "stage_completion_gate_failed"
         for event in sink.events
     )
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 0
 
 
 @pytest.mark.parametrize("second_run_accepts", [True, False])
@@ -1205,6 +1206,13 @@ def test_an_answer_the_task_already_took_does_not_hold_bounded_completion(
     context.settle_once(record.revision)
     assert context.acknowledged_revision("planner") == 0
     assert supervisor._bounded_completion_reason()
+    # Every planning gate reads the same rule: a gated project reaches its
+    # "final certification is current" shortcut instead of a Planner call.
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    state = _PlanCycleState(None)
+    supervisor._pc_intake_gate(state)
+    assert not state.has_unhandled_operator_input
     # Input that arrives after it still holds completion.
     persist_once_answer(root, "再加一个 split_cents 的类型注解。")
     assert supervisor._bounded_completion_reason() == ""

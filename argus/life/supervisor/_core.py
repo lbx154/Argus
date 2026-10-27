@@ -187,7 +187,6 @@ class LifeSupervisor(
         # heartbeat above): suppress repeated identical planner_idle events.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
-        self._last_planner_handoff_key: tuple[str, str] | None = None
         self._reap_orphans_on_startup()
         if self.manager is not None:
             from ...manager.supervision import recover_issued_supervision
@@ -475,51 +474,6 @@ class LifeSupervisor(
             )
         return resumed
 
-    def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
-        """Persist the Manager authority decision before Planner sees a challenge."""
-        from ...manager import adjudicate_plan_challenge
-
-        challenge = dict(outcome.get("plan_challenge") or {})
-        if not challenge:
-            decision = adjudicate_plan_challenge(
-                reviewer_status=str(
-                    outcome.get("review_status") or outcome.get("status") or ""
-                ),
-                review_reason=str(outcome.get("review_reason") or ""),
-                next_action=str(outcome.get("stop_reason") or ""),
-            )
-            challenge = {
-                "manager_action": decision.action,
-                "manager_reason": decision.reason,
-                "challenge": decision.challenge,
-                "alternative": decision.alternative,
-                "source": decision.source,
-                "raised_at": time.time(),
-            }
-        now = time.time()
-        try:
-            raised_at = float(challenge.get("raised_at") or now)
-        except (TypeError, ValueError):
-            raised_at = now
-        challenge["adjudicated_at"] = now
-        challenge["revision_latency_seconds"] = max(0.0, now - raised_at)
-        action = str(challenge.get("manager_action") or "revise").strip().lower()
-        if action not in {"keep", "revise", "replace"}:
-            action = "revise"
-        challenge["manager_action"] = action
-        outcome["plan_challenge"] = challenge
-        item_id = str(outcome.get("item_id") or "")
-        self._emit({
-            "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
-            "item_id": item_id,
-            **challenge,
-            "text": (
-                f"Manager chose {action} after later evidence challenged the plan: "
-                f"{str(challenge.get('challenge') or '')[:240]}"
-            ),
-        })
-        return action
-
     def run(self) -> dict[str, Any]:
         """Drive missions until a stop condition. Returns a summary."""
         try:
@@ -763,12 +717,8 @@ class LifeSupervisor(
                 stopped_by = "auth_failure"
                 break
             if outcome.get("status") == "planner":
-                manager_action = self._adjudicate_mission_challenge(outcome)
-                if manager_action == "keep":
-                    self._emit_status(
-                        "Manager retained the current plan after reviewing the challenge"
-                    )
-                    continue
+                # A Reviewer's challenge is the Planner's input as it stands:
+                # the Planner owns the plan, so nobody adjudicates it first.
                 gate_reason = self._planner_cycle_gate_reason()
                 if gate_reason:
                     self._emit({

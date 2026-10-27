@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from './Modal';
 import { useI18n } from '../i18n';
 import type { Snapshot } from '../api';
-import { DaemonSpendBadge } from './DaemonSpendBadge';
+import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
 export function DaemonManageModal({
   open,
@@ -34,7 +34,7 @@ export function DaemonManageModal({
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const spendUsd = snapshot ? (typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : snapshot.usage_summary?.known_cost_usd ?? 0) : 0;
+  const spend = snapshot ? spendEstimateLabel({ spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null, spendStatus: snapshot.spend_status }, zh) : '';
   const [draftName, setDraftName] = useState(name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [stoppedLocally, setStoppedLocally] = useState(false);
@@ -69,14 +69,7 @@ export function DaemonManageModal({
       {snapshot ? <div className="border-t border-line px-6 py-4" data-testid="manage-run-info">
         <div className="text-xs font-medium text-ink-faint">{zh ? '运行信息' : 'Run details'}</div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-dim">
-          {spendUsd > 0 ? <DaemonSpendBadge
-            settledUsd={snapshot.spend_usd}
-            knownUsd={snapshot.usage_summary?.known_cost_usd}
-            status={snapshot.spend_status}
-            calls={snapshot.usage_summary?.call_count}
-            premiumRequests={snapshot.usage_summary?.premium_requests}
-            live={snapshot.daemon.alive}
-          /> : <span>{zh ? '还没有花费' : 'No spend yet'}</span>}
+          <span title={spend ? (zh ? SPEND_ESTIMATE_HINT.zh : SPEND_ESTIMATE_HINT.en) : undefined}>{spend || (zh ? '还没有花费' : 'No spend yet')}</span>
           {snapshot.usage_summary?.call_count ? <span>{zh ? `模型调用 ${snapshot.usage_summary.call_count} 次` : `${snapshot.usage_summary.call_count} model calls`}</span> : null}
         </div>
       </div> : null}

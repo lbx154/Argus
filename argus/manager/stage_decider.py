@@ -1,20 +1,16 @@
-"""The Manager's stage decision: the ``stage`` form and its own rule.
+"""The completion gate's rules: when a stage may close and the project be done.
 
-The Manager is the SOLE authority over pipeline stage transitions. After the
-Reviewer (and Planner) advise, it fills the ``stage`` form of ``hand_off``:
-``to=team`` with a ``move`` (advance to a later stage, hold, or roll back to
-an earlier one), ``to=done`` when the objective is complete, or
-``to=manager`` to put a question the evidence cannot settle to the Manager's
-own session, holding until it rules (:meth:`Manager.commit_stage_ruling`).
-:func:`stage_check` refuses a move the stage machine cannot
-make from here, so the model corrects it in the same turn; a turn that hands
-nothing off holds.
+One owner decides "stage ready" and "project done": the completion gate
+(``Manager.decide_stage_transition`` in ``_stage_ops``). It reads evidence, never
+a model's opinion: the accepted candidate, the vertical's stage completion
+checks, the person's required steps (必经步骤) and the completion contract. The
+Planner proposes; the gate's checks below decide.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 
 @dataclass
@@ -25,36 +21,6 @@ class StageDecision:
     target_stage: str
     reason: str
     diagnostic: str = ""
-
-
-def stage_check(
-    payload: Mapping[str, Any], *, current_stage: str, stage_order: Sequence[str], allow_done: bool,
-) -> StageDecision:
-    """The stage form's own rule: advance only forward, roll back only backward, done only at the end."""
-    cur, order, summary = current_stage, list(stage_order), payload["summary"]
-    if payload["to"] == "manager":
-        question = "\n\n".join(part for part in (summary, payload.get("note", "")) if part)
-        return StageDecision("hold", cur, question, "manager_question")
-    if payload["to"] == "done":
-        if cur != order[-1] and not allow_done:
-            raise ValueError(
-                f"to=done only at the final stage `{order[-1]}`; to move on, use to=team with move=advance."
-            )
-        return StageDecision("complete", cur, summary, "valid_complete")
-    move = payload.get("move")
-    if move is None:
-        raise ValueError("to=team needs move: advance, hold or rollback.")
-    if move == "hold":
-        return StageDecision("hold", cur, summary, "intentional_hold")
-    at = order.index(cur) if cur in order else len(order)
-    legal = order[at + 1:] if move == "advance" else order[:at]
-    target = payload.get("target_stage") or (legal[0] if move == "advance" and legal else "")
-    if target not in legal:
-        raise ValueError(
-            f"move={move}: target_stage must be one of: {', '.join(legal)}." if legal
-            else f"move={move}: there is no stage to move to from `{cur}`."
-        )
-    return StageDecision(move, target, summary, "valid_target")
 
 
 def _review_certifies_completion(
@@ -109,17 +75,6 @@ def _review_certifies_completion(
     return ""
 
 
-def completion_trigger_reason(action: str, reason: str) -> str:
-    """Describe completion without preserving a contradictory hold reason."""
-    text = str(reason or "").strip()
-    if str(action or "").strip().lower() != "hold":
-        return text
-    return (
-        "reviewer certified the final-stage checklist, overriding the Manager "
-        f"hold ({text[:160] or 'no reason given'})"
-    )
-
-
 def final_stage_completion_decision(
     review: Any,
     *,
@@ -135,12 +90,12 @@ def final_stage_completion_decision(
     trigger_reason: str = "",
     allow_early_completion: bool = False,
 ) -> StageDecision | None:
-    """Validate a Manager COMPLETE decision against certified stage evidence."""
+    """The gate's completion, when certified stage evidence supports it; ``None`` otherwise."""
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
     if cur not in order or (cur != order[-1] and not allow_early_completion):
         return None
-    if str(completion_blocker or "").strip() or required_steps_blocker(project_root):
+    if str(completion_blocker or "").strip():
         return None
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
@@ -162,16 +117,18 @@ def final_stage_completion_decision(
     )
     if missing:
         return None
-    reason = trigger_reason or "Manager completed the certified current stage"
-    diagnostic = trigger_diagnostic or "manager_completion_certified"
+    reason = trigger_reason or "the completion gate closed the certified current stage"
+    diagnostic = trigger_diagnostic or "gate_completion_certified"
     return StageDecision("complete", cur, reason, diagnostic)
 
 
-def required_steps_blocker(project_root: Any) -> str:
+def required_steps_blocker(project_root: Any, judged_item_id: str = "") -> str:
     """The person's required steps (必经步骤) still open; "" with none, or no project root.
 
     The project is not done while a step the person laid on the canvas is not
-    complete, unless they removed it (``core.waypoints``).
+    complete, unless they removed it (``core.waypoints``). ``judged_item_id``
+    is the task whose accepted work is being judged: it is still running while
+    the gate reads the backlog, and counts as delivered.
     """
     if not project_root:
         return ""
@@ -186,6 +143,10 @@ def required_steps_blocker(project_root: Any) -> str:
         rows = LifeMemory.open(root).backlog.history()
     except Exception:  # noqa: BLE001 - unknown tasks leave every step open, which still blocks
         rows = []
+    if judged_item_id:
+        from dataclasses import replace
+
+        rows = [replace(row, status="done") if row.id == judged_item_id else row for row in rows]
     return open_steps_blocker(root, rows)
 
 
@@ -246,9 +207,6 @@ def final_stage_completion_blockers(
     blocker = str(completion_blocker or "").strip()
     if blocker:
         blockers.append(blocker)
-    steps_open = required_steps_blocker(project_root)
-    if steps_open:
-        blockers.append(steps_open)
     if not allow_early_completion and not _mission_scope_can_complete(
         mission_scope,
         vertical,
@@ -381,8 +339,6 @@ def _mission_scope_can_complete(
 
 __all__ = [
     "StageDecision",
-    "stage_check",
-    "completion_trigger_reason",
     "external_completion_gate_rework_decision",
     "external_completion_gate_stage_guard_decision",
     "final_stage_completion_blockers",

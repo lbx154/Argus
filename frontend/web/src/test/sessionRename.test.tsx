@@ -81,6 +81,21 @@ describe('session rename', () => {
     expect(markup).toContain('type="submit"');
   });
 
+  it('says calls were unpriced or not billed instead of "no spend"', () => {
+    const render = (spend_status: string) => renderToStaticMarkup(
+      <DaemonManageModal open sid={sid} name="Original name" alive={false} busy={false}
+        onClose={() => undefined} onRename={async () => true} onStart={async () => true}
+        onStop={async () => true} onDelete={async () => true}
+        snapshot={{ ...snapshot(), spend_usd: null, spend_status, usage_summary: { call_count: 40, known_cost_usd: 0 } } as unknown as Snapshot} />,
+    );
+    for (const [status, label] of [['unpriced', 'Unpriced'], ['partial', 'Unpriced'], ['not_billed', 'Not billed']]) {
+      const markup = render(status);
+      expect(markup).toContain(label);
+      expect(markup).not.toContain('No spend yet');
+      expect(markup).toContain('40 model calls');
+    }
+  });
+
   it('offers immediate verified stop and enables deletion once stopped', () => {
     const props = {
       open: true,
