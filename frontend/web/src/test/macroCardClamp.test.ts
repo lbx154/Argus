@@ -43,7 +43,7 @@ describe("atlas overview card text is line-clamped", () => {
     const css = readFileSync(new URL(`../map/${name}.css`, import.meta.url), "utf8");
     expect(css).not.toMatch(/data-overview-density|data-copy-lines|data-course|--overview-type|--title-lines|--copy-lines/);
   });
-  it("lets only the far view follow the zoom: the title grows and the rest fades, from CSS alone", () => {
+  it("lets only the far view follow the zoom: the title and state grow and the rest fades, from CSS alone", () => {
     // The person asked for a readable title at overview zoom (2026-10-26).
     // It is one rule set on --z and --summary-scale; the markup stays the
     // same at every zoom (macroCardCopy.test.tsx).
@@ -52,7 +52,12 @@ describe("atlas overview card text is line-clamped", () => {
     expect(design).toMatch(/font-size:\s*max\(19px,\s*min\(56px,\s*calc\(15px \/ var\(--on-screen\)\),/);
     // Three whole lines always fit the card's height, so the clamp ends on an
     // ellipsis and never cuts through glyphs (2026-10-26).
-    expect(design).toMatch(/calc\(\(var\(--summary-height, 300px\) - 72px\) \/ 4\.2\)\)\)/);
-    expect(design).toMatch(/\.map-card > :not\(h3\) \{ opacity: var\(--near\); \}/);
+    expect(design).toMatch(/calc\(\(var\(--summary-height, 300px\) - 55px - 1\.5 \* var\(--status-size\)\) \/ 4\.2\)\)\)/);
+    // A failed card, or one waiting on the person, says so from afar: the
+    // state dot and word stay and grow like the title; only the task number
+    // fades with the rest (overview zoom made every card read as done).
+    expect(design).toMatch(/\.map-card > :not\(h3\):not\(\.map-card-top\),\s*\.argus-map \.macro-summary \.map-card \.map-card-number \{ opacity: var\(--near\); \}/);
+    expect(scope).toMatch(/--status-size:\s*clamp\(11\.5px, calc\(11px \/ var\(--on-screen\)\)/);
+    expect(design).toMatch(/\.macro-summary \.map-status \{[^}]*font-size: var\(--status-size/);
   });
 });
