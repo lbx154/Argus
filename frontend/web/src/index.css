@@ -1045,5 +1045,4 @@ button {
 @media (max-width: 640px), (pointer: coarse) {
   .result-card-actions button, .chat-context-tools button, .task-line-action { min-height: 44px; }
   .chat-context { padding: 8px 16px 6px; align-items: center; }
-  .project-overview-meta { display: none; }
 }
