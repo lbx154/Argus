@@ -16,6 +16,9 @@ them in plain words. File only what the operator explicitly said.
 - `control`: `pause` stops the campaign; `abort` ends the current mission;
   `steer` gives the running mission a new direction, priority, method or
   constraint, in `directive`. `quote` is their command, copied verbatim.
+  With `lifetime: standing` (they want the team to go on by itself) Argus
+  turns continuous mode on and the campaign carries the directive after the
+  objective it supersedes.
   Questions, criticism, suggestions and new separate tasks are not control.
 - `authorization`: grants they explicitly give (validator_repair,
   acceptance_retry, provenance_repair, artifact_refresh, resume_blocked_work).

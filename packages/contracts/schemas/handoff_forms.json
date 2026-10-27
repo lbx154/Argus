@@ -158,7 +158,7 @@
       }
     },
     "manager": {
-      "description": "Call it only when Argus must act on this turn; otherwise just answer. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide (the operator sees your ask, its question and options, instead of your reply, so the question carries what they need to decide); manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
+      "description": "Call it only when Argus must act on this turn; otherwise just answer. While the team is working, call it on every turn: to=manager with nothing else when the message changes nothing for the team. to: team hands the work to the team as a ticket (goal, acceptance, constraints, context); operator asks the operator what only they can decide (the operator sees your ask, its question and options, instead of your reply, so the question carries what they need to decide); manager keeps the turn yours while Argus applies the settings, control, grants or lasting rules you file. Your reply still goes to the operator.",
       "core": ["to", "summary", "ask", "assumptions"],
       "to": ["manager", "team", "operator"],
       "required": ["to", "summary", "assumptions"],
@@ -168,7 +168,7 @@
         "constraints": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: limits the operator stated, verbatim; never invented."},
         "context": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "With to=team: paths of the files the team should read first."},
         "plan": {"type": "object", "required": ["path", "summary"], "additionalProperties": false, "properties": {"path": {"type": "string", "pattern": "^[^/~]", "description": "The plan file, by its workspace-relative path."}, "summary": {"type": "string", "minLength": 1, "maxLength": 1500, "description": "The plan in a few to a dozen lines, in the operator's language: what the operator confirms before work starts."}}, "description": "With to=team, when you wrote a plan file: where it is and its summary. The operator sees them on the ticket before work starts."},
-        "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team, or a steer: standing for ongoing intent, else bounded."},
+        "lifetime": {"enum": ["bounded", "standing"], "description": "With to=team, or a steer: standing for ongoing intent and when the operator wants Argus to carry on by itself without waiting for them (it turns continuous mode on), else bounded."},
         "vertical": {"type": "string", "minLength": 1, "description": "With to=team: the team's workflow, from the menu in the team-handoff rules, or a project domain's slug; a new reusable slug only when none fits."},
         "domain": {"type": "string", "description": "With vertical=research: an optional research domain from the menu."},
         "workflow_mode": {"enum": ["direct", "staged"], "description": "With to=team: direct for one coherent Engineer task, staged for dependent phases."},

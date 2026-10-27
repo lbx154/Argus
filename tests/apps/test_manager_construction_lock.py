@@ -115,6 +115,13 @@ def test_self_question_completes_during_a_peer_mission(
             message = ""
         else:
             assert kwargs["run_label"] == "simple-1"
+            from argus.core.role_actions import PREFIX
+            from argus.core.role_tool_bridge import bridge_request
+
+            # While the team works, an answer files that it changes nothing for the team.
+            bridge_request(PREFIX, "hand_off", {
+                "to": "manager", "summary": "Explained the running attempt.", "assumptions": [],
+            }, env=kwargs["options"].extension_env)
             message = "The CTB experiment is still running; this node records its current attempt."
         return RunnerResult(exit_code=0, agent_messages=[message], thread_id="manager-question")
 

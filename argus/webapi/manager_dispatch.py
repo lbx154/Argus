@@ -637,6 +637,7 @@ def _handle_steer_control(
     from ..apps._inbox import queue_inbox_message
     from ..manager.directive import (
         active_manager_directive_message,
+        newer_direction,
         set_active_manager_directive,
     )
 
@@ -666,7 +667,10 @@ def _handle_steer_control(
                 or active.objective
                 or ""
             ).strip()
-        standing_objective = active_objective or current.objective or manager_directive
+        # The ongoing campaign carries the operator's newer direction after the
+        # work it continues, so the Planner reads it as superseding that work's
+        # terms (s-fe7a9f4f: a standing steer kept "…供用户选择" as the objective).
+        standing_objective = newer_direction(active_objective or current.objective, manager_directive)
     set_active_manager_directive(
         life_dir,
         manager_directive,
