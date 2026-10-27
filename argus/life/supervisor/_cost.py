@@ -132,13 +132,12 @@ class _CostTrackingSink:
                 self.util_output_tokens += out_tok
                 self.util_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
-                if any((in_tok, cached_tok, out_tok, reasoning_out_tok)):
+                if any((in_tok, cached_tok, out_tok)):
                     key = str(event.get("model") or self.engineer_model)
-                    bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0, 0])
+                    bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0])
                     bucket[0] += in_tok
                     bucket[1] += cached_tok
                     bucket[2] += out_tok
-                    bucket[3] += reasoning_out_tok
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -197,10 +196,7 @@ class _CostTrackingSink:
         """Fallback pricing for deterministic runners without a call ledger."""
         def price_by_model(buckets: dict[str, list[int]]) -> float:
             return sum(
-                usd_for_tokens(
-                    model, values[0], values[1], values[2],
-                    reasoning_output_tokens=values[3], price_lookup=price_for,
-                )
+                usd_for_tokens(model, values[0], values[1], values[2], price_lookup=price_for)
                 for model, values in buckets.items()
             )
 
@@ -209,13 +205,11 @@ class _CostTrackingSink:
             "engineer_cost_usd": usd_for_tokens(
                 self.engineer_model, self.engineer_input_tokens,
                 self.engineer_cached_input_tokens, self.engineer_output_tokens,
-                reasoning_output_tokens=self.engineer_reasoning_output_tokens,
                 price_lookup=price_for,
             ),
             "reviewer_cost_usd": usd_for_tokens(
                 self.reviewer_model, self.reviewer_input_tokens,
                 self.reviewer_cached_input_tokens, self.reviewer_output_tokens,
-                reasoning_output_tokens=self.reviewer_reasoning_output_tokens,
                 price_lookup=price_for,
             ),
             "util_cost_usd": price_by_model(self.util_usage_by_model),

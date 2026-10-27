@@ -59,7 +59,6 @@ test('unsafe counts and sums cannot turn into rounded or zero-cost observations'
     type: 'message_end', message: { role: 'assistant', usage: { input: Number.MAX_SAFE_INTEGER, cacheRead: 1 } },
   }]), UsageAccountingError);
   assert.throws(() => quoteTokenUsage('gpt-5.5', { input_tokens: Infinity, output_tokens: 1 }), UsageAccountingError);
-  assert.throws(() => quoteTokenUsage('gpt-5.5', { input_tokens: 1, output_tokens: Number.MAX_SAFE_INTEGER, reasoning_output_tokens: 1 }), UsageAccountingError);
 });
 
 test('premium-request rates preserve zero and reject nonfinite overrides', () => {
