@@ -425,8 +425,6 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.install_ppt_master)
         + bool(args.ppt_master_status)
         + bool(args.export_builtin_skills is not None)
-        + bool(args.evidence_chain_check)
-        + bool(args.anti_mediocrity_check)
         + bool(args.lifecycle_status)
         + bool(args.lifecycle_resume)
         + bool(args.lifecycle_archive)
@@ -478,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
             "--model-api-status / --init-model-api / "
             "--install-ppt-master / --ppt-master-status / "
             "--export-builtin-skills / "
-            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
+            "--lifecycle-status / "
             "wiki subcommands "
             "are mutually exclusive.\n"
         )
@@ -629,14 +627,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.export_builtin_skills is not None:
         return _run_with_path_resolution_errors(
             lambda: _cmd_export_builtin_skills(args)
-        )
-    if args.evidence_chain_check:
-        return _run_with_path_resolution_errors(
-            lambda: _cmd_evidence_chain_check(args)
-        )
-    if args.anti_mediocrity_check:
-        return _run_with_path_resolution_errors(
-            lambda: _cmd_anti_mediocrity_check(args)
         )
     if args.lifecycle_status:
         return _run_with_path_resolution_errors(
@@ -1785,25 +1775,6 @@ def _cmd_ppt_master_status(args: argparse.Namespace) -> int:
         f"revision: {status.revision or 'unknown'}\n"
     )
     return 0 if status.valid and status.dependencies_installed else 1
-
-
-def _cmd_evidence_chain_check(args: argparse.Namespace) -> int:
-    """Run F4 evidence-chain validator. Exits non-zero on broken chain."""
-    from ...skills.evidence_chain import main as _evidence_chain_main
-
-    return _evidence_chain_main(["--project-root", str(args.project_root)])
-
-
-def _cmd_anti_mediocrity_check(args: argparse.Namespace) -> int:
-    """Run F3 anti-mediocrity gates. Exits non-zero on any gate failure."""
-    from ...skills.anti_mediocrity import main as _anti_mediocrity_main
-
-    argv = ["--project-root", str(args.project_root)]
-    if args.proposed_condition:
-        argv += ["--proposed-condition", str(args.proposed_condition)]
-    if args.baseline_condition:
-        argv += ["--baseline-condition", str(args.baseline_condition)]
-    return _anti_mediocrity_main(argv)
 
 
 def _resolve_lifecycle_roots(args: argparse.Namespace) -> tuple[Path, Path]:

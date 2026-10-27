@@ -514,57 +514,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="override skills directory (default: global skills root)",
     )
 
-    checks_grp = parser.add_argument_group("research-factory checks")
-    checks_grp.add_argument(
-        "--evidence-chain-check",
-        action="store_true",
-        help="read the F4 evidence chain of a project root and exit; "
-             "prints broken chains and exits non-zero if any claim ↔ "
-             "evidence ↔ bundle link is broken",
-    )
-    checks_grp.add_argument(
-        "--anti-mediocrity-check",
-        action="store_true",
-        help="run the F3 anti-mediocrity checks (baseline reproduction, "
-             "Δ-reward, benchmark diversity) and exit; the checks that "
-             "compare two conditions also need --proposed-condition and "
-             "--baseline-condition",
-    )
-    checks_grp.add_argument(
+    lifecycle_grp = parser.add_argument_group("project lifecycle")
+    lifecycle_grp.add_argument(
         "--lifecycle-status",
         action="store_true",
         help="print F5 project-lifecycle state derived from project memory "
              "(incubating/running/writing/quarantined/done/archived) and exit",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--lifecycle-resume",
         action="store_true",
         help="resume a quarantined, done, or archived project; restores a "
              "working state in <life-dir>/lifecycle.json so the supervisor "
              "will dispatch missions again",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--lifecycle-archive",
         action="store_true",
         help="archive the project; supervisor will refuse to "
              "dispatch missions until --lifecycle-resume is called",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--project-root",
         default=".",
         help="project root for management commands such as --status when run "
-             "outside the workdir, and for evidence/lifecycle checks (default cwd)",
-    )
-    checks_grp.add_argument(
-        "--proposed-condition",
-        default=None,
-        help="condition name to evaluate against the baseline for "
-             "--anti-mediocrity-check",
-    )
-    checks_grp.add_argument(
-        "--baseline-condition",
-        default=None,
-        help="baseline condition name for --anti-mediocrity-check",
+             "outside the workdir, and for lifecycle commands (default cwd)",
     )
 
     subparsers = parser.add_subparsers(dest="command")

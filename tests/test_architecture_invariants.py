@@ -1160,8 +1160,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "tools -> argus.agent_cli._process_control",
     "trial -> argus.agent_cli.copilot_home._read_managed_config",
     "trial -> argus.tools.setup._verify_setup_smoke",
-    "verticals -> argus.skills.rl_training_plots._is_probe",
-    "verticals -> argus.skills.rl_training_plots._read_optimizer_steps",
     "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
     "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
     "verticals -> argus.tools.image_api._atomic_write_json",
