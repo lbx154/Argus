@@ -217,7 +217,7 @@ it('a late success updates only its submitted project and never opens an answer 
 it('keeps the request unconfirmed when a response names a different progress source', async () => {
   vi.spyOn(api, 'generateReaderFoundation').mockResolvedValue(answer(firstId, 'The actual question', sourceB));
   await mount(); await open(); edit('The actual question'); submit(); await flush();
-  expect(text()).toContain('The result of this request is unconfirmed');
+  expect(text()).toContain('The result of this request is not known yet');
   expect(JSON.parse(localStorage.getItem('argus:reader-foundation:project-a:en-US:request')!).draft.progressSource).toEqual(sourceA);
   expect(renderer!.root.findAllByProps({ 'data-reading-question-id': firstId })).toHaveLength(0);
 });
@@ -253,7 +253,7 @@ it.each(['project', 'locale'])('keeps a late source rejection in the submitted %
 it.each([new Error('Network lost'), new ApiError('Other validation', 422, 'POST', '/reader-foundation')])('retains unknown identity across a fresh cache without resubmitting (%s)', async failure => {
   const generate = vi.spyOn(api, 'generateReaderFoundation').mockRejectedValueOnce(failure);
   await mount(); await open(); edit('The question before a transport failure'); submit(); await flush();
-  expect(text()).toContain('The result of this request is unconfirmed');
+  expect(text()).toContain('The result of this request is not known yet');
   act(() => renderer!.unmount()); renderer = undefined; client.clear(); client = clientFactory(); props.card = card(sourceB);
   await mount(); expect(generate).toHaveBeenCalledTimes(1);
   act(() => button('Reading questions').props.onClick());
@@ -271,7 +271,7 @@ it('keeps a definitely rejected source and original question until an explicit n
   const generate = vi.spyOn(api, 'generateReaderFoundation').mockRejectedValueOnce(
     new ApiError('Unavailable', 422, 'POST', '/reader-foundation', 'reader_source_unavailable'));
   await mount(); await open(); edit('Original rejected question'); submit(); await flush();
-  expect(text()).toContain('this question was not started');
+  expect(text()).toContain('this question was not sent');
   act(() => button('Edit question and source').props.onClick()); edit('A cancelled edit'); close();
   expect(JSON.parse(localStorage.getItem('argus:reader-foundation:project-a:en-US:request')!).draft).toMatchObject({
     question: 'Original rejected question', progressSource: sourceA,

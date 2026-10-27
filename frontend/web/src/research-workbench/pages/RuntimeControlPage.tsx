@@ -111,7 +111,7 @@ export function RuntimeControlPage({
         <button className="button button--ghost" disabled={resources.isFetching} onClick={() => { void resources.refetch(); void refresh(); }}><RefreshCw size={15} />{zh ? '刷新状态' : 'Refresh'}</button>
       </div>
       <p className="runtime-summary-hint">{empty
-        ? zh ? '先在对话里描述目标，无需先启动后台运行。有任务后，这里会显示实际运行状态。' : 'Describe your goal in the conversation; no background start is needed first. Actual work status will appear here.'
+        ? zh ? '在对话里描述目标后，这里会显示运行状态。' : 'Describe your goal in the conversation; work status will appear here.'
         : zh ? '安全暂停会等待当前工作结束。新的任务和调整直接在对话中告诉 Argus。' : 'Safe pause waits for current work to finish. Send new tasks and adjustments in the conversation.'}</p>
       {readOnly && <p>{zh ? '当前为只读展示，不能执行控制操作。' : 'Read-only view; control actions are disabled.'}</p>}
       {external && <p role="alert">{zh ? '此运行实例由外部管理，请在其启动端控制。' : 'This instance is externally managed. Control it from its host.'}</p>}
@@ -144,7 +144,7 @@ export function RuntimeControlPage({
         </div>
         {!HOSTED_TRIAL && !readOnly && <div className="runtime-source-update">
           <h3>{t('operations.sourceUpdate')}</h3>
-          {source.error ? <p role="alert">{requestError(source.error)}</p> : <p>{source.data?.error || source.data?.message || (zh ? '按需检查，不会自动更新或重启。' : 'Check on demand. Nothing updates or restarts automatically.')}</p>}
+          {source.error ? <p role="alert">{requestError(source.error)}</p> : source.data?.error || source.data?.message ? <p>{source.data.error || source.data.message}</p> : null}
           {!source.error && <div className="runtime-field-row">
             <button className="button" disabled={disabled || source.data?.running} onClick={() => void run('check-update', async () => { await api.checkSourceUpdate(); await source.refetch(); }, zh ? '已提交更新检查。' : 'Update check requested.')}><RefreshCw size={15} />{zh ? '检查更新' : 'Check updates'}</button>
             <button className="button" disabled={disabled || !source.data?.can_update || !source.data.update_available || source.data.running}

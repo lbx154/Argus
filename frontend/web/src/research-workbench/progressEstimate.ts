@@ -27,7 +27,6 @@ export interface ProgressCheckpoint {
 export interface ProgressEstimate {
   /** Exact fraction of recorded work items, never an estimate of the research goal. */
   workCompletion: number | null;
-  workScope: string;
   currentTask: string;
   currentTaskId: string;
   currentObjective: string;
@@ -36,7 +35,6 @@ export interface ProgressEstimate {
   currentEvent: EventMsg | null;
   runtime: ReturnType<typeof currentWorkStatus>;
   elapsedSeconds: number | null;
-  etaUnavailableReason: string;
   checkpoints: ProgressCheckpoint[];
   completedTasks: number;
   totalTasks: number;
@@ -150,41 +148,24 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
     skipped: text('本轮未做审查', 'This round was not reviewed'),
     self_checked: text('工程师自查过，还等独立审阅', 'Self-checked; independent review pending'),
   };
-  const reviewDefaults = {
-    pending: text('尚无能对应到当前工作项和轮次的通过记录。', 'No passing review is linked to the current work item and round.'),
-    running: text('审阅者正在核对本轮结果及其证据。', 'The Reviewer is checking this round’s results and evidence.'),
-    passed: text('通过记录仅适用于本轮提交的工作与证据。', 'The passing verdict applies to the work and evidence submitted in this round.'),
-    needs_work: text('审查发现仍有待处理的问题，需要继续工作。', 'The review found issues that require further work.'),
-    skipped: text('执行结束并不代表证据已经通过核对。', 'The end of execution does not establish that the evidence passed review.'),
-    self_checked: text('这是工程师的自查，这一轮还没有独立审阅通过。', "This is the Engineer's own check; no independent review has passed this round yet."),
-  };
   const review = {
     state: reviewState,
     label: reviewLabels[reviewState],
-    detail: String(currentReview?.reason || (needsWork && view?.review.reason) || reviewDefaults[reviewState]),
-    scope: text(`当前工作项${round > 0 ? ` · 第 ${round} 轮` : ''}。整体目标是否成立，仍须核对其完整验收条件。`,
-      `Current work item${round > 0 ? ` · Round ${round}` : ''}. The overall goal still requires checking its full acceptance criteria.`),
+    detail: String(currentReview?.reason || (needsWork && view?.review.reason) || ''),
+    scope: text(`当前工作项${round > 0 ? ` · 第 ${round} 轮` : ''}`, `Current work item${round > 0 ? ` · Round ${round}` : ''}`),
   };
   const handoff = [...roundEvents].reverse().find((event) => event.type === 'round.main.completed');
   const reviewCheckpointStatus: ProgressCheckpoint['status'] = reviewState === 'passed' ? 'done'
     : reviewState === 'running' ? 'active' : reviewState === 'needs_work' ? 'blocked' : 'pending';
   const checkpoints: ProgressCheckpoint[] = [
     { id: 'plan', label: text('工作项已记录', 'Work item recorded'), detail: current?.title || view?.mission.title || text('等待任务', 'Waiting for a task'), status: current || matchesView ? 'done' : 'pending' },
-    { id: 'start', label: text('开始执行', 'Execution started'), detail: startedAt !== null ? text('有任务启动时间记录', 'A task start time is recorded') : text('尚无启动记录', 'No start is recorded'), status: startedAt !== null ? 'done' : 'pending' },
-    { id: 'handoff', label: text('本轮执行已结束', 'Round execution ended'), detail: handoff ? text('已记录本轮执行结束，结果是否可用仍需核对', 'The round’s execution ended; its results still need to be checked') : text('尚无本轮执行结束记录', 'No end of execution is recorded for this round'), status: handoff ? 'done' : running && runtime.role === 'engineer' ? 'active' : 'pending' },
+    { id: 'start', label: text('开始执行', 'Execution started'), detail: '', status: startedAt !== null ? 'done' : 'pending' },
+    { id: 'handoff', label: text('本轮执行已结束', 'Round execution ended'), detail: '', status: handoff ? 'done' : running && runtime.role === 'engineer' ? 'active' : 'pending' },
     { id: 'review', label: text('核对本轮证据', 'Check this round’s evidence'), detail: review.label, status: reviewCheckpointStatus },
   ];
-  const workItemComplete = Boolean(current && DONE.has(current.status)) || (matchesView && ['complete', 'completed', 'done'].includes(view?.mission.status ?? ''));
-  const etaUnavailableReason = !snapshot.daemon.alive
-    ? text('运行已停止，无法预计完成时间。', 'Execution has stopped; a finish time is unavailable.')
-    : openEnded ? text('开放研究的剩余工作量尚不确定，无法可靠预计整体完成时间。', 'Open research has no known remaining workload, so its overall finish time cannot be reliably estimated.')
-    : needsWork ? text('审查要求继续补充或调整工作范围，暂无法预计完成时间。', 'Review requires further work or a scope change; a finish time is unavailable.')
-    : workItemComplete ? text('当前工作项已结束；这不提供整体目标的完成时间。', 'The current work item has ended; this does not establish when the overall goal will be reached.')
-    : text('当前记录没有可比较的固定工作量基线，暂无法可靠预计完成时间。', 'The current records contain no comparable, fixed-workload baseline for a reliable finish-time estimate.');
 
   return {
     workCompletion: dag.length ? completed / dag.length : null,
-    workScope: text('仅统计已记录的工作项；清单可随研究增减，完成比例不代表整体目标已成立。', 'Counts recorded work items only. The list can change during research; its completion fraction does not establish the overall goal.'),
     currentTask: current?.title || view?.mission.title || text('等待新任务', 'Waiting for a new task'),
     currentTaskId: taskId,
     currentObjective: current?.objective || (matchesView ? view?.mission.objective : '') || '',
@@ -193,7 +174,6 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
     currentEvent: latest ?? null,
     runtime,
     elapsedSeconds,
-    etaUnavailableReason,
     checkpoints,
     completedTasks: completed,
     totalTasks: dag.length,

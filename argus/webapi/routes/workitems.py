@@ -290,8 +290,7 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         zh = uses_cjk(record.get("request") or record.get("title"))
         publish_operator_message(
             life_dir,
-            text=("已放弃这个任务，没有开始执行。你可以修改要求后重新发送。" if zh else
-                  "Discarded before it started. Edit the request and send it again."),
+            text="已放弃。可以修改要求后重新发送。" if zh else "Discarded. Edit the request and send it again.",
             message_id=f"launch-discard-{time.time_ns()}",
         )
         ctx.invalidate_read_caches()

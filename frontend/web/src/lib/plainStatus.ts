@@ -63,7 +63,7 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   mission_stalled: ['任务停滞不前。', 'The task stalled.'],
   mission_blocked: ['任务被挡住了。', 'The task is blocked.'],
   mission_failed: ['任务没能完成。', 'The task could not be completed.'],
-  mission_paused: ['任务在完成前暂停；进度已保存，可以继续。', 'The task was paused before it finished; its progress is saved and it can be resumed.'],
+  mission_paused: ['任务已暂停；进度已保存，可以继续。', 'The task was paused; its progress is saved and it can be resumed.'],
   mission_ended: ['任务已结束。', 'The task ended.'],
   mission_ready: ['可以开始新任务。', 'Ready for a new task.'],
   round_in_progress: ['这一轮正在进行。', 'The round is in progress.'],
@@ -167,8 +167,8 @@ const STATUSES: Record<string, Pair> = {
 /** Why a round produced no judgment or a task stopped, by the backend's cause code. */
 const CAUSES: Record<string, Pair> = {
   engineer_service_dropped: [
-    '模型服务在工程师得出可核对的结果之前中断了会话，因此没有可以审阅的内容。Argus 会换一个新会话重试。',
-    'The model service dropped the session before the Engineer produced a checkable result, so there was nothing to review. Argus will retry in a fresh session.',
+    '模型服务中断了工程师的会话，Argus 会换一个新会话重试。',
+    "The model service dropped the Engineer's session; Argus retries in a fresh session.",
   ],
   reviewer_unreachable: [
     '审阅者的会话在得出结论前就结束了，Argus 会再试一次。',
@@ -391,8 +391,8 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
   [/^The backend has failed the same way (\d+) times in a row \(([^)]*)\)\. Waiting ([\d.]+)s before the next attempt[^\n]*/i,
     (match, locale) => ({
       text: locale === 'zh-CN'
-        ? `模型服务已连续 ${match[1]} 次以同样的方式失败；为了不让持续的故障白白花钱，${match[3]} 秒后再试。`
-        : `The model service has failed the same way ${match[1]} times in a row; waiting ${match[3]} seconds before trying again so a standing failure does not keep costing money.`,
+        ? `模型服务已连续 ${match[1]} 次同样失败，${match[3]} 秒后再试。`
+        : `The model service has failed the same way ${match[1]} times in a row; trying again in ${match[3]} seconds.`,
       technical: match[2],
     })],
   // "review: skipped (backend failure) — " only announces the sentence that follows it.

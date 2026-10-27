@@ -69,8 +69,8 @@ def render_markdown(report: dict) -> str:
         "# Research timeline / 研究工期预估",
         "",
         "Preliminary / 初步估计 · elapsed hours from project start / 从项目开始计时（小时）。",
-        "Ranges are scenarios, not confidence intervals; unplanned pivots may exceed them.",
-        "区间不是置信区间；新增实验或更换方向可能超出上限。",
+        "Proposals are estimated as alternatives.",
+        "各方案作为备选单独计算。",
         "",
     ]
     for proposal in report["proposals"]:

@@ -141,7 +141,6 @@ def _markdown(record: dict) -> str:
 
     card = record["card"]
     sections = [f"# {record['title']}",
-                wording("这是读者提问时读到的说明，以及这一步当时的记录，不是新的研究结果。", "The explanation the reader was reading when they asked, with the step's records at that time; not a new research result."),
                 wording("解释生成时间：", "Explanation generated: ") + when(record["generated_at"])]
     brief = card.get("reader_brief", {})
     for key, title in (("why", wording("问题背景", "Background")),
@@ -160,8 +159,8 @@ def _markdown(record: dict) -> str:
         sections.append("## " + wording("说明中保留的学习示例", "Learning example retained in the explanation") + "\n\n" + prose(card["learning_path"]))
     records = record["records"]
     sections.append("## " + wording("提问时这一步的记录", "This step's records when the question was asked") + "\n\n"
-                    + wording("下面是提问时这一步留下的记录原文。较长的记录只保留了节选；文中的文件路径和引用不代表已读取文件。",
-                              "These are the step's own records as they stood when the question was asked. Long records are excerpted; paths and citations do not establish that files were read."))
+                    + wording("下面是提问时这一步留下的记录原文，较长的只保留了节选。",
+                              "These are the step's own records as they stood when the question was asked; long records are excerpted."))
     sections.append("### " + wording("任务记录", "Task record") + "\n\n" + material(records["task"]))
     for index, event in enumerate(records["events"], 1):
         role = event.get("role") or wording("角色未记录", "Role unrecorded")

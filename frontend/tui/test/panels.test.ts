@@ -877,7 +877,7 @@ test('Manager waiting line distinguishes the foreground message and hides handof
     120,
   );
   assert.match(output, /Your message/);
-  assert.match(output, /context refreshed/);
+  assert.match(output, /working on your message/);
   assert.doesNotMatch(output, /SESSION HANDOFF|internal context/);
 });
 

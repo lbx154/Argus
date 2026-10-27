@@ -70,8 +70,8 @@ class DeferredMessages:
                 _write_record(path, {"status": "waiting", "created_at": time.time(),
                                          "request": request})
         chinese = uses_cjk(request["text"])
-        reply = ("消息已保存，正在等待空闲的模型调用名额；Argus 会自动处理，无需重复发送。" if chinese else
-                 "Your message is saved and waiting for model capacity. Argus will process it automatically; no resend is needed.")
+        reply = ("模型现在忙，消息已排上，空出来就自动处理。" if chinese else
+                 "The model is busy; your message is queued and will be handled automatically.")
         publish_operator_message(
             life_dir, text=reply, message_id=f"{request['turn_id']}-queued",
             event_fields={"queued": True, "user_action_required": False},
@@ -122,8 +122,8 @@ class DeferredMessages:
         record["status"] = "needs_attention"
         _write_record(path, record)
         request = record["request"]
-        reply = ("这条消息的处理被中断，原消息已保留。请先查看已有任务和回复，再决定是否重试。" if uses_cjk(request["text"]) else
-                 "Processing this message was interrupted. The message is saved; check existing tasks and replies before retrying.")
+        reply = ("这条消息的处理被中断了，原消息已保留。请先看看已有任务和回复，再决定要不要重发。" if uses_cjk(request["text"]) else
+                 "Processing this message was interrupted; the message is kept. Check existing tasks and replies before sending it again.")
         publish_operator_message(life_dir, text=reply,
                                  message_id=f"{request['turn_id']}-interrupted",
                                  event_fields={"success": False, "user_action_required": True})
@@ -132,10 +132,10 @@ class DeferredMessages:
         record["status"] = "needs_attention"
         _write_record(path, record)
         request = record["request"]
-        reply = (f"模型调用名额连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时都没有空出来，这条消息已停止自动重试，原消息已保留。请稍后再发送一次。"
+        reply = (f"模型连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时都在忙，这条消息先不重试了，原消息已保留；请稍后再发一次。"
                  if uses_cjk(request["text"]) else
-                 f"Model capacity stayed busy for {AUTOMATIC_RETRY_WINDOW_HOURS} hours, so Argus stopped retrying this message. "
-                 "It is saved; please send it again later.")
+                 f"The model stayed busy for {AUTOMATIC_RETRY_WINDOW_HOURS} hours, so Argus stopped retrying this message; "
+                 "it is kept. Please send it again later.")
         publish_operator_message(life_dir, text=reply,
                                  message_id=f"{request['turn_id']}-busy-expired",
                                  event_fields={"success": False, "user_action_required": True})

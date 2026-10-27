@@ -123,8 +123,8 @@ const LABELS: Record<MissionOutcomeKind, Pair> = {
   mission_stalled: ['The task stopped because recent rounds made no useful progress.', '最近几轮没有取得实质进展，任务已停止。'],
   mission_blocked: ['The task cannot continue until something outside it is resolved.', '任务需要先解决外部问题才能继续。'],
   mission_failed: ['The task could not be completed.', '任务没能完成。'],
-  mission_paused: ['The task was paused before it finished because {why}; its progress is saved and it can be resumed.', '任务在完成前暂停，因为{why}；进度已保存，可以继续。'],
-  mission_ended: ['The task ended without a recorded outcome.', '任务已结束，没有记录到明确的结果。'],
+  mission_paused: ['The task was paused because {why}; its progress is saved and it can be resumed.', '任务已暂停，因为{why}；进度已保存，可以继续。'],
+  mission_ended: ['The task ended.', '任务已结束。'],
 };
 
 // Why work stopped or waits, by stop kind or park reason, as a clause; mirrors

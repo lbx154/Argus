@@ -116,7 +116,7 @@ describe('session rename', () => {
     );
 
     expect(running).toContain('Stop now');
-    expect(running).toContain('Immediately interrupt this verified daemon');
+    expect(running).toContain('Stop background work now');
     expect(stopped).toContain('Stopped');
     expect(stopped).toContain('Delete…');
   });

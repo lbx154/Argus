@@ -172,7 +172,7 @@ class SupervisedEngineer(
                 raw_on_event(redacted)
 
             on_event = _redacted_on_event
-        state = RoundLoopState()
+        state = RoundLoopState(chinese=uses_cjk(objective))
         from ..core.grounding_baseline import objective_baseline
         from .round_reviewer import (
             mission_closes,

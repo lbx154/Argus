@@ -136,8 +136,8 @@ export default function WorkflowWorkbench() {
         {(error || catalog.error || snapshot.error) && <p role="alert" className="rounded-lg border border-line p-4 text-err">
           {error || errorText(catalog.error || snapshot.error)}
         </p>}
-        {!work && <p className="text-ink-faint">{text('打开工单后查看规格、角色状态、实验和独立审查。创建本身不会调用模型。',
-          'Open a work order to inspect its specification, roles, experiments and independent reviews. Creation does not call a model.')}</p>}
+        {!work && <p className="text-ink-faint">{text('打开工单后查看规格、角色状态、实验和独立审查。',
+          'Open a work order to inspect its specification, roles, experiments and independent reviews.')}</p>}
         {work && <>
           <div className="rounded-xl border border-line p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -191,7 +191,7 @@ export default function WorkflowWorkbench() {
           </div>
           <div className="rounded-xl border border-line p-5">
             <h2 className="font-semibold">{text('实际执行与审查记录', 'Execution and review records')}</h2>
-            <p className="my-2 text-xs text-ink-faint">{text('时长为调用/工具墙钟时间，包含等待，不等于模型推理利用率。', 'Durations are call/tool wall time, including waiting, not inference utilization.')}</p>
+            <p className="my-2 text-xs text-ink-faint">{text('时长为墙钟时间，含等待。', 'Durations are wall-clock time, including waits.')}</p>
             {work.calls.map(call => <div key={call.folder} className="border-t border-line py-3 text-sm">
               <p>{workflowActorLabel(call.role, text('工具执行', 'Tool execution'))} · {call.operation} · {call.status}
                 {call.decision ? ` · ${text('审查决定', 'review decision')}: ${call.decision.status}` : ''}

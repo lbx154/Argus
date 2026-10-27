@@ -441,3 +441,11 @@ it("keeps the team line, 暂停团队 and what waits on the person on the full c
   const overview = renderer.root.findByProps({ "data-testid": "map-overview" });
   expect(overview.findByProps({ "data-testid": "team-line" }).parent).toBe(overview);
 });
+
+it("says so when dependencies form a cycle", () => {
+  remount({ data: { ...data, tasks: [
+    { id: "a", title: "A", objective: "", status: "pending", deps: ["b"], ts: 1 },
+    { id: "b", title: "B", objective: "", status: "pending", deps: ["a"], ts: 2 },
+  ] } });
+  expect(renderer.root.find((n) => n.props.className === "map-graph-warning").children).toEqual(["检测到循环依赖（红线）"]);
+});

@@ -56,7 +56,7 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
   const fail = useCallback((intent: Intent, error: unknown) => {
     if (pending.current !== intent) return;
     cancel();
-    latest.current.notify('error', `Cannot open notification: ${errorText(error)}. No other session was used.`);
+    latest.current.notify('error', `Cannot open notification: ${errorText(error)}.`);
   }, [cancel]);
 
   useEffect(() => {
@@ -102,7 +102,6 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
     if (!path) {
       pending.current = null;
       current.noPath();
-      current.notify('info', 'Notification session opened. This notification does not identify a file.');
       return;
     }
     // Check the exact target file before using the existing preview. In

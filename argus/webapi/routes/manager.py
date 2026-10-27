@@ -322,8 +322,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                 })
             except (OSError, ValueError):
                 from ...core.operator_messages import publish_operator_message
-                reply = ("暂时没有空闲调用名额，消息未能加入等待队列，请稍后重试。" if uses_cjk(text) else
-                         "Model capacity is busy and the message could not be saved for retry. Please retry shortly.")
+                reply = ("模型现在忙，消息没能排上，请稍后再发。" if uses_cjk(text) else
+                         "The model is busy and your message couldn't be queued; please send it again shortly.")
                 publish_operator_message(ctx.resolve_or_404(sid), text=reply,
                                          message_id=f"{result['retry_request']['turn_id']}-queue-error")
                 queued = {"kind": "error", "reply": reply, "success": False}

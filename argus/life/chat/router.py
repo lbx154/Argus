@@ -315,7 +315,7 @@ class CommandRouter:
             self._reply(
                 "收到，我把这句话交给当前任务了。\n"
                 f"🔧 现在处理：{title}\n"
-                "它不会打断正在进行的 LLM 调用；下一轮会看到。\n"
+                "它做完手上这一步就会看到。\n"
                 "如果想另外开一个任务，请用 /add；查进度用 /status。"
             )
             return
@@ -342,7 +342,7 @@ class CommandRouter:
                 self._reply("\n".join(confirmations))
                 return
         if handoff is None or handoff.to != "team" or reply is None:
-            self._reply(_esc(reply or "经理现在不可用，没有安排任何任务。"))
+            self._reply(_esc(reply or "经理现在不可用，请稍后再发。"))
             return
 
         queued = self._queue_task(handoff)
@@ -670,7 +670,7 @@ class CommandRouter:
         queue_inbox_message(self.life_dir, text, source=self._source("nudge"))
         self._reply(
             f"💬 指令已注入 ({len(text)} 字)\n"
-            "当前 LLM 调用无法中断；下一次工程师 round / 下一 mission prompt 会看到。"
+            "它做完手上这一步就会看到。"
         )
 
     def _cmd_ask(self, arg: str) -> None:

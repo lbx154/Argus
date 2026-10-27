@@ -148,7 +148,7 @@ export function liveActivity(
   let tone: LiveActivity['tone'] = status.state === 'running' ? 'working' : 'waiting';
   let note = '';
   if (status.reason === 'provider_wait') {
-    note = zh ? '模型服务这次没有完成请求，Argus 会自动重试，不需要你操作。' : 'The model service did not complete the request; Argus retries on its own.';
+    note = zh ? '模型服务这次没有完成请求，稍后自动重试。' : 'The model service did not complete the request; retrying shortly.';
   } else if (lastLine?.running && quietFor !== null) {
     note = zh ? `命令仍在运行，已运行 ${minutes(nowSeconds - lastLine.ts, zh)}` : `The command is still running (${minutes(nowSeconds - lastLine.ts, zh)})`;
   } else if (status.reason === 'no_recent_progress') {

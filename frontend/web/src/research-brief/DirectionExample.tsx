@@ -73,6 +73,5 @@ export function DirectionExample() {
       <p className="text-xs font-medium text-ink" data-testid="direction-count">{result}</p>
       <p className="mt-1 text-xs leading-5 text-ink-dim">{explanation}</p>
     </div>
-    <p className="mt-3 border-t border-line pt-2 text-[11px] leading-5 text-ink-faint">{text('这里只统计这两支箭头提供的方向。找到一些独立方向，不等于已经找全研究对象的所有方向；图里的数字不能用来计算曲面的 Picard 数，也不能证明研究中的条件。', 'This counts only the directions supplied by these two arrows. Finding some independent directions does not establish that they span the whole research object. These numbers cannot determine a surface’s Picard number or prove the conditions used in the research.')}</p>
   </section>;
 }

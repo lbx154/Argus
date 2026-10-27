@@ -83,8 +83,7 @@ def test_an_interrupted_review_names_who_stopped_it_only_when_the_record_does(
             return RunnerResult(exit_code=130, fatal_error=f"External interrupt: {interrupt}")
 
     decision = _evaluate(Reviewer(runner=_InterruptedRunner()))
-    assert decision.reason.startswith(f"The Reviewer could not finish reading this round {said}; ")
-    assert "nothing here is a judgment on the work" in decision.reason
+    assert decision.reason.startswith(f"The Reviewer could not finish reading this round {said}. ")
     # Who stopped it travels as the decision's stop kind, not only as its sentence.
     assert decision.backend_stop_kind == kind
 
@@ -92,7 +91,7 @@ def test_an_interrupted_review_names_who_stopped_it_only_when_the_record_does(
         objective="降低验证集损失", round_index=1, session_id=None,
         main_summary="(engineer handoff)", main_error=None, config=ReviewerConfig(model="gpt-5.5"),
     )
-    assert decision.reason.startswith(f"审阅者没能读完这一轮，{said_zh}；")
+    assert decision.reason.startswith(f"审阅者没能读完这一轮，{said_zh}。")
 
 
 @pytest.mark.parametrize(
@@ -218,8 +217,7 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
     # The operator reads this sentence when the task stops: plain words,
     # the count of attempts, and the Reviewer's own record after it.
     assert reason.startswith(
-        "The Reviewer could not reach a judgment 2 times in a row, so Argus "
-        "stopped this task rather than settle the round without a real judgment. "
+        "The Reviewer could not reach a judgment 2 times in a row, so Argus stopped this task. "
     )
     assert "Reviewer backend returned no output" in reason
 

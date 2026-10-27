@@ -211,7 +211,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     assert options["run_label"] == "reader-clarification" and "mission_id" not in options
     saved = foundation.read_foundation(tmp_path, sid, request["request_id"])
     assert saved["source_snapshot"] == snapshot
-    assert request["question"] in saved["markdown"] and "original documents are unchanged" in saved["markdown"]
+    assert request["question"] in saved["markdown"] and "A clarification of the saved reading." in saved["markdown"]
     assert f"[Feasible bounds]({root['path']})" in saved["markdown"]
     assert client.post(url, json=request).json() == child and len(calls) == 2
     assert client.post(url, json={**request, "question": "Different"}).status_code == 409

@@ -75,7 +75,7 @@ export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { in
   if (REVIEW_PASSED.has(status)) return {
     independent: false,
     text: zh ? '已完成 · 没记下是否独立审阅过' : 'Completed · review source not recorded',
-    title: zh ? '这份较早的交付没记下是谁检查的，不能确认经过独立审阅' : 'This older delivery did not record who checked it, so independent review cannot be confirmed',
+    title: zh ? '较早的交付，没记下是谁检查的' : 'An older delivery; who checked it was not recorded',
   };
   return {
     independent: false,

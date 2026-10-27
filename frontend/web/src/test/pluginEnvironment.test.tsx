@@ -38,7 +38,7 @@ describe('official PLATON environment consent', () => {
     })); });
     const visible = JSON.stringify(renderer.toJSON());
     expect(visible).toContain('科学环境 · 上次检查结果');
-    expect(visible).toContain('下方为本次操作前的检查结果');
+    expect(visible).toContain('下方是上次检查的结果');
     expect(visible).not.toContain('科学环境已就绪');
     expect(renderer.root.findAllByType('button').some(node => node.children.includes('修复依赖'))).toBe(true);
     act(() => renderer.unmount());

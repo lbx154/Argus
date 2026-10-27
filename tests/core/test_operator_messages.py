@@ -96,7 +96,7 @@ def test_stale_decision_and_workspace_lock_are_humanized() -> None:
     assert "latest state" in humanize_runtime_reason(
         "stale decision: campaign changed since the question was created"
     )
-    assert "starting a duplicate" in humanize_runtime_reason(
+    assert "reuse or wait for it" in humanize_runtime_reason(
         "executor failed to start: workdir /tmp/p is already owned by active session s-1"
     )
 

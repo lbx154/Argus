@@ -70,7 +70,7 @@ describe('the web feed line', () => {
       stop_kind: 'provider_fence', error_code: 'trial_quota_exceeded',
       summary: '402: provider body with private account details',
     };
-    expect(zh(event)).toMatchObject({ text: '经理这次没能看完进展（试用额度不够了），稍后再看，工作照常进行。', tone: 'warn' });
+    expect(zh(event)).toMatchObject({ text: '经理这次没能看完进展（试用额度不够了），稍后再看。', tone: 'warn' });
     expect(line(event)?.text).toContain('trial quota');
     expect(zh(event)?.text).not.toContain('团队调整');
     expect(line(event)?.text).not.toContain('private account');
@@ -78,7 +78,7 @@ describe('the web feed line', () => {
 
   it('says why a check stopped, and keeps cancelled or superseded checks out of the feed', () => {
     const failed = { type: 'life.manager.supervision.failed', failure_stage: 'provider', status: 'failed' };
-    expect(zh({ ...failed, error_code: 'timeout' })).toMatchObject({ text: '经理这次没能看完进展（模型太久没有回应），稍后再看，工作照常进行。', tone: 'warn' });
+    expect(zh({ ...failed, error_code: 'timeout' })).toMatchObject({ text: '经理这次没能看完进展（模型太久没有回应），稍后再看。', tone: 'warn' });
     expect(zh({ ...failed, status: 'superseded', error_code: 'cancelled' })).toBeNull();
     expect(zh({ ...failed, status: 'superseded', error_code: 'superseded' })).toBeNull();
     expect(zh({ ...failed, error_code: 'cancelled', stop_kind: 'operator_pause' })).toBeNull();
@@ -91,9 +91,9 @@ describe('the web feed line', () => {
     expect(zh({ ...failed, status: 'issued', failure_stage: 'commit', action: 'steer', error_code: 'cancelled' })).toMatchObject({ text: '对工作的调整被打断了，恢复后会接着生效。', tone: 'warn' });
     expect(zh({ ...failed, failure_stage: 'provider' })?.text).not.toContain('团队调整');
     expect(zh({ ...failed, failure_stage: 'commit' })?.text).not.toContain('团队调整');
-    expect(zh({ ...failed, failure_stage: 'decision' })?.text).toBe('经理这次没能看完进展，稍后再看，工作照常进行。');
-    expect(zh({ ...failed, failure_stage: 'decision', error_code: 'observation_incomplete' })?.text).toBe('经理这次没能看完进展（没能读全需要的项目资料），稍后再看，工作照常进行。');
-    expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('经理这次没能看完进展，稍后再看，工作照常进行。');
+    expect(zh({ ...failed, failure_stage: 'decision' })?.text).toBe('经理这次没能看完进展，稍后再看。');
+    expect(zh({ ...failed, failure_stage: 'decision', error_code: 'observation_incomplete' })?.text).toBe('经理这次没能看完进展（没能读全需要的项目资料），稍后再看。');
+    expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('经理这次没能看完进展，稍后再看。');
   });
 
   it('shows reasoning summaries as pale role context, and drops them on request', () => {
@@ -251,7 +251,7 @@ describe('the web feed line', () => {
     expect(zh({ ...asked, operator_question: '' })!.text).toMatch(/^审阅者认为工作卡住了/);
     // The task it ended is parked on that question, as its row is.
     expect(zh({ type: 'life.mission.completed', status: 'blocked', outcome_class: 'blocked', success: false, operator_question: 'A or B?' }))
-      .toMatchObject({ text: '任务在完成前暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
+      .toMatchObject({ text: '任务已暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
   });
 
   it("says an Engineer's handoff is the Engineer's, and where it sent the work", () => {
@@ -383,7 +383,7 @@ describe('the web feed line', () => {
     expect(line({ type: 'life.mission.completed', outcome_class: 'blocked', status: 'done', success: true }))
       .toMatchObject({ text: 'The task cannot continue until something outside it is resolved.', tone: 'err' });
     expect(line({ type: 'life.mission.completed', status: 'legacy_weird_status', success: false }))
-      .toMatchObject({ text: 'The task ended without a recorded outcome.', tone: 'info' });
+      .toMatchObject({ text: 'The task ended.', tone: 'info' });
   });
 
   it('gives every catalog fixture the web shows a role label and a sentence', () => {

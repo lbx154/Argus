@@ -33,12 +33,12 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
     from .autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, RETRY_WINDOW_SPENT_REASON
 
     if raw.startswith(RETRY_WINDOW_SPENT_REASON):
-        return (f"模型服务连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时没有恢复，Argus 已停止自动重试，在你点击“运行”前不会开始新的任务。" if zh else
+        return (f"模型服务连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时没有恢复，Argus 已停止自动重试；点击“运行”即可继续。" if zh else
                 f"The model service did not recover during {AUTOMATIC_RETRY_WINDOW_HOURS} hours of automatic retries, so Argus "
-                "stopped retrying and starts no new task until you click Run.")
+                "stopped retrying; click Run to continue.")
     if "trial_budget_exhausted" in lowered or "试用额度不足" in raw:
-        return ("试用额度不足，任务已暂停。已有文件会保留，请联系管理员。" if zh else
-                "The trial allowance is insufficient. Work is paused and existing files are preserved. Contact the trial administrator.")
+        return ("试用额度不足，任务已暂停，已有文件保留；请联系管理员。" if zh else
+                "The trial allowance ran out, so work is paused; existing files are kept. Contact the trial administrator.")
     if "efbig" in lowered or "package extraction" in lowered:
         return ("执行环境未能准备所需文件，请联系管理员检查环境后重试。" if zh else
                 "The runtime could not prepare its required files. Ask the administrator to check the environment before retrying.")
@@ -56,9 +56,9 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
                 f"This request did not finish within {duration}. Retry, or contact the administrator if it keeps failing."
             )
         return (
-            f"这次运行在 {duration} 内没有完成；这不代表方案错误。Argus 会先检查任务规模，再做最小诊断。"
+            f"这次运行在 {duration} 内没有完成。Argus 会先检查任务规模，再做最小诊断。"
             if zh
-            else f"The run did not finish within {duration}; that does not prove the idea is wrong. Argus will check the workload size and run the smallest useful diagnostic first."
+            else f"The run did not finish within {duration}. Argus will check the workload size and run the smallest useful diagnostic first."
         )
     if "stale decision" in lowered or "campaign changed since" in lowered:
         return (
@@ -70,21 +70,21 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
         "workdir" in lowered and "already" in lowered and "session" in lowered
     ):
         return (
-            "另一个活动会话正在使用这个工作区；Argus 会复用或等待该会话，不会重复启动。"
+            "另一个会话正在使用这个工作区，Argus 会复用或等它结束。"
             if zh
-            else "Another active session is using this workspace. Argus will reuse or wait for it instead of starting a duplicate."
+            else "Another active session is using this workspace; Argus will reuse or wait for it."
         )
     if any(token in lowered for token in ("authentication", "credential", "api key", "access token")):
         return (
-            "继续执行需要你提供或确认访问凭证；Argus 不会读取或展示未授权的密钥。"
+            "继续执行需要你提供或确认访问凭证。"
             if zh
-            else "Continuing requires an access credential from you. Argus will not expose or guess credentials."
+            else "Continuing requires an access credential from you."
         )
     if "budget" in lowered and any(token in lowered for token in ("exceed", "cap", "limit", "pause")):
         return (
             "本次运行已达到预算上限，现有结果已保留；提高预算或缩小任务后可以继续。"
             if zh
-            else "This run reached its budget limit. Existing work is preserved; increase the budget or narrow the task to continue."
+            else "This run reached its budget limit; existing work is kept. Increase the budget or narrow the task to continue."
         )
     return raw
 

@@ -75,11 +75,10 @@ describe('A3 snapshot-only session context', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each(['en', 'zh-CN'] as const)('describes the IDE view, not Agent write permissions, in %s', locale => {
+  it.each(['en', 'zh-CN'] as const)('describes the IDE view in %s', locale => {
     const html = markup(<IdePage {...props} />, locale);
     expect(html).toContain(locale === 'en' ? 'Code workspace' : '代码工作区');
     expect(html).toContain(locale === 'en' ? 'This view is read-only' : '此视图只读');
-    expect(html).toContain(locale === 'en' ? 'does not restrict the Agent’s file write permissions' : '不限制 Agent 本身的文件写入权限');
     expect(html).not.toMatch(/Server code workspace|服务器代码工作区|Read-only safe mode|只读安全模式/);
     expect(fetch).not.toHaveBeenCalled();
   });

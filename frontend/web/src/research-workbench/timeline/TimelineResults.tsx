@@ -11,7 +11,7 @@ export function TimelineResults({ report, selectedId, text }: { report: Timeline
       {p.finish_hours && <p className="mt-1 text-xs text-ink-faint">{text('区间', 'Range')} {p.finish_hours.lower.toFixed(1)}–{p.finish_hours.upper.toFixed(1)} h · {text('剩余', 'Remaining')} {p.remaining_hours?.toFixed(1)} h</p>}
       {p.deadline_gap_hours != null && <p className={`mt-2 text-xs ${p.deadline_gap_hours > 0 ? 'text-red' : 'text-ink-faint'}`}>{text('预计超期', 'Forecast overrun')} {p.deadline_gap_hours.toFixed(1)} h</p>}
     </div>)}</div>
-    <p className="text-xs text-ink-faint">{text('初步估计，非成功承诺。区间覆盖已列出的工作；验证失败后的新增实验可能超出上限。各方案作为备选单独计算。', 'Preliminary estimates, not success guarantees. New experiments after a failed premise can exceed the range. Proposals are estimated as alternatives.')}</p>
+    <p className="text-xs text-ink-faint">{text('各方案作为备选单独计算。', 'Proposals are estimated as alternatives.')}</p>
     {selected.adaptation && <section className="space-y-3 rounded-xl border border-blue/40 bg-blue/5 p-4" aria-label={text('根据期限重排', 'Deadline adaptation')}>
       <h3 className="text-sm font-medium">{text('根据期限重排', 'Deadline adaptation')}</h3>
       {selected.adaptation.baseline_finish_hours && selected.finish_hours && <p className="text-sm">{text('调整前', 'Before')} <strong>{selected.adaptation.baseline_finish_hours.expected.toFixed(1)} h</strong> → {text('当前方案', 'Current plan')} <strong>{selected.finish_hours.expected.toFixed(1)} h</strong></p>}

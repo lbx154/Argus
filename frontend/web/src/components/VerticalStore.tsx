@@ -98,8 +98,8 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
     <p className={`mt-3 text-xs leading-5 ${needsEnvironment ? 'text-warn' : 'text-ink-faint'}`}>{needsEnvironment
       ? zh ? '当前环境尚未准备好，请让服务维护者查看下方环境详情。' : 'This environment is not ready. Ask the service maintainer to review the details below.'
       : row.kind === 'available' ? zh ? '尚未安装。部署完成并检查环境后，才能用于工作。' : 'Not installed. Deployment and environment checks are required before use.'
-        : row.enabled ? zh ? '已启用。可以在对话中说明目标；实际执行条件会随任务检查。' : 'Enabled. Describe your goal in the conversation; execution requirements are checked for each task.'
-          : zh ? '当前未启用。启用前请确认用途与运行条件。' : 'Currently disabled. Confirm the intended use and requirements before enabling.'}</p>
+        : row.enabled ? zh ? '已启用，可以在对话中说明目标。' : 'Enabled. Describe your goal in the conversation.'
+          : zh ? '当前未启用。' : 'Currently disabled.'}</p>
     <details className="mt-3 rounded-lg border border-line/50 px-3 py-2">
       <summary className="cursor-pointer text-xs text-ink-faint">{zh ? '能力原文与环境详情' : 'Original description and environment details'}</summary>
       <p className="mt-2 break-words text-xs text-ink-faint">{row.name} · {purposeText(row, locale)}</p>
@@ -169,7 +169,6 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
       </button>}
     </div>}
     {actions.length > 0 && <details className="mt-4"><summary className="cursor-pointer text-xs text-ink-dim">{zh ? '管理此能力' : 'Manage this capability'}</summary>
-      <p className="mt-2 text-xs text-ink-faint">{zh ? '安装、停用和卸载属于环境管理，不会开始你的任务。' : 'Installing, disabling or removing capabilities manages the environment. It does not start your task.'}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
       {actions.map((action) => {
         const Icon = actionIcon[action];

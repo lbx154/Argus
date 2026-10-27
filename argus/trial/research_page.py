@@ -12,10 +12,9 @@ button{cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overfl
 <a href="/invite">返回服务入口</a><h1>研究记录与反馈</h1><p id="identity"></p>
 <p>仅凭邀请码进入，无需注册。当前告知版本：operator-analytics-v3-workspace。服务器在同意后持续记录，
 关闭浏览器不会停止采集。独立研究副本最多保留30天，容量限制可能更早清除。</p>
-<p class="warning">只展示有限的可观察事件；编号为入库顺序，不是因果顺序，过程完整性始终未经证实。
+<p class="warning">事件按入库顺序编号，记录可能不完整。
 采集边界之前不回填；已授权的工作区工具会记录真实定义、调用参数及公开执行结果，可能包含代码与文件内容。
-隐藏推理、系统提示与凭证不属于采集范围；不完整、超限或疑似敏感的训练样本会被排除或隔离。
-产物引用不证明文件存在或已经下载；任务完成状态不代表需求已满足。</p>
+隐藏推理、系统提示与凭证不属于采集范围；不完整、超限或疑似敏感的训练样本会被排除或隔离。</p>
 <section aria-labelledby="permissions-title"><h2 id="permissions-title">内测数据用途与授权记录</h2>
 <p>新版团队内测登录告知包含内部模型训练，第三方或商业分享需要另行选择。
 下面显示服务器已保存的选择，可在这里撤回。授权只适用于生效之后符合条件且仍保留的记录，不追溯旧记录。</p>
@@ -33,7 +32,7 @@ button{cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overfl
 <button id="open">查看研究回放</button><p id="error" role="alert"></p>
 <section><h2>已记录事件</h2><pre id="coverage"></pre><div id="events"></div>
 <button id="next" disabled>下一页</button></section>
-<section><h2>您的明确评价（不会从任务状态自动推断）</h2>
+<section><h2>您的明确评价</h2>
 <form id="feedback"><label>是否满足需求 <select id="verdict">
 <option value="not_evaluated">尚未评价</option><option value="met_need">满足需求</option>
 <option value="needs_changes">仍需修改</option></select></label>

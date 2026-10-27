@@ -25,7 +25,7 @@ function AuthenticatedHtmlPreview({ html, title, className, sid, path }: { html:
   const servedPage = preview.data?.served_page === true;
   return <div className={`flex min-h-0 w-full flex-1 flex-col ${className}`}>
     {!!preview.data?.warnings.length && <p className="shrink-0 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">{zh ? '部分配套资源无法加载，页面可能不完整。' : 'Some linked assets are unavailable; the preview may be incomplete.'}</p>}
-    {!servedPage && <p className="shrink-0 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">{zh ? '此后端尚未支持独立网页预览；当前为内嵌预览，交互脚本可能不可用。' : 'This backend does not yet support standalone preview; embedded preview may not run interactive scripts.'}</p>}
+    {!servedPage && <p className="shrink-0 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">{zh ? '页面里的交互脚本可能无法运行。' : 'Interactive scripts may not run in this preview.'}</p>}
     <iframe title={title} src={servedPage ? previewPageUrl(sid, path) : undefined} srcDoc={servedPage ? undefined : preview.data?.html ?? html} sandbox="allow-scripts allow-downloads" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0 bg-white" />
   </div>;
 }

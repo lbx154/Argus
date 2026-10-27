@@ -763,7 +763,7 @@ def test_the_wait_for_an_answer_is_told_in_the_operator_s_language(tmp_path) -> 
     ).run()
 
     statuses = [event.get("text", "") for event in sink.events if event.get("type") == "life.operator_status"]
-    assert "在等你回答：基线用哪个数据集？（不需要这个答复的工作照常进行）" in statuses
+    assert "在等你回答：基线用哪个数据集？" in statuses
 
 
 class _CountingReplanRunner:

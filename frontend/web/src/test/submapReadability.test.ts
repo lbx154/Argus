@@ -42,7 +42,7 @@ it("keeps failed historical SELF work neutral about missing tool details", () =>
   ], false);
   const work = steps.find(step => step.id === "e1")!;
   expect(work.title).toBe("Recorded execution");
-  expect(work.detail).toContain("detailed tool steps were not recorded");
+  expect(work.detail).toContain("Detailed tool steps were not recorded");
   expect(work.source).toBe("interval");
   expect(work.status).toBe("failed");
   expect(steps.find(step => step.id === "e2")!.status).toBe("failed");
@@ -145,7 +145,7 @@ describe("step readability in buildSubmap", () => {
     expect(result.status).toBe("recorded");
     expect(result.summary).toContain("the overall goal was not complete at that time and further work remained");
     expect(result.detail).toContain("Read one source route.");
-    expect(result.detail).toContain("Stage certification was intentionally skipped; this is not final acceptance.");
+    expect(result.detail).toContain("Stage certification was skipped.");
     expect(rows.some((row) => row.kind === "review")).toBe(false);
     const legacy = buildSubmap({ ...task, status: "done" }, [
       event("e2", "life.mission.completed", { success: true, text: "" }),

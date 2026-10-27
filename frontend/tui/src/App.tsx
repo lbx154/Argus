@@ -402,7 +402,7 @@ export function App({
       (result) => {
         rewritingRef.current = false;
         if (result.error || !result.rewritten.trim()) {
-          setNotice(`rewrite failed · ${result.error || 'empty rewrite'} · your prompt is unchanged`);
+          setNotice(`rewrite failed · ${result.error || 'empty rewrite'}`);
           return;
         }
         setEdit(fromString(result.rewritten));
@@ -422,7 +422,7 @@ export function App({
       },
       (error: unknown) => {
         rewritingRef.current = false;
-        setNotice(`rewrite failed · ${(error as Error).message} · your prompt is unchanged`);
+        setNotice(`rewrite failed · ${(error as Error).message}`);
       },
     );
   };

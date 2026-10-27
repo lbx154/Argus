@@ -382,6 +382,7 @@ class RoundExecutionMixin:
             review = daemon_stop_review_decision(
                 fatal_error=fatal_error,
                 exit_code=engineer_result.exit_code,
+                chinese=state.chinese,
             )
             if on_event:
                 on_event(_review_event_payload(

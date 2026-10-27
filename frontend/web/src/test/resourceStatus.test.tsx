@@ -38,7 +38,6 @@ describe('ResourceStatusView', () => {
     expect(html).toContain('72%');
     expect(html).toContain('10.0 GiB / 40.0 GiB');
     expect(html).toContain('512 MiB');
-    expect(html).toContain('not a guarantee of exclusive availability');
   });
   it('does not invent device cards when telemetry is inaccessible or absent', () => {
     const html = renderToStaticMarkup(<ResourceStatusView status={{

@@ -33,7 +33,7 @@ def test_network_failure_is_explained_without_automatic_retry(tmp_path, monkeypa
         calls.append(1)
         raise urllib.error.URLError("synthetic timeout")
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", failed)
-    with pytest.raises(ValueError, match="不会自动重复下载"):
+    with pytest.raises(ValueError, match="等待网络响应超时"):
         native_cli._download_archive(object(), tmp_path / "fixture.zip", 0)
     assert calls == [1]
 

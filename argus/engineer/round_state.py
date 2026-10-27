@@ -53,6 +53,8 @@ class RoundLoopState:
     # completed review clears them.
     unreviewed_engineer_accounts: list[str] = field(default_factory=list)
     last_engineer_message: str = ""
+    # The task is written in Chinese; what the operator reads is said in it.
+    chinese: bool = False
     # The project state directory the mission belongs to, if it has one.
     state_root: Path | None = None
     # The backlog item this mission works on, when its packet names one; an

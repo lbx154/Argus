@@ -126,7 +126,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   const [en, zh] = cause(false) ? [` (${cause(false)})`, `（${cause(true)}）`] : ['', ''];
   const text = stage === 'commit' && ['continue', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, `The Manager decided on an adjustment, but it couldn't be applied${en}; the work carries on as it was.`, `经理想调整一下工作，但没能生效${zh}；工作按原样继续。`)
-    : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later and the work carries on.`, `经理这次没能看完进展${zh}，稍后再看，工作照常进行。`);
+    : localized(context, `The Manager couldn't finish looking over the progress${en}; it will look again later.`, `经理这次没能看完进展${zh}，稍后再看。`);
   return { text, tone: 'warn' };
 }
 
@@ -422,21 +422,19 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'round.reviewer_backend_failure': {
       const detail = clean(stringField(event, 'text'), 150);
-      const lead = context.density === 'full'
-        ? localized(context, "the Reviewer's model service is unreachable — waiting rather than going on unchecked", '审阅者的模型服务连不上 — 先等待，不在无人审阅的情况下继续')
-        : localized(context, "the Reviewer's model service is unreachable — waiting", '审阅者的模型服务连不上 — 先等待');
+      const lead = localized(context, "the Reviewer's model service is unreachable — waiting", '审阅者的模型服务连不上 — 先等待');
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${lead} · ${detail}`, 'err', { rule: true });
     }
     case 'round.stall':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'no progress this round', '这一轮没有进展'), 170), 'warn');
     case 'life.budget.pause':
       if (stringField(event, 'stop_kind') === 'cost_unreconciled')
-        return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
+        return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation', '调用费用待对账'), 'warn');
       return model('system', 'event.watch', '⏸', localized(context, `budget cap reached — paused · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`, `已达到预算上限 — 已暂停 · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`), 'warn');
     case 'budget.reservation.denied':
       return model('system', 'event.budget', '$', `${localized(context, 'budget denied', '预算申请被拒绝')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err', { rule: true });
     case 'budget.unpriced.blocked':
-      return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
+      return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation', '调用费用待对账'), 'warn');
     case 'budget.unpriced.acknowledged':
       return model('system', 'event.budget', '$', localized(context, 'Single-call cost risk approved; original usage remains pending', '已批准单笔费用风险；原始费用仍待对账'), 'warn');
     case 'life.lifecycle.block':
@@ -517,7 +515,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'round.backend_failure.hold_interrupted':
       return model('engineer', 'role.engineer', '↪', clean(stringField(event, 'text') || localized(context, 'the wait after a model-service failure ended early', '模型服务出错后的等待提前结束'), 180), 'info');
     case 'round.provider_turn_cap.restart':
-      return model('engineer', 'role.engineer', '↻', localized(context, 'reached the per-call turn allowance — continuing the same task in a fresh session', '达到单次调用的轮次上限 — 在新会话中继续同一任务'), 'info');
+      return model('engineer', 'role.engineer', '↻', localized(context, 'reached the per-call turn allowance — continuing in a fresh session', '达到单次调用的轮次上限 — 在新会话中继续'), 'info');
     case 'round.provider_turn_cap.reviewer_restart':
       return model('reviewer', 'role.reviewer', '↻', localized(context, 'the review reached its turn allowance — restarting it in a fresh session', '审阅达到轮次上限 — 在新会话中重新开始'), 'info');
     case 'round.reviewer_backend_failure.backoff': {

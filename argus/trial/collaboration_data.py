@@ -46,13 +46,6 @@ ROLES = {
 # Browsing returns content-free episode summaries, not an export package. Its
 # separate source-read ceiling matches the retained hosted capture capacity.
 MAX_OVERVIEW_SOURCE_BYTES = 128 * 1024 * 1024
-LIMITATIONS = [
-    "角色取自运行时标签和公开事件字段；不会从提示词猜测角色。",
-    "活动按观察时间排列，不代表依赖或交接；未记录的交接关系保持未知。",
-    "任务结果、过程采集、训练质量分别展示；工具成功不代表任务成功。",
-    "仅展示当前用途授权之后的保留记录；整个多智能体任务的完整性未经证实。",
-    "历史开始事件不能证明任务仍在运行；没有终态记录时，任务结果保持未确认。",
-]
 _CODE = re.compile(r"[a-z][a-z0-9_.-]{0,100}\Z")
 _ROLE_LABEL = re.compile(r"(manager|planner|engineer|reviewer)(?:[.-][a-z0-9_.-]+)?\Z")
 _OUTCOMES = {
@@ -173,7 +166,7 @@ class CollaborationData:
                 "observed_episodes": sum(task["collection"]["retained_episodes"] for task in tasks),
                 "observed_events": sum(task["collection"]["observed_events"] for task in tasks),
             },
-            "purpose": purpose, "limitations": list(LIMITATIONS), "global_complete": False,
+            "purpose": purpose, "global_complete": False,
             "completeness": self._completeness(
                 projects, MAX_OVERVIEW_SOURCE_BYTES, MAX_OVERVIEW_SOURCE_BYTES - remaining,
                 offset + len(rows) < total,
@@ -195,7 +188,7 @@ class CollaborationData:
         task = next((item for item in tasks if item["task_id"] == task_id), None)
         if task is None:
             raise AnalyticsError(404, "retained_task_not_found")
-        return {**task, "project": project, "purpose": purpose, "limitations": list(LIMITATIONS),
+        return {**task, "project": project, "purpose": purpose,
                 "completeness": self._completeness([project], MAX_SOURCE_BYTES, used, False)}
 
     @staticmethod

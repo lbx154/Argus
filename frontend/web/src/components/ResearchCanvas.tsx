@@ -242,7 +242,6 @@ function LiveProgressPreview({
       {reviewedArtifacts.length ? (
         <section className="mt-5">
           <div className="text-xs font-semibold text-ink-faint">{locale === 'zh-CN' ? '已生成的文件' : 'Files produced so far'}</div>
-          <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '文件已生成，结论是否成立仍以核验记录为准。' : 'A saved file is not a verification of its conclusions.'}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {reviewedArtifacts.map((item) => (
               <button
@@ -553,7 +552,6 @@ export function ResearchCanvas({
       <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {saveFailed && <p role="status" className="p-3 text-xs text-warn">{locale === 'zh-CN' ? '浏览器未能保存阅读位置；刷新后请重新选择文件。' : 'This browser could not save your reading selection. Choose the file again after reloading.'}</p>}
         {showFiles && <div className="file-browser">
-          <p className="text-xs leading-5 text-ink-faint">{locale === 'zh-CN' ? '打开文件即可阅读或下载；继续修改会把文件带回对话，不会自动执行。' : 'Open a file to read or download it. Revise brings it into the conversation without starting work.'}</p>
           {loading && <p role="status" className="text-sm text-ink-faint">{t('common.loading')}</p>}
           {previewArtifacts.map(file => <button type="button" key={file.path} onClick={() => selectPreviewPath(file.path)}>
             <FileText size={20} className="shrink-0 text-blue" aria-hidden="true" />

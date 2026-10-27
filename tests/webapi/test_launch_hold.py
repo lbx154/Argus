@@ -110,7 +110,7 @@ def test_held_task_is_queued_but_not_started_until_confirmed(tmp_path, monkeypat
         assert seen["launch"]["first_result_hours"] == 4
         assert starts == []
         assert result["launch_hold"]["item_id"] == item.id
-        assert "点“开始执行”后才会开始" in result["reply"]
+        assert "点“开始执行”就开始" in result["reply"]
         snapshot = client.get(f"/api/projects/{sid}/snapshot?compact=true").json()
         assert snapshot["launch_hold"]["title"] == "Survey X"
 

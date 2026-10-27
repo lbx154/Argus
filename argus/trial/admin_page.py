@@ -33,9 +33,7 @@ label.annotation{display:block;margin:12px 0}
 <button id="refresh">刷新</button></div><p id="dashboard-status" role="status"></p><p id="error" role="alert"></p>
 <div id="metrics" class="grid"></div>
 <section class="panel"><h2>邀请码使用情况</h2>
-<p class="muted">“活跃”指最近 5 分钟有访问的邀请码，不等于独立自然人；任务提交不等于任务完成。
-token / GPU 数据是累计额度账本，不受上方时间窗口限制。token 分别展示已结算、在途预留、待核实与未归因；预留不是实际消耗。
-消息提交与有明确接受证据的任务分别计数，HTTP 成功响应本身不能证明任务已创建。</p>
+<p class="muted">“活跃”指最近 5 分钟有访问的邀请码。token / GPU 数据是累计额度账本，不受上方时间窗口限制；预留尚未实际消耗。</p>
 <div class="scroll"><table><thead><tr><th>邀请码</th><th>类型 / 告知</th><th>最近访问</th>
 <th>消息 / 已接受任务 / 计算提交</th><th>token 已结算 / 预留 / 待核实 / 未归因</th><th>GPU 已用 / 预留</th><th>过程数据</th></tr></thead>
 <tbody id="accounts"></tbody></table></div></section>
@@ -46,8 +44,7 @@ token / GPU 数据是累计额度账本，不受上方时间窗口限制。token
 <section class="panel"><h2 id="trace-title">过程回放</h2>
 <p class="warning">只展示用户可见记录与经过过滤的数据，不提供隐藏思维链。
 脱敏是尽力而为；导出须人工复核，不能把试用同意当作对外出售或模型训练授权。</p>
-<p class="warning">事件编号是入库顺序，不是因果顺序。完整性始终未经证实；缺口会明确显示。
-任务状态不代表用户需求已满足，产物引用不证明文件存在或下载成功。</p>
+<p class="warning">事件按入库顺序编号，记录可能不完整。</p>
 <p id="coverage" class="muted"></p><button id="export" disabled>服务端审计导出当前页</button>
 <button id="next" disabled>下一页</button>
 <div id="trace"></div></section>
@@ -137,8 +134,7 @@ function showRecord(data, title) {
   el('export').disabled = !replaySelection;
   el('next').disabled = !replaySelection || !data.has_more;
   el('coverage').textContent = data.completeness ? JSON.stringify(data.completeness) :
-    data.truncated ? '记录超过读取上限；当前展示已截断，不能视为完整记录。' :
-    '记录仅反映已观察到的过程；排队确认不是研究完成证明。';
+    data.truncated ? '记录超过读取上限；当前展示已截断，不能视为完整记录。' : '';
   const rows = data.events || data.rows || data.frames;
   if (Array.isArray(rows)) {
     for (const row of rows) {

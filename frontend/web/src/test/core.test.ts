@@ -276,7 +276,6 @@ describe('shared frontend core', () => {
     // A written answer is the text box and its send button.
     expect(html).toContain('Answer in your own words');
     expect(html).toContain('Send answer');
-    expect(html).toContain('Your answer applies to this task.');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
@@ -339,7 +338,7 @@ describe('shared frontend core', () => {
     }])).toEqual({
       tone: 'warn',
       kind: 'validation',
-      text: "Argus skipped a record it couldn't read; your work is not affected.",
+      text: "Argus skipped a record it couldn't read.",
     });
   });
 
@@ -503,21 +502,21 @@ describe('shared frontend core', () => {
       [
         // An unrecognised status is kept as a technical fact, never written into the sentence.
         { status: 'legacy_weird_status', success: false },
-        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: 'legacy_weird_status' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended.', tone: 'info', missionStatus: 'ended', technical: 'legacy_weird_status' },
       ],
       [
-        // A paused task says why it paused and that it can resume; the raw status stays technical.
+        // A paused task says why it paused; the raw status stays technical.
         { status: 'paused_daemon_shutdown', success: false, stop_kind: 'backend_unavailable', resumable: true },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
         // A `parked` status carries its reason; it reads like the `paused_*` status it replaces.
         { status: 'parked', park_reason: 'daemon_shutdown', success: false },
-        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused because the Argus background service stopped or restarted; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
       ],
       [
         { status: 'parked', park_reason: 'external_work', success: false },
-        { kind: 'mission_paused', label: 'The task was paused before it finished because work outside Argus had to finish first; its progress is saved and it can be resumed.' },
+        { kind: 'mission_paused', label: 'The task was paused because work outside Argus had to finish first; its progress is saved and it can be resumed.' },
       ],
       [
         { status: 'parked', park_reason: 'research_open', success: false },
@@ -529,7 +528,7 @@ describe('shared frontend core', () => {
       ],
       [
         { success: false },
-        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: '' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended.', tone: 'info', missionStatus: 'ended', technical: '' },
       ],
     ] as const;
 

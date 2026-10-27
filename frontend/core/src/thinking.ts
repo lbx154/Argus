@@ -35,6 +35,6 @@ export function thinkingStatusLine(
   }
   const raw = phase || soulLine;
   return raw.includes('[SESSION HANDOFF')
-    ? 'Manager context refreshed · working on your message…'
+    ? 'working on your message…'
     : raw.replace(/^Manager\s*·\s*/i, '').slice(0, 100);
 }

@@ -59,8 +59,7 @@ def require_plugin(plugin_id, root=None):
         ) from exc
     if plugin is None:
         raise PluginUnavailableError(
-            f"插件 {plugin_id} 未安装、未启用或无法从宿主目录加载，任务未执行。"
-            "请在插件中心检查；不会切换为 research 执行。"
+            f"插件 {plugin_id} 未安装、未启用或无法加载，任务未执行。请在插件中心检查。"
         )
     return plugin
 
@@ -78,8 +77,7 @@ def require_session_plugin(life_dir, *, vertical=None, working_dir=None, check_b
     plugin = require_plugin(name)
     if vertical is not None and vertical != name:
         raise PluginUnavailableError(
-            f"插件 {name} 工作台记录曾路由到其他流程，已阻止继续执行。"
-            "原记录保持不变，请新建会话验收；不会自动改写旧任务。"
+            f"插件 {name} 工作台记录曾路由到其他流程，已阻止继续执行。请新建会话验收。"
         )
     if check_binding and not plugin.owns_workdir(working_dir):
         raise PluginUnavailableError(f"插件 {name} 的任务目录绑定缺失，任务未执行；请新建工作台会话。")
@@ -591,7 +589,7 @@ def _check_setup_health(name, root, *, only_platon=False):
     states = {row.get("id"): row.get("status") for row in components}
     missing = sorted(key for key in expected if states.get(key) != "ready")
     if missing:
-        raise PluginError("依赖修复未完成：" + ", ".join(missing) + "。请查看组件检查结果；不会报告修复成功。")
+        raise PluginError("依赖修复未完成：" + ", ".join(missing) + "。请查看组件检查结果。")
     return health
 
 

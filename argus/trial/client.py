@@ -249,7 +249,7 @@ def validate_role_overrides() -> None:
             conflicts.append(role.lower())
     if conflicts:
         raise ValueError("以下角色有与试用不兼容的独立模型设置：" + ", ".join(conflicts)
-                         + "。请先在模型设置中调整；现有配置不会被自动覆盖。")
+                         + "。请先在模型设置中调整。")
 
 
 def query_status(url: str, api_key: str) -> dict:

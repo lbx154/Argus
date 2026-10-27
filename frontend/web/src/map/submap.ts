@@ -232,8 +232,8 @@ function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
   const narration = readableRecord(event.text);
   const missingDetails = event.tool_details_recorded === false;
   const note = missingDetails
-    ? zh ? "执行日志确认发生过工具活动，但这一轮没有记录详细工具步骤。"
-      : "Execution logs confirm tool activity, but detailed tool steps were not recorded for this turn."
+    ? zh ? "这一轮没有记下具体的工具步骤。"
+      : "Detailed tool steps were not recorded for this turn."
     : "";
   return standaloneWork({
     id: event.id,
@@ -450,8 +450,8 @@ export function buildSubmap(
     // A round stopped rather than failed says by whom or what, as its record names it.
     const stopped = stopClause(e.stop_kind, zh);
     const note = stopped ? { ...recorded, summary: zh
-      ? `${stopped}，这一轮没有做完；这不是对工作本身的评价`
-      : `This round was cut short because ${stopped}; this says nothing about the work itself` } : recorded;
+      ? `${stopped}，这一轮没有做完`
+      : `This round was cut short because ${stopped}` } : recorded;
     const raw = String(e.text || "");
     const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
     const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
@@ -513,14 +513,13 @@ export function buildSubmap(
       kind,
       title,
       summary: reviewUnavailable
-        ? zh ? "审查器未能给出判断，不是审阅否决。" : "The Reviewer could not return a judgment; this was not a rejection."
+        ? zh ? "审阅者这次没给出判断。" : "The Reviewer could not return a judgment."
         : scope || note.summary || clipSentence(prose) || described || undefined,
       detail: [
         scope,
         prose || note.summary || (!scope ? described || noDetails(zh) : ""),
         scope && e.stage_certification === "intentionally_skipped"
-          ? zh ? "本阶段认证被有意跳过；这不代表最终验收通过。"
-            : "Stage certification was intentionally skipped; this is not final acceptance."
+          ? zh ? "本阶段跳过了认证。" : "Stage certification was skipped."
           : "",
         reviewSkipped && e.next_action && !nextNote.summary
           ? `${zh ? "接下来" : "What happens next"}: ${e.next_action}`
@@ -839,8 +838,8 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
     let relation: SubmapLink["relation"] = "record_order";
     let label = zh ? "接着" : "then";
     let explanation = zh
-      ? "同一任务的相邻观察，未确认直接因果或执行依赖。"
-      : "Adjacent observations of the same task; no causal dependency is asserted.";
+      ? "同一任务的下一条记录。"
+      : "The task's next record.";
     if (source.kind === "plan" && ["plan", "execution"].includes(target.kind)) {
       relation = "assignment";
       label = zh
@@ -861,8 +860,8 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       relation = "review";
       label = zh ? "提交审阅" : "sent for review";
       explanation = zh
-        ? "同一个任务、同一执行段、同一轮次的执行与审查记录。"
-        : "Execution and review belong to the same task, episode and numbered round.";
+        ? "这一轮的工作交给审阅。"
+        : "This round's work went to review.";
     } else if (
       source.kind === "review" &&
       target.kind === "revision" &&
@@ -884,8 +883,8 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       relation = "next_attempt";
       label = zh ? "进入下一轮" : "next round";
       explanation = zh
-        ? "修订建议之后出现了同一任务的下一轮执行；不表示建议的全部内容已被采纳。"
-        : "A later round follows the revision request; this does not certify every requested change was applied.";
+        ? "修改建议之后，开始下一轮。"
+        : "The next round follows the revision request.";
     } else if (
       source.kind === "review" &&
       target.kind === "execution" &&
@@ -918,8 +917,8 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       relation = "snapshot";
       label = zh ? "最终状态" : "ended as";
       explanation = zh
-        ? "任务状态记录；部分执行过程可能缺失。"
-        : "Links to the captured state of this task; intermediate records may be missing.";
+        ? "任务的最终状态。"
+        : "The task's final state.";
     } else if (
       target.kind === "result" &&
       ["review", "execution", "revision"].includes(source.kind)
@@ -927,8 +926,8 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       relation = "outcome";
       label = zh ? "形成结果" : "led to";
       explanation = zh
-        ? "同一任务的后续完成／失败事件，不等同于成功认证。"
-        : "A completion or failure event of this task, not a certification of success.";
+        ? "这一轮工作的结果。"
+        : "The outcome of this work.";
     }
     const contextual =
       ["record_order", "snapshot"].includes(relation) ||
@@ -1045,7 +1044,7 @@ export function layoutScene(
           label: boundary ? zh ? "继续" : "Continued" : zh ? '更多分支' : 'More branches',
           evidence: boundary
             ? `${task.title} · ${boundary.label} · ${steps[start - 1].title} → ${slice[0].title}`
-            : `${task.title} · ${zh ? '同一任务的其他分支，不表示串行依赖。' : 'Other branches of the same mission, without a serial dependency.'}`,
+            : `${task.title} · ${zh ? '同一任务的其他分支' : 'Other branches of the same mission'}`,
         });
       }
       start += slice.length;

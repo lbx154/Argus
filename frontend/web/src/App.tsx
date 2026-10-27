@@ -742,7 +742,7 @@ export default function App() {
     setWorkspaceView('activity');
     setMobileView('activity');
     setComposerFocus(value => value + 1);
-    notify('info', locale === 'zh-CN' ? '资料已加入草稿并开始上传；发送后 Argus 才会读取。' : 'Material added to the draft and uploading; Argus reads it once you send.');
+    notify('info', locale === 'zh-CN' ? '资料已加入草稿，发送后生效。' : 'Added to the draft; it takes effect when you send.');
   };
   const deliveryHistory = useMemo(() => {
     const receipts = new Map<string, DeliveryReceipt>();
@@ -1189,7 +1189,7 @@ export default function App() {
     }
     if (options?.whileRunning) {
       if (revisionContext) {
-        notify('error', locale === 'zh-CN' ? '请等待当前回复结束后再发送修订，不会自动排队重跑。' : 'Wait for the current reply before sending a revision. It will not be queued or rerun automatically.');
+        notify('error', locale === 'zh-CN' ? '请等当前回复结束后再发送修订。' : 'Wait for the current reply before sending a revision.');
         return false;
       }
       if (files.length || draft.uploaded?.length) {
@@ -1529,7 +1529,7 @@ export default function App() {
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
                     {revisionContext && <div className="experience-notice">
-                      <span>{locale === 'zh-CN' ? '对话修订 · 原始记录保留，仅重新回答，不重新提交研究任务。' : 'Chat revision · original records kept; research tasks are not resubmitted.'}</span>
+                      <span>{locale === 'zh-CN' ? '正在修订对话' : 'Revising chat'}</span>
                       <button type="button" onClick={() => setRevisionContext(null)}>{locale === 'zh-CN' ? '取消修订关联' : 'Detach revision'}</button>
                     </div>}
                     <ChatBox

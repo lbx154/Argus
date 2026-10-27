@@ -62,17 +62,12 @@ export function NewDaemonForm({
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={2} marginTop={1}>
       <Text bold color={theme.accent}>{title}</Text>
-      <Text dimColor>A clean Manager context with its own project timeline.</Text>
+      <Text dimColor>A new Manager with its own timeline.</Text>
       <FormField field="name" label="Name" edit={draft.name} active={draft.field === 'name'} />
       <FormField field="objective" label="Objective" edit={draft.objective} active={draft.field === 'objective'} />
       <Box flexDirection="column" marginTop={1}>
         <Text color={armed ? theme.accent : theme.info}>
           {armed ? '● Campaign starts immediately' : `○ Idle until you message ${applicationBrand().name}`}
-        </Text>
-        <Text dimColor>
-          {armed
-            ? 'The objective is persisted, continuous mode is armed, and the executor starts.'
-            : 'No executor is spawned yet; your first message can reply or dispatch work.'}
         </Text>
       </Box>
       <Box marginTop={1}>

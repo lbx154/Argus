@@ -79,10 +79,10 @@ export function PluginCard({ plugin, running, locale, act, children }: { plugin:
     </div>
     {plugin.id === 'crystalpilot' && <dl className="mt-3 space-y-2 rounded-lg bg-bg/60 p-3 text-xs leading-5">
       <div><dt className="inline text-ink-faint">{zh ? '准备：' : 'Bring: '}</dt><dd className="inline text-ink-dim">{zh ? '衍射数据或已有结构文件，以及要解决的问题。' : 'Diffraction data or existing structure files, and your research question.'}</dd></div>
-      <div><dt className="inline text-ink-faint">{zh ? '产出：' : 'Results: '}</dt><dd className="inline text-ink-dim">{zh ? '数据处理、结构求解或精修结果；可用分析取决于环境和软件授权。' : 'Data processing, structure solution or refinement results. Available analysis depends on the environment and software licenses.'}</dd></div>
+      <div><dt className="inline text-ink-faint">{zh ? '产出：' : 'Results: '}</dt><dd className="inline text-ink-dim">{zh ? '数据处理、结构求解或精修结果。' : 'Data processing, structure solution or refinement results.'}</dd></div>
     </dl>}
     <p className="mt-3 text-xs leading-5 text-ink-dim">{!plugin.supported ? tr(plugin.reason)
-      : state === 'ready' ? zh ? '工作台可以打开，分析前请确认数据和运行条件。' : 'The workbench can open. Confirm your data and execution requirements before analysis.'
+      : state === 'ready' ? zh ? '工作台已就绪。' : 'The workbench is ready.'
         : managed ? tr(state === 'preparing' ? preparingSentence(plugin.name) : unavailableSentence(plugin.name))
           : zh ? '需要先准备运行环境。请由维护此服务的人完成部署与软件授权。' : 'The execution environment needs preparation. Ask the service maintainer to configure deployment and software licenses.'}</p>
     {plugin.installed && plugin.enabled && <button className={`${control} mt-3`} disabled={disabled} onClick={() => void act('launch')}>{tr("打开工作台")}<ArrowUpRight size={14}/></button>}
