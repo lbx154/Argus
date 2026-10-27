@@ -134,6 +134,12 @@ class RunnerOptions:
     extension_env: dict[str, str] | None = None
 
 
+def may_act(options: Any) -> bool:
+    """Whether a call may reach tools beyond its backend's reads and its Argus
+    actions: not one without tools, nor one its caller pinned read-only."""
+    return not (options.disable_tools or (options.force_safe_mode and options.sandbox_mode == "read-only"))
+
+
 @dataclass
 class RunnerResult:
     """Result returned by a ``RunnerBackend.run_exec`` call."""

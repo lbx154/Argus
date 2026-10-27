@@ -49,7 +49,7 @@ class EvidenceBackend:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.calls.append((prompt, resume_thread_id, run_label))
         if run_label == "manager-supervision":
-            assert options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
+            assert not options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
             facts, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{"objective"'):])
             if facts["review"].get("status") in {"engineer", "manager"}:
                 hand_off(options, to="team", summary="The grouped-mean check fails; repair grouping before another review.",
@@ -251,11 +251,10 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
             assert shutdown_supervision(root) == 0
 
 
-@pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])
+@pytest.mark.parametrize("failure_point", ["directive", "final_receipt"])
 def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tmp_path, monkeypatch, failure_point):
     from pathlib import Path
 
-    from argus.daemon.state import _continuous_config_path
     from argus.manager import supervision
 
     class ProcessCrash(BaseException):
@@ -272,7 +271,6 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         target = Path(destination)
         crash = (
             failure_point == "directive" and target.name == "active_manager_directive.json"
-            or failure_point == "continuous" and target == _continuous_config_path(tmp_path)
             or failure_point == "final_receipt" and target.parent.name == "manager-supervision"
             and target.name != "latest.json" and json.loads(Path(source).read_text()).get("status") == "applied"
         )
@@ -301,16 +299,15 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         finally:
             assert shutdown_supervision(tmp_path) == 0
     else:
-        recovered = supervise(Manager(tmp_path, runner=backend), tmp_path, event)
+        # Applied before latest.json caught up: the durable receipt says so,
+        # and nothing is delivered again.
+        assert not supervision.recover_issued_supervision(Manager(tmp_path, runner=backend), tmp_path)
+        recovered = supervision._latest_record(tmp_path)
     assert len(backend.calls) == 1
     assert not (tmp_path / "inbox.jsonl").exists()
-    if failure_point == "continuous":
-        assert recovered["status"] == "superseded"
-        assert load_active_manager_directive(tmp_path) is None
-    else:
-        assert recovered["status"] == "applied"
-        assert before and load_active_manager_directive(tmp_path).revision == before.revision
-        assert recovered["effects"]["directive_delivered"]
+    assert recovered["status"] == "applied"
+    assert before and load_active_manager_directive(tmp_path).revision == before.revision
+    assert recovered["effects"]["directive_delivered"]
 
 
 def test_issued_event_failure_does_not_discard_the_durable_decision(tmp_path, monkeypatch):

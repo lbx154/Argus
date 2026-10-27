@@ -22,7 +22,8 @@ from ..core.handoff import HandOffActions, holder_of
 from ..core.models import RunnerOptions
 from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
-from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
+from ..core.workspace_facts import fact_text
+from ..daemon.state import _fsync_directory
 from ._helpers import _manager_backend_failure
 from ._session_ops import _ManagerSession
 from .observation import (
@@ -41,7 +42,6 @@ _GUARD = threading.Lock()
 _CLOSED = False
 _STOPPED_ROOTS: set[str] = set()
 MAX_PENDING_PROJECTS = 64
-_CHANGED_PATHS_SHOWN = 20
 
 
 class SupervisionBusy(RuntimeError):
@@ -181,11 +181,6 @@ def _check(
     to, note = payload["to"], payload.get("note", "").strip()
     if to == "planner" and not note:
         raise ValueError("to=planner needs your instruction for the Planner in note.")
-    if to == "planner" and event.get("type") == EventType.LIFE_OBSERVER_NOTE:
-        raise ValueError(
-            "An Observer's remark never moves the work to the Planner: hand it "
-            "to=team, with your instruction in note."
-        )
     consultation = payload.get("consultation", {})
     if consultation:
         from ..advisor.receipts import read_receipt
@@ -223,35 +218,31 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "", brief: st
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     asked += f"\n{brief}\n\n" if brief else ""
-    root = getattr(observation, "root", None)
     # The summary is shown to the operator as written, like the Observer's remark.
-    language = operator_language(root is not None and session_is_chinese(load_mission_view(root)))
+    language = operator_language(session_is_chinese(load_mission_view(observation.root)))
     return (
         "You are the persistent project Manager.\n"
         + asked
         + "Judge from the evidence below whether the team's course serves the operator's "
         f"objective, and end your turn with hand_off, its summary {language}.\n"
         "Each reading in recorded_assumptions is already shown to the operator; your "
-        "assumptions name only a reading this decision chooses for the first time.\n\n"
+        "assumptions name only a reading this decision chooses for the first time.\n"
+        f"evidence_refs are files under {observation.root}: what limitations say this "
+        "snapshot cut or left out, read there yourself.\n\n"
         + observation.render()
     )
 
 
-def _owns_reserved_control(root: Path, record: dict[str, Any]) -> bool:
-    reserved = record.get("reserved_authority")
-    if not isinstance(reserved, dict):
-        return False
+def _control_as_judged(root: Path, record: dict[str, Any]) -> bool:
+    """Project control is still what the Manager judged, but for its own directive.
+
+    The directive write can precede the applied receipt; replayed, its stable
+    source proves it is this decision's, and all other control must still match.
+    """
     current = control_identity(root)
-    if current == reserved:
-        return True
-    # The directive write can precede its outbox checkpoint. Its stable source
-    # proves ownership of this one effect; all other authority must still match.
-    directive = current.get("directive", {})
-    return bool(
-        directive.get("source") == f"manager.supervision:{record['id']}"
-        and {key: value for key, value in current.items() if key != "directive"}
-        == {key: value for key, value in reserved.items() if key != "directive"}
-    )
+    if current["directive"].get("source") == f"manager.supervision:{record['id']}":
+        current["directive"] = json.loads(record["control_revision"])["directive"]
+    return fact_text(current) == record["control_revision"]
 
 
 def _obstacle_basis(event: dict[str, Any], observation: Any, item_id: str) -> tuple[str, str]:
@@ -363,18 +354,10 @@ def _apply(
         if not acquired:
             raise SupervisionBusy("daemon control is busy")
         observation = observe_project(root, event=event)
-        if observation.incomplete_requirements:
-            record["observation_limitations"] = observation.facts["limitations"]
-            record["incomplete_requirements"] = list(observation.incomplete_requirements)
-            raise SupervisionSuperseded("required project facts could not be fully observed")
-        if cancelled() or not (
-            observation.control_revision == record["control_revision"]
-            or _owns_reserved_control(root, record)
-        ):
+        if cancelled() or not _control_as_judged(root, record):
             raise SupervisionSuperseded("newer project control")
         # Work that moved on while the Manager decided does not void its
         # decision; voided, the decision was lost and nobody asked again.
-        record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
         effects = record.setdefault("effects", {"supervision_id": record["id"]})
         # Each reading the Manager chose in the operator's place, once per decision.
         record_assumptions(
@@ -386,7 +369,6 @@ def _apply(
         if decision["action"] == "continue":
             effects["effect"] = "current course retained"
             _apply_risk_decision(root, record, event, observation, effects)
-            record["applied_control_revision"] = observation.control_revision
             return effects
         if decision["action"] == "stop":
             # The mission's own round loop parks this run at its next
@@ -395,31 +377,10 @@ def _apply(
             if not attempt:
                 raise SupervisionSuperseded("no mission run to stop")
             effects.update(effect="mission parked", stopped_attempt=attempt)
-            record["applied_control_revision"] = observation.control_revision
             return effects
-        if not _owns_reserved_control(root, record):
-            # Reserve before any team-facing write. A crash before the
-            # reservation receipt is durable is conservatively superseded;
-            # generation equality alone never proves this command owns it.
-            before = control_identity(root)
-            continuous = observation.continuous
-            swapped = compare_and_swap_continuous_config(
-                root, expected=continuous, enabled=continuous.enabled,
-                objective=continuous.objective, open_ended=continuous.open_ended,
-                done_reason=continuous.done_reason,
-            )
-            if not swapped:
-                raise SupervisionSuperseded("supervision generation could not be reserved")
-            reserved = control_identity(root)
-            expected = {**before["continuous"], "generation": continuous.generation + 1}
-            expected["done_at"] = reserved["continuous"]["done_at"]
-            if reserved != {**before, "continuous": expected}:
-                raise SupervisionSuperseded("newer control after reservation")
-            record["reserved_authority"] = reserved
-            effects["continuous_generation"] = continuous.generation + 1
-            _write(path, record)
-        if cancelled() or not _owns_reserved_control(root, record):
-            raise SupervisionSuperseded("control changed before directive delivery")
+        # The continuous generation is the operator's word, and a running
+        # Planner stops when it moves, so a steer leaves it alone. Its directive
+        # is scoped to the objective judged here, which a newer one leaves inert.
         if decision["action"] == "steer":
             source = f"manager.supervision:{record['id']}"
             directive = load_active_manager_directive(root, expected_objective=observation.continuous.objective)
@@ -431,7 +392,6 @@ def _apply(
                 )
             effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
             _apply_risk_decision(root, record, event, observation, effects)
-        record["applied_control_revision"] = observe_project(root, event=event).control_revision
         _write(path, record)
         return effects
 
@@ -463,7 +423,6 @@ def _deliver(
         code = interruption_code() if interruption_code else ("cancelled" if cancelled() else None)
         code = code or ("timeout" if isinstance(exc, TimeoutError) else None)
         code = code or ("cancelled" if isinstance(exc, CancelledError) else None)
-        code = code or ("observation_incomplete" if record.get("incomplete_requirements") else None)
         code = code or ("superseded" if superseded else None)
         code = code or ("busy" if busy else None)
         record["status"] = "superseded" if superseded else "issued"
@@ -535,14 +494,6 @@ def supervise(
             latest = _latest_record(root)
             if latest.get("status") == "issued":
                 return _deliver(root, latest.get("source_event", {}), latest, cancelled or (lambda: False))
-            # A stalled turn or an Observer's remark is reported once and
-            # changes no project file, so it is new evidence by itself.
-            if (not observation.incomplete_requirements and latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
-                    and event.get("stall_reason") not in _REPORTED_ONCE
-                    and observation.control_revision in {
-                latest.get("control_revision"), latest.get("applied_control_revision"),
-            }):
-                return latest
             identity = uuid.uuid4().hex
             path = root / "manager-supervision" / f"{identity}.json"
 
@@ -566,7 +517,6 @@ def supervise(
 
             record: dict[str, Any] = {
                 "version": 1, "id": identity,
-                "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
                 "trigger": {key: event[key] for key in (
                     "type", "item_id", "event_id", "round_index", "consult_reason", "process_stuck",
@@ -577,7 +527,6 @@ def supervise(
                 }) if event else {},
                 "available_refs": observation.facts["evidence_refs"],
                 "observation_limitations": observation.facts["limitations"],
-                "incomplete_requirements": list(observation.incomplete_requirements),
                 "evidence_refs": [], "cited_refs": [],
                 "created_at": time.time(), "status": "evaluating",
             }
@@ -585,10 +534,6 @@ def supervise(
             failure_stage = "provider"
             result = None
             try:
-                if observation.incomplete_requirements:
-                    failure_stage = "decision"
-                    record["error_code"] = "observation_incomplete"
-                    raise SupervisionDecisionError("observation_incomplete", "required project facts could not be fully observed")
                 session: Any = _ManagerSession(backend, root) if backend is not None else manager._session
                 from ._helpers import _manager_model, _manager_reasoning_effort
 
@@ -599,11 +544,13 @@ def supervise(
                         "superseded": "Manager supervision superseded",
                     }.get(code) if code else None
 
+                # Pinned read-only, so no tool it holds acts (core.models.may_act):
+                # the Manager reads what its snapshot cut where evidence_refs name it.
                 options = RunnerOptions(
                     model=_manager_model(), reasoning_effort=_manager_reasoning_effort(),
-                    skip_git_repo_check=True,
-                    sandbox_mode="read-only", force_safe_mode=True, disable_tools=True,
+                    skip_git_repo_check=True, sandbox_mode="read-only", force_safe_mode=True,
                     working_dir=str(getattr(manager, "execution_workdir", root)),
+                    add_dirs=[str(observation.root)],
                     external_interrupt_reason_provider=interrupt_reason,
                 )
                 actions = HandOffActions(
@@ -737,17 +684,12 @@ _DELIVERY_BOUNDARIES = frozenset({
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """What a review puts to the Manager, or "" when nothing.
 
-    A workspace that changed while the Reviewer judged, an Engineer's or a
-    Reviewer's ``→ manager``, work that climbed to the Manager because it came
-    back unchanged, or a check the Reviewer cannot make here while the
-    operator cannot be asked, so accepting its risk falls to the Manager.
-    A question goes to the operator, and how the work flows is the Observer's
-    to report.
+    An Engineer's or a Reviewer's ``→ manager``, work that climbed to the
+    Manager because it came back unchanged, or a check the Reviewer cannot make
+    here while the operator cannot be asked, so accepting its risk falls to the
+    Manager. A question goes to the operator, and how the work flows is the
+    Observer's to report.
     """
-    changed = event.get("changed_during_review")
-    if changed:
-        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:_CHANGED_PATHS_SHOWN]))}); "
-                "its verdict stands as written: decide whether this review counts")
     handed = HANDED_TO_MANAGER.get(str(event.get("review_source") or ""))
     if (
         handed and holder_of(event.get("status"), event.get("operator_question")) == "manager"
@@ -769,8 +711,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     reason: str | None = ""
     if event_type in {EventType.LIFE_DAEMON_DEGRADED, EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}:
         reason = None
-    elif event_type == EventType.ROUND_REVIEW_COMPLETED and (
-            holder_of(event.get("status")) in {"engineer", "manager", "operator"} or event.get("changed_during_review")):
+    elif event_type == EventType.ROUND_REVIEW_COMPLETED and holder_of(event.get("status")) in {"engineer", "manager", "operator"}:
         reason = _review_consult_reason(project_root, event)
         if reason and HANDED_TO_MANAGER.get(str(event.get("review_source") or "")) and holder_of(
             event.get("status"), event.get("operator_question"),

@@ -31,7 +31,7 @@ def advisor_run(ctx: Any) -> Iterator[None]:
     options = ctx.options
     role = caller_role(ctx.run_label)
     root = ctx.usage_project_root
-    if root is None or role is None or options.disable_tools or not options.working_dir:
+    if root is None or role is None or not options.working_dir:
         yield
         return
     try:

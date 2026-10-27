@@ -85,10 +85,9 @@ Independence rests on facts, not permissions. The round already snapshots the
 workspace as `candidate` before the Reviewer starts; after the Reviewer's turn
 the host snapshots it again and compares. Any changed path is recorded as
 `changed_during_review` on `round.review.completed`, beside a verdict that
-stands as written, and the Manager is consulted once through its supervision
-to decide whether the review counts. A snapshot or comparison that fails is
-skipped and never holds up the review. The specialist final-paper passes run
-before the `candidate` snapshot and are not covered by this check.
+stands as written. A snapshot or comparison that fails is skipped and never
+holds up the review. The specialist final-paper passes run before the
+`candidate` snapshot and are not covered by this check.
 
 If the provider call has already returned, its token/premium usage and session
 metadata are retained on a blocked review rather than discarded with the

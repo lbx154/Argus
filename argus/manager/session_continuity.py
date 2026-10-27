@@ -120,7 +120,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
 
     put("active_manager_directive", active_directive)
     put("supervision_receipt", {key: receipt[key] for key in (
-        "id", "status", "decision", "effects", "waiting_questions", "evidence_revision", "control_revision",
+        "id", "status", "decision", "effects", "waiting_questions", "control_revision",
     ) if key in receipt})
     omitted_questions = 0
     for question in questions:
@@ -146,8 +146,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
     }
     if len(items) > len(selected):
         facts["limitations"].append(f"showing {len(selected)} of {len(items)} live tasks; unanswered questions are listed separately")
-    bounded, incomplete = bounded_facts(redact_secrets_record(facts, known_values=secrets))
-    capsule["incomplete_observation_requirement_count"] = len(incomplete)
+    bounded = bounded_facts(redact_secrets_record(facts, known_values=secrets))
     # Reuse this already recovered read. Calling observe_project here would
     # re-enter Backlog/mission-view locks with their normal unbounded waits.
     return capsule, render_facts(bounded)

@@ -3,9 +3,8 @@
 Each time another role ends a turn it reads the task's events with the
 Engineer's tools, resuming the task's session and reading only what is new,
 says nothing when the flow is fine, and otherwise gives the Manager one remark
-on that task through its supervision; with no Manager, or once the task is
-delivered, the operator gets an alert. A look that fails is skipped and never
-holds up the work.
+on that task through its supervision; with no Manager, the operator gets an
+alert. A look that fails is skipped and never holds up the work.
 """
 from __future__ import annotations
 
@@ -207,17 +206,17 @@ def test_it_never_takes_the_formal_review_for_a_duplicate(team):
     assert "subagent review inside its turn does not replace it" in prompt
 
 
-@pytest.mark.parametrize("delivered", [False, True])
-def test_with_no_manager_or_once_delivered_the_operator_is_alerted(team, delivered):
-    if delivered:
-        team.feed.log.handle_event({"type": EventType.LIFE_MISSION_COMPLETED, "item_id": "m-1", "status": "done"})
-    else:
+@pytest.mark.parametrize("manager", [True, False])
+def test_a_remark_on_a_delivered_task_goes_to_the_manager_and_with_none_the_operator_is_alerted(team, manager):
+    """s-efe9deac, 10-26 13:28: a remark on a task parked for the Manager went to the operator."""
+    team.feed.log.handle_event({"type": EventType.LIFE_MISSION_COMPLETED, "item_id": "m-1", "status": "parked"})
+    if not manager:
         team.supervisor.manager = None
     team.backend.replies = [SPIN]
     _turn(team)
     (note,) = team.feed.notes()
-    assert note["to"] == "operator" and note["operator_alert"] is True
-    assert _asked(team) == ""
+    assert (note["to"], note.get("operator_alert", False)) == ("manager" if manager else "operator", not manager)
+    assert _asked(team).endswith(SAID) is manager
 
 
 def test_the_same_remark_is_not_made_twice(team):

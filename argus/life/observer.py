@@ -19,8 +19,8 @@ the project done): after it nothing is left to flow. Each look ends with the
 ``observe`` form; when all is well it leaves the remark out and no record of
 its own. A remark is one ``life.observer.note`` event, naming its task and the
 event times it rests on, for the Manager, who
-hears it through its supervision and decides what to do; with no Manager, or
-once the task is delivered, the operator gets it as an alert.
+hears it through its supervision and decides what to do; with no Manager, the
+operator gets it as an alert.
 """
 from __future__ import annotations
 
@@ -238,24 +238,23 @@ class ObserverSink:
             close = getattr(quiet, "close_acp_clients", None)
             if callable(close):
                 close()
-        delivered = _ended(root, task)
-        if thread and task and not delivered:
+        if thread and task and not _ended(root, task):
             watch.sessions[task] = (thread, began)
         if heard is None:
             return
         try:
-            self._say(task, *heard, delivered)
+            self._say(task, *heard)
         except Exception:  # noqa: BLE001 - an unsaid remark is not recorded as said
             LOG.warning("the Observer's remark was not delivered", exc_info=True)
 
-    def _say(self, task: str, text: str, seen_at: tuple[float, ...], delivered: bool) -> None:
+    def _say(self, task: str, text: str, seen_at: tuple[float, ...]) -> None:
         """One remark on ``task``, as one event: for the Manager, else an alert for the operator."""
         event: dict[str, Any] = {
             "type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "text": text, "seen_at": list(seen_at),
         }
         if task:
             event["item_id"] = task
-        if self.supervisor.manager is None or delivered:
+        if self.supervisor.manager is None:
             event.update(to="operator", operator_alert=True)
         else:
             event["to"] = "manager"

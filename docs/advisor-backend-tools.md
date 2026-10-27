@@ -10,9 +10,10 @@ the Advisor's model does not add tools to a caller that cannot expose them.
 | Copilot CLI | Yes | Scoped stdio MCP tool `argus_advisor-consult_advisor`, with explicit availability and permission |
 | Codex, Claude, Qoder, Cursor, OpenCode, Grok, DSH | Not integrated | These adapters do not currently register and allowlist this Advisor tool for read-only calls |
 
-Calls marked `disable_tools=True` expose no Advisor tool on any backend. Such
-calls can still assess completed Advisor receipts provided in their evidence
-snapshot. For other backends, a caller already allowed to use shell can use the
+Calls marked `disable_tools=True`, or pinned read-only by `force_safe_mode=True`
+(Manager supervision), expose no Advisor tool on any backend. Such calls can
+still assess completed Advisor receipts provided in their evidence snapshot.
+For other backends, a caller already allowed to use shell can use the
 existing Advisor CLI. Argus never grants shell as a fallback for a read-only role.
 
 Copilot retains `view`, `rg`, and `glob`, plus explicitly bound tools such as the

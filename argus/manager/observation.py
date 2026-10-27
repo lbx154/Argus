@@ -22,21 +22,6 @@ _TASK_FIELDS = (
 )
 
 
-def _semantic(value: Any) -> Any:
-    if isinstance(value, dict):
-        result = {key: _semantic(item) for key, item in value.items() if key not in {
-            "ts", "timestamp", "created_at", "updated_at", "set_at", "observed_at", "started_ts",
-            "event_id", "round", "round_index", "rejected_attempts", "age_s", "evidence_refs",
-        }}
-        if result.get("pending_question") and result.get("status") in {"running", "parked"}:
-            result["status"] = "awaiting_operator"
-            result.pop("last_error", None)
-        return result
-    if isinstance(value, list):
-        return [_semantic(item) for item in value]
-    return value
-
-
 def _read_object(
     path: Path, *, limitations: list[str] | None = None, unobserved: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -74,17 +59,15 @@ def _read_object(
         return unavailable("source could not be read as a valid JSON object")
 
 
-def control_identity(
-    root: Path, *, limitations: list[str] | None = None, unobserved: dict[str, str] | None = None,
-) -> dict[str, Any]:
+def control_identity(root: Path, *, limitations: list[str] | None = None) -> dict[str, Any]:
     """Only durable authority belongs in the commit fence, not display activity."""
     from ..core.pipeline_state import read_pipeline_state
 
     return {
         "continuous": asdict(read_continuous_state(root)),
         "pipeline": read_pipeline_state(root),
-        "campaign": _read_object(root / "campaign-control" / "HEAD.json", limitations=limitations, unobserved=unobserved),
-        "directive": _read_object(root / "active_manager_directive.json", limitations=limitations, unobserved=unobserved),
+        "campaign": _read_object(root / "campaign-control" / "HEAD.json", limitations=limitations),
+        "directive": _read_object(root / "active_manager_directive.json", limitations=limitations),
     }
 
 
@@ -93,9 +76,7 @@ class ManagerObservation:
     root: Path
     continuous: ContinuousConfigState
     control_revision: str
-    evidence_revision: str
     facts: dict[str, Any]
-    incomplete_requirements: tuple[str, ...] = ()
 
     def current(self) -> bool:
         return fact_text(control_identity(self.root)) == self.control_revision
@@ -112,25 +93,15 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
 
     root = Path(root).expanduser().resolve()
     diagnostics: list[str] = []
-    unobserved: dict[str, str] = {}
-    source_semantics: dict[str, Any] = {}
-    authority = control_identity(root, limitations=diagnostics, unobserved=unobserved)
+    authority = control_identity(root, limitations=diagnostics)
     continuous = read_continuous_state(root)
 
-    def read_source(path: Path, *, identity: bool = True) -> dict[str, Any]:
-        value = _read_object(path, limitations=diagnostics, unobserved=unobserved)
-        if identity:
-            source_semantics[str(path.relative_to(root))] = _semantic(value)
-        return value
+    def read_source(path: Path) -> dict[str, Any]:
+        return _read_object(path, limitations=diagnostics)
 
     daemon = read_daemon_status(root)
     backlog = Backlog(root / "backlog.jsonl")
     active = backlog.active()
-    # Selection limits presentation and per-task artifact reads, not awareness
-    # of changes to the already-loaded canonical task inventory.
-    backlog_revision = _semantic([
-        {name: getattr(item, name) for name in _TASK_FIELDS} for item in active
-    ])
     view = load_mission_view(root)
     events = _read_jsonl_tail_history(root / "events.jsonl", 40)
     relevant_types = {
@@ -159,17 +130,13 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
             row["evidence"] = {key: latest[key] for key in (
                 "kind", "engineer_summary", "review",
             ) if key in latest}
-            read_source(packet)
+            read_source(packet)  # only to name an unreadable packet among the limitations
             refs.append({"path": str(packet.relative_to(root))})
             if handoff.is_file():
                 refs.append({"path": str(handoff.relative_to(root))})
         items.append(row)
     refs.append({"path": "backlog.jsonl"})
     refs.append({"path": "mission-view.json"})
-    for reference in refs:
-        missing_signature = unobserved.get(str(root / reference["path"]))
-        if missing_signature:
-            reference["unobserved_source_signature"] = missing_signature
     if len(active) > len(selected):
         diagnostics.append(f"showing {len(selected)} of {len(active)} active tasks")
     # Archived completions remain visible through their canonical event and
@@ -218,10 +185,6 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "evidence_refs": refs,
         "limitations": diagnostics,
     }
-    supervision = read_source(root / "manager-supervision" / "latest.json", identity=False)
-    facts["manager_supervision"] = {key: supervision[key] for key in (
-        "id", "status", "decision", "effects", "issued_at", "applied_at",
-    ) if key in supervision}
     from ..core.autonomy import read_autonomous_assumptions
     from ..core.residual_risk import residual_risk_records
 
@@ -250,23 +213,9 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         ]
     except (ImportError, OSError, sqlite3.Error):
         facts["advisor_consultations"] = []
-    # The observation's identity excludes its collection time and volatile role
-    # ages. Take complete canonical semantics BEFORE any presentation excerpt,
-    # budget omission, or secret redaction can hide a meaningful source change.
-    revision = fact_text({
-        **_semantic({key: value for key, value in facts.items()
-                     if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled",
-                                    "manager_supervision", "accepted_residual_risks",
-                                    "recorded_assumptions"}}),
-        "daemon_health": facts["daemon"]["health"],
-        "backlog_revision": backlog_revision,
-        "source_semantics": source_semantics,
-        "unobserved_source_signatures": unobserved,
-    })
     facts["observed_at"] = time.time()
-    facts, incomplete = bounded_facts(redact_secrets_record(facts, known_values=known_secret_values()))
-    return ManagerObservation(root, continuous, fact_text(authority), revision, facts,
-                              tuple(dict.fromkeys([*incomplete, *unobserved])))
+    facts = bounded_facts(redact_secrets_record(facts, known_values=known_secret_values()))
+    return ManagerObservation(root, continuous, fact_text(authority), facts)
 
 
 __all__ = ["MAX_OBSERVATION_BYTES", "ManagerObservation", "observe_project", "control_identity"]

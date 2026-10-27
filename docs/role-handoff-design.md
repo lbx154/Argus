@@ -416,11 +416,8 @@ turn. When the flow is off it writes one line,
 `→ manager: <sentence and where it was seen>`, as one `life.observer.note`
 event naming its task. The Manager hears it through its supervision, as news reported once,
 like a stalled turn, and decides whether to steer, pause, or stop; with no
-Manager, or once the task is delivered, the operator gets an alert. The remark
-moves no baton and changes no candidate, and the Observer never repeats one. A
-steer it prompts is read by whoever holds the work at their next boundary and
-never hands planning to the Planner, so however a remark is worded, it cannot
-keep a handoff going on its own.
+Manager, the operator gets an alert. The remark moves no baton and changes no
+candidate, and the Observer never repeats one.
 
 ## What is deleted
 
