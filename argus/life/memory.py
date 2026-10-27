@@ -2535,11 +2535,8 @@ class Backlog:
                 return item, False
             answer = answer.strip()
             decision = manager_decision.strip()
-            response = (
-                "Operator response"
-                if decided_by == "operator"
-                else "Manager decision in the operator's place"
-            )
+            by_operator = decided_by == "operator"
+            response = "Operator response" if by_operator else "Manager decision in the operator's place"
             # The roles read the answer in the objective; the operator goes
             # on reading their own request.
             item.manager_decision = {"display_objective": item.objective.strip(), **item.manager_decision}
@@ -2561,7 +2558,7 @@ class Backlog:
                 # the operator turned down does not pass.
                 item.acceptance_check = "\n".join(part for part in (
                     item.acceptance_check.strip(),
-                    f"The result follows the operator's answer: {decision}",
+                    f"The result follows {'the operator' if by_operator else 'the Manager'}'s answer: {decision}",
                 ) if part)
             else:
                 item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"

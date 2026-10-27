@@ -906,10 +906,7 @@ def _settle_manager_turn(
         # "resuming" that did not happen (k1-split-cents, 2026-10-24: the
         # Manager's reply and Argus's confirmation both acknowledged it).
         applied = apply_manager_answer(mem, handoff, operator_text, reply=reply)
-        return emitter.respond(
-            str(applied.get("reply") or "").strip() or say("answer_not_applied", uses_cjk(operator_text)),
-            {**result, "kind": "pending_question", **applied},
-        )
+        return emitter.respond(applied["reply"], {**result, "kind": "pending_question", **applied})
     # Argus applies what the Manager filed and confirms it after its reply.
     emitter.journal(reply, result)
     emitter.turn_id = f"{emitter.turn_id}-applied"

@@ -287,9 +287,9 @@ class PlanningCycleIntakeMixin:
         # Bind rejection holds to the input this cycle saw, not a newer ledger
         # revision that might arrive while Planner or Manager is running.
         self._planning_operator_context_revision = _revision
-        state.has_unhandled_operator_input = (
-            _revision > OperatorContextStore(operator_context_state_root(self.memory)).acknowledged_revision("planner")
-        )
+        state.has_unhandled_operator_input = OperatorContextStore(
+            operator_context_state_root(self.memory)
+        ).has_unhandled_input("planner")
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
             dict.fromkeys(
