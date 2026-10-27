@@ -351,14 +351,17 @@ export function ResearchCanvas({
   }, [previewArtifacts, requestedPath, requestedPathToken, filesFirst, sid]);
 
   // A new delivery replaces what the panel showed before: the newest result
-  // is what the person wants to see (the old chart must not linger).
-  const seenDelivery = useRef<{ sid: string | null; id: string } | null>(null);
+  // is what the person wants to see (the old chart must not linger). New means
+  // delivered after the project was opened; older receipts that load late
+  // (snapshot, transcript and events arrive separately) are not new.
+  const followed = useRef<{ sid: string | null; since: number; id: string }>({ sid: null, since: 0, id: '' });
   const [newestPaths, setNewestPaths] = useState<string[]>([]);
   useEffect(() => {
+    if (followed.current.sid !== sid) followed.current = { sid, since: Date.now() / 1000, id: '' };
+    const seen = followed.current;
     const id = latestDelivery?.delivery_id || '';
-    const previous = seenDelivery.current;
-    seenDelivery.current = { sid, id };
-    if (!filesFirst || !latestDelivery || !id || !previous?.id || previous.sid !== sid || previous.id === id) return;
+    if (!filesFirst || !latestDelivery || !id || id === seen.id || latestDelivery.delivered_at <= seen.since) return;
+    seen.id = id;
     setNewestPaths(deliveryFiles(latestDelivery).map((file) => file.path));
   }, [latestDelivery, sid, filesFirst]);
   useEffect(() => {

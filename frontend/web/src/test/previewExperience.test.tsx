@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
-import type { ArtifactInfo } from '../../../core/src/types';
+import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import { PdfPreview, pdfContainScale } from '../components/PdfPreview';
 import { LIVE_PROGRESS_PATH, ResearchCanvas } from '../components/ResearchCanvas';
 import { preferredPreviewWidth } from '../lib/previewLayout';
@@ -49,6 +49,27 @@ describe('file reading experience', () => {
     act(() => renderer.root.findByType('select').props.onChange({ target: { value: LIVE_PROGRESS_PATH } }));
     expect(onOpenFile).toHaveBeenCalledTimes(1);
     act(() => renderer.unmount());
+  });
+});
+
+describe('following the newest delivery', () => {
+  it('keeps the chosen file when older deliveries load late, and follows one made after opening', () => {
+    const stored = new Map([['argus.preview.file.v1:s', 'chosen.md']]);
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) });
+    const artifact = (path: string): ArtifactInfo => ({ path, name: path, exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, why: 'fixture' });
+    const receipt = (id: string, path: string, deliveredAt: number) => ({
+      schema_version: 1, delivery_id: id, kind: 'task_completed', item_id: id, title: id, summary: '', status: 'done', review_status: 'done',
+      delivered_at: deliveredAt, primary_target: { path, label: path, source: 'solo_output', why: '' }, targets: [{ path, label: path, source: 'solo_output', why: '' }],
+    }) as unknown as DeliveryReceipt;
+    const props = { sid: 's', filesFirst: true, missionView: emptyMissionView(), artifacts: ['chosen.md', 'old-a.md', 'old-b.md', 'new.md'].map(artifact), onExpand: vi.fn() };
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d1', 'old-a.md', 1) })); });
+    act(() => renderer.update(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d2', 'old-b.md', 2) })));
+    expect(stored.get('argus.preview.file.v1:s')).toBe('chosen.md');
+    act(() => renderer.update(createElement(ResearchCanvas, { ...props, latestDelivery: receipt('d3', 'new.md', Date.now() / 1000 + 5) })));
+    expect(stored.get('argus.preview.file.v1:s')).toBe('new.md');
+    act(() => renderer.unmount());
+    vi.unstubAllGlobals();
   });
 });
 
