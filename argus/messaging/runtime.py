@@ -18,7 +18,7 @@ EXTENSION = str(Path(__file__).with_name("pi_extension.mjs"))
 @contextmanager
 def peer_run(ctx: Any) -> Iterator[None]:
     options = ctx.options
-    if caller_role(ctx.run_label) != "manager" or options.disable_tools or ctx.usage_project_root is None:
+    if caller_role(ctx.run_label) != "manager" or ctx.usage_project_root is None:
         yield
         return
     try:

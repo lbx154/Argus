@@ -55,7 +55,7 @@ class Backend:
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         assert run_label == "manager-supervision"
-        assert options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
+        assert not options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
         self.calls.append((run_label, resume_thread_id))
         if self.payload:
             try:

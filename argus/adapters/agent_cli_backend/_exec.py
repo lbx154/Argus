@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
 from ...core.hosting import hosting
-from ...core.models import RunnerOptions, RunnerResult
+from ...core.models import RunnerOptions, RunnerResult, may_act
 from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
 from ._exec_admission import admit
@@ -145,7 +146,10 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     from ...life.experience_runtime import experience_run
     from ...messaging.runtime import peer_run
 
-    with advisor_run(ctx), peer_run(ctx), experience_run(ctx):
+    # Host-served tools act for the caller, so a call that may not act has none.
+    with ExitStack() as host_tools:
+        for hook in (advisor_run, peer_run, experience_run) if may_act(options) else ():
+            host_tools.enter_context(hook(ctx))
         backend._io_logger.start_call(
             call_id=call_id, run_label=run_label, log_path=log_path,
             prompt=ctx.prompt,

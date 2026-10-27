@@ -44,7 +44,7 @@ class Backend:
         return self
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-        assert run_label == "manager-supervision" and options.disable_tools
+        assert run_label == "manager-supervision" and not options.disable_tools and options.sandbox_mode == "read-only"
         self.prompts.append(prompt)
         bridge_request(PREFIX, "hand_off", {
             "to": "team", "summary": "Repair the observed grouping error while preserving the acceptance standard.",

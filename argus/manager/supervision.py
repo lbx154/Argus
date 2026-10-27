@@ -223,16 +223,17 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "", brief: st
 
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     asked += f"\n{brief}\n\n" if brief else ""
-    root = getattr(observation, "root", None)
     # The summary is shown to the operator as written, like the Observer's remark.
-    language = operator_language(root is not None and session_is_chinese(load_mission_view(root)))
+    language = operator_language(session_is_chinese(load_mission_view(observation.root)))
     return (
         "You are the persistent project Manager.\n"
         + asked
         + "Judge from the evidence below whether the team's course serves the operator's "
         f"objective, and end your turn with hand_off, its summary {language}.\n"
         "Each reading in recorded_assumptions is already shown to the operator; your "
-        "assumptions name only a reading this decision chooses for the first time.\n\n"
+        "assumptions name only a reading this decision chooses for the first time.\n"
+        f"evidence_refs are files under {observation.root}: what limitations say this "
+        "snapshot cut or left out, read there yourself.\n\n"
         + observation.render()
     )
 
@@ -576,11 +577,13 @@ def supervise(
                         "superseded": "Manager supervision superseded",
                     }.get(code) if code else None
 
+                # Pinned read-only, so no tool it holds acts (core.models.may_act):
+                # the Manager reads what its snapshot cut where evidence_refs name it.
                 options = RunnerOptions(
                     model=_manager_model(), reasoning_effort=_manager_reasoning_effort(),
-                    skip_git_repo_check=True,
-                    sandbox_mode="read-only", force_safe_mode=True, disable_tools=True,
+                    skip_git_repo_check=True, sandbox_mode="read-only", force_safe_mode=True,
                     working_dir=str(getattr(manager, "execution_workdir", root)),
+                    add_dirs=[str(observation.root)],
                     external_interrupt_reason_provider=interrupt_reason,
                 )
                 actions = HandOffActions(

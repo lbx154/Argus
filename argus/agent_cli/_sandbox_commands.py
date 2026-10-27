@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from ..core.hosting import hosting
+from ..core.models import may_act
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
@@ -434,7 +435,7 @@ class CommandBuilderMixin:
             "-c",
             f"background_terminal_max_timeout={CODEX_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS}",
         ])
-        if options.disable_tools:
+        if not may_act(options):
             import dataclasses
             options = dataclasses.replace(options, sandbox_mode="read-only", dangerous_yolo=False,
                                           full_auto=False, skip_git_repo_check=True)
@@ -443,7 +444,8 @@ class CommandBuilderMixin:
             # REPL startup or project exec-policy rules. Keeping the base config
             # while overriding only these tool surfaces preserves custom
             # providers and cuts several seconds of Codex startup per control
-            # turn (measured doctor startup: ~12s -> ~2.5s on this host).
+            # turn (measured doctor startup: ~12s -> ~2.5s on this host). A call
+            # pinned read-only keeps the shell its sandbox confines to reads.
             command.extend([
                 "--ignore-rules",
                 "-c",
@@ -452,7 +454,7 @@ class CommandBuilderMixin:
                 "plugins={}",
                 "-c",
                 "features.js_repl=false",
-                "-c", "features.shell_tool=false",
+                *(["-c", "features.shell_tool=false"] if options.disable_tools else []),
                 "-c", "features.apply_patch_freeform=false",
                 "-c", "features.multi_agent=false",
                 "-c", "tools.view_image=false",
@@ -619,9 +621,9 @@ class CommandBuilderMixin:
             command.extend(["--model", model])
         if effort:
             command.extend(["--reasoning-effort", effort])
-        if options.isolate_workdir or options.disable_tools:
-            # A tool-free call needs neither repository instructions nor MCP
-            # servers; both only add startup time and input context.
+        if options.isolate_workdir or not may_act(options):
+            # A call that may not act needs neither repository instructions nor
+            # MCP servers; both only add startup time and input context.
             command.extend([
                 "--no-custom-instructions",
                 "--disable-builtin-mcps",

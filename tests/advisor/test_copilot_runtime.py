@@ -17,7 +17,7 @@ from mcp.types import CancelledNotification, CancelledNotificationParams, Client
 from argus.advisor import runtime
 from argus.advisor.config import save_advisor_config
 from argus.advisor.transport import TOKEN_ENV
-from argus.core.models import RunnerOptions
+from argus.core.models import RunnerOptions, RunnerResult
 
 
 class RecordingService:
@@ -112,11 +112,29 @@ def test_mcp_cancellation_reaches_the_same_host_request_and_closes_resources(tmp
     assert services[0].closed.is_set() and not path.parent.exists()
 
 
-@pytest.mark.parametrize("backend,disabled", [("codex", False), ("claude", False), ("opencode", False), ("copilot", True)])
-def test_unsupported_readonly_or_disabled_calls_never_get_shell_fallback(tmp_path, backend, disabled):
+@pytest.mark.parametrize("backend", ["codex", "claude", "opencode"])
+def test_unsupported_readonly_calls_never_get_shell_fallback(tmp_path, backend):
     save_advisor_config(tmp_path, {"enabled": True, "backend": "pi", "model": "test/expert"})
-    options = RunnerOptions(working_dir=str(tmp_path), sandbox_mode="read-only", disable_tools=disabled)
+    options = RunnerOptions(working_dir=str(tmp_path), sandbox_mode="read-only")
     ctx = SimpleNamespace(options=options, run_label="reviewer.turn", usage_project_root=tmp_path,
                           backend=SimpleNamespace(_backend_name=backend), prompt="Original")
     with runtime.advisor_run(ctx):
         assert ctx.options is options and ctx.prompt == "Original"
+
+
+def test_a_tool_free_call_gets_no_advisor(tmp_path, monkeypatch):
+    from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
+
+    save_advisor_config(tmp_path, {"enabled": True, "backend": "pi", "model": "test/expert"})
+    calls = []
+    monkeypatch.setattr(_exec, "spawn_and_finish", lambda ctx, _options: calls.append(ctx) or finalize_result(
+        ctx, RunnerResult(exit_code=0), status="completed"))
+    backend = AgentCliBackend(backend="copilot", runner_bin="unused-fake-copilot")
+    backend.set_usage_context(project_root=tmp_path, global_root=tmp_path)
+    options = RunnerOptions(working_dir=str(tmp_path), sandbox_mode="read-only", disable_tools=True)
+
+    backend.run_exec(prompt="Original", options=options, run_label="reviewer.turn")
+
+    (ctx,) = calls
+    assert ctx.options is options and ctx.prompt == "Original"

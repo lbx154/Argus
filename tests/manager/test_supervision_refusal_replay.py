@@ -5,7 +5,9 @@ task objectives longer than the snapshot budget, or a previous 135 KB receipt
 past the read bound. Among them were the Engineer's two "no GPU was assigned"
 handoffs at 13:27, which never reached the Manager. The fixture keeps what
 each refused receipt observed: the objective, each task's requirements and
-status, the trigger, and the size of the receipt then in latest.json.
+status, the trigger, and the size of the receipt then in latest.json. What a
+snapshot cuts the Manager now reads itself where evidence_refs say, holding
+no tool that acts.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from argus.core import role_actions
 from argus.core.models import RunnerResult
 from argus.core.role_actions import PREFIX
 from argus.core.role_tool_bridge import bridge_request
@@ -33,12 +36,14 @@ RECORD = json.loads((FIXTURE / "receipts.json").read_text(encoding="utf-8"))
 class _Model:
     def __init__(self) -> None:
         self.prompts: list[str] = []
+        self.options: list = []
 
     def fork(self):
         return self
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.prompts.append(prompt)
+        self.options.append(options)
         bridge_request(PREFIX, "hand_off", {
             "to": "team", "summary": "The course holds.", "note": "Bind the GPU the scheduler chose, then train.",
             "evidence_refs": ["backlog.jsonl"], "assumptions": [],
@@ -97,3 +102,77 @@ def test_a_check_refused_for_unread_facts_now_asks_the_manager(tmp_path, receipt
     assert whole == facts or len(render_facts(whole).encode("utf-8")) > MAX_OBSERVATION_BYTES
     # The Manager's own earlier receipt is not project evidence.
     assert "manager-supervision/latest.json" not in model.prompts[0]
+
+
+def test_the_manager_reads_what_its_snapshot_cut(tmp_path):
+    """13:27:12, the Engineer's "no GPU assigned" handoff: the snapshot cannot
+    hold d9d9fa873498's and a176d0d06768's objectives together. The call ran
+    tool-free, so what was cut stayed out of the Manager's reach."""
+    receipt = next(row for row in RECORD["receipts"] if row["at"] == "10-26 13:27:12")
+    state, workspace = tmp_path / "state", tmp_path / "workspace"
+    state.mkdir()
+    workspace.mkdir()
+    tasks = _restore(state, receipt)
+    model = _Model()
+
+    supervision.supervise(Manager(state, runner=model, execution_workdir=workspace), state, receipt["trigger"])
+
+    (options,) = model.options
+    root = str(state.resolve())
+    assert options.sandbox_mode == "read-only" and options.force_safe_mode and not options.write_dirs
+    assert not options.disable_tools and options.add_dirs == [root]
+    facts, _ = json.JSONDecoder().raw_decode(model.prompts[0].partition(EVIDENCE_PREAMBLE)[2])
+    cut = {row["id"] for row in facts["tasks"] if row["objective"] != tasks[row["id"]]["objective"]}
+    assert "d9d9fa873498" in cut
+    assert f"evidence_refs are files under {root}" in model.prompts[0]
+    assert {"path": "backlog.jsonl"} in facts["evidence_refs"]
+    whole = {item.id: item.objective for item in Backlog(Path(root) / "backlog.jsonl").all()}
+    assert all(whole[task] == tasks[task]["objective"] for task in cut)
+
+
+@pytest.mark.parametrize("backend", ["pi", "copilot", "codex"])
+def test_the_supervising_manager_reads_and_hands_off_but_acts_on_nothing(tmp_path, monkeypatch, backend):
+    """The same 13:27:12 check on each backend's real command. Tool-free, the
+    call had nothing that acts; with the read tools back it still has none: no
+    advisor, peer mail or experience edits, nor the operator's MCP servers."""
+    from argus.adapters.agent_cli_backend import AgentCliBackend, _exec
+    from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
+    from argus.advisor.config import save_advisor_config
+
+    receipt = next(row for row in RECORD["receipts"] if row["at"] == "10-26 13:27:12")
+    state, workspace = tmp_path / "projects" / "s-efe9deac", tmp_path / "workspace"
+    state.mkdir(parents=True)
+    workspace.mkdir()
+    _restore(state, receipt)
+    save_advisor_config(state, {"enabled": True, "backend": "pi", "model": "independent/expert"})
+    commands = []
+
+    def provider(ctx, cli_options):
+        commands.append(ctx.backend._runner._build_command(resume_thread_id=None, options=cli_options))
+        bridge_request(PREFIX, "hand_off", {
+            "to": "team", "summary": "The course holds.", "evidence_refs": ["backlog.jsonl"], "assumptions": [],
+        }, env=ctx.options.extension_env)
+        return finalize_result(ctx, RunnerResult(exit_code=0, agent_messages=["Judged."]), status="completed")
+
+    monkeypatch.setattr(_exec, "spawn_and_finish", provider)
+    runner = AgentCliBackend(backend=backend, runner_bin=f"unused-fake-{backend}")
+    runner.set_usage_context(project_root=state, global_root=tmp_path, mission_id="d9d9fa873498")
+
+    record = supervision.supervise(Manager(state, runner=runner, execution_workdir=workspace), state,
+                                   receipt["trigger"], backend=runner)
+
+    (argv,) = commands
+    assert record["status"] == "applied"
+    if backend == "pi":
+        assert argv[argv.index("--tools") + 1] == "read,grep,find,ls,hand_off"
+        assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "--extension"] == [
+            str(Path(role_actions.__file__).with_name("pi_actions.mjs"))]
+    elif backend == "copilot":
+        assert argv[argv.index("--available-tools") + 1] == "view,rg,glob,argus_actions-hand_off"
+        assert "--disable-builtin-mcps" in argv and "--no-custom-instructions" in argv
+    else:
+        pairs = set(zip(argv, argv[1:]))
+        assert {("-s", "read-only"), ("--add-dir", str(state.resolve())), ("-c", "mcp_servers={}"),
+                ("-c", "plugins={}"), ("-c", "project_doc_max_bytes=0")} <= pairs
+        assert ("-c", "features.shell_tool=false") not in pairs
+

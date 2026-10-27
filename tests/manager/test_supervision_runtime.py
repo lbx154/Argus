@@ -49,7 +49,7 @@ class EvidenceBackend:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.calls.append((prompt, resume_thread_id, run_label))
         if run_label == "manager-supervision":
-            assert options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
+            assert not options.disable_tools and options.force_safe_mode and options.sandbox_mode == "read-only"
             facts, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{"objective"'):])
             if facts["review"].get("status") in {"engineer", "manager"}:
                 hand_off(options, to="team", summary="The grouped-mean check fails; repair grouping before another review.",

@@ -21,8 +21,7 @@ def experience_run(ctx: Any) -> Iterator[None]:
     role = caller_role(ctx.run_label)
     root = ctx.usage_project_root
     native = ctx.backend._backend_name == "pi"
-    if (root is None or role is None or options.disable_tools
-            or (not native and options.sandbox_mode == "read-only")):
+    if root is None or role is None or (not native and options.sandbox_mode == "read-only"):
         yield
         return
     try:
