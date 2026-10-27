@@ -12,7 +12,6 @@ export type DisplayConfigKnob = ConfigKnob & { label: string };
 export interface ConnectionTopology {
   webApi: string;
   eventStream: string;
-  daemon: string;
 }
 
 const ESSENTIAL_KNOBS: EssentialKnob[] = [
@@ -89,7 +88,6 @@ export function connectionTopology(origin: string, sid: string): ConnectionTopol
   return {
     webApi: `${url.origin}/api`,
     eventStream: `${streamProtocol}//${url.host}/api/projects/${project}/stream`,
-    daemon: 'local process · events.jsonl · no TCP port',
   };
 }
 

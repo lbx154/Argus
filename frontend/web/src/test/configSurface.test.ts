@@ -61,7 +61,6 @@ describe('connectionTopology', () => {
     expect(connectionTopology('http://127.0.0.1:8799', 's-a/b')).toEqual({
       webApi: 'http://127.0.0.1:8799/api',
       eventStream: 'ws://127.0.0.1:8799/api/projects/s-a%2Fb/stream',
-      daemon: 'local process · events.jsonl · no TCP port',
     });
     expect(connectionTopology('https://argus.example', 's-1').eventStream).toBe(
       'wss://argus.example/api/projects/s-1/stream',

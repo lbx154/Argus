@@ -506,11 +506,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "这一部分做完了，长期目标还在继续。",
     ),
     "results_in": ("The results are in {paths}.", "结果在 {paths}。"),
-    "summary_unchecked": (
-        "(The model service was unavailable while this summary was written, "
-        "so the final files were not checked one by one.)",
-        "（写这份总结时模型服务暂时不可用，所以没有逐项核对最终文件。）",
-    ),
     # Notices Argus posts to the operator's conversation on its own.
     "planner_retries_stopped_internal": (
         "Planning kept hitting an internal error in Argus for {hours} hours, so I "
