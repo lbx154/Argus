@@ -147,7 +147,8 @@ describe('shared frontend core', () => {
     expect(css).toContain('.glass-card');
     expect(css).toContain('.icon-control');
     expect(css).toContain('.compact-control');
-    expect(css).toContain('.send-control');
+    // The accent fill belongs to the send button only; no shared class paints other controls with it.
+    expect(css).not.toContain('.send-control');
     expect(css).toContain('.session-card');
     for (const selector of [
       '.ambient-canvas',
