@@ -13,6 +13,7 @@ type WorkspaceView = 'activity' | 'workbench' | 'map';
 const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['activity', 'workbench', 'map'];
 // Start with the conversation and results; keep explicitly chosen views.
 const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v3';
+const MAP_FULL_KEY = 'argus.map.fullscreen.v1';
 
 function isWorkspaceView(value: string | null): value is WorkspaceView {
   return WORKSPACE_VIEWS.includes(value as WorkspaceView);
@@ -54,6 +55,22 @@ export function useWorkbenchLayout() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
+  // The research map opens full-window: the project list folds to its rail and
+  // the map's own header, overview and legend step aside, so a person has the
+  // whole canvas to draw on. Their choice to unfold it is remembered here.
+  const [mapFull, setMapFullState] = useState(() => readLocalStorage(MAP_FULL_KEY) !== '0');
+  const setMapFull = useCallback((next: boolean) => {
+    setMapFullState(next);
+    writeLocalStorage(MAP_FULL_KEY, next ? '1' : '0');
+  }, []);
+  const mapImmersive = workspaceView === 'map' && mapFull && !kiosk;
+  // What the screen shows: full canvas folds the list without changing the
+  // person's own choice for the other views. All layout math reads this.
+  const sidebarShown = leftPanelOpen && !mapImmersive;
+  const toggleSidebar = useCallback(() => {
+    if (mapImmersive) { setMapFull(false); setLeftPanelOpen(true); }
+    else setLeftPanelOpen((value) => !value);
+  }, [mapImmersive, setMapFull]);
   const { themeMode, themeStyle, cycleTheme } = useWorkbenchTheme();
   const shellRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
@@ -76,10 +93,10 @@ export function useWorkbenchLayout() {
     // Mobile already dedicates a full screen to reading. Desktop grows only
     // on an explicit open action, never on a background query refresh.
     if (width >= 1024) {
-      const preferred = preferredPreviewWidth(width, leftWidth, leftPanelOpen);
+      const preferred = preferredPreviewWidth(width, leftWidth, sidebarShown);
       setRightWidth((current) => Math.max(current, preferred));
     }
-  }, [leftPanelOpen, leftWidth]);
+  }, [sidebarShown, leftWidth]);
 
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -99,7 +116,7 @@ export function useWorkbenchLayout() {
         const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
         pendingWidth = Math.max(220, Math.min(max, pointer.clientX - rect.left));
       } else {
-        const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
+        const occupiedLeft = sidebarShown ? leftWidth + 8 : 56;
         const max = Math.max(320, Math.min(PREVIEW_MAX_WIDTH, rect.width - occupiedLeft - 360 - 8));
         pendingWidth = Math.max(320, Math.min(max, rect.right - pointer.clientX));
       }
@@ -131,47 +148,48 @@ export function useWorkbenchLayout() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop, { once: true });
     window.addEventListener('pointercancel', stop, { once: true });
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+  }, [sidebarShown, leftWidth, rightPanelOpen, rightWidth]);
 
   useEffect(() => {
     const fit = () => {
       if (window.innerWidth < 1024 || !shellRef.current) return;
       const shellWidth = shellRef.current.clientWidth;
-      const left = leftPanelOpen ? leftWidth : 56;
+      const left = sidebarShown ? leftWidth : 56;
       const right = rightPanelOpen ? rightWidth : 0;
-      const handles = (leftPanelOpen ? 8 : 0) + (rightPanelOpen ? 8 : 0);
+      const handles = (sidebarShown ? 8 : 0) + (rightPanelOpen ? 8 : 0);
       const availableForSides = Math.max(540, shellWidth - 360 - handles);
       if (left + right <= availableForSides) return;
       let nextRight = rightPanelOpen
         ? Math.max(320, Math.min(rightWidth, availableForSides - left))
         : right;
-      const nextLeft = leftPanelOpen
+      const nextLeft = sidebarShown
         ? Math.max(220, Math.min(leftWidth, availableForSides - nextRight))
         : left;
       if (nextLeft + nextRight > availableForSides && rightPanelOpen) {
         nextRight = Math.max(320, availableForSides - nextLeft);
       }
-      if (leftPanelOpen) setLeftWidth(nextLeft);
+      if (sidebarShown) setLeftWidth(nextLeft);
       if (rightPanelOpen) setRightWidth(nextRight);
     };
     fit();
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+  }, [sidebarShown, leftWidth, rightPanelOpen, rightWidth]);
 
   return {
     cycleTheme,
     kiosk,
-    leftPanelOpen,
     leftWidth,
+    mapImmersive,
     mobileView,
     openPreview,
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
     setKiosk,
-    setLeftPanelOpen,
     setLeftWidth,
+    // Presentation mode never folds into full canvas, so it offers no toggle.
+    setMapFull: kiosk ? undefined : setMapFull,
     setMobileView,
     setRightPanelOpen,
     setRightWidth,
@@ -181,8 +199,10 @@ export function useWorkbenchLayout() {
     shellRef,
     showReasoning,
     sidebarOpen,
+    sidebarShown,
     themeMode,
     themeStyle,
+    toggleSidebar,
     workspaceView,
   };
 }

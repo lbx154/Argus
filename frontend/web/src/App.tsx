@@ -148,7 +148,6 @@ function useThrottledValue<T>(value: T, ms: number): T {
   return current;
 }
 
-const MAP_FULL_KEY = 'argus.map.fullscreen.v1';
 
 export default function App() {
   const { locale, t } = useI18n();
@@ -190,16 +189,16 @@ export default function App() {
   const {
     cycleTheme,
     kiosk,
-    leftPanelOpen,
     leftWidth,
+    mapImmersive,
     mobileView,
     openPreview: expandPreview,
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
     setKiosk,
-    setLeftPanelOpen,
     setLeftWidth,
+    setMapFull,
     setMobileView,
     setRightPanelOpen,
     setRightWidth,
@@ -209,21 +208,12 @@ export default function App() {
     shellRef,
     showReasoning,
     sidebarOpen,
+    sidebarShown,
     themeMode,
+    toggleSidebar,
     workspaceView,
   } = useWorkbenchLayout();
   const [workbenchOpened, setWorkbenchOpened] = useState(workspaceView === 'workbench');
-  // The research map opens full-window: the project list folds to its rail and
-  // the map's own header, overview and legend step aside, so a person has the
-  // whole canvas to draw on. Their choice to unfold it is remembered here.
-  const [mapFull, setMapFull] = useState(() => {
-    try { return window.localStorage.getItem(MAP_FULL_KEY) !== '0'; } catch { return true; }
-  });
-  const changeMapFull = useCallback((next: boolean) => {
-    setMapFull(next);
-    try { window.localStorage.setItem(MAP_FULL_KEY, next ? '1' : '0'); } catch { /* kept for this visit only */ }
-  }, []);
-  const mapImmersive = workspaceView === 'map' && mapFull && !kiosk;
   const [runtimeRequest, setRuntimeRequest] = useState(0);
   const openRuntimeControls = useCallback(() => {
     setOverlay('none');
@@ -927,7 +917,7 @@ export default function App() {
     toggleKiosk: () => setKiosk((value) => !value),
     togglePalette: () => setOverlay((current) => current === 'palette' ? 'none' : 'palette'),
     toggleReasoning: () => setShowReasoning((value) => !value),
-    toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
+    toggleSidebarCollapse: toggleSidebar,
   });
 
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
@@ -1406,13 +1396,13 @@ export default function App() {
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
           onRetry={() => void projectsQ.refetch()}
           mobileOpen={sidebarOpen}
-          collapsed={!leftPanelOpen || mapImmersive}
-          onToggleCollapse={() => mapImmersive ? (changeMapFull(false), setLeftPanelOpen(true)) : setLeftPanelOpen((value) => !value)}
+          collapsed={!sidebarShown}
+          onToggleCollapse={toggleSidebar}
           themeMode={themeMode}
           onCycleTheme={cycleTheme}
         />
       ) : null}
-      {!kiosk && leftPanelOpen && !mapImmersive ? (
+      {!kiosk && sidebarShown ? (
         <SplitHandle
           label={t('common.resizeSessions')}
           value={leftWidth}
@@ -1460,7 +1450,7 @@ export default function App() {
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={changeMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
