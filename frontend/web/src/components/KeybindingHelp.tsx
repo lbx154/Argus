@@ -11,6 +11,8 @@ const BINDINGS: { keys: string; desc: string }[] = [
   { keys: '⌘T / Ctrl+T', desc: 'help.reasoning' },
   { keys: '⌘. / Ctrl+.', desc: 'help.kiosk' },
   { keys: '/', desc: 'help.composer' },
+  { keys: '@ / #', desc: 'help.mention' },
+  { keys: 'Tab', desc: 'help.acceptSuggestion' },
   { keys: '↵ Enter', desc: 'help.send' },
   { keys: 'Shift+Enter', desc: 'help.newline' },
   { keys: '?', desc: 'help.thisHelp' },

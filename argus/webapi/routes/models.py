@@ -119,6 +119,8 @@ class PlanIn(BaseModel):
 
 class RewriteIn(BaseModel):
     text: str = Field(max_length=MESSAGE_MAX_CHARS)
+    # "complete" asks for the likely rest of the line being typed instead of a restatement.
+    mode: Literal["rewrite", "complete"] = "rewrite"
 
 
 class ConfigSetIn(BaseModel):

@@ -3,6 +3,7 @@ import { MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
 import { describe, expect, it } from 'vitest';
 import { applyCompletion, slashCompletions } from '../../../core/src/commands';
 import { ChatBox } from '../components/ChatBox';
+import { completionMenu } from '../lib/promptCompletion';
 import {
   SlashCompletionMenu,
   clampSlashCompletionSelection,
@@ -27,19 +28,26 @@ describe('slash completion menu', () => {
   });
 
   it('renders shared command names and usage', () => {
+    const menu = completionMenu('/sta', null, undefined, (key) => key, 'en');
+    expect(menu?.kind).toBe('command');
     const html = renderToStaticMarkup(
-      <SlashCompletionMenu query="/sta" selected={0} onSelect={() => undefined} />,
+      <SlashCompletionMenu items={menu!.items} label="Slash command suggestions" selected={0} onSelect={() => undefined} />,
     );
     expect(html).toContain('/status');
     expect(html).toContain('roles, queued work, journal, and health');
     expect(html).toContain('role="listbox"');
+    expect(html).toContain('aria-label="Slash command suggestions"');
   });
 
   it('renders no menu after argument entry starts', () => {
+    expect(completionMenu('/task write', null, undefined, (key) => key, 'en')).toBeNull();
     const html = renderToStaticMarkup(
-      <SlashCompletionMenu query="/task write" selected={0} onSelect={() => undefined} />,
+      <ChatBox attachments={[]} onAttachmentsChange={() => {}} value="/task write" onChange={() => undefined}
+        onSend={() => false} onCancel={() => undefined} disabled={false} pending={false}
+        slashSelection={0} onSlashSelectionChange={() => undefined} />,
     );
-    expect(html).toBe('');
+    expect(html).not.toContain('role="listbox"');
+    expect(html).toContain('aria-expanded="false"');
   });
 
   it('links the textarea to the stable slash listbox and selected option', () => {
@@ -59,6 +67,8 @@ describe('slash completion menu', () => {
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain(`aria-activedescendant="${slashCompletionOptionId('find')}"`);
     expect(html).toContain(`id="${SLASH_COMPLETION_LISTBOX_ID}"`);
+    // Options stay out of the Tab order: the textarea answers the keys.
+    expect(html.match(/role="option"/g)!.length).toBe(html.match(/role="option" tabindex="-1"/g)!.length);
     expect(html).toContain('aria-keyshortcuts="Control+R Meta+R"');
     expect(html).toContain('type="file"');
     expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+from argus.roles.prompts.manager import build_prompt_completion_prompt
 from argus.roles.prompts.planner import (
     build_continuous_prompt,
     build_continuous_resume_prompt,
@@ -92,6 +93,19 @@ def test_reviewer_static_is_identical_and_delta_opens_with_the_mission(tmp_path)
     assert static_one.index("## Completion") < static_one.index("## Recalled Skills")
     guidance_end = _end_of(delta_one, "Planner guidance:\nVerify the behavior.")
     assert _lcp(delta_one, delta_two) >= guidance_end
+
+
+# --- Manager ----------------------------------------------------------------
+
+
+def test_typing_suggestion_prompt_keeps_its_rules_ahead_of_the_project_and_draft() -> None:
+    first = build_prompt_completion_prompt(
+        "Compare the tw", "Compare the tw", project_context="- session: one", recent_turns="operator: hi")
+    second = build_prompt_completion_prompt(
+        "请比较两个", "请比较两个", project_context="- session: two", recent_turns="argus: done")
+
+    assert _lcp(first, second) >= first.index("## Project context")
+    assert first.endswith('## Draft (a JSON string)\n"Compare the tw"\n\n## Starts with\n"Compare the tw"')
 
 
 # --- Research vertical: static policy vs. live notes ------------------------

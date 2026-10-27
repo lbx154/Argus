@@ -1,4 +1,4 @@
-import { type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
+import { useLayoutEffect, useRef, type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
 import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { MESSAGE_ATTACHMENT_ACCEPT, MESSAGE_TEXT_MAX_CHARS } from '../lib/attachments';
@@ -7,10 +7,12 @@ import { referenceText, splitDraft } from '../map/presentation';
 import { useAutosizeTextarea } from '../useAutosizeTextarea';
 import './composer.css';
 
+const MIRRORED = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'marginTop', 'marginBottom', 'maxHeight'] as const;
+
 /** One visual/input surface for the ordinary conversation and research map. */
 export function ComposerSurface({
   value, onChange, inputRef, fileInputRef, onFiles, inputProps, onSend, onCancel,
-  pending, disabled = false, controls, sendLabel,
+  pending, disabled = false, controls, sendLabel, ghost, onAcceptGhost,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -25,12 +27,23 @@ export function ComposerSurface({
   controls?: ReactNode;
   /** Overrides the send button's name, e.g. when it will wait for uploads. */
   sendLabel?: string;
+  /** The gray rest of the line after the caret; the parent's Tab takes it. */
+  ghost?: string;
+  onAcceptGhost?: () => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const { refs, text } = splitDraft(value);
   const tooLong = value.length > MESSAGE_TEXT_MAX_CHARS;
   useAutosizeTextarea(inputRef, text, 28, 132);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const mirror = ghostRef.current;
+    if (!mirror || !inputRef.current) return;
+    // The map's stylesheet can restyle this textarea too; copy what it ended up with.
+    const style = getComputedStyle(inputRef.current);
+    for (const name of MIRRORED) mirror.style[name] = style[name];
+  }, [ghost, inputRef]);
   return (
     <div className="composer-surface" data-pending={pending}>
       {refs.length > 0 && <div className="map-reference-chips">
@@ -44,14 +57,18 @@ export function ComposerSurface({
         <button type="button" className="map-composer-brand map-attach" aria-label={t('chat.attach')} title={t('chat.attach')} disabled={disabled || pending} onClick={() => fileInputRef.current?.click()}>
           <span aria-hidden="true"><Paperclip size={22} /></span>
         </button>
-        <textarea {...inputProps} ref={inputRef} rows={1} value={text} disabled={disabled}
-          onChange={(event) => onChange(refs.map(referenceText).join('') + event.target.value)}
-          onKeyDown={(event) => {
-            if (tooLong && event.key === 'Enter' && !event.shiftKey && !isImeComposing(event)) { event.preventDefault(); return; }
-            inputProps.onKeyDown?.(event);
-            if (event.defaultPrevented || isImeComposing(event)) return;
-            if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (!pending && !disabled) onSend(); }
-          }} />
+        <div className="composer-input">
+          <textarea {...inputProps} ref={inputRef} rows={1} value={text} disabled={disabled}
+            onChange={(event) => onChange(refs.map(referenceText).join('') + event.target.value)}
+            onKeyDown={(event) => {
+              if (tooLong && event.key === 'Enter' && !event.shiftKey && !isImeComposing(event)) { event.preventDefault(); return; }
+              inputProps.onKeyDown?.(event);
+              if (event.defaultPrevented || isImeComposing(event)) return;
+              if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (!pending && !disabled) onSend(); }
+            }} />
+          {/* Pressing keeps the focus; only a tap, not a scroll or a long press, takes the text. */}
+          {ghost ? <div ref={ghostRef} className="composer-ghost" aria-hidden="true">{text}<span onPointerDown={(event) => event.preventDefault()} onClick={onAcceptGhost}>{ghost}</span></div> : null}
+        </div>
         <button type={pending ? 'button' : 'submit'} onClick={pending ? onCancel : undefined}
           disabled={disabled || (!pending && (!text.trim() || tooLong))}
           aria-label={pending ? (zh ? '停止本次回复' : 'Stop this reply') : (sendLabel || (zh ? '发送消息' : 'Send message'))}

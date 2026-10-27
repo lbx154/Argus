@@ -86,6 +86,12 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-rewrite",),
     ),
     Site(
+        r"prompt-complete", FOREGROUND,
+        "Suggests how the line an operator is typing ends, once per web request after a pause.",
+        ("argus/webapi/manager_bridge.py:839",),
+        ("prompt-complete",),
+    ),
+    Site(
         r"manager-plan", FOREGROUND,
         "Default of draft_plan; every caller passes its own label.",
         ("argus/manager/plan_mode.py:349",),

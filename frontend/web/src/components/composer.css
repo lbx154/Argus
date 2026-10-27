@@ -16,6 +16,16 @@
 .map-attach:not(:disabled):active, .map-send:not(:disabled):active { transform: scale(.94); }
 .map-composer textarea { min-width: 0; flex: 1; margin: 4px 0; background: transparent; border: 0; outline: none; resize: none; font-size: 15px; line-height: 28px; color: rgb(var(--ink)); max-height: 132px; }
 .map-composer textarea::placeholder { color: rgb(var(--ink-faint)); }
+/* The gray suggestion: a transparent copy of the text in the textarea's own grid cell, then the rest in gray. */
+.composer-input { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.composer-input > textarea, .composer-ghost { grid-area: 1 / 1; }
+.composer-input > textarea { width: 100%; }
+/* Font, margins and height limit come from the textarea itself (ComposerSurface), whichever stylesheet set them. */
+.composer-ghost { overflow: hidden; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; color: transparent; }
+.composer-ghost > span { color: rgb(var(--ink-faint)); }
+@media (pointer: coarse) { .composer-ghost > span { pointer-events: auto; cursor: pointer; } }
+/* High-contrast themes recolor all text: keep the copy invisible and the suggestion apart. */
+@media (forced-colors: active) { .composer-ghost { forced-color-adjust: none; } .composer-ghost > span { color: GrayText; } }
 .map-send { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: rgb(var(--accent)); color: rgb(var(--on-accent)); transition: transform 160ms cubic-bezier(.32,.72,0,1), opacity 160ms ease, background-color 160ms ease; }
 .map-send:disabled { background: transparent; color: rgb(var(--silver)); cursor: default; }
 .map-send:not(:disabled):hover { background: rgb(var(--accent-hover)); }

@@ -4,6 +4,7 @@ import { api, isAuthenticationError, openStream, type EventMsg, type ProjectInde
 import { eventKey } from '../../core/src/events';
 import { cacheProjectName } from './lib/projectName';
 import { PageUpdateRequiredError } from './lib/pageUpdate';
+import { workspaceApi } from './research-workbench/workspaceApi';
 
 /* ------------------------------------------------------------------ REST */
 
@@ -85,6 +86,16 @@ export const useIdentity = (sid: string | null, enabled: boolean) =>
 
 export const useTranscript = (sid: string | null, enabled: boolean, n = 30) =>
   useQuery({ queryKey: ['transcript', sid, n], queryFn: ({ signal }) => api.transcript(sid!, n, signal), enabled: !!sid && enabled });
+
+/** The project's workspace listing, fetched while the composer asks for a path (again once stale); shares the IDE's cache. */
+export const useWorkspaceTree = (sid: string | null, enabled: boolean) =>
+  useQuery({
+    queryKey: ['workspace-tree', sid, `project:${sid}`],
+    queryFn: ({ signal }) => workspaceApi.tree(sid!, `project:${sid}`, signal),
+    enabled: !!sid && enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
 
 export const useArtifacts = (sid: string | null, enabled = true) =>
   useQuery({

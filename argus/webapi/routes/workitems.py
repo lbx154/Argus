@@ -219,14 +219,16 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         """Ask the Manager to restate a short operator draft as a usable brief.
 
         Preview only — nothing is enqueued and no mission is touched. The
-        operator reviews/edits the result before sending it.
+        operator reviews/edits the result before sending it. ``mode="complete"``
+        instead suggests how the line being typed ends, as the composer's gray text.
         """
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty prompt")
         project_root = ctx.project_root_or_404(sid)
-        from ..manager_bridge import manager_rewrite
+        from ..manager_bridge import manager_complete, manager_rewrite
+        bridge = manager_complete if body.mode == "complete" else manager_rewrite
         return await run_in_threadpool(
-            manager_rewrite, sid, body.text, global_root=project_root,
+            bridge, sid, body.text, global_root=project_root,
         )
 
     @app.post("/api/projects/{sid}/launch/confirm", dependencies=[Depends(ctx.require_auth)])
