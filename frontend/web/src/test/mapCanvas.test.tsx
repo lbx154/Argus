@@ -8,6 +8,7 @@ import { api } from "../api";
 import { MapCanvas } from "../map/MapPanel";
 import { EMPTY_CANVAS, placeAroundPeople, type CanvasRecord } from "../map/canvas";
 import type { Dataset } from "../map/model";
+import type { DispatchObserver } from "../map/submission";
 
 vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
@@ -102,7 +103,7 @@ beforeEach(() => {
   writes = [];
   serial = 0;
   vi.stubGlobal("window", { location: { search: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn(), innerWidth: 1440, innerHeight: 960 });
-  vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn(), elementFromPoint: () => null, querySelector: () => null });
+  vi.stubGlobal("document", { addEventListener: vi.fn(), removeEventListener: vi.fn(), elementFromPoint: () => target(".react-flow__renderer"), querySelector: () => null });
   vi.spyOn(api, "writeMapCanvas").mockImplementation(fakeWrite as typeof api.writeMapCanvas);
   vi.spyOn(api, "mapCanvas").mockImplementation(() => Promise.resolve(server));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -143,6 +144,25 @@ it("links two cards with the kind the person chooses and draws it as a human lin
   expect(writes).toEqual([{ method: "POST", path: "/links", body: { revision: 1, source: "hc-1", target: "parent", kind: "check" } }]);
   const edge = flow().edges.find((e) => e.type === "human")!;
   expect(edge).toMatchObject({ source: "hc-1", target: "parent", data: { kind: "check" } });
+});
+
+it("offers no link when the drop lands on a panel over the canvas or past its edge", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "假设", position: { x: 0, y: -900 } }); });
+  act(() => { client.setQueryData(["map-canvas", "canvas"], server); });
+  const node = { closest: (s: string) => s === ".react-flow__renderer" ? {} : s === ".react-flow__node" ? { getAttribute: () => "parent" } : null };
+  const menu = () => renderer.root.findAll((n) => n.props.role === "menuitemradio");
+  // Over the open conversation panel, with the task card behind it.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".map-conversation"), node];
+  act(() => flow().onConnectEnd({ clientX: 1200, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu()).toHaveLength(0);
+  // Past the canvas edge, over the sidebar rail.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".workspace-rail")];
+  act(() => flow().onConnectEnd({ clientX: 10, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu()).toHaveLength(0);
+  // On the canvas, the same card behind the line is linked.
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [target(".react-flow__renderer"), node];
+  act(() => flow().onConnectEnd({ clientX: 600, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu().length).toBeGreaterThan(0);
 });
 
 it("remembers where a task card was dropped and keeps it there", async () => {
@@ -209,6 +229,19 @@ it("hands an idea card to the team as a message to the Manager that quotes the c
   const [marker, ask] = text.split("\n");
   expect(JSON.parse(marker.slice("[[Argus引用 ".length, -2))).toMatchObject({ task_id: "hc-1", task_title: "写一个导出", event_ids: [] });
   expect(ask).toBe("把这张卡做成任务：写一个导出");
+});
+
+it.each(["error", "cancelled"] as const)("drops the card notice and opens the conversation when a card message ends %s", async (outcome) => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
+  client.setQueryData(["map-canvas", "canvas"], server);
+  const onSend = vi.fn(async (_text: string, _files?: File[], observe?: DispatchObserver) => { observe?.({ type: "settled", outcome }); return true; });
+  remount({ composer: { ...props.composer, onSend } });
+  openCardMenu("hc-1");
+  act(() => menuItem("交给团队").props.onClick());
+  await flush();
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(renderer.root.findAll((n) => n.type === "span" && n.children.includes("已发给 Argus，回复在对话里"))).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: "map-conversation nowheel nodrag nopan" })).toHaveLength(1);
 });
 
 it("keeps the person's draft: a hand-off then waits in the composer", async () => {
@@ -393,4 +426,18 @@ it("keeps a request that started no task yet by the composer, and explains the c
   const text = (node: ReactTestInstance | string): string =>
     typeof node === "string" ? node : node.children.map(text).join("");
   expect(text(key)).toContain("任务卡 = 团队拆出来、能单独完成和验收的一件事");
+});
+
+it("keeps the team line, 暂停团队 and what waits on the person on the full canvas map", () => {
+  const css = ["map.css", "design.css", "canvas.css"].map((name) => readFileSync(new URL(`../map/${name}`, import.meta.url), "utf8")).join("\n");
+  const hidden = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter(([, , body]) => /display:\s*none/.test(body))
+    .flatMap(([, selectors]) => selectors.split(",").map((s) => s.replace(/\/\*[\s\S]*?\*\//g, "").trim()))
+    .filter((s) => s.includes('[data-immersive="true"]'));
+  expect(hidden.some((s) => /\.map-overview$/.test(s) || s.includes(".map-status-row") || s.includes(".map-attention-link"))).toBe(false);
+  // The team line sits outside the overview's folded list.
+  const next = { ...props, actions: { ...props.actions, teamStatus: <div data-testid="team-line"><button>暂停团队</button></div> } };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...next} immersive /></QueryClientProvider>));
+  const overview = renderer.root.findByProps({ "data-testid": "map-overview" });
+  expect(overview.findByProps({ "data-testid": "team-line" }).parent).toBe(overview);
 });
