@@ -96,12 +96,12 @@ updates. See **[Counterexample Lab and Jacobian setup](docs/counterexample-lab-j
 ## WeChat community
 
 Scan the QR code to join Argus WeChat Group 2. Click the image to open it at full
-size. This code is valid **before October 28, 2026**, as shown in the image.
+size. This code is valid **before November 3, 2026**, as shown in the image.
 After it expires, open an Issue and ask the maintainers for the latest code.
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group-2.jpg?v=20261021">
-    <img src="docs/assets/argus-wechat-group-2.jpg?v=20261021" width="360" alt="Argus WeChat Group 2 QR code">
+  <a href="docs/assets/argus-wechat-group-2.png?v=20261027">
+    <img src="docs/assets/argus-wechat-group-2.png?v=20261027" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
 
