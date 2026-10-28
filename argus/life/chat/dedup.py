@@ -13,11 +13,11 @@ channel needs:
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import threading
 import time
 from pathlib import Path
+
+from ...core.atomic_replace import write_atomic
 
 # Retention bounds the in-memory/disk dedup window, never message processing time.
 _RETENTION_SECONDS = 24 * 60 * 60
@@ -47,28 +47,12 @@ class EventDedup:
         return self._seen
 
     def _persist(self, seen: dict[str, int]) -> None:
-        tmp: Path | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                dir=self.path.parent, prefix=f".{self.path.name}.", suffix=".tmp",
-            )
-            tmp = Path(tmp_name)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(seen, handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-            tmp = None
+            write_atomic(self.path, json.dumps(seen), fsync=True, mode=0o600)
         except OSError:
             # Losing the ledger costs at most one duplicate reply; never fatal.
             pass
-        finally:
-            if tmp is not None:
-                try:
-                    tmp.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     def seen(self, event_id: str | None) -> bool:
         """True if *event_id* was already handled. Records it when it wasn't.

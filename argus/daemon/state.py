@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ..core.atomic_replace import write_atomic
 from ..core.control_state_guard import refuse_role_control_write
 from ..core.daemon_lock import WINDOWS_DAEMON_LOCK_OFFSET, is_pid_running
 from ..core.usage import format_usage_cost
@@ -143,9 +144,8 @@ def request_daemon_control_stop(
     if int(pid) <= 0 or not started:
         raise ValueError("daemon control stop requires an exact process identity")
     life_dir.mkdir(parents=True, exist_ok=True)
-    path = _daemon_stop_request_path(life_dir)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    tmp.write_text(
+    write_atomic(
+        _daemon_stop_request_path(life_dir),
         json.dumps(
             {
                 "schema_version": 1,
@@ -155,9 +155,7 @@ def request_daemon_control_stop(
                 "requested_at": time.time(),
             }
         ),
-        encoding="utf-8",
     )
-    os.replace(str(tmp), str(path))
 
 
 def read_daemon_control_stop(
@@ -210,13 +208,10 @@ def request_daemon_drain(life_dir: Path, *, pid: int) -> None:
     """Persist a PID-bound graceful-drain request before sending SIGTERM."""
     refuse_role_control_write("A daemon drain request", life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
-    path = _daemon_drain_request_path(life_dir)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    tmp.write_text(
+    write_atomic(
+        _daemon_drain_request_path(life_dir),
         json.dumps({"pid": int(pid), "requested_at": time.time()}),
-        encoding="utf-8",
     )
-    os.replace(str(tmp), str(path))
 
 
 def daemon_drain_requested(life_dir: Path, *, pid: int) -> bool:

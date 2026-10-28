@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
+
+from .atomic_replace import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -282,9 +283,7 @@ def approve_step(life_dir: Path | str, step_id: str, task_ids: Iterable[str]) ->
         state["approved"][step_id] = sorted(covered)
         state["updated_ts"] = time.time()
         path = _state_path(life_dir)
-        temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary, path)
+        write_atomic(path, json.dumps(state, ensure_ascii=False))
 
 
 # ---------------------------------------------------------------------------

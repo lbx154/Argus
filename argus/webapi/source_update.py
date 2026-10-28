@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 import threading
 import time
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +16,7 @@ from ..apps.update import (
     public_upstream,
     update_source_checkout,
 )
+from ..core.atomic_replace import write_atomic
 from ..core.daemon_lock import is_pid_running
 from ..core.runtime_identity import runtime_identity, source_root
 
@@ -34,18 +33,7 @@ def _write_status(global_root: Path | str, payload: dict[str, Any]) -> dict[str,
     path = _status_path(global_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     value = {"schema_version": 1, **payload, "updated_at": time.time()}
-    fd, tmp_name = tempfile.mkstemp(prefix=".source-update-", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, path)
-    finally:
-        with suppress(FileNotFoundError):
-            os.unlink(tmp_name)
+    write_atomic(path, json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n", fsync=True, mode=0o600)
     return value
 
 

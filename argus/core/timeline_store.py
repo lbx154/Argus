@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .atomic_replace import write_atomic
 from .file_lock import exclusive_file_lock
 from .timeline import estimate
 from .timeline_models import label
@@ -162,15 +161,10 @@ def record(project_root: Path, payload: dict, *, expected_version: int, reason: 
         path = root / f"{version + 1:06d}.json"
         # Only publish a complete, fsynced record. A killed writer leaves an ignored
         # temporary file, never a truncated revision or a rewritten original plan.
-        fd, temporary = tempfile.mkstemp(prefix=".pending-", dir=root)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as output:
-                json.dump(entry, output, ensure_ascii=False, indent=2, allow_nan=False)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
+        write_atomic(
+            path,
+            json.dumps(entry, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            fsync=True,
+            mode=0o600,
+        )
         return entry

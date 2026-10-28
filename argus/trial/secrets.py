@@ -2,22 +2,14 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
+
+from ..core.atomic_replace import write_atomic
 
 
 def write_private(path: Path, content: bytes):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix=".trial-")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(name, path)
-    finally:
-        if os.path.exists(name):
-            os.unlink(name)
+    write_atomic(path, content, fsync=True, mode=0o600)
 
 
 class Vault:

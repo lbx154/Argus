@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
+from .atomic_replace import write_atomic
 from .file_lock import exclusive_file_lock
 
 INCIDENT_DIRECTORY = "runtime-incidents"
@@ -287,20 +286,12 @@ class RuntimeIncidentStore:
     def _write(self, record: Mapping[str, Any]) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.directory / f"{record['incident_id']}.json"
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            dir=path.parent,
+        write_atomic(
+            path,
+            json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            fsync=True,
+            mode=0o600,
         )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
 
     @contextmanager
     def _locked(self):

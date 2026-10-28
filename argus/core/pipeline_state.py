@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
-import threading
-import uuid
 from pathlib import Path
 from typing import Any
+
+from .atomic_replace import write_atomic
 
 PIPELINE_STATE_RELATIVE = Path(".argus") / "PIPELINE_STATE.json"
 LEGACY_PIPELINE_STATE_RELATIVE = Path("research") / "PIPELINE_STATE.json"
@@ -52,17 +51,7 @@ def write_pipeline_state(project_root: object, payload: dict[str, Any]) -> Path:
         raise TypeError("pipeline state payload must be a dict")
     path = primary_pipeline_state_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(
-        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"
-    )
-    try:
-        temp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temp, path)
-    finally:
-        temp.unlink(missing_ok=True)
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return path
 
 

@@ -35,7 +35,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 import weakref
 from contextlib import contextmanager
@@ -44,6 +43,7 @@ from typing import Mapping
 
 import portalocker
 
+from .atomic_replace import write_atomic
 from .paths import config_path
 
 log = logging.getLogger(__name__)
@@ -183,24 +183,12 @@ def write_persisted_knobs(values: Mapping[str, str]) -> bool:
             ):
                 updates["ARGUS_SKILL_RUNNER_BIN"] = ""
             data.update(updates)
-            fd, tmp_name = tempfile.mkstemp(
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
+            write_atomic(
+                path,
+                json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                fsync=True,
+                mode=0o600,
             )
-            tmp = Path(tmp_name)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                    handle.write("\n")
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(tmp, path)
-            finally:
-                try:
-                    tmp.unlink()
-                except FileNotFoundError:
-                    pass
         return True
     except OSError:
         log.warning(

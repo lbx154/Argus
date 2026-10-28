@@ -21,12 +21,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 from pathlib import Path
 from typing import Any
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG
+from ..core.atomic_replace import write_atomic
 from .chat.render import TELEGRAM_LIMIT, chunk_html
 from .chat.router import COMMAND_MENU, CommandRouter
 from .chat.transport import ChatTransport
@@ -192,30 +192,13 @@ def _read_offset(life_dir: Path) -> int | None:
 
 def _write_offset(life_dir: Path, offset: int) -> bool:
     path = _offset_path(life_dir)
-    tmp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        )
-        tmp = Path(tmp_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(str(offset))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        write_atomic(path, str(offset), fsync=True, mode=0o600)
         return True
     except OSError:
         log.warning("failed to persist telegram offset")
         return False
-    finally:
-        if tmp is not None:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _fast_forward(token: str, life_dir: Path) -> int | None:

@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..core.atomic_replace import write_atomic
+
 CONTEXT_PACKET_VERSION = 3
 CHECKPOINT_CONTRACT_VERSION = 2
 CHECKPOINT_FILENAME = "CHECKPOINT.md"
@@ -50,15 +52,7 @@ def _initialize_checkpoint(path: Path) -> bool:
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-    try:
-        tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def _file_reference(path: Path | None) -> dict[str, Any]:

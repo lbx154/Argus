@@ -15,4 +15,4 @@ def test_permanent_denial_preserves_previous_state(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         manager.write_json(path, {"status": "next"})
     assert manager.read_json(path) == {"status": "previous"}
-    assert not list(tmp_path.glob("*.tmp"))
+    assert [entry.name for entry in tmp_path.iterdir()] == ["operation.json"]

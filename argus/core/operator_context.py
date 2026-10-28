@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal, TypeAlias, cast
 
+from .atomic_replace import write_atomic
 from .file_lock import exclusive_file_lock
 from .operator_context_storage import (
     DELIVERY_STATE_KEY,
@@ -347,17 +348,11 @@ def _read_cache(root: Path) -> dict[str, Any]:
 
 
 def _write_cache(root: Path, payload: dict[str, Any]) -> None:
-    path = root / PROJECTION_FILENAME
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_atomic(
+        root / PROJECTION_FILENAME,
+        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        fsync=True,
+    )
 
 
 def _current_mission_id(root: Path) -> str:

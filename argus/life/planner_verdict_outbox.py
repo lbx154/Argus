@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
+
+from ..core.atomic_replace import write_atomic
 
 OUTBOX_FILE = "planner-verdict-outbox.json"
 OUTBOX_VERSION = 1
@@ -55,18 +55,11 @@ def write_planner_verdict_outbox(
         "terminal_signature": str(terminal_signature or ""),
         "delivered": bool(delivered),
     }
-    fd, temp_name = tempfile.mkstemp(prefix=".planner-verdict-", dir=str(directory))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
-            handle.write("\n")
-        os.chmod(temp_name, 0o600)
-        os.replace(temp_name, directory / OUTBOX_FILE)
-    finally:
-        try:
-            os.unlink(temp_name)
-        except FileNotFoundError:
-            pass
+    write_atomic(
+        directory / OUTBOX_FILE,
+        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        mode=0o600,
+    )
     return payload
 
 

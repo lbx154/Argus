@@ -25,6 +25,7 @@ from pathlib import Path
 import httpx
 import portalocker
 
+from .atomic_replace import write_atomic
 from .paths import global_root
 
 API_VERSION = 1
@@ -131,25 +132,7 @@ def write_json(path, value):
     path = Path(path)
     with _state_io_lock:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-        try:
-            with temp.open("x", encoding="utf-8") as output:
-                json.dump(value, output, ensure_ascii=False, indent=2)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            for attempt in range(20):
-                try:
-                    os.replace(temp, path)
-                    break
-                except PermissionError:
-                    if os.name != "nt" or attempt == 19:
-                        raise
-                    # Bounded retry for antivirus/external readers, not a
-                    # permission bypass. Persistent denial remains an error.
-                    time.sleep(0.05)
-        finally:
-            temp.unlink(missing_ok=True)
+        write_atomic(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n", fsync=True)
 
 
 def catalog():

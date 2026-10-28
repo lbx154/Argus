@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import subprocess
 import time
@@ -19,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .atomic_replace import write_atomic
 from .secret_guard import known_secret_values, redact_secrets_text
 from .session_ledger import session_size_tokens
 
@@ -426,7 +426,6 @@ class RoleSessionCapsule:
         """Atomically save the capsule, returning False on metadata I/O failure."""
         if self.path is None:
             return True
-        temporary: Path | None = None
         try:
             self.updated_at = time.time()
             payload = {
@@ -454,14 +453,7 @@ class RoleSessionCapsule:
                 "updated_at": self.updated_at,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_name(
-                f"{self.path.name}.tmp-{os.getpid()}-{time.time_ns()}"
-            )
-            temporary.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(temporary, self.path)
+            write_atomic(self.path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
             self.persistence_error = ""
             return True
         except Exception as exc:  # noqa: BLE001 - capsule is advisory metadata
@@ -476,12 +468,6 @@ class RoleSessionCapsule:
                 exc_info=True,
             )
             return False
-        finally:
-            if temporary is not None:
-                try:
-                    temporary.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
 
 def signal_role_session_file(path: Path | str, kind: str, detail: str = "") -> bool:
@@ -506,12 +492,7 @@ def signal_role_session_file(path: Path | str, kind: str, detail: str = "") -> b
         ),
         "updated_at": time.time(),
     })
-    temporary = target.with_name(f"{target.name}.tmp-{os.getpid()}-{time.time_ns()}")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, target)
+    write_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return True
 
 

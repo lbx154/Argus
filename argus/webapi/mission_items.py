@@ -10,6 +10,7 @@ from typing import Any, Mapping, MutableMapping
 
 from ..apps._inbox import count_pending_inbox_messages
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
+from ..core.atomic_replace import write_atomic
 from ..core.config_snapshot import build_config_snapshot
 from ..core.mission_view import operator_objective
 from ..core.role_config import resolve_all_roles
@@ -424,9 +425,7 @@ def _write_backend_models(root: Path, key: str, models: list[str], default: str)
     data[key] = {"models": models, "default": default, "fetched_at": time.time()}
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(_json.dumps(data), encoding="utf-8")
-        os.replace(tmp, path)
+        write_atomic(path, _json.dumps(data))
     except OSError:
         pass
 

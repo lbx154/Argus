@@ -32,11 +32,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from ..core.atomic_replace import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -84,16 +84,7 @@ def _learned_domain_path(global_root: object, name: str) -> Path:
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     """Atomic tmp+rename write."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True) + "\n", mode=0o600)
 
 
 def _normalize_role_banners(value: object) -> dict[str, str]:

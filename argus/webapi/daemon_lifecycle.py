@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
+from ..core.atomic_replace import write_atomic
 from ..core.event_catalog import EventType
 from ..core.role_config import resolve_all_roles
 from ..core.session import (
@@ -203,13 +204,10 @@ def _admission_required(
         "running_daemons": running,
     }
     try:
-        path = core_paths.session_state_root(sid, root=root) / _DAEMON_ADMISSION_FILE
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(
+        write_atomic(
+            core_paths.session_state_root(sid, root=root) / _DAEMON_ADMISSION_FILE,
             json.dumps(admission, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
         )
-        os.replace(tmp, path)
     except OSError:
         pass
     return admission
@@ -434,13 +432,10 @@ def _write_parked_state(
         "unfinished_tasks": unfinished,
         "state_preserved": True,
     }
-    path = victim_dir / "daemon.parked.json"
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    tmp.write_text(
+    write_atomic(
+        victim_dir / "daemon.parked.json",
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
-    os.replace(tmp, path)
     try:
         from ..life.event_log import JsonlEventSink
 

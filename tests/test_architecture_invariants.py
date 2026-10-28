@@ -1088,7 +1088,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/front_door.py -> apps",
     "manager/front_door.py -> daemon",
     "manager/supervision.py -> daemon",
-    "reviewer/_core.py -> manager",
     "skills/builtins.py -> domains",
     "skills/builtins.py -> verticals",
     "skills/checklist_store.py -> verticals",
@@ -1099,7 +1098,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/stage_machine.py -> verticals",
     "skills/vertical_select.py -> domains",
     "skills/vertical_select.py -> verticals",
-    "verticals/research/idea_portfolio.py -> manager",
 })
 
 # Cross-package imports of an underscore-private module or name. Every entry
@@ -1897,7 +1895,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "agent_cli": 12,
     "apps": 41,
     "cli": 1,
-    "core": 58,
+    "core": 56,
     "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 18,
     "life": 181,

@@ -583,9 +583,10 @@ def _persist_research_review(decision: ReviewDecision, config: "ReviewerConfig")
         ):
             text += f"## {heading}\n{content}\n\n"
     path = artifact_root / "paper" / "REVIEW.md"
-    from ..manager.source_writeback import atomic_write
+    from ..core.atomic_replace import write_atomic
 
-    atomic_write(path, text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, text)
 
     from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
 

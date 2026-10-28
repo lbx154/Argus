@@ -7,9 +7,9 @@ replaced document must never stop planning or mission execution.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
+
+from ..core.atomic_replace import write_atomic
 
 RESEARCH_PLAN_FILENAME = "RESEARCH_PLAN.md"
 RESEARCH_PLAN_PROMPT_CHARS = 8_000
@@ -128,30 +128,12 @@ def replace_research_plan(state_root: Path | str, content: str) -> bool:
     text = str(content or "").strip()
     if not valid_research_plan(text):
         return False
-    temporary: Path | None = None
     try:
         path = research_plan_path(state_root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(text + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        write_atomic(path, text + "\n", fsync=True, mode=0o600)
         return True
     except OSError:
-        try:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False
 
 

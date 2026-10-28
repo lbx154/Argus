@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..core.atomic_replace import write_atomic
 from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
 
 
@@ -284,7 +285,6 @@ def _sync_status_stage(project_root: Path | str, stage: str) -> bool:
     ``Current stage: ...`` line. Only that line is replaced; missing markers,
     arbitrary status files, and symlinks are left untouched.
     """
-    import os as _os
 
     path = Path(project_root) / "STATUS.md"
     try:
@@ -298,9 +298,7 @@ def _sync_status_stage(project_root: Path | str, stage: str) -> bool:
         )
         if count != 1 or rendered == original:
             return False
-        tmp = path.with_name(f".{path.name}.stage-sync.{_os.getpid()}")
-        tmp.write_text(rendered, encoding="utf-8")
-        _os.replace(tmp, path)
+        write_atomic(path, rendered)
         return True
     except (OSError, UnicodeError):
         return False

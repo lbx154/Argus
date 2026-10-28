@@ -25,10 +25,11 @@ import json
 import logging
 import os
 import re
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable
+
+from .atomic_replace import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -139,14 +140,7 @@ def _load(thread_id: str) -> dict[str, Any]:
 def _save(thread_id: str, payload: dict[str, Any]) -> None:
     path = _ledger_path(thread_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=".ledger-", dir=path.parent)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(payload, stream)
-        os.replace(temporary, path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+    write_atomic(path, json.dumps(payload), mode=0o600)
 
 
 def elide_sent_sections(thread_id: str | None, prompt: str) -> str:

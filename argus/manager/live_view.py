@@ -10,11 +10,10 @@ inherit each other's sidebar choice.
 from __future__ import annotations
 
 import json
-import os
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 
+from ..core.atomic_replace import write_atomic
 from ..roles.task_contract import argus_command
 
 LIVE_VIEW_MANIFEST = Path(".argus") / "live-view.json"
@@ -214,20 +213,7 @@ def apply_live_view_decision(
         return
     manifest.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, **asdict(view), "paths": list(view.paths)}
-    tmp = manifest.with_name(
-        f".{manifest.name}.{os.getpid()}.{time.time_ns()}.tmp"
-    )
-    try:
-        tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, manifest)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    write_atomic(manifest, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 __all__ = [

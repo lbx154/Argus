@@ -15,6 +15,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from .atomic_replace import write_atomic
+
 CAMPAIGN_WORKDIR_FILENAME = "campaign-workdir.json"
 
 
@@ -170,12 +172,7 @@ def adopt_campaign_workdir(
     }
     path = campaign_workdir_path(state_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return target
 
 

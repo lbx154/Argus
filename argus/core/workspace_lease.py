@@ -10,6 +10,8 @@ from typing import Any
 
 import portalocker
 
+from .atomic_replace import write_atomic
+
 
 class WorkspaceLeaseBusy(RuntimeError):
     """Another live process already owns the canonical workdir."""
@@ -103,17 +105,7 @@ def _read_owner_detail(lock_path: Path, fd: int) -> str:
 
 def _write_windows_owner(lock_path: Path, encoded: bytes) -> None:
     owner_path = _windows_owner_path(lock_path)
-    temporary = owner_path.with_name(
-        f".{owner_path.name}.{os.getpid()}.{id(encoded)}.tmp"
-    )
-    try:
-        temporary.write_bytes(encoded)
-        os.replace(temporary, owner_path)
-    finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+    write_atomic(owner_path, encoded)
 
 
 def acquire_workspace_lease(

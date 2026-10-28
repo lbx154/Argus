@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus.core import atomic_replace
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.core.role_actions import PREFIX
@@ -265,7 +266,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
     backend = EvidenceBackend()
     manager = Manager(tmp_path, runner=backend)
     event = {"type": EventType.LIFE_MISSION_COMPLETED}
-    original = supervision.os.replace
+    original = atomic_replace.os.replace
 
     def replace_then_crash(source, destination):
         target = Path(destination)
@@ -279,7 +280,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
             raise ProcessCrash()
 
     with monkeypatch.context() as fault:
-        fault.setattr(supervision.os, "replace", replace_then_crash)
+        fault.setattr(atomic_replace.os, "replace", replace_then_crash)
         with pytest.raises(ProcessCrash):
             supervise(manager, tmp_path, event)
     before = load_active_manager_directive(tmp_path)

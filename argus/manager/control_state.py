@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import tempfile
 import time
 import uuid
 from contextlib import contextmanager
@@ -19,6 +18,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import portalocker
+
+from ..core.atomic_replace import write_atomic
 
 CONTROL_DIRNAME = "campaign-control"
 HEAD_FILENAME = "HEAD.json"
@@ -102,28 +103,12 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temp_path = Path(handle.name)
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
-    finally:
-        if temp_path is not None:
-            try:
-                temp_path.unlink()
-            except FileNotFoundError:
-                pass
+    write_atomic(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        fsync=True,
+        mode=0o600,
+    )
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:

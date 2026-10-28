@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from ...core.atomic_replace import write_atomic
 from ..memory import BacklogItem
 
 log = logging.getLogger(__name__)
@@ -346,22 +346,12 @@ def load_completion_rejection_circuit(path: Path) -> dict[str, Any] | None:
 def _write_completion_rejection_circuit(path: Path, payload: dict[str, Any]) -> bool:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     try:
-        tmp.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
+        write_atomic(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
         return True
     except OSError:
         log.exception("failed to persist completion-rejection record: %s", path)
         return False
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def record_completion_rejection(

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from .atomic_replace import write_atomic
 from .file_facts import file_facts
 
 FILENAME = "grounding-baseline.json"
@@ -89,17 +89,12 @@ def _read(root: Path) -> dict[str, dict[str, list[int]]]:
 
 def _write(root: Path, rows: Mapping[str, Mapping[str, list[int]]]) -> None:
     path = Path(root) / FILENAME
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump({"version": 2, "objectives": dict(rows)}, handle, ensure_ascii=False)
-        os.replace(temporary, path)
+        write_atomic(path, json.dumps({"version": 2, "objectives": dict(rows)}, ensure_ascii=False))
     except OSError:
         # Unrecorded, the snapshot taken now still serves this mission.
         return
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def objective_baseline(

@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+from ..core.atomic_replace import write_atomic
 
 # These constants remain as path-scope vocabulary for callers that organise
 # role-specific libraries.  They no longer drive a matcher.
@@ -176,14 +177,7 @@ class SkillStore:
         if resolved_path.suffix.casefold() != ".md":
             raise ValueError("Skill path must end in .md")
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = resolved_path.with_name(
-            f".{resolved_path.name}.writing-{os.getpid()}-{threading.get_ident()}"
-        )
-        try:
-            temporary.write_text(skill.render(), encoding="utf-8")
-            os.replace(temporary, resolved_path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        write_atomic(resolved_path, skill.render())
         skill.path = str(resolved_path)
         return resolved_path
 
