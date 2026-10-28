@@ -129,6 +129,12 @@ REGISTRY: tuple[Site, ...] = (
         ("setup-smoke",),
     ),
     Site(
+        r"model-probe", FOREGROUND,
+        "One test call per click of Test in the model chooser; a second test of the same model in flight is refused.",
+        ("argus/webapi/model_choices.py:242",),
+        ("model-probe",),
+    ),
+    Site(
         r"doctor-repair", FOREGROUND,
         "One repair prompt per `argus doctor` run.",
         ("argus/maintenance/advisor.py:265", "argus/core/agent_probe.py:125"),
@@ -237,7 +243,6 @@ NOT_MODEL_CALLS = {
         "argus/life/supervisor/_mission_execution_runtime.py", "_derive_basic_outcome_fields",
         "memory.mission.aggregate",
     ),
-    ("argus/release_tools/generate_event_fixtures.py", "<module>", "Engineer"),
 }
 
 # Functions that pass a caller's label on (or record it) without choosing one.

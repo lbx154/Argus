@@ -15,7 +15,6 @@ def host(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    monkeypatch.delenv(pm.PREINSTALL_ENV, raising=False)
     # Registry rows in these tests point at no real package; loading one is not the subject.
     monkeypatch.setattr(pm, "load_plugin", lambda *args, **kwargs: None)
     # Lifecycle fixtures assume prior operator consent; the refusal is tested

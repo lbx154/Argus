@@ -68,9 +68,15 @@ def require_symlink_support(tmp_path: Path) -> None:
 def _isolate_argus_state_roots(
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> Iterator[None]:
     """Point every argus state root at a throwaway directory for this test."""
     root = Path(tmp_path_factory.mktemp("argus-home"))
+    # Entry points (trial runtimes, the life-worker boot, the TUI launcher)
+    # configure their process by writing os.environ directly, which monkeypatch
+    # cannot undo. One such write, configure_plugins()'s ARGUS_PLUGINS_PREINSTALL,
+    # made every later web-app startup on that xdist worker download and
+    # pip-install CrystalPilot, about 1 GB each, until CI ran out of disk quota.
+    environment = dict(os.environ)
 
     # Ambient ARGUS_SKILL_* vars steer backend/model/budget resolution, so a
     # developer shell that exports e.g. ARGUS_SKILL_RUNNER_BACKEND silently
@@ -79,15 +85,12 @@ def _isolate_argus_state_roots(
     # never fires and the CLI launches the real cockpit instead. COPILOT_HOME is
     # just as stateful: if the developer runs pytest from inside a Copilot-backed
     # Argus session, child-env tests inherit the real worker home and stop
-    # exercising the "no explicit home was chosen" path. Start from a clean slate;
-    # a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
+    # exercising the "no explicit home was chosen" path. Host roots and
+    # preinstall declarations would point a test at a real host's installs.
+    # Start from a clean slate; a test that needs a value sets it itself.
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN", "ARGUS_VERTICALS_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
-    # The life-worker boot path setdefault()s the workbench host root into
-    # os.environ in-process; a test that booted a worker would otherwise hand
-    # its throwaway root to every later test that resolves trial_home().
-    monkeypatch.delenv("ARGUS_WORKBENCH_HOST_ROOT", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     # Model resolution inspects Codex's provider config to decide whether an
@@ -102,7 +105,12 @@ def _isolate_argus_state_roots(
     # daemon/WebAPI boot in the suite refuse startup; the self-maintenance
     # machine that once read it as a maintenance source tree is gone. A test
     # that exercises the preflight sets its own root.
-
+    yield
+    # monkeypatch may have recorded such a write as the value to put back.
+    monkeypatch.undo()
+    for name in os.environ.keys() - environment.keys():
+        del os.environ[name]
+    os.environ.update(environment)
 
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001

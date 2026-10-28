@@ -95,12 +95,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _ArgusArgumentParser(
         prog="argus",
         description="Argus — one cockpit; describe what you need.",
-        # Disable prefix abbreviation so a subcommand flag like
-        # ``wiki ingest --init`` is not rejected as an ambiguous abbreviation
-        # of top-level options (``--init-identity`` / ``--init-model-api``).
-        # argparse pre-scans every option-like token against the top-level
-        # parser before delegating to a subparser; with abbreviation enabled
-        # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
+        # Disable prefix abbreviation: argparse pre-scans every option-like
+        # token against the top-level parser before delegating to a
+        # subparser, so on Python <= 3.12 a subcommand flag that prefixes
+        # several top-level options would be rejected as ambiguous.
         allow_abbrev=False,
     )
     parser.add_argument(
@@ -514,57 +512,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="override skills directory (default: global skills root)",
     )
 
-    checks_grp = parser.add_argument_group("research-factory checks")
-    checks_grp.add_argument(
-        "--evidence-chain-check",
-        action="store_true",
-        help="read the F4 evidence chain of a project root and exit; "
-             "prints broken chains and exits non-zero if any claim ↔ "
-             "evidence ↔ bundle link is broken",
-    )
-    checks_grp.add_argument(
-        "--anti-mediocrity-check",
-        action="store_true",
-        help="run the F3 anti-mediocrity checks (baseline reproduction, "
-             "Δ-reward, benchmark diversity) and exit; the checks that "
-             "compare two conditions also need --proposed-condition and "
-             "--baseline-condition",
-    )
-    checks_grp.add_argument(
+    lifecycle_grp = parser.add_argument_group("project lifecycle")
+    lifecycle_grp.add_argument(
         "--lifecycle-status",
         action="store_true",
         help="print F5 project-lifecycle state derived from project memory "
              "(incubating/running/writing/quarantined/done/archived) and exit",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--lifecycle-resume",
         action="store_true",
         help="resume a quarantined, done, or archived project; restores a "
              "working state in <life-dir>/lifecycle.json so the supervisor "
              "will dispatch missions again",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--lifecycle-archive",
         action="store_true",
         help="archive the project; supervisor will refuse to "
              "dispatch missions until --lifecycle-resume is called",
     )
-    checks_grp.add_argument(
+    lifecycle_grp.add_argument(
         "--project-root",
         default=".",
         help="project root for management commands such as --status when run "
-             "outside the workdir, and for evidence/lifecycle checks (default cwd)",
-    )
-    checks_grp.add_argument(
-        "--proposed-condition",
-        default=None,
-        help="condition name to evaluate against the baseline for "
-             "--anti-mediocrity-check",
-    )
-    checks_grp.add_argument(
-        "--baseline-condition",
-        default=None,
-        help="baseline condition name for --anti-mediocrity-check",
+             "outside the workdir, and for lifecycle commands (default cwd)",
     )
 
     subparsers = parser.add_subparsers(dest="command")
@@ -661,50 +633,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path.cwd(),
         help="Base directory (default: cwd)",
     )
-    ingest_parser = wiki_sub.add_parser(
-        "ingest",
-        help="Backfill sources/papers/ from paper/refs.bib (+ optional LIT_MATRIX.tsv)",
-    )
-    ingest_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-    ingest_parser.add_argument(
-        "--refs",
-        type=Path,
-        help="Path to refs.bib (default: <project-root>/paper/refs.bib if it exists)",
-    )
-    ingest_parser.add_argument(
-        "--lit-matrix",
-        type=Path,
-        help=(
-            "Path to LIT_MATRIX.tsv (default: "
-            "<project-root>/research/LIT_MATRIX.tsv if it exists)"
-        ),
-    )
-    ingest_parser.add_argument(
-        "--ingested-by",
-        default="wiki-curator@manual-backfill",
-        help="Provenance string for the ingested_by frontmatter field",
-    )
-    ingest_parser.add_argument(
-        "--init",
-        action="store_true",
-        help="Initialize the wiki path before ingesting if it is missing",
-    )
-    migrate_parser = wiki_sub.add_parser(
-        "migrate",
-        help="Run one-shot wiki migrations such as sources/*.md -> sources/notes/",
-    )
-    migrate_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-
     correct_parser = wiki_sub.add_parser(
         "correct",
         help="Correct a knowledge page in place and record the correction",

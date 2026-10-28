@@ -1,4 +1,4 @@
-"""Host accelerator and memory probes, and the status schema the web UI reads."""
+"""Host accelerator and memory probes."""
 
 from .probe import ResourceProbe
 

@@ -208,6 +208,7 @@ class EventType(StrEnum):
     TEAM_LEARNING_PROMOTION_QUARANTINED = "team.learning.promotion.quarantined"
     DOMAIN_PROMOTION = "domain.promotion"
     WIKI_INITIALIZED = "wiki.initialized"
+    # Read in old logs only, never written now.
     WIKI_HOOK_WARNING = "wiki.hook.warning"
     WIKI_CREATED = "wiki.created"
     WIKI_UPDATED = "wiki.updated"

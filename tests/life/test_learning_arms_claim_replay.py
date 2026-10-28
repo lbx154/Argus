@@ -25,6 +25,8 @@ FIXTURE = json.loads(
 
 def _claim_both(tmp_path: Path, monkeypatch) -> tuple[LifeMemory, list[BacklogItem]]:
     monkeypatch.setattr(memory_module, "_gpu_cards", lambda: tuple(FIXTURE["cards_busy"]))
+    # Both arms (4 cores each) were claimed at once, so the host had at least 8 cores.
+    monkeypatch.setattr(memory_module, "_usable_cpus", lambda: 8)
     memory = LifeMemory.open(tmp_path / "projects" / "s-efe9deac")
     for row in FIXTURE["tasks"]:
         memory.backlog.add(BacklogItem.from_jsonable(row))

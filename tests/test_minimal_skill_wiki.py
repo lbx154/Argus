@@ -3,12 +3,11 @@ from pathlib import Path
 import yaml
 
 from argus.wiki.bootstrap import init_wiki, is_initialized_wiki
-from argus.wiki.index import rebuild_indexes
 from argus.wiki.schema import WikiPage, parse_page
 from argus.wiki.store import WikiStore
 
 
-def test_wiki_page_format_and_single_index(tmp_path: Path) -> None:
+def test_wiki_page_format(tmp_path: Path) -> None:
     root = init_wiki("openlibrary", base=tmp_path)
     assert is_initialized_wiki(root)
     store = WikiStore(root)
@@ -23,9 +22,6 @@ def test_wiki_page_format_and_single_index(tmp_path: Path) -> None:
     loaded = parse_page(page_path.read_text(encoding="utf-8"))
     assert loaded.title == "MARC alternate-script linkage"
     assert set((page_path.read_text().split("\n---\n", 1)[0][4:]).splitlines()[0].split())
-    rebuild_indexes(store)
-    index = (root / "INDEX.md").read_text(encoding="utf-8")
-    assert "pages/catalog-import/marc/alternate-script-linkage.md" in index
     assert not (root / "sources").exists()
     assert not (root / "queries").exists()
     assert not (root / "data").exists()

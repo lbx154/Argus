@@ -1161,8 +1161,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "tools -> argus.agent_cli._process_control",
     "trial -> argus.agent_cli.copilot_home._read_managed_config",
     "trial -> argus.tools.setup._verify_setup_smoke",
-    "verticals -> argus.skills.rl_training_plots._is_probe",
-    "verticals -> argus.skills.rl_training_plots._read_optimizer_steps",
     "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
     "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
     "verticals -> argus.tools.image_api._atomic_write_json",
@@ -1903,7 +1901,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "cli": 1,
     "core": 58,
     "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
-    "engineer": 19,
+    "engineer": 18,
     "life": 181,
     "maintenance": 2,
     "manager": 66,
@@ -1915,10 +1913,10 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "roles": 4,
     "skills": 30,
     "tools": 3,
-    "trial": 15,
+    "trial": 14,
     "verticals": 59,
     "webapi": 125,
-    "wiki": 6,
+    "wiki": 5,
 }
 
 

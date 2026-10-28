@@ -32,9 +32,6 @@ _ISO_UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 
 @pytest.fixture(autouse=True)
 def _fresh_registry(monkeypatch):
-    monkeypatch.delenv(store.HOST_ROOT_ENV, raising=False)
-    monkeypatch.delenv("ARGUS_TRIAL_HARNESS", raising=False)
-    monkeypatch.delenv(store.PREINSTALL_ENV, raising=False)
     monkeypatch.setattr(_registry, "_entry_point_plugins", lambda partial: partial)
     _registry.refresh_vertical_plugins()
     yield

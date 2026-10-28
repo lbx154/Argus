@@ -85,97 +85,6 @@ def test_main_wiki_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys)
     assert "wiki ready at" in out
 
 
-def test_main_wiki_ingest_does_not_build_a_source_database(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-):
-    from argus.wiki.bootstrap import init_wiki
-
-    wiki = init_wiki("demo", base=tmp_path)
-    refs = tmp_path / "paper" / "refs.bib"
-    refs.parent.mkdir()
-    refs.write_text(
-        """
-@article{demo2026,
-  title={Demo Paper},
-  author={Doe, Jane},
-  year={2026},
-  url={https://arxiv.org/abs/2601.00001}
-}
-""",
-        encoding="utf-8",
-    )
-    lit = tmp_path / "research" / "LIT_MATRIX.tsv"
-    lit.parent.mkdir()
-    lit.write_text(
-        "id\tyear\ttype\tvenue\turl\trelevance_to_demo\n"
-        "demo2026\t2026\trecent\tarXiv\thttps://arxiv.org/abs/2601.00001\tUseful.\n",
-        encoding="utf-8",
-    )
-
-    rc = main(
-        [
-            "wiki",
-            "ingest",
-            "--wiki",
-            str(wiki),
-            "--refs",
-            str(refs),
-            "--lit-matrix",
-            str(lit),
-            "--ingested-by",
-            "test",
-        ]
-    )
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert "ingested 0 new source(s)" in out
-    assert "enriched 0 source(s)" in out
-    assert not (wiki / "sources").exists()
-
-
-def test_wiki_ingest_rejects_uninitialized_path(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-):
-    wiki = tmp_path / ".autors" / "demo" / "wiki"
-    refs = tmp_path / "refs.bib"
-    refs.write_text("@misc{x, title={x}}\n", encoding="utf-8")
-
-    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs)])
-    captured = capsys.readouterr()
-
-    assert rc != 0
-    assert "not an initialized wiki" in captured.err
-    assert not wiki.exists()
-
-
-def test_wiki_ingest_init_flag_bootstraps(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-):
-    wiki = tmp_path / ".autors" / "demo" / "wiki"
-    refs = tmp_path / "refs.bib"
-    refs.write_text(
-        """
-@misc{x,
-  title={X},
-  url={https://arxiv.org/abs/2601.00002}
-}
-""",
-        encoding="utf-8",
-    )
-
-    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs), "--init"])
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert (wiki / "pages").is_dir()
-    assert (wiki / "INDEX.md").exists()
-    assert "ingested 0 new source(s)" in out
-
-
 def test_web_uses_documented_flags_and_explicit_life_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -298,20 +207,6 @@ def test_main_forwards_real_process_argv_to_ink(
 
     assert main() == 0
     assert captured["argv"] == ["--resume", "s-session01"]
-
-
-def test_wiki_ingest_init_flag_parses_without_abbreviation_collision():
-    # Regression: top-level ``--init-identity`` / ``--init-model-api`` must not
-    # turn the ``wiki ingest --init`` subcommand flag into an "ambiguous
-    # option" on Python <= 3.12 (argparse pre-scans tokens against the parent
-    # parser). The parent parser is built with ``allow_abbrev=False``.
-    p = build_parser()
-    args = p.parse_args(
-        ["wiki", "ingest", "--wiki", "/tmp/w", "--refs", "/tmp/r.bib", "--init"]
-    )
-    assert args.command == "wiki"
-    assert args.wiki_cmd == "ingest"
-    assert args.init is True
 
 
 def test_public_help_names_the_browser_cockpit() -> None:
