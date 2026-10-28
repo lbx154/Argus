@@ -43,6 +43,8 @@ export interface Project {
   request: string;
   backend: Backend;
   model: string | null;
+  /** The reasoning effort of every call, in the backend's word for it; absent, the backend's default. */
+  effort?: string;
   status: Status;
   /** Why the last call failed, with status 'failed'. */
   error: string | null;

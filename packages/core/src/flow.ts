@@ -201,7 +201,7 @@ export class Flow {
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the ways of working.
         readDirs: [dir, ...wayRoots(this.store.home)], ...(project.model ? { model: project.model } : {}),
-        ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
+        ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(check ? { check } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (error) {

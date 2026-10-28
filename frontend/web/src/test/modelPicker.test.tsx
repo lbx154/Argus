@@ -81,6 +81,19 @@ it('saves one model for every role through the settings write, releasing role pi
   expect(textOf(renderer!.root.findByProps({ 'data-apply-message': true }) as never)).toContain('Saved.');
 });
 
+it('saves a model the list does not have, by the name typed', async () => {
+  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
+  await mount();
+  const name = () => renderer!.root.findByProps({ 'data-model-name': true });
+  // The model in use is a card, so the field is empty.
+  expect(name().props.value).toBe('');
+  await act(async () => { name().props.onChange({ target: { value: ' claude-opus-4-1 ' } }); });
+  expect(name().props.value).toBe('claude-opus-4-1');
+  expect(card('gpt-6.1-sol').props['aria-checked']).toBe(false);
+  await act(async () => { renderer!.root.findByProps({ 'data-use-model': true }).props.onClick(); });
+  expect(setConfig.mock.calls).toEqual([['one', 'ARGUS_SKILL_MODEL', 'claude-opus-4-1', true]]);
+});
+
 it('per role, a card choice goes to the selected role only; effort is written per role', async () => {
   const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
   await mount();

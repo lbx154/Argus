@@ -161,7 +161,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     },
     daemon: daemon(project, live),
     roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKENDS[backend], model: project.model ?? '', effort: null, active: live.roles.includes(role),
+      role, backend, backend_label: BACKENDS[backend], model: project.model ?? '', effort: project.effort ?? null, active: live.roles.includes(role),
       label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null,
     })),
     last_call: null,
