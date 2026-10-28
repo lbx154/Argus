@@ -9,7 +9,6 @@ from argus.release import _source_files, source_files
 @pytest.mark.parametrize("relative", [
     "argus/webapi/plugin_desktop.js",
     "argus/agent_cli/pi_output_schema_extension.mjs",
-    "argus/trial/pi_training_extension.mjs",
     "argus/advisor/pi_extension.mjs",
     "argus/core/role_tool_bridge.mjs",
     "argus/life/experience_extension.mjs",
@@ -27,9 +26,21 @@ def test_adapter_patterns_do_not_include_dependencies(tmp_path: Path) -> None:
     for relative in (
         "argus/webapi/node_modules/dependency/index.js",
         "argus/agent_cli/node_modules/dependency/index.mjs",
-        "argus/trial/dist/generated.mjs",
+        "argus/advisor/dist/generated.mjs",
     ):
         generated = tmp_path / relative
         generated.parent.mkdir(parents=True, exist_ok=True)
         generated.write_text("/* not a source input */\n", encoding="utf-8")
+    assert list(_source_files(tmp_path)) == []
+
+
+def test_the_hosted_trial_server_is_not_part_of_the_release(tmp_path: Path) -> None:
+    for relative in (
+        "trial_server/argus_trial_server/gateway.py",
+        "trial_server/argus_trial_server/pi_training_extension.mjs",
+        "trial_server/deploy/native_preview.py",
+    ):
+        source = tmp_path / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("# hosted trial\n", encoding="utf-8")
     assert list(_source_files(tmp_path)) == []

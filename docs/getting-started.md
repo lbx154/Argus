@@ -17,8 +17,8 @@ direction mid-run, models and spend) and
 
 If you have been given an invitation code for the hosted trial, you can use
 Argus without installing anything. The operator runs it on our own machines
-(deployment files in [`deploy/trial/`](../deploy/trial/), service code in
-`argus/trial/`); the address comes with your invitation. Use the address the
+(deployment files in [`trial_server/deploy/`](../trial_server/deploy/), service code in
+`trial_server/`); the address comes with your invitation. Use the address the
 operator gives you, not one copied from an old message: temporary tunnel
 addresses change when the service is restarted.
 
@@ -33,7 +33,7 @@ What the invitation gives you:
 - **A lifetime token allowance** shown on the entry page and at
   `/invite/status`. The code default is 10,000,000 input-plus-output tokens per
   invitation and it does not reset monthly; an operator may configure a
-  different allowance (`token_limit` in `argus/trial/web_portal.py`).
+  different allowance (`token_limit` in `trial_server/argus_trial_server/web_portal.py`).
 - **A shared GPU queue** at `/invite/compute`, with 200 lifetime GPU-hours per
   invitation; time spent queued does not count
   ([hosted research trial](hosted-research-trial.md)).

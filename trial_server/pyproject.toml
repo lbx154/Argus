@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "argus-trial-server"
+version = "0.1.8"
+description = "The server-metered hosted Argus trial: gateway, egress, compute queue, portal, admin, training capture."
+license = { text = "MIT" }
+requires-python = ">=3.11"
+# Argus itself is installed from the checkout first: pip install -e . -e trial_server
+dependencies = [
+  "argus",
+  # Authenticated encryption and HTTP forwarding (formerly Argus's ``[trial]`` extra).
+  "cryptography>=41",
+  "httpx>=0.27,<1",
+]
+
+[project.scripts]
+argus-trial-server = "argus_trial_server.admin:main"
+argus-compute = "argus_trial_server.compute_client:main"
+
+# Argus core finds the runtime's answers by this group name alone.
+[project.entry-points."argus.hosting"]
+trial = "argus_trial_server.hosting"
+
+[tool.hatch.build.targets.wheel]
+packages = ["argus_trial_server"]

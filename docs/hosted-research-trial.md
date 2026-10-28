@@ -16,7 +16,7 @@ not depend on these capabilities.
 The original administrator workspace is enrolled as ordinary `trial-11`, alongside
 the ten invitation containers. Its original state and project paths are retained.
 Start this existing native workspace explicitly with
-`python -m argus.trial.admin_runtime --portal-config /private/portal.json
+`python -m argus_trial_server.admin_runtime --portal-config /private/portal.json
 --state-dir /existing/admin/state --workdir /existing/admin/workspace
 --pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js
 --tenant trial-11 --uds /private/tenants/trial-11/run/web.sock
@@ -43,7 +43,7 @@ state. Project names come from the existing tenant project directory and are
 joined by tenant and SID. Loading more observations merges each episode by its
 recorded sequence; the displayed loaded count is separate from the retained total.
 
-`argus/trial/data_page.py` only registers the page routes. The portal renders
+`trial_server/argus_trial_server/data_page.py` only registers the page routes. The portal renders
 the shared build and serves its relative assets through `/admin/assets/*` for an
 administrator, or `/assets/*` for an invitation session. Configure `frontend_dir`
 to a completed build before enabling the data page; a missing build returns 503.
@@ -198,7 +198,7 @@ evidence, even when a different reviewer creates the export.
 After downloading a dataset ZIP, validate it locally with the standalone module:
 
 ```sh
-python -m argus.trial.training_validate /path/to/dataset.zip \
+python -m argus_trial_server.training_validate /path/to/dataset.zip \
   --require-agentic \
   --evidence /path/to/acceptance-report.json \
   --report /path/to/validation-report.json
@@ -244,7 +244,8 @@ Examples below use `ARGUS_TRIAL_ROOT` for an operator-chosen absolute directory.
 No operator home directory, credentials, workspace or private receipt belongs in
 a container build context or Git commit.
 
-Install Python dependencies with `python -m pip install -e '.[trial]'`. Build the
+Install Argus and the hosted trial server with `python -m pip install -e . -e trial_server`
+(the server is its own package in `trial_server/`; Argus never imports it). Build the
 ordinary Web bundle with `npm --prefix frontend/web ci` and
 `npm --prefix frontend/web run build`. A separate hosted build can use
 `VITE_ARGUS_HOSTED_TRIAL=1` and `--outDir "$ARGUS_TRIAL_ROOT/frontend"`; point
@@ -265,7 +266,7 @@ remain in effect, including direct local access.
 Initialize with the existing private administrator backend's token file:
 
 ```sh
-python -m argus.trial.web_admin init \
+python -m argus_trial_server.web_admin init \
   --root "$ARGUS_TRIAL_ROOT" \
   --admin-token-file /path/to/private/backend-token \
   --admin-url http://127.0.0.1:8896
@@ -277,7 +278,7 @@ start containers. Import provider authorization separately through the existing
 `argus-trial-server` operator commands. Configure storage ownership for the actual
 deployment user before mounting quota-backed tenant filesystems.
 
-Build `deploy/trial/web.Dockerfile` with a named `runtime-tools` context containing
+Build `trial_server/deploy/web.Dockerfile` with a named `runtime-tools` context containing
 the standalone CLI. Build `pi.Dockerfile` with `argus-pi` and `node-runtime` named
 contexts containing the pinned Pi distribution and Node binary. The hosted
 observer profile requires Pi 0.85.1 and its checked runtime implementation; arbitrary
@@ -295,7 +296,7 @@ Set the generated deployment configurations to the selected image tags.
 Start newly provisioned workspace containers with the capture image:
 
 ```sh
-python -m argus.trial.web_admin start-containers \
+python -m argus_trial_server.web_admin start-containers \
   --root "$ARGUS_TRIAL_ROOT" \
   --image argus-web-trial:pi-data-20260911-r6
 ```
@@ -313,7 +314,7 @@ Ship the frontend, portal and tenant image as one version with a single
 backend-first roll:
 
 ```sh
-python -m argus.trial.web_admin release \
+python -m argus_trial_server.web_admin release \
   --root "$ARGUS_TRIAL_ROOT" \
   --image argus-web-trial:pi-<commit> \
   --source /path/to/deployed/checkout
@@ -344,7 +345,7 @@ containers, a tenant's active and queued tasks are interrupted; run it when that
 cost is acceptable, and recover a failed tenant from its retained rollback
 container.
 
-`deploy/trial/web_services.py --root "$ARGUS_TRIAL_ROOT"` creates five user units:
+`trial_server/deploy/web_services.py --root "$ARGUS_TRIAL_ROOT"` creates five user units:
 the portal, model meter, compute scheduler, HTTPS egress proxy and relay guardian.
 It does not install or take over an unrelated legacy demo service. The provided
 `argus-trial.slice` is an aggregate resource ceiling template; review its CPU and
@@ -390,12 +391,13 @@ structural field and detector labels for diagnosis, never matched content.
 For repeatable ordinary-user production tasks and the independent acceptance
 workflow, see [Agentic training examples](examples/agentic-training/README.md).
 
-Linux CI installs `.[dev,qr,trial]`, runs Ruff and the full Python suite. Web CI
+Linux CI installs `.[dev,qr,trial]`, runs Ruff and the full Python suite, which
+collects `trial_server/tests` through `testpaths`. Web CI
 typechecks and tests the current Web frontend. Local focused validation is:
 
 ```sh
-python -m ruff check argus/trial tests/trial
-python -m pytest tests/trial tests/test_pi_backend.py
+python -m ruff check argus/trial tests/trial trial_server
+python -m pytest tests/trial trial_server/tests tests/test_pi_backend.py
 ```
 
 The actual Pi CLI test is opt-in with `ARGUS_TEST_PI_DIR` pointing to the pinned
