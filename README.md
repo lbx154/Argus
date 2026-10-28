@@ -64,7 +64,7 @@ only you can decide writes to you, and the work waits for your answer. Argus nev
 whether a task succeeded; the letters say so.
 
 Because the worker cannot grade its own work, nobody has to watch it: across 27 campaigns
-and 1,548 hours it needed a human research decision about **once every 310 hours**, at
+and 1,548 hours on the earlier Python runtime it needed a human research decision about **once every 310 hours**, at
 **95–99%** duty cycle. Everything else is in the
 **[technical report](https://arxiv.org/pdf/2608.05144)**.
 
