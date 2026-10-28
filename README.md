@@ -445,10 +445,11 @@ argus --status                       # inspect the current runtime
 
 ### Windows Desktop
 
-The Windows x64 source tree includes a Tauri/Rust host that supervises a frozen
-copy of the same Argus runtime and opens the existing Web cockpit—there is no
-separate Desktop fork of Manager, Workbench, or the WebAPI. It also provides
-signed update discovery and user-confirmed installation. Source setup, security
+The source tree includes a Tauri/Rust desktop host that ships Argus (the
+TypeScript core) and runs it with the machine's Node.js 22+, then opens the Web
+cockpit it serves—there is no separate Desktop fork of the roles, the Web API
+or the cockpit. It also provides signed update discovery and user-confirmed
+installation. Source setup, security
 boundaries, verification, and packaging commands are documented in
 **[Windows Desktop](docs/windows-desktop.md)**.
 

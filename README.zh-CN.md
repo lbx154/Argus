@@ -404,8 +404,8 @@ argus --status                       # 查看当前运行状态
 
 ### Windows Desktop
 
-Windows x64 源码包含一个 Tauri/Rust 桌面宿主：它监管由同一套 Argus 运行时冻结得到的
-本地后端，并直接打开现有 Web Cockpit；Manager、Workbench 与 WebAPI 不存在单独的
+源码包含一个 Tauri/Rust 桌面宿主：它随包带着 Argus（TypeScript 核心），用本机的
+Node.js 22+ 运行它，再打开它服务的 Web Cockpit；角色、Web API 与 Cockpit 不存在单独的
 Desktop 分叉。它还提供签名更新发现和经用户确认后的安装。源码运行、安全边界、验收和
 打包命令见 **[Windows Desktop 文档](docs/windows-desktop.md)**。
 

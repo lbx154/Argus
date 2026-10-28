@@ -424,9 +424,10 @@ If you script against the server, these are the calls the UI itself makes
 
 ## Path 3: the desktop app
 
-The desktop app is a Tauri host around a frozen copy of the same Python
-backend; it opens the same web cockpit. It is a packaged preview channel,
-separate from source updates.
+The desktop app is a Tauri host that ships Argus (the TypeScript core,
+`packages/core`) and runs it with the Node.js already on your machine; it opens
+the web cockpit Argus serves. It is a packaged preview channel, separate from
+source updates.
 
 - **Download:** the Releases page of
   [lbx154/Argus](https://github.com/lbx154/Argus/releases). Windows ships as
@@ -436,36 +437,30 @@ separate from source updates.
   for Windows only, so check the assets of the release you pick.
   `microsoft/ArgusAgent` Releases is a separate channel; do not mix installers
   or updates between the two.
-- **What it needs:** nothing else on the machine. The installer bundles the
-  backend (`argus-backend`), so no Python, Node.js or venv is required.
+- **What it needs:** Node.js 22 or newer. The agent CLIs Argus drives (Codex,
+  Claude Code, Copilot CLI, Pi) are npm packages, so a machine with one of them
+  has Node. Without it, or with an older one, the app says so and links to
+  <https://nodejs.org/>; it does not install Node itself. No Python is needed.
 - **First launch:** a setup wizard asks you to pick an installed, logged-in
-  agent CLI and confirm it; the local backend does not start until you do. If
-  you have an internal trial key instead, paste it and click **开始试用** ("start
-  trial"): the app downloads the official standalone Copilot program, checks
-  its size, runs one real model reply, and opens the workbench. That path
-  needs no CLI, Python, Node or coding-agent account of your own. Either
-  choice is remembered; **File → Settings** changes the CLI, executable or
-  port later.
-- **After that** the app is the web UI from Path 2: create a project, type the
+  agent CLI (Codex, Claude Code, Copilot CLI or Pi) and confirm it; the local
+  backend does not start until you do. The choice is remembered; **File →
+  Settings** changes the CLI, executable or port later.
+- **After that** the app is the web cockpit: create a project, type the
   objective, watch the feed.
 
-To build it from source instead (Python 3.11+, Node 22.12+, Rust stable, plus
-MSVC Build Tools on Windows or Xcode command-line tools on macOS), the
-documented sequence in [docs/desktop-trial.md](desktop-trial.md) is:
+To build it from source instead (Node 22.12+, Rust stable, plus MSVC Build
+Tools on Windows or Xcode command-line tools on macOS):
 
 ```bash
-python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+npm ci
 npm --prefix frontend/web ci
-npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci
-npm --prefix frontend/web run build && npm --prefix frontend/tui run build
-npm --prefix desktop-tauri run build:backend
 npm --prefix desktop-tauri run build:unsigned
 ```
 
 The unsigned bundle lands under `desktop-tauri/src-tauri/target/release/bundle/`.
-[docs/windows-desktop.md](windows-desktop.md) covers signing and the update
-channel.
+[docs/windows-desktop.md](windows-desktop.md) covers how the app starts Argus,
+signing and the update channel.
 
 ## What "finished" looks like
 

@@ -10,17 +10,11 @@ At the user's request, public EN/zh trial pages, homepage navigation links,
 public key issuance or cookie recovery. Authenticated model/status APIs and the
 installation wheel remain available at `https://argusbot.cn`.
 
-## Desktop setup
+## Desktop
 
-The desktop source now includes a private-key entry on first-run settings and
-the startup screen for Mac and Windows. Submitting a key validates it, downloads
-and verifies official standalone Copilot, checks a real agent reply, then opens
-the bundled cockpit. No terminal, Python, Node.js or coding-account login is
-required by this path. Successful configuration persists across restarts.
-See [desktop trial setup and builds](desktop-trial.md).
-
-This requires a newly built desktop package. Mac/Windows native installer and GUI
-verification remains untested; no updated installer has been published yet.
+The desktop app no longer offers a trial-key entry: it runs the TypeScript core,
+which drives the operator's own Codex, Claude Code, Copilot CLI or Pi login
+([desktop](windows-desktop.md)). The trial is set up from the command line.
 
 ## Command-line setup
 

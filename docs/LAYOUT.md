@@ -58,8 +58,8 @@ typing-only under `if TYPE_CHECKING:`) are tolerated only while their
 
 Notes on the table:
 
-- The four package-root modules (`argus/__init__.py`, `__main__.py`, `loop.py`,
-  `desktop_backend_entry.py`) count as layer `delivery` (source package `<root>`).
+- The package-root modules (`argus/__init__.py`, `__main__.py`, `loop.py`) count as
+  layer `delivery` (source package `<root>`).
 - Kernel exception with a fix note: `core/usage.py` imports
   `provider_integrations.copilot_usage` at module level. It is allowlisted and goes
   away when the usage ledger leaves `core` (decision card 12). The other kernel
@@ -106,7 +106,7 @@ that fixes it.
 - `argus/trial/` (delivery) - the server-metered hosted trial: gateway, egress, compute queue, portal, admin, training capture. 40 files (39 `.py`) ship in the wheel; the product proper uses about four of them. Needs the `[trial]` extra.
 - `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent. Distinct from the top-level `integrations/` directory below.
 - `argus/release_tools/` (delivery) - release and CI tooling: release build, plugin wheel build, manifest and artifact checks, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
-- Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5), `desktop_backend_entry.py` (PyInstaller entry for the frozen desktop backend).
+- Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5).
 
 ## Repository top level
 
@@ -124,7 +124,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
 - `contrib/` - community contributions (`figure-studio` paper-figure pipeline, `pi-research-workflow-skill` for Pi/Hermes). Not built, not tested, not shipped.
 - `deploy/` - systemd units and Dockerfiles for the hosted trial (`deploy/trial/`).
-- `desktop-tauri/` - the Tauri desktop shell and the PyInstaller spec (`argus_backend.spec`) for the frozen `argus-backend` binary (the spec's `name=`).
+- `desktop-tauri/` - the Tauri desktop shell; it ships the TypeScript core (`packages/core`) and runs it with the system's Node.js.
 - `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
 - `examples/` - worked examples the guides refer to: `verticals/` holds the small `lab_notebook` vertical built in `docs/building-a-vertical.md` and the helper that packages a vertical into a local store catalog. Not built, not tested, not shipped.
 - `hosting/` - optional git submodule of [argus-hosting](https://github.com/lbx154/argus-hosting) (Python package `argus_hosting`): the PR gate (description gate run by the `pr-gate` workflow, the local regression gate behind `scripts/pr-gate`, and the historical 50-PR regression study). Argus does not import it at run time; it is not built or shipped in the wheel or sdist, and tests that need it skip when it is not checked out (`git submodule update --init hosting`).
