@@ -33,14 +33,12 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
 from ..core import call_guard
 from ..core.event_catalog import (
     SIGNAL_EVENT_TYPES,
-    EventType,
     normalize_event_envelope,
 )
 from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
@@ -91,45 +89,6 @@ def event_log_paths(log_path: Path) -> list[Path]:
         retained.append(path)
     return retained
 
-
-def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
-    """Yield one call's rows across retained generations, oldest first.
-
-    Also reads ``agent_io.jsonl``, whose frames name the call only by
-    ``call_id``: each row is completed from the call's ``agent.io.start``, and
-    a row without a type is a stream frame. Older rows that carry all of it
-    themselves read unchanged.
-    """
-    target = str(call_id or "").strip()
-    if not target:
-        raise ValueError("call_id must be non-empty")
-    matched_generations: list[list[dict[str, Any]]] = []
-    for path in reversed(event_log_paths(Path(log_path))):
-        generation_matches: list[dict[str, Any]] = []
-        found_start = False
-        with path.open("r", encoding="utf-8") as handle:
-            for line_number, raw in enumerate(handle, start=1):
-                if not raw.endswith("\n"):
-                    continue
-                try:
-                    row = json.loads(raw)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"invalid JSONL row at {path}:{line_number}: {exc}"
-                    ) from exc
-                if isinstance(row, dict) and str(row.get("call_id") or "") == target:
-                    generation_matches.append(row)
-                    found_start = found_start or row.get("type") == "agent.io.start"
-        if generation_matches:
-            matched_generations.append(generation_matches)
-        if found_start:
-            break
-    identity: dict[str, Any] = {"type": EventType.AGENT_IO_STREAM}
-    for generation in reversed(matched_generations):
-        for row in generation:
-            if row.get("type") == EventType.AGENT_IO_START:
-                identity.update((key, row[key]) for key in ("run_label", "backend", "model") if key in row)
-            yield {**identity, **row}
 
 # High-value event types ALWAYS persisted, even in "signal" verbosity: mission
 # / round lifecycle, verdicts, skill-memory mutations, planner decisions, and

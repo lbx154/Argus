@@ -127,8 +127,3 @@ def html_to_lark_md(text: str) -> str:
     out = out.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
     return out
 
-
-def html_to_plain(text: str) -> str:
-    """Strip every tag and unescape entities — for platforms without markup."""
-    out = _TAG_RE.sub("", text)
-    return out.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")

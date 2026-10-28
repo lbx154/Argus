@@ -138,7 +138,7 @@ def test_doctor_advisor_uses_configured_codex_for_repair(
         ),
     )
 
-    assert advisor._resolve_advisor("auto") == ("codex", "/usr/bin/codex")
+    assert advisor._advisor_selections("auto")[0] == ("codex", "/usr/bin/codex")
 
 
 def test_doctor_advisor_falls_back_to_another_installed_agent(

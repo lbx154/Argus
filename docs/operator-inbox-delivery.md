@@ -93,7 +93,7 @@ A prompt assembly exception or Stop releases ownership without deleting transien
 
 Canonical delivery may still be returned as an `OperatorInboxText` for presentation, but `operator_live_turn` excludes it from fresh live-turn authority. Otherwise replaying a consumed once instruction through the raw-text channel could resurrect it despite canonical idempotence. Temporary messages retain their physical IDs through consumer settlement even when identical display text is deduplicated.
 
-`messaging/inbox.py::PeerAwareInbox` keeps peer processing separate from the built-in operator receiver. Peer advice does not become operator permission. A host-supplied plain `Callable[[], str | None]` retains its own weaker compatibility contract; it cannot express durable claim/accept/ACK. The old built-in `drain_inbox_messages` and raw reader now raise `InboxProtocolError` so built-in consumers cannot bypass the protocol.
+`messaging/inbox.py::PeerAwareInbox` keeps peer processing separate from the built-in operator receiver. Peer advice does not become operator permission. A host-supplied plain `Callable[[], str | None]` retains its own weaker compatibility contract; it cannot express durable claim/accept/ACK. The old built-in raw drain is gone, so built-in consumers cannot bypass the protocol.
 
 These are input-delivery boundaries, not exactly-once inference. Classification can repeat if the process dies before freeze. A process can die after successful prompt assembly but before model dispatch, or after external execution but before another outcome is recorded. Provider execution requires separate provider-supported idempotency to make a stronger claim.
 

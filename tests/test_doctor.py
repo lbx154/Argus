@@ -29,16 +29,6 @@ def test_render_report_all_green_has_no_recommendation():
     assert "→ recommended:" not in report
 
 
-def test_doctor_json_uses_stable_codes() -> None:
-    from argus.apps.cli._core import _doctor_payload
-
-    payload = _doctor_payload([Check("lock sanity", False, "stale", "repair")])
-
-    assert payload["schema_version"] == 1
-    assert payload["ok"] is False
-    assert payload["checks"][0]["code"] == "ARGUS-STATE-001"
-
-
 def test_safe_repair_removes_only_a_verified_stale_daemon_pid(
     tmp_path,
     monkeypatch,

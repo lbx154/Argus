@@ -33,7 +33,6 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Iterable
 
 
 class ProjectState(str, Enum):
@@ -371,29 +370,6 @@ def is_token_allocatable(status: ProjectStatus) -> bool:
         ProjectState.RUNNING,
         ProjectState.WRITING,
     )
-
-
-# ---------------------------------------------------------------------------
-# Bulk tick — convenience for "advance every project in one shot"
-# ---------------------------------------------------------------------------
-
-
-def tick_all(
-    statuses: Iterable[ProjectStatus],
-    *,
-    now: datetime | None = None,
-) -> list[tuple[ProjectStatus, LifecycleEvent | None]]:
-    """Apply one policy tick to each project. Returns (new_status, event_or_none)
-    tuples in input order."""
-    now = now or datetime.now(timezone.utc)
-    out: list[tuple[ProjectStatus, LifecycleEvent | None]] = []
-    for status in statuses:
-        event = decide_next_state(status, now=now)
-        if event is None:
-            out.append((status, None))
-        else:
-            out.append((apply_event(status, event), event))
-    return out
 
 
 # ---------------------------------------------------------------------------

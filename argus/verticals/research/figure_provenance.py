@@ -409,20 +409,6 @@ def validate_figure_provenance(
     return report
 
 
-def preflight_figure_provenance(
-    project_root: Path,
-    *,
-    manifest_path: Path = FIGURE_PROVENANCE_PATH,
-) -> Path:
-    """Fail before renderer-specific metadata changes if canonical state is invalid."""
-    root = project_root.resolve()
-    manifest = _project_path(root, manifest_path)
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    if manifest.exists():
-        _load_manifest(manifest)
-    return manifest
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command_name", required=True)

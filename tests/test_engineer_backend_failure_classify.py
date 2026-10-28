@@ -13,7 +13,6 @@ import pytest
 from argus.engineer.round_stop_signals import (
     authentication_review_decision,
     backend_failure_cause,
-    fatal_error_looks_like_auth_failure,
     infrastructure_failure_review_decision,
 )
 from argus.engineer.runner import fatal_error_looks_like_backend_failure as _is_bf
@@ -118,7 +117,7 @@ def test_model_behaviour_and_session_deaths_are_not_infrastructure(record) -> No
 def test_oauth_refresh_failure_requires_operator_authentication() -> None:
     error = "github-copilot: OAuth refresh failed: timeout"
 
-    assert fatal_error_looks_like_auth_failure(error)
+    assert backend_failure_cause(error).kind == "sign_in"
     decision = authentication_review_decision(fatal_error=error, exit_code=1)
 
     assert decision.status == "operator"

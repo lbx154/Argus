@@ -10,20 +10,13 @@ The CLI, Web API, and cockpit all need the same inbox semantics:
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
 from ..life.event_log import JsonlEventSink
 from ._inbox_protocol import (  # noqa: F401 — shared public inbox protocol
-    InboxBusy,
-    InboxClaim,
-    InboxError,
     InboxLeaseLost,
-    InboxMigrationRequired,
-    InboxPartialLine,
-    InboxPressure,
     InboxProtocolError,
     accept_inbox_claim,
     acknowledge_inbox_claim,
@@ -32,30 +25,12 @@ from ._inbox_protocol import (  # noqa: F401 — shared public inbox protocol
     enqueue_inbox_message,
     freeze_inbox_decision,
     latest_durable_inbox_timestamp,
-    migrate_legacy_inbox,
-    pending_inbox_status,
     release_inbox_claim,
     renew_inbox_claim,
     settle_inbox_claim,
 )
 
-INBOX_FILE = "inbox.jsonl"
-OFFSET_FILE = "inbox.offset"
 log = logging.getLogger(__name__)
-
-
-def _stage_token(stage: str) -> str:
-    return re.sub(r"[^a-z0-9_-]+", "-", str(stage or "").strip().lower()).strip("-")
-
-
-def inbox_path(life_dir: Path | str, stage: str = "") -> Path:
-    token = _stage_token(stage)
-    return Path(life_dir) / (f"inbox.{token}.jsonl" if token else INBOX_FILE)
-
-
-def inbox_offset_path(life_dir: Path | str, stage: str = "") -> Path:
-    token = _stage_token(stage)
-    return Path(life_dir) / (f"inbox.{token}.offset" if token else OFFSET_FILE)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -67,20 +42,6 @@ def _truncate(text: str, limit: int) -> str:
 
 def count_pending_inbox_messages(life_dir: Path | str) -> int:
     return count_durable_inbox_messages(life_dir)
-
-
-def drain_inbox_messages(
-    life_dir: Path | str,
-    *,
-    limit: int = 10,
-    current_stage: str | None = None,
-) -> list[str]:
-    """Reject the pre-acceptance cursor advance used by older built-in consumers.
-
-    Host-supplied plain callbacks retain their own weaker delivery contract;
-    they must not use this durable source as an implicit destructive reader.
-    """
-    raise InboxProtocolError("raw inbox drain is disabled; use the claim/accept/ACK protocol")
 
 
 def queue_inbox_message(

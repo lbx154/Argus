@@ -1,15 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
 from argus.apps import _inbox
-
-
-def test_raw_drain_cannot_bypass_durable_acceptance(tmp_path) -> None:
-    _inbox.queue_inbox_message(tmp_path, "change direction", source="test")
-    with pytest.raises(_inbox.InboxProtocolError, match="claim/accept/ACK"):
-        _inbox.drain_inbox_messages(tmp_path)
-    assert _inbox.count_pending_inbox_messages(tmp_path) == 1
 
 
 def test_stage_targeted_message_waits_without_blocking_generic_guidance(tmp_path) -> None:

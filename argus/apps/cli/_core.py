@@ -772,31 +772,6 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     return int(receipt.result.get("rc", 3 if receipt.status != "applied" else 0))
 
 
-def _doctor_payload(checks, *, verification: bool = False) -> dict[str, Any]:
-    codes = {
-        "backend preflight": "ARGUS-BACKEND-001",
-        "model API capability": "ARGUS-BACKEND-002",
-        "daemon": "ARGUS-DAEMON-001",
-        "lock sanity": "ARGUS-STATE-001",
-        "empty session": "ARGUS-STATE-002",
-    }
-    return {
-        "schema_version": 1,
-        "ok": all(check.ok for check in checks),
-        "verification": verification,
-        "checks": [
-            {
-                "code": codes.get(check.name, "ARGUS-CHECK-001"),
-                "name": check.name,
-                "ok": check.ok,
-                "detail": check.detail,
-                "fix": check.fix,
-            }
-            for check in checks
-        ],
-    }
-
-
 def _maintenance_context(args: argparse.Namespace):
     from ...core.runtime_identity import source_root
     from ...maintenance.doctor import DoctorContext

@@ -203,10 +203,6 @@ def _fatal_error_looks_like_poisoned_session(fatal_error: str | None) -> bool:
     return any(pattern in low for pattern in _POISONED_SESSION_FATAL_ERROR_PATTERNS)
 
 
-def fatal_error_looks_like_auth_failure(fatal_error: str | None) -> bool:
-    return backend_failure_cause(fatal_error).kind == "sign_in"
-
-
 def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     """True when the session ended without a usable result through no fault
     of the task: an infrastructure failure or a session death.
