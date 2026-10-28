@@ -55,7 +55,7 @@ a failed call, recorded as such.
 
 | Role | Writes to |
 |---|---|
-| Manager | `engineer`: one coherent piece of work, opened as a task, the letter its brief; `planner`: work in dependent steps, or word on the work it runs; `operator`: the answer, report or question |
+| Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
 | Planner | `engineer`: the next task, the letter its brief; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question the work waits on |
 | Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
 | Reviewer | `engineer`: repairs; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
