@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,12 +17,9 @@ from argus.core.project_contract import (
     AUTHORITY_MANAGER,
     AUTHORITY_OPERATOR,
     load_contract,
-    new_contract,
-    save_contract,
 )
 from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon import life_worker as daemon_worker
-from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.webapi import launch_hold, manager_bridge, server
 from argus.webapi.daemon_services import DaemonServices
@@ -240,18 +238,6 @@ def test_held_card_shows_the_plan_and_the_manager_closes_the_turn(tmp_path, monk
         assert snapshot["launch_hold"]["plan"] == _PLAN
 
 
-# The ticket the Manager wrote in trial s-efe9deac before the hold left the
-# operator text: goal, acceptance and constraints all said to wait for Start.
-_HELD_TICKET = (
-    "为用户完成一项 LLM 强化学习原创研究，交付面向 ACL 投稿、由真实实验支持的完整英文论文 PDF。"
-    "必须先排队等待用户点击“开始执行”，本次交接不授权立即执行研究。\n\n"
-    "Acceptance:\n- 用户点击“开始执行”前只排队，不开展文献调研、方法实现、实验或论文写作。\n"
-    "- 交付 paper/main.pdf。\n\n"
-    "Constraints:\n- 交给团队后先别开工：Argus 会把排好的任务停在开始之前，等我点“开始执行”。\n\n"
-    "Read first:\n- docs/acl-paper-plan.md"
-)
-
-
 def test_the_hold_reaches_the_manager_as_argus_state_in_the_conversation_language():
     zh = launch_hold_context("帮我写一篇 ACL 论文")
     assert zh.startswith("## Argus 的开工确认（系统状态，不是用户对工作的要求）")
@@ -260,35 +246,29 @@ def test_the_hold_reaches_the_manager_as_argus_state_in_the_conversation_languag
     assert "not a requirement on the work" in en and "do not write waiting for Start" in en
 
 
-def test_start_tells_every_copy_of_a_held_ticket_that_the_start_came(tmp_path, monkeypatch):
-    sid = "s-hold-started"
-    life = _project(tmp_path, sid)
-    backlog = LifeMemory.open(life).backlog
-    item = backlog.add(BacklogItem.new(title="ACL 完整论文", objective=_HELD_TICKET))
-    clean = backlog.add(BacklogItem.new(title="Survey X", objective="Survey X"))
-    write_continuous_config(life, enabled=True, objective=_HELD_TICKET)
-    save_contract(life, contract=new_contract(objective=_HELD_TICKET))
-    launch_hold.write_launch_hold(life, {"item": {"id": item.id}, "continuous": True}, {"hold": True},
-                                  operator_text="请直接给一个完整的论文 我要投ACL")
-    starts = []
-    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
-                              start=lambda *args, **kwargs: starts.append(kwargs) or {"rc": 0})
-    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
-        assert client.post(f"/api/projects/{sid}/launch/confirm").status_code == 200
-    assert len(starts) == 1 and starts[0]["resume_continuous"] is True
-    rows = {row.id: row for row in LifeMemory.open(life).backlog.active()}
-    started = rows[item.id].objective
-    assert started.startswith(_HELD_TICKET)
-    assert started.endswith("Started:\n- " + launch_hold.STARTED_NOTE_ZH)
-    # Every role reads the same ticket: the request anchor, the Planner's
-    # campaign objective and the goal contract (which stays in force only
-    # while it matches the campaign objective) all say the start came.
-    assert rows[item.id].original_objective == started
-    assert read_continuous_state(life).objective == started
-    assert load_contract(life).objective == started
-    assert rows[clean.id].objective == "Survey X"
-    # Once is enough; a ticket that never mentioned the start stays as written.
-    assert launch_hold.started_ticket_text(started) == started
-    assert launch_hold.started_ticket_text("Survey X") == "Survey X"
-    english = launch_hold.started_ticket_text("Write the report.\n\nConstraints:\n- Wait until I press Start.")
-    assert english.endswith(launch_hold.STARTED_NOTE_EN)
+
+def test_s_efe9deac_request_reaches_the_manager_without_the_hold(tmp_path, monkeypatch):
+    # Replay of trial s-efe9deac: the hold rode in the operator text, the
+    # Manager copied "等我点开始执行" into the ticket and the team kept waiting
+    # after Start. Only Argus's state block beside the request may mention it.
+    from argus.manager import front_door
+    from argus.webapi import manager_state
+    from tests.hand_off import manager_runner
+
+    record = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "s_efe9deac"
+                         / "launch_hold_request.json").read_text(encoding="utf-8"))
+    assert "开始执行" in record["pre_fix_manager_message"]
+    sid = "s-efe9deac"
+    _project(tmp_path, sid)
+    manager_state._STATES.pop(sid, None)
+    runner = manager_runner(hand=None, reply="先确认目标和计划。")
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_args: runner)
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.post(f"/api/projects/{sid}/message",
+                               json={"text": record["operator_text"], "launch": record["launch"]})
+    assert response.status_code == 200
+    [told] = runner.turns
+    request, heading, context = told.partition("## Argus 的开工确认")
+    assert heading and record["operator_text"] in request
+    assert "开始执行" not in request and "先别开工" not in request
+    assert "开始执行" in context

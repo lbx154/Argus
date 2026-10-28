@@ -15,7 +15,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
         [latest_scope],
     ])
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="implemented alpha"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "implemented alpha")))
     backend.queue(
         "reviewer",
         CannedResponse(
@@ -24,7 +24,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     )
     backend.queue(
         "engineer-r2",
-        CannedResponse(message="kept alpha only under the updated operator scope"),
+        CannedResponse(action=hand_off("reviewer", "kept alpha only under the updated operator scope")),
     )
     backend.queue(
         "reviewer",

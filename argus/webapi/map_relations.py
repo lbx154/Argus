@@ -7,8 +7,8 @@ kinds are only the ones a record states, found without a model call:
 - ``from``: that task, when the turn quoted a card a person placed on the
   canvas (its "交给团队"): the task came from that card;
 - ``about``: a turn that quoted a card (its "问这张卡"); or a Manager reply
-  that links or names files a task delivered (or, when no task delivered
-  them, a file a live task owns);
+  that links files a task delivered or writes them as code (or, when no task
+  delivered them, a file a live task owns);
 - ``checks`` / ``follows``: an item the Planner added right after another
   finished: a check when it works on the files that item delivered;
 - ``replaces``: the first item of the plan that superseded an item.
@@ -23,18 +23,20 @@ folds a replaced task into the task that replaced it.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import unquote
-
-from ..life.delivery import referenced_path_candidates
 
 PATH_LIMIT = 12
 RELATION_LIMIT = 6
+_LINK = re.compile(r"!?\[[^\]\r\n]*\]\(\s*(?:<([^>\r\n]+)>|([^\s)\r\n]+))")
+_CODE = re.compile(r"(?<!`)`([^`\r\n]{1,2048})`(?!`)")
 
 
 def reply_paths(text: str, workspace: str = "") -> list[str]:
-    """Workspace-relative paths a reply links or names, as written."""
+    """Workspace-relative paths a reply links or writes as code, as written."""
     paths: list[str] = []
-    for candidate in referenced_path_candidates(text):
+    links = [angled or plain for angled, plain in _LINK.findall(text)]
+    for candidate in [*links, *_CODE.findall(text)]:
         path = _normal(candidate, workspace)
         if path and path not in paths:
             paths.append(path)

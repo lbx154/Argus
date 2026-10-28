@@ -85,7 +85,7 @@ def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, soft
 
 def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, verdict):
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message=_ACCOUNT))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", _ACCOUNT)))
     backend.queue("reviewer", CannedResponse(action=verdict))
     workdir = tmp_path / "work"
     workdir.mkdir(exist_ok=True)

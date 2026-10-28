@@ -108,6 +108,7 @@ class RoundSettlementMixin:
             engineer_exit_code=engineer_result.exit_code,
             review=review,
             fatal_error=engineer_result.fatal_error,
+            deliverables=list(state.deliverables),
         )
         state.rounds.append(record)
         state.reviewer_next_action = _next_engineer_action(review)

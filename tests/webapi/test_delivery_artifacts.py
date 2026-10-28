@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from argus.core.session import SessionMeta, write_session_meta
@@ -8,19 +7,19 @@ from argus.core.transcript import append_turn
 from argus.webapi.artifacts import list_project_artifacts
 
 
-def test_resumed_direct_task_can_link_verified_unchanged_outputs(tmp_path):
+def test_a_file_a_completion_message_links_is_a_reply_reference_not_a_delivery(tmp_path):
+    """Only a receipt's targets are delivered; a link in the words of a reply is the reply's."""
     sid = "s-resumed-output"
     life, workspace = tmp_path / "projects" / sid, tmp_path / "workspace"
     life.mkdir(parents=True)
     workspace.mkdir()
     (workspace / "result.npz").write_bytes(b"previously written, now verified")
-    os.utime(workspace / "result.npz", (1, 1))
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)))
     append_turn(life, "argus", "Verified [model](result.npz)", metadata={
         "mission_result": True, "success": True,
     })
     rows = list_project_artifacts(sid, global_root=tmp_path)
-    assert [row["path"] for row in rows] == ["result.npz"]
+    assert [(row["path"], row["source"]) for row in rows] == [("result.npz", "reply")]
 
 
 def test_delivery_change_shows_what_a_redelivery_changed(tmp_path: Path) -> None:
@@ -40,7 +39,7 @@ def test_delivery_change_shows_what_a_redelivery_changed(tmp_path: Path) -> None
         receipt = build_delivery_receipt(
             item_id="report", title="report", summary="", success=True, overall_complete=True,
             status="done", review_status="done", final_submission_certified=False,
-            workspace=workspace, state_root=life, reviewer_artifacts=["report.md"],
+            workspace=workspace, state_root=life, deliverables=[("report.md", "reviewer_accepted")],
         )
         assert receipt is not None
         return receipt

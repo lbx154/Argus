@@ -15,6 +15,7 @@ from argus.engineer.runner import (
 )
 from argus.reviewer import ReviewerConfig
 from argus.skills.vertical_select import persist_vertical
+from tests.hand_off import hand_off, submit
 
 
 class _StoppedEngineer:
@@ -182,7 +183,8 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
     write_pipeline_state(tmp_path, state)
 
     class EngineerRunsBeforePostEditPasses:
-        def run_exec(self, **_kwargs):
+        def run_exec(self, **kwargs):
+            submit(kwargs["options"], hand_off("reviewer", "narrative edit complete"))
             return RunnerResult(exit_code=0, agent_messages=["narrative edit complete"])
 
     class Reviewer:

@@ -386,10 +386,10 @@ __all__ = [
 ]
 
 
-# Short control-plane calls (routing, classification, fact review) that run
+# Short control-plane calls (routing, classification) that run
 # on a lean model of their own. They precede or follow the work, so the newest
 # of them says nothing about what the work itself runs on.
-_CONTROL_PLANE_MARKERS = ("classify", "frontdoor", "reviewed_facts")
+_CONTROL_PLANE_MARKERS = ("classify", "frontdoor")
 
 
 def latest_call_runtime(life_dir: Path | str) -> dict[str, Any] | None:

@@ -40,9 +40,9 @@ def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
 def _queue_two_rounds(backend: MemoryBackend) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "r1 work"), thread_id="e1"))
     backend.queue("reviewer", CannedResponse(action=_review("continue"), thread_id="rv1"))
-    backend.queue("engineer-r2", CannedResponse(message="r2 work", thread_id="e2"))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "r2 work"), thread_id="e2"))
     backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv2"))
 
 
@@ -114,7 +114,7 @@ def test_raising_provider_does_not_break_the_round(tmp_path: Path, monkeypatch: 
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
-    backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="e1"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "r1 work"), thread_id="e1"))
     backend.queue("reviewer", CannedResponse(action=_review("done"), thread_id="rv1"))
 
     out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)

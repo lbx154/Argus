@@ -20,6 +20,12 @@ def is_provider_background_wait_receipt(value: object) -> bool:
     return str(value or "").strip().casefold().startswith("provider background wait ended:")
 
 
+# The provider refused the reply on policy; the identical prompt is refused again.
+CONTENT_FILTER_RECEIPT = (
+    "Content filtering blocked the response; the identical prompt must not be retried."
+)
+
+
 ACCOUNTING_PENDING_LOST_SESSION_IDENTITY = "lost_session_identity"
 ACCOUNTING_PENDING_SESSION_IDENTITY_CONFLICT = "session_identity_conflict"
 

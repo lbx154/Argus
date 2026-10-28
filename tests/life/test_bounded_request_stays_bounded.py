@@ -104,7 +104,7 @@ def _accepted_request(supervisor: LifeSupervisor, project: Path) -> BacklogItem:
         review_status="done", review_source="reviewer",
         final_submission_certified=False, workspace=project,
         state_root=supervisor._project_state_root(),
-        reviewer_artifacts=["REPORT_zh.md"], stage_package=True,
+        deliverables=[("REPORT_zh.md", "reviewer_accepted")], stage_package=True,
     )
     with supervisor.memory.journal.path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({

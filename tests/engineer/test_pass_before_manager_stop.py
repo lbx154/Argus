@@ -24,7 +24,7 @@ def _write(workdir: Path, text: str) -> CannedResponse:
         (workdir / "parser.py").write_text(text, encoding="utf-8")
         return "Changed the parser."
 
-    return CannedResponse(message_factory=turn)
+    return CannedResponse(message_factory=turn, action=hand_off("reviewer", "Changed the parser."))
 
 
 def _run(tmp_path: Path, backend: MemoryBackend):

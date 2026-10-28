@@ -21,7 +21,7 @@ def test_auto_pi_turn_succeeds_when_optional_checkpoint_was_never_created(
     backend.backend = "pi"  # type: ignore[attr-defined]
     backend.queue(
         "engineer-r1",
-        CannedResponse(message="validated successfully", thread_id="pi-engineer"),
+        CannedResponse(action=hand_off("reviewer", "validated successfully"), thread_id="pi-engineer"),
     )
     backend.queue(
         "reviewer",

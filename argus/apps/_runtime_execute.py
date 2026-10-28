@@ -1340,6 +1340,7 @@ class SkillLoopExecuteMixin:
             final_message=engineer_message,
             summary=summary,
             final_output=final_output,
+            deliverables=list(rounds[-1].deliverables) if rounds else [],
             research_result=(
                 getattr(
                     rounds[-1].review,

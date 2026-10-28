@@ -90,9 +90,7 @@ class FailureExperience:
     objective: str
     status: str
     factual_outcome: str
-    research_narrative: str = ""
     passed_assumptions: list[str] = field(default_factory=list)
-    lessons: list[str] = field(default_factory=list)
     transfer_insights: list[str] = field(default_factory=list)
     claim_boundaries: list[str] = field(default_factory=list)
     retry_conditions: list[str] = field(default_factory=list)
@@ -119,9 +117,7 @@ class FailureExperience:
         objective: str,
         status: str,
         factual_outcome: str,
-        research_narrative: str = "",
         passed_assumptions: list[str] | None = None,
-        lessons: list[str] | None = None,
         transfer_insights: list[str] | None = None,
         claim_boundaries: list[str] | None = None,
         retry_conditions: list[str] | None = None,
@@ -143,9 +139,7 @@ class FailureExperience:
             objective=_clean_text(objective),
             status=_clean_text(status, limit=200),
             factual_outcome=_clean_text(factual_outcome),
-            research_narrative=_clean_text(research_narrative),
             passed_assumptions=_clean_list(passed_assumptions or []),
-            lessons=_clean_list(lessons or []),
             transfer_insights=_clean_list(transfer_insights or []),
             claim_boundaries=_clean_list(claim_boundaries or []),
             retry_conditions=_clean_list(retry_conditions or []),
@@ -178,9 +172,7 @@ class FailureExperience:
             objective=_clean_text(row.get("objective")),
             status=_clean_text(row.get("status"), limit=200),
             factual_outcome=_clean_text(row.get("factual_outcome")),
-            research_narrative=_clean_text(row.get("research_narrative")),
             passed_assumptions=_clean_list(row.get("passed_assumptions") or []),
-            lessons=_clean_list(row.get("lessons") or []),
             transfer_insights=_clean_list(row.get("transfer_insights") or []),
             claim_boundaries=_clean_list(row.get("claim_boundaries") or []),
             retry_conditions=_clean_list(row.get("retry_conditions") or []),
@@ -283,8 +275,7 @@ class FailureExperienceStore:
                     ),
                     "\n".join(
                         [
-                            item.research_narrative,
-                            *item.lessons,
+                            item.factual_outcome,
                             *item.transfer_insights,
                             *item.retry_conditions,
                             *(annotation.text for annotation in item.annotations),
@@ -751,11 +742,6 @@ class FailureExperienceStore:
                     f"- Outcome: {outcome}",
                 ]
             )
-            if item.research_narrative and item.research_narrative != outcome:
-                lines.append(f"- Narrative: {item.research_narrative}")
-            lessons = [lesson for lesson in item.lessons if lesson != item.factual_outcome]
-            if lessons:
-                lines.append("- Lessons: " + " | ".join(lessons))
             if item.transfer_insights:
                 lines.append("- Transfer ideas: " + " | ".join(item.transfer_insights))
             if item.claim_boundaries:
@@ -786,8 +772,6 @@ def experience_from_settled_mission(
     objective: str,
     status: str,
     factual_outcome: str,
-    final_message: str = "",
-    review_reason: str = "",
     stop_kind: str = "",
     concepts: list[str] | None = None,
     artifact_refs: list[str] | None = None,
@@ -823,8 +807,6 @@ def experience_from_settled_mission(
         objective=objective,
         status=status,
         factual_outcome=factual_outcome,
-        research_narrative=final_message,
-        lessons=_clean_list([review_reason]),
         claim_boundaries=boundaries,
         artifact_refs=artifact_refs,
         concepts=concepts,

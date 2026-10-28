@@ -81,7 +81,7 @@
     "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单；团队自己规划、验收、推进阶段，经理不替它裁决。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 5900
+    "sourceBytes": 5752
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",
@@ -116,7 +116,7 @@
     "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明；有可视形式的成果要实际打开图、模型或页面，核对它能渲染且与文中数字一致。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 6084
+    "sourceBytes": 6086
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",

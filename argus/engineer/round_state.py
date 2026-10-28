@@ -53,6 +53,10 @@ class RoundLoopState:
     # completed review clears them.
     unreviewed_engineer_accounts: list[str] = field(default_factory=list)
     last_engineer_message: str = ""
+    # The files the current candidate delivers, as the hand_off of the last
+    # Engineer turn that ran declared them; a climb leaves the candidate,
+    # and so them, as they are.
+    deliverables: list[str] = field(default_factory=list)
     # The task is written in Chinese; what the operator reads is said in it.
     chinese: bool = False
     # The project state directory the mission belongs to, if it has one.

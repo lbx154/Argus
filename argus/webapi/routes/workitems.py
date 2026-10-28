@@ -9,7 +9,6 @@ mission/backlog item rather than the project/session as a whole.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from fastapi import Depends, HTTPException, Query
@@ -29,8 +28,6 @@ from .models import (
     RewriteIn,
     TaskIn,
 )
-
-log = logging.getLogger(__name__)
 
 
 def register_workitem_routes(app, ctx: ServerContext) -> None:
@@ -239,7 +236,7 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
         from ...core.mission_view import uses_cjk
         from ...core.operator_messages import publish_operator_message
         from ...daemon.commands import daemon_command_execution_lock
-        from ..launch_hold import clear_launch_hold, read_launch_hold, release_held_ticket
+        from ..launch_hold import clear_launch_hold, read_launch_hold
 
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
@@ -251,11 +248,6 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
             with daemon_command_execution_lock(life_dir, blocking=False) as acquired:
                 if not acquired:
                     raise HTTPException(status_code=409, detail="Daemon control is busy; retry shortly.")
-                # Start means start: a ticket that says to wait for it now says it came.
-                try:
-                    release_held_ticket(life_dir, record)
-                except Exception:  # noqa: BLE001 - the work still starts as queued
-                    log.exception("could not mark the held ticket as started")
                 started = ctx.daemon_services.start(
                     sid, global_root=project_root,
                     resume_continuous=bool(record.get("continuous")), reclaim_idle=True,

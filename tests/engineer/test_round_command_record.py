@@ -16,7 +16,7 @@ def _review_prompt(engineer_backend: str, tmp_path) -> str:
     backend = MemoryBackend()
     engineer_runner = backend.fork()
     engineer_runner.backend = engineer_backend
-    backend.queue("engineer-r1", CannedResponse(message="ran the tests"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "ran the tests")))
     backend.queue("reviewer", CannedResponse(action=hand_off("done", "Done.")))
     engineer = SupervisedEngineer(
         engineer_runner=engineer_runner, reviewer=Reviewer(runner=backend),

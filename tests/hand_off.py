@@ -1,7 +1,12 @@
 """Canned ``hand_off`` calls for tests (``argus.core.handoff``)."""
 
 def hand_off(to: str, summary: str = "Work handed on.", note: str | None = None, **fields) -> tuple[str, dict]:
-    """A ``CannedResponse.action`` handing the work ``to`` the next holder; the note repeats the summary unless given."""
+    """A ``CannedResponse.action`` handing the work ``to`` the next holder; the note repeats the summary unless given.
+
+    Only an Engineer hands to the Reviewer, so that call names no files unless given.
+    """
+    if to == "reviewer":
+        fields.setdefault("files", [])
     return "hand_off", {"to": to, "summary": summary, "note": summary if note is None else note, "assumptions": [], **fields}
 
 def plan(to: str = "engineer", summary: str = "Why this plan.", **fields) -> tuple[str, dict]:

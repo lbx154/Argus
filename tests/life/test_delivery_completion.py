@@ -41,14 +41,14 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
         "primary_target": {
             "path": "results/final.md",
             "label": "final.md",
-            "source": "reviewer_evidence",
-            "why": "Reviewed evidence.",
+            "source": "reviewer_accepted",
+            "why": "Declared by the Engineer and accepted by the Reviewer.",
         },
         "targets": [{
             "path": "results/final.md",
             "label": "final.md",
-            "source": "reviewer_evidence",
-            "why": "Reviewed evidence.",
+            "source": "reviewer_accepted",
+            "why": "Declared by the Engineer and accepted by the Reviewer.",
         }],
     }
 
@@ -285,20 +285,21 @@ def test_terminal_delivery_picks_the_success_over_later_non_success_settlements(
     assert delivery["summary"] == "The final stage produced a reviewed file."
 
 
-def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_path):
+def test_terminal_delivery_collects_the_files_declared_for_its_own_goal(tmp_path):
+    from pathlib import Path
+
     from argus.life.memory import BacklogItem
     supervisor, memory = _delivery_supervisor(tmp_path)
     workspace = str(supervisor._project_workdir())
-    from pathlib import Path
     root = Path(workspace)
     (root / 'index.html').write_text('<h1>Reviewed website</h1>')
     (root / 'REPORT.md').write_text('# Reviewed report')
     (root / 'unrelated.md').write_text('Old goal')
     goal = supervisor.config.continuous_objective
-    for item_id, original, output in [
-        ('old-goal', 'Different goal', 'Delivered `unrelated.md`.'),
-        ('website', goal, 'Delivered `index.html`.'),
-        ('review', goal, 'RESULT=Validated `REPORT.md`.'),
+    for item_id, original, declared in [
+        ('old-goal', 'Different goal', ['unrelated.md']),
+        ('website', goal, ['index.html']),
+        ('review', goal, ['REPORT.md']),
     ]:
         item = BacklogItem.new(item_id=item_id, title=item_id, objective=original)
         item.original_objective = original
@@ -307,27 +308,15 @@ def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_
         assert supervisor._emit({
             'type': 'life.mission.completed', 'item_id': item_id,
             'success': True, 'status': 'done', 'overall_complete': False,
-            'campaign_continues': True, 'summary': '', 'final_output': output,
-            'execution_workdir': workspace, 'delivery_candidates': [],
+            'campaign_continues': True, 'summary': '', 'final_output': 'Delivered `unrelated.md`.',
+            'execution_workdir': workspace, 'delivery_candidates': declared, 'review_source': 'reviewer',
             'outcome': {'review_status': 'done'},
         })
     receipt = supervisor._build_terminal_project_delivery('Certified complete')
     assert receipt is not None
-    paths = {target['path'] for target in receipt['targets']}
-    assert paths == {'REPORT.md', 'index.html'}
-    assert 'unrelated.md' not in paths
-
-
-def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
-    from argus.life.delivery import linked_report_paths, referenced_delivery_paths
-    (tmp_path / "REPORT.md").write_text("Reviewed website: `index.html`; reproduce with `node validate.js`.\n")
-    (tmp_path / "index.html").write_text("<h1>Reviewed</h1>")
-    (tmp_path / "validate.js").write_text("console.log('ok')")
-    (tmp_path / ".env").write_text("secret")
-    paths = referenced_delivery_paths(tmp_path, ["RESULT=REPORT.md is ready. https://example.com/index.html is external."])
-    assert paths == ["REPORT.md"]
-    assert linked_report_paths(tmp_path, paths) == ["index.html", "validate.js"]
-    assert referenced_delivery_paths(tmp_path, ["../private.md and .env are not deliverables."]) == []
+    assert {target['path']: target['source'] for target in receipt['targets']} == {
+        'REPORT.md': 'reviewer_accepted', 'index.html': 'reviewer_accepted',
+    }
 
 
 def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tmp_path, monkeypatch):
@@ -339,7 +328,7 @@ def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tm
     root = Path(supervisor._project_workdir())
     (root / "index.html").write_text("<h1>Product</h1>")
     (root / "REPORT.md").write_text("Run `node verify.js` to reproduce.")
-    sources = [f"module{i}.js" for i in range(8)] + ["verify.js"]
+    sources = [f"module{i}.js" for i in range(8)]
     for name in sources:
         (root / name).write_text("// reviewed source")
     item = BacklogItem.new(item_id="ui", title="Build product", objective="Create index.html and REPORT.md.")
@@ -349,49 +338,12 @@ def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tm
     assert supervisor._emit({
         "type": "life.mission.completed", "item_id": item.id, "success": True,
         "status": "done", "overall_complete": False, "campaign_continues": True,
-        "execution_workdir": str(root), "delivery_candidates": sources,
+        "execution_workdir": str(root), "delivery_candidates": [*sources, "REPORT.md", "index.html"],
         "final_output": "All controls passed.", "outcome": {"review_status": "done"},
     })
     monkeypatch.setattr(vertical_select, "resolve_vertical_if_decided", lambda _: "software")
     receipt = supervisor._build_terminal_project_delivery("Verified")
-    assert receipt["primary_target"]["path"] == "index.html"
-    paths = [row["path"] for row in receipt["targets"]]
-    assert "REPORT.md" in paths and "verify.js" in paths
-
-
-def test_terminal_delivery_recovers_reviewed_product_from_an_older_direct_settlement(tmp_path):
-    supervisor, memory = _delivery_supervisor(tmp_path)
-    workspace = supervisor._project_workdir()
-    (workspace / "index.html").write_text("<h1>Travel planner</h1>", encoding="utf-8")
-    item_id = "direct-website"
-    events = [
-        {"type": "life.mission.started"},
-        {
-            "type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
-            "tool_name": "apply_patch", "text": "apply_patch: *** Begin Patch\n*** Add File: index.html\n+product",
-        },
-        {"type": "round.review.started"},
-        {
-            "type": "engineer.progress", "kind": "tool_use", "agent_layer": "reviewer",
-            "tool_name": "view", "text": 'view: {"path": "index.html"}',
-        },
-        {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
-    ]
-    with (memory.root / "events.jsonl").open("a", encoding="utf-8") as handle:
-        for event in events:
-            handle.write(json.dumps({"item_id": item_id, **event}) + "\n")
-    assert supervisor._emit({
-        "type": "life.mission.completed", "item_id": item_id,
-        "success": True, "status": "done", "overall_complete": True,
-        "summary": "Browser checks passed.", "final_output": "RESULT=The travel planner is complete.",
-        "execution_workdir": str(workspace), "delivery_candidates": [],
-        "outcome": {"review_status": "done"}, "delivery": None,
-    })
-
-    receipt = supervisor._build_terminal_project_delivery("Complete")
-
-    assert receipt["primary_target"]["path"] == "index.html"
-    assert receipt["delivery_id"].startswith(f"delivery:project-{memory.root.name}-{item_id}:task_completed:")
+    assert [row["path"] for row in receipt["targets"]][:2] == ["index.html", "REPORT.md"]
 
 
 def test_a_reviewed_task_is_announced_once_in_the_reviewer_s_words(tmp_path) -> None:
@@ -418,6 +370,7 @@ def test_a_reviewed_task_is_announced_once_in_the_reviewer_s_words(tmp_path) -> 
         final_message: str = ""
         summary: str = "Implemented wrap in `core.py`; awaiting the independent rerun."
         final_output: str = "Changed `core.py` and `README.md`."
+        deliverables: tuple = ("core.py", "README.md")
 
     supervisor = LifeSupervisor(
         memory=LifeMemory.open(tmp_path / "life"), runner=_Runner(),

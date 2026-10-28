@@ -1,0 +1,28 @@
+{
+ "source": "argus-trial-1023 s-efe9deac: engineer call 28afe23d (agent_io.jsonl) on mission 8c23c57c9240, 2026-10-26 13:27",
+ "mission": {
+  "id": "8c23c57c9240",
+  "title": "运行candidate完整100更新开发臂及39题验证",
+  "objective": "本任务留在Experiment，读取METHOD.md，严格执行其中“Next development learning Protocol”；共用工程任务9ef4817a47a8和阶段包17957d783e27均已正常独立接受，复用其21项focused spec、真实更新/保存/恢复和缓存隔离证据，不重跑工程smoke或调查。Working claim为有限严格复核预算下组覆盖后失败触发扩展能改善完整程序学习及单位复核成本，相对uniform和充分训练的两级CARE；本次仅取得一个开发臂，不独立判断该主张成立。配置必须逐字复制configs/learning_common.yaml到本任务独占配置，记录字节一致性，不改变METHOD或公共源码。使用固定Qwen2.5-Coder-1.5B-Instruct revision、原native HF/TRL/LoRA/DAPO路径、108 train、seed0、1024 allowance、100实际更新目标及METHOD所列共同全部预算上限。保留每10步官方checkpoint及final，不剪枝。仅通过既有reference_seed机制复制匹配的canonical参考字节到本attempt私有缓存；不得向学习端转移诊断标签、模型输出、probe、replay或其他臂结果。\n\n环境为项目.venv，OMP_NUM_THREADS=1、PYTHONDONTWRITEBYTECODE=1，CUDA_VISIBLE_DEVICES使用调度实际分配的GPU UUID，核验真实设备映射及持续设备日志，不按ordinal猜测或占用别的GPU。长任务用独占launch目录的run.sh通过setsid/nohup启动，保留完整命令、日志、PID、退出码及现有原生source/config快照，等待健康训练完成，不因mission中位时长、低利用率或无方法优势而提前终止。记录完整真实生成、base/strict执行、优化器、selector/feature、保存/缓存、设备与wall费用；共同上限不能写成相同实际花费。不添加训练、诊断或评测之外的预算。\n\n训练从独立空attempt目录启动，使用公开python -m research.group_verification.run --config configs/learning_candidate_seed0.yaml --phase train --arm candidate --seed 0 --output-dir results/development/learning/candidate-seed0/train/attempt-001。新鲜训练完成后运行原python -m research.group_verification.validate_attempt results/development/learning/candidate-seed0/train/attempt-001，保留命令/log/exit_code，并独立复算原始组身份、购买及预算/保留组/优势/更新数和checkpoint身份；复用已审阅测试，不重复整个旧spec。若正常达到100次真实optimizer更新，使用唯一预先指定终点results/development/learning/candidate-seed0/train/attempt-001/public/final，通过公开python -m research.group_verification.evaluate --config configs/learning_candidate_seed0.yaml --checkpoint results/development/learning/candidate-seed0/train/attempt-001/public/final --split validation --output-dir results/development/learning/candidate-seed0/evaluation/attempt-001完成全部39官方validation任务，一题一个完整程序、共同seed/推断预算/执行合同，不能按开发分数挑checkpoint。results/development/learning/candidate-seed0/evaluation/attempt-001须为本任务根下与results/development/learning/candidate-seed0/train/attempt-001并列的独立空目录，不能放在results/development/learning/candidate-seed0/train/attempt-001/eval：旧validate_attempt会把该嵌套目录的题数与旧readiness.validation_tasks=8比较。明确原验证器只核训练；另在任务内输出可运行的独立结果复算，逐条核验39个预声明task IDs、完整raw程序及hash、base/union原始执行、付费账本和费用、状态、pass@1及task-level Wilson区间；不得把避开旧嵌套评测分支写成原验证器已核验39题。保留evaluaton全部实际费用；224 test保持封存。禁止读取兄弟臂和length/allocation诊断的结果；共同METHOD、配置与已接受基础设施说明可读。\n\n如果原合同因真实信号不足、预算、执行器未决或基础设施错误而停止，保存全部失败与已执行费用，准确报告stop_reason和缺口，交还Planner；不得补零、伪造100步、扩大预算/补采次数、静默换recipe、拼接恢复历史、删除旧attempt或进行共享代码修复。必要恢复仅用同arm/seed/config/caps合法checkpoint写新的独立attempt，并保留每次额外实际工作；旧验证器不支持增量恢复前缀，必须如实保留其失败并以已接受的增量前缀核验方法独立核账，不能构造旧raw行。任务自己的report与claim_status JSON保存在独占输出，根RESEARCH_NOTES.md、.argus/claim_attainment.json等共享文件留到串行汇总，防止并行覆盖。交接需明确这只是单seed开发证据，uniform及terminal_rl后续仍必要，确认规模与机制控制尚未完成，不能进入Paper或宣称优越性。独立复核本次新增真实运行和导出，不重建审计包、不处理Skill/Wiki待答问题、不重复阶段包。\n本臂只使用原CoverageExpansionSelector与GroupCorrectionHook。记录真实局部请求/纠正/过滤和有效更新，不从已购256静态pool结果推断本臂学习收益或触发因果效果。",
+  "tags": [
+   "planner",
+   "scope:bounded",
+   "bounded_dag_node",
+   "review:required",
+   "parallel_safe",
+   "stage:experiment"
+  ],
+  "started_ts": 1793021088.419105
+ },
+ "hand_off": {
+  "to": "manager",
+  "assumptions": [],
+  "summary": "candidate seed0的配置已逐字复制并核验，但任务尚未收到调度分配的GPU UUID，训练未启动，需补齐分配后继续原实验。",
+  "note": "Real launch prerequisite only; do not create an infrastructure task or reopen planning. Supply the scheduler-assigned GPU UUID for existing mission 8c23c57c9240 and return to Engineer. No CUDA_VISIBLE_DEVICES was inherited; current mission.json and role-session record contain the allocation requirement but no assigned UUID, and no allocation tool is exposed. Visible idle devices do not satisfy the explicit scheduling boundary. Config configs/learning_candidate_seed0.yaml is identical to common (7919 bytes; SHA256 5fbc9d5852ce8a7719119b9ce15d3227ec5412d09dd15d3b277232b8c41b9e21). Decisive current evidence: results/development/learning/candidate-seed0/checks/launch-preflight-002/{command.txt,log,exit_code} (exit2) and checks/preflight-002/{result.json,gpu_inventory.txt,gpu_processes.txt,predeclared_task_ids.json}. Preflight-002 does not alter the inherited CUDA mask. Earlier preflight-001 explicitly removed the mask; retained but not decisive for inherited allocation. Current continuation: results/development/learning/candidate-seed0/CHECKPOINT.md; report.json and claim_status.json are task-local. No train or evaluation attempt exists, no new scientific work or algorithmic stop; no negative method result. No shared code/METHOD/config edits, sibling or diagnostic results, private test contents, old spec reruns, Skill/Wiki/audit/manuscript work. Evidence kept under the exclusive owned output root, not shared .argus/evidence, to honor the explicit write boundary. Resume exact original detached train into train/attempt-001 after allocation; if 100 updates complete, validate original training and independently recompute raw accounting/checkpoints, then fixed final into separate evaluation/attempt-001 for all39 and independently recompute Wilson uncertainty. Normal independent Reviewer remains required after real execution, not invoked or claimed complete now. Single seed remains insufficient for superiority/Paper; uniform, terminal_rl, sufficiently trained CARE, confirmation scale and mechanism controls still pending."
+ },
+ "settled": {
+  "status": "parked",
+  "stop_reason": "candidate seed0的配置已逐字复制并核验，但任务尚未收到调度分配的GPU UUID，训练未启动，需补齐分配后继续原实验。",
+  "review_status": "manager"
+ }
+}

@@ -1,0 +1,36 @@
+{
+ "99d44fc3006a": {
+  "title": "LLM 强化学习原创研究与 ACL 完整论文",
+  "tags": [
+   "manager",
+   "scope:bounded",
+   "review:required",
+   "operator",
+   "operator_priority",
+   "stage_transition:skip"
+  ],
+  "summary": "准备计划已独立核验，交付范围和验收条件明确；研究保持未启动，等待用户点击“开始执行”。",
+  "final_output": "本次仅核对开工边界和准备材料，没有执行研究。工作区 docs/acl-paper-plan.md 已明确目标、完整交付物、验收条件、简短计划及等待“开始执行”的限制，无需修改；已保存并回读共享检查点 /fastdata/v-boxiuli/argus-trial-1023/state/projects/s-efe9deac/handoffs/99d44fc3006a/CHECKPOINT.md。决定性核对是计划的开工边界与当前任务一致：用户点击前不开展文献调研、选题、实现、实验或论文写作。本次未开展这些活动，也未创建 RESEARCH_NOTES.md 或变更阶段。按 REQUIRED 独立检查路径交接，仅检查准备材料及未开工边界；不存在可供论文科学验收的研究成果，不得把本次调用视为用户已点击开始。检查后继续等待明确启动事件。",
+  "recorded_targets": [
+   "docs/acl-paper-plan.md"
+  ]
+ },
+ "17957d783e27": {
+  "title": "交付两长度诊断的首份实验阶段结果包",
+  "tags": [
+   "planner",
+   "scope:bounded",
+   "bounded_dag_node",
+   "review:required",
+   "parallel_safe",
+   "stage_package",
+   "stage:experiment"
+  ],
+  "summary": "中文阶段包和下载包通过独立复核；432 对响应、全部比较数字与实际费用可复算。整体研究仍未完成，继续实验。",
+  "final_output": "请按本任务的正常独立 Reviewer 路径逐项核查阶段包，不启动全文审阅。全部写入限于 results/stage_packages/experiment-001/，没有修改 METHOD、共享 research、配置、根 notes/claim、其他臂、Skill/Wiki，也未读取在途 allocation 输出或 validation/test 成绩，未运行模型/程序/训练/API。主要交付：README.md（中文，醒目标明“阶段包，整体目标未完成”）、METHOD.md 当前逐字副本、compare_lengths.py、length_comparison.json、inputs/ 小型原始输入、stage-package.zip（896597 bytes）。表格由 build_package.py 自动生成。决定性复算 command.txt/log/exit_code=0：--short results/development/length256/attempt-002 --long results/development/length1024/attempt-002 --output results/stage_packages/experiment-001/length_comparison.json；432对身份/随机流/共同模型和合同、逐token前缀/EOS、全部base/union/joint与parse/finish状态、实际购买和work_events、费用及已接受validator均核对。结果：149提前EOS不变，283截断消除；union 162→169，同时2个PROGRAM_FAIL→RESOURCE_FAIL和3个新base接受但union PROGRAM_FAIL均列出；actual 101119/130248 token、191/201 strict购买不同，不称等实际成本或独占性能。checks/spec/{command.txt,log,exit_code} 为15 passed/exit0，仅本包focused spec，旧正式spec/正控制/官方stand-up只引用。checks/download-attempt-001/{command.txt,comparison-command.txt,comparison-log,comparison-exit_code,validation.json,log,exit_code}：从zip空目录解压、CPU标准库重算exit0，全部数值/配对/转移/来源与项目输入一致，1065处源文件/字段/原始行指针可解析，METHOD逐字一致。最终zip CRC及每个成员字节与当前文件一致，含spec和download证据，不含环境、模型、checkpoint、pickle或解压scratch。保留本包初次命令字符串比较错误和初次测试错误文本预期的失败日志，未删除任何旧模型运行失败。四项学习条款untested、自然机制partial；不能进入Paper或声称总体完工。下一轮沿Planner已决定的1024共同recipe开展全108池candidate/uniform/完整两级付费CARE/强terminal RL学习比较；启动前须验证1024真实更新、checkpoint留存及磁盘成本，run.py当前GRPOConfig每步save且save_total_limit=None；此任务未修改recipe或启动面板。请核本包每个数字及上述科学边界，之后继续Experiment。",
+  "recorded_targets": [
+   "METHOD.md",
+   "results/stage_packages/experiment-001/length_comparison.json"
+  ]
+ }
+}

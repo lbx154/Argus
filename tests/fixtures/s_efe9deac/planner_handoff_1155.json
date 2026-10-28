@@ -1,0 +1,87 @@
+{
+ "tasks": [
+  {
+   "id": "02a2583442f7",
+   "title": "16组K8候选更新与续训及一次HF单步对照",
+   "plan_id": "plan-14a8957e331c",
+   "plan_version": 1,
+   "node_key": "finite_candidate_resume_timing_reissue",
+   "deps": [],
+   "owns_paths": [
+    "configs/infrastructure/shared-vllm/finite-candidate.yaml",
+    "configs/infrastructure/shared-vllm/finite-hf.yaml",
+    "results/infrastructure/shared-vllm/finite-candidate-001"
+   ],
+   "parallel_safe": true,
+   "tags": [
+    "planner",
+    "scope:bounded",
+    "bounded_dag_node",
+    "review:required",
+    "parallel_safe",
+    "stage:experiment",
+    "operator-reply",
+    "manager-approved"
+   ],
+   "manager_decision": {
+    "routed": true,
+    "stage": "experiment",
+    "vertical": "research",
+    "workflow_mode": "staged"
+   },
+   "objective": "Authoritative Manager operator-answer decision:\n保持现有依赖、科学配置和预算，允许项目内训练调用/兼容性代码修复；仅GPU1–3，用保存批次一次复现、一次修复验证，合计至多0.2 GPU小时且不新增生成/复核。验证成功后继续原更新、续训和HF计时；需改依赖或出现新障碍就停止。\n\nNote: 授权。上次我写\"只限引擎配置\"写窄了。为完成这个任务原定的真实更新、续训和 HF 计时，项目内的训练调用、兼容性和环境修复都可以直接做，不用再问；科学配置、预算上限和验收标准不变，只用 GPU 1–3。只有需要改依赖版本或改变科学设定时才停下来问。\n\nThis decision supersedes every conflicting requirement in the inherited blocked mission objective below and every conflicting acceptance check or non-goal of this task.\n\nInherited blocked mission objective (retain only non-conflicting context):\nAuthoritative Manager operator-answer decision:\n由正常规划明确可改的引擎配置和一次执行边界，保留原科学配置、预算及验收要求。\n\nNote: 授权。这次是 vLLM 缓存初始化时退出，属于引擎内存配置问题，不是方法本身不行。修复只限引擎配置（如 gpu_memory_utilization、max_model_len、KV 缓存相关参数），科学配置、预算和验收要求保持不变。GPU 0 已损坏，只用 1–3 号卡。修好后直接接着做原定的真实更新、续训和匹配 HF 计时。\n\nThis decision supersedes every conflicting requirement in the inherited blocked mission objective below and every conflicting acceptance check or non-goal of this task.\n\nInherited blocked mission objective (retain only non-conflicting context):\n### Claim\n服务METHOD.md Working claim，本任务只完成四项有限迁移验收中的candidate真实更新/续训和一次匹配HF计时，不是科学优越性实验。"
+  },
+  {
+   "id": "45caeeb6130c",
+   "title": "16组K8完整CARE真实更新与续训",
+   "plan_id": "plan-14a8957e331c",
+   "plan_version": 1,
+   "node_key": "finite_care_resume_reissue",
+   "deps": [],
+   "owns_paths": [
+    "configs/infrastructure/shared-vllm/finite-care.yaml",
+    "results/infrastructure/shared-vllm/finite-care-001"
+   ],
+   "parallel_safe": true,
+   "tags": [
+    "planner",
+    "scope:bounded",
+    "bounded_dag_node",
+    "review:required",
+    "parallel_safe",
+    "stage:experiment"
+   ],
+   "manager_decision": {
+    "routed": true,
+    "stage": "experiment",
+    "vertical": "research",
+    "workflow_mode": "staged"
+   },
+   "objective": "### Claim\n服务METHOD.md Working claim，本任务只完成四项有限迁移验收中的完整CARE真实更新及续训，不证明CARE充分强或科学胜负。"
+  }
+ ],
+ "settled_11_55_46": {
+  "event_id": "mission-8b8c783f5acb4b0985bbca9711d21717",
+  "status": "planner",
+  "success": false,
+  "rounds": 1,
+  "stop_reason": "",
+  "final_review_status": "planner",
+  "final_review_reason": "CARE 两次真实更新与续训未完成（0/2）；独立核验确认预算分配在训练前失败，此次新增四项费用均为零。",
+  "final_review_source": "reviewer",
+  "plan_challenge": {
+   "alternative": "本任务不能接受为完成。可以确认的是一份准确的启动失败记录，不能据此判断 CARE 方法、训练能力或科学胜负。没有启动模型生产进程，没有 checkpoint1，也没有恢复到累计 step2。现有任务禁止修改共享分配器；需要在当前 Experiment 阶段安排一个有相应写入范围的修复任务，然后重发原 CARE 执行任务。不是回退选题，也不是修改验收。\n\n独立证据：results/infrastructure/shared-vllm/finite-care-001/launch-fresh-002/run.sh:3 是真实公开迁移命令，arm care、seed0、--pause-after-update 1，指定 GPU-5a6b7f13-4a03-c3c5-bb17-ea86b46d8aed；command.txt 与脚本这一行的内容一致。launch-fresh-002/log:7–11 的 traceback 与 exit_code:1 记录退出1。research/infrastructure/shared_vllm_migration.py:568 在 configured_environment、launch 和原训练入口之前调用 allocate；:79–80 在发布 allocation.json 之前抛出异常。fresh-002 无 allocation.json、launch.json、producer_pid.json、producer.log 或 producer 目录；也无 resume-* 目录。此次没有实际训练设备映射，只有指定设备，不能把它写成 GPU 训练完成。\n\n失败原因已独立复算。shared_vllm_migration.py:28–35 的 observed_cost 在旧 producer/public/budget.json 缺失时返回原始 caps；:70–80 把它加到历史成本再检查新申请。我直接调用当前 observed_cost 和 owned_allocation_paths，并检查保存的这三个函数与本次源码内容一致。旧 fresh-001 贡献预留 strict259/generated1000000/optimizer2，加历史165/210034/13，得到424/1210034/15。再申请未改变的259/1000000/2，总额683/2210034/17，只有 generated 超过2097152，差112882。这是旧失败预留和实际已知成本未衔接的启动障碍，不是 CARE 用尽了新增100万 token。没有运行 allocate 来重置或改写记录。\n\n旧失败也保留：fresh-001/producer.log:10–15 在 prepare_reference_seed 抛错；其保存的 source/run.py:317 位于 broker 创建:325、模型加载:330–332 和 Trainer 创建:336 之前。这支持旧 costs.json 中 strict0/generated0/optimizer0；旧 GPU小时0.003181952635447184 与原 launch.json 的生产窗口差值/3600 完全一致。新 fresh-002/costs.json 的 strict0/generated0/optimizer0/GPU小时0 与此次尚未进入 launch 的路径一致；它是退出后根据路径和原始记录核定的费用文件，不是训练预算日志。公开 verifier 的259/1000000/2/null 是旧分配的保守计数，不得当成新执行费用或真实更新。\n\n我独立执行了安全的公开入口：env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m research.infrastructure.verify_shared_vllm --config configs/infrastructure/shared-vllm/finite-care.yaml --output-dir /tmp/care-independent-review-oihuz9_g/public-check --scope care。实际退出1，耗时约2.13秒，passed=false、complete=false、care=untested；仅旧 fresh-001 被枚举，错误为 producer did not complete successfully。这与原 check-002/result.json:1–43 及 launch-check-002/exit_code 一致。临时目录保留原始核验结果；此次审阅前后提交目录全部文件的大小和修改时间一致，未改源文件、结果或构建文件。没有重跑已接受 specs，也没有重试生产运行。独立检查的驱动命令退出0，仅表示上述失败状态和算式断言成立，不代表 CARE 验收通过。\n\n逐项核对：finite-care.yaml:15,24–37 保留 K8、16 raw组、16 retained组、两步累计目标和259/1000000/2；:70–74 保留 bootstrap16、可靠性及双级在线 replay 设置；:97 显式使用 .venv-evaluator/bin/python。排除 host-only 完整性字段后，与 finite-common 的可读配置差异仅为预定 CARE limits、scope 和 root；lr1e-5、DAPO、原生IS、top_p1、模型名称和共同配方一致。配置保真 MATCHES。shared_runner 的公开分支及训练前分配行为 MATCHES（shared_vllm_migration.py:568–576；run.py:295）。care_adapter INSUFFICIENT_EVIDENCE（care.py:57–58）；group_update/真实梯度与参数改变 INSUFFICIENT_EVIDENCE（trainer.py:276–277）；paid/probe/replay/采样和原生 optimizer/scheduler/RNG 恢复 INSUFFICIENT_EVIDENCE：这次根本未进入训练，不可用旧 specs 或旧 CARE100 替代实跑。付费 bootstrap、Stage2 自然监督、共同分母和非零完整批都未得到此次 raw 验证。两步及实际恢复要求未满足，care 范围 exit0 要求未满足。没有 validation/test、调参或学习/速度结论；兄弟任务输出和全论文不属于此次审阅结论。\n\nnext_action：失败假设是“旧失败已退出且已知零生成后，同额度 fresh 重启仍能在现有总上限内获准”；现有 fallback 事实上仍占整份额度。请安排一个正常、窄范围的共享分配器成本/预留衔接修复：利用保存的真实退出和执行路径处理已知的训练前失败，保留原失败、原分配及费用来源，保持总预算上限、CARE额度、模型、bootstrap、K、批量与两步恢复合同。不要删除分配、换根目录、缩额度、借 candidate 预留或绕过公开入口。修复独立接受后，工程师再以新的空目录执行原 fresh step1、同配置 resume step2 和公开 care 核验；本次不授权继续重试。若解决方案实际需要改变用户预算或验收边界，再提交用户决定。\n\n本次没有改变科学解释的结果或正面意外；none。最主要的新观察只是旧整额预留阻止了训练启动，不足以检验或反驳 Working claim，也不产生新科学诊断任务。研究阶段和原投稿目标均未完成。",
+   "challenge": "CARE 两次真实更新与续训未完成（0/2）；独立核验确认预算分配在训练前失败，此次新增四项费用均为零。",
+   "manager_action": "replace",
+   "manager_reason": "Later evidence supports a concrete alternative to the current plan",
+   "raised_at": 1793102146.0766537,
+   "source": "manager_authority_policy"
+  }
+ },
+ "retired_12_00_09": {
+  "event_id": "685496ab49824b8c9ca2792bbe908f57",
+  "item_id": "45caeeb6130c",
+  "superseded_by_plan_id": "plan-e32286cd14ff",
+  "reason": "CARE在共享分配器预留结算处未启动生产，节点无共享修复权限，先处理该明确依赖，独立接受后按原两步简报重发，不重复领取原失败。"
+ }
+}

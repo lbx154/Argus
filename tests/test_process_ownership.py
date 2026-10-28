@@ -15,7 +15,7 @@ def test_runner_process_ownership_fact_reaches_reviewer(tmp_path) -> None:
     backend.queue(
         "engineer-r1",
         CannedResponse(
-            message="Completed the bounded work.",
+            action=hand_off("reviewer", "Completed the bounded work."),
             orphan_process_group_id=4242,
             orphan_process_group_cleanup_succeeded=True,
         ),

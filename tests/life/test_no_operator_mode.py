@@ -305,11 +305,9 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
 def test_engineer_evidence_for_the_next_holder_lives_in_the_working_directory() -> None:
     # dogfood8 sizefmt: build logs under copilot-home/session-state/<id>/files
     # were named in the note, and the sandboxed Reviewer could not read them.
-    from argus.core.workspace_facts import IGNORED_NAMES
     from argus.roles.prompts.engineer import engineer_handoff_rule
 
-    assert "`.argus/evidence/`" in engineer_handoff_rule()
-    assert ".argus" in IGNORED_NAMES, "evidence is not mistaken for the deliverable"
+    assert "`evidence/`" in engineer_handoff_rule()
 
 
 def test_the_manager_sees_each_recorded_assumption_once_before_deciding(tmp_path) -> None:

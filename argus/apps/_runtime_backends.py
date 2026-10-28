@@ -81,6 +81,8 @@ class _Outcome:
     # Full operator-facing Engineer handoff. ``summary`` stays compact for
     # status surfaces, while this field preserves long-form deliverables.
     final_output: str = ""
+    # The files the final round's Engineer hand_off declared (``RoundRecord``).
+    deliverables: list[str] = field(default_factory=list)
     research_result: dict | None = None
     venue_review: dict | None = None
     venue_review_snapshot: dict | None = None

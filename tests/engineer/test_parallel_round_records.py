@@ -83,7 +83,7 @@ def _review_prompts(tmp_path: Path) -> dict[str, str]:
         packet.write_text(json.dumps({"mission_id": item}), encoding="utf-8")
         engineer = SupervisedEngineer(
             engineer_runner=_RecordedCall(
-                default=CannedResponse(message="round done"), history=reviewers.history,
+                default=CannedResponse(action=hand_off("reviewer", "round done")), history=reviewers.history,
                 item=item, both_started=both_started, labels=labels,
             ),
             reviewer=Reviewer(runner=reviewers.fork()),

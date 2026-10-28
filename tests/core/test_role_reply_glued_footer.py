@@ -37,7 +37,7 @@ Reviewer had just rejected.
 
 from __future__ import annotations
 
-from argus.core.role_reply import read_block, read_key_values, read_records
+from argus.core.role_reply import read_block, read_key_values
 
 
 def test_a_short_key_is_not_found_inside_a_longer_one() -> None:
@@ -54,15 +54,3 @@ def test_a_welded_block_field_still_runs_to_the_next_key() -> None:
 
     assert read_block(text, "REASON", ["STATUS", "REASON"]) == "first line\nsecond line"
 
-
-def test_welded_records_are_read_as_records() -> None:
-    text = (
-        "Here is the backlog.TASK_TITLE=first\nTASK_DETAIL=a\n"
-        "TASK_TITLE=second\nTASK_DETAIL=b\n"
-    )
-
-    records = read_records(
-        text, ["TASK_TITLE", "TASK_DETAIL"], start_key="TASK_TITLE"
-    )
-
-    assert [r["TASK_TITLE"] for r in records] == ["first", "second"]

@@ -763,22 +763,14 @@ class MissionExecutionSettlementMixin:
                 ),
                 outcome=outcome_dimensions,
             )
-        elif to_planner and not item.plan_id:
-            # Handed to the Planner with no plan to revise (the Manager's direct
-            # task, an operator's): it parks in the Planner's hands, to retire or
-            # replace, not queued back to the Engineer who handed it on.
+        elif to_planner:
+            # Handed to the Planner: it parks in the Planner's hands, to retire
+            # or replace in a revision, never queued back to the Engineer.
             commit(
                 park_reason="research_open",
                 finished_ts=time.time(),
                 last_error=state.stop_reason,
                 outcome=outcome_dimensions,
-            )
-        elif to_planner:
-            commit(
-                status="pending",
-                started_ts=None,
-                finished_ts=None,
-                last_error=state.stop_reason,
             )
         elif parked:
             commit(
@@ -916,37 +908,14 @@ class MissionExecutionSettlementMixin:
             mission_summary = f"Verified with residual risk: {residual_risk}. {mission_summary}"[:1200].strip()
         final_output = str(getattr(outcome, "final_output", "") or "").strip()
         # A completed mission needs one durable, operator-facing receipt rather
-        # than three loosely related hints (event, chat text, and sidebar).
-        # Resolve targets only from the accepted completion message or a
-        # vertical contract; never scan or guess files. Files the Engineer
-        # handoff names are reviewer-accepted evidence and must remain openable
-        # in the UI.
+        # than three loosely related hints (event, chat text, and sidebar). Its
+        # files are the ones the accepted Engineer hand_off declared, and the
+        # vertical contract's.
         delivery: dict[str, Any] | None = None
         delivery_workspace = state.execution_workdir or self._project_workdir()
-        reviewer_artifacts: list[str] = []
+        deliverables = list(getattr(outcome, "deliverables", ())) if success else []
         try:
-            from ..delivery import referenced_delivery_paths, reviewed_change_paths
-
-            reviewer_artifacts.extend(referenced_delivery_paths(
-                delivery_workspace,
-                [
-                    raw_mission_summary,
-                    final_output,
-                    getattr(outcome, "final_message", ""),
-                ],
-                limit=12,
-            ))
-            if success and not reviewer_artifacts:
-                # A terse accepted direct handoff may omit every filename.
-                # Recover only authored files actually inspected by its final
-                # independent Reviewer, not arbitrary workspace contents.
-                reviewer_artifacts.extend(reviewed_change_paths(
-                    delivery_workspace, self.memory.root, item.id,
-                ))
-        except Exception:  # noqa: BLE001 - receipt construction remains fail-soft
-            log.debug("completion file links could not be resolved", exc_info=True)
-        try:
-            from ..delivery import build_delivery_receipt
+            from ..delivery import build_delivery_receipt, declared_source
 
             delivery = build_delivery_receipt(
                 item_id=item.id,
@@ -966,7 +935,10 @@ class MissionExecutionSettlementMixin:
                 workspace=delivery_workspace,
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
-                reviewer_artifacts=reviewer_artifacts,
+                deliverables=[
+                    (path, declared_source(getattr(outcome, "final_review_source", "")))
+                    for path in deliverables
+                ],
                 # The operator's own request is a deliverable once its
                 # Reviewer accepted it, even while the campaign goes on.
                 stage_package=bool(
@@ -1000,11 +972,7 @@ class MissionExecutionSettlementMixin:
             "review_source": str(
                 getattr(outcome, "final_review_source", "") or ""
             ),
-            "delivery_candidates": [
-                str(candidate)
-                for candidate in reviewer_artifacts
-                if str(candidate).strip()
-            ][:12],
+            "delivery_candidates": deliverables,
             "outcome_class": mission_outcome_class(status, success, state.park_reason),
             "outcome": state.outcome_dimensions,
             "plan_challenge": plan_challenge,
@@ -1236,12 +1204,6 @@ class MissionExecutionSettlementMixin:
                 f"status={state.status}; stop_kind={state.stop_kind or 'none'}; "
                 f"reason={state.stop_reason or 'none'}"
             ),
-            # The round text the Reviewer read is not kept on the outcome; the
-            # engineer's own account of the run is the factual record we have.
-            host_round_log="",
-            run_reality=str(
-                getattr(outcome, "summary", "") or getattr(outcome, "final_message", "") or ""
-            ),
             emit=self._emit,
             elapsed_s=float(state.elapsed or 0.0),
             rounds=int(state.rounds or 0),
@@ -1282,10 +1244,9 @@ class MissionExecutionSettlementMixin:
             status = "iteration_" + str(state.iteration.get("status") or "incomplete")
         elif not success and status in {"done", "success", "completed"}:
             status = "review_" + review_status if review_status and review_status != "done" else "not_accepted"
-        final_message = str(getattr(outcome, "final_message", "") or "")
         review_reason = str(getattr(outcome, "final_review_reason", "") or getattr(outcome, "reason", "") or "")
         factual_outcome = (
-            state.stop_reason or final_message or review_reason or status
+            state.stop_reason or review_reason or status
             if success else str((state.iteration or {}).get("stop_reason") or state.stop_reason or state.err or status)
         )
         return experience_from_settled_mission(
@@ -1294,8 +1255,7 @@ class MissionExecutionSettlementMixin:
             created_at=float(getattr(item, "started_ts", None) or item.ts),
             title=item.title, objective=item.objective, status=status, success=success,
             reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
-            factual_outcome=factual_outcome, final_message=final_message, review_reason=review_reason,
-            stop_kind=str(state.stop_kind or ""),
+            factual_outcome=factual_outcome, stop_kind=str(state.stop_kind or ""),
             concepts=list(item.tags), artifact_refs=[ref for ref in refs if ref],
             non_goals=list(getattr(item, "non_goals", []) or []),
         )

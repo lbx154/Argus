@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from argus.core.event_catalog import EventType
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory, park_reason
 from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
@@ -93,7 +93,7 @@ def test_an_answered_task_starts_and_ends_under_the_operator_s_request(tmp_path)
     decision brief once an answered task ran."""
     memory = LifeMemory.open(tmp_path / "life")
     memory.backlog.add(BacklogItem.new(
-        title="pick A", objective="Authoritative Manager operator-answer decision:\nA",
+        title="pick A", objective="Authoritative answer from the operator:\nA",
         tags=["scope:bounded"],
         manager_decision={
             "routed": True, "vertical": "software", "workflow_mode": "direct",
@@ -695,8 +695,6 @@ def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path, so
     had nothing to park. It now parks where a Manager stop leaves work. A
     Reviewer's ``→ manager`` (HO-3) parks the same way, not queued back to the
     Engineer."""
-    from argus.life.memory import park_reason
-
     mem = LifeMemory.open(tmp_path / "life")
     sup = LifeSupervisor(
         memory=mem,
@@ -732,8 +730,6 @@ def test_a_task_handed_to_the_manager_waits_whoever_handed_it(tmp_path) -> None:
     """Live 2026-10-26: a research task that climbed to the Manager read as
     failed. Handed to the Manager by any record, a task is parked in its hands,
     and its completion carries no failure."""
-    from argus.life.memory import park_reason
-
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     sup = LifeSupervisor(
@@ -901,11 +897,10 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
     assert blocked and blocked[0].status == "parked"
 
 
-def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
-    """The Reviewer's ``replan_requested`` stands however often it repeats:
-    a planned node goes back to pending for its plan's revision and is
-    re-dispatched, never rewritten into a no-progress failure by a host-side
-    count."""
+def test_replan_requested_parks_the_planned_node_with_the_planner(tmp_path) -> None:
+    """A planned node handed to the Planner waits parked in its hands for a
+    retire or replacement: it is neither re-dispatched to the Engineer nor
+    rewritten into a failure."""
     mem = LifeMemory.open(tmp_path / "life")
     runner = _CountingReplanRunner()
     sup = LifeSupervisor(
@@ -922,13 +917,13 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
         plan_id="plan-1", plan_version=1,
     ))
 
-    for calls in range(1, 5):
-        result = sup.tick()
-        assert result is not None and result["status"] == "planner"
-        row = {row.id: row for row in mem.backlog.all()}[item.id]
-        assert row.status == "pending"
-        assert runner.calls == calls
+    result = sup.tick()
+    assert result is not None and result["status"] == "planner"
+    row = {row.id: row for row in mem.backlog.all()}[item.id]
+    assert (row.status, park_reason(row)) == ("parked", "research_open")
 
+    sup.tick()
+    assert runner.calls == 1
     assert not [
         e for e in mem.journal.all()
         if e.kind == "mission_failed" and e.id == item.id

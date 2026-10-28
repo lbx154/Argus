@@ -62,32 +62,15 @@ class EvolutionMixin:
                 str(reviewer_source or "").strip().casefold() == "reviewer"
                 and isinstance(research_result, dict)
             ):
-                from ...core.knobs import learning_enabled
-                from ...core.paths import reviewed_facts_digest_path
-                from ...manager.reviewed_facts import (
-                    review_and_append_fact,
-                    reviewed_fact_candidate,
-                )
+                from ...manager.reviewed_facts import reviewed_fact_candidate
 
-                facts_kwargs = dict(
+                # The post-mission reflection judges it; without one it is not recorded.
+                self._pending_reviewed_fact = reviewed_fact_candidate(
                     source_campaign=(source_campaign or str(self._project_workdir())),
                     reviewer_reason=reviewer_reason,
                     research_result=research_result,
                     evidence_refs=evidence_refs,
                 )
-                try:
-                    if learning_enabled():
-                        # The post-mission reflection carries this judgment in its
-                        # own call, or runs it alone when it does not reflect.
-                        self._pending_reviewed_fact = reviewed_fact_candidate(**facts_kwargs)
-                    else:
-                        review_and_append_fact(
-                            self.runner,
-                            digest_path=reviewed_facts_digest_path(self._budget_global_root()),
-                            **facts_kwargs,
-                        )
-                except Exception:  # noqa: BLE001 - facts never own settlement
-                    log.warning("Manager reviewed-facts hook failed", exc_info=True)
 
             if not bool(
                 getattr(self.config, "role_skill_maintenance_enabled", True)

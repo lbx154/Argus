@@ -57,7 +57,7 @@ _HANDOFF_RULE = (
     "what was done and found, in their language and plain words. Its note is for the "
     "next holder: changes with output paths, the decisive check, what is open, and why "
     "it goes to them. The next holder sees only the working directory, so a log or "
-    "output they must read is a file under `.argus/evidence/` there, never in your "
+    "output they must read is a file under `evidence/` there, never in your "
     "CLI's own session folders."
 )
 

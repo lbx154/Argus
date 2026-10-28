@@ -25,6 +25,7 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import ReviewerConfig
+from tests.hand_off import hand_off, submit
 
 _CAP_RECEIPT = (
     "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
@@ -96,6 +97,7 @@ class _CappedThenFinishingEngineer:
                 input_tokens=50,
                 output_tokens=20,
             )
+        submit(options, hand_off("reviewer", "ablation 5 finished; table updated"))
         return RunnerResult(
             exit_code=0,
             agent_messages=["ablation 5 finished; table updated"],
@@ -225,6 +227,7 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
 
 class _SteadyEngineer:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
+        submit(options, hand_off("reviewer", "did the work; evidence under results/"))
         return RunnerResult(
             exit_code=0,
             agent_messages=["did the work; evidence under results/"],

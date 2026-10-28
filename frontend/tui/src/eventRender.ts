@@ -244,7 +244,6 @@ function renderWhitelisted(ev: EventMsg): Rendered | null {
     return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `this task failed ${trunc(S(ev, 'reason') || S(ev, 'error'), 160)}`, tone: 'err', rule: true };
   if (t === 'loop.start') return { role: 'engineer', label: 'Engineer', glyph: '▶', text: trunc(S(ev, 'text') || S(ev, 'objective'), 16_000), tone: 'info', expand: true };
 
-  if (t === 'life.inbox.queued') return { role: 'system', label: 'You', glyph: '📥', text: `you added guidance · ${trunc(S(ev, 'text'), 180)}`, tone: 'accent' };
   if (t === 'daemon.parked') {
     return {
       role: 'system',

@@ -219,28 +219,6 @@ Host 会保存事件；后续自然语言不解析。
 绝不能虚构约束；缺失的数字是歧义，不是猜测许可。
 ~~~~
 
-### 研究目标决策
-
-**用途：** vertical 已确定后判断研究成功标准。
-
-~~~~text
-你是定向研究流水线的 MANAGER。操作员已经确定 vertical；不要重新考虑路由。只根据下方任务判断所要求的研究成功标准。判断操作员要求什么结果，而不是问题看起来有多难。
-
-- exploratory：有界调查、已知结果、有限计算、特定领域的本地验证，或与决策相关的负面发现都可能满足任务。仅仅如实报告不构成科学价值。
-- publishable：成功要求结果经过正确性验证，具有非平凡技术核心、经验证的原创性、形式化/因果依据以及领域级重要性。
-- doctoral：成功被明确要求达到博士/论文级原创研究。仅有报告、文献综述、有限检查和本地验证不算成功。
-不要仅仅因为 exploratory 容易用诚实的负面报告收尾就选择它。要求开发可投稿质量的论文、寻找可发表的方法或继续自主研究时，至少需要 publishable 标准，除非操作员明确只要求有界调查。
-
-任务：
-{{TASK}}
-
-此 vertical 允许的等级：exploratory, publishable, doctoral。
-
-决定明确后，立即发送：
-ARGUS_ROLE_DECISION={"role":"manager","payload":{"research_target_level":"publishable","rationale":"与所要求成功标准相关的简短理由"}}
-Host 会保存事件；后续自然语言不解析。
-~~~~
-
 ### 计划预览
 
 **用途：** 用户在执行前要求预览计划。
@@ -306,27 +284,6 @@ NOTES=<注意事项或假设>; <另一项>
 REWRITTEN=<改写后的请求>
 CHANGES=<明确了什么以及原因>; <另一项>
 QUESTIONS=<你的提议或无法推断的事项；在操作员回答前不得写入改写内容>; <另一项>
-~~~~
-
-### Skill 放置
-
-**用途：** mission 后判断 Skill 留在项目、vertical 或全局。
-
-~~~~text
-你是 mission 结束后整理若干项目提炼 skills 的 Manager。独立分类每一行。
-
-放置策略：global = 跨 domain；vertical = 仅适用于一个具名候选 vertical；stay = 项目特定或不确定。优先选择 stay。
-
-候选 vertical：{{CANDIDATE_VERTICALS}}
-
-待分类 Skills（输入数据）：
-[{"candidate_id": "{{SKILL_ID}}", "content": "{{SKILL_CONTENT}}"}]
-
-每个输入 skill 返回一个如下格式的块，每个输入严格对应一行：
-CANDIDATE_ID=<输入中的准确 candidate_id>
-PLACEMENT=global|vertical|stay
-VERTICAL=<候选列表中的名称，或留空>
-WHY=<清晰说明>
 ~~~~
 
 ### 阶段决策

@@ -28,6 +28,13 @@ from argus.manager import Manager
 from argus.planner import PlannerVerdict
 from tests.hand_off import plan, submit
 
+_COPILOT_PLANNER_TURN = (
+    Path(__file__).parents[1] / "fixtures" / "copilot_planner_turn" / "s-ef22aa08-planner-cycle0.jsonl"
+)
+_COPILOT_CONTENT_FILTER_NOTICE = (
+    "The model returned no content because the response was blocked by content filtering."
+)
+
 pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
 
@@ -91,25 +98,54 @@ class _EmptyPlannerThenManagerRunner:
         )
 
 
-class _ContentFilterPlannerRunner(_EmptyPlannerThenManagerRunner):
+class _PlannerResultRunner(_EmptyPlannerThenManagerRunner):
+    def __init__(self, result: RunnerResult) -> None:
+        super().__init__()
+        self.result = result
+
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.planner_calls += 1
-        return RunnerResult(
-            exit_code=1,
-            agent_messages=[],
-            stdout_lines=[],
-            stderr_lines=[],
-            thread_id=(
-                "planner-thread"
-                if run_label.startswith("planner.cycle")
-                else None
-            ),
-            fatal_error=(
-                "Copilot content filtering blocked the response; the identical "
-                "prompt must not be retried"
-            ),
-            stop_kind="permanent_error",
-        )
+        return self.result
+
+
+class _CopilotProcess:
+    def __init__(self, events, exit_code):
+        self.stdout = iter(json.dumps(event) + "\n" for event in events)
+        self.stderr = iter([])
+        self.stdin = SimpleNamespace(write=lambda _text: None, close=lambda: None)
+        self.returncode = exit_code
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+def _replay_copilot_planner_turn(monkeypatch, final_answer: str, *, exit_code: int = 0) -> RunnerResult:
+    """A real Copilot Planner turn (s-ef22aa08 planner.cycle0) without its hand_off call."""
+    from argus.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
+    from argus.agent_cli import _run_exec
+    from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus.agent_cli.runner_backend import BACKEND_COPILOT
+
+    events = [json.loads(line) for line in _COPILOT_PLANNER_TURN.read_text().splitlines()]
+    for event in events:
+        if event["type"] == "assistant.message" and event["data"].get("phase") == "final_answer":
+            event["data"]["content"] = final_answer
+        if event["type"] == "result":
+            event["exitCode"] = exit_code
+    process = _CopilotProcess(events, exit_code)
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *args, **kwargs: process)
+    monkeypatch.setattr(AgentCliRunner, "_resolve_executable", staticmethod(lambda value: value))
+    monkeypatch.setattr(AgentCliRunner, "_build_command", lambda self, **kwargs: ["copilot", "-p"])
+    raw = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT).run_exec(
+        prompt="plan the next cycle", resume_thread_id=None,
+        options=RunnerOptions(), run_label="planner.cycle0",
+    )
+    return translate_result(
+        raw, resume_thread_id=None, copilot_usage=None, usage_accumulator=UsageAccumulator(),
+    )
 
 
 class _TaskPlannerRunner(_EmptyPlannerThenManagerRunner):
@@ -621,15 +657,10 @@ def test_execution_host_failure_pauses_planner_until_explicit_rearm(tmp_path, mo
         "Code mode will fail closed."
     )
 
-    class HostFailureRunner(_ContentFilterPlannerRunner):
-        def run_exec(self, **kwargs):
-            result = super().run_exec(**kwargs)
-            result.exit_code = 0
-            result.fatal_error = diagnostic
-            result.stop_kind = "backend_unavailable"
-            return result
-
-    backend = HostFailureRunner()
+    backend = _PlannerResultRunner(RunnerResult(
+        exit_code=0, fatal_error=diagnostic, stop_kind="backend_unavailable",
+        thread_id="planner-thread",
+    ))
     supervisor, _, sink = _make_supervisor(
         tmp_path, monkeypatch, terminal_stage_done=False, backend=backend,
     )
@@ -1217,3 +1248,60 @@ def test_an_answer_the_task_already_took_does_not_hold_bounded_completion(
     persist_once_answer(root, "再加一个 split_cents 的类型注解。")
     assert supervisor._bounded_completion_reason() == ""
     assert backend.planner_calls == 0
+
+
+def test_copilot_content_filter_is_read_from_the_whole_reply_only(monkeypatch):
+    from argus.core.runner_receipts import CONTENT_FILTER_RECEIPT
+
+    blocked = _replay_copilot_planner_turn(monkeypatch, _COPILOT_CONTENT_FILTER_NOTICE)
+    assert (blocked.fatal_error, blocked.stop_kind) == (CONTENT_FILTER_RECEIPT, "permanent_error")
+    assert _COPILOT_CONTENT_FILTER_NOTICE not in blocked.agent_messages
+
+    quoted = f'The fetched log says "{_COPILOT_CONTENT_FILTER_NOTICE}"; the review stands.'
+    reply = _replay_copilot_planner_turn(monkeypatch, quoted)
+    assert (reply.fatal_error, reply.stop_kind) == (None, None)
+    assert reply.agent_messages[-1] == quoted
+
+
+def test_copilot_content_filter_notice_disarms_campaign(tmp_path, monkeypatch):
+    from argus.daemon.state import read_continuous_state, write_continuous_config
+    from argus.life.supervisor._constants import PLAN_ERROR
+
+    backend = _PlannerResultRunner(
+        _replay_copilot_planner_turn(monkeypatch, _COPILOT_CONTENT_FILTER_NOTICE)
+    )
+    supervisor, _, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False, backend=backend,
+    )
+    root = supervisor.memory.root
+    write_continuous_config(
+        root, enabled=True, objective=supervisor.config.continuous_objective, open_ended=False,
+    )
+    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert not read_continuous_state(root).enabled
+    [error] = [e for e in sink.events if e.get("type") == EventType.LIFE_PLANNER_ERROR]
+    assert error["stop_kind"] == "permanent_error"
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_planner_prose_quoting_content_filter_keeps_campaign(tmp_path, monkeypatch, exit_code):
+    """A Planner reply that quotes the phrase, with no hand_off (exit 0) or after an
+    ordinary backend failure (exit 1), is a no-decision turn retried later."""
+    from argus.daemon.state import read_continuous_state, write_continuous_config
+    from argus.life.supervisor._constants import PLAN_ERROR
+
+    quoted = f'The fetched log says "{_COPILOT_CONTENT_FILTER_NOTICE}"; the review stands.'
+    backend = _PlannerResultRunner(
+        _replay_copilot_planner_turn(monkeypatch, quoted, exit_code=exit_code)
+    )
+    supervisor, _, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False, backend=backend,
+    )
+    root = supervisor.memory.root
+    write_continuous_config(
+        root, enabled=True, objective=supervisor.config.continuous_objective, open_ended=False,
+    )
+    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert read_continuous_state(root).enabled
+    [error] = [e for e in sink.events if e.get("type") == EventType.LIFE_PLANNER_ERROR]
+    assert "stop_kind" not in error

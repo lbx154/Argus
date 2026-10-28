@@ -186,10 +186,7 @@ def _hides_inner_monologue() -> bool:
     Read per call rather than captured at import so that flipping the knob in
     the cockpit takes effect on the next event, not the next restart.
     """
-    from ..core.role_reply import read_bool
-
-    raw = os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0")
-    return not read_bool({"SHOW": raw}, "SHOW", default=False)
+    return os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0").strip().lower() not in {"1", "true", "yes", "on"}
 
 
 def _is_inner_monologue(event: object) -> bool:

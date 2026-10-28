@@ -2411,44 +2411,6 @@ class Backlog:
             if path.parent.exists():
                 _fsync_parent(path)
 
-    def record_acceptance_dependency_assessment(
-        self,
-        item_id: str,
-        *,
-        expected_fingerprint: str,
-        expected_started_ts: float | None,
-        expected_owner: str,
-        assessment: dict[str, Any] | None,
-    ) -> tuple[BacklogItem | None, bool]:
-        """Merge a preflight result only while the same claimed contract holds."""
-        from ..core.acceptance_dependencies import (
-            CACHE_KEY,
-            contract_fingerprint,
-            mission_acceptance_contract,
-        )
-
-        with self._locked():
-            items = self._load()
-            current = next((row for row in items if row.id == item_id), None)
-            if current is None or current.status != "running" or (
-                current.started_ts != expected_started_ts or current.running_owner != expected_owner
-            ):
-                return current, False
-            if contract_fingerprint(mission_acceptance_contract(current)) != expected_fingerprint:
-                # This preflight did no Engineer work. Release only its own
-                # claim so the next tick handles the newly supplied contract.
-                current.status = "pending"
-                current.started_ts = None
-                current.running_owner = ""
-                self._save(items)
-                return current, False
-            decision = dict(current.manager_decision or {})
-            if assessment is not None and decision.get(CACHE_KEY) != assessment:
-                decision[CACHE_KEY] = assessment
-                current.manager_decision = decision
-                self._save(items)
-            return current, True
-
     def resume_with_operator_reply(
         self,
         item_id: str,
@@ -2512,13 +2474,14 @@ class Backlog:
             answer = answer.strip()
             decision = manager_decision.strip()
             by_operator = decided_by == "operator"
+            who = "the operator" if by_operator else "the Manager"
             response = "Operator response" if by_operator else "Manager decision in the operator's place"
             # The roles read the answer in the objective; the operator goes
             # on reading their own request.
             item.manager_decision = {"display_objective": item.objective.strip(), **item.manager_decision}
             if decision:
                 item.objective = (
-                    "Authoritative Manager operator-answer decision:\n"
+                    f"Authoritative answer from {who}:\n"
                     f"{decision}\n\n"
                     "This decision supersedes every conflicting requirement in the "
                     "inherited blocked mission objective below and every conflicting "
@@ -2534,7 +2497,7 @@ class Backlog:
                 # the operator turned down does not pass.
                 item.acceptance_check = "\n".join(part for part in (
                     item.acceptance_check.strip(),
-                    f"The result follows {'the operator' if by_operator else 'the Manager'}'s answer: {decision}",
+                    f"The result follows {who}'s answer: {decision}",
                 ) if part)
             else:
                 item.objective = f"{item.objective.strip()}\n\n{response}:\n{answer}"
@@ -2542,7 +2505,6 @@ class Backlog:
             item.tags = list(dict.fromkeys([
                 *(tag for tag in item.tags if tag != "runtime_failure_canary"),
                 "operator-reply",
-                "manager-approved",
                 "review:required",
             ]))
             _rearm(item)

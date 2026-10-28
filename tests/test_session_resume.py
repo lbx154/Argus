@@ -49,7 +49,7 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
             fatal_error="Process exited with code 2 before turn completion.",
         ),
     )
-    backend.queue("engineer-r2", CannedResponse(message="recovered", thread_id="healthy"))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer", "recovered"), thread_id="healthy"))
     backend.queue("reviewer", CannedResponse(action=_review("done")))
 
     out = _loop(backend, tmp_path / "skills").run(

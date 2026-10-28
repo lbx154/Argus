@@ -21,8 +21,9 @@ from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 log = logging.getLogger(__name__)
 
 
-def _is_content_filter_failure(*values: Any) -> bool:
-    text = " ".join(str(value or "") for value in values).casefold()
+def _is_content_filter_failure(error: Any) -> bool:
+    """The backend's refusal receipt; the Planner's own words never count."""
+    text = str(error or "").casefold()
     return "content filtering blocked" in text or "blocked by content filtering" in text
 
 
@@ -295,10 +296,7 @@ class PlanningCycleVerdictMixin:
                         "expected_plan_version": state.expected_plan_version,
                     }
                 )
-            content_filtered = _is_content_filter_failure(
-                verdict.error,
-                verdict.raw_text,
-            )
+            content_filtered = _is_content_filter_failure(verdict.error)
             if content_filtered:
                 # Replaying identical bytes reproduces a provider policy refusal.
                 # Disarm the standing campaign and require an operator-authored

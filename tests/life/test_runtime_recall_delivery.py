@@ -96,9 +96,9 @@ class RuntimeRunner(SkillLoopExecuteMixin):
         )
 
 
-def verdict(status="done"):
+def verdict(status="done", summary="Synthetic bounded check."):
     return CannedResponse(
-        action=hand_off(*(("engineer", "Synthetic bounded check.", "Check the next bounded observation.") if status == "continue" else ("done", "Synthetic bounded check."))),
+        action=hand_off(*(("engineer", summary, "Check the next bounded observation.") if status == "continue" else ("done", summary))),
         thread_id="offline-reviewer",
     )
 
@@ -152,12 +152,12 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
     global_value, local_value = "GLOBAL_WORKFLOW_MARKER", "LOCAL_OVERRIDE_MARKER"
     shared = append_preference(memory.root, kind="workflow", value=global_value, scope="global", expected_revision=0)
     local = append_preference(memory.root, kind="workflow", value=local_value, expected_revision=0)
-    backend.queue("engineer-r1-seed-success", CannedResponse(message=original, thread_id="offline-seed"))
-    backend.queue("reviewer", verdict())
+    backend.queue("engineer-r1-seed-success", CannedResponse(action=hand_off("reviewer", "Seed check complete."), thread_id="offline-seed"))
+    backend.queue("reviewer", verdict(summary=original))
     task(memory, "seed-success", mode)
     assert supervisor.tick()["success"]
     (experience,) = memory.failure_experiences.recent()
-    assert experience.status == "done" and original in experience.research_narrative
+    assert experience.status == "done" and experience.factual_outcome == original
     assert "Prior mission experiences" in memory.render_recall_context("synthetic grouping")
     backend.history.clear()
     (workdir / "correction.txt").write_text("Synthetic evidence corrects and then withdraws the interpretation.\n")
@@ -168,9 +168,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
     def first(prompt, _options):
         assert prompt.count(original) == 1
         assert prompt.count(local_value) == 1 and global_value not in prompt
-        service.dispatch("revise", {**mutation, "changes": {
-            "research_narrative": revised, "factual_outcome": "Updated bounded result.",
-        }})
+        service.dispatch("revise", {**mutation, "changes": {"factual_outcome": revised}})
         append_revoke(memory.root, local.revision, reason="Remove override", expected_revision=OperatorContextStore(memory.root).revision)
         return "First follow-up check complete."
 
@@ -190,7 +188,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
 
     runner.max_rounds = 3
     for index, factory in enumerate((first, second, third), 1):
-        backend.queue(f"engineer-r{index}-followup", CannedResponse(message_factory=factory, thread_id="offline-followup"))
+        backend.queue(f"engineer-r{index}-followup", CannedResponse(action=hand_off("reviewer"), message_factory=factory, thread_id="offline-followup"))
         backend.queue("reviewer", verdict("continue" if index < 3 else "done"))
     task(memory, "followup", mode)
     result = supervisor.tick()
@@ -217,8 +215,8 @@ def test_failed_memory_refresh_does_not_restore_the_old_mission_snapshot(runtime
                                     runtime_context="REQUIRED_RUNTIME_BOUNDARY"),
     )
     original = "PREVIOUS_RECALL_MUST_NOT_BECOME_A_FALLBACK"
-    backend.queue("engineer-r1-seed-success", CannedResponse(message=original, thread_id="offline-seed"))
-    backend.queue("reviewer", verdict())
+    backend.queue("engineer-r1-seed-success", CannedResponse(action=hand_off("reviewer", "Seed check complete."), thread_id="offline-seed"))
+    backend.queue("reviewer", verdict(summary=original))
     task(memory, "seed-success", "direct")
     assert supervisor.tick()["success"]
 
@@ -238,9 +236,9 @@ def test_failed_memory_refresh_does_not_restore_the_old_mission_snapshot(runtime
         return "Current task complete."
 
     runner.max_rounds = 2
-    backend.queue("engineer-r1-followup", CannedResponse(message_factory=first, thread_id="offline-followup"))
+    backend.queue("engineer-r1-followup", CannedResponse(action=hand_off("reviewer"), message_factory=first, thread_id="offline-followup"))
     backend.queue("reviewer", verdict("continue"))
-    backend.queue("engineer-r2-followup", CannedResponse(message_factory=second, thread_id="offline-followup"))
+    backend.queue("engineer-r2-followup", CannedResponse(action=hand_off("reviewer"), message_factory=second, thread_id="offline-followup"))
     backend.queue("reviewer", verdict())
     task(memory, "followup", "direct")
     assert supervisor.tick()["success"]

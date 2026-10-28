@@ -9,6 +9,7 @@ import json
 from dataclasses import dataclass
 
 from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_receipts import CONTENT_FILTER_RECEIPT
 from .runner_backend import (
     BACKEND_COPILOT,
     BACKEND_CURSOR,
@@ -17,6 +18,11 @@ from .runner_backend import (
     BACKEND_OPENCODE,
     BACKEND_PI,
     CLAUDE_FAMILY,
+)
+
+# Copilot's whole reply when its content filter refused the model's answer.
+_COPILOT_CONTENT_FILTER_NOTICE = (
+    "The model returned no content because the response was blocked by content filtering."
 )
 
 
@@ -555,6 +561,8 @@ class EventConsumerMixin:
             return thread_id, turn_completed, turn_failed, fatal_error
         if event_type == "assistant.message" and isinstance(data, dict):
             content = data.get("content")
+            if isinstance(content, str) and content.strip() == _COPILOT_CONTENT_FILTER_NOTICE:
+                return thread_id, False, True, fatal_error or CONTENT_FILTER_RECEIPT
             if str(data.get("phase") or "").casefold() == "final_answer":
                 empty = not isinstance(content, str) or not content.strip()
                 if write_state is not None:

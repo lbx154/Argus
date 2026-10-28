@@ -42,9 +42,7 @@ _RAW_TRANSCRIPT_NAME = "agent_io.jsonl"
 
 # These calls interpret control state; their protocol stays in the diagnostic
 # transcript, rather than appearing as research progress for the operator.
-_INTERNAL_CONTROL_RUN_LABELS = frozenset({
-    "planner.acceptance_dependencies", "reviewer_control",
-})
+_INTERNAL_CONTROL_RUN_LABELS = frozenset({"reviewer_control"})
 
 
 def raw_transcript_path(log_path: "Path | None") -> "Path | None":

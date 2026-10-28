@@ -506,7 +506,7 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 
 def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[tuple[str, dict]], session_id: str = ""):
     for index, (action, payload) in enumerate(verdicts, start=1):
-        backend.queue(f"engineer-r{index}", CannedResponse(message=f"round {index}: nothing new to run"))
+        backend.queue(f"engineer-r{index}", CannedResponse(action=hand_off("reviewer", f"round {index}: nothing new to run")))
         backend.queue("reviewer", CannedResponse(action=(action, payload)))
     events: list[dict] = []
     workdir = tmp_path / "work"
@@ -565,6 +565,7 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
         final_message: str = ""
         summary: str = "Built ingest; the fixture run passes."
         final_output: str = ""
+        deliverables: tuple[str, ...] = ()
 
     class _Runner:
         def execute(self, **kwargs):
@@ -588,7 +589,7 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
     supervisor.memory.backlog.add(BacklogItem.new(
         title="Ingest the feed", objective="Build dispatch.py", tags=["manager_direct", "scope:bounded", "review:required"],
     ))
-    supervisor.runner.execute = lambda **kwargs: _Outcome(final_output="Created `dispatch.py`.")
+    supervisor.runner.execute = lambda **kwargs: _Outcome(final_output="Created `dispatch.py`.", deliverables=("dispatch.py",))
     supervisor.tick()
 
     completed = next(event for event in sink.events if event.get("type") == "life.mission.completed")

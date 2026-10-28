@@ -12,7 +12,7 @@ REPORT = "## Subagent Report: roofline-benchmark-gpu1-v2\n**Event**: COMPLETED\n
 # Trial, 2026-10-21: the note that an answer resumed its task went through
 # the front door twice (a STEER, then its authorization check) after the
 # answer had already been applied.
-ANSWERED = "[MANAGER OPERATOR-ANSWER DECISION] Task t-1 was answered and resumes with this decision: A."
+ANSWERED = "[OPERATOR ANSWER] Task t-1 was answered and resumes with this decision: A."
 
 
 @pytest.mark.parametrize(("source", "report"), [("subagent", REPORT), ("manager.answer", ANSWERED)])

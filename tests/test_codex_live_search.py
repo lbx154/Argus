@@ -70,7 +70,7 @@ def _build_loop(
     skills = tmp_path / "skills"
     skills.mkdir()
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Worked and verified."))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Worked and verified.")))
     backend.queue("reviewer", _done_review())
     loop = SkillLoop(
         skills_dir=skills,

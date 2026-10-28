@@ -136,19 +136,6 @@ REGISTRY: tuple[Site, ...] = (
     ),
     # -- event --------------------------------------------------------------
     Site(
-        r"planner\.acceptance_dependencies", EVENT,
-        "Once per dispatched mission attempt whose acceptance contract has no cached "
-        "assessment; two tries at most.",
-        ("argus/life/supervisor/_acceptance_guard.py:147",),
-        ("planner.acceptance_dependencies",),
-    ),
-    Site(
-        r"manager\.reviewed_facts", EVENT,
-        "Once per Reviewer-confirmed research result at mission settlement.",
-        ("argus/manager/reviewed_facts.py:290",),
-        ("manager.reviewed_facts",),
-    ),
-    Site(
         r"manager-supervision", EVENT,
         "Per settled-work event (mission, verdict, degraded daemon, review, stall backstop); "
         "one applied decision per evidence and control revision.",
@@ -161,12 +148,6 @@ REGISTRY: tuple[Site, ...] = (
         "its own calls end none, and turns that end during a look share the next one.",
         ("argus/life/observer.py:91",),
         ("observer",),
-    ),
-    Site(
-        r"manager\.skill_placement_batch", EVENT,
-        "End-of-mission skill tidy-up; no caller in this release.",
-        ("argus/manager/skill_review.py:159",),
-        ("manager.skill_placement_batch",),
     ),
     Site(
         r"team-learning-review", EVENT,
@@ -457,7 +438,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 35, "the sweep no longer sees the call sites"
+    assert len(chosen) > 30, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"

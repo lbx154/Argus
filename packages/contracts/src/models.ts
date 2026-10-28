@@ -503,7 +503,7 @@ export interface ArtifactInfo {
   mtime: number | null;
   /** Absolute local location shown on hover; reads still use the protected path. */
   storage_path?: string;
-  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reply' | 'reader_foundation' | 'progress_snapshot';
+  source?: 'manager_live' | 'research_registered' | 'delivery' | 'reply' | 'reader_foundation' | 'progress_snapshot';
   progress_source?: ProgressSourceRef;
   group_title?: string;
   /** An explicit reading request, separate from a research result or review. */

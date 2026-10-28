@@ -1872,7 +1872,8 @@ def test_retired_names_do_not_spread() -> None:
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
 # 65 - 4: the goal.* metric rows (_core.py and settlement) went unread.
-MEMORY_ROOT_READS = 61
+# 61 - 2: the project receipt reads delivery_candidates, not task text.
+MEMORY_ROOT_READS = 59
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 
@@ -1904,9 +1905,9 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "core": 58,
     "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 19,
-    "life": 181,
+    "life": 177,  # -4: the reviewed-fact text call, a delivery fallback, the acceptance guard
     "maintenance": 2,
-    "manager": 66,
+    "manager": 63,  # -3: the reviewed-fact text call, skill placement, the chat-reply unwrap
     "messaging": 1,
     "planner": 1,
     "plugin": 9,
@@ -1917,7 +1918,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "tools": 3,
     "trial": 15,
     "verticals": 59,
-    "webapi": 125,
+    "webapi": 124,  # -1: the launch hold no longer rewrites the ticket on Start
     "wiki": 6,
 }
 

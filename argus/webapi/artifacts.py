@@ -10,6 +10,7 @@ from typing import Any
 from ..core.mission_view import load_mission_view
 from ..core.session import read_session_meta, resolve_session_workdir
 from ..life.memory import _read_jsonl_tail_history
+from .map_relations import PATH_LIMIT, reply_paths
 from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
@@ -183,13 +184,12 @@ def registered_delivery_artifacts(
     sid: str,
     *,
     global_root: Path | str | None = None,
-    workspace: Path | None = None,
+    workspace: Path,
 ) -> list[dict[str, str]]:
-    """Expose safe outputs selected by a receipt or accepted completion text.
+    """Expose the files delivery receipts name, then the files Argus's replies link.
 
-    Recover only files the accepted handoff names explicitly (never a
-    workspace scan), then feed every row through ``artifact_metadata`` so
-    confinement remains authoritative.
+    A linked file is shown as a reply's, never as delivered. Every row still
+    goes through ``artifact_metadata``, so confinement remains authoritative.
     """
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
@@ -199,8 +199,6 @@ def registered_delivery_artifacts(
     mission = view.get("mission") if isinstance(view.get("mission"), dict) else {}
     title = "Delivered results"
     targets: list[Any] = []
-    completion_summaries: list[object] = []
-    reply_references: list[object] = []
     if isinstance(delivery, dict):
         title = str(delivery.get("title") or title).strip() or title
         raw_targets = delivery.get("targets")
@@ -210,28 +208,13 @@ def registered_delivery_artifacts(
         title = str(mission.get("title") or title).strip()
     from ..core.transcript import read_turns
 
+    replies: list[str] = []
     for turn in reversed(read_turns(life_dir)):
-        if (
-            turn.get("role") == "argus"
-            and not turn.get("mission_result")
-            and not turn.get("delivery")
-            and turn.get("success") is not False
-            and not turn.get("live")
-        ):
-            reply_references.append(turn.get("text"))
-        if (turn.get("mission_result") is True and turn.get("success") is True
-                and not turn.get("item_id")):
-            # A resumed direct task can verify already-written outputs without
-            # changing their mtimes. Its explicit links still belong to this
-            # completed turn; existence and confinement are checked below.
-            completion_summaries.append(turn.get("text"))
         transcript_delivery = turn.get("delivery")
-        if not isinstance(transcript_delivery, dict):
-            continue
-        raw_targets = transcript_delivery.get("targets")
-        if isinstance(raw_targets, list):
-            targets.extend(raw_targets)
-        completion_summaries.append(transcript_delivery.get("summary"))
+        if isinstance(transcript_delivery, dict) and isinstance(transcript_delivery.get("targets"), list):
+            targets.extend(transcript_delivery["targets"])
+        if turn.get("role") == "argus" and turn.get("success") is not False and not turn.get("live"):
+            replies.append(str(turn.get("text") or ""))
 
     results: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -242,7 +225,7 @@ def registered_delivery_artifacts(
         if not path or path in seen:
             continue
         label = str(target.get("label") or "").strip()
-        why = str(target.get("why") or label or "Reviewed delivery output.").strip()
+        why = str(target.get("why") or label or "Delivered output.").strip()
         seen.add(path)
         results.append({
             "path": path,
@@ -250,54 +233,14 @@ def registered_delivery_artifacts(
             "source": "delivery",
             "group_title": title,
         })
-
-    terminal = str(mission.get("status") or "").strip().lower()
-    if terminal in {"complete", "completed", "done", "success"}:
-        completion_summaries.append(mission.get("summary"))
-    resolved_workspace = workspace or artifact_workspace(
-        sid,
-        global_root=global_root,
-    )
-    if completion_summaries and resolved_workspace:
-        from ..life.delivery import referenced_delivery_paths
-
-        for path in referenced_delivery_paths(
-            resolved_workspace,
-            completion_summaries,
-            limit=12,
-        ):
-            if path in seen:
-                continue
-            seen.add(path)
-            results.append({
-                "path": path,
-                "why": "File linked by the completed task's delivery summary.",
-                "source": "delivery",
-                "group_title": title,
-            })
-    if resolved_workspace:
-        from ..life.delivery import referenced_delivery_paths
-
-        for path in referenced_delivery_paths(resolved_workspace, reply_references, limit=12):
-            if path not in seen:
-                seen.add(path)
-                results.append({
-                    "path": path,
-                    "why": "File referenced in a saved reply; not an independently reviewed result.",
-                    "source": "reply",
-                    "group_title": "Referenced files",
-                })
-        from ..life.delivery import linked_report_paths
-
-        for path in linked_report_paths(resolved_workspace, [row["path"] for row in results]):
-            if path not in seen:
-                seen.add(path)
-                results.append({
-                    "path": path,
-                    "why": "File linked by a delivered report.",
-                    "source": "delivery",
-                    "group_title": title,
-                })
+    linked = dict.fromkeys(path for text in replies for path in reply_paths(text, str(workspace)))
+    for path in [path for path in linked if path not in seen][:PATH_LIMIT]:
+        results.append({
+            "path": path,
+            "why": "File referenced in a saved reply; not an independently reviewed result.",
+            "source": "reply",
+            "group_title": "Referenced files",
+        })
     return results
 
 
@@ -550,11 +493,7 @@ def list_project_artifacts(
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     evidence_rows = [
-        *registered_delivery_artifacts(
-            sid,
-            global_root=global_root,
-            workspace=workspace,
-        ),
+        *registered_delivery_artifacts(sid, global_root=global_root, workspace=workspace),
         *manager_live_view_files(sid, workspace, global_root=global_root),
         *registered_research_artifacts(sid, global_root=global_root),
     ] if workspace is not None else []

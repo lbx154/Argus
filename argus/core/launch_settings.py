@@ -104,20 +104,6 @@ def launch_note(settings: dict[str, Any] | None, *, language_hint: str = "") -> 
     return "\n\n" + heading + "\n" + "\n".join(f"- {line}" for line in lines)
 
 
-# Headings of the hold context, and words that tell a team to wait for the Start button.
-HOLD_CONTEXT_HEADINGS = ("## Argus 的开工确认", "## Argus launch confirmation")
-_WAIT_FOR_START = (
-    "“开始执行”", "\"开始执行\"", "「开始执行」", "先别开工",
-    "press Start", "presses Start", "click Start", "clicks Start",
-)
-
-
-def mentions_waiting_for_start(text: str) -> bool:
-    """Whether ``text`` tells the team to wait for the operator's Start button."""
-    body = str(text or "")
-    return any(marker in body for marker in _WAIT_FOR_START)
-
-
 def launch_hold_context(language_hint: str = "") -> str:
     """What the Manager is told, for this turn only, when Argus holds the work before Start.
 
@@ -127,12 +113,12 @@ def launch_hold_context(language_hint: str = "") -> str:
     chinese = uses_cjk(language_hint) if language_hint else True
     if chinese:
         return (
-            HOLD_CONTEXT_HEADINGS[0] + "（系统状态，不是用户对工作的要求）\n"
+            "## Argus 的开工确认（系统状态，不是用户对工作的要求）\n"
             "你交给团队的任务会先停在开始之前，等用户点“开始执行”；点了之后团队按目标正常执行。"
             "照常交接，不要把“等待开始执行”“先别开工”写进目标、验收或约束；回复里不要说已经开工。"
         )
     return (
-        HOLD_CONTEXT_HEADINGS[1] + " (system state, not a requirement on the work)\n"
+        "## Argus launch confirmation (system state, not a requirement on the work)\n"
         "What you hand to the team waits before it starts until the operator presses Start; "
         "after that the team runs it as written. Hand it over as usual; do not write waiting "
         "for Start into the goal, acceptance or constraints, and do not say in your reply that work has started."

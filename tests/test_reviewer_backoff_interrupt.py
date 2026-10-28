@@ -17,7 +17,7 @@ from argus.core.run_gateway import run_interrupt_scope
 from argus.engineer import round_execution, round_reviewer
 from argus.engineer.runner import EngineerConfig, SupervisedEngineer
 from argus.reviewer import ReviewerConfig
-from tests.hand_off import hand_off
+from tests.hand_off import hand_off, submit
 
 REVIEW_FAILURE = "Process exited with code 1 before turn completion."
 ENGINEER_OUTPUT = "The requested local result is ready for independent review."
@@ -51,6 +51,7 @@ class Backend:
         if reason:
             return RunnerResult(exit_code=130, fatal_error="External interrupt: " + reason)
         if self.role == "engineer":
+            submit(_kwargs["options"], hand_off("reviewer", ENGINEER_OUTPUT))
             return RunnerResult(exit_code=0, agent_messages=[ENGINEER_OUTPUT])
         if self.calls == 1:
             return RunnerResult(exit_code=1, fatal_error=REVIEW_FAILURE)

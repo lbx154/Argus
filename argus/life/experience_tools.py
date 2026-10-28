@@ -10,9 +10,9 @@ from ..core.role_tool_bridge import CallBoundBridge, bridge_request, require_fie
 from .failure_experience import FailureAnnotation, FailureExperienceStore
 
 PREFIX = "ARGUS_PLUGIN_EXPERIENCE"
-_TEXT_FIELDS = {"title", "objective", "factual_outcome", "research_narrative"}
+_TEXT_FIELDS = {"title", "objective", "factual_outcome"}
 _LIST_FIELDS = {
-    "passed_assumptions", "lessons", "transfer_insights", "claim_boundaries",
+    "passed_assumptions", "transfer_insights", "claim_boundaries",
     "retry_conditions", "artifact_refs", "concepts", "causes",
 }
 

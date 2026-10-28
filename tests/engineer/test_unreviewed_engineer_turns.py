@@ -46,8 +46,8 @@ def test_a_later_review_still_sees_the_whole_task(tmp_path: Path) -> None:
         return "Wrote report.md."
 
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1"))
-    backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2"))
+    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer"), message_factory=round_one, thread_id="t1"))
+    backend.queue("engineer-r2", CannedResponse(action=hand_off("reviewer"), message_factory=round_two, thread_id="t2"))
     backend.queue(
         "reviewer",
         CannedResponse(action=hand_off("engineer", "Now write the report.")),

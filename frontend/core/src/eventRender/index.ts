@@ -405,7 +405,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
         : localized(context, 'the run finished', '这次运行结束'), 'dim');
     }
     case 'life.inbox.queued':
-      // The Manager's notes to the team ride the same inbox; only your words are yours.
+      // The Manager's steering and the relay of an answered card ride the same
+      // inbox; the answer shows under whoever gave it. Only your words are yours.
       if (stringField(event, 'source').startsWith('manager')) return hidden();
       return model('system', 'role.operator', '📥', `${localized(context, 'you added guidance', '你追加了指导')} · ${clean(stringField(event, 'text'), context.density === 'full' ? 180 : 160)}`, 'accent');
     case 'daemon.parked': {

@@ -38,7 +38,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
     stop_park_reason,
 )
-from .round_routing import engineer_actions, sent_to
+from .round_routing import engineer_actions
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -182,7 +182,7 @@ class RoundExecutionMixin:
 
         operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
-        actions = engineer_actions(supervised_config)
+        actions = engineer_actions(supervised_config, workdir)
         # What the agent CLI's stream reports of the Engineer's commands is kept
         # in host memory for the Reviewer, not in a project file. It is not
         # tamper-proof; the record shows conflicts and unverified results. The
@@ -211,20 +211,24 @@ class RoundExecutionMixin:
         new_tid = engineer_result.thread_id
         if new_tid:
             state.engineer_thread_ids.add(str(new_tid))
+        stop_kind = normalize_stop_kind(
+            engineer_result.stop_kind
+        ) or stop_kind_from_external_interrupt(engineer_result.fatal_error)
+        if handoff is None and stop_kind is None:
+            # No hand_off is no handoff: the turn failed, as a Reviewer's does.
+            stop_kind = "backend_unavailable"
+            engineer_result = replace(
+                engineer_result, stop_kind=stop_kind,
+                fatal_error=engineer_result.fatal_error or "The Engineer ended without handing the work on.",
+            )
         fatal_error = engineer_result.fatal_error
         safe_fatal_error = redact_secrets_text(
             str(fatal_error or ""),
             known_values=known_secret_values(),
         ) or None
-        stop_kind = normalize_stop_kind(
-            engineer_result.stop_kind
-        ) or stop_kind_from_external_interrupt(fatal_error)
         round_thread_id = new_tid
-        # Its note is the Engineer's account for the next holder; with no
-        # hand_off, its last message is all there is to read.
         engineer_message = redact_secrets_text(
-            handoff.note if handoff else engineer_result.last_agent_message or "",
-            known_values=known_secret_values(),
+            handoff.note if handoff else "", known_values=known_secret_values(),
         )
         engineer_session = state.engineer_session
         if engineer_session is None:
@@ -233,7 +237,6 @@ class RoundExecutionMixin:
             engineer_result,
             decisive_output=engineer_message,
         )
-        holder = sent_to(handoff)
         if handoff and state.state_root:
             record_assumptions(
                 state.state_root, handoff.assumptions, item_id=state.mission_item_id, source=handoff.form,
@@ -243,7 +246,7 @@ class RoundExecutionMixin:
                 "type": EventType.ROLE_SESSION_TURN,
                 "role": "engineer",
                 # Accepting its own work ends the task where no review is required.
-                **({"ends_work": True} if holder == "done" else {}),
+                **({"ends_work": True} if handoff and handoff.to == "done" else {}),
                 "policy": engineer_session.policy,
                 "action": engineer_session.action,
                 "rotation_reason": engineer_session.rotation_reason,
@@ -260,7 +263,7 @@ class RoundExecutionMixin:
                 "persistence_warning": engineer_session.persistence_error,
                 "operator_context_revision": operator_context_revision,
             })
-        if supervised_config.context_packet_path:
+        if supervised_config.context_packet_path and handoff:
             try:
                 from ..life.context_packet import record_engineer_handoff
 
@@ -270,7 +273,7 @@ class RoundExecutionMixin:
                     engineer_summary=engineer_message,
                     checkpoint_path=checkpoint_path,
                     thread_id=str(round_thread_id or ""),
-                    holder=holder,
+                    holder=handoff.to,
                 )
             except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
                 log.exception("failed to persist Engineer context packet")

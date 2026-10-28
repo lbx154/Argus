@@ -24,6 +24,7 @@ from ...core.runner_errors import (
     terminal_failure_diagnostic,
 )
 from ...core.runner_receipts import (
+    CONTENT_FILTER_RECEIPT,
     is_provider_background_wait_receipt,
     is_provider_turn_cap_receipt,
 )
@@ -100,6 +101,8 @@ def _raw_backend_stop_kind(
         # Local terminal receipts outrank recovered failures in captured stderr.
         # Keep the existing compatibility category for the dedicated cap handler.
         return "backend_unavailable"
+    if fatal == CONTENT_FILTER_RECEIPT:
+        return "permanent_error"
     if low.startswith("external interrupt:"):
         interrupt_kind = stop_kind_from_external_interrupt(fatal)
         if interrupt_kind is not None:

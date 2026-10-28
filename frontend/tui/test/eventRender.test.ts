@@ -122,6 +122,18 @@ test("a round the Engineer handed on is the Engineer's, as the web feed says it"
   );
 });
 
+test("only the operator's own inbox words read as theirs", () => {
+  // Trial s-efe9deac events:2787: Argus relaying a clicked card answer to the
+  // team showed in the terminal as "You · you added guidance".
+  assert.equal(renderEvent({
+    type: 'life.inbox.queued', source: 'manager.answer',
+    text: '[OPERATOR ANSWER] Task d9d9fa873498 was answered and resumes with this decision: 保存已完成调查的可复用决策与有范围限定的事实，然后交独立检查。',
+  } as EventMsg), null);
+  assert.equal(renderEvent({
+    type: 'life.inbox.queued', source: 'operator', text: 'Please also plot the residuals.',
+  } as EventMsg)?.label, 'You');
+});
+
 test('agent speech and task handoffs remain fully readable', () => {
   const message = `Implemented the harness.\n${'verification detail '.repeat(40)}`;
   const speech = renderEvent({

@@ -218,7 +218,7 @@ test('snapshot refreshes certified achievement counters from current state', () 
     rejected_attempts: 0, skills_learned: 0, artifacts: 0, certified_at: 1,
   };
   const view = projectMissionView(current, [], [
-    { path: 'result.md', name: 'result.md', kind: 'markdown', mime: 'text/markdown', exists: true, size: 1, mtime: 1, why: '', source: 'reviewer_evidence', group_title: 'Result' },
+    { path: 'result.md', name: 'result.md', kind: 'markdown', mime: 'text/markdown', exists: true, size: 1, mtime: 1, why: '', source: 'delivery', group_title: 'Result' },
     { path: 'pending.md', name: 'pending.md', kind: 'markdown', mime: 'text/markdown', exists: false, size: 0, mtime: null, why: '', source: 'manager_live', group_title: 'Live' },
   ]);
   assert.ok((view.achievement?.elapsed_seconds ?? 0) >= 3_599);

@@ -28,6 +28,7 @@ from argus.engineer.runner import (
 )
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.roles.task_contract import EXPERIMENT_EVIDENCE_CONTRACT
+from tests.hand_off import hand_off, submit
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 
@@ -134,7 +135,8 @@ class _CapturingReviewer:
 
 
 class _UncorrelatedEngineerRunner:
-    def run_exec(self, **_kwargs):
+    def run_exec(self, **kwargs):
+        submit(kwargs["options"], hand_off("reviewer", "implemented without a backend audit log"))
         return RunnerResult(
             exit_code=0,
             agent_messages=["implemented without a backend audit log"],

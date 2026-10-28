@@ -39,7 +39,7 @@ def test_legacy_continue_work_parser_remains_compatible() -> None:
 
 def test_a_question_nobody_may_be_asked_is_refused_to_the_engineer() -> None:
     """With no one to ask, the Engineer decides the reading itself or hands the work to the Manager."""
-    actions = engineer_actions(SupervisedConfig(operator_questions_allowed=False))
+    actions = engineer_actions(SupervisedConfig(operator_questions_allowed=False), Path("."))
     with pytest.raises(ValueError, match="cannot be asked"):
         actions.dispatch(*hand_off("operator", "Git is missing.", ask={"question": "Can you provide Git?", "options": []}))
 

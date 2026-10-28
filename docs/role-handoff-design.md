@@ -283,11 +283,15 @@ invariants, and together they are the whole state machine:
    again, whatever it answered last; no earlier answer stands in for it. Past
    the daemon's background-call budget (`argus/core/call_guard.py`) the call is
    refused at no cost, which is no Planner failure, until the next progress.
-3. **An unchanged return climbs.** Suppose the item would return to a holder
-   that already held it at the same candidate, with no new external result and
-   no new operator input since. Then the host does not call that model again.
-   Instead the item moves one rung up the ladder Engineer → Reviewer → Planner →
-   Manager → operator. "Changed" is a mechanical fact read from the candidate
+3. **An unchanged return climbs, and only where no turn ran.** Suppose the
+   item would return to a holder that already held it at the same candidate,
+   with no new external result and no new operator input since. Then the host
+   does not call that model again. Instead the item moves one rung up the ladder
+   Engineer → Reviewer → Planner → Manager → operator. A turn that ran hands the
+   work where its hand_off names, changed or not: the host never overrides a
+   form, and whether the Engineer and the Reviewer stop going round is the
+   Reviewer's to decide, by handing to the Planner or the Manager. "Changed" is
+   a mechanical fact read from the candidate
    snapshot and the event log. It is counted on the mission's lineage, so
    resuming, replanning, or rewording does not reset it. For the Engineer, a
    review handed to it that it has not yet worked on is new input; the next
@@ -349,14 +353,14 @@ own, with the evidence it cited, and the delivery report lists it.
 
 **Why every item ends.** Each handoff does one of three things:
 
-- It changes the candidate or brings a new fact, which spends budget.
+- It is a role's turn, which spends budget.
 - It climbs one rung, which can happen at most four times.
 - It ends the item.
 
 A wait lasts at most the turn it happens in. Within a bounded number of
 handoffs, every item is therefore done, dropped, or held by an operator who
 can be asked on an irreversible decision that blocks nothing else. Deadlock is impossible, and
-the ladder's height bounds the number of model calls made without a change.
+the ladder's height bounds the number of climbs made without a change.
 
 **What this replaces.** Done (October 2026): no round status sits under the
 baton any more, and no named pause state beside it.
@@ -396,8 +400,9 @@ Structured payloads remain only where a side effect needs them: a Planner
 task's title and objective (plus dependencies and owned paths where they
 exist), a question, and an authorization. The line is read leniently: case,
 role names in the operator's language, and Markdown decoration do not matter. A
-missing or unreadable line never ends a mission and never means `done`. A
-changed candidate goes to the Reviewer, and an unchanged one climbs.
+missing or unreadable line never ends a mission and never means `done`. A turn
+that ends without its hand_off hands the work to nobody: like a Reviewer's, it
+is a failed turn, retried as one.
 
 ### The Observer
 

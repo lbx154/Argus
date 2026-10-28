@@ -549,7 +549,7 @@ def test_an_answered_task_still_shows_the_operator_their_own_request(tmp_path: P
     life = tmp_path / "projects" / "s-answered"
     asked = _answered(LifeMemory.open(life).backlog, "A or B?", "A.", 100.0)
 
-    assert asked.objective.startswith("Authoritative Manager operator-answer decision")
+    assert asked.objective.startswith("Authoritative answer from the operator")
     task = next(t for t in read_map("s-answered", tmp_path, life)["tasks"] if t["id"] == asked.id)
     assert task["objective"] == "wait for my choice"
     # Its card's words are written from the request and the answer beside it

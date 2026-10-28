@@ -1,0 +1,41 @@
+{
+ "source": "argus-trial-1023/state/projects/s-efe9deac/agent_io.jsonl",
+ "call_id": "801cf5ffd11841148ef0729f6111fbec",
+ "mission_id": "1d94016ceaa3",
+ "final_message": "hand_off:\n  created:\n    - /fastdata/v-boxiuli/argus-trial-1023/state/wiki/_shared_verticals/research/pages/lessons/20261027-incomplete-ledger-is-not-zero.md\n  updated:\n    - /fastdata/v-boxiuli/argus-trial-1023/state/wiki/_shared_verticals/research/INDEX.md\n  retire:\n    - page: 20261027-failed-attempt-reservations.md\n      reason: 其描述的旧失败占额阻塞已修复；新增笔记保留缺项账本仍须保守计费的适用边界。\n  reviewed_fact: []\n",
+ "reviewer_reason": "公共费用结算修复通过独立复核：42项针对性规格通过，缺项账本保留上界，旧失败释放未用预留并保留GPU小时，同root原申请可接纳且未启动训练；CARE仍未完成。",
+ "research_result": {
+  "result_class": "finite_verification",
+  "correctness_status": "verified",
+  "novelty_status": "not_applicable",
+  "significance_status": "not_applicable",
+  "statement_fidelity_status": "verified",
+  "evidence": [
+   "research/infrastructure/shared_vllm_migration.py:109–161，原始used完整性检查与共用resolver",
+   "tests/spec/test_migration_reservations.py:124–175，缺项及无效计数的两端保守回归",
+   "tests/spec/test_shared_vllm_verifier.py:893–925，完整合成账本正向控制",
+   "results/infrastructure/shared-vllm/allocation-repair-001/spec-007/log",
+   "results/infrastructure/shared-vllm/allocation-repair-001/spec-008/{run.sh,log,exit_code}",
+   "独立规格重跑42 passed/57 deselected/exit0；原反例、两端一致性及原root费用复算均通过",
+   "公开verify_shared_vllm独立子进程exit1，CARE=untested，旧费用0/0/0及0.003181952635447184 GPU小时",
+   "results/infrastructure/shared-vllm/finite-care-001/allocation-preflight-001/allocation-dry-run.json"
+  ],
+  "limitations": [
+   "仅验证本次费用结算与CPU申请可行性；CARE真实更新续训、科学效果和论文交付仍未完成。"
+  ]
+ },
+ "evidence_refs": [
+  "research/infrastructure/shared_vllm_migration.py:109–161，原始used完整性检查与共用resolver",
+  "tests/spec/test_migration_reservations.py:124–175，缺项及无效计数的两端保守回归",
+  "tests/spec/test_shared_vllm_verifier.py:893–925，完整合成账本正向控制",
+  "results/infrastructure/shared-vllm/allocation-repair-001/spec-007/log",
+  "results/infrastructure/shared-vllm/allocation-repair-001/spec-008/{run.sh,log,exit_code}",
+  "独立规格重跑42 passed/57 deselected/exit0；原反例、两端一致性及原root费用复算均通过",
+  "公开verify_shared_vllm独立子进程exit1，CARE=untested，旧费用0/0/0及0.003181952635447184 GPU小时",
+  "results/infrastructure/shared-vllm/finite-care-001/allocation-preflight-001/allocation-dry-run.json"
+ ],
+ "retire_target": {
+  "name": "20261027-failed-attempt-reservations.md",
+  "text": "---\ntitle: 失败运行的保守占额会阻塞重试\ndescription: 2026-10-27共享vLLM有限迁移中，缺失付费账本使旧失败运行继续占用完整额度，修复运行依赖后仍无法启动。\nkind: lesson\naudience: vertical\nsource: s-efe9deac/45caeeb6130c\ncreated: 2026-10-27\nconfidence: high\n---\n\n# 失败运行的保守占额会阻塞重试\n\n一次训练尚未产生复核、生成或优化器更新，仍可能让下一次训练没有足够可分配预算。共享vLLM有限迁移的分配器在旧运行缺少 `producer/public/budget.json` 时，以原分配上限保守计账；生产进程退出并不会自动释放这笔额度。\n\n旧CARE运行预留100万生成token，历史额度为210034，新重试又申请100万，而总上限为2097152。三者相加为2210034，超过上限112882，因此分配器拒绝启动。报错中的“spent”包含保守占额，并不表示实际生成了这些token。严格复核与更新步数虽然也被保守计入，此次触发拒绝的是生成token维度。\n\n新重试在发布 allocation、启动生产进程和加载模型之前退出；新增严格复核、生成token、优化器更新及GPU小时均为零。这个结果解释启动障碍，不能说明CARE训练效果如何。\n\n下一次重试前，应把历史消耗、未结清占额和新申请逐项相加，核对每个资源维度。若旧运行在建立账本前失败，需要先在共同预算管理中明确如何结清其占额，并保留原分配与失败记录。不能仅删除旧目录、换输出根或把缺失账本当作零消耗来绕过总上限。修好运行依赖并不等于修好了预算状态。\n\n来源：`research/infrastructure/shared_vllm_migration.py:28`、`:62`；`results/infrastructure/shared-vllm/finite-care-001/` 下的 `fresh-001/allocation.json`、`fresh-002/costs.json`、`launch-fresh-002/log`、`check-002/result.json`。此行为限定于所查分配器版本；事件文件路径不存在，未用于补充解释。\n"
+ }
+}

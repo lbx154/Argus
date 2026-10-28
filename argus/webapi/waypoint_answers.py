@@ -143,7 +143,7 @@ def _tell_planner(life_dir: Path, note: str) -> None:
     from ..apps._inbox import queue_inbox_message
 
     try:
-        queue_inbox_message(life_dir, f"[OPERATOR ROUTE DECISION] {note}", source="manager.answer")
+        queue_inbox_message(life_dir, f"[ROUTE DECISION] {note}", source="manager.answer")
     except Exception:  # noqa: BLE001 - the route and the backlog already carry the decision
         log.warning("Could not tell the Planner about a required-step answer", exc_info=True)
 

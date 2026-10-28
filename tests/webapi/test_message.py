@@ -617,7 +617,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     assert continuation.id == payload["item"]["id"] == blocked.id
     assert continuation.pending_question == ""
     assert continuation.objective.startswith(
-        "Authoritative Manager operator-answer decision:\n"
+        "Authoritative answer from the operator:\n"
         "Yes, include it after the references."
     )
     assert "Operator response" in continuation.objective
@@ -625,7 +625,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     assert "Inherited blocked mission objective" in continuation.objective
     assert continuation.iterate is False
     assert continuation.tags == [
-        "paper", "operator-reply", "manager-approved", "review:required",
+        "paper", "operator-reply", "review:required",
     ]
     assert continuation.manager_decision == {
         "display_objective": "Write the camera-ready paper", "routed": True,
@@ -636,7 +636,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     from argus.apps._inbox import claim_inbox_message, release_inbox_claim
 
     claim = claim_inbox_message(life)
-    assert claim is not None and "MANAGER OPERATOR-ANSWER DECISION" in claim.text
+    assert claim is not None and claim.text.startswith("[OPERATOR ANSWER]")
     release_inbox_claim(life, claim)
     assert "life.operator_question.answered" in (
         life / "events.jsonl"

@@ -55,7 +55,7 @@ def test_the_reflection_prompt_routes_personal_facts_to_the_private_memory(tmp_p
     root = tmp_path / "operator"
     prompt = build_reflection_prompt(
         project_id="s-1", vertical="research", mission_id="m", title="t", objective="o", acceptance="a",
-        review_status="done", review_reason="", stop_reason="", host_round_log="", run_reality="",
+        review_status="done", review_reason="", stop_reason="",
         vertical_root=tmp_path / "v", project_wiki=None, skills_dir=tmp_path / "skills", existing_lessons=[],
         operator_root=root,
     )

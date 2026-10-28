@@ -1,8 +1,9 @@
 """An unchanged return climbs (docs/role-handoff-design.md, "The baton", invariant 3).
 
-Work that would go back to a holder that already held it as it is now, with no
-new operator or Manager input since, is not handed to that model again: it goes
-one rung up the ladder Engineer -> Reviewer -> Planner -> Manager -> operator.
+When no turn ran, work that would go back to a holder that already held it as
+it is now, with no new operator or Manager input since, is not handed to that
+model again: it goes one rung up the ladder Engineer -> Reviewer -> Planner ->
+Manager -> operator. A turn's hand_off goes where it names.
 "Unchanged" is read from the workspace snapshots and the operator ledger, on
 the task's lineage, so a new mission on the same work does not reset it.
 """
@@ -79,9 +80,9 @@ def test_new_operator_input_is_new_work(tmp_path: Path, arrives) -> None:
 
     def operator_writes(_prompt, _options) -> str:
         arrives(state)
-        return "Nothing to change for that."
+        return ""
 
-    backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes))
+    backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes, action=hand_off("reviewer", "Nothing to change for that.")))
     backend.queue("reviewer", _review("engineer"), _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend)
@@ -162,14 +163,13 @@ def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) ->
 
     second = MemoryBackend()
     second.queue("engineer-r1-parser-1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
-    status, rounds, labels = _run(tmp_path, second, packet=packet)
+    second.queue("reviewer", _review("planner"))
+    status, _rounds, labels = _run(tmp_path, second, packet=packet)
 
-    # The host did not take the acceptance, so it does not stand again; the
-    # Reviewer already judged this very candidate, so the work climbs past it.
-    assert labels == ["engineer-r1-parser-1"]
+    # The host did not take the acceptance, so it does not stand again: the
+    # Engineer works the task, and its hand_off reaches the Reviewer it names.
+    assert labels == ["engineer-r1-parser-1", "reviewer"]
     assert status == "planner"
-    climbed = rounds[-1].review
-    assert climbed.review_source == "unchanged_return"
 
 
 def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
@@ -180,9 +180,11 @@ def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
     _run(tmp_path, first)
     second = MemoryBackend()
     second.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
+    second.queue("reviewer", _review("manager"))
     _run(tmp_path, second)
 
-    # Every holder below the operator has held this work as it is.
+    # Every holder below the operator has held this work as it is, and no
+    # turn runs on it: it climbs.
     status, rounds, labels = _run(tmp_path, MemoryBackend())
 
     assert labels == []
