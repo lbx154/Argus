@@ -80,7 +80,7 @@ def test_tasks_failing_on_the_model_service_stop_after_three_hours(tmp_path) -> 
     assert fenced.status == "parked"
     assert fenced.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
     told = team_reports(tmp_path / "life")
-    assert any("click Run" in turn["text"] for turn in told)
+    assert any("click Resume" in turn["text"] for turn in told)
     # The model service would turn a later task away too: it waits, uncalled.
     later = memory.backlog.add(BacklogItem.new(title="later", objective="later work", manager_decision=_ROUTED))
     for _ in range(3):

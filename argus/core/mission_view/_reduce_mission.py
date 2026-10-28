@@ -69,6 +69,7 @@ _NAMED_FAILURE_KINDS = frozenset({
     "service_proxy",
     "cli_missing",
     "service_quota",
+    "allowance_exhausted",
     "model_catalog",
     "sign_in",
 })

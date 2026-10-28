@@ -35,7 +35,9 @@ import {
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
 import { ConnectSource } from "./CanvasNodes";
-import { LiveLine } from "./LiveLine";
+import { CardNow, LiveLine } from "./LiveLine";
+import { MapCardFigureContext } from "./cardContext";
+import { WorkspaceImage } from "../components/MarkdownContent";
 import { arrivalDelay } from "./alive";
 
 export function taskFarTitle(step: number, scale: number): number {
@@ -176,6 +178,20 @@ const sourceLabel = (step: SubmapStep, zh: boolean) =>
       : zh
         ? "来自任务记录"
         : "Linked event";
+
+/** The task's figure on its card, when it has one: the result shows itself.
+ * A component of its own, so a poll that moves nothing else leaves the image
+ * (and its loaded preview) where it is. */
+export function CardFigure({ taskId, title }: { taskId: string; title: string }) {
+  const { sid, figures } = useContext(MapCardFigureContext);
+  const path = figures.get(taskId);
+  if (!sid || !path) return null;
+  return (
+    <div className="map-card-figure" data-testid="map-card-figure" data-path={path}>
+      <WorkspaceImage sid={sid} path={path} src={path} alt={`${title} · ${path.split("/").pop()}`} className="map-card-figure-image" />
+    </div>
+  );
+}
 
 /** Both levels occupy the same fixed node; only the camera changes their apparent size. */
 export const MacroTaskNode = memo(function MacroTaskNode({
@@ -476,9 +492,17 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
           {/* Where the task stands, apart from whether its steps finished:
               what the review asked for, the round under way. */}
-          {data.conclusion && (
-            <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
-          )}
+          {/* Beside it, what the running task is doing now and the figure
+              its work made, when there is one: the result shows itself. */}
+          <div className="map-card-state">
+            <div className="map-card-state-text">
+              {data.conclusion && (
+                <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
+              )}
+              {isLastPart && data.live && !data.paused && ACTIVE.has(task.status) && <CardNow taskId={task.id} zh={zh} />}
+            </div>
+            {isLastPart && <CardFigure taskId={task.id} title={title} />}
+          </div>
           {/* The course a task ran: planned, carried out, reviewed, delivered.
               Four marks, inked where the record holds a step of that kind, so a
               whole map shows at a glance which tasks were reviewed and which

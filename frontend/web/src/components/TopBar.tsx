@@ -11,6 +11,7 @@ import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/launch';
+import { resumableTaskIds } from '../lib/resumable';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -82,6 +83,9 @@ export function TopBar({
   const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
   const hasQueuedWork = snap.backlog.some(item => ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'].includes(item.status));
   const draining = snap.daemon.alive && snap.daemon.draining === true;
+  // Work paused or cut off with nothing running it: going on is the one thing
+  // to do here, so it is the header's primary action, not a hover control.
+  const resumable = !foregroundWork && resumableTaskIds(snap).size > 0;
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
     : draining
@@ -153,7 +157,17 @@ export function TopBar({
       ) : null}
       {!readOnly ? (
         <>
-          {(snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
+          {resumable ? <button
+            type="button"
+            data-resume-work
+            disabled={busy}
+            onClick={onStart}
+            title={t('topbar.continueRunHint')}
+            className="brand-button brand-button-primary flex h-8 shrink-0 items-center gap-1.5 px-3 disabled:opacity-40"
+          >
+            <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
+            <span>{t('topbar.continueRun')}</span>
+          </button> : (snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
             type="button"
             disabled={busy || externalDaemon || foregroundWork || draining}
             onClick={snap.daemon.alive ? (onPause ?? stopNow) : onStart}

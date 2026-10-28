@@ -82,6 +82,9 @@ import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
 import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
+import { taskNow } from "../lib/liveActivity";
+import { taskFigures } from "./cardFigure";
+import { MapCardFigureContext, MapCardNowContext } from "./cardContext";
 import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
@@ -2305,6 +2308,19 @@ export const MapPanel = memo(function MapPanel({
      source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
      readOnly, onOpenSettings, events, connected, onPauseTeam, onResumeTeam, teamBusy],
   );
+  // What the running task is doing and each task's figure, for the cards.
+  // Contexts, not node data: a poll re-renders the line and the picture only.
+  const workspace = snapshot.session.workdir || snapshot.session.cwd || '';
+  const cardNow = useMemo(() => {
+    const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
+    if (!snapshot.daemon.alive || status.state !== 'running' || !status.taskId) return null;
+    const since = currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId);
+    return { taskId: status.taskId, ...taskNow(events, status.taskId, since, locale, workspace) };
+  }, [snapshot, events, locale, workspace]);
+  const cardFigures = useMemo(() => ({
+    sid: snapshot.session.id,
+    figures: taskFigures(deliveries ?? [], artifacts ?? [], events, workspace),
+  }), [snapshot.session.id, deliveries, artifacts, events, workspace]);
   const switchSource = (value: string) => {
     setSource(value);
     writeLocalStorage("argus.map.source.v1", value);
@@ -2313,6 +2329,8 @@ export const MapPanel = memo(function MapPanel({
     window.history.replaceState(null, "", url);
   };
   return (
+    <MapCardNowContext.Provider value={cardNow}>
+    <MapCardFigureContext.Provider value={cardFigures}>
     <section
       ref={sectionRef}
       className="argus-map"
@@ -2468,5 +2486,7 @@ export const MapPanel = memo(function MapPanel({
         </div>
       )}
     </section>
+    </MapCardFigureContext.Provider>
+    </MapCardNowContext.Provider>
   );
 });

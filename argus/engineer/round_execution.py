@@ -671,7 +671,7 @@ class RoundExecutionMixin:
                 engineer_exit_code=engineer_result.exit_code,
                 review=review,
                 fatal_error=engineer_result.fatal_error,
-                stop_kind="provider_cooldown",
+                stop_kind=review.backend_stop_kind or "provider_cooldown",
             ))
             return control_return((
                 "parked",
