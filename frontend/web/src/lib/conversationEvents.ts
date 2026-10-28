@@ -172,6 +172,8 @@ export function mergeOptimisticManagerDelta(
   const next = [...withConfirmedOperator];
   next[index] = {
     ...current,
+    // A row put up before any words came is timed by its first words.
+    ...(String(current.text ?? '').trim() ? {} : { ts: nowMs / 1_000 }),
     text: mergeFragment(String(current.text ?? ''), text, mode),
     message_id: messageId || current.message_id,
     fragment_mode: mode,
