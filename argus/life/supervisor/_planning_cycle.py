@@ -308,7 +308,11 @@ class PlanningCycleMixin(
                 } if final else {}),
             }):
                 return ""
-        if decision.source in {"completion_gate", "stage_completion_gate_hold"}:
+        # A deterministic gate decision is recorded on the task, or the same
+        # review is replayed and held again on every planning pass.
+        if decision.source in {
+            "completion_gate", "stage_completion_gate_hold", "planner_scale_assessment_hold",
+        }:
             self.memory.backlog.update(item.id, outcome=outcome)
         if decision.action not in {"advance", "complete", "rollback"}:
             return ""
@@ -413,6 +417,15 @@ class PlanningCycleMixin(
             release = getattr(self, "_release_operator_inbox", None)
             if callable(release):
                 release()
+            if revision_request is not None:
+                # A plan task handed to the Planner parks while its revision is
+                # written; one the revision did not retire is queued again.
+                from ..memory import park_reason
+
+                item_id = str(revision_request.get("item_id") or "")
+                row = next((row for row in self.memory.backlog.active() if row.id == item_id), None)
+                if row is not None and row.plan_id and park_reason(row) == "research_open":
+                    self.memory.backlog.resume_one(item_id)
 
     def _plan_next_work_with_delivery(
         self,
@@ -441,6 +454,7 @@ class PlanningCycleMixin(
             self._pc_invoke_planner,
             self._pc_drop_plan_behind_operator,
             self._pc_normalize_verdict,
+            self._pc_apply_stage_request,
             self._pc_handle_handoff,
             self._pc_normalize_project_done,
             self._pc_build_dedupe_index,

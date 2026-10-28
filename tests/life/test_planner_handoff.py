@@ -9,6 +9,7 @@ slot's one card. Whatever it answered, the next pass asks the Planner again
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -182,3 +183,79 @@ def test_the_planning_slot_s_open_question_stays_as_asked_beside_other_tasks_que
 
     asked = {row.title: row.pending_question for row in backlog.active()}
     assert asked == {"Adopt reviewed change": "Adopt it?", "keep improving the solver": "Keep A or B?"}
+
+
+def test_a_stage_the_planner_moves_to_without_new_tasks_is_applied(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """s-5dc7ab4a (2026-10-27): Idea passed review and the Planner answered
+    advance_to_stage=experiment with no tasks yet, to=engineer. The handoff
+    phase returned before the phase that applies a stage request, so the move
+    was dropped without a word; the stage stayed Idea, the Planner may only
+    plan the current stage, and the project sat 10 h with nothing to run."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _install_planner(monkeypatch, [
+        PlannerVerdict(
+            project_done=False,
+            summary="Idea passed review; measure deployment cost next.",
+            handoff="engineer",
+            advance_to_stage="experiment",
+        ),
+    ])
+    applied: list[str] = []
+    monkeypatch.setattr(
+        "argus.life.supervisor._planning_cycle_enqueue._apply_planner_stage_request",
+        lambda **kwargs: applied.append(kwargs["requested_stage"]),
+    )
+    supervisor = _supervisor(project, tmp_path / "life")
+
+    supervisor._plan_next_work()
+
+    assert applied == ["experiment"]
+
+
+def test_a_planner_waits_on_its_unanswered_question_by_handing_it_on_again(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """s-efe9deac (10-27): waiting on its own unanswered spot-check question,
+    the Planner tried to=operator without ask, was refused 46 times ("to=operator
+    goes with ask"), and handed to the Manager instead "to avoid asking twice",
+    starting supervision rounds. The plan form says how to wait, and waiting
+    that way leaves the one question as it was first asked."""
+    from argus.core.handoff import form_tool
+
+    assert "while your question to them is unanswered, hand to=operator with it again" in (
+        form_tool("plan")["description"]
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    asked = PlannerVerdict(
+        project_done=False, summary="Spot-check cases 1, 7 and 22 first.", handoff="operator",
+        operator_question="Do you agree with the three spot-check verdicts?",
+    )
+    again = replace(asked, summary="Still waiting on the spot-check answer.")
+    _install_planner(monkeypatch, [asked, again])
+    supervisor = _supervisor(project, tmp_path / "life")
+
+    supervisor._plan_next_work()
+    supervisor._plan_next_work()
+
+    questions = [row.pending_question for row in supervisor.memory.backlog.active() if row.pending_question]
+    assert questions == ["Do you agree with the three spot-check verdicts?"]
+
+
+def test_a_revision_s_question_still_waiting_stays_as_first_asked(tmp_path: Path) -> None:
+    """The plan form tells the Planner that asking again while its question
+    waits leaves that question as first asked; that holds for a question the
+    Planner put on the task whose revision it is writing, too."""
+    supervisor = _supervisor(tmp_path / "project", tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    source = backlog.add(BacklogItem.new(title="Paired-credit arm", objective="run the arm"))
+    revising = SimpleNamespace(revision_request={"item_id": source.id})
+
+    assert supervisor._park_planner_question(revising, "Repair the shared runner first?", "blocked") is True
+    assert supervisor._park_planner_question(revising, "Still waiting: repair it first?", "blocked") is False
+
+    row = next(row for row in backlog.active() if row.id == source.id)
+    assert row.pending_question == "Repair the shared runner first?"

@@ -181,3 +181,18 @@ def test_contract_and_trace_skills_point_to_the_card() -> None:
     assert "do not\ncreate a separate file" not in contract
     assert "Reading order" in trace
     assert "Raw verification evidence" in trace
+
+
+def test_a_value_set_before_its_measurement_is_marked_provisional() -> None:
+    """s-efe9deac (10-27): asked only to report a ratio, the team wrote
+    `max_abs_logprob_error: 0.1 # why: BF16 mantissa spacing is 1/128` before any
+    measurement; the first run measured 0.1546 while the operator's own measure
+    was clean, and four reviews held the work to the invented 0.1 for 3 h ($46)
+    until the operator revoked it. A value's reason names its source, and one
+    set before its measurement says it is provisional."""
+    from argus.verticals.research.prompt_policy import _method_card_engineer_block
+
+    skill = (ENGINEER / "method-card.md").read_text(encoding="utf-8")
+    assert "the official recipe, a measurement, or\n`provisional` until one is taken" in skill
+    assert "written before its\nquantity was measured is provisional" in skill
+    assert "or provisional until measured" in _method_card_engineer_block("experiment", "")

@@ -177,7 +177,7 @@ def test_rejected_stage_request_is_returned_to_planner(
         summary="advance to manuscript drafting",
     )
 
-    assert Harness()._pc_build_pending_items(state) == PLAN_RETRY
+    assert Harness()._pc_apply_stage_request(state) == PLAN_RETRY
     assert feedback == [{
         "stage": "plan",
         "reason": "ValueError: missing plan evidence",

@@ -186,7 +186,11 @@ tolerance, a masking choice, an ordering, a shortcut taken) carries a
 ## Configuration
 
 Hyperparameters live in config files (`configs/*.yaml`), each chosen value
-with a `# why: ...` comment on the same line or the line above it; the host
+with a `# why: ...` comment on the same line or the line above it that names
+where the value comes from: the official recipe, a measurement, or
+`provisional` until one is taken. A tolerance or bar written before its
+quantity was measured is provisional; the first measurement keeps it or
+replaces it, with the measured value beside the new one. The host
 reads the value and the reason from there and shows them beside the card. No
 load-bearing defaults hidden in function signatures; the run is reproducible
 from the config it names.

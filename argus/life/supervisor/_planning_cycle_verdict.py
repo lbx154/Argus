@@ -77,7 +77,7 @@ class PlanningCycleVerdictMixin:
 
         The card is the operator's to answer, or the Manager's while the
         operator cannot be asked, like any parked question. Returns False when
-        the planning slot's own question still waits: it stays as it was asked.
+        the question already on that card still waits: it stays as it was asked.
         """
         item = None
         revision = getattr(state, "revision_request", None) or {}
@@ -88,6 +88,10 @@ class PlanningCycleVerdictMixin:
                 None,
             )
         asks_only = item is None
+        if item is not None and str(item.pending_question or "").strip():
+            # The question the revision put on its task still waits: it stays
+            # as it was asked, as the planning slot's does.
+            return False
         if asks_only:
             # One open question per planning slot, kept as it was asked: a
             # Planner that comes back while it waits neither adds a card nor

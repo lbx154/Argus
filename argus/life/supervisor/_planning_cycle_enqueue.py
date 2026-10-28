@@ -1,4 +1,5 @@
-"""Planning-cycle phase: dedupe index, pending-item construction, and commit.
+"""Planning-cycle phases: the Planner's stage request, dedupe index,
+pending-item construction, and commit.
 
 Covers everything after the planner has returned a trusted, non-empty
 ``new_tasks`` batch: building the existing-backlog dedupe index, the two-pass
@@ -235,6 +236,59 @@ class PlanningCycleEnqueueMixin:
             return False
         return not self._item_requires_independent_review(duplicate_item)
 
+    def _pc_apply_stage_request(self, state: _PlanCycleState) -> Any | None:
+        """Move to the stage a plan without tasks proposes, before its handoff.
+
+        A plan with no tasks may still move the stage: Idea is accepted and
+        the Planner, which plans only the current stage, asks for Experiment
+        before planning it. Applied after the handoff, such a request was
+        dropped and the stage never moved (s-5dc7ab4a, 2026-10-27: 10 h idle).
+        A plan with tasks has its request applied with them, and a plan that
+        ends the project is judged as a completion.
+        """
+        if state.verdict.new_tasks or getattr(state.verdict, "project_done", False):
+            return None
+        return self._apply_stage_request(state)
+
+    def _apply_stage_request(self, state: _PlanCycleState) -> Any | None:
+        requested_stage = str(
+            getattr(state.verdict, "advance_to_stage", "") or ""
+        ).strip()
+        if not requested_stage:
+            return None
+        context_root = self._project_workdir()
+        state_reader = getattr(self, "_artifact_root", None)
+        state_root = state_reader() if callable(state_reader) else Path(context_root)
+        try:
+            _apply_planner_stage_request(
+                state_root=Path(state_root),
+                requested_stage=requested_stage,
+                reason=state.verdict.summary or "Planner requested stage transition",
+                evidence_root=Path(context_root).resolve(),
+            )
+        except Exception as exc:  # noqa: BLE001 - invalid requests replan safely
+            failure_reason = f"{type(exc).__name__}: {exc}"
+            stage = str(self._current_pipeline_stage() or "")
+            self._emit({
+                "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                "cycle": self._planning_cycles,
+                "skip_category": "invalid_stage_transition_request",
+                "reason": failure_reason,
+                "requested_stage": requested_stage,
+            })
+            if not self._persist_manager_planner_feedback(
+                stage=stage,
+                reason=failure_reason,
+                diagnostic="stage_completion_gate_failed",
+            ):
+                self._emit_status(
+                    "failed to persist stage-transition rejection; retry later"
+                )
+                return PLAN_ERROR
+            self._reset_idle_backoff()
+            return PLAN_RETRY
+        return None
+
     def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
         # Add new tasks to the backlog.
         #
@@ -254,41 +308,11 @@ class PlanningCycleEnqueueMixin:
         feedback_diagnostic = str(
             manager_feedback.get("diagnostic") or ""
         ).strip()
-        context_root = self._project_workdir()
+        stage_result = self._apply_stage_request(state)
+        if stage_result is not None:
+            return stage_result
         state_reader = getattr(self, "_artifact_root", None)
-        state_root = state_reader() if callable(state_reader) else Path(context_root)
-        requested_stage = str(
-            getattr(state.verdict, "advance_to_stage", "") or ""
-        ).strip()
-        if requested_stage:
-            try:
-                _apply_planner_stage_request(
-                    state_root=Path(state_root),
-                    requested_stage=requested_stage,
-                    reason=state.verdict.summary or "Planner requested stage transition",
-                    evidence_root=Path(context_root).resolve(),
-                )
-            except Exception as exc:  # noqa: BLE001 - invalid requests replan safely
-                failure_reason = f"{type(exc).__name__}: {exc}"
-                stage = str(self._current_pipeline_stage() or "")
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "skip_category": "invalid_stage_transition_request",
-                    "reason": failure_reason,
-                    "requested_stage": requested_stage,
-                })
-                if not self._persist_manager_planner_feedback(
-                    stage=stage,
-                    reason=failure_reason,
-                    diagnostic="stage_completion_gate_failed",
-                ):
-                    self._emit_status(
-                        "failed to persist stage-transition rejection; retry later"
-                    )
-                    return PLAN_ERROR
-                self._reset_idle_backoff()
-                return PLAN_RETRY
+        state_root = state_reader() if callable(state_reader) else Path(self._project_workdir())
         waypoint_states = getattr(self, "_waypoint_states", None)
         route = {entry.step.id: entry.step for entry in (waypoint_states() if callable(waypoint_states) else ())}
         for task_index, task in enumerate(planned_tasks):
@@ -505,6 +529,30 @@ class PlanningCycleEnqueueMixin:
             task_tags = self._planner_task_tags(task)
             task_context_refs = list(getattr(task, "context_refs", []) or [])
             if manager_decision.get("vertical") == "argus_maintenance":
+                from ...core.runtime_identity import source_root
+
+                if not (source_root() / ".git").exists():
+                    # Maintenance works in a git worktree of Argus's own
+                    # source; a release copy has none, and the task would
+                    # die on `git fetch` (s-efe9deac, 10-27).
+                    reason = (
+                        f"Argus here runs from {source_root()}, which is not a source "
+                        "checkout, so it cannot be maintained from this project; "
+                        "keep to the operator's goal and name the harness defect "
+                        "in your summary."
+                    )
+                    _record_filtered_task(
+                        state, title=task.title, category="maintenance_unavailable", reason=reason,
+                    )
+                    self._emit({
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "skip_category": "maintenance_unavailable",
+                        "reason": reason,
+                    })
+                    continue
                 task_tags.append("framework_maintenance")
                 if "review:waived" in task_tags:
                     task_tags.remove("review:waived")
