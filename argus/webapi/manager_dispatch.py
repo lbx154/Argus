@@ -43,38 +43,6 @@ def _manager_request_scope(sid: str, generation: int | None = None) -> Iterator[
         yield cancelled
 
 
-def manager_execution_handoff(
-    sid: str,
-    text: str,
-    *,
-    global_root: Path | str | None = None,
-    root_task_id: str | None = None,
-) -> str:
-    """Resolve a direct Web/TUI command into Manager's role-clean handoff."""
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import manager_execution_task
-
-    generation = manager_control_generation(sid)
-    mem = MemoryBundle.for_cwd(
-        fingerprint=sid,
-        global_root=Path(global_root) if global_root else None,
-    )
-    with _manager_request_scope(sid, generation) as cancelled, _lock_for(sid):
-        if cancelled():
-            from ..manager.front_door import ManagerHandoffSupersededError
-
-            raise ManagerHandoffSupersededError("Manager request was superseded before preparation")
-        chat_state = _chat_state_for(sid)
-        chat_state["session_id"] = sid
-        chat_state["global_root"] = str(mem.global_root)
-        return manager_execution_task(
-            mem,
-            text,
-            chat_state,
-            root_task_id=root_task_id,
-        )
-
-
 def manager_continuous_handoff(
     sid: str,
     requested_objective: str,

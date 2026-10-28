@@ -137,6 +137,17 @@ def test_snapshot_reports_worked_time_without_idle_gaps(tmp_path: Path) -> None:
     assert snap["worked_seconds"] is None
 
 
+def test_corrupt_usage_ledger_leaves_worked_time_unknown_with_a_diagnostic(tmp_path: Path) -> None:
+    life = _make_project(tmp_path, "s-worked-corrupt")
+    (life / "usage.jsonl").write_text("not json\n{}\n", encoding="utf-8")
+    diagnostics: list[dict[str, str]] = []
+
+    assert project_state.settled_work_time(life, diagnostics=diagnostics) is None
+    assert [(item["section"], item["error_type"]) for item in diagnostics] == [
+        ("work_time", "UsageJournalIntegrityError"),
+    ]
+
+
 def test_project_index_and_routes_span_machine_session_roots(
     tmp_path: Path,
 ) -> None:

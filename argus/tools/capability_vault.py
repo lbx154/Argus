@@ -584,57 +584,6 @@ def load_model_api_grant(env: Mapping[str, str] | None = None) -> ModelApiGrant 
     return _grant_from_explicit_sources(source, vault_path)
 
 
-
-def save_model_api_grant(grant: ModelApiGrant, path: Path | None = None) -> Path:
-    target = path or grant.vault_path or default_vault_path()
-    target = target.expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(target.parent, 0o700)
-    routes = {
-        "engineer": ModelApiRoute(
-            name="engineer",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.text_models[0] if grant.text_models else _DEFAULT_ROUTE_MODELS["engineer"],
-            provider=grant.provider,
-            wire_api=grant.wire_api,
-        ),
-        "reviewer": ModelApiRoute(
-            name="reviewer",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.text_models[-1] if grant.text_models else _DEFAULT_ROUTE_MODELS["reviewer"],
-            provider=grant.provider,
-            wire_api=grant.wire_api,
-        ),
-        "text": ModelApiRoute(
-            name="text",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.text_models[-1] if grant.text_models else _DEFAULT_ROUTE_MODELS["text"],
-            provider=grant.provider,
-            wire_api=grant.wire_api,
-        ),
-        "image": ModelApiRoute(
-            name="image",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.image_model,
-            provider=grant.provider,
-            wire_api="images",
-        ),
-        "image_review": ModelApiRoute(
-            name="image_review",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.image_review_model,
-            provider=grant.provider,
-            wire_api=grant.wire_api,
-        ),
-    }
-    return save_model_api_routes(routes.values(), target)
-
-
 def save_model_api_routes(routes: Iterable[ModelApiRoute], path: Path | None = None) -> Path:
     route_list = list(routes)
     target = path or (route_list[0].vault_path if route_list else None) or default_vault_path()

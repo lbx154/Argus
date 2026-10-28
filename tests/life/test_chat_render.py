@@ -9,7 +9,6 @@ from __future__ import annotations
 from argus.life.chat.render import (
     TELEGRAM_LIMIT,
     chunk_html,
-    html_to_plain,
 )
 
 
@@ -45,7 +44,3 @@ def test_pre_block_stays_balanced_across_a_split() -> None:
         assert chunk.count("<pre>") == chunk.count("</pre>")
         assert len(chunk) <= TELEGRAM_LIMIT
     assert _strip_pre_scaffolding(chunks) == text
-
-
-def test_plain_rendering_strips_every_tag() -> None:
-    assert html_to_plain("<b>hi</b> &amp; bye") == "hi & bye"

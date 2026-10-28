@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 from argus.reviewer import Reviewer
-from argus.reviewer._core import _verification_directive
+from argus.roles.prompts.reviewer import _verification_directive
 
 
 def test_directive_trusts_and_drops_reflexive_rerun():

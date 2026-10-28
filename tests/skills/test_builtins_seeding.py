@@ -6,12 +6,9 @@ import pytest
 from argus.skills.builtins import (
     _RETIRED_BUILTIN_SEEDS,
     iter_builtin_skill_texts,
-    iter_common_builtin_skill_texts,
-    iter_vertical_skill_texts,
     remove_unmodified_inactive_context_skill_seeds,
-    remove_unmodified_vertical_skill_seeds,
-    seed_builtin_skills_for_vertical,
-    seed_vertical_skills,
+    seed_builtin_skills_for_context,
+    seed_context_skills,
     vertical_skill_source_path,
 )
 
@@ -57,7 +54,6 @@ def test_minimal_coding_agent_skill_is_packaged() -> None:
 
 
 def test_agent_team_lead_seed_is_retired() -> None:
-    assert "agent-team-lead.md" not in dict(iter_common_builtin_skill_texts())
     assert "agent-team-lead.md" in _RETIRED_BUILTIN_SEEDS
 
 
@@ -88,37 +84,11 @@ def test_atomic_write_accepts_concurrent_identical_winner(
     assert list(tmp_path.glob("shared.md.tmp.*")) == []
 
 
-def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> None:
-    seed_vertical_skills(tmp_path, "research")
-    source_files = dict(iter_vertical_skill_texts("research"))
-    markdown_files = [
-        filename for filename in source_files if filename.endswith(".md")
-    ]
-    assert markdown_files
-    seeded_files = list(source_files)
-    assert len(seeded_files) >= 2
-    modified = tmp_path / markdown_files[0]
-    untouched_name = next(
-        filename for filename in seeded_files if filename != markdown_files[0]
-    )
-    untouched = tmp_path / untouched_name
-    modified.write_text(
-        modified.read_text(encoding="utf-8") + "\nlearned project edit\n",
-        encoding="utf-8",
-    )
-
-    removed = remove_unmodified_vertical_skill_seeds(tmp_path, "research")
-
-    assert untouched_name in removed
-    assert not untouched.exists()
-    assert modified.exists()
-
-
 def test_remove_inactive_vertical_seeds_prunes_inactive_but_preserves_edits_and_active(
     tmp_path,
 ) -> None:
-    seed_vertical_skills(tmp_path, "argus_maintenance")
-    seed_vertical_skills(tmp_path, "research")
+    seed_context_skills(tmp_path, "argus_maintenance")
+    seed_context_skills(tmp_path, "research")
     edited_name = "engineer/argus-maintenance-execution.md"
     edited = tmp_path / edited_name
     edited.write_text(
@@ -141,7 +111,7 @@ def test_remove_inactive_vertical_seeds_prunes_inactive_but_preserves_edits_and_
 def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> None:
     # A vertical that does not own the maintenance skills must see no trace of
     # them: not the real body (cross-vertical leakage) and no pointer stub either.
-    seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
+    seed_builtin_skills_for_context(tmp_path, "research", overwrite=True)
     for relative in MAINTENANCE_SKILLS:
         assert not (tmp_path / relative).exists(), relative
     assert (tmp_path / "engineer" / "paper-framework-figure-studio.md").is_file()

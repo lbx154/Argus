@@ -199,33 +199,6 @@ class RuntimeIncidentStore:
             self._write(record)
             return dict(record)
 
-    def recover_if_present(
-        self,
-        *,
-        detector: str,
-        invariant: str,
-        subject_kind: str,
-        subject_id: str,
-        action: str,
-        expected_postcondition: str,
-        evidence: Mapping[str, Any],
-    ) -> dict[str, Any] | None:
-        incident_id = _identity(detector, invariant, subject_kind, subject_id)
-        with self._locked():
-            record = self._read(incident_id)
-            if not record or record.get("status") == "recovered":
-                return None
-        self.begin_recovery(
-            incident_id,
-            action=action,
-            expected_postcondition=expected_postcondition,
-        )
-        return self.verify_recovery(
-            incident_id,
-            recovered=True,
-            evidence=evidence,
-        )
-
     def pending_events(self) -> list[dict[str, Any]]:
         with self._locked():
             records = []

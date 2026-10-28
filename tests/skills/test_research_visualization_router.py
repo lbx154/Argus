@@ -3,7 +3,7 @@ from pathlib import Path
 from argus.skills.builtins import (
     iter_vertical_skill_texts,
     seed_builtin_skills,
-    seed_vertical_skills,
+    seed_context_skills,
 )
 from argus.skills.layered import LayeredSkillStore
 
@@ -28,7 +28,7 @@ def test_agents_receive_visual_library_paths_without_matcher(tmp_path: Path) -> 
     global_dir = tmp_path / "global"
     project_dir = tmp_path / "project"
     seed_builtin_skills(global_dir, overwrite=True)
-    seed_vertical_skills(project_dir, "research", overwrite=True)
+    seed_context_skills(project_dir, "research", overwrite=True)
     store = LayeredSkillStore(project_dir=project_dir, global_dir=global_dir)
 
     paths = [path.replace("\\", "/") for path in store.list_paths()]

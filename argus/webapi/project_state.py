@@ -27,7 +27,7 @@ from ..core.session import (
     list_sessions,
     read_session_meta,
 )
-from ..core.usage import UsageLedger, UsageSummary, worked_span
+from ..core.usage import UsageJournalIntegrityError, UsageLedger, UsageSummary, worked_span
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
@@ -595,7 +595,8 @@ def settled_work_time(
         records = UsageLedger(life_dir, migrate_legacy=False).records()
         seconds, until = worked_span(records, skip_labels=(*BACKGROUND_RUN_LABELS, "map-"))
         worked = (seconds, until) if seconds > 0 else None
-    except Exception as exc:  # noqa: BLE001 - snapshot remains available
+    except (OSError, ValueError, UsageJournalIntegrityError) as exc:
+        # An unreadable or corrupt ledger is reported; the snapshot stays available.
         if diagnostics is not None:
             diagnostics.append(diagnostic("work_time", exc))
         return None

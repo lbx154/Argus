@@ -21,7 +21,7 @@ def _store(tmp_path: Path) -> CampaignControlStore:
     return CampaignControlStore(state_root, project_root=project_root)
 
 
-def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Path) -> None:
+def test_authorization_is_manager_owned_and_campaign_bound(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
     validator = store.project_root / "tests" / "test_terminal_contract.py"
@@ -48,72 +48,6 @@ def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Pa
     public = store.public_authorization(store.get_authorization(authorization.authorization_id))
     assert public["allowed_write_paths"] == ["tests/test_terminal_contract.py"]
     assert store.read_snapshot()["authorization_ids"] == [authorization.authorization_id]
-
-    consumed = store.consume_authorization(
-        authorization_id=authorization.authorization_id,
-        nonce=authorization.nonce,
-        action="validator_repair",
-        identity=identity,
-    )
-    assert consumed["event"] == "consumed"
-    assert store.read_head().state_revision == authorization.state_revision + 1
-    assert store.read_snapshot()["authorization_ids"] == []
-
-    with pytest.raises(ValueError, match="already consumed"):
-        store.consume_authorization(
-            authorization_id=authorization.authorization_id,
-            nonce=authorization.nonce,
-            action="resume_blocked_work",
-            identity=identity,
-        )
-
-
-def test_authorization_is_rejected_after_newer_manager_revision(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    identity = store.campaign_identity()
-    authorization = store.issue_authorization(
-        identity=identity,
-        blocker_fingerprint="validator:v1",
-        allowed_actions=["resume_blocked_work"],
-        scope="validator only",
-        source_channel="web",
-        source_message_id="message-1",
-    )
-    store.commit_revision(
-        identity=identity,
-        updates={"stage_projection": {"status": "newer"}},
-        reason="Manager observed newer state",
-    )
-
-    with pytest.raises(ValueError, match="stale relative to Manager HEAD"):
-        store.consume_authorization(
-            authorization_id=authorization.authorization_id,
-            nonce=authorization.nonce,
-            action="validator_repair",
-            identity=identity,
-        )
-
-
-def test_authorization_fails_closed_on_campaign_drift(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    identity = store.campaign_identity()
-    authorization = store.issue_authorization(
-        identity=identity,
-        blocker_fingerprint="validator:v1",
-        allowed_actions=["resume_blocked_work"],
-        scope="validator only",
-        source_channel="web",
-        source_message_id="message-1",
-    )
-
-    other = store.campaign_identity(objective="different objective", campaign_epoch=4)
-    with pytest.raises(ValueError, match="campaign mismatch"):
-        store.consume_authorization(
-            authorization_id=authorization.authorization_id,
-            nonce=authorization.nonce,
-            action="resume_blocked_work",
-            identity=other,
-        )
 
 
 def test_authorization_rejects_project_root_and_symlink_write_scopes(

@@ -14,9 +14,7 @@ import pytest
 
 from argus.tools import image_api
 from argus.tools.capability_vault import (
-    ModelApiGrant,
     ModelApiRoute,
-    save_model_api_grant,
     save_model_api_routes,
 )
 
@@ -43,21 +41,21 @@ class FakeResponse:
 
 def _env_with_vault(tmp_path: Path) -> dict[str, str]:
     vault = tmp_path / "vault.json"
-    save_model_api_grant(
-        ModelApiGrant(
-            api_key="dummy-key",
-            base_url="https://example.invalid/openai/v1/",
-            image_model="gpt-image-2",
-            image_review_model="gpt-5.4",
-            vault_path=vault,
-        )
+    save_model_api_routes(
+        [
+            ModelApiRoute(
+                name="image", api_key="dummy-key", base_url="https://example.invalid/openai/v1/",
+                model="gpt-image-2", wire_api="images",
+            ),
+            ModelApiRoute(
+                name="image_review", api_key="dummy-key", base_url="https://example.invalid/openai/v1/",
+                model="gpt-5.4",
+            ),
+        ],
+        vault,
     )
     return {"ARGUS_SKILL_CAPABILITY_VAULT": str(vault)}
 
-
-def test_project_path_rejects_escape(tmp_path: Path) -> None:
-    with pytest.raises(image_api.ImageToolError, match="escapes project root"):
-        image_api._project_path(tmp_path, Path("../outside.json"))
 
 
 @pytest.mark.parametrize(("platform_name", "attempt_count"), [("nt", 6), ("posix", 1)])

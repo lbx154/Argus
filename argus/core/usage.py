@@ -653,28 +653,6 @@ def _reconciled_token_quote(record: UsageRecord) -> PricingQuote | None:
     return quote if quote.status == "priced" and quote.cost_usd is not None else None
 
 
-def usage_pricing_reason(record: UsageRecord) -> str:
-    if record.error:
-        return record.error
-    if record.provider.strip().lower() == "copilot":
-        return (
-            "Copilot token billing is awaiting local CLI usage reconciliation"
-            if record.pricing_tier == "copilot_token_pending"
-            else "Copilot billable usage is missing or incomplete"
-        )
-    if record.cost_basis == "token":
-        quote = quote_token_usage(
-            record.model,
-            input_tokens=record.input_tokens,
-            cached_input_tokens=record.cached_input_tokens,
-            cache_write_tokens=record.cache_write_tokens,
-            output_tokens=record.output_tokens,
-        )
-        if quote.reason:
-            return quote.reason
-    return "provider usage is not fully priced"
-
-
 def build_usage_record(
     *,
     call_id: str,

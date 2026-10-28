@@ -600,9 +600,6 @@ class ProgressDeduper:
             return "update"
         return "repeat"
 
-    def is_repeat(self, event: Any, label: str) -> bool:
-        return self.classify(event, label) == "repeat"
-
     def phase_kind(self, event: Any, label: str) -> str:
         """The phase kind to stream for ``event``, or ``""`` to stay silent.
 

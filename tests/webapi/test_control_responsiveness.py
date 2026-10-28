@@ -60,14 +60,14 @@ def test_new_objective_supersedes_an_older_waiting_handoff(tmp_path, monkeypatch
         old = new = None
         try:
             assert held.wait(1)
-            old = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="Old goal", global_root=tmp_path)
+            old = pool.submit(project_crud.apply_continuous_update, sid, enabled=True, objective="Old goal", global_root=tmp_path)
             assert prepared.wait(2)
-            new = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="New goal", global_root=tmp_path)
+            new = pool.submit(project_crud.apply_continuous_update, sid, enabled=True, objective="New goal", global_root=tmp_path)
             with pytest.raises(front_door.ManagerHandoffSupersededError):
                 old.result(timeout=1)
             assert commits == [] and not holding.done()
             release.set()
-            assert new.result(timeout=2) is True
+            assert new.result(timeout=2) is not None
             assert read_continuous_state(life).objective == "New goal"
             assert commits == ["New goal"]
         finally:
@@ -95,10 +95,10 @@ def test_old_request_cannot_adopt_a_new_generation_after_slow_project_open(tmp_p
     monkeypatch.setattr(MemoryBundle, "for_cwd", delayed_open)
     monkeypatch.setattr(front_door, "manager_continuous_handoff", commit)
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="older") as pool:
-        old = pool.submit(project_crud.set_continuous, sid, enabled=True, objective="Old", global_root=tmp_path)
+        old = pool.submit(project_crud.apply_continuous_update, sid, enabled=True, objective="Old", global_root=tmp_path)
         try:
             assert opened.wait(1)
-            assert project_crud.set_continuous(sid, enabled=True, objective="New", global_root=tmp_path)
+            assert project_crud.apply_continuous_update(sid, enabled=True, objective="New", global_root=tmp_path) is not None
             release.set()
             with pytest.raises(front_door.ManagerHandoffSupersededError):
                 old.result(timeout=1)
@@ -145,7 +145,7 @@ def test_failed_replacement_preserves_cached_committed_goal(tmp_path, monkeypatc
     state.update(config={"continuous": True}, continuous_objective="Previous")
 
     with pytest.raises(front_door.ManagerHandoffError):
-        project_crud.set_continuous(sid, enabled=True, objective="Replacement", global_root=tmp_path)
+        project_crud.apply_continuous_update(sid, enabled=True, objective="Replacement", global_root=tmp_path)
     assert read_continuous_state(life).objective == state["continuous_objective"] == "Previous"
     assert read_continuous_state(life).enabled and state["config"]["continuous"]
 

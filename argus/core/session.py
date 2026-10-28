@@ -334,39 +334,6 @@ def update_session_meta(
         return meta
 
 
-def touch_session(
-    global_root: Path | None,
-    sid: str,
-    *,
-    display_name: str | None = None,
-    objective: str | None = None,
-    now: float | None = None,
-) -> None:
-    """Bump last_active (and optionally name/objective). Fail-soft."""
-    now = time.time() if now is None else now
-
-    def _touch(meta: SessionMeta) -> None:
-        if not meta.created:
-            meta.created = now
-        meta.last_active = now
-        if display_name is not None and not meta.display_name:
-            meta.display_name = display_name
-        if objective is not None and not meta.objective:
-            meta.objective = objective
-
-    try:
-        with session_meta_lock(global_root, sid):
-            if not _meta_path(global_root, sid).parent.is_dir():
-                return
-            meta = read_session_meta(global_root, sid)
-            if meta is None:
-                meta = SessionMeta(id=sid, created=now, last_active=now)
-            _touch(meta)
-            _write_session_meta_unlocked(global_root, meta)
-    except OSError:
-        pass
-
-
 def project_exists(global_root: Path | None, sid: str) -> bool:
     root = global_root if global_root is not None else core_paths.global_root()
     return core_paths.session_state_root(sid, root=root).is_dir()

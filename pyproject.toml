@@ -204,7 +204,6 @@ exclude = '''^(?:build|dist|hosting|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.v
 # type-checked: it is an import-time shim).
 files = [
   "argus/core",
-  "argus/life/router.py",
   "argus/manager/config_intent.py",
   "argus/webapi/diagnostics.py",
 ]

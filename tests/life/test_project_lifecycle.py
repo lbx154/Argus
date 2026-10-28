@@ -17,7 +17,6 @@ from argus.life.project_lifecycle import (
     infer_observable_status,
     is_token_allocatable,
     resume,
-    tick_all,
 )
 
 
@@ -237,7 +236,7 @@ def test_archive_refuses_already_archived() -> None:
 
 
 # ---------------------------------------------------------------------------
-# is_token_allocatable + tick_all
+# is_token_allocatable
 # ---------------------------------------------------------------------------
 
 
@@ -249,25 +248,6 @@ def test_is_token_allocatable_for_active_states() -> None:
 def test_is_token_allocatable_blocks_terminal_and_quarantine() -> None:
     for state in (ProjectState.QUARANTINED, ProjectState.DONE, ProjectState.ARCHIVED):
         assert not is_token_allocatable(_fresh(state=state))
-
-
-def test_tick_all_advances_each_project_independently() -> None:
-    a = _fresh(project_id="a", state=ProjectState.INCUBATING,
-               last_evidence_at=_utc("2026-05-02T00:00:00"))
-    b = _fresh(project_id="b", state=ProjectState.RUNNING,
-               last_evidence_at=_utc("2026-05-02T00:00:00"))
-    c = _fresh(project_id="c", state=ProjectState.DONE)
-
-    results = tick_all([a, b, c], now=_utc("2026-05-03T00:00:00"))
-
-    assert results[0][0].state == ProjectState.RUNNING
-    assert results[0][1] is not None  # event fired
-    # b: still RUNNING, no draft yet, evidence is fresh, no transition.
-    assert results[1][0].state == ProjectState.RUNNING
-    assert results[1][1] is None
-    # c: terminal, untouched.
-    assert results[2][0].state == ProjectState.DONE
-    assert results[2][1] is None
 
 
 def test_to_dict_includes_budget_fraction() -> None:

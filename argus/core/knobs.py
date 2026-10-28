@@ -97,8 +97,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MANAGER_MODEL", "auto", "model for the Manager; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "auto", "model for the L1 engineer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600", "map-only generation deadline in seconds (1-3600); does not limit research turns", "map", cockpit=True),
-    Knob("ARGUS_SKILL_MAP_BATCH_SIZE", "2", "maximum cards per map generation (1-8)", "map", cockpit=True),
-    Knob("ARGUS_SKILL_MAP_RETRY_SECONDS", "300", "cross-tab cooldown after a failed map generation (1-3600 seconds)", "map", cockpit=True),
     Knob(
         "ARGUS_SKILL_LIGHT_MODEL", "auto",
         "model for every light route (front-door classification, /plan preview, "
@@ -293,8 +291,8 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("config value cannot be empty")
-    if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS"}:
-        maximum = 8 if name == "ARGUS_SKILL_MAP_BATCH_SIZE" else 3600
+    if name == "ARGUS_SKILL_MAP_TIMEOUT_SECONDS":
+        maximum = 3600
         try:
             bounded_integer = int(raw)
         except ValueError as exc:

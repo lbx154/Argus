@@ -65,11 +65,6 @@ def _advisor_selections(requested: str) -> tuple[tuple[str, str], ...]:
     return tuple(selected)
 
 
-def _resolve_advisor(requested: str) -> tuple[str, str] | None:
-    selections = _advisor_selections(requested)
-    return selections[0] if selections else None
-
-
 def _is_argus_checkout(path: Path | None) -> bool:
     if path is None:
         return False

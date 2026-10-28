@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 from ..core.file_lock import exclusive_file_lock
-from .schema import WikiPage, parse_page, serialize_page
+from .schema import WikiPage, serialize_page
 
 # Wiki writes are atomic; this only bounds lock handoff, not the write's work.
 _WIKI_LOCK_TIMEOUT_SECONDS = 30.0
@@ -76,10 +76,6 @@ class WikiStore:
         finally:
             handle.close()
         return path
-
-    def read_page(self, semantic_path: str | Path) -> WikiPage:
-        path = _semantic_page_path(self.root, semantic_path)
-        return parse_page(path.read_text(encoding="utf-8"))
 
 
 __all__ = ["WikiStore", "_atomic_write_text", "atomic_write_bytes"]

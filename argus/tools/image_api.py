@@ -618,27 +618,6 @@ def review_image(
     return result
 
 
-def _project_path(project_root: Path, path: Path | str) -> Path:
-    root = project_root.resolve()
-    value = Path(path).expanduser()
-    resolved = value.resolve() if value.is_absolute() else (root / value).resolve()
-    try:
-        resolved.relative_to(root)
-    except ValueError as exc:
-        raise ImageToolError(f"path escapes project root: {path}") from exc
-    return resolved
-
-
-def _read_json_object(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ImageToolError(f"{path} is not valid JSON") from exc
-    if not isinstance(payload, dict):
-        raise ImageToolError(f"{path} must contain a JSON object")
-    return payload
-
-
 def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 

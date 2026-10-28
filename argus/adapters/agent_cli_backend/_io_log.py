@@ -11,7 +11,7 @@ that used to live directly on ``AgentCliBackend``.
 The raw transcript names a call once: its ``agent.io.start`` row carries the
 identity (run label, backend, model, prompt); each frame after it is only
 ``call_id``, ``stream``, ``line`` and ``ts``. Older transcripts repeated the
-identity on every row; ``life.event_log.iter_call_events`` reads both.
+identity on every row.
 """
 from __future__ import annotations
 

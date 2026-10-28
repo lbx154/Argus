@@ -75,21 +75,6 @@ class ResolvedRolePrompt:
     # them. Kept apart from ``role_banner`` so the banner stays byte-stable.
     role_context: str = ""
 
-    @property
-    def requires_final_certification(self) -> bool:
-        return self.completion_gate == "certified"
-
-    def prepend_role_banner(
-        self,
-        prompt: str,
-        *,
-        heading: str = "## Active vertical role",
-    ) -> str:
-        banner = self.role_banner.strip()
-        if not banner:
-            return prompt
-        return f"{heading}\n{banner}\n\n{prompt}"
-
 
 __all__ = [
     "ChecklistMode",

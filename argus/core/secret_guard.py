@@ -1009,24 +1009,6 @@ def scrub_recent_text_artifacts(
     )
 
 
-def redact_secrets_text_with_count(
-    text: str,
-    *,
-    known_values: Iterable[str] = (),
-    include_patterns: bool = True,
-    redact_ambiguous_record_keys: bool = True,
-) -> tuple[str, int]:
-    """Masked copy and replacement count; ``(text, 0)`` while redaction is off."""
-    if not secret_redaction_enabled():
-        return text, 0
-    return _redact_text_with_count(
-        text,
-        known_values=known_values,
-        include_patterns=include_patterns,
-        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
-    )
-
-
 def redact_secrets_text(
     text: str,
     *,

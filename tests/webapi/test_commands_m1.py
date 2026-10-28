@@ -16,7 +16,7 @@ from urllib.parse import quote
 import pytest
 
 from argus.core import runtime_identity as runtime_identity_module
-from argus.core.session import SessionMeta, touch_session, write_session_meta
+from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon import commands as daemon_commands
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon import protocol as daemon_protocol
@@ -285,7 +285,9 @@ def test_replace_project_daemon_parks_state_then_starts_target(
 ) -> None:
     target = _make_project(tmp_path, "s-target001")
     victim = _make_project(tmp_path, "s-victim001")
-    mission_items.enqueue_task("s-victim001", "unfinished work", global_root=tmp_path)
+    mission_items.enqueue_task_command(
+        "s-victim001", "unfinished work", autostart_daemon=False, global_root=tmp_path
+    )
     running = {"s-victim001"}
     spawned = []
 
@@ -411,7 +413,7 @@ def test_disable_continuous_surfaces_persistence_failure(
     )
 
     with pytest.raises(ManagerHandoffError, match="could not be persisted"):
-        project_crud.set_continuous(
+        project_crud.apply_continuous_update(
             sid,
             enabled=False,
             global_root=root,
@@ -1086,8 +1088,6 @@ def test_project_delete_moves_stopped_session_to_trash(ctx) -> None:
     assert r.json()["workdir"] == str(workdir)
     assert r.json()["workdir_preserved"] is True
     assert (workdir / "result.txt").read_text(encoding="utf-8") == "operator result"
-    touch_session(root, sid, display_name="must not resurrect")
-    assert not life.exists()
 
 
 def test_project_trash_can_be_listed_and_restored(ctx) -> None:

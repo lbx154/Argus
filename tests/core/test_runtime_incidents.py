@@ -118,7 +118,7 @@ def test_successful_recovery_closes_escalated_unresolved_incident(
 ) -> None:
     store = RuntimeIncidentStore(tmp_path)
     for _ in range(3):
-        store.record_unresolved(
+        record = store.record_unresolved(
             detector="resource_lease",
             invariant="live_worker_renews_resource_grant",
             subject_kind="subagent",
@@ -129,13 +129,14 @@ def test_successful_recovery_closes_escalated_unresolved_incident(
             escalation_after=3,
         )
 
-    result = store.recover_if_present(
-        detector="resource_lease",
-        invariant="live_worker_renews_resource_grant",
-        subject_kind="subagent",
-        subject_id="worker-1",
+    store.begin_recovery(
+        record["incident_id"],
         action="renew_resource_grant",
         expected_postcondition="resource grant renewal succeeds",
+    )
+    result = store.verify_recovery(
+        record["incident_id"],
+        recovered=True,
         evidence={"renewed": True},
     )
 
