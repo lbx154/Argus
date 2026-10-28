@@ -181,7 +181,9 @@ counting the error as a completed answer or premium request.
 
 ## Deployment on 111 and Cloudflare
 
-Deployment: `~/argus-trial-gateway-20260909`, isolated `.venv`, user service
+Deployment: `~/argus-trial-gateway-20260909`, isolated `.venv` (Argus and the
+hosted trial server: `pip install -e . -e trial_server`; the `argus-trial-server`
+command comes from `trial_server/`), user service
 `argus-trial-gateway.service`, loopback `127.0.0.1:18765`. Existing named tunnel
 `argus-website-prod` publishes through `argus-website-tunnel.service`.
 Config: `~/.cloudflared/argus-website-prod.yml`.

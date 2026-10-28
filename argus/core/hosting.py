@@ -1,18 +1,23 @@
 """The one place Argus core reaches the optional hosted trial.
 
 Core asks ``hosting().<question>`` and never imports the trial package. When
-the trial is installed, ``hosting()`` is its ``argus.trial.hosting`` module;
-when it is not, ``NO_HOSTING`` answers instead, which is exactly how Argus
-behaves today with the trial switched off: nothing is hosted, rewritten,
+the trial client is installed, ``hosting()`` is its ``argus.trial.hosting``
+module; when it is not, ``NO_HOSTING`` answers instead, which is exactly how
+Argus behaves today with the trial switched off: nothing is hosted, rewritten,
 redacted, captured or restricted.
 
 Every question is listed in ``NO_HOSTING``; ``argus.trial.hosting`` answers
-the same names.
+the same names. The runtime questions (training capture, daemon launch
+tickets, workspace plugins) are answered by the hosted trial runtime, the
+separate ``trial_server`` package, which registers itself under the
+``argus.hosting`` entry point; ``hosted_runtime()`` finds it by that group
+name alone, so Argus never imports it.
 """
 from __future__ import annotations
 
 import functools
 from contextlib import nullcontext
+from importlib.metadata import entry_points
 from types import ModuleType, SimpleNamespace
 
 
@@ -57,3 +62,11 @@ def hosting() -> ModuleType | SimpleNamespace:
             raise
         return NO_HOSTING
     return installed
+
+
+@functools.cache
+def hosted_runtime() -> ModuleType | SimpleNamespace:
+    """The hosted trial runtime registered under ``argus.hosting``, or ``NO_HOSTING``."""
+    for entry in entry_points(group="argus.hosting"):
+        return entry.load()
+    return NO_HOSTING

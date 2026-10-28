@@ -192,5 +192,7 @@
 | 9 | **宽泛 except 收缩**（L6.3）：按 `docs/simplification-plan.md` 的四条规则，先删“返回成功形状默认值”的 handler；`life` 181、`webapi` 125、`manager` 66 最多 | 净删几百行，主要价值是不再吞错 | 中到高：每一处都可能让原来静默的失败变成可见 | 按包做，每包一个 PR，配故障注入测试 |
 | 10 | **Python 内核整体删除**（L7.6）：TS 内核通过回放和标准任务集后，`life/`、`engineer/`、`reviewer/`、`manager/`、`daemon/`、`apps/_runtime*` 等 | 约 100,000 | 高，但这是路线图既定终点 | L7.5 影子运行通过之后 |
 
+第 1 项已做 [94bd37d3]：托管试用的服务端（43 个模块和 Pi 采集扩展，连同 `deploy/trial/` 和服务端测试）移到仓内独立包 `trial_server/`（包名 `argus_trial_server`），`argus/trial/` 从 15,160 行减到 751 行，只留产品自己用的试用密钥客户端（`argus --setup --trial`、桌面试用、Copilot 提供方环境、账户暂停）。服务端只通过 `argus.hosting` 入口点回答运行时问题，`argus/` 不 import 它（架构测试守住）。
+
 第 1–3 项不改变角色看到的任何东西，建议最先做；第 4–6 项会改变旧数据或运行时规则，需要先有对应的测试和决定；
 第 10 项之前，按 L6 的规矩，Python 内核只删不打磨。

@@ -24,7 +24,7 @@
 5. 对导出包运行离线校验：
 
    ```sh
-   python -m argus.trial.training_validate dataset.zip \
+   python -m argus_trial_server.training_validate dataset.zip \
      --require-agentic --evidence acceptance.json --report validation.json
    ```
 

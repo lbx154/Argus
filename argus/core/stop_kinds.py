@@ -172,7 +172,7 @@ def stop_kind_clause(value: Any, *, chinese: bool = False, neutral: bool = False
 
 
 # The hosted trial's meter answers HTTP 402 in its own words once an
-# invitation's allowance is spent (deploy/trial, argus/trial/store.py). The
+# invitation's allowance is spent (trial_server/, argus_trial_server/store.py). The
 # model service is fine; the allowance is not, and only a top-up ends it.
 TRIAL_ALLOWANCE_RE = re.compile(
     r"trial_budget_exhausted|trial_quota_exceeded|insufficient trial tokens|试用额度",

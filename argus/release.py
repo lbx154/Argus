@@ -43,7 +43,6 @@ def _source_files(root: Path) -> Iterable[Path]:
         # bounded to their source directories, never dependencies or bundles.
         "argus/webapi/*.js",
         "argus/agent_cli/*.mjs",
-        "argus/trial/*.mjs",
         "argus/advisor/*.mjs",
         "argus/core/*.mjs",
         "argus/life/*.mjs",
