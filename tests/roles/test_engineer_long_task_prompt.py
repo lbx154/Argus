@@ -27,6 +27,7 @@ def test_long_task_rule_waits_in_turn_with_blocking_calls(
     assert "a `yield_time_ms` longer than the job" in prompt
     assert "`async` mode, then end your turn" in prompt
     assert "Never poll in short loops" in prompt
+    assert "keeps running after you hand off" in prompt
     assert "argus.tools.subagent" not in prompt
     assert "→ wait" not in prompt
 

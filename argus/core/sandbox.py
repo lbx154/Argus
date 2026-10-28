@@ -302,6 +302,43 @@ def _backend_support_executables(executable: Path) -> list[Path]:
     return sorted(found, key=str)
 
 
+# A bubblewrap sandbox ends with its first process: the kernel then kills
+# everything else in its PID namespace. Run directly, the agent CLI is that
+# process, so a job it started detached died the moment the CLI exited, with
+# nobody deciding so (2026-10-27 trial: a 15-run training an Engineer started
+# detached before handing off was gone when its next round looked). The CLI
+# runs under this shell instead, which outlives it until nothing else in the
+# sandbox runs, then exits with the CLI's code: a turn ends when everything it
+# started has ended. It names what it waits for once, on stderr, after
+# ``SANDBOX_WAIT_MARKER``; the runner reads that as what the turn is running.
+SANDBOX_WAIT_MARKER = "[argus-sandbox] the agent CLI exited; its turn runs on with what it started:"
+_WAIT_FOR_EVERYTHING = r"""
+"$@"
+code=$?
+said=
+while :; do
+  others=
+  for entry in /proc/[0-9]*; do
+    pid=${entry#/proc/}
+    [ "$pid" = 1 ] || [ "$pid" = $$ ] || others="$others $pid"
+  done
+  [ -n "$others" ] || exit $code
+  if [ -z "$said" ]; then
+    said=1
+    {
+      printf '%s' '""" + SANDBOX_WAIT_MARKER + r"""'
+      for pid in $others; do
+        printf ' [%s] ' "$pid"; head -c 200 "/proc/$pid/cmdline" 2>/dev/null | tr '\000\n' '  '; printf ';'
+      done
+      echo
+    } >&2
+    exec </dev/null >/dev/null 2>&1
+  fi
+  sleep 5
+done
+"""
+
+
 def isolated_workdir_command(
     command: list[str],
     *,
@@ -401,7 +438,10 @@ def isolated_workdir_command(
     ]
     for source, target, rw in sorted(dict.fromkeys(mounts), key=lambda m: (len(m[1].parts), m[0] != m[1])):
         wrapped += ["--bind-try" if rw else "--ro-bind-try", str(source), str(target)]
-    return [*wrapped, "--setenv", "TMPDIR", "/tmp", "--chdir", str(workdir or home), "--", *command]
+    return [
+        *wrapped, "--setenv", "TMPDIR", "/tmp", "--chdir", str(workdir or home), "--",
+        "/bin/sh", "-c", _WAIT_FOR_EVERYTHING, "argus-sandbox", *command,
+    ]
 
 
 def _seatbelt(
