@@ -89,14 +89,17 @@ only as what an agent can run or recheck, proven on a real case.
 
 ## The web cockpit
 
-`argus serve` (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that bearer) runs
-the work of its projects in its own process: one Flow call at a time per project, in the order
-asked for, projects side by side. The page reads files as they are: the snapshot from
-`project.json` and `usage.jsonl`, events and the conversation from `events.jsonl` in the
-cockpit's event vocabulary, results from the workdir's files created or changed since the
-project began. A message's stream follows the Manager's turn and ends with its reply; the team's
-work goes on after it. A message sent while work runs waits until it stops; Stop interrupts the
-call under way and Start resumes. The live event stream is server-sent events, in both runtimes.
+`argus` serves the cockpit (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that
+bearer) and runs the work of its projects in its own process, projects side by side. The page
+reads files as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
+conversation from `events.jsonl` in the cockpit's event vocabulary, results from the workdir's
+files created or changed since the project began. The operator may write at any time: the
+Manager takes the message up in its next turn, at once unless it is answering a letter from the
+team, while the team's work goes on, and what its letter hands on joins that work. The message
+is recorded when the Manager takes it up, so the Manager's letter after it is its reply; the
+message's stream follows that turn and ends with the reply. Stop interrupts every call under
+way on the project and Start resumes. The live event stream is server-sent events, in both
+runtimes.
 
 The progress map reads the same files: a card per task, its brief the letter that opened it, and
 on it a step per letter written about it, by whom to whom. A task opened in the reader lists its

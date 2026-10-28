@@ -181,10 +181,10 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
 });
 
 test('a refused form goes back to the Manager within the same message', async t => {
-  const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'manager', letter: 'Hello.' }]);
+  const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'operator', letter: 'Hello.' }]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const reply = await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Hi', request_id: 'r1' }));
-  assert.deepEqual(reply.map(frame => frame.type), ['phase', 'phase', 'delta', 'done']);
+  assert.deepEqual(reply.map(frame => frame.type), ['phase', 'delta', 'done']);
   assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
