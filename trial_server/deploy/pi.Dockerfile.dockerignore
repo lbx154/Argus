@@ -1,8 +1,6 @@
 **
 !argus
 !argus/**
-!argus_skill
-!argus_skill/**
 !trial_server
 !trial_server/pyproject.toml
 !trial_server/argus_trial_server
@@ -15,5 +13,4 @@
 !frontend/tui/bundle
 !frontend/tui/bundle/argus.mjs
 argus/**/__pycache__
-argus_skill/**/__pycache__
 trial_server/**/__pycache__

@@ -5,8 +5,6 @@
 !argus_doctor.py
 !argus/
 !argus/**
-!argus_skill/
-!argus_skill/**
 !trial_server/
 !trial_server/pyproject.toml
 !trial_server/argus_trial_server/

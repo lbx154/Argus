@@ -8,8 +8,6 @@ COPY --from=argus-pi /package.json /opt/argus-pi/package.json
 COPY --from=argus-pi /node_modules /opt/argus-pi/node_modules
 COPY --from=argus-pi /packages /opt/argus-pi/packages
 COPY argus /opt/argus/argus
-# Pre-rename import alias (argus_skill -> argus), kept for one release.
-COPY argus_skill /opt/argus/argus_skill
 COPY trial_server/pyproject.toml /opt/argus/trial_server/pyproject.toml
 COPY trial_server/argus_trial_server /opt/argus/trial_server/argus_trial_server
 COPY frontend/web/dist /opt/argus/frontend/web/dist
@@ -22,7 +20,7 @@ RUN if ! command -v rg >/dev/null 2>&1; then \
     fi \
     && pip install --no-cache-dir 'psutil>=5.9.8' \
     && pip install --no-cache-dir --no-deps -e /opt/argus/trial_server \
-    && chmod -R a+rX /opt/argus/argus /opt/argus/argus_skill /opt/argus/trial_server /opt/argus/frontend \
+    && chmod -R a+rX /opt/argus/argus /opt/argus/trial_server /opt/argus/frontend \
     && ln -s /opt/argus-pi/packages/coding-agent/dist/bundle/cli.js /usr/local/bin/argus-pi \
     && ln -s /usr/local/bin/argus-pi /usr/local/bin/pi \
     && node --version && argus-pi --version && rg --version
