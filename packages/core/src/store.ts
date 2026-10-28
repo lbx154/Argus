@@ -55,12 +55,15 @@ export interface Project {
   tasks: Task[];
   /** Letters to the Planner; it is called when no task is open and one is waiting. */
   inbox: string[];
+  /** Letters from the team to the Manager that no Manager turn has taken yet. */
+  forManager?: string[];
   /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
   sessions: Record<string, string>;
 }
 
 export type FlowEvent =
-  | { type: 'message'; from: 'operator'; text: string }
+  /** The operator's words: to the Manager, or to the role whose question they answer. */
+  | { type: 'message'; from: 'operator'; text: string; to?: Role }
   | { type: 'call.start'; role: Role; task?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }

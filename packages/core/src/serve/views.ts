@@ -32,7 +32,8 @@ const seconds = (iso: string): number => Date.parse(iso) / 1000;
 function jsonLines(path: string): Record<string, unknown>[] {
   let text: string;
   try { text = readFileSync(path, 'utf8'); } catch { return []; }
-  return text.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
+  // A line cut short (a full disk, a killed process) is left out rather than failing every read.
+  return text.split('\n').flatMap(line => { try { return line ? [JSON.parse(line) as Record<string, unknown>] : []; } catch { return []; } });
 }
 
 export const readEvents = (store: Store, id: string): Recorded[] =>
@@ -51,7 +52,8 @@ export function webEvents(events: Recorded[]): EventMsg[] {
     const where = 'task' in event && typeof event.task === 'string' ? { item_id: event.task } : {};
     switch (event.type) {
       case 'message':
-        asked = line;
+        // A message to the Manager waits for its reply; an answer to another role's question does not.
+        if (!event.to) asked = line;
         row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator` });
         break;
       case 'call.start':
@@ -59,6 +61,8 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         row('provider.request.started', { call_id: call, run_label: event.role, agent_layer: event.role, ...where });
         break;
       case 'call.end':
+        // A Manager turn that ended without a letter replies to nothing; the next letter answers no message.
+        if (event.role === 'manager' && !event.completed) asked = null;
         row('provider.request.completed', {
           call_id: call, run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });

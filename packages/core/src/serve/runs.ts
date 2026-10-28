@@ -26,9 +26,10 @@ export class Runs {
     return { since: active?.since ?? null, roles: active?.roles ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
   }
 
-  answer(id: string, text: string): void { void this.start(id, flow => flow.answer(id, text)); }
+  /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
+  answer(id: string, text: string): Promise<void> { return this.start(id, flow => flow.answer(id, text)); }
 
-  resume(id: string): void { void this.start(id, flow => flow.resume(id)); }
+  resume(id: string): void { this.start(id, flow => flow.resume(id)).catch(error => log(id, error)); }
 
   /** Change the project's record where it is held: by its flow while anything is under way, or on disk. */
   edit(id: string, change: (project: Project) => void): void {
@@ -41,7 +42,12 @@ export class Runs {
 
   stop(id: string): void { this.active.get(id)?.controller.abort(); }
 
-  stopAll(): void { for (const active of this.active.values()) active.controller.abort(); }
+  /** Interrupt every project's calls, and wait until the work has wound down and written its record. */
+  async stopAll(): Promise<void> {
+    const active = [...this.active.values()];
+    for (const { controller } of active) controller.abort();
+    await Promise.all(active.map(({ settled }) => settled));
+  }
 
   cancel(id: string, request: string): boolean {
     const cancel = this.requests.get(id)?.get(request);
@@ -97,12 +103,12 @@ export class Runs {
     try {
       return act(flow);
     } finally {
-      entry.settled = flow.settled(id).then(() => undefined, (error: unknown) => {
-        process.stderr.write(`${id}: ${error instanceof Error ? error.message : String(error)}\n`);
-      }).then(() => {
+      entry.settled = flow.settled(id).then(() => undefined, (error: unknown) => log(id, error)).then(() => {
         this.active.delete(id);
         this.changed(id);
       });
     }
   }
 }
+
+const log = (id: string, error: unknown): void => { process.stderr.write(`${id}: ${error instanceof Error ? error.message : String(error)}\n`); };

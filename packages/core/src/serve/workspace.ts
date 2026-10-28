@@ -83,13 +83,19 @@ function tree(root: string) {
   return { root, entries, truncated: entries.length >= ENTRIES };
 }
 
+/** Git run outside the sandbox on a repository the roles write: it changes nothing, and runs
+ * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
+ * diff driver, a signature check), its attributes read from the empty tree instead. */
+const SAFE_GIT = ['--no-optional-locks', '--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+  '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
+
 /** What git says of the workdir, read without changing anything; a workdir that is not a
  * repository of its own has nothing to say. Whether GitHub is signed in to is not looked up. */
 async function git(root: string) {
   const github = { authenticated: false, host: '', login: '', protocol: '', scopes: [] };
   const read = async (...args: string[]): Promise<string> => {
     try {
-      return (await run('git', ['--no-optional-locks', ...args], { cwd: root, maxBuffer: GIT_BYTES })).stdout;
+      return (await run('git', [...SAFE_GIT, ...args], { cwd: root, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
     } catch (error) {
       // Output past the limit is shown up to it; a command that failed says nothing.
       const { code, stdout } = error as { code?: unknown; stdout?: string };

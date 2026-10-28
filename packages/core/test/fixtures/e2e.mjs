@@ -10,10 +10,14 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const [request, workdir] = process.argv.slice(2);
 const argus = spawn('argus', ['--port', '8799'], { stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32' });
-let url;
-for await (const chunk of argus.stdout) if ((url = /Argus is at (http\S+?)\/(\s|\?)/.exec(String(chunk))?.[1])) break;
+let url, token;
+for await (const chunk of argus.stdout) {
+  [, url, token] = /Argus is at (http\S+?)\/\?token=(\S+)/.exec(String(chunk)) ?? [];
+  if (url) break;
+}
 const api = async (path, body) => {
-  const response = await fetch(`${url}${path}`, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const headers = { authorization: `Bearer ${decodeURIComponent(token)}`, ...body ? { 'content-type': 'application/json' } : {} };
+  const response = await fetch(`${url}${path}`, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
   return response.json();
 };

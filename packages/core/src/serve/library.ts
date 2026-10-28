@@ -4,7 +4,7 @@
 // version, url }), installed and started by whoever wants it: Argus lists it and the page opens its
 // url. There is no wiki: the page finds it empty.
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
 import { purpose, SKILLS, skills, skillsHome } from '../prompts.js';
@@ -14,7 +14,7 @@ import { HttpError, type Handler } from './index.js';
 
 export function library(store: Store): [string, RegExp, Handler][] {
   const plugins = () => [...skills(store.home)].map(([id, dir]) => [id, join(dir, 'plugin.json')] as const)
-    .filter(([, file]) => existsSync(file)).map(([id, file]) => plugin(id, file));
+    .filter(([, file]) => lstatSync(file, { throwIfNoEntry: false })?.isFile()).map(([id, file]) => plugin(id, file));
   return [
     // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one.
     ['GET', /^\/api\/skill-library$/, () => ({
@@ -67,8 +67,9 @@ function plugin(id: string, file: string) {
     const value = isJsonObject(spec) ? spec[key] : undefined;
     return typeof value === 'string' ? value : '';
   };
-  const url = text('url');
-  const reason = !isJsonObject(spec) ? `${file} is not a JSON object.` : url ? '' : `${file} names no url to open.`;
+  // The page opens the url in itself: only a web address, never a script.
+  const url = /^https?:\/\//i.test(text('url')) ? text('url') : '';
+  const reason = !isJsonObject(spec) ? `${file} is not a JSON object.` : url ? '' : `${file} names no http(s) url to open.`;
   return {
     id, name: text('name') || id, description: text('description'), version: text('version'), installed_version: text('version'), url,
     installed: true, enabled: true, supported: !reason, managed_by_host: false, reason, operation: {}, update_available: false,

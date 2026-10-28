@@ -141,7 +141,7 @@ For the development preview, clone `https://github.com/lbx154/Argus.git` instead
 argus
 ```
 
-It prints the address of the web page, `http://127.0.0.1:8799/` by default; open it in
+It prints the address of the web page, `http://127.0.0.1:8799/?token=…` by default; open it in
 a browser. There are no subcommands: everything else happens in the page.
 
 | Option | |
@@ -149,9 +149,9 @@ a browser. There are no subcommands: everything else happens in the page.
 | `--port N` | another port (default `8799`; `0` picks a free one) |
 | `--backend codex\|claude\|copilot\|pi` | the backend new projects use (default `codex`); each project can change it in its settings |
 | `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
-| `--host H` | serve on another address, for example `0.0.0.0`; requires `ARGUS_WEB_TOKEN` |
+| `--host H` | serve on another address, for example `0.0.0.0` |
 | `--web DIR` | serve a web page built elsewhere instead of the bundled one |
-| `ARGUS_WEB_TOKEN` | require this access token; the printed address carries it |
+| `ARGUS_WEB_TOKEN` | the access token, kept across restarts; unset, a new one each start. The printed address carries it |
 | `ARGUS_HOME` | the state directory (default `~/.argus`) |
 
 In the page, create a project and tell the Manager what you want. A project works in its

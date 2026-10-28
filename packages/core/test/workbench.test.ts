@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -71,6 +72,15 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.match(status.status, /^ M src\/main\.py$/m);
   assert.match(status.diff, /^\+print\(2\)$/m);
   assert.match(status.log, /\tAda\tFirst script$/);
+  // A program the repository's config or attributes name, which a role may write, never runs.
+  const ran = join(project.workdir, '..', 'ran');
+  await writeFile(join(project.workdir, '..', 'program.sh'), `#!/bin/sh\ntouch ${ran}\ncat\n`);
+  await chmod(join(project.workdir, '..', 'program.sh'), 0o755);
+  git('config', 'core.fsmonitor', join(project.workdir, '..', 'program.sh'));
+  git('config', 'filter.x.clean', join(project.workdir, '..', 'program.sh'));
+  await writeFile(join(project.workdir, '.gitattributes'), '* filter=x\n');
+  assert.match((await get<{ status: string }>(W('git'))).status, /src\/main\.py/);
+  assert.equal(existsSync(ran), false);
   // A diff past the limit is shown up to it, and says so.
   await writeFile(join(project.workdir, 'big.txt'), 'x'.repeat(1.5 * (1 << 20)));
   git('add', 'big.txt');

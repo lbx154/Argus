@@ -31,7 +31,7 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 
 | File | Holds | Written |
 |---|---|---|
-| `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, role sessions, the open question, status | replaced atomically (write temp, rename) |
+| `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, letters waiting for the Planner and for the Manager, role sessions, the open question, status | replaced atomically (write temp, rename) |
 | `events.jsonl` | what happened, in order: messages, hand-offs, calls, task changes | appended |
 | `usage.jsonl` | one record per backend call: tokens, cost | appended |
 | `calls/<call>.jsonl` | the backend's raw output, for debugging | written by the call |
@@ -101,8 +101,9 @@ wiki the page also asks for is empty.
 
 ## The web cockpit
 
-`argus` serves the cockpit (on 127.0.0.1; `ARGUS_WEB_TOKEN` makes project requests need that
-bearer, and `--host` serves it on another address, `0.0.0.0` for every network, only with one)
+`argus` serves the cockpit (on 127.0.0.1, or on `--host`, `0.0.0.0` for every network; project
+requests always need a bearer token, `ARGUS_WEB_TOKEN` or one made at each start and printed in the
+address, since the roles' sandbox shares the machine's network)
 and runs the work of its projects in its own process, projects side by side. The page reads files
 as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
 conversation from `events.jsonl` in the cockpit's event vocabulary, results from the workdir's

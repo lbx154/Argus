@@ -99,11 +99,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     return frame => { if (!response.destroyed) response.write(`data: ${JSON.stringify(frame)}\n\n`); };
   };
   /** The operator's answer to the open question, in their own words. */
-  const answer = (id: string, card: string, note: string): void => {
+  const answer = async (id: string, card: string, note: string): Promise<void> => {
     const { question } = project(id);
     if (!question || questionId(question) !== card) throw new HttpError(409, 'This question is no longer open.');
     if (!note.trim()) throw new HttpError(400, 'empty answer');
-    runs.answer(id, note.trim());
+    // Answered by another request meanwhile, while the work under way stopped.
+    await runs.answer(id, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.'); });
   };
   /** The message a request carries, checked before any reply is under way. */
   const message = async ({ params: [id], body }: Context): Promise<(send: (frame: Frame) => void) => Promise<Frame>> => {
@@ -179,7 +180,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const { domain_answer: card } = await context.body();
       if (card && typeof card === 'object') {
         const { id, note } = card as Record<string, unknown>;
-        answer(context.params[0]!, String(id), String(note ?? ''));
+        await answer(context.params[0]!, String(id), String(note ?? ''));
         return { kind: 'chat', reply: null, resolved: true };
       }
       const frame = await (await message(context))(() => {});
@@ -187,7 +188,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/decisions\/([^/]+)\/resolve$/, async ({ params: [id, card], body }) => {
       const { note } = await body();
-      answer(id!, card!, String(note ?? ''));
+      await answer(id!, card!, String(note ?? ''));
       return { resolved: true };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/daemon\/start$/, async ({ params: [id], body }) => {
@@ -257,7 +258,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   return {
     url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {
-      runs.stopAll();
+      await runs.stopAll();
       server.closeAllConnections();
       await new Promise(resolveClose => server.close(resolveClose));
     },

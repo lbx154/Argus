@@ -2,7 +2,7 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Role } from './types.js';
@@ -22,9 +22,11 @@ export function skillsHome(home: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
-/** Each skill's folder, by its name. */
+/** Each skill's folder, by its name: a directory of its own holding a README.md of its own, never
+ * a link, so that what a role writes there cannot bring in a file from elsewhere. */
 export const skills = (home: string): Map<string, string> => new Map([SKILLS, skillsHome(home)].flatMap(root => readdirSync(root)
-  .map(name => [name, resolve(root, name)] as const).filter(([, dir]) => existsSync(resolve(dir, 'README.md')))));
+  .map(name => [name, resolve(root, name)] as const)
+  .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, 'README.md'), { throwIfNoEntry: false })?.isFile())));
 /** What a skill is for: the first line of its README. */
 export const purpose = (dir: string): string => readFileSync(resolve(dir, 'README.md'), 'utf8').split('\n')[0]!.replace(/^#\s*/, '');
 

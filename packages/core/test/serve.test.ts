@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
@@ -372,14 +372,23 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   await write('bench/README.md', '# A workbench for crystal structures\n', 4);
   await write('bench/plugin.json', JSON.stringify({ name: 'Bench', description: 'Solve a structure', version: '1.2', url: 'http://127.0.0.1:9100/' }), 4);
   await write('sketch/README.md', '# A plugin not ready to open\n', 5);
-  await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch' }), 5);
+  // A url that is not a web address is no url: the page would run it in itself.
+  await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch', url: 'javascript:alert(1)' }), 5);
   const { plugins } = await get<{ plugins: Record<string, unknown>[] }>('/api/plugins');
   assert.deepEqual(plugins.map(plugin => [plugin.id, plugin.name, plugin.installed, plugin.enabled, plugin.supported, plugin.backends]),
     [['bench', 'Bench', true, true, true, {}], ['sketch', 'Sketch', true, true, false, {}]]);
   assert.deepEqual(await (await post('/api/plugins/bench/launch', {})).json(), { url: 'http://127.0.0.1:9100/' });
   const unready = await post('/api/plugins/sketch/launch', {});
-  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no url to open.` }]);
+  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.` }]);
   assert.equal((await post('/api/plugins/quant/launch', {})).status, 404);
+  // A skill whose README is a link, or not a file, is no skill: it brings in nothing from elsewhere.
+  await writeFile(join(home, 'secret'), 'token=hunter2\n');
+  await mkdir(join(own, 'linked'), { recursive: true });
+  // Windows lets only some accounts make a link.
+  await symlink(join(home, 'secret'), join(own, 'linked', 'README.md')).catch(() => undefined);
+  await mkdir(join(own, 'odd', 'README.md'), { recursive: true });
+  const names = (await get<{ items: { name: string }[] }>('/api/skill-library')).items.map(item => item.name);
+  assert.deepEqual([names.includes('linked'), names.includes('odd'), names.includes('bench')], [false, false, true]);
 });
 
 test('each project keeps the composer draft, and a save over a revision it never saw is refused', async t => {

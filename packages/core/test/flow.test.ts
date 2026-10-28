@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { SKILLS } from '../src/prompts.js';
+import { refusedPrompt, SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -28,6 +28,8 @@ interface Step {
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
   throws?: string;
+  /** The turn's result arrives a moment after its form was checked, as the raw output is written. */
+  slow?: boolean;
 }
 
 function agent(steps: Step[], controller?: AbortController): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -45,6 +47,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`] };
     if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
+    if (step.slow) await new Promise(resolve => setImmediate(resolve));
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -285,6 +288,53 @@ test('the operator talks to the Manager while the team works, and what it hands 
     'Make me a CSV summary tool', brief, 'Also export the totals as a PDF', 'Export the totals as a PDF',
     'The PDF is ready; the summary tool is on its way.', report.letter,
   ]);
+});
+
+test("a letter for the Manager outlasts its failed turn, and reaches it when the work resumes", async t => {
+  const { home, flow, id, events } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    { role: 'manager', throws: 'the relay is down' },
+  ]);
+  const failed = await say(flow, id, 'Make me a CSV summary tool');
+  assert.deepEqual([failed.status, failed.forManager], ['failed', ['From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.']]);
+  // The failed call is recorded as ended, so nothing shows it as under way.
+  assert.deepEqual(events().filter(event => event.type === 'call.end').at(-1), { ...events().filter(event => event.type === 'call.end').at(-1),
+    role: 'manager', completed: false, error: 'the relay is down' });
+  const next = agent([report]);
+  const again = new Flow(new Store(home), next.callAgent);
+  again.resume(id);
+  const project = await again.settled(id);
+  assert.deepEqual([project.status, project.forManager], ['idle', []]);
+  assert.equal(next.requests[0]?.prompt, 'From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.');
+});
+
+test('a failed call stays failed when a letter from the team reaches the Manager: nothing retries it', async t => {
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
+    { role: 'engineer', throws: 'spawn codex ENOENT' },
+    { role: 'engineer', later: true, to: 'manager', letter: 'data2.csv parsed' },
+    { role: 'manager', to: 'planner', letter: 'Go on with the totals.' },
+  ]);
+  const project = await say(flow, id, 'Summarise data.csv and data2.csv');
+  assert.deepEqual([project.status, project.error], ['failed', 'spawn codex ENOENT']);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'manager']);
+});
+
+test('a second question that arrives as the first is asked goes back to its writer', async t => {
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
+    { role: 'engineer', to: 'operator', letter: 'Which delimiter?', slow: true },
+    { role: 'engineer', to: 'operator', letter: 'Which encoding?', slow: true },
+    { role: 'engineer', to: 'reviewer', letter: 'UTF-8, as the file says' },
+  ]);
+  const project = await say(flow, id, 'Summarise data.csv and data2.csv');
+  assert.deepEqual([project.status, project.question], ['asking', { role: 'engineer', task: 't1', question: 'Which delimiter?' }]);
+  assert.equal(requests.at(-1)?.prompt, refusedPrompt('The operator has yet to answer another question: carry on without them, or write to someone else.'));
+  assert.equal(project.tasks[1]?.holder, 'reviewer');
 });
 
 test('a task that cannot go on as briefed goes back to the Planner, and on to the Manager', async t => {

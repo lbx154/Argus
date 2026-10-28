@@ -41,7 +41,7 @@ export class Flow {
   say(id: string, text: string, signal?: AbortSignal): Promise<HandOff | null> {
     const project = this.project(id);
     project.request ||= text;
-    if (project.status === 'failed') this.status(project, 'working');
+    this.retry(project);
     return this.manager(project, text, { signal, operator: true });
   }
 
@@ -50,7 +50,7 @@ export class Flow {
     const project = this.project(id);
     const question = project.question;
     if (!question) throw new Error(`${id} has no open question`);
-    this.record(project, { type: 'message', from: 'operator', text });
+    this.record(project, { type: 'message', from: 'operator', text, to: question.role });
     project.question = null;
     this.status(project, 'working');
     const note = answered(question.question, text);
@@ -62,8 +62,17 @@ export class Flow {
   /** Carry on where the work stopped: after an interruption, or a failed call the operator retries. */
   resume(id: string): void {
     const project = this.project(id);
-    if (project.status === 'failed') this.status(project, 'working');
+    this.retry(project);
     this.run(project);
+  }
+
+  /** After a failed call the operator writes or resumes: the work goes on, and the letters a
+   * failed or interrupted Manager turn left unread go to the Manager again. */
+  private retry(project: Project): void {
+    if (project.status === 'failed') this.status(project, 'working');
+    for (const letter of project.forManager ?? []) {
+      if (!this.handing.has(letter)) this.handOver(project, letter).catch(error => this.status(project, 'failed', String(error)));
+    }
   }
 
   /** A change to the project's record from outside its turns, such as its name, kept with the rest. */
@@ -146,16 +155,16 @@ export class Flow {
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
-      if (!project.question) this.status(project, 'working');
+      if (project.status === 'idle') this.status(project, 'working');
     }
     this.run(project);
     return handoff;
   }
 
-  private async work(project: Project, task: Task): Promise<void> {
+  private async work(project: Project, task: Task, refused?: string): Promise<void> {
     const role = task.holder;
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed),
-      { check: oneQuestion(project) }))?.handoff;
+      { check: oneQuestion(project), ...(refused ? { refused } : {}) }))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
     const letter = read(handoff);
@@ -169,10 +178,30 @@ export class Flow {
         break;
       case 'manager':
         this.close(project, task, role, letter);
-        await this.manager(project, handedTo(role, task, letter));
+        await this.writeToManager(project, handedTo(role, task, letter));
         break;
       case 'operator':
+        // Another task's question may have come in as this turn ended: this one goes back.
+        if (project.question) return this.work(project, task, ANOTHER_QUESTION);
         this.ask(project, role, task, letter);
+    }
+  }
+
+  /** A letter from the team to the Manager stays in the record until a Manager turn takes it. */
+  private async writeToManager(project: Project, letter: string): Promise<void> {
+    (project.forManager ??= []).push(letter);
+    this.store.save(project);
+    await this.handOver(project, letter);
+  }
+
+  private readonly handing = new Set<string>();
+
+  private async handOver(project: Project, letter: string): Promise<void> {
+    this.handing.add(letter);
+    try {
+      if (await this.manager(project, letter)) project.forManager?.splice(project.forManager.indexOf(letter), 1);
+    } finally {
+      this.handing.delete(letter);
     }
   }
 
@@ -185,7 +214,7 @@ export class Flow {
     const { to, letters } = handoff;
     if (to === 'engineer') for (const letter of letters) this.open(project, 'planner', letter);
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
-    else await this.manager(project, handedTo('planner', null, read(handoff)));
+    else await this.writeToManager(project, handedTo('planner', null, read(handoff)));
   }
 
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
@@ -211,8 +240,11 @@ export class Flow {
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(check ? { check } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
-    } catch (error) {
-      if (!signal?.aborted) this.status(project, 'failed', error instanceof Error ? error.message : String(error));
+    } catch (thrown) {
+      // The call never ran to an end of its own: it is recorded as ended, failed.
+      const error = thrown instanceof Error ? thrown.message : String(thrown);
+      this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
+      if (!signal?.aborted) this.status(project, 'failed', error);
       return null;
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
@@ -280,5 +312,5 @@ type Check = (handoff: HandOff) => string | null;
 
 /** The rule a task's form cannot say: the operator answers one question at a time. A returned
  * string refuses the hand-off, and its writer corrects it in one more turn of its session. */
-const oneQuestion = (project: Project): Check => ({ to }) => to === 'operator' && project.question
-  ? `The operator has yet to answer another question: carry on without them, or write to someone else.` : null;
+const oneQuestion = (project: Project): Check => ({ to }) => to === 'operator' && project.question ? ANOTHER_QUESTION : null;
+const ANOTHER_QUESTION = 'The operator has yet to answer another question: carry on without them, or write to someone else.';

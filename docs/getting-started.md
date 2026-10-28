@@ -75,9 +75,9 @@ subcommands, and it does not open a browser by itself.
 | `--port N` | another port (default `8799`; `0` picks a free one). A port already in use is an error |
 | `--backend codex\|claude\|copilot\|pi` | the backend new projects use (default `codex`) |
 | `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
-| `--host H` | serve on another address, for example `0.0.0.0`; refused without `ARGUS_WEB_TOKEN` |
+| `--host H` | serve on another address, for example `0.0.0.0` |
 | `--web DIR` | serve a web page built elsewhere instead of the bundled one |
-| `ARGUS_WEB_TOKEN` | the access token every project request must carry; the printed address includes it |
+| `ARGUS_WEB_TOKEN` | the access token every project request must carry, kept across restarts; unset, `argus` makes a new one at each start. The printed address includes it |
 | `ARGUS_HOME` | the state directory (default `~/.argus`) |
 
 One `argus` process owns a state directory. A second one on the same directory stops with
@@ -89,8 +89,8 @@ One `argus` process owns a state directory. A second one on the same directory s
 ssh -L 8799:127.0.0.1:8799 user@server
 ```
 
-then open `http://127.0.0.1:8799/` locally. To serve it on the network instead, set a
-token and a host:
+then open the address it prints, `http://127.0.0.1:8799/?token=…`. To serve it on the network
+instead, with a token that stays the same across restarts:
 
 ```bash
 export ARGUS_WEB_TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))")"
