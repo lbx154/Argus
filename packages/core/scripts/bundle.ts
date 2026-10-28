@@ -1,5 +1,6 @@
 // The published package: the CLI with the packages it uses in one file, dist/argus.mjs, beside
-// the prompts it reads (prompts/) and the built web cockpit (web/).
+// the prompts it reads (prompts/), the ways of working its roles read (ways/) and the built web
+// cockpit (web/).
 
 import { build } from 'esbuild';
 import { cpSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';

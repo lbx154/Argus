@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Status, Store, Task, TaskStatus } from './store.js';
-import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt } from './prompts.js';
+import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, WAYS } from './prompts.js';
 
 const ROLES: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
@@ -137,7 +137,8 @@ export class Flow {
       result = await this.callAgent({
         backend: project.backend, role, ...ROLES[role], cwd: project.workdir,
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
-        ...(task ? {} : { readDirs: [dir] }), ...(project.model ? { model: project.model } : {}),
+        // Every role reads the ways of working; the Manager and the Planner, Argus's record too.
+        readDirs: task ? [WAYS] : [dir, WAYS], ...(project.model ? { model: project.model } : {}),
         ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(formCheck ? { check: formCheck } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });

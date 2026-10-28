@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent } from '../src/store.js';
 import { Flow } from '../src/flow.js';
+import { WAYS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -62,8 +63,12 @@ test('the Manager answers directly', async t => {
   assert.equal(project.status, 'idle');
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
-  assert.deepEqual([request?.form, request?.access, request?.readDirs], ['manager', 'write', [store.dir(id)]]);
+  assert.deepEqual([request?.form, request?.access, request?.readDirs], ['manager', 'write', [store.dir(id), WAYS]]);
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Writing for people[\s\S]*## Message\nWhat is 6 times 7\?$/);
+  // Each way of working is listed by what its README says first, with the README's path.
+  const readme = join(WAYS, 'research', 'README.md');
+  const research = `- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})`;
+  assert.ok(request?.prompt.includes(`Ways of working, which every role can read:\n${research}\n`));
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'status']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'manager', letter: '42' });
 });
@@ -79,9 +84,9 @@ test("the Manager's brief becomes the Engineer's task, which the Reviewer accept
   assert.deepEqual(project.ticket, { brief, task: 't1' });
   assert.deepEqual(project.tasks.map(task => [task.id, task.status, task.title]), [['t1', 'done', 'Build the CSV summary tool.']]);
   const [, engineer, reviewer] = requests;
-  assert.deepEqual([engineer?.form, engineer?.access, engineer?.readDirs], ['engineer', 'write', undefined]);
+  assert.deepEqual([engineer?.form, engineer?.access, engineer?.readDirs], ['engineer', 'write', [WAYS]]);
   assert.match(engineer?.prompt ?? '', /^You are the Argus Engineer[\s\S]*## Ticket\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
-  assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
+  assert.deepEqual([reviewer?.form, reviewer?.access, reviewer?.readDirs], ['review', 'read', [WAYS]]);
   assert.match(reviewer?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
   assert.deepEqual(events().map(event => event.type), [
     'message', 'call.start', 'call.end', 'handoff', 'task.added',
@@ -156,7 +161,7 @@ test('a call the agent layer cannot make is a failed call too', async t => {
 });
 
 test('the Planner hands out one task at a time and closes the ticket', async t => {
-  const { flow, id, requests } = await setup(t, [
+  const { store, flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Parse data.csv\nCheck: the parser tests pass.' },
     { role: 'engineer', to: 'reviewer', letter: 'parsed' },
@@ -170,7 +175,7 @@ test('the Planner hands out one task at a time and closes the ticket', async t =
   assert.equal(project.status, 'done');
   assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.status]), [['t1', 'Parse data.csv', 'done'], ['t2', 'Write the totals report', 'done']]);
   const [, planner, parse, , replan, report] = requests;
-  assert.deepEqual([planner?.form, planner?.access, planner?.readDirs?.length], ['plan', 'read', 1]);
+  assert.deepEqual([planner?.form, planner?.access, planner?.readDirs], ['plan', 'read', [store.dir(id), WAYS]]);
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nThe Manager filed the ticket above: plan its work\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1: Parse data\.csv\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
