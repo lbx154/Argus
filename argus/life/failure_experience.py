@@ -324,7 +324,7 @@ class FailureExperienceStore:
     def _writable_snapshot(self) -> Iterator[ExperienceSnapshot]:
         """Commit source under its short lock, then refresh derived recall outside it."""
         with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+            snapshot = self._repository.load()
             yield snapshot
         self._sync(snapshot)
 
@@ -367,7 +367,7 @@ class FailureExperienceStore:
         if experience.revision != 1 or experience.state != "active" or not experience.id.startswith("exp:"):
             raise ValueError("settled observations must have their original identity and revision")
         with self._repository.locked(timeout_seconds=0):
-            snapshot = self._repository.load(full_legacy=True)
+            snapshot = self._repository.load()
             previous = snapshot.current.get(experience.id)
             if previous is not None:
                 if (
@@ -575,7 +575,7 @@ class FailureExperienceStore:
             return written
 
     def compact(self) -> dict[str, int]:
-        """Migrate old JSONL, prune old revisions/expired entries, reclaim the cache."""
+        """Prune old revisions/expired entries, reclaim the cache."""
         with self._writable_snapshot() as snapshot:
             self._commit(snapshot)
             summary = {
@@ -601,7 +601,7 @@ class FailureExperienceStore:
         if max_entries <= 0 or max_bytes <= 0:
             return []
         with self._repository.locked():
-            snapshot = self._repository.load(max_bytes=max_bytes)
+            snapshot = self._repository.load()
             return sorted(
                 (item for item in snapshot.current.values() if active(item, now=time.time())),
                 key=lambda item: (item.updated_at or item.created_at, item.id),
@@ -614,12 +614,7 @@ class FailureExperienceStore:
         if max_entries <= 0 or max_bytes <= 0:
             return []
         with self._repository.locked():
-            snapshot = self._repository.load(max_bytes=max_bytes)
-            # First ordinary recall upgrades the old append log. Explicit small
-            # legacy read windows remain read-only compatibility probes.
-            if snapshot.legacy and max_bytes == _DEFAULT_SCAN_BYTES:
-                snapshot = self._repository.load(full_legacy=True)
-                self._commit(snapshot)
+            snapshot = self._repository.load()
         from .failure_experience_index import _embedding_batch
 
         with _embedding_batch(self.index.embedder):
@@ -646,7 +641,7 @@ class FailureExperienceStore:
         # Source changes while HTTP was in flight supersede older similarity.
         # Use current lexical facts without another external request.
         with self._repository.locked():
-            current = self._repository.load(max_bytes=max_bytes)
+            current = self._repository.load()
             current_documents = self._documents(current)
         if current_documents != documents:
             snapshot, documents = current, current_documents

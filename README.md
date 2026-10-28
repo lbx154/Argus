@@ -724,11 +724,9 @@ service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
 `~/argus-skill-tasks`, `~/.local/share/argus-skill`, ...). Nothing under
 `~/.argus-skill` moves.
 
-**Kept for one release.** `import argus_skill` is the same package object as
-`import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
-the same modules, the `argus-skill` command still exists and prints one
-deprecation line on stderr, trial containers started under the
-old name are still recognised, and community verticals registered under the
+**No longer kept.** The `argus_skill` import alias and the `argus-skill`
+command were kept for one release and are gone: use `import argus`,
+`python -m argus ...` and `argus`. Community verticals registered under the
 pre-rename entry-point group are still discovered (with a warning).
 
 **Migrating an install.** Uninstall the old distribution before installing the
@@ -758,6 +756,24 @@ nevertheless reports `incompatible Argus API at <host>:<port>: ... — ownership
 could not be proven`, stop the old `--web` backend (its PID is recorded in
 `~/.argus-skill/runtime/webapi-<host>-<port>.owner.json`; `kill <pid>`) or
 start the cockpit on another port.
+
+## Upgrading project state from 0.1.x
+
+The runtime reads only the current on-disk formats. A project written by a
+tagged release from v0.1.1 on can still hold one of three older ones: a project
+directory named by a 12-character hash (every release up to 0.1.9), an operator
+inbox kept as `inbox.jsonl` files (0.1.1 to 0.1.6), or failure experiences kept
+as an append log (0.1.1 to 0.1.6). Convert them once, with the daemons stopped:
+
+```bash
+argus upgrade-state --dry-run   # list what would change
+argus upgrade-state
+```
+
+A project whose daemon is still running is skipped and listed; stop it and run
+the command again. A hash-named directory is matched to its project through the
+workdir it recorded; when it recorded none, name the project directory with
+`--workdir <path>`. Formats written only before v0.1.1 are no longer read.
 
 ## Uninstall
 

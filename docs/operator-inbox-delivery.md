@@ -123,7 +123,7 @@ Do not delete the database, identity marker, stream tombstones, retained envelop
 
 Read-only legacy queries count only complete, valid, unconsumed text lines, ignore incomplete tails for counting, and report `migration_required`. They do not create a database, migrate files, take an immediate write transaction or advance `inbox.offset`. An empty claim also creates no state. Only a producer or explicit migration activates the new protocol.
 
-For existing input, stop all old processes that can write or consume the shared inbox, then use the explicit migration API on an offline copy before considering real-state migration. `writers_stopped=True` is an assertion by the caller; the function does not discover, stop or lock out every old executable. This documentation does not authorize a live migration.
+For existing input, stop all old processes that can write or consume the shared inbox, then run `argus upgrade-state`. It calls `migrate_legacy_inbox(writers_stopped=True)` for every project whose daemon is not running and skips the others. `writers_stopped=True` is still an assertion: the command checks the project's own daemon, but it does not discover, stop or lock out every old executable. Until then the runtime raises `InboxMigrationRequired`, whose message names the command.
 
 A partial legacy line prevents migration without acknowledging its bytes. Complete the original line while writers are stopped and retry. Truncated files, out-of-range offsets, offsets inside lines, invalid complete pending records and pressure are errors. Interrupted activation retains bounded original archives; a retry imports them in one transaction. A successful migration removes those archives.
 

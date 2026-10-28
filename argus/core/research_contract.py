@@ -311,18 +311,6 @@ ACCEPTED_SIGNIFICANCE: dict[str, frozenset[str]] = {
 }
 
 
-def adapt_legacy_research_result_payload(
-    payload: Any,
-) -> dict[str, Any] | None:
-    """Read the canonical result or a historical field through one adapter."""
-    if not isinstance(payload, dict):
-        return None
-    raw = payload.get("research_result")
-    if not isinstance(raw, dict):
-        raw = payload.get("math_result")
-    return normalize_research_result(raw)
-
-
 def research_completion_issue(
     value: Any,
     *,
@@ -390,7 +378,6 @@ __all__ = [
     "SIGNIFICANCE_STATUSES",
     "STATEMENT_FIDELITY_STATUSES",
     "ResearchTargetContract",
-    "adapt_legacy_research_result_payload",
     "normalize_research_result",
     "normalize_research_direction_mode",
     "normalize_research_target_level",

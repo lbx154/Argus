@@ -106,7 +106,7 @@ that fixes it.
 - `argus/trial/` (delivery) - the server-metered hosted trial: gateway, egress, compute queue, portal, admin, training capture. 40 files (39 `.py`) ship in the wheel; the product proper uses about four of them. Needs the `[trial]` extra.
 - `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent. Distinct from the top-level `integrations/` directory below.
 - `argus/release_tools/` (delivery) - release and CI tooling: release build, plugin wheel build, manifest and artifact checks, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
-- Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5), `desktop_backend_entry.py` (PyInstaller entry for the frozen desktop backend).
+- Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main`), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5), `desktop_backend_entry.py` (PyInstaller entry for the frozen desktop backend).
 
 ## Repository top level
 
@@ -120,7 +120,6 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `.claude-plugin/` - Claude Code marketplace manifest pointing at `plugins/argus`.
 - `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/desktop checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop-trial`; plus Copilot instructions.
 - `argus/` - the Python package; everything above. Also carries `plugin_catalog.json`.
-- `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
 - `contrib/` - community contributions (`figure-studio` paper-figure pipeline, `pi-research-workflow-skill` for Pi/Hermes). Not built, not tested, not shipped.
 - `deploy/` - systemd units and Dockerfiles for the hosted trial (`deploy/trial/`).

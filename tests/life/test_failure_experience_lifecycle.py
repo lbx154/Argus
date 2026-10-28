@@ -188,10 +188,13 @@ def test_expiry_is_filtered_before_index_query_and_physically_compacted(tmp_path
     assert FailureExperienceStore(store.path).retrieve("temporary") == []
 
 
-def test_streaming_legacy_migration_preserves_old_match_and_its_later_annotation(
+def test_upgraded_append_log_preserves_old_match_and_its_later_annotation(
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "failure_experiences.jsonl"
+    from argus.apps.state_upgrade import upgrade_state
+
+    path = tmp_path / "projects" / "s-0a1b2c3d" / "failure_experiences.jsonl"
+    path.parent.mkdir(parents=True)
     records = [
         experience("rare zircon" if index == 0 else f"unrelated {index}", created_at=1000 + index)
         for index in range(100)
@@ -213,6 +216,7 @@ def test_streaming_legacy_migration_preserves_old_match_and_its_later_annotation
         )
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    upgrade_state(tmp_path)
 
     store = FailureExperienceStore(path)
     hits = store.retrieve("zircon")

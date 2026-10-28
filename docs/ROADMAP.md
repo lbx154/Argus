@@ -133,7 +133,7 @@ status on screen is derived from it; deleting a derived file and rebuilding it g
 | L3.3 | One meaning per name: `MemoryBundle.root`; one record of what the Planner has seen | 0.3 | todo | CO-5 |
 | L3.4 | Storage decision (files, SQLite/WAL or a mix), written as an ADR; the TS kernel is built on it | 0.3 | done: plain files, see [state-model.md](state-model.md) [95d3afd2] | CO-17 |
 | L3.5 | A verdict names the snapshot it reviewed; the baseline moves only on a pass | 0.3 | partly: snapshots and real diff done [247b432c] [9c042dda]; binding todo | HO-7 |
-| L3.6 | Old-data upgrade test with anonymized 0.1.x projects | 0.3 | todo | RL-2 |
+| L3.6 | Old-data upgrade test with anonymized 0.1.x projects | 0.3 | done: the three formats tagged releases from v0.1.1 on wrote and the runtime no longer reads (sha1-named project directories, the JSONL inbox, the append-log failure experiences) are converted once by `argus upgrade-state`; `tests/apps/test_state_upgrade.py` builds each in the shape its release wrote, upgrades, and reads it back through the current runtime, and a current project is left byte for byte [6ac48474]. The repository holds no real anonymized 0.1.x project; the fixtures follow the writers in the tags | RL-2 |
 
 ### L4 The host executes, it does not guess
 
@@ -170,7 +170,7 @@ code is allowed only in the same PR as deleting code; Python kernel code that L7
 | ID | Task | Ver | Status | Absorbs |
 | --- | --- | --- | --- | --- |
 | L6.1 | Swallowed-error inventory and a per-package guard; type-check gate on every commit; line-count guard | 0.2 | swallowed errors PR open [#293]; type gate and line guard todo | CO-1, CO-3, CI-1 |
-| L6.2 | Delete what is waiting to go: the `argus_skill` alias, the sha1 directory migration, 16 copies of atomic write | 0.4 | partly done: atomic writes go through `core.atomic_replace.write_atomic`, about 60 writers converted [17b10d87]; the alias (`9957c427` exists only on a local branch) and the sha1 migration are todo | EC-4, CO-20, CO-4 |
+| L6.2 | Delete what is waiting to go: the `argus_skill` alias, the sha1 directory migration, 16 copies of atomic write | 0.4 | partly done: atomic writes go through `core.atomic_replace.write_atomic`, about 60 writers converted [17b10d87]; the `argus_skill` alias and the `argus-skill` command are deleted [d2f44629]; the sha1 directory migration moved from every lookup to `argus upgrade-state` [6ac48474]; read-time compatibility for formats only written before v0.1.1 is deleted [c04e733a] | EC-4, CO-20, CO-4 |
 | L6.3 | Clear swallowed errors on the main path | 0.9 | started: 27 broad excepts around file reads, JSON parsing and imports narrowed [7d09b0db] | CO-2 |
 | L6.4 | Clear type issues file by file: zero in core, none new anywhere | 0.9 | todo | CI-3 |
 | L6.5 | Context cut: tools the reading roles never used are no longer sent | — | done [8a74975e] [5be8781d] | CE-4 |

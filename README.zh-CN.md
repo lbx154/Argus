@@ -644,9 +644,8 @@ git -C "$HOME/Argus" pull --ff-only
 以及其它磁盘标记(`/tmp/argus-skill-role-slots`、`~/argus-skill-tasks`、`~/.local/share/argus-skill` 等)。
 `~/.argus-skill` 下的任何内容都不需要搬。
 
-**保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
-`python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
-旧名字启动的 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+**已不再保留。** `argus_skill` 导入别名和 `argus-skill` 命令保留了一个发布周期,现已删除:请用
+`import argus`、`python -m argus ...` 和 `argus`。注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 
@@ -669,6 +668,20 @@ uv tool install --force --python 3.12 \
 `argus-skill` 视为同一个后端,所以原有的 ownership 记录仍然有效;如果它仍报
 `incompatible Argus API at <host>:<port>: ... — ownership could not be proven`,请停掉旧的 `--web` 后端
 (PID 记在 `~/.argus-skill/runtime/webapi-<host>-<port>.owner.json` 里,`kill <pid>`),或换一个端口启动驾驭舱。
+
+## 升级 0.1.x 的项目状态
+
+运行时只读当前的磁盘格式。v0.1.1 及以后的正式版本写出的项目,可能还留着三种旧格式之一:以 12 位哈希命名的
+项目目录(0.1.9 及以前的所有版本)、存成 `inbox.jsonl` 文件的操作员收件箱(0.1.1 到 0.1.6)、存成追加日志的
+失败经验(0.1.1 到 0.1.6)。停掉守护进程后转换一次:
+
+```bash
+argus upgrade-state --dry-run   # 只列出会改什么
+argus upgrade-state
+```
+
+守护进程还在跑的项目会被跳过并列出来;停掉后再运行一次。哈希命名的目录靠它记录过的工作目录找到对应项目;
+没有记录的,用 `--workdir <路径>` 指明项目目录。只在 v0.1.1 之前写过的格式不再读取。
 
 ## 卸载
 

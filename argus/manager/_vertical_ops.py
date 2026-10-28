@@ -533,15 +533,11 @@ class _VerticalDecisionMixin:
             vertical,
         )
         from ..core.pipeline_state import (
-            legacy_pipeline_state_path,
             primary_pipeline_state_path,
             read_pipeline_state,
         )
 
-        pipeline_states = [
-            primary_pipeline_state_path(self.project_root),
-            legacy_pipeline_state_path(self.project_root),
-        ]
+        pipeline_states = [primary_pipeline_state_path(self.project_root)]
         with _restore_files_on_error(pipeline_states):
             from ..verticals._base import load_vertical_contract
 
@@ -722,15 +718,9 @@ class _VerticalDecisionMixin:
         if _old_vertical is None:
             _old_vertical = vertical_select._persisted_vertical(self.project_root)
 
-        from ..core.pipeline_state import (
-            legacy_pipeline_state_path,
-            primary_pipeline_state_path,
-        )
+        from ..core.pipeline_state import primary_pipeline_state_path
 
-        pipeline_states = [
-            primary_pipeline_state_path(self.project_root),
-            legacy_pipeline_state_path(self.project_root),
-        ]
+        pipeline_states = [primary_pipeline_state_path(self.project_root)]
         domain_path = (
             self.project_root
             / "research"

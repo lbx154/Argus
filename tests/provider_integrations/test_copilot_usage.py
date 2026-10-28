@@ -468,10 +468,6 @@ def test_modern_missing_usage_is_pending_and_reconciles_late_wal_write(
     assert result.cost_usd is None
     ledger = UsageLedger(project)
 
-    def unexpected_event_scan(_root):
-        pytest.fail("modern ledger thread_id must not require raw event history")
-
-    monkeypatch.setattr("argus.core.usage._legacy_call_threads", unexpected_event_scan)
     if not store_exists:
         # A first invocation with a store that has not appeared yet cannot be
         # declared legacy. Preserve pending status until the late DB arrives.

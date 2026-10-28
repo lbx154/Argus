@@ -693,25 +693,6 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
 )
 
 
-def import_legacy_state(*, source_root: object, state_root: object) -> None:
-    """Carry pre-isolation research files into the isolated state root.
-
-    Runs once, right after legacy Manager state naming this vertical is copied
-    into the new state root: old stage names are rewritten to the current
-    four-stage order, and any idea-selection record made under the legacy
-    layout is brought along so the campaign keeps its chosen idea.
-    """
-    from ...skills.stage_machine import migrate_legacy_research_stage
-    from .idea_portfolio import migrate_legacy_idea_selection
-
-    migrate_legacy_research_stage(state_root)
-    migrate_legacy_idea_selection(
-        source_root,
-        state_root=state_root,
-        materialize_handoff=False,
-    )
-
-
 def search_altitude_context(project_root: object) -> str:
     """Research context is loaded explicitly by ``prompt_policy``."""
     _ = project_root
@@ -744,7 +725,6 @@ __all__ = [
     "ENGINEER_STAGE_OPERATIONS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
-    "import_legacy_state",
     "prepare_mission",
     "search_altitude_context",
     "render_role_prompt_fragment",

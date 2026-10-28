@@ -514,15 +514,6 @@ class EventJournal:
     @staticmethod
     def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
         etype = canonical_event_type(row.get("canonical_type") or row.get("type"))
-        if etype == EventType.LIFE_PLANNER_VERDICT:
-            from ..core.planner_verdict import (
-                PlannerVerdictStatus,
-                adapt_legacy_planner_verdict_event,
-            )
-
-            known_statuses = {status.value for status in PlannerVerdictStatus}
-            if str(row.get("status") or "") not in known_statuses:
-                row = adapt_legacy_planner_verdict_event(row)
         # A park ended this mission: name the documented pause kind rather than
         # mislabel it ``mission_failed``; the generic completed→kind map below
         # keys only on ``success``. The mid-mission budget breaker also wrote
@@ -3215,15 +3206,10 @@ class LifeMemory:
 # ---------------------------------------------------------------------------
 
 _RUNNING_ITEM_ABORT_FILENAME = "running_item_abort.json"
-_LEGACY_RUNNING_ITEM_ABORT_FILENAME = "mission_abort_request.json"
 
 
 def _running_item_abort_path(life_dir: Path | str) -> Path:
     return Path(life_dir) / _RUNNING_ITEM_ABORT_FILENAME
-
-
-def _legacy_running_item_abort_path(life_dir: Path | str) -> Path:
-    return Path(life_dir) / _LEGACY_RUNNING_ITEM_ABORT_FILENAME
 
 
 def _write_abort_payload(path: Path, payload: dict[str, Any]) -> bool:
@@ -3259,14 +3245,7 @@ def _write_running_item_abort(
         "requested_by": requested_by,
         "requested_at": time.time(),
     }
-    if not _write_abort_payload(_running_item_abort_path(life_dir), payload):
-        return False
-    # Long-lived daemons before the mailbox consolidation poll the legacy
-    # filename. Dual-write until all supported daemons use the new path.
-    return _write_abort_payload(
-        _legacy_running_item_abort_path(life_dir),
-        payload,
-    )
+    return _write_abort_payload(_running_item_abort_path(life_dir), payload)
 
 
 def request_running_item_abort(
@@ -3305,49 +3284,32 @@ def consume_running_item_abort(
     if not life_dir:
         return None
     root = Path(life_dir)
-    paths = (
-        _running_item_abort_path(root),
-        _legacy_running_item_abort_path(root),
-    )
-    raw = ""
-    consumed_path: Path | None = None
-    for path in paths:
-        if target_item_id:
-            try:
-                preview = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if (
-                not isinstance(preview, dict)
-                or str(preview.get("target_item_id") or "").strip()
-                != target_item_id
-            ):
-                continue
-        claimed = path.with_name(
-            f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
-        )
+    path = _running_item_abort_path(root)
+    if target_item_id:
         try:
-            os.replace(path, claimed)
-        except OSError:
-            continue
-        consumed_path = path
-        try:
-            raw = claimed.read_text(encoding="utf-8")
-        except OSError:
+            preview = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return None
-        finally:
-            try:
-                claimed.unlink()
-            except OSError:
-                pass
-        break
-    if consumed_path is None:
+        if (
+            not isinstance(preview, dict)
+            or str(preview.get("target_item_id") or "").strip()
+            != target_item_id
+        ):
+            return None
+    claimed = path.with_name(
+        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
+    )
+    try:
+        os.replace(path, claimed)
+    except OSError:
         return None
-    for path in paths:
-        if path == consumed_path:
-            continue
+    try:
+        raw = claimed.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    finally:
         try:
-            path.unlink()
+            claimed.unlink()
         except OSError:
             pass
     try:

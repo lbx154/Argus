@@ -614,6 +614,21 @@ def build_parser() -> argparse.ArgumentParser:
         "update",
         help="Safely fast-forward and reinstall this source checkout",
     )
+    upgrade_parser = subparsers.add_parser(
+        "upgrade-state",
+        help="Convert project state written by 0.1.x releases (once, with daemons stopped)",
+    )
+    upgrade_parser.add_argument(
+        "--workdir",
+        action="append",
+        default=[],
+        help="a project directory, to identify an old state directory it owns (repeatable)",
+    )
+    upgrade_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="list what would change without changing it",
+    )
     wiki_parser = subparsers.add_parser(
         "wiki",
         help="Per-project idea-wiki operations",

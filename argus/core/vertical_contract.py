@@ -175,10 +175,6 @@ class VerticalContract:
     # vertical that cannot pick a completion bar on its own. See
     # ``adopt_operator_objective``.
     operator_objective_adopter: Callable[[Path, str], object] | None = None
-    # Optional: carries this vertical's own pre-isolation artifacts (stage
-    # names, selection records) when legacy Manager state is imported into an
-    # isolated state root. Keyword-only forwarding; see ``import_legacy_state``.
-    legacy_state_importer: Callable[..., object] | None = None
     stage_primary_deliverables: dict[str, tuple[str, ...]] | None = None
     # Optional role-operation routing by canonical stage. The framework keeps
     # the fallback operation domain-blind; each vertical owns any specialization.
@@ -443,19 +439,6 @@ class VerticalContract:
         self.operator_objective_adopter(project_root, str(request or ""))
         return True
 
-    def import_legacy_state(self, *, source_root: Path, state_root: Path) -> None:
-        """Carry this vertical's pre-isolation artifacts into the state root.
-
-        Called once, right after legacy Manager state naming this vertical has
-        been copied into an isolated state root. The framework knows only that
-        an import happened; whatever stage-name or selection migration the
-        vertical needs stays vertical-local behind this hook, so the state
-        importer never has to name a domain.
-        """
-        if self.legacy_state_importer is None:
-            return
-        self.legacy_state_importer(source_root=source_root, state_root=state_root)
-
     def prepare_mission(
         self,
         *,
@@ -673,11 +656,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable operator objective adopter"
         )
-    legacy_state_importer = getattr(provider, "import_legacy_state", None)
-    if legacy_state_importer is not None and not callable(legacy_state_importer):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable legacy state importer"
-        )
     raw_primary_deliverables = (
         getattr(provider, "STAGE_PRIMARY_DELIVERABLES", {}) or {}
     )
@@ -817,7 +795,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         stage_completion_validator=stage_completion_validator,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
-        legacy_state_importer=legacy_state_importer,
         stage_primary_deliverables=stage_primary_deliverables,
         engineer_stage_operations=engineer_stage_operations,
         engineer_live_search_stages=engineer_live_search_stages,

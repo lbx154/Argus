@@ -13,9 +13,7 @@ from argus.core.usage import (
     UsageLedger,
     UsageRecord,
     build_usage_record,
-    ensure_project_events_standardized,
     format_usage_cost,
-    project_usage_summary,
 )
 
 
@@ -75,40 +73,12 @@ def test_usage_process_caches_are_bounded(
     assert lock_key not in usage._THREAD_LOCKS
 
 
-def test_real_copilot_fixture_preserves_matcher_and_scientist_output_tokens(
-    tmp_path: Path,
-) -> None:
+def test_real_copilot_fixture_preserves_matcher_and_scientist_output_tokens() -> None:
     fixture = _fixture()
     matcher = extract_token_usage(fixture["matcher"]["json_events"])
     scientist = extract_token_usage(fixture["scientist"]["json_events"])
     assert matcher.output_tokens == 118
     assert scientist.output_tokens == 13_175
-
-    project = tmp_path / "projects" / "s-fixture"
-    project.mkdir(parents=True)
-    rows = [
-        {"type": "life.mission.started", "item_id": "mission-1", "ts": 1.0},
-        fixture["matcher"],
-        fixture["scientist"],
-        {
-            "type": "life.mission.completed",
-            "item_id": "mission-1",
-            "cost_usd": 0.0,
-            "ts": 1783757314.0,
-        },
-    ]
-    (project / "events.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
-
-    records = UsageLedger(project).records(mission_id="mission-1")
-    assert len(records) == 2
-    assert [record.output_tokens for record in records] == [118, 13_175]
-    assert project_usage_summary(
-        project,
-        mission_id="mission-1",
-    ).output_tokens == 13_293
 
 
 def test_usage_reconciliation_uses_a_process_lock_without_fcntl(
@@ -225,63 +195,6 @@ def test_summary_deduplicates_copilot_usage_event_across_calls(
     assert summary.cost_usd == pytest.approx(0.01)
 
 
-def test_legacy_worktree_events_migrate_once_without_call_duplicates(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "projects" / "p1"
-    legacy = project / ".argus" / "events.jsonl"
-    legacy.parent.mkdir(parents=True)
-    canonical_start = {
-        "type": "agent.io.start",
-        "call_id": "call-1",
-        "ts": 1.0,
-    }
-    project.mkdir(parents=True, exist_ok=True)
-    (project / "events.jsonl").write_text(
-        json.dumps(canonical_start) + "\n",
-        encoding="utf-8",
-    )
-    legacy_rows = [
-        {**canonical_start, "ts": 2.0},
-        {"type": "agent.io.complete", "call_id": "call-1", "ts": 3.0},
-        {
-            "type": "agent.io.stream",
-            "call_id": "call-1",
-            "line": "first",
-            "ts": 2.1,
-        },
-        {
-            "type": "agent.io.stream",
-            "call_id": "call-1",
-            "line": "second",
-            "ts": 2.2,
-        },
-    ]
-    legacy.write_text(
-        "".join(json.dumps(row) + "\n" for row in legacy_rows) + "not-json\n",
-        encoding="utf-8",
-    )
-
-    assert ensure_project_events_standardized(project) == 3
-    assert ensure_project_events_standardized(project) == 0
-
-    rows = [
-        json.loads(line)
-        for line in (project / "events.jsonl").read_text().splitlines()
-    ]
-    assert sum(row["type"] == "agent.io.start" for row in rows) == 1
-    assert sum(row["type"] == "agent.io.complete" for row in rows) == 1
-    assert [
-        row["line"] for row in rows if row["type"] == "agent.io.stream"
-    ] == ["first", "second"]
-    marker = json.loads(
-        (project / "events.migration-v2.json").read_text(encoding="utf-8")
-    )
-    assert marker["rows_appended"] == 3
-    assert marker["duplicate_rows"] == 1
-    assert marker["malformed_rows"] == 1
-
-
 def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -328,6 +241,7 @@ def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
         provider="copilot",
         model="gpt-5.6-sol",
         run_label="simple-1",
+        thread_id="session-1",
         started_at=1_783_763_961.9,
         completed_at=1_783_763_965.95,
         status="completed",
@@ -342,17 +256,6 @@ def test_reconciles_legacy_copilot_request_cost_with_exact_token_cost(
         cost_basis="premium_request",
     )
     UsageLedger(project, migrate_legacy=False).append(old)
-    event_dir = project / ".argus"
-    event_dir.mkdir()
-    (event_dir / "events.jsonl").write_text(
-        json.dumps({
-            "type": "agent.io.complete",
-            "call_id": "call-1",
-            "thread_id": "session-1",
-        })
-        + "\n",
-        encoding="utf-8",
-    )
 
     summary = UsageLedger(project).summary()
     assert summary.input_tokens == 25_819
@@ -486,89 +389,6 @@ def test_copilot_reconcile_does_not_reuse_usage_or_price_denials(
     assert records[-1].pricing_status == "priced"
     assert records[-1].cost_basis == "premium_request"
     assert records[-1].cost_usd == pytest.approx(0.04)
-
-
-def test_legacy_migration_preserves_unknown_resumed_premium_delta(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "legacy"
-    project.mkdir()
-    rows = [
-        {"type": "life.mission.started", "item_id": "mission-1", "ts": 1.0},
-        {
-            "type": "agent.io.complete",
-            "call_id": "resumed-call",
-            "backend": "copilot",
-            "model": "gpt-5.6-sol",
-            "run_label": "manager-frontdoor-classify",
-            "thread_id": "resumed-session",
-            "premium_requests": None,
-            "premium_requests_present": False,
-            "json_events": [{
-                "type": "result",
-                "usage": {"premiumRequests": 15.0},
-            }],
-            "ts": 2.0,
-        },
-    ]
-    (project / "events.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
-
-    records = UsageLedger(project).records()
-
-    assert len(records) == 1
-    assert records[0].premium_requests is None
-    assert records[0].pricing_status == "partial"
-    assert records[0].cost_usd is None
-
-
-def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "projects" / "p1"
-    project.mkdir(parents=True)
-    rows = [
-        {"type": "life.mission.started", "item_id": "mission-1", "ts": 1.0},
-        {
-            "type": "agent.io.complete",
-            "call_id": "call-1",
-            "run_label": "engineer-r1",
-            "backend": "codex",
-            "model": "gpt-5.6-sol",
-            "thread_id": "thread-1",
-            "input_tokens": 100,
-            "output_tokens": 20,
-            "ts": 2.0,
-            "json_events": [
-                {"input_tokens": 100, "output_tokens": 20},
-            ],
-        },
-        {
-            "type": "agent.io.complete",
-            "call_id": "call-2",
-            "run_label": "engineer-r2",
-            "backend": "codex",
-            "model": "gpt-5.6-sol",
-            "thread_id": "thread-1",
-            "input_tokens": 50,
-            "output_tokens": 10,
-            "ts": 3.0,
-            "json_events": [
-                {"input_tokens": 150, "output_tokens": 30},
-            ],
-        },
-    ]
-    (project / "events.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
-
-    summary = UsageLedger(project).summary(mission_id="mission-1")
-    assert summary.call_count == 2
-    assert summary.input_tokens == 150
-    assert summary.output_tokens == 30
 
 
 def test_missing_usage_and_unknown_model_are_never_rendered_as_zero(

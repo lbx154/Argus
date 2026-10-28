@@ -230,7 +230,6 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
         assert case.captured["budget_after"] is None and (tmp_path / "cleanup-completed").exists()
         if signal == "abort":
             assert not (case.state / "running_item_abort.json").exists()
-            assert not (case.state / "mission_abort_request.json").exists()
         (tmp_path / "stop-observation.json").write_text(json.dumps({
             "scenario": scenario, "signal": signal, "elapsed_seconds": elapsed,
             "returned_before_holder_release": True, "retained_reason": reason,
@@ -285,7 +284,7 @@ def test_late_context_cannot_consume_the_next_mission_abort(tmp_path, monkeypatc
     case.runner._manager_session_root = next_root
     case.runner._active_mission_id = next_item.id
     assert request_running_item_abort(next_root, reason="next mission only") == (True, next_item.id)
-    before = {p.name: p.read_bytes() for p in [next_root / "running_item_abort.json", next_root / "mission_abort_request.json"]}
+    before = {p.name: p.read_bytes() for p in [next_root / "running_item_abort.json"]}
     observed = []
 
     def late():
@@ -300,7 +299,7 @@ def test_late_context_cannot_consume_the_next_mission_abort(tmp_path, monkeypatc
     thread.join(1)
     assert not thread.is_alive()
     assert observed == ["mission execution scope ended"] * 2
-    assert before == {p.name: p.read_bytes() for p in [next_root / "running_item_abort.json", next_root / "mission_abort_request.json"]}
+    assert before == {p.name: p.read_bytes() for p in [next_root / "running_item_abort.json"]}
     # A fresh execute on the same cached runner owns the new identity and may
     # consume its abort. The expired context cannot steal it first.
     outcome = case.execute(target=next_item.id)

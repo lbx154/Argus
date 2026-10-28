@@ -140,8 +140,6 @@ class _RunnerConstructionMixin:
 
         # Mirror build_agent_cli_backend_from_env's env-var contract here so
         # we can also pass event_callback (the helper doesn't expose it).
-        from ..adapters.agent_cli_backend import _strip_legacy_codex_profile_args
-
         # An explicit env override wins, else honour the backend the caller
         # already resolved into ``args.backend`` (which includes the persisted
         # ``/backend`` knob). Env-only reads here silently fell back to codex for
@@ -166,7 +164,7 @@ class _RunnerConstructionMixin:
                 runner_bin,
             )
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
-        extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
+        extra = shlex.split(raw_extra) if raw_extra else None
         if (
             normalize_runner_backend(backend_name) == "claude"
             and os.environ.get("ANTHROPIC_API_KEY")

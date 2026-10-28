@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..core.file_facts import file_facts
-from ..core.workspace_facts import IGNORED_NAMES, fact_text, tree_files, workspace_facts
+from ..core.workspace_facts import IGNORED_NAMES, fact_text, workspace_facts
 
 _VOLATILE_KEYS = frozenset({
     "created_at",
@@ -150,25 +150,8 @@ def build_project_state_signature(
     ))
 
 
-def project_unchanged_since(
-    *,
-    project_root: Path,
-    cutoff: float,
-    state_root: Path | None = None,
-) -> bool:
-    """Legacy-cert adapter: reject when any semantic project file is newer."""
-    if cutoff <= 0:
-        return False
-    try:
-        files = tree_files(project_root, ignore=_project_ignore(project_root, state_root))
-    except OSError:
-        return False
-    return all(facts is not None and facts[1] / 1e9 <= cutoff for _path, facts in files)
-
-
 __all__ = [
     "build_project_state_signature",
     "build_terminal_idle_signature",
-    "project_unchanged_since",
     "semantic_terminal_value",
 ]

@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ...core.atomic_replace import write_atomic
 from ...core.event_catalog import EventType
 from ..memory import BacklogItem
 from ..project_lifecycle import (
@@ -24,7 +23,6 @@ from ..project_lifecycle_io import (
     apply_persisted_to_status,
 )
 from ..project_lifecycle_io import append_event as _lifecycle_append_event
-from ..project_lifecycle_io import lifecycle_path as _lifecycle_path
 from ..project_lifecycle_io import load_persisted as _lifecycle_load_persisted
 from ._constants import (
     LIFECYCLE_BLOCK_HEARTBEAT_SECONDS as _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,
@@ -67,48 +65,6 @@ class LifecycleMixin:
         if project_state_dir is not None:
             return Path(project_state_dir)
         return Path(getattr(self.memory, "root", None) or ".")
-
-    def _migrate_global_lifecycle_if_needed(self, per_root: Path) -> None:
-        """Carry the legacy global lifecycle sidecar into this project once."""
-        if getattr(self.config, "project_state_dir", None) is None:
-            return
-        if getattr(self, "_lifecycle_migrated", False):
-            return
-        self._lifecycle_migrated = True
-        try:
-            per_file = _lifecycle_path(per_root)
-            if per_file.exists():
-                return
-            global_root = Path(getattr(self.memory, "root", None) or ".")
-            if global_root == per_root:
-                return
-            global_file = _lifecycle_path(global_root)
-            if not global_file.exists():
-                return
-            per_root.mkdir(parents=True, exist_ok=True)
-            data = global_file.read_text(encoding="utf-8")
-            write_atomic(per_file, data)
-            try:
-                global_file.replace(
-                    global_file.with_name(global_file.name + ".migrated")
-                )
-            except OSError:
-                log.warning(
-                    "lifecycle: copied global sidecar to %s but could not "
-                    "retire %s; future projects may inherit it",
-                    per_file,
-                    global_file,
-                )
-            log.info(
-                "lifecycle: migrated legacy global sidecar into per-project "
-                "dir %s",
-                per_file,
-            )
-        except Exception:  # noqa: BLE001
-            log.exception(
-                "lifecycle migration failed; continuing with fresh "
-                "per-project state"
-            )
 
     def _hold_on_unresolved_vertical(
         self,
@@ -175,7 +131,6 @@ class LifecycleMixin:
             log.warning("vertical pre-check failed; continuing to the lifecycle gate", exc_info=True)
         try:
             memory_root = self._lifecycle_root()
-            self._migrate_global_lifecycle_if_needed(memory_root)
             project_root = self._project_workdir()
             spent_usd, budget_usd = self._lifecycle_budget_snapshot()
 

@@ -19,10 +19,5 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
     if not context.paper_mission:
         return
     from ...skills.stage_machine import migrate_legacy_research_stage
-    from .idea_portfolio import migrate_legacy_idea_selection
 
     migrate_legacy_research_stage(context.state_root)
-    migrate_legacy_idea_selection(
-        context.workdir,
-        state_root=context.state_root,
-    )

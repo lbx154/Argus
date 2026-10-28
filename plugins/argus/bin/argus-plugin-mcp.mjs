@@ -5,10 +5,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-// The MCP server module. `argus_skill` is the package's pre-rename import
-// name, still importable through its alias for one release.
-const LEGACY_PACKAGE = 'argus_skill';
-const MODULE_NAMES = ['argus.plugin.mcp_server', `${LEGACY_PACKAGE}.plugin.mcp_server`];
+// The MCP server module.
+const MODULE_NAMES = ['argus.plugin.mcp_server'];
 
 function pythonCandidates() {
   const explicit = process.env.ARGUS_PLUGIN_PYTHON?.trim();

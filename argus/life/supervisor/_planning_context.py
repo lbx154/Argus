@@ -363,21 +363,7 @@ class PlanningContextMixin:
                     except Exception:  # noqa: BLE001 - unreadable binding fails closed
                         continue
                 certified_signature = str(extra.get("final_submission_signature") or "")
-                if certified_signature:
-                    if bool(current_signature) and certified_signature == current_signature:
-                        return True
-                    continue
-                from ..terminal_state import project_unchanged_since
-
-                if self._legacy_final_submission_cert_matches(
-                    entry=entry,
-                    current_signature=current_signature,
-                    unchanged_since=project_unchanged_since(
-                        project_root=self._project_workdir(),
-                        cutoff=float(getattr(entry, "ts", 0.0) or 0.0),
-                        state_root=operator_context_state_root(self.memory),
-                    ),
-                ):
+                if current_signature and certified_signature == current_signature:
                     return True
         return False
 
@@ -479,33 +465,6 @@ class PlanningContextMixin:
             project_root=self._project_workdir(),
             state_root=operator_context_state_root(self.memory),
         )
-
-    def _legacy_final_submission_cert_matches(
-        self,
-        *,
-        entry: Any,
-        current_signature: str,
-        unchanged_since: bool,
-    ) -> bool:
-        """Bind one legacy certification to a state hash on first safe read."""
-        path = Path(self.memory.root) / "legacy_final_submission_signatures.json"
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            payload = {}
-        payload = payload if isinstance(payload, dict) else {}
-        key = (
-            f"{float(getattr(entry, 'ts', 0.0) or 0.0):.9f}:"
-            f"{str(getattr(entry, 'title', '') or '')}"
-        )
-        bound = str(payload.get(key) or "")
-        if bound:
-            return bool(current_signature) and bound == current_signature
-        if not unchanged_since or not current_signature:
-            return False
-        payload[key] = current_signature
-        write_atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-        return True
 
     def _operator_only_external_blocker_wait_reason(self) -> str:
         """Return the reason only the operator can remove an external blocker.
