@@ -85,9 +85,8 @@ function tree(root: string) {
 
 /** Git run outside the sandbox on a repository the roles write: it changes nothing, and runs
  * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
- * diff driver, a signature check), its attributes read from the empty tree instead. */
-const SAFE_GIT = ['--no-optional-locks', '--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904',
-  '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
+ * diff driver, a signature check), nor goes into a submodule, whose config is the roles' too. */
+const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
 
 /** What git says of the workdir, read without changing anything; a workdir that is not a
  * repository of its own has nothing to say. Whether GitHub is signed in to is not looked up. */
@@ -107,10 +106,15 @@ async function git(root: string) {
   if (!existsSync(join(root, '.git'))) {
     return { available: false, branch: '', status: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity, github, publish_ready: false };
   }
+  // Every filter the config defines runs nothing: an attribute naming one may be in .git/info/attributes.
+  const filters = new Set([...(await read('config', '--name-only', '--get-regexp', '^filter\\.')).matchAll(/^filter\.(.+)\.[\w-]+$/gm)]
+    .map(([, name]) => name!));
+  const off = [...filters].flatMap(name => [...['clean', 'smudge', 'process'].map(key => `filter.${name}.${key}=`), `filter.${name}.required=false`])
+    .flatMap(setting => ['-c', setting]);
   const [status, staged, unstaged, log, remote] = await Promise.all([
-    read('status', '--short', '--branch'),
-    read('diff', '--cached', '--no-ext-diff', '--no-textconv', '--unified=2'),
-    read('diff', '--no-ext-diff', '--no-textconv', '--unified=2'),
+    read(...off, 'status', '--short', '--branch', '--ignore-submodules'),
+    read(...off, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--ignore-submodules', '--unified=2'),
+    read(...off, 'diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules', '--unified=2'),
     read('log', '-20', '--date=iso-strict', '--pretty=format:%H%x09%ad%x09%an%x09%s'),
     read('remote', '-v'),
   ]);

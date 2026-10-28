@@ -68,7 +68,8 @@ in the same workspace. The Planner cuts work too large for one task into a few l
 ending in a result rather than a plan for a later one; those that do not depend on each other
 it opens together, a letter each, and it reads their letters together when all have ended.
 Letters to the Manager are answered one after another, and the operator is asked one question
-at a time: a second, while one is open, goes back to its writer. There are no stages: what a
+at a time: a second, while one is open, goes back to its writer, as does a letter to the Planner
+on a task the Manager gave, which the Planner never had. There are no stages: what a
 research project calls its stages is the order of the tasks the Planner writes. The work rests
 (`idle`) when no letter waits for anyone but the operator, which is after the Manager's report;
 the Manager may also finish a small request in its own turn.

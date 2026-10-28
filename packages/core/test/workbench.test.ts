@@ -62,7 +62,8 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   // Git: nothing until the workdir is a repository, then its branch, changes, diff and history.
   assert.equal((await get<{ available: boolean }>(W('git'))).available, false);
   const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=Ada', '-c', 'user.email=ada@example.com', ...args], { cwd: project.workdir });
-  git('init', '-q', '-b', 'main');
+  git('init', '-q');
+  git('symbolic-ref', 'HEAD', 'refs/heads/main');
   git('add', 'src/main.py');
   git('commit', '-q', '-m', 'First script');
   await writeFile(join(project.workdir, 'src/main.py'), 'print(2)\n');
@@ -78,8 +79,13 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   await chmod(join(project.workdir, '..', 'program.sh'), 0o755);
   git('config', 'core.fsmonitor', join(project.workdir, '..', 'program.sh'));
   git('config', 'filter.x.clean', join(project.workdir, '..', 'program.sh'));
+  git('config', 'filter.x.process', join(project.workdir, '..', 'program.sh'));
   await writeFile(join(project.workdir, '.gitattributes'), '* filter=x\n');
-  assert.match((await get<{ status: string }>(W('git'))).status, /src\/main\.py/);
+  await mkdir(join(project.workdir, '.git', 'info'), { recursive: true });
+  await writeFile(join(project.workdir, '.git', 'info', 'attributes'), '* filter=x\n');
+  const shown = await get<{ status: string; diff: string }>(W('git'));
+  assert.match(shown.status, /src\/main\.py/);
+  assert.match(shown.diff, /^\+print\(2\)$/m);
   assert.equal(existsSync(ran), false);
   // A diff past the limit is shown up to it, and says so.
   await writeFile(join(project.workdir, 'big.txt'), 'x'.repeat(1.5 * (1 << 20)));

@@ -164,7 +164,7 @@ export class Flow {
   private async work(project: Project, task: Task, refused?: string): Promise<void> {
     const role = task.holder;
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed),
-      { check: oneQuestion(project), ...(refused ? { refused } : {}) }))?.handoff;
+      { check: taskRules(project, task), ...(refused ? { refused } : {}) }))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
     const letter = read(handoff);
@@ -199,7 +199,10 @@ export class Flow {
   private async handOver(project: Project, letter: string): Promise<void> {
     this.handing.add(letter);
     try {
-      if (await this.manager(project, letter)) project.forManager?.splice(project.forManager.indexOf(letter), 1);
+      if (await this.manager(project, letter)) {
+        project.forManager?.splice(project.forManager.indexOf(letter), 1);
+        this.store.save(project);
+      }
     } finally {
       this.handing.delete(letter);
     }
@@ -310,7 +313,10 @@ const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 type Check = (handoff: HandOff) => string | null;
 
-/** The rule a task's form cannot say: the operator answers one question at a time. A returned
- * string refuses the hand-off, and its writer corrects it in one more turn of its session. */
-const oneQuestion = (project: Project): Check => ({ to }) => to === 'operator' && project.question ? ANOTHER_QUESTION : null;
+/** The rules a task's form cannot say: the operator answers one question at a time, and the
+ * Planner hears only of the tasks it gave. A returned string refuses the hand-off, and its writer
+ * corrects it in one more turn of its session. */
+const taskRules = (project: Project, task: Task): Check => ({ to }) =>
+  to === 'operator' && project.question ? ANOTHER_QUESTION : to === 'planner' && task.from === 'manager' ? NOT_THE_PLANNERS : null;
 const ANOTHER_QUESTION = 'The operator has yet to answer another question: carry on without them, or write to someone else.';
+const NOT_THE_PLANNERS = 'The Manager gave this task, not the Planner: write to the Manager about it.';

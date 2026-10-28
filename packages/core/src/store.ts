@@ -72,6 +72,9 @@ export type FlowEvent =
   | { type: 'task.closed'; task: string }
   | { type: 'status'; status: Status; error?: string; question?: Question };
 
+/** A project's id, and the name of its directory: `p-` and hex. */
+export const PROJECT_ID = /^p-[0-9a-f]+$/;
+
 /** The state root: $ARGUS_HOME, absolute, or ~/.argus. */
 export const argusHome = (): string => resolve(process.env.ARGUS_HOME || join(homedir(), '.argus'));
 
@@ -127,7 +130,7 @@ export class Store {
   list(): Project[] {
     let ids: string[];
     try { ids = readdirSync(join(this.home, 'projects')); } catch { return []; }
-    return ids.map(id => this.load(id)).sort((a, b) => a.created.localeCompare(b.created));
+    return ids.filter(id => PROJECT_ID.test(id)).map(id => this.load(id)).sort((a, b) => a.created.localeCompare(b.created));
   }
 }
 

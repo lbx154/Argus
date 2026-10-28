@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -66,6 +66,19 @@ test('under bubblewrap a turn writes the directories it is given to write only w
     return argv[argv.lastIndexOf(skills) - 2];
   };
   assert.deepEqual([bound('write'), bound('read')], ['--bind-try', '--ro-bind-try']);
+});
+
+test('under bubblewrap codex reads the files its config names, however the config quotes them', { skip: process.platform !== 'linux' && 'Linux only' }, t => {
+  const codexHome = join(root, 'codex-home');
+  mkdirSync(join(root, 'catalog'), { recursive: true });
+  mkdirSync(codexHome, { recursive: true });
+  for (const name of ['models.json', 'prompt.md']) writeFileSync(join(root, 'catalog', name), '{}');
+  writeFileSync(join(codexHome, 'config.toml'),
+    `model_catalog_json = '${join(root, 'catalog', 'models.json')}'\nmodel_instructions_file = "${join(root, 'catalog', 'prompt.md')}"\n`);
+  process.env.CODEX_HOME = codexHome;
+  t.after(() => { delete process.env.CODEX_HOME; });
+  const argv = confine(['codex'], { backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: work, access: 'write', callsDir: '', usageFile: '' });
+  for (const name of ['models.json', 'prompt.md']) assert.ok(argv.includes(join(root, 'catalog', name)), name);
 });
 
 // What each fake CLI reports: its model, usage and the credentials it signs in with.

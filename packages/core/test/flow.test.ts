@@ -308,6 +308,8 @@ test("a letter for the Manager outlasts its failed turn, and reaches it when the
   const project = await again.settled(id);
   assert.deepEqual([project.status, project.forManager], ['idle', []]);
   assert.equal(next.requests[0]?.prompt, 'From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.');
+  // Taken, it is gone from the record too: a process started after this one never hands it on again.
+  assert.deepEqual(new Store(home).load(id).forManager, []);
 });
 
 test('a failed call stays failed when a letter from the team reaches the Manager: nothing retries it', async t => {
@@ -335,6 +337,17 @@ test('a second question that arrives as the first is asked goes back to its writ
   assert.deepEqual([project.status, project.question], ['asking', { role: 'engineer', task: 't1', question: 'Which delimiter?' }]);
   assert.equal(requests.at(-1)?.prompt, refusedPrompt('The operator has yet to answer another question: carry on without them, or write to someone else.'));
   assert.equal(project.tasks[1]?.holder, 'reviewer');
+});
+
+test("the Planner hears only of its own tasks: a letter on the Manager's goes back to its writer", async t => {
+  const { flow, id } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added', refuse: ['planner'] },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.', refuse: ['planner'] },
+    report,
+  ]);
+  const project = await say(flow, id, 'Make me a CSV summary tool');
+  assert.deepEqual([project.status, project.inbox], ['idle', []]);
 });
 
 test('a task that cannot go on as briefed goes back to the Planner, and on to the Manager', async t => {
@@ -371,6 +384,12 @@ test('a restarted process continues from project.json', async t => {
   assert.equal(next.requests[0]?.resume, 'manager-1');
   assert.equal(next.requests[1]?.resume, undefined);
   assert.match(next.requests[1]?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added$/);
+});
+
+test("the projects are what is named as one: a file the desktop leaves beside them is none", async t => {
+  const { store, id } = await setup(t, []);
+  writeFileSync(join(store.home, 'projects', '.DS_Store'), '');
+  assert.deepEqual(store.list().map(project => project.id), [id]);
 });
 
 test('one process owns the state root; a dead owner is replaced', async t => {

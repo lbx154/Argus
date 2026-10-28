@@ -8,8 +8,8 @@ export const ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 export type Role = (typeof ROLES)[number];
 /** The hand-off form a role's turn ends with (agent/handoff.ts). */
 export type Form = 'manager' | 'plan' | 'engineer' | 'review';
-/** What the turn may touch: nothing, read the workdir, or write it. */
-export type Access = 'none' | 'read' | 'write';
+/** What the turn may do to the workdir: read it, or write it. */
+export type Access = 'read' | 'write';
 
 export interface AgentRequest {
   backend: Backend;

@@ -44,12 +44,14 @@ export const readEvents = (store: Store, id: string): Recorded[] =>
 export function webEvents(events: Recorded[]): EventMsg[] {
   const rows: EventMsg[] = [];
   let asked: number | null = null;
-  let call = '';
+  /** The call under way of each role on each task, which tasks run side by side. */
+  const calls = new Map<string, string>();
   events.forEach((event, line) => {
     const row = (type: string, fields: Record<string, unknown>): void => {
       rows.push({ type, ts: seconds(event.ts), event_id: line, ...fields });
     };
     const where = 'task' in event && typeof event.task === 'string' ? { item_id: event.task } : {};
+    const caller = 'role' in event ? `${event.role}.${where.item_id ?? ''}` : '';
     switch (event.type) {
       case 'message':
         // A message to the Manager waits for its reply; an answer to another role's question does not.
@@ -57,14 +59,14 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator` });
         break;
       case 'call.start':
-        call = `c${line}`;
-        row('provider.request.started', { call_id: call, run_label: event.role, agent_layer: event.role, ...where });
+        calls.set(caller, `c${line}`);
+        row('provider.request.started', { call_id: `c${line}`, run_label: event.role, agent_layer: event.role, ...where });
         break;
       case 'call.end':
         // A Manager turn that ended without a letter replies to nothing; the next letter answers no message.
         if (event.role === 'manager' && !event.completed) asked = null;
         row('provider.request.completed', {
-          call_id: call, run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
+          call_id: calls.get(caller) ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });
         break;
       case 'handoff':
