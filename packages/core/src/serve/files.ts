@@ -53,8 +53,9 @@ export function sendFile(request: IncomingMessage, response: ServerResponse, fil
 export function under(root: string, path: string): { file: string; path: string; stat: Stats } | null {
   let file: string;
   try {
-    root = realpathSync(root);
-    file = realpathSync(resolve(root, path));
+    // The names the file system keeps: on Windows a hidden file's short name (HIDDEN~1) is not hidden.
+    root = realpathSync.native(root);
+    file = realpathSync.native(resolve(root, path));
   } catch { return null; }
   const inside = relative(root, file);
   if (!inside || inside.startsWith('..') || isAbsolute(inside) || inside.split(sep).some(part => part.startsWith('.'))) return null;
