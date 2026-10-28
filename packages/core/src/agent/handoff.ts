@@ -31,7 +31,7 @@ const TO: Record<Form, Record<string, string>> = {
     operator: OPERATOR,
   },
   review: {
-    engineer: 'concrete in-scope repairs, named in the letter',
+    engineer: 'what to repair before the operator sees it, named in the letter',
     planner: 'your judgment on a task the Planner gave: accepted, or what is wrong',
     manager: `your judgment on a task the Manager gave: accepted, or what is wrong; or ${STUCK}`,
     operator: OPERATOR,
