@@ -19,7 +19,11 @@ from ..core.session import (
     update_session_meta,
 )
 from ..daemon.life_worker import read_continuous_state
-from ..daemon.state import ContinuousConfigState, read_daemon_status
+from ..daemon.state import (
+    ContinuousConfigState,
+    compare_and_swap_continuous_config,
+    read_daemon_status,
+)
 from . import project_state
 from .daemon_services import DaemonStatusReader, ProjectDaemonStarter
 
@@ -252,8 +256,23 @@ def apply_continuous_update(
         return ContinuousUpdateReceipt(life_dir, manager_control_generation(sid), read_continuous_state(life_dir))
     from .manager_dispatch import manager_continuous_handoff
 
+    current = read_continuous_state(life_dir)
+    if current.enabled and objective.strip() and objective.strip() == current.objective.strip():
+        # "Keep going" on the campaign already running its objective changes
+        # how long it lasts, not what it pursues: the route the Manager's
+        # ticket chose stands, and no second Manager handoff is made for it
+        # (trial s-dacac579 recorded a second "user" route 19 s after the
+        # operator's one message).
+        from .manager_state import sync_manager_continuous
+
+        if not current.open_ended and not compare_and_swap_continuous_config(
+            life_dir, expected=current, enabled=True, objective=current.objective, open_ended=True,
+        ):
+            raise ManagerHandoffSupersededError("A newer control request superseded this request")
+        sync_manager_continuous(sid, generation, current.objective)
+        return ContinuousUpdateReceipt(life_dir, generation, read_continuous_state(life_dir))
     if objective.strip():
-        if objective.strip() != read_continuous_state(life_dir).objective.strip():
+        if objective.strip() != current.objective.strip():
             # A newer explicit objective supersedes an older web Manager call,
             # including one currently blocked in its provider or at a boundary.
             generation = interrupt_manager_turns(

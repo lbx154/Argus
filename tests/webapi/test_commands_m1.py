@@ -399,6 +399,34 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
     }
 
 
+def test_keep_going_on_the_running_campaign_changes_its_lifetime_without_a_second_route(
+    ctx,
+    monkeypatch,
+) -> None:
+    """Trial s-dacac579: the 持续推进 switch re-ran the Manager handoff and logged a second "user" route."""
+    from argus.daemon.state import compare_and_swap_continuous_config, read_continuous_state
+
+    root, sid, life = ctx
+    objective = "撰写一篇中文人工智能文献综述。"
+    assert compare_and_swap_continuous_config(
+        life, expected=read_continuous_state(life), enabled=True, objective=objective, open_ended=False,
+    )
+    monkeypatch.setattr(
+        front_door, "_ensure_manager_runner",
+        lambda *_a: (_ for _ in ()).throw(AssertionError("keep going is no new Manager handoff")),
+    )
+    monkeypatch.setattr(daemon_worker, 'spawn_detached_daemon_clean', lambda config, *, quiet=False: 0)
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(f"/api/projects/{sid}/continuous", json={"enabled": True, "objective": objective})
+
+    assert response.status_code == 200
+    state = read_continuous_state(life)
+    assert (state.enabled, state.open_ended, state.objective) == (True, True, objective)
+    events = (life / "events.jsonl").read_text(encoding="utf-8") if (life / "events.jsonl").exists() else ""
+    assert "life.manager.intent" not in events
+
+
 def test_disable_continuous_surfaces_persistence_failure(
     ctx,
     monkeypatch,
