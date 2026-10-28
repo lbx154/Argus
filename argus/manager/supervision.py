@@ -24,7 +24,7 @@ from ..core.models import RunnerOptions
 from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..core.workspace_facts import fact_text
-from ..daemon.state import _fsync_directory
+from ..daemon.state import _fsync_directory, read_continuous_state
 from ._helpers import _manager_backend_failure
 from ._session_ops import _ManagerSession
 from .observation import (
@@ -92,7 +92,7 @@ def _latest_record(root: Path) -> dict[str, Any]:
 def _short_error(exc: BaseException) -> str:
     # Only checks written here have messages safe to persist; provider and
     # runtime exception text can carry raw bodies or credentials.
-    if isinstance(exc, SupervisionDecisionError):
+    if isinstance(exc, (SupervisionDecisionError, SupervisionSuperseded)):
         return " ".join(str(exc).split())[:300]
     return type(exc).__name__
 
@@ -175,6 +175,13 @@ def _check(
         refusal = rung_refusal(payload, operator_can_be_asked=not _manager_holds_operator_authority(root))
         if refusal:
             raise ValueError(refusal)
+    if payload["to"] == "stop" and not _attempt_key(root, str(event.get("item_id") or "")):
+        # Refused here, where the Manager can choose again, not after it issued
+        # a stop that could only be recorded as superseded.
+        raise ValueError(
+            "No mission run is in question here, so there is nothing to park: hand it to=team or "
+            "to=planner with your note, or to=operator for what only they can decide."
+        )
     available = {ref["path"] for ref in observation.facts["evidence_refs"]}
     cited = list(dict.fromkeys(payload["evidence_refs"]))
     outside = [ref for ref in cited if ref not in available]
@@ -323,15 +330,22 @@ def _put_to_operator(root: Path, record: dict[str, Any], question: str) -> str:
     """Park the task handed to the Manager on the operator's answer, on its question card.
 
     A task still settling is delivered to at the next boundary; the question
-    the card already holds is not asked twice.
+    the card already holds is not asked twice. A question no task holds (the
+    Planner handed its turn here) goes on the planning slot's one card, as the
+    Planner's own question does: the obstacle reaches the one who can remove it.
     """
     from ..life.event_log import JsonlEventSink
     from ..life.memory import Backlog
-    from ..life.supervisor.pending_notify import ask_operator
+    from ..life.supervisor.pending_notify import ask_operator, planning_slot_card
 
     item_id = str(record.get("trigger", {}).get("item_id") or "")
     backlog = Backlog(root / "backlog.jsonl")
-    task = next((row for row in backlog.active() if row.id == item_id), None) if item_id else None
+    if not item_id:
+        task, new = planning_slot_card(backlog, read_continuous_state(root).objective or question)
+        if not new:
+            return task.id
+    else:
+        task = next((row for row in backlog.active() if row.id == item_id), None)
     if task is None:
         raise SupervisionSuperseded("the task the question is about has ended")
     if task.status == "running":
@@ -733,6 +747,13 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
             # Work that climbed or was handed to the Manager: its rung is process debugging.
             event = {**event, "process_stuck": True}
     elif event_type == EventType.LIFE_PLANNER_IDLE and event.get("handoff") == "manager":
+        from ..life.memory import Backlog
+        from ..life.supervisor.pending_notify import waiting_planning_card
+
+        if waiting_planning_card(Backlog(project_root / "backlog.jsonl")) is not None:
+            # The campaign already waits on the operator's answer to its one
+            # question; the Manager has nothing to add until they answer.
+            return False
         why = " ".join(str(event.get("reason") or "").split())[:200]
         reason = f"the Planner says the process is stuck: {why}"
         event = {**event, "process_stuck": True}
