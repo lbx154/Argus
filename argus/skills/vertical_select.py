@@ -363,12 +363,6 @@ def migrate_legacy_manager_state(
         return False
     write_pipeline_state(target_root, payload)
     if names_a_vertical:
-        from ..verticals._base import load_vertical_contract
-
-        load_vertical_contract(_known_vertical(named, target_root), target_root).import_legacy_state(
-            source_root=source_root,
-            state_root=target_root,
-        )
         # Warm read that proves the imported decision resolves against the new
         # root. Skipped when undecided: `resolve_vertical` would only log its
         # "no Manager vertical resolved" fallback warning for a project that is
@@ -781,7 +775,6 @@ def persist_vertical(
         payload.setdefault("selected_idea", None)
         payload.setdefault("current_verdict", "in_progress")
         payload.setdefault("research_intent_generation", 1)
-        payload.setdefault("legacy_selection_consumed", False)
         payload.setdefault(
             "next_action",
             f"Continue the current {payload.get('current_stage') or 'idea'} stage.",
@@ -1236,10 +1229,6 @@ def reset_stage_for_new_intent(
         except (TypeError, ValueError):
             generation = 1
         payload["research_intent_generation"] = generation + 1
-        # A replacement intent is never an initial migration. Permanently
-        # consume the legacy-import opportunity before the new Idea stage
-        # starts, even if no earlier runtime reached library preparation.
-        payload["legacy_selection_consumed"] = True
         if not retain_research_context:
             payload.pop("idea_portfolio", None)
             payload["selected_idea"] = None

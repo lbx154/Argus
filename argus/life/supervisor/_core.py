@@ -1049,11 +1049,9 @@ class LifeSupervisor(
                     or ""
                 )
             if research_result is None:
-                from ...core.research_contract import (
-                    adapt_legacy_research_result_payload,
-                )
+                from ...core.research_contract import normalize_research_result
 
-                research_result = adapt_legacy_research_result_payload(extra)
+                research_result = normalize_research_result(extra.get("research_result"))
             if mission_id and research_result is not None:
                 break
         from ...core.research_contract import resolve_research_target_level

@@ -23,7 +23,6 @@ from ._io_log import AgentIOLogger
 from ._options import (
     _compose_interrupt_providers,
     _normalize_codex_selection_args,
-    _strip_legacy_codex_profile_args,
     resolve_codex_execution_model,
 )
 from ._result import UsageAccumulator, translate_result
@@ -350,15 +349,6 @@ class AgentCliBackend:
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
         project_root, _mission_id, _global_root = self._usage_context_snapshot()
         if project_root is not None:
-            try:
-                from ...core.usage import ensure_project_events_standardized
-
-                ensure_project_events_standardized(project_root)
-            except Exception:  # noqa: BLE001 — logging must not break work
-                log.exception(
-                    "failed to migrate legacy project events for %s",
-                    project_root,
-                )
             return project_root / "events.jsonl"
         raw = os.environ.get("ARGUS_SKILL_AGENT_IO_LOG", "").strip()
         if raw:
@@ -511,7 +501,7 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
 
     runner_bin = resolve_runner_bin_setting(backend=backend) or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
-    extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
+    extra = shlex.split(raw_extra) if raw_extra else None
     return AgentCliBackend(
         backend=backend,
         runner_bin=runner_bin,

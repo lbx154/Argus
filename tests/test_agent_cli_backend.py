@@ -1001,16 +1001,3 @@ def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path
     assert foreground == [("engineer.stdout", line)]
     assert background == [("engineer.stdout", line)]
     assert backend._io_logger.external_event_callback is inherited._io_logger.external_event_callback
-
-
-def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(
-    monkeypatch,
-):
-    monkeypatch.setenv(
-        "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
-        '-c "profile = \\"auto-max\\"" --trace',
-    )
-    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
-    backend = build_agent_cli_backend_from_env()
-    assert backend._runner.default_extra_args == ["--trace"]

@@ -36,7 +36,6 @@ from __future__ import annotations
 from ._core import AgentCliBackend, build_agent_cli_backend_from_env
 from ._io_log import _needed_for_live_progress
 from ._options import (
-    _strip_legacy_codex_profile_args,
     resolve_codex_execution_model,
     resolve_pricing_model,
 )
@@ -48,7 +47,6 @@ from ._result import (
 __all__ = [
     "AgentCliBackend",
     "build_agent_cli_backend_from_env",
-    "_strip_legacy_codex_profile_args",
     "resolve_pricing_model",
     "resolve_codex_execution_model",
     "looks_like_auth_failure",

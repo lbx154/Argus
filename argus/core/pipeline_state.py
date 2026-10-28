@@ -1,4 +1,4 @@
-"""Generic pipeline-state storage with one legacy-path compatibility reader."""
+"""Generic pipeline-state storage."""
 
 from __future__ import annotations
 
@@ -9,24 +9,15 @@ from typing import Any
 from .atomic_replace import write_atomic
 
 PIPELINE_STATE_RELATIVE = Path(".argus") / "PIPELINE_STATE.json"
-LEGACY_PIPELINE_STATE_RELATIVE = Path("research") / "PIPELINE_STATE.json"
 
 
 def primary_pipeline_state_path(project_root: object) -> Path:
     return Path(str(project_root)).expanduser() / PIPELINE_STATE_RELATIVE
 
 
-def legacy_pipeline_state_path(project_root: object) -> Path:
-    return Path(str(project_root)).expanduser() / LEGACY_PIPELINE_STATE_RELATIVE
-
-
 def pipeline_state_path(project_root: object) -> Path:
-    """Return the authoritative state path, falling back to the legacy file."""
-    primary = primary_pipeline_state_path(project_root)
-    if primary.exists():
-        return primary
-    legacy = legacy_pipeline_state_path(project_root)
-    return legacy if legacy.exists() else primary
+    """Return the authoritative state path."""
+    return primary_pipeline_state_path(project_root)
 
 
 def pipeline_state_exists(project_root: object) -> bool:
@@ -46,7 +37,7 @@ def read_pipeline_state(project_root: object) -> dict[str, Any]:
 
 
 def write_pipeline_state(project_root: object, payload: dict[str, Any]) -> Path:
-    """Atomically write the generic path; legacy files remain read-only inputs."""
+    """Atomically write the state file."""
     if not isinstance(payload, dict):
         raise TypeError("pipeline state payload must be a dict")
     path = primary_pipeline_state_path(project_root)
@@ -56,9 +47,7 @@ def write_pipeline_state(project_root: object, payload: dict[str, Any]) -> Path:
 
 
 __all__ = [
-    "LEGACY_PIPELINE_STATE_RELATIVE",
     "PIPELINE_STATE_RELATIVE",
-    "legacy_pipeline_state_path",
     "pipeline_state_exists",
     "pipeline_state_path",
     "primary_pipeline_state_path",

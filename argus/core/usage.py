@@ -29,7 +29,6 @@ from ..provider_integrations.copilot_usage import (
     find_copilot_usage_near,
 )
 from .atomic_replace import write_atomic
-from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import (
     PricingQuote,
     PricingStatus,
@@ -42,7 +41,7 @@ from .runner_errors import (
     is_local_startup_refusal,
     is_pre_provider_refusal_error,
 )
-from .token_usage import TokenUsage, extract_token_usage
+from .token_usage import TokenUsage
 
 try:  # pragma: no cover - Windows usage mutations use portalocker below
     import fcntl
@@ -51,10 +50,7 @@ except ImportError:  # pragma: no cover
 
 USAGE_FILE = "usage.jsonl"
 USAGE_LOCK_FILE = "usage.lock"
-USAGE_MIGRATION_FILE = "usage.migration-v1.json"
 USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
-EVENT_MIGRATION_FILE = "events.migration-v2.json"
-EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
 _COPILOT_RECONCILE_VERSION = 5
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
@@ -823,10 +819,10 @@ class UsageLedger:
     """Project-local ledger with cross-process idempotent append."""
 
     def __init__(self, project_root: Path | str, *, migrate_legacy: bool = True) -> None:
+        # ``migrate_legacy=False`` skips the read-side Copilot reconciliation.
         self.project_root = Path(project_root).expanduser()
         self.path = self.project_root / USAGE_FILE
         self.lock_path = self.project_root / USAGE_LOCK_FILE
-        self.migration_path = self.project_root / USAGE_MIGRATION_FILE
         self.copilot_reconcile_path = self.project_root / USAGE_COPILOT_RECONCILE_FILE
         self._migrate_legacy = bool(migrate_legacy)
 
@@ -871,7 +867,6 @@ class UsageLedger:
         mission_id: str | None = None,
     ) -> list[UsageRecord]:
         if self._migrate_legacy:
-            self.ensure_legacy_migrated()
             self.ensure_copilot_usage_reconciled()
         out = self._recent_records(since) if since > 0 else None
         if out is None:
@@ -1009,27 +1004,6 @@ class UsageLedger:
             ]
         return summarize_usage(records)
 
-    def ensure_legacy_migrated(self) -> int:
-        if self.migration_path.exists():
-            return 0
-        records = list(
-            _legacy_event_records(
-                self.project_root,
-                covered_mission_ids=self._existing_mission_ids(),
-            )
-        )
-        appended = self.append_many(records)
-        _write_json_atomic(
-            self.migration_path,
-            {
-                "version": 1,
-                "completed_at": time.time(),
-                "records_seen": len(records),
-                "records_appended": appended,
-            },
-        )
-        return appended
-
     def ensure_copilot_usage_reconciled(self) -> int:
         if not _copilot_reconcile_enabled_for(self.project_root):
             return 0
@@ -1057,16 +1031,6 @@ class UsageLedger:
         updated = 0
         with self._locked():
             rows = _read_usage_json_rows(self.path)
-            # Current records already carry the session id. Reading the entire
-            # raw event history is only necessary for older records without it.
-            call_threads = (
-                _legacy_call_threads(self.project_root)
-                if any(
-                    _copilot_usage_needs_reconciliation(row) and not row.get("thread_id")
-                    for row in rows
-                )
-                else {}
-            )
             not_billed: dict[str, Any] = {
                 "input_tokens": None,
                 "cached_input_tokens": None,
@@ -1105,7 +1069,7 @@ class UsageLedger:
                 call_id = str(row.get("call_id") or "")
                 completed_at = _float(row.get("completed_at"), 0.0)
                 started_at = _float(row.get("started_at"), completed_at)
-                session_id = _optional_text(row.get("thread_id")) or call_threads.get(call_id)
+                session_id = _optional_text(row.get("thread_id"))
                 found = find_copilot_usage_near(
                     completed_at=completed_at,
                     started_at=started_at,
@@ -1243,14 +1207,6 @@ class UsageLedger:
             },
         )
         return updated
-
-    def _existing_mission_ids(self) -> set[str]:
-        mission_ids: set[str] = set()
-        for row in _iter_usage_json_rows(self.path):
-            mission_id = _optional_text(row.get("mission_id"))
-            if mission_id:
-                mission_ids.add(mission_id)
-        return mission_ids
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -1438,88 +1394,6 @@ def project_usage_summary(
     return UsageLedger(project_root).summary(since=since, mission_id=mission_id)
 
 
-def ensure_project_events_standardized(project_root: Path | str) -> int:
-    """Merge the legacy worktree event log into the canonical project log once.
-
-    Call-scoped lifecycle rows are de-duplicated by ``type`` + ``call_id``.
-    Repeated stream rows and non-call events use their complete normalized JSON
-    payload so migration never collapses distinct output fragments.
-    """
-    root = Path(project_root).expanduser()
-    marker_path = root / EVENT_MIGRATION_FILE
-    if marker_path.exists():
-        return 0
-    legacy_path = root / ".argus" / "events.jsonl"
-    source_paths = _event_history_paths(legacy_path)
-    if not source_paths:
-        return 0
-
-    canonical_path = root / "events.jsonl"
-    root.mkdir(parents=True, exist_ok=True)
-    rows_seen = 0
-    rows_appended = 0
-    malformed_rows = 0
-    duplicate_rows = 0
-    with _exclusive_file_lock(root / EVENT_MIGRATION_LOCK_FILE):
-        if marker_path.exists():
-            return 0
-        identities = _event_identities(_event_history_paths(canonical_path))
-        try:
-            handle = canonical_path.open("a", encoding="utf-8")
-        except OSError:
-            return 0
-        with handle:
-            for source_path in source_paths:
-                try:
-                    source = source_path.open("r", encoding="utf-8")
-                except OSError:
-                    continue
-                with source:
-                    for raw in source:
-                        rows_seen += 1
-                        try:
-                            row = json.loads(raw)
-                        except (json.JSONDecodeError, ValueError):
-                            malformed_rows += 1
-                            continue
-                        if not isinstance(row, dict):
-                            malformed_rows += 1
-                            continue
-                        identity = _event_identity(row)
-                        if identity in identities:
-                            duplicate_rows += 1
-                            continue
-                        handle.write(
-                            json.dumps(
-                                row,
-                                ensure_ascii=False,
-                                separators=(",", ":"),
-                                sort_keys=True,
-                            )
-                            + "\n"
-                        )
-                        identities.add(identity)
-                        rows_appended += 1
-            handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
-        _write_json_atomic(
-            marker_path,
-            {
-                "version": 2,
-                "completed_at": time.time(),
-                "source_files": [str(path) for path in source_paths],
-                "rows_seen": rows_seen,
-                "rows_appended": rows_appended,
-                "duplicate_rows": duplicate_rows,
-                "malformed_rows": malformed_rows,
-            },
-        )
-    return rows_appended
-
-
 def format_usage_cost(summary: UsageSummary, *, decimals: int = 2) -> str:
     """Human-readable cost that never renders unknown usage as ``$0.00``."""
     status = summary.pricing_status
@@ -1535,348 +1409,6 @@ def format_usage_cost(summary: UsageSummary, *, decimals: int = 2) -> str:
     if status == "unpriced":
         return f"{rendered}+ (unpriced)"
     return rendered
-
-
-def _legacy_event_records(
-    project_root: Path,
-    *,
-    covered_mission_ids: set[str] | None = None,
-) -> Iterator[UsageRecord]:
-    current_mission: str | None = None
-    call_missions: dict[str, str | None] = {}
-    starts: dict[str, dict[str, Any]] = {}
-    emitted: set[str] = set()
-    missions_with_calls: set[str] = set(covered_mission_ids or ())
-    legacy_missions: list[dict[str, Any]] = []
-    for path in _event_history_paths(project_root / "events.jsonl"):
-        try:
-            handle = path.open("r", encoding="utf-8")
-        except OSError:
-            continue
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                kind = canonical_event_type(row.get("canonical_type") or row.get("type"))
-                if kind == EventType.LIFE_MISSION_STARTED:
-                    current_mission = _optional_text(row.get("item_id"))
-                    continue
-                if kind == EventType.LIFE_MISSION_COMPLETED:
-                    item_id = _optional_text(row.get("item_id"))
-                    cost = _optional_float(row.get("cost_usd"))
-                    if cost is not None:
-                        legacy_missions.append(
-                            {
-                                "item_id": item_id,
-                                "ts": _float(row.get("ts"), 0.0),
-                                "cost_usd": cost,
-                                "status": str(row.get("pricing_status") or "priced"),
-                            }
-                        )
-                    if item_id is None or item_id == current_mission:
-                        current_mission = None
-                    continue
-                call_id = str(row.get("call_id") or "")
-                if not call_id:
-                    continue
-                if kind == EventType.AGENT_IO_START:
-                    starts[call_id] = row
-                    call_missions[call_id] = current_mission
-                    continue
-                if call_id in emitted:
-                    continue
-                if kind == EventType.AGENT_IO_COMPLETE:
-                    token_usage = _legacy_token_usage(row)
-                    premium = _legacy_premium_usage(row)
-                    fatal = str(row.get("fatal_error") or "")
-                    exit_code = _optional_int(row.get("exit_code"))
-                    failed = bool(fatal or (exit_code is not None and exit_code != 0))
-                    started = starts.get(call_id, {})
-                    mission_id = call_missions.get(call_id, current_mission)
-                    yield build_usage_record(
-                        call_id=call_id,
-                        project_root=project_root,
-                        mission_id=mission_id,
-                        provider=str(row.get("backend") or started.get("backend") or ""),
-                        model=str(row.get("model") or started.get("model") or ""),
-                        run_label=str(row.get("run_label") or started.get("run_label") or ""),
-                        started_at=_float(
-                            started.get("ts"),
-                            _float(row.get("ts"), 0.0),
-                        ),
-                        completed_at=_float(row.get("ts"), 0.0),
-                        status="error" if failed else "completed",
-                        token_usage=token_usage,
-                        premium_requests=premium,
-                        thread_id=_optional_text(row.get("thread_id")),
-                        error=fatal,
-                        source="legacy.events",
-                    )
-                    if mission_id:
-                        missions_with_calls.add(mission_id)
-                    emitted.add(call_id)
-                elif kind == EventType.AGENT_IO_ERROR:
-                    started = starts.get(call_id, {})
-                    error = str(row.get("error") or "")
-                    denied = "binary not found" in error.lower()
-                    mission_id = call_missions.get(call_id, current_mission)
-                    yield build_usage_record(
-                        call_id=call_id,
-                        project_root=project_root,
-                        mission_id=mission_id,
-                        provider=str(row.get("backend") or started.get("backend") or ""),
-                        model=str(started.get("model") or ""),
-                        run_label=str(row.get("run_label") or started.get("run_label") or ""),
-                        started_at=_float(
-                            started.get("ts"),
-                            _float(row.get("ts"), 0.0),
-                        ),
-                        completed_at=_float(row.get("ts"), 0.0),
-                        status="denied" if denied else "error",
-                        error=error,
-                        source="legacy.events",
-                    )
-                    if mission_id:
-                        missions_with_calls.add(mission_id)
-                    emitted.add(call_id)
-                elif kind == EventType.PROVIDER_REQUEST_DENIED:
-                    yield build_usage_record(
-                        call_id=call_id,
-                        project_root=project_root,
-                        mission_id=current_mission,
-                        provider=str(row.get("provider") or ""),
-                        model="",
-                        run_label=str(row.get("run_label") or ""),
-                        started_at=_float(row.get("ts"), 0.0),
-                        completed_at=_float(row.get("ts"), 0.0),
-                        status="denied",
-                        error=str(row.get("reason") or ""),
-                        source="legacy.events",
-                    )
-                    emitted.add(call_id)
-    for index, row in enumerate(legacy_missions):
-        mission_id = _optional_text(row.get("item_id"))
-        if mission_id and mission_id in missions_with_calls:
-            continue
-        yield _legacy_aggregate_record(
-            project_root=project_root,
-            call_id=(
-                f"legacy-mission:{mission_id or 'unknown'}:"
-                f"{int(_float(row.get('ts'), 0.0) * 1_000_000)}:{index}"
-            ),
-            mission_id=mission_id,
-            completed_at=_float(row.get("ts"), 0.0),
-            cost_usd=_float(row.get("cost_usd"), 0.0),
-            run_label="legacy.mission.aggregate",
-        )
-
-
-def _legacy_aggregate_record(
-    *,
-    project_root: Path,
-    call_id: str,
-    mission_id: str | None,
-    completed_at: float,
-    cost_usd: float,
-    run_label: str,
-) -> UsageRecord:
-    return UsageRecord(
-        call_id=call_id,
-        project_id=project_root.name,
-        mission_id=mission_id,
-        provider="legacy",
-        model="",
-        run_label=run_label,
-        started_at=completed_at,
-        completed_at=completed_at,
-        status="completed",
-        input_tokens=None,
-        cached_input_tokens=None,
-        output_tokens=None,
-        reasoning_output_tokens=None,
-        premium_requests=None,
-        pricing_status="priced",
-        pricing_tier="legacy_aggregate",
-        cost_usd=max(0.0, float(cost_usd)),
-        cost_basis="legacy_aggregate",
-        source="legacy.events",
-    )
-
-
-def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
-    events = row.get("json_events")
-    if isinstance(events, list):
-        extracted = extract_token_usage(events)
-        # Copilot's camelCase message fields were the production bug: the old
-        # translated top-level values are zero, so use the newly extracted sum.
-        if extracted.source == "per_event":
-            return extracted
-        if extracted.observed:
-            return TokenUsage(
-                input_tokens=_optional_int(row.get("input_tokens")) or 0,
-                cached_input_tokens=(_optional_int(row.get("cached_input_tokens")) or 0),
-                cache_write_tokens=(_optional_int(row.get("cache_write_tokens")) or 0),
-                output_tokens=_optional_int(row.get("output_tokens")) or 0,
-                reasoning_output_tokens=(_optional_int(row.get("reasoning_output_tokens")) or 0),
-                input_tokens_present=extracted.input_tokens_present,
-                cached_input_tokens_present=(extracted.cached_input_tokens_present),
-                cache_write_tokens_present=(extracted.cache_write_tokens_present),
-                output_tokens_present=extracted.output_tokens_present,
-                reasoning_output_tokens_present=(extracted.reasoning_output_tokens_present),
-                source="recorded_delta",
-            )
-    names = (
-        "input_tokens",
-        "cached_input_tokens",
-        "cache_write_tokens",
-        "output_tokens",
-        "reasoning_output_tokens",
-    )
-    values = [_optional_int(row.get(name)) for name in names]
-    present = [value is not None and value > 0 for value in values]
-    return TokenUsage(
-        input_tokens=values[0] or 0,
-        cached_input_tokens=values[1] or 0,
-        cache_write_tokens=values[2] or 0,
-        output_tokens=values[3] or 0,
-        reasoning_output_tokens=values[4] or 0,
-        input_tokens_present=present[0],
-        cached_input_tokens_present=present[1],
-        cache_write_tokens_present=present[2],
-        output_tokens_present=present[3],
-        reasoning_output_tokens_present=present[4],
-        source="recorded" if any(present) else "missing",
-    )
-
-
-def _legacy_premium_usage(row: dict[str, Any]) -> float | None:
-    if row.get("premium_requests_present") is False:
-        return None
-    events = row.get("json_events")
-    if isinstance(events, list):
-        seen = False
-        last = 0.0
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            usage = event.get("usage")
-            if not isinstance(usage, dict) or "premiumRequests" not in usage:
-                continue
-            value = _optional_float(usage.get("premiumRequests"))
-            if value is not None:
-                seen = True
-                last = value
-        if seen:
-            translated = _optional_float(row.get("premium_requests"))
-            return translated if translated is not None else last
-    return None
-
-
-def _event_history_paths(path: Path) -> list[Path]:
-    older: list[tuple[int, Path]] = []
-    recent: Path | None = None
-    prefix = path.name + "."
-    try:
-        candidates = list(path.parent.glob(prefix + "*"))
-    except OSError:
-        candidates = []
-    for candidate in candidates:
-        suffix = candidate.name[len(prefix) :]
-        if not suffix.isdigit() or not candidate.is_file():
-            continue
-        index = int(suffix)
-        if index == 1:
-            recent = candidate
-        elif index >= 2:
-            older.append((index, candidate))
-    paths = [candidate for _index, candidate in sorted(older, reverse=True)]
-    if recent is not None:
-        paths.append(recent)
-    if path.is_file():
-        paths.append(path)
-    return paths
-
-
-def _event_identities(paths: Iterable[Path]) -> set[str]:
-    identities: set[str] = set()
-    for path in paths:
-        try:
-            handle = path.open("r", encoding="utf-8")
-        except OSError:
-            continue
-        with handle:
-            for raw in handle:
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict):
-                    identities.add(_event_identity(row))
-    return identities
-
-
-def _event_identity(row: dict[str, Any]) -> str:
-    kind = str(row.get("type") or "")
-    call_id = str(row.get("call_id") or "")
-    if kind in CALL_SCOPED_EVENT_TYPES and call_id:
-        return f"call:{kind}:{call_id}"
-    return "row:" + json.dumps(
-        row,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-
-
-@contextmanager
-def _exclusive_file_lock(path: Path) -> Iterator[None]:
-    key = str(path.resolve())
-    with _THREAD_LOCKS_GUARD:
-        thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with thread_lock:
-        fd = os.open(str(path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
-        try:
-            if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
-        finally:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            os.close(fd)
-
-
-def _legacy_call_threads(project_root: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for event_path in (
-        project_root / "events.jsonl",
-        project_root / ".argus" / "events.jsonl",
-    ):
-        for path in _event_history_paths(event_path):
-            try:
-                handle = path.open("r", encoding="utf-8")
-            except OSError:
-                continue
-            with handle:
-                for raw in handle:
-                    try:
-                        row = json.loads(raw)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    if not isinstance(row, dict) or row.get("type") != EventType.AGENT_IO_COMPLETE:
-                        continue
-                    call_id = str(row.get("call_id") or "")
-                    thread_id = str(row.get("thread_id") or "")
-                    if call_id and thread_id:
-                        out[call_id] = thread_id
-    return out
 
 
 def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
@@ -2157,14 +1689,12 @@ def global_daily_usage_summary(
 
 __all__ = [
     "CallStatus",
-    "EVENT_MIGRATION_FILE",
     "USAGE_FILE",
     "UsageLedger",
     "UsageRecord",
     "UsageJournalIntegrityError",
     "UsageSummary",
     "build_usage_record",
-    "ensure_project_events_standardized",
     "format_usage_cost",
     "project_usage_summary",
     "summarize_usage",

@@ -8,63 +8,8 @@ composing external-interrupt providers. None of it talks to a subprocess.
 """
 from __future__ import annotations
 
-import logging
-import re
 from contextvars import copy_context
 from typing import Any
-
-log = logging.getLogger(__name__)
-
-_LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
-_LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
-
-
-def _normalize_codex_config_arg(arg: str) -> str:
-    return re.sub(r"\s+", "", str(arg)).replace('"', "").replace("'", "").casefold()
-
-
-def _is_legacy_codex_profile_arg(arg: str) -> bool:
-    return _normalize_codex_config_arg(arg) in _LEGACY_CODEX_PROFILE_PAYLOADS
-
-
-def _strip_legacy_codex_profile_args(
-    extra_args: list[str] | None,
-) -> list[str] | None:
-    """Remove obsolete auto-max profile flags that break matcher startup.
-
-    The old launcher path forwarded ``-c profile = "auto-max"`` into the
-    Codex CLI. Current matching runs do not need that profile, and the legacy
-    flag now trips a config parse failure before the skill matcher can start.
-    Keep other extra args intact so explicit runner overrides still work.
-    """
-    if not extra_args:
-        return None
-    cleaned: list[str] = []
-    removed = False
-    i = 0
-    while i < len(extra_args):
-        arg = extra_args[i]
-        if arg in _LEGACY_CODEX_PROFILE_SWITCHES and i + 1 < len(extra_args):
-            next_arg = extra_args[i + 1]
-            if _is_legacy_codex_profile_arg(next_arg):
-                removed = True
-                log.warning(
-                    "stripping legacy Codex auto-max profile args from runner config"
-                )
-                i += 2
-                continue
-        if _is_legacy_codex_profile_arg(arg):
-            removed = True
-            log.warning(
-                "stripping legacy Codex auto-max profile arg from runner config"
-            )
-            i += 1
-            continue
-        cleaned.append(arg)
-        i += 1
-    if removed:
-        return cleaned or None
-    return list(extra_args)
 
 
 def resolve_pricing_model(

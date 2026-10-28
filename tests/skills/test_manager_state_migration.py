@@ -37,9 +37,11 @@ def _roots(tmp_path: Path) -> tuple[Path, Path]:
 # -- the decided project ----------------------------------------------------
 
 
-def test_split_research_import_does_not_materialize_handoff_in_source_worktree(
+def test_split_research_import_leaves_the_source_worktree_untouched(
     tmp_path: Path,
 ) -> None:
+    from argus.skills.stage_machine import migrate_legacy_research_stage
+
     state_root, workdir = _roots(tmp_path)
     source = _write_state(
         workdir,
@@ -49,28 +51,17 @@ def test_split_research_import_does_not_materialize_handoff_in_source_worktree(
             "stages": {"research": {"status": "done"}},
         },
     )
-    research = workdir / "research"
-    research.mkdir(exist_ok=True)
-    (research / "IDEA_SELECTION.json").write_text(
-        json.dumps({
-            "route_id": "route-03",
-            "rationale": "legacy source-only winner",
-            "evidence_considered": "twelve routes and reviews",
-            "resource_requirements": "four accelerators",
-        }),
-        encoding="utf-8",
-    )
     before = source.read_text(encoding="utf-8")
 
+    # ``_manager_roots`` runs both, in this order, under the pipeline lock.
     assert migrate_legacy_manager_state(state_root, workdir) is True
+    migrate_legacy_research_stage(state_root)
 
     assert source.read_text(encoding="utf-8") == before
     assert not (workdir / "RESEARCH_NOTES.md").exists()
     assert not (workdir / "HANDOFF.md").exists()
     imported = read_pipeline_state(state_root)
     assert imported["current_stage"] == "idea"
-    assert imported["selected_idea"]["route_id"] == "route-03"
-    assert imported["legacy_selection_consumed"] is True
 
 
 def test_an_unresolvable_vertical_still_stops_the_build(tmp_path: Path) -> None:

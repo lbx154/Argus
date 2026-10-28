@@ -7,8 +7,6 @@ from types import SimpleNamespace
 from argus.core.vertical_contract import VerticalLibraryContext
 from argus.skills.loop_skill_library import SkillLibraryMixin
 from argus.skills.loop_state import MissionContext
-from argus.skills.vertical_select import reset_stage_for_new_intent
-from argus.verticals.research.idea_portfolio import migrate_legacy_idea_selection
 from argus.verticals.research.library_preparation import prepare_skill_libraries
 from argus.verticals.research.stages import stage_completion_issues
 
@@ -74,36 +72,6 @@ def test_locked_and_direct_ideas_use_only_the_playbook(tmp_path: Path) -> None:
     assert _prepare(tmp_path / "plain", paper_mission=False)[0] == [
         "research-idea-playbook.md"
     ]
-
-
-def test_a_new_intent_does_not_import_a_legacy_selection(tmp_path: Path) -> None:
-    _state(tmp_path)
-    legacy = tmp_path / "research" / "IDEA_SELECTION.json"
-    legacy.parent.mkdir()
-    legacy.write_text(
-        json.dumps({
-            "route_id": "route-03",
-            "rationale": "stale winner",
-            "evidence_considered": "old evidence",
-            "resource_requirements": "old resources",
-        }),
-        encoding="utf-8",
-    )
-
-    assert reset_stage_for_new_intent(
-        tmp_path,
-        old_vertical="research",
-        new_vertical="research",
-        force_replacement=True,
-        evidence_root=tmp_path,
-    )
-    assert migrate_legacy_idea_selection(tmp_path) is False
-    payload = json.loads(
-        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-
-    assert payload["legacy_selection_consumed"] is True
-    assert payload["selected_idea"] is None
 
 
 def test_skill_library_state_includes_vertical_prompt_blocks() -> None:

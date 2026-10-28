@@ -1109,7 +1109,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "<root> -> argus.verticals._base",
     "adapters -> argus.agent_cli._env",
     "adapters -> argus.agent_cli._structured_output",
-    "apps -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "apps -> argus.manager._session_ops",
     "apps -> argus.manager.front_door._ensure_manager_runner",
     "apps -> argus.skills.vertical_select._persisted_vertical",
@@ -1772,7 +1771,7 @@ def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant
 # and ``core.paths.project_state_root``). Whole-word occurrence counts, today.
 RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "life_root": 4,
-    "memory_root": 42,
+    "memory_root": 41,
     # The one-Manager front door dropped the classify and quick-reply paths.
     "session_root": 26,
     # manager/self_context adds one required LayeredSkillStore(project_dir=...)
@@ -1840,7 +1839,7 @@ def test_retired_names_do_not_spread() -> None:
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
 # 65 - 4: the goal.* metric rows (_core.py and settlement) went unread.
-MEMORY_ROOT_READS = 61
+MEMORY_ROOT_READS = 60
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 
@@ -1864,7 +1863,7 @@ def test_memory_root_reads_do_not_grow() -> None:
 # ``argus/``; "<root>" is the modules directly under it. Counted 2026-10-27.
 BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "<root>": 3,
-    "adapters": 16,
+    "adapters": 15,
     "advisor": 4,
     "agent_cli": 12,
     "apps": 37,
@@ -1872,7 +1871,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "core": 44,
     "daemon": 36,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 18,
-    "life": 176,
+    "life": 175,
     "maintenance": 2,
     "manager": 61,
     "messaging": 1,

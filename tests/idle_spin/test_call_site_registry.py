@@ -238,7 +238,6 @@ OUTSIDE_THE_DAEMON: dict[str, str] = {}
 
 # Literal labels that name a usage-ledger record or a fixture, not a model call.
 NOT_MODEL_CALLS = {
-    ("argus/core/usage.py", "_legacy_event_records", "legacy.mission.aggregate"),
     (
         "argus/life/supervisor/_mission_execution_runtime.py", "_derive_basic_outcome_fields",
         "memory.mission.aggregate",
@@ -281,12 +280,6 @@ PASS_THROUGH = {
     # A deterministic backend for tests that replays scripted Planner answers.
     ("argus/apps/_runtime_backends.py", "run_exec", "str(run_label)"),
     # Usage-ledger records of calls that already ran.
-    ("argus/core/usage.py", "_legacy_aggregate_record", "run_label"),
-    ("argus/core/usage.py", "_legacy_event_records", "str(row.get('run_label') or '')"),
-    (
-        "argus/core/usage.py", "_legacy_event_records",
-        "str(row.get('run_label') or started.get('run_label') or '')",
-    ),
     ("argus/core/usage.py", "build_usage_record", "run_label"),
     ("argus/core/usage.py", "build_usage_record", "str(run_label or '')"),
     ("argus/core/usage.py", "from_jsonable", "str(row.get('run_label') or '')"),
