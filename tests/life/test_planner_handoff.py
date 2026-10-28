@@ -243,3 +243,19 @@ def test_a_planner_waits_on_its_unanswered_question_by_handing_it_on_again(
 
     questions = [row.pending_question for row in supervisor.memory.backlog.active() if row.pending_question]
     assert questions == ["Do you agree with the three spot-check verdicts?"]
+
+
+def test_a_revision_s_question_still_waiting_stays_as_first_asked(tmp_path: Path) -> None:
+    """The plan form tells the Planner that asking again while its question
+    waits leaves that question as first asked; that holds for a question the
+    Planner put on the task whose revision it is writing, too."""
+    supervisor = _supervisor(tmp_path / "project", tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    source = backlog.add(BacklogItem.new(title="Paired-credit arm", objective="run the arm"))
+    revising = SimpleNamespace(revision_request={"item_id": source.id})
+
+    assert supervisor._park_planner_question(revising, "Repair the shared runner first?", "blocked") is True
+    assert supervisor._park_planner_question(revising, "Still waiting: repair it first?", "blocked") is False
+
+    row = next(row for row in backlog.active() if row.id == source.id)
+    assert row.pending_question == "Repair the shared runner first?"
