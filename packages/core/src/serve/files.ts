@@ -23,7 +23,7 @@ const TEXT = new Set(['.txt', '.log', '.py', '.ts', '.tsx', '.sh', '.yaml', '.ym
 const PREVIEW_BYTES = 128 * 1024;
 const LISTED = 200;
 
-function typeOf(path: string): [ArtifactKind, string] {
+export function typeOf(path: string): [ArtifactKind, string] {
   const ext = extname(path).toLowerCase();
   return TYPES[ext] ?? (TEXT.has(ext) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
 }

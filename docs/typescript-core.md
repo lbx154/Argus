@@ -121,10 +121,21 @@ Manager reads them, so nothing in Argus reads what they hold. Deleting a project
 and moves its directory to `$ARGUS_HOME/trash/<id>-<time>`, its workdir left as it is; while the
 interrupted calls are still recording how they ended, the deletion is refused rather than waited on.
 
+The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
+too, a file's text or bytes, and what the system `git` says of it when the workdir is a
+repository of its own. A path there passes the check a result's does: inside the workdir, not
+hidden. An HTML result is previewed as one page, the local files it names inlined as `data:` URLs,
+for the page's sandboxed frame, with a policy that lets its own scripts and styles run while it
+can call nothing, this server least of all. Results download one by one; no zip is made. A task
+opened from the list is its card on the map with every letter written about it and the error of
+its last call; a role's letters download as Markdown; the search reads each project's request,
+conversation and letters as they are, with no index. The machine's CPUs and memory (from Node)
+and NVIDIA GPUs (from `nvidia-smi`) are read when the page asks, never polled.
+
 The page offers only what the server declares in `/api/meta`. The core declares the required
-capabilities and `project.attachments.v1`; the page hides the settings and model chooser
-(`project.config.v1`), the machine's resources (`system.resources.v1`) and the slash commands,
-the doctor among them (`composer.commands.v1`). The Python server declares every capability.
+capabilities, `project.attachments.v1` and `system.resources.v1`; the page hides the settings and
+model chooser (`project.config.v1`) and the slash commands, the doctor among them
+(`composer.commands.v1`). The Python server declares every capability.
 
 The progress map reads the same files: a card per task, its brief the letter that opened it, and
 on it a step per letter written about it, by whom to whom. A task opened in the reader lists its
