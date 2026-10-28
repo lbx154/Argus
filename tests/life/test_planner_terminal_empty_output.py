@@ -1283,10 +1283,6 @@ def test_copilot_content_filter_notice_disarms_campaign(tmp_path, monkeypatch):
     assert error["stop_kind"] == "permanent_error"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="_planning_cycle_verdict still matches the phrase in verdict.raw_text (finding 17)",
-)
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_planner_prose_quoting_content_filter_keeps_campaign(tmp_path, monkeypatch, exit_code):
     """A Planner reply that quotes the phrase, with no hand_off (exit 0) or after an
