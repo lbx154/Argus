@@ -56,9 +56,9 @@ a failed call, recorded as such.
 | Role | Writes to |
 |---|---|
 | Manager | `engineer`: one coherent piece of work, opened as a task, the letter its brief; `planner`: work in dependent steps, or word on the work it runs; `operator`: the answer, report or question |
-| Planner | `engineer`: the next task, the letter its brief; `manager`: the goal is met, to report, or the process is stuck; `operator`: a question the work waits on |
-| Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the process is stuck; `operator` |
-| Reviewer | `engineer`: repairs; `planner` or `manager`: its judgment, to whoever gave the task; `operator` |
+| Planner | `engineer`: the next task, the letter its brief; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question the work waits on |
+| Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
+| Reviewer | `engineer`: repairs; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
 
 A letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
 the two of them closes it, and stays on it as its last word. Nothing is done or finished: the
@@ -71,18 +71,18 @@ turn.
 
 ## Ways of working
 
-A way of working is how a kind of work goes, kept as a folder the roles read: Argus's own in
-`packages/core/ways/<name>/`, the operator's in `$ARGUS_HOME/ways/<name>/`. Each holds `README.md`
-(how the work goes, what each step delivers and when it is done), `skills/` (manuals, each
-opened when its situation comes up) and `checks/` (Node scripts the Engineer runs on its work
-and the Reviewer before it accepts). Argus only points at them: the Manager's prompt lists each
-way by its README's first line and path, every call may read the folder (read-only under the
-sandbox), and the Manager's brief names the way to follow. Nothing records which way a project
-follows, and no step is enforced. Argus's own carry over what the Python verticals knew, without
-their stage machines: `research` (idea, experiment, paper, review), `software` (a change that
-builds, whose tests ran, and that does what was asked), `argus-maintenance` (changing this core)
-and `learning`, whose workspace is a new way's folder under `$ARGUS_HOME/ways/`, written as
-checks and manuals proven on a real case rather than as a skill library.
+A way of working is what Argus has learned about a kind of work, kept as one short `README.md`
+in a folder: Argus's own in `packages/core/ways/<name>/`, the operator's in
+`$ARGUS_HOME/ways/<name>/`. It holds the pitfalls past projects hit and what good work looks like,
+not steps, files or who does what, and nothing a capable model already knows: Codex on its own did
+a grokking study well in 15 minutes for $1.40, while an Argus project on the same study spent 46%
+of its tool-output tokens rereading the research way's manuals. Argus only points at them: the Manager's prompt lists
+each way by its README's first line and path, every call may read the folder (read-only under the
+sandbox), and a brief may mention a way for reference. Nothing records which way a project follows,
+nothing requires reading one, and no step is enforced. Argus's own are `research`, `software` (a
+change that builds, whose tests ran, and that does what was asked), `argus-maintenance` (changing
+this core) and `learning`, whose workspace is a new way's folder under `$ARGUS_HOME/ways/`, kept
+only as what an agent can run or recheck, proven on a real case.
 
 ## The web cockpit
 

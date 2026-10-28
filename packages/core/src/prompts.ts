@@ -12,8 +12,9 @@ const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
 };
 
-/** The ways of working: a folder each, whose README.md says how such work goes, starting with what
- * it is for. Argus's own are in the package; the operator's, under the state root's ways/. */
+/** The ways of working: a folder each, whose README.md, starting with what it is for, holds what
+ * Argus has learned about such work. Argus's own are in the package; the operator's, under the
+ * state root's ways/. */
 export const WAYS = fileURLToPath(new URL('../ways', import.meta.url));
 export const wayRoots = (home: string): string[] => [WAYS, resolve(home, 'ways')].filter(root => existsSync(root));
 const ways = (roots: string[]): string => roots.flatMap(root => readdirSync(root).map(name => resolve(root, name, 'README.md'))
