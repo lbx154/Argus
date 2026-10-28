@@ -154,6 +154,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
       send(await reply(send));
       context.response.end();
     }],
+    // A message typed while a reply is under way: answered after it, as any other.
+    ['POST', /^\/api\/projects\/([^/]+)\/message\/followup$/, async context => {
+      void (await message(context))(() => {});
+      return { ok: true, queued: true };
+    }],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/cancel$/, async ({ params: [id], body }) => {
       const requested = runs.cancel(project(id!).id, String((await body()).request_id ?? ''));
       return { requested, status: requested ? 'cancelled' : 'finished' };

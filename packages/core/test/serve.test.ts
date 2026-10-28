@@ -321,3 +321,17 @@ test('each project keeps the composer draft, and a save over a revision it never
   assert.deepEqual(await get(D), { value, revision: 1 });
   assert.equal((await call('/api/projects/p-00000000/browser-draft')).status, 404);
 });
+
+test('a message typed while a reply is under way is answered after it', async t => {
+  const { get, post } = await setup(t, [{ role: 'manager', hang: true }, { role: 'manager', to: 'manager', letter: 'Both answered.' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  const first = frames(await post(`${P}/message/stream`, { text: 'first', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
+  assert.deepEqual(await (await post(`${P}/message/followup`, { text: 'second' })).json(), { ok: true, queued: true });
+  assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
+  await post(`${P}/message/cancel`, { request_id: 'r1' });
+  await first;
+  const { turns } = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 3);
+  assert.deepEqual(turns.map(turn => [turn.role, turn.text]), [['operator', 'first'], ['operator', 'second'], ['argus', 'Both answered.']]);
+});
