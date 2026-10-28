@@ -170,3 +170,40 @@ test('core: names each unused export, timer, way named in the core, machine path
     'packages/core/ways/research/README.md:3: a digest: keep and compare the thing itself',
   ] });
 });
+
+const lookahead = '#!/usr/bin/env node\n// Finds a feature computed from a later row.\n// Run: node checks/lookahead.mjs [backtest]\n'
+  + '// Exit: 0 none found; 1 found, one line each; 2 could not run.\nprocess.exit(0);\n';
+
+test('way: a way whose README names its skills and checks, each there and runnable, with its real case, holds', async t => {
+  const root = await workspace(t, {
+    'README.md': '# Backtest a trading idea without lookahead\n\nRun `checks/lookahead.mjs` on each backtest; open `skills/data.md` when the data changes.\n',
+    'skills/data.md': '# New data\n\nRun checks/lookahead.mjs again: examples/2026-10-backtest/case.md shows why.\n',
+    'checks/lookahead.mjs': lookahead,
+    'examples/2026-10-backtest/case.md': 'Project p-1a2b, events.jsonl line 40: the Sharpe of 3.1 came from tomorrow\'s close.\n',
+  });
+  assert.deepEqual(check('learning', 'way', root), { status: 0, problems: [] });
+});
+
+test('way: names a missing heading, each dangling or unnamed file, each check that cannot run, and the missing case', async t => {
+  const root = await workspace(t, {
+    'README.md': 'Backtesting\n\nOpen skills/data.md, or skills/gone.md.\n',
+    'skills/data.md': 'See examples/case.md.\n',
+    'skills/orphan.md': '# Never opened\n',
+    'checks/lookahead.mjs': '// Finds lookahead.\nconst = 1;\n',
+    'checks/run.sh': 'echo ok\n',
+  });
+  const { status, problems } = check('learning', 'way', root);
+  assert.equal(status, 1);
+  assert.match(problems[6] ?? '', /^checks\/lookahead\.mjs does not parse: SyntaxError/);
+  assert.deepEqual(problems.filter((_, i) => i !== 6), [
+    'README.md does not begin with a heading that says what the way is for',
+    'README.md names skills/gone.md, which is missing',
+    'skills/data.md names examples/case.md, which is missing',
+    'README.md does not name skills/orphan.md: say when to open it',
+    'README.md does not name checks/lookahead.mjs: say when to run it',
+    'README.md does not name checks/run.sh: say when to run it',
+    'checks/lookahead.mjs does not open with a comment saying how to run it (Run:) and what its exit codes mean (Exit:)',
+    'checks/run.sh is not a Node script (.mjs)',
+    'examples/ is empty: add the real case that shows the way helps',
+  ]);
+});
