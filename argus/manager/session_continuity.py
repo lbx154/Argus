@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -61,13 +60,10 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
 
     continuous = read(root / "continuous.json")
     directive = read(root / "active_manager_directive.json")
-    latest = read(root / "manager-supervision" / "latest.json")
-    receipt = latest
-    identity = latest.get("id")
-    if isinstance(identity, str) and re.fullmatch(r"[0-9a-f]{32}", identity):
-        durable = read(root / "manager-supervision" / f"{identity}.json")
-        if durable.get("id") == identity:
-            receipt = durable
+    from .supervision import latest_record_path
+
+    latest_path = latest_record_path(root)
+    receipt = read(latest_path) if latest_path is not None else {}
     pipeline = read(pipeline_state_path(root))
     campaign = read(root / "campaign-control" / "HEAD.json")
 

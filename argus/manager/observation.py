@@ -87,7 +87,7 @@ class ManagerObservation:
 
 def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) -> ManagerObservation:
     from ..core.mission_view import load_mission_view
-    from ..life.context_packet import mission_context_dir
+    from ..life.context_packet import latest_handoff_path, mission_context_dir
     from ..life.memory import Backlog, _read_jsonl_tail_history, operator_answers
     from ..life.role_activity import role_activity
 
@@ -119,20 +119,14 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         row = {name: getattr(item, name) for name in _TASK_FIELDS}
         packet = mission_context_dir(root, item.id) / "mission.json"
         if packet.exists() or packet.is_symlink():
-            handoff = packet.parent / "latest.json"
+            handoff = latest_handoff_path(packet.parent)
             latest = read_source(handoff)
-            reference = latest.get("handoff")
-            if isinstance(reference, dict) and isinstance(reference.get("path"), str):
-                target = Path(reference["path"])
-                if target.resolve().parent == packet.parent.resolve():
-                    handoff = target
-                    latest = read_source(target)
             row["evidence"] = {key: latest[key] for key in (
                 "kind", "engineer_summary", "review",
             ) if key in latest}
             read_source(packet)  # only to name an unreadable packet among the limitations
             refs.append({"path": str(packet.relative_to(root))})
-            if handoff.is_file():
+            if handoff != packet and handoff.is_file():
                 refs.append({"path": str(handoff.relative_to(root))})
         items.append(row)
     refs.append({"path": "backlog.jsonl"})

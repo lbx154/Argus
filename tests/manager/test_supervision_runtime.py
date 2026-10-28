@@ -15,7 +15,7 @@ from argus.core.role_tool_bridge import bridge_request
 from argus.daemon.state import write_continuous_config
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import Backlog, BacklogItem
-from argus.manager import Manager
+from argus.manager import Manager, supervision
 from argus.manager.directive import load_active_manager_directive
 from argus.manager.observation import observe_project
 from argus.manager.supervision import schedule_supervision, supervise
@@ -140,10 +140,7 @@ def test_the_operator_s_answer_is_observed_beside_the_objective(tmp_path) -> Non
 def wait_for_receipt(root, status, *, timeout=2):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            record = json.loads((root / "manager-supervision/latest.json").read_text())
-        except (OSError, ValueError):
-            record = {}
+        record = supervision._latest_record(root)
         if record.get("status") == status:
             return record
         time.sleep(0.01)
@@ -194,7 +191,7 @@ def test_completed_work_only_delivers_an_issued_decision(tmp_path, monkeypatch, 
     if remaining_work == "pending":
         backlog.add(BacklogItem.new(title="Next validation", objective="Check the next batch"))
     if remaining_work == "issued":
-        supervision._write(tmp_path / "manager-supervision/latest.json", {"status": "issued"})
+        supervision._write(tmp_path / f"manager-supervision/{'1' * 32}.json", {"status": "issued"})
     dispatched = []
     monkeypatch.setattr(supervision, "_dispatch_pending", lambda: dispatched.append(True))
     manager = Manager(tmp_path, runner=EvidenceBackend())
@@ -273,7 +270,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         crash = (
             failure_point == "directive" and target.name == "active_manager_directive.json"
             or failure_point == "final_receipt" and target.parent.name == "manager-supervision"
-            and target.name != "latest.json" and json.loads(Path(source).read_text()).get("status") == "applied"
+            and json.loads(Path(source).read_text()).get("status") == "applied"
         )
         original(source, destination)
         if crash:
@@ -300,8 +297,7 @@ def test_issued_outbox_recovers_real_write_crashes_without_another_model_call(tm
         finally:
             assert shutdown_supervision(tmp_path) == 0
     else:
-        # Applied before latest.json caught up: the durable receipt says so,
-        # and nothing is delivered again.
+        # The applied receipt is written; nothing is delivered again.
         assert not supervision.recover_issued_supervision(Manager(tmp_path, runner=backend), tmp_path)
         recovered = supervision._latest_record(tmp_path)
     assert len(backend.calls) == 1
@@ -380,7 +376,7 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
         assert supervision.shutdown_supervision(tmp_path) == 0
     assert len(attempts) == 8 and len(backend.calls) == 1
 
-    latest = json.loads((tmp_path / "manager-supervision/latest.json").read_text())
+    latest = supervision._latest_record(tmp_path)
     assert latest["status"] == "issued" and latest["error_code"] == "busy"
     assert "next guidance boundary" in latest["failure_reason"]
     types = [json.loads(line)["type"] for line in (tmp_path / "events.jsonl").read_text().splitlines()]

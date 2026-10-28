@@ -66,6 +66,22 @@ def build(root: Path, monkeypatch) -> dict[str, str]:
     checkpoint = mission.parent / "CHECKPOINT.md"
     texts: dict[str, str] = {}
     texts["brief_before_rounds"] = render_mission_brief(mission)
+
+    def observed() -> str:
+        facts: dict[str, Any] = dict(observe_project(root).facts)
+        facts.pop("observed_at", None)
+        return json.dumps(facts, sort_keys=True, ensure_ascii=False)
+
+    def references() -> str:
+        capsule = RoleSessionCapsule.open(
+            role="engineer", policy="rolling", objective_revision="r1", workdir=root,
+            backend="codex", model="m", checkpoint_path=checkpoint,
+            path=mission.parent / "engineer.json", mission_context_path=str(mission),
+        )
+        return capsule.prompt_block() + "\n" + shared_checkpoint_instructions(checkpoint, role="engineer")
+
+    texts["references_before_rounds"] = references()
+    texts["manager_observation_before_rounds"] = observed()
     record_engineer_handoff(
         mission_context_path=mission, round_index=1,
         engineer_summary="Rewrote the tokenizer loop.", checkpoint_path=checkpoint,
@@ -84,13 +100,7 @@ def build(root: Path, monkeypatch) -> dict[str, str]:
     )
     texts["brief_second_round"] = render_mission_brief(mission)
 
-    capsule = RoleSessionCapsule.open(
-        role="engineer", policy="rolling", objective_revision="r1", workdir=root,
-        backend="codex", model="m", checkpoint_path=checkpoint,
-        path=mission.parent / "engineer.json", mission_context_path=str(mission),
-    )
-    texts["role_state_references"] = capsule.prompt_block()
-    texts["shared_checkpoint"] = shared_checkpoint_instructions(checkpoint, role="engineer")
+    texts["references_second_round"] = references()
 
     record = {
         "id": "0" * 31 + "1", "status": "applied", "trigger": {"type": "life.mission.completed"},
@@ -103,10 +113,7 @@ def build(root: Path, monkeypatch) -> dict[str, str]:
     texts["continuity_capsule"] = json.dumps(capsule_facts, sort_keys=True)
     texts["continuity_evidence"] = rendered
 
-    observation = observe_project(root)
-    facts: dict[str, Any] = dict(observation.facts)
-    facts.pop("observed_at", None)
-    texts["manager_observation"] = json.dumps(facts, sort_keys=True, ensure_ascii=False)
+    texts["manager_observation"] = observed()
 
     def normalized(text: str) -> str:
         text = re.sub(re.escape(str(root.resolve())), "<root>", text).replace(str(root), "<root>")

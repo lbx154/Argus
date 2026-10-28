@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Mapping
@@ -128,21 +129,30 @@ def _latest_reviewed_handoff(root: Path) -> dict[str, Any]:
     return max(candidates, key=lambda entry: entry[:2])[2] if candidates else {}
 
 
-def _latest_unreviewed_engineer(root: Path) -> tuple[dict[str, Any], Path | None]:
-    path = root / "latest.json"
-    latest = _read_json_object(path)
-    if latest.get("kind") == "handoff_ref":
-        reference = latest.get("handoff")
-        if not isinstance(reference, Mapping) or not reference.get("path"):
-            return {}, None
-        path = Path(str(reference["path"])).expanduser()
+def latest_handoff_path(mission_dir: Path | str) -> Path:
+    """The record of a mission's latest work: the round record sealed last.
+
+    Before the first round this is the mission contract. Records are written
+    once, so the last one written is the newest, across runs of the mission;
+    nothing is read to find it. ``latest.json`` names the same record for roles.
+    """
+    root = Path(mission_dir)
+    newest: tuple[int, str] | None = None
+    for path in root.glob("round-*.json"):
+        if not _ROUND_RECORD_RE.fullmatch(path.name):
+            continue
         try:
-            local_reference = path.resolve().parent == root.resolve()
-        except (OSError, RuntimeError, ValueError):
-            return {}, None
-        if not local_reference:
-            return {}, None
-        latest = _read_json_object(path)
+            key = (path.stat().st_mtime_ns, path.name)
+        except OSError:
+            continue
+        if newest is None or key > newest:
+            newest = key
+    return root / newest[1] if newest else root / "mission.json"
+
+
+def _latest_unreviewed_engineer(root: Path) -> tuple[dict[str, Any], Path | None]:
+    path = latest_handoff_path(root)
+    latest = _read_json_object(path)
     if latest.get("kind") != "round_engineer_handoff":
         return {}, None
     return latest, path
@@ -170,16 +180,8 @@ def render_mission_brief(
         return ""
 
     reviewed = _latest_reviewed_handoff(mission_path.parent)
+    # Unreviewed work is the newest record when the Engineer sealed it last.
     pending_engineer, pending_path = _latest_unreviewed_engineer(mission_path.parent)
-    if pending_engineer and reviewed:
-        try:
-            pending_time = float(pending_engineer.get("created_at") or 0)
-            reviewed_time = float(reviewed.get("created_at") or 0)
-        except (TypeError, ValueError):
-            pending_time = reviewed_time = 0
-        if 0 < pending_time <= reviewed_time and math.isfinite(reviewed_time):
-            # A stale reference must not make already reviewed work look pending.
-            pending_engineer, pending_path = {}, None
     review = reviewed.get("review")
     review = review if isinstance(review, Mapping) else {}
     status = _brief_text(review.get("status"), limit=40)
@@ -263,27 +265,22 @@ def render_mission_brief(
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
-def _attach_mission_metadata(
-    mission_path: Path,
-    payload: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Return a round handoff with one reference to the mission contract."""
-    out = dict(payload)
-    out["mission"] = {"path": str(mission_path)}
-    return out
-
-
 def _latest_handoff_reference(
     *,
     mission_path: Path,
     handoff_path: Path,
 ) -> dict[str, Any]:
+    """``latest.json``: the stable name prompts give the newest record. It holds
+    only a reference; the host reads the records themselves."""
     return {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "handoff_ref",
         "mission": {"path": str(mission_path)},
         "handoff": _file_reference(handoff_path),
     }
+
+
+_ROUND_RECORD_RE = re.compile(r"round-[0-9]{4,}(?:-run-[0-9]{2,})?(?:-engineer)?\.json")
 
 
 def mission_context_dir(life_dir: Path | str, mission_id: str) -> Path:
@@ -387,18 +384,12 @@ def create_mission_context(
         "updated_at": time.time(),
     }
     _atomic_write_json(path, payload)
-    latest_path = root / "latest.json"
-    if not latest_path.exists():
-        _atomic_write_json(root / "latest.json", payload)
-    else:
-        latest = _read_json_object(latest_path)
-        if (
-            str(latest.get("kind") or "") != "mission_context"
-            and latest.get("mission") != {"path": str(path)}
-        ):
-            # Current references already resolve the refreshed contract. Avoid
-            # racing a new round by overwriting its latest pointer needlessly.
-            _atomic_write_json(latest_path, _attach_mission_metadata(path, latest))
+    if not (root / "latest.json").exists():
+        # Prompts name latest.json, so it exists from the start; before the
+        # first round it points at the contract itself.
+        _atomic_write_json(
+            root / "latest.json", _latest_handoff_reference(mission_path=path, handoff_path=path),
+        )
     return path
 
 
@@ -529,6 +520,7 @@ __all__ = [
     "CHECKPOINT_FILENAME",
     "CONTEXT_PACKET_VERSION",
     "create_mission_context",
+    "latest_handoff_path",
     "mission_context_dir",
     "mission_run",
     "record_engineer_handoff",

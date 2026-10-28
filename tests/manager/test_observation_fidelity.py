@@ -77,7 +77,7 @@ def write_excerpt(root, backlog, item, field, value):
     packet = mission_context_dir(root, item.id) / "mission.json"
     packet.parent.mkdir(parents=True, exist_ok=True)
     packet.write_text(json.dumps({"id": item.id, "acceptance_check": item.acceptance_check}))
-    (packet.parent / "latest.json").write_text(json.dumps({"kind": "review_handoff", "engineer_summary": value}))
+    (packet.parent / "round-0001.json").write_text(json.dumps({"kind": "round_reviewed_handoff", "engineer_summary": value}))
 
 
 def displayed_excerpt(observation, task_id, field):
@@ -183,7 +183,7 @@ def test_unseen_excerpt_tail_edit_while_the_manager_decides_is_recorded_not_void
     assert len(backend.prompts) == 1
 
 
-@pytest.mark.parametrize("filename", ["mission.json", "latest.json"])
+@pytest.mark.parametrize("filename", ["mission.json", "round-0001.json"])
 def test_an_oversize_source_is_read_only_to_its_bound_and_named(tmp_path, monkeypatch, filename):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
@@ -222,8 +222,8 @@ def test_an_unpresented_handoff_tail_is_named_in_a_specific_limitation(tmp_path,
         review = [{"check": f"visible-{index}"} for index in range(8)] + [{"check": "UNPRESENTED_TAIL"}]
     else:
         review = {"layer1": {"layer2": {"layer3": {"check": "UNPRESENTED_TAIL"}}}}
-    (mission_context_dir(tmp_path, item.id) / "latest.json").write_text(json.dumps(
-        {"kind": "review_handoff", "engineer_summary": "A readable initial handoff", "review": review}))
+    (mission_context_dir(tmp_path, item.id) / "round-0001.json").write_text(json.dumps(
+        {"kind": "round_reviewed_handoff", "engineer_summary": "A readable initial handoff", "review": review}))
     observation = observe_project(tmp_path, event=event)
     assert "UNPRESENTED_TAIL" not in observation.render()
     path = f"tasks[{item.id}].evidence.review"
