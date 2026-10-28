@@ -8,6 +8,7 @@ import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
+import { webEvents, type Recorded } from '../src/serve/views.js';
 
 /** One scripted turn: the role expected, its letter (no `to`: none), and what it does first. */
 interface Step {
@@ -498,4 +499,17 @@ test('attached files land in the workdir, and the message that carries them says
   const files = [csv!, weights].map(({ attachment_id }) => ({ attachment_id }));
   assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: files })).status, 200);
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
+});
+
+test("each call's end is paired with its own start, when tasks run side by side", () => {
+  const ts = '2026-10-28T00:00:00.000Z';
+  const end = { callId: 'x', threadId: null, completed: true, error: null, model: null, usage: null, ms: 1 };
+  const rows = webEvents([
+    { ts, type: 'call.start', role: 'engineer', task: 't1' }, { ts, type: 'call.start', role: 'engineer', task: 't2' },
+    { ts, type: 'call.end', role: 'engineer', task: 't1', ...end }, { ts, type: 'call.end', role: 'engineer', task: 't2', ...end },
+  ] satisfies Recorded[]);
+  assert.deepEqual(rows.map(row => [row.type, row.item_id, row.call_id]), [
+    ['provider.request.started', 't1', 'c0'], ['provider.request.started', 't2', 'c1'],
+    ['provider.request.completed', 't1', 'c0'], ['provider.request.completed', 't2', 'c1'],
+  ]);
 });
