@@ -1,6 +1,7 @@
-// `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1 only. Requests read
-// the projects' files as they are; messages, answers, starts and stops go to the Flow runs of
-// this process. With a token (ARGUS_WEB_TOKEN) every project request needs it as a bearer.
+// `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1, or with a token on any
+// address. Requests read the projects' files as they are; messages, answers, starts and stops go
+// to the Flow runs of this process. With a token (ARGUS_WEB_TOKEN) every project request needs it
+// as a bearer.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -28,6 +29,8 @@ export interface ServeOptions {
   port: number;
   /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
   web: string;
+  /** The address to listen on, 127.0.0.1 by default; one beyond this machine needs a token. */
+  host?: string;
   token?: string;
 }
 
@@ -54,7 +57,9 @@ export interface Context {
 export type Handler = (context: Context) => unknown;
 
 export async function serve(options: ServeOptions): Promise<Served> {
-  const { store, token } = options;
+  const { store, token, host = '127.0.0.1' } = options;
+  // Whoever reaches the cockpit can run work on this machine.
+  if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
   const listeners = new Map<string, Set<() => void>>();
   const runs = new Runs(store, options.callAgent, id => { for (const wake of listeners.get(id) ?? []) wake(); });
 
@@ -241,10 +246,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
     });
   });
   await new Promise<void>((resolveListen, reject) => {
-    server.once('error', reject).listen(options.port, '127.0.0.1', resolveListen);
+    server.once('error', reject).listen(options.port, host, resolveListen);
   });
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {
       runs.stopAll();
       server.closeAllConnections();

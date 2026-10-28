@@ -214,3 +214,16 @@ test('resetting the conversation gives the Manager a new session, and keeps the 
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
   assert.deepEqual(requests.map(request => request.resume), [undefined, 'thread', undefined]);
 });
+
+test('the cockpit is served beyond this machine only with a token', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-host-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const options = { store: new Store(home), callAgent: (() => { throw new Error('no call'); }) as CallAgent, backend: 'codex' as const, model: null, port: 0, web: home };
+  await assert.rejects(serve({ ...options, host: '0.0.0.0' }), /needs ARGUS_WEB_TOKEN/);
+  const served = await serve({ ...options, host: '0.0.0.0', token: 'secret' });
+  t.after(() => served.close());
+  const { port } = new URL(served.url);
+  assert.equal(served.url, `http://0.0.0.0:${port}`);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/projects`)).status, 401);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/projects`, { headers: { authorization: 'Bearer secret' } })).status, 200);
+});
