@@ -17,6 +17,7 @@ import type { Backend, CallAgent } from '../types.js';
 import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { Runs, type Frame } from './runs.js';
+import { trash } from './trash.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 
 export interface ServeOptions {
@@ -106,7 +107,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });
 
   const routes: [string, RegExp, Handler][] = [
-    ...drafts(store, project),
+    ...drafts(store, project), ...trash(store, runs, project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The page asks for its pins and archive on load; this server keeps none.
     ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],

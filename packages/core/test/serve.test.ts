@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
@@ -334,4 +334,29 @@ test('a message typed while a reply is under way is answered after it', async t 
   await first;
   const { turns } = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 3);
   assert.deepEqual(turns.map(turn => [turn.role, turn.text]), [['operator', 'first'], ['operator', 'second'], ['argus', 'Both answered.']]);
+});
+
+test('deleting a project stops its work and moves its directory to the trash, its workdir left as it is', async t => {
+  const { home, call, get, post } = await setup(t, [{ role: 'manager', to: 'engineer', letter: brief }, { role: 'engineer', hang: true }]);
+  const remove = (sid: string) => call(`/api/projects/${sid}`, { method: 'DELETE' });
+  // A project made and never used, which the page deletes when the operator leaves it.
+  const unused = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const deleted = await (await remove(unused.sid)).json() as Record<string, unknown>;
+  assert.deepEqual(deleted, { ok: true, sid: unused.sid, trash_path: deleted.trash_path, workdir: unused.workdir, workdir_preserved: true });
+  assert.match(String(deleted.trash_path), new RegExp(`^trash[/\\\\]${unused.sid}-\\d{14}$`));
+  assert.ok((await stat(join(home, String(deleted.trash_path), 'project.json'))).isFile());
+  assert.ok((await stat(unused.workdir)).isDirectory());
+  assert.deepEqual((await get<{ projects: unknown[] }>('/api/projects')).projects, []);
+  assert.equal((await remove(unused.sid)).status, 404);
+
+  // A project at work: the request stops the work, and once it has stopped the project goes.
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  assert.equal((await remove(sid)).status, 409);
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  assert.equal((await remove(sid)).status, 200);
+  assert.equal((await call(`${P}/snapshot`)).status, 404);
+  assert.deepEqual((await get<{ projects: unknown[] }>('/api/projects')).projects, []);
 });
