@@ -14,12 +14,13 @@
 // Exit: 0 all hold; 1 something does not, one line per problem; 2 the check could not run.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, relative, resolve } from 'node:path';
+import { extname, join, relative, resolve, sep } from 'node:path';
 
 const root = resolve(process.argv[2] ?? '.');
 const paper = join(root, 'paper');
 const problems = [];
-const shown = path => relative(root, path);
+/** A path as the workspace names it, with / on every system. */
+const shown = path => relative(root, path).split(sep).join('/');
 const isFile = path => existsSync(path) && statSync(path).isFile();
 /** When a file, or the newest file in a folder, last changed. */
 const changed = path => statSync(path).isDirectory()
@@ -75,7 +76,7 @@ function figures(tex, shows) {
   }
   for (const figure of included) {
     shows.push(figure);
-    const record = `${figure.replace(/\.[^./]*$/, '')}.source.json`;
+    const record = `${figure.slice(0, figure.length - extname(figure).length)}.source.json`;
     if (!isFile(record)) problems.push(`${shown(figure)} has no record of what made it: ${shown(record)}`);
     else {
       let made;
