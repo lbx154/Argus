@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from dataclasses import replace
 from types import SimpleNamespace
 
 from argus.life.event_log import JsonlEventSink
@@ -212,3 +213,33 @@ def test_a_stage_the_planner_moves_to_without_new_tasks_is_applied(
     supervisor._plan_next_work()
 
     assert applied == ["experiment"]
+
+
+def test_a_planner_waits_on_its_unanswered_question_by_handing_it_on_again(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """s-efe9deac (10-27): waiting on its own unanswered spot-check question,
+    the Planner tried to=operator without ask, was refused 46 times ("to=operator
+    goes with ask"), and handed to the Manager instead "to avoid asking twice",
+    starting supervision rounds. The plan form says how to wait, and waiting
+    that way leaves the one question as it was first asked."""
+    from argus.core.handoff import form_tool
+
+    assert "while your question to them is unanswered, hand to=operator with it again" in (
+        form_tool("plan")["description"]
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    asked = PlannerVerdict(
+        project_done=False, summary="Spot-check cases 1, 7 and 22 first.", handoff="operator",
+        operator_question="Do you agree with the three spot-check verdicts?",
+    )
+    again = replace(asked, summary="Still waiting on the spot-check answer.")
+    _install_planner(monkeypatch, [asked, again])
+    supervisor = _supervisor(project, tmp_path / "life")
+
+    supervisor._plan_next_work()
+    supervisor._plan_next_work()
+
+    questions = [row.pending_question for row in supervisor.memory.backlog.active() if row.pending_question]
+    assert questions == ["Do you agree with the three spot-check verdicts?"]
