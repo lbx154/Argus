@@ -3,7 +3,7 @@
 // only the CLI's login and settings are brought. Its environment carries no credential but its own.
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, closeSync, constants, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { argusHome } from '../store.js';
@@ -59,6 +59,24 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
     return {
       login: [join(dir, '.credentials.json')], settings: [join(dir, 'settings.json'), join(dir, 'CLAUDE.md')],
       signsInWith: name => name.startsWith('ANTHROPIC_') || name === 'CLAUDE_CODE_OAUTH_TOKEN',
+    };
+  }
+  if (backend === 'copilot') {
+    const dir = process.env.COPILOT_HOME || join(homedir(), '.copilot');
+    return {
+      // The standalone copilot runs from the package it unpacked into ~/.cache/copilot.
+      login: [join(dir, 'config.json')],
+      settings: [join(dir, 'settings.json'), join(dir, 'permissions-config.json'), join(homedir(), '.cache', 'copilot')],
+      // Not the GH_TOKEN or GITHUB_TOKEN it also takes: those are git's and gh's.
+      signsInWith: name => name.startsWith('COPILOT_'),
+    };
+  }
+  if (backend === 'pi') {
+    const dir = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
+    return {
+      login: [join(dir, 'auth.json')], settings: [join(dir, 'models.json'), join(dir, 'settings.json')],
+      // Pi reaches many providers, each with its own key.
+      signsInWith: name => name.endsWith('_API_KEY') || name.startsWith('ANTHROPIC_'),
     };
   }
   const dir = process.env.CODEX_HOME || join(homedir(), '.codex');
@@ -157,9 +175,10 @@ export function confine(argv: string[], request: AgentRequest): string[] {
   const cwd = resolve(request.cwd);
   const given = [cwd, ...request.readDirs ?? [], ...request.writeDirs ?? []].map(path => resolve(path));
   const writes = request.access === 'write' ? [cwd, ...request.writeDirs ?? []].map(real) : [];
-  const files = args.filter(arg => isAbsolute(arg) && isFile(arg)).map(real);
+  // Files and directories the arguments name, such as the schema or extension a call writes.
+  const passed = args.filter(arg => isAbsolute(arg) && existsSync(arg)).map(real);
   const readable = outermost([
-    ...SYSTEM, installRoot(executable), ...interpreter(executable), ...gitCommonDir(cwd), ...files,
+    ...SYSTEM, installRoot(executable), ...interpreter(executable), ...gitCommonDir(cwd), ...passed,
     // The resolver file, where /etc/resolv.conf points outside /etc.
     ...[real('/etc/resolv.conf')].filter(target => target !== '/etc/resolv.conf' && isFile(target)),
   ]).filter(path => !given.some(dir => within(path, real(dir))));

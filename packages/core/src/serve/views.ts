@@ -26,7 +26,7 @@ export type Recorded = FlowEvent & { ts: string };
 
 const ROLES: Role[] = ['manager', 'planner', 'engineer', 'reviewer'];
 const NAMES: Record<Role, string> = { manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer' };
-const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code' };
+const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
 const SETTLED: Record<Exclude<TaskStatus, 'open'>, string> = { done: 'done', returned: 'skipped' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;

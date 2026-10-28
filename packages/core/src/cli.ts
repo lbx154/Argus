@@ -7,14 +7,14 @@ import { callAgent } from './agent/call.js';
 import { Flow } from './flow.js';
 import { serve } from './serve/index.js';
 import { Store, type FlowEvent, type Project } from './store.js';
-import type { Backend } from './types.js';
+import { BACKENDS, type Backend } from './types.js';
 
 const USAGE = `Usage:
-  argus run "<request>" [--dir DIR] [--backend codex|claude] [--model M]
+  argus run "<request>" [--dir DIR] [--backend codex|claude|copilot|pi] [--model M]
   argus say <project> "<text>"
   argus answer <project> "<text>"
   argus status [project]
-  argus serve [--port N] [--web DIR] [--backend codex|claude] [--model M]   (ARGUS_WEB_TOKEN: require this bearer token)
+  argus serve [--port N] [--web DIR] [--backend codex|claude|copilot|pi] [--model M]   (ARGUS_WEB_TOKEN: require this bearer token)
 `;
 
 const write = (line: string): void => { process.stdout.write(line + '\n'); };
@@ -64,8 +64,8 @@ async function main(): Promise<void> {
   const store = new Store();
   if (command === 'status' && !values.help) return status(store, args[0]);
   const [first, text] = args;
-  const backend = values.backend;
-  if (backend !== 'codex' && backend !== 'claude') throw new Error('--backend must be codex or claude');
+  const backend = values.backend as Backend;
+  if (!BACKENDS.includes(backend)) throw new Error(`--backend must be one of ${BACKENDS.join(', ')}`);
   if (command === 'serve' && !values.help && !args.length) return web(store, backend, values);
   if (values.help || !first || !(command === 'run' ? args.length === 1 : (command === 'say' || command === 'answer') && text !== undefined)) {
     process.stdout.write(USAGE);

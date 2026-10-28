@@ -10,12 +10,16 @@ import { executeProcess, type ProcessExit } from '@argus/runtime';
 import type { AgentRequest, AgentResult, Backend, Usage } from '../types.js';
 import { claude } from './claude.js';
 import { codex } from './codex.js';
+import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
+import { pi } from './pi.js';
 import { agentEnv, confine, launcher, sandboxed } from './sandbox.js';
 
 export interface BackendRun {
   /** The CLI's arguments; the prompt goes on stdin. */
   args: string[];
+  /** Settings the CLI takes only from its environment. */
+  env?: Record<string, string>;
   consume(event: Record<string, unknown>): void;
   /** What the turn came to, once the CLI has exited; `output` is its final answer, the form as filled in. */
   finish(): Pick<AgentResult, 'threadId' | 'completed' | 'error' | 'model' | 'usage'> & { output: unknown };
@@ -26,7 +30,7 @@ export type StartBackend = (
   call: { confined: boolean; started: number; schema: PayloadSchema; /** calls/<call>, the stem of any file the call needs. */ stem: string },
 ) => BackendRun;
 
-const BACKENDS: Record<Backend, StartBackend> = { codex, claude };
+const START: Record<Backend, StartBackend> = { codex, claude, copilot, pi };
 
 export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   const started = Date.now();
@@ -36,13 +40,13 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   const raw = createWriteStream(`${stem}.jsonl`);
   try {
     const confined = sandboxed();
-    const run = BACKENDS[request.backend](request, { confined, started, schema: formSchema(request.form), stem });
+    const run = START[request.backend](request, { confined, started, schema: formSchema(request.form), stem });
     const argv = confined ? confine([request.backend, ...run.args], request) : [...launcher(request.backend), ...run.args];
     const stderr: string[] = [];
     let exit: ProcessExit | undefined;
     for await (const item of executeProcess({
       executable: argv[0]!, args: argv.slice(1), cwd: request.cwd, input: request.prompt,
-      env: agentEnv(request.backend), ...request.signal ? { signal: request.signal } : {},
+      env: { ...agentEnv(request.backend), ...run.env }, ...request.signal ? { signal: request.signal } : {},
     })) {
       if (item.type === 'exit') { exit = item; continue; }
       raw.write(`${item.stream === 'stdout' ? item.line : JSON.stringify({ stderr: item.line })}\n`);

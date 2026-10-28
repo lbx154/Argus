@@ -1,32 +1,57 @@
 #!/usr/bin/env node
-// Stands in for `codex exec --json` and `claude -p --output-format stream-json`. It reads a
-// scenario as its prompt and ends the turn with the scenario's output as its final answer, as
-// the real CLI does under --output-schema or --json-schema. Beside the workdir it notes the
-// schema it was held to and the credentials it could see.
+// Stands in for `codex exec --json`, `claude -p --output-format stream-json`, `copilot
+// --output-format json` and `pi --mode json`. It reads a scenario as its prompt and ends the turn
+// with the scenario's output: as its final answer, as codex and claude do under --output-schema
+// or --json-schema, or, for copilot and pi, as the arguments of a call to the hand-off tool the
+// call's extension registers, loaded as that CLI loads it. Beside the workdir it notes the schema
+// it was held to, the credentials it could see and whether the tool's call ends the turn.
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { register } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
-const codex = args[0] === 'exec';
+const cli = args[0] === 'exec' ? 'codex' : args.includes('--plugin-dir') ? 'copilot' : args.includes('--extension') ? 'pi' : 'claude';
 const scenario = JSON.parse(readFileSync(0, 'utf8'));
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
 
-const schema = JSON.parse(codex ? readFileSync(option('--output-schema'), 'utf8') : option('--json-schema'));
-writeFileSync(join(process.cwd(), `seen-${codex ? 'codex' : 'claude'}.json`), JSON.stringify({
-  schema, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY)$/.test(name)),
+/** The hand-off tool the call's extension registers, or null where copilot loads no extension. */
+async function handOffTool() {
+  if (cli === 'pi') {
+    let tool;
+    (await import(pathToFileURL(option('--extension')).href)).default({ registerTool: registered => { tool = registered; } });
+    return { ...tool, ends: (await tool.execute()).terminate === true };
+  }
+  if (!/\bEXTENSIONS\b/.test(process.env.COPILOT_CLI_ENABLED_FEATURE_FLAGS ?? '')) return null;
+  const sdk = `data:text/javascript,${encodeURIComponent('export const joinSession = async config => { globalThis.joined = config; };')}`;
+  register(`data:text/javascript,${encodeURIComponent(`export const resolve = (specifier, context, next) =>
+    specifier === '@github/copilot-sdk/extension' ? { url: ${JSON.stringify(sdk)}, shortCircuit: true } : next(specifier, context);`)}`);
+  await import(pathToFileURL(join(option('--plugin-dir'), 'extensions', 'argus', 'extension.mjs')).href);
+  const [tool] = globalThis.joined.tools;
+  return { ...tool, ends: tool.isTerminal === true };
+}
+
+const tool = cli === 'copilot' || cli === 'pi' ? await handOffTool() : null;
+const schema = cli === 'codex' ? JSON.parse(readFileSync(option('--output-schema'), 'utf8'))
+  : cli === 'claude' ? JSON.parse(option('--json-schema')) : tool?.parameters;
+writeFileSync(join(process.cwd(), `seen-${cli}.json`), JSON.stringify({
+  schema, ends: tool?.ends, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY|COPILOT_GITHUB_TOKEN)$/.test(name)),
 }));
 
 const uuid7 = () => {
   const hex = Date.now().toString(16).padStart(12, '0') + randomBytes(10).toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7${hex.slice(13, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 };
-const thread = codex ? (args.includes('resume') ? args.at(-2) : uuid7()) : (args.includes('--resume') ? option('--resume') : randomUUID());
-if (codex) emit({ type: 'thread.started', thread_id: thread });
-else emit({ type: 'system', subtype: 'init', session_id: thread, model: 'claude-test' });
+const resumed = { codex: args.includes('resume') && args.at(-2), claude: args.includes('--resume') && option('--resume'),
+  copilot: args.find(arg => arg.startsWith('--resume='))?.slice(9), pi: args.includes('--session') && option('--session') }[cli];
+const thread = resumed || (cli === 'codex' ? uuid7() : randomUUID());
+if (cli === 'codex') emit({ type: 'thread.started', thread_id: thread });
+else if (cli === 'claude') emit({ type: 'system', subtype: 'init', session_id: thread, model: 'claude-test' });
+else if (cli === 'pi') emit({ type: 'session', version: 3, id: thread, cwd: process.cwd() });
 
 if (scenario.hang) {
   // A job that runs as long as its connection to the test's port is open.
@@ -35,7 +60,9 @@ if (scenario.hang) {
 } else {
   const output = scenario.output;
   const answer = typeof output === 'string' ? output : JSON.stringify(output);
-  if (codex) {
+  // Copilot and pi call the tool when there is a form and a tool to carry it, and otherwise end in prose.
+  const called = typeof output === 'object' && tool ? output : undefined;
+  if (cli === 'codex') {
     const began = new Date(parseInt(thread.replace(/-/g, '').slice(0, 12), 16));
     const pad = value => String(value).padStart(2, '0');
     const day = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions',
@@ -54,12 +81,41 @@ if (scenario.hang) {
     emit({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'Working on it.' } });
     emit({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: answer } });
     emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } });
-  } else {
+  } else if (cli === 'claude') {
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
     const result = { type: 'result', subtype: 'success', session_id: thread, usage, total_cost_usd: 0.0123 };
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answer, ...typeof output === 'object' ? { structured_output: output } : {} });
     process.exit(scenario.fail ? 1 : 0);
+  } else if (cli === 'copilot') {
+    // The session's event log has a usage record per model request, a subagent's among them.
+    const log = join(process.env.COPILOT_HOME || join(homedir(), '.copilot'), 'session-state', thread);
+    mkdirSync(log, { recursive: true });
+    const usage = { model: 'copilot-test', inputTokens: 1200, cacheReadTokens: 800, cacheWriteTokens: 100, outputTokens: 30,
+      reasoningTokens: 10, copilotUsage: { totalNanoAiu: 2_500_000_000 } };
+    appendFileSync(join(log, 'events.jsonl'), [{}, { agentId: 'sub-1' }].map(by => `${JSON.stringify({
+      type: 'session.usage_record', ...by, timestamp: new Date().toISOString(), data: { usage } })}\n`).join(''));
+    if (scenario.fail) {
+      emit({ type: 'session.error', data: { errorType: 'rate_limit', message: scenario.fail } });
+      emit({ type: 'result', sessionId: thread, exitCode: 1 });
+      process.exit(1);
+    }
+    const message = (content, toolRequests = []) => ({ type: 'assistant.message', data: { model: 'copilot-test', content, toolRequests } });
+    emit(message('Working on it.'));
+    emit(called ? message('', [{ toolCallId: 'call_1', name: 'hand_off', arguments: called, type: 'function' }]) : message(answer));
+    // A background subagent reports after the turn's last message.
+    emit({ ...message('Background check done.'), agentId: 'sub-1' });
+    emit({ type: 'result', sessionId: thread, exitCode: 0 });
+  } else {
+    const usage = { input: 20, output: 40, cacheRead: 300, cacheWrite: 50, reasoning: 5, cost: { total: 0.0042 } };
+    const message = (content, more = {}) => ({ type: 'message_end',
+      message: { role: 'assistant', provider: 'anthropic', model: 'claude-test', stopReason: 'stop', content, usage, ...more } });
+    emit(message([{ type: 'text', text: 'Working on it.' }]));
+    // Pi settles and exits 0 after a failed request too.
+    emit(scenario.fail ? message([], { stopReason: 'error', errorMessage: scenario.fail })
+      : message(called ? [{ type: 'toolCall', id: 'call_1', name: 'hand_off', arguments: called }] : [{ type: 'text', text: answer }],
+        called ? { stopReason: 'toolUse' } : {}));
+    emit({ type: 'agent_settled', aborted: false });
   }
 }
