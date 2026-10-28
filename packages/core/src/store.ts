@@ -55,7 +55,7 @@ export interface Project {
   tasks: Task[];
   /** Letters to the Planner; it is called when no task is open and one is waiting. */
   inbox: string[];
-  /** Letters from the team to the Manager that no Manager turn has taken yet. */
+  /** Letters to the Manager, the operator's and the team's, that no Manager turn has taken yet. */
   forManager?: string[];
   /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
   sessions: Record<string, string>;

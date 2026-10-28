@@ -370,6 +370,23 @@ test('a robot model opens in 3D, with the meshes it names read from beside it', 
   }
 });
 
+test('a message whose reply a stop cut off waits for Resume, which the page offers', async t => {
+  const { get, post, requests } = await setup(t, [{ role: 'manager', hang: true }, { role: 'manager', to: 'operator', letter: '42' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  const reply = frames(await post(`${P}/message/stream`, { text: 'What is 6 times 7?', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
+  await post(`${P}/daemon/stop`, { command_id: 'c1' });
+  await reply;
+  const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  assert.deepEqual(stopped.backlog.map(item => [item.title, item.status]), [['What is 6 times 7?', 'in_progress']]);
+  await post(`${P}/daemon/start`, { command_id: 'c2' });
+  const answered = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 2);
+  assert.deepEqual(answered.turns.map(turn => [turn.role, turn.text]), [['operator', 'What is 6 times 7?'], ['argus', '42']]);
+  assert.deepEqual((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).backlog, []);
+  assert.equal(requests.length, 2);
+});
+
 test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed, and plugins", async t => {
   const { home, store, get, call, post } = await setup(t, []);
   const own = join(home, 'skills');
