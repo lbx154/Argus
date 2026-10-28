@@ -15,6 +15,7 @@ from deploy.native_preview import (
     QuotaExceeded,
     model_app,
     portal_app,
+    admit,
     provider_cost,
     token_cost,
 )
@@ -409,3 +410,43 @@ def test_storage_limit_allows_a_normal_repository_clone(tmp_path):
     with (checkout / 'fixture').open('wb') as file:
         file.truncate(2 * 1024**3 + 1)
     assert storage_exceeded(str(tmp_path))
+
+
+def test_admit_keeps_billable_media_and_drops_what_it_cannot_bill():
+    payload = {'model': MODEL, 'tools': [{'type': 'function', 'name': 'f'}, {'type': 'web_search'}],
+               'tool_choice': {'type': 'web_search'},
+               'input': [{'type': 'item_reference', 'id': 'r1'},
+                         {'role': 'user', 'content': [{'type': 'input_text', 'text': 'look'},
+                                                      {'type': 'input_image', 'image_url': 'data:image/png;base64,AAAA'}]}]}
+    refusal, dropped = admit(payload, priced_by_usage=True)
+    assert refusal == ''
+    assert dropped == {'tool:web_search', 'item_reference'}
+    assert [tool['type'] for tool in payload['tools']] == ['function']
+    assert 'tool_choice' not in payload
+    assert len(payload['input']) == 1 and payload['input'][0]['content'][1]['type'] == 'input_image'
+    remote = {'input': [{'role': 'user', 'content': [{'type': 'input_image', 'image_url': 'https://x/y.png'}]}]}
+    assert admit(remote, priced_by_usage=True)[0] == 'input_image without inline data'
+    inline = {'input': [{'role': 'user', 'content': [{'type': 'input_image', 'image_url': 'data:image/png;base64,AA'}]}]}
+    assert admit(inline, priced_by_usage=False)[0] == 'input_image'
+
+
+def test_meter_forwards_a_subagent_request_with_hosted_tools_to_a_priced_upstream(config, ledger, monkeypatch, tmp_path):
+    key = tmp_path / 'upstream.key'
+    key.write_text('upstream-secret')
+    config['upstream'] = {'base_url': 'https://relay.example/v1', 'token_file': str(key)}
+    sent = []
+    def provider(request):
+        sent.append(json.loads(request.content))
+        event = {'type': 'response.completed', 'response': {'id': 'r', 'status': 'completed', 'output': [],
+                 'usage': {'input_tokens': 10, 'output_tokens': 1}}}
+        return httpx.Response(200, headers={'Content-Type': 'text/event-stream'},
+                              content=('data: ' + json.dumps(event) + '\n\n').encode())
+    original = httpx.AsyncClient
+    monkeypatch.setattr('deploy.native_preview.httpx.AsyncClient',
+                        lambda **kwargs: original(transport=httpx.MockTransport(provider)))
+    r = TestClient(model_app(config, ledger)).post('/v1/responses', headers={'Authorization': 'Bearer meter-a'}, json={
+        'model': MODEL, 'max_output_tokens': 64, 'tools': [{'type': 'function', 'name': 'task'}, {'type': 'web_search'}],
+        'input': [{'type': 'item_reference', 'id': 'x'}, {'role': 'user', 'content': [{'type': 'input_text', 'text': 'review'}]}]})
+    assert r.status_code == 200
+    assert [tool['type'] for tool in sent[0]['tools']] == ['function']
+    assert all(item.get('type') != 'item_reference' for item in sent[0]['input'])
