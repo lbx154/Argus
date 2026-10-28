@@ -147,3 +147,18 @@ for (const backend of BACKENDS) {
     }
   });
 }
+
+test('a CLI not on PATH says how to install it', async () => {
+  // Nothing on PATH, so no CLI installed on this machine can answer either.
+  const path = process.env.PATH;
+  process.env.PATH = join(root, 'nowhere');
+  try {
+    for (const backend of BACKENDS) {
+      const result = await call(backend, { output: handoff });
+      assert.deepEqual([result.completed, result.handoff], [false, null]);
+      assert.match(result.error ?? '', new RegExp(`^${backend} is not installed .*Install it with: npm install -g \\S+`));
+    }
+  } finally {
+    process.env.PATH = path;
+  }
+});

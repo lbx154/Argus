@@ -14,9 +14,12 @@ import {
 } from '@argus/contracts';
 import type { Project, Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
+import { attached, attachments } from './attachments.js';
+import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { Runs, type Frame } from './runs.js';
+import { trash } from './trash.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 
 export interface ServeOptions {
@@ -74,7 +77,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-    capabilities: [...REQUIRED_API_CAPABILITIES],
+    capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1'],
     runtime: {
       package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
@@ -97,15 +100,17 @@ export async function serve(options: ServeOptions): Promise<Served> {
   };
   /** The message a request carries, checked before any reply is under way. */
   const message = async ({ params: [id], body }: Context): Promise<(send: (frame: Frame) => void) => Promise<Frame>> => {
-    const { text, request_id: request } = await body();
+    const { text, request_id: request, attachments: files } = await body();
     if (typeof text !== 'string' || !text.trim()) throw new HttpError(400, 'empty message');
-    const { id: sid } = project(id!);
-    return send => runs.message(sid, text, typeof request === 'string' && request ? request : randomUUID(), send);
+    const work = project(id!);
+    const said = text + attached(work, files);
+    return send => runs.message(work.id, said, typeof request === 'string' && request ? request : randomUUID(), send);
   };
   const command = (id: string, body: Record<string, unknown>) =>
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });
 
   const routes: [string, RegExp, Handler][] = [
+    ...drafts(store, project), ...trash(store, runs, project), ...attachments(project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The page asks for its pins and archive on load; this server keeps none.
     ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],
@@ -152,6 +157,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const send = sse(context.response);
       send(await reply(send));
       context.response.end();
+    }],
+    // A message typed while a reply is under way: answered after it, as any other.
+    ['POST', /^\/api\/projects\/([^/]+)\/message\/followup$/, async context => {
+      void (await message(context))(() => {});
+      return { ok: true, queued: true };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/cancel$/, async ({ params: [id], body }) => {
       const requested = runs.cancel(project(id!).id, String((await body()).request_id ?? ''));
