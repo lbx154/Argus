@@ -104,8 +104,6 @@ export async function serve(options: ServeOptions): Promise<Served> {
 
   const routes: [string, RegExp, Handler][] = [
     ['GET', /^\/api\/application-brand$/, () => BRAND],
-    // The page asks for its pins and archive on load; this server keeps none.
-    ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],
     // And for the saved maps it may open beside a project's.
     ['GET', /^\/api\/map-datasets$/, () => ({ datasets: [] })],
     ['GET', /^\/api\/projects$/, () => ({

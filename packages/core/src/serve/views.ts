@@ -156,7 +156,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
-      id, display_name: project.request.split('\n')[0]!.slice(0, 80), objective: project.request, created: seconds(project.created),
+      id, display_name: project.name || project.request.split('\n')[0]!.slice(0, 80), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
@@ -183,8 +183,8 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   const summary = usage(store, project.id);
   const { since } = live;
   return {
-    // The page names an unnamed project by its objective; a label other than the id would be a name given to it.
-    id: project.id, label: project.id, display_name: '', objective: project.request,
+    // The page names an unnamed project by its objective; a label other than the id is the name the operator gave it.
+    id: project.id, label: project.name || project.id, display_name: project.name ?? '', objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     active_role: live.roles.at(-1) ?? '', current_task: openTasks(project).map(task => task.title).join('; '),

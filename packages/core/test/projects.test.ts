@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Snapshot } from '@argus/contracts';
@@ -122,4 +122,53 @@ test('a project has its own backend, model and effort, which the settings change
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-sonnet-4-5')).status, 409);
   await cancel();
   assert.equal(store.load(sid).model, null);
+});
+
+test('a project is named by the operator, marked in the sidebar, and restored from the trash', async t => {
+  const { home, send, get, create, busy } = await setup(t);
+  const sid = await create();
+  type Rows = { projects: { id: string; label: string; display_name: string }[] };
+  const row = async () => (await get<Rows>('/api/projects')).projects.find(project => project.id === sid);
+  assert.deepEqual(await (await send('PATCH', `/api/projects/${sid}`, { name: '  Column\n  totals ' })).json(), { ok: true, sid, name: 'Column totals' });
+  assert.deepEqual([(await row())?.label, (await row())?.display_name], ['Column totals', 'Column totals']);
+  assert.equal((await get<Snapshot>(`/api/projects/${sid}/snapshot`)).session.display_name, 'Column totals');
+  await send('PATCH', `/api/projects/${sid}`, { name: ' ' });
+  // Unnamed again, the page names it by its request.
+  assert.deepEqual([(await row())?.label, (await row())?.display_name], [sid, '']);
+  const cancel = await busy(sid);
+  assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 409);
+  await cancel();
+
+  assert.deepEqual(await get('/api/browser-state/organization'), { value: {}, revision: 0 });
+  const organize = (body: unknown) => send('POST', '/api/browser-state/organization', body);
+  assert.equal((await organize({ sid, field: 'pinned', value: true })).status, 200);
+  const marked = { value: { [sid]: { pinned: true, archived: true, followup: false } }, revision: 2 };
+  assert.deepEqual(await (await organize({ sid, field: 'archived', value: true })).json(), marked);
+  assert.deepEqual(await get('/api/browser-state/organization'), marked);
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'browser-state.json'), 'utf8')), { organization: marked });
+  for (const [body, status] of [[{ sid: 'p-00000000', field: 'pinned', value: true }, 404], [{ sid, field: 'hidden', value: true }, 400],
+    [{ sid, field: 'pinned', value: 'yes' }, 400]] as const) assert.equal((await organize(body)).status, status, JSON.stringify(body));
+
+  // Deleting a project moves its directory to the trash.
+  await send('PATCH', `/api/projects/${sid}`, { name: 'Column totals' });
+  await mkdir(join(home, 'trash'), { recursive: true });
+  await rename(join(home, 'projects', sid), join(home, 'trash', `${sid}-20261028T120000Z`));
+  assert.equal(await row(), undefined);
+  type Trash = { entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trash_path: string; trashed_at: number }[]; total: number };
+  const { entries, total } = await get<Trash>('/api/trash?query=&limit=100&offset=0');
+  assert.equal(total, 1);
+  const [entry] = entries;
+  assert.deepEqual({ ...entry, trashed_at: entry!.trashed_at > 0 }, {
+    trash_id: `${sid}-20261028T120000Z`, sid, label: 'Column totals', launch_cwd: join(home, 'workspaces', sid),
+    trash_path: `trash/${sid}-20261028T120000Z`, trashed_at: true,
+  });
+  assert.equal((await get<Trash>('/api/trash?query=column')).total, 1);
+  assert.equal((await get<Trash>('/api/trash?query=nothing')).total, 0);
+  for (const id of ['..', 'p-00000000-1', encodeURIComponent('../projects')]) assert.equal((await send('POST', `/api/trash/${id}/restore`)).status, 404, id);
+  assert.deepEqual(await (await send('POST', `/api/trash/${entry!.trash_id}/restore`)).json(), { ok: true, sid });
+  assert.equal((await row())?.label, 'Column totals');
+  assert.deepEqual((await get<Trash>('/api/trash')).entries, []);
+  // A copy in the trash of a project that is back is not restored over it.
+  await cp(join(home, 'projects', sid), join(home, 'trash', `${sid}-copy`), { recursive: true });
+  assert.equal((await send('POST', `/api/trash/${sid}-copy/restore`)).status, 409);
 });

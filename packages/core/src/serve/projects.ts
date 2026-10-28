@@ -1,10 +1,12 @@
-// What the operator sets on a project: its directory, and the backend, model and reasoning effort
-// of all its roles. A project's record is changed only while nothing is under way on it, since the
-// work under way holds the record and writes it back.
+// What the operator sets on a project: its directory, its name, and the backend, model and
+// reasoning effort of all its roles; and across projects: the sidebar's pins and archive, kept in
+// $ARGUS_HOME/browser-state.json, and the trash a deleted project's directory goes to. A project's
+// record is changed only while nothing is under way on it, since the work under way holds the
+// record and writes it back.
 
-import { statSync } from 'node:fs';
+import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Project, Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
@@ -37,12 +39,34 @@ export function directory(asked: string): string {
   return path;
 }
 
+const MARKS = ['pinned', 'archived', 'followup'];
+
 export function projectRoutes(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   const edit = (id: string, change: (work: Project) => void): void => {
     const work = project(id);
     if (runs.live(work.id).since !== null) throw new HttpError(409, 'Work is under way on this project: stop it first.');
     change(work);
     store.save(work);
+  };
+  const browserState = join(store.home, 'browser-state.json');
+  const kept = (): { organization?: { value: Record<string, Record<string, boolean>>; revision: number } } => {
+    try { return JSON.parse(readFileSync(browserState, 'utf8')); } catch { return {}; }
+  };
+  const trash = join(store.home, 'trash');
+  /** Each project in the trash, as deleting it left it: its directory, named `<id>-<when>`. */
+  const trashed = () => {
+    let names: string[];
+    try { names = readdirSync(trash); } catch { return []; }
+    return names.flatMap(name => {
+      try {
+        const work = JSON.parse(readFileSync(join(trash, name, 'project.json'), 'utf8')) as Project;
+        return [{
+          trash_id: name, sid: work.id, label: work.name || work.request.split('\n')[0] || work.id, launch_cwd: work.workdir,
+          // Moving the directory there is the last change to it.
+          trash_path: `trash/${name}`, trashed_at: statSync(join(trash, name)).ctimeMs / 1000,
+        }];
+      } catch { return []; }
+    }).sort((a, b) => b.trashed_at - a.trashed_at);
   };
 
   return [
@@ -52,6 +76,37 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       // A backend session belongs to the directory it worked in: every role starts afresh in the new one.
       edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); });
       return { ok: true, workdir };
+    }],
+    ['PATCH', /^\/api\/projects\/([^/]+)$/, async ({ params: [id], body }) => {
+      const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      edit(id!, work => { if (name) work.name = name; else delete work.name; });
+      return { ok: true, sid: id, name };
+    }],
+    ['GET', /^\/api\/browser-state\/organization$/, () => kept().organization ?? { value: {}, revision: 0 }],
+    ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {
+      const { sid, field, value } = await body();
+      const { id } = project(String(sid));
+      if (!MARKS.includes(String(field)) || typeof value !== 'boolean') throw new HttpError(400, `a mark is one of ${MARKS.join(', ')}, true or false`);
+      const state = kept();
+      const { value: marks, revision } = state.organization ?? { value: {}, revision: 0 };
+      marks[id] = { pinned: false, archived: false, followup: false, ...marks[id], [String(field)]: value };
+      state.organization = { value: marks, revision: revision + 1 };
+      writeFileSync(`${browserState}.tmp`, JSON.stringify(state));
+      renameSync(`${browserState}.tmp`, browserState);
+      return state.organization;
+    }],
+    ['GET', /^\/api\/trash$/, ({ url }) => {
+      const query = (url.searchParams.get('query') ?? '').trim().toLowerCase();
+      const [offset, limit] = [Number(url.searchParams.get('offset')) || 0, Number(url.searchParams.get('limit')) || 100];
+      const entries = trashed().filter(entry => [entry.sid, entry.label, entry.launch_cwd, entry.trash_path].join(' ').toLowerCase().includes(query));
+      return { entries: entries.slice(offset, offset + limit), total: entries.length, offset, limit };
+    }],
+    ['POST', /^\/api\/trash\/([^/]+)\/restore$/, ({ params: [name] }) => {
+      const entry = trashed().find(entry => entry.trash_id === name);
+      if (!entry || !/^p-[0-9a-f]+$/.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
+      if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists');
+      renameSync(join(trash, name!), store.dir(entry.sid));
+      return { ok: true, sid: entry.sid };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
       const work = project(id!);
