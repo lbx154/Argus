@@ -64,14 +64,14 @@ def _loads_json(text: str) -> Any:
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
     try:
         return json.loads(cleaned)
-    except Exception:  # noqa: BLE001 — fall through to bracket extraction
+    except (ValueError, RecursionError):  # fall through to bracket extraction
         pass
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start != -1 and end > start:
         try:
             return json.loads(cleaned[start : end + 1])
-        except Exception:  # noqa: BLE001
+        except (ValueError, RecursionError):
             return None
     return None
 

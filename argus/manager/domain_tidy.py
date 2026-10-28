@@ -167,10 +167,8 @@ def propose_promotions(project_root: Path | str) -> list[DomainPromotionProposal
         return []
     root = Path(project_root)
     out: list[DomainPromotionProposal] = []
-    try:
-        from ..verticals._data_domain import list_data_domains, load_data_domain
-    except Exception:  # noqa: BLE001
-        return out
+    from ..verticals._data_domain import list_data_domains, load_data_domain
+
     if not _domain_is_proven(root):
         return out
     for name in list_data_domains(root):

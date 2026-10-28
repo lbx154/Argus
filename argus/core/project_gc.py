@@ -117,7 +117,7 @@ def _project_is_empty(project_dir: Path) -> bool:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 if any(str(data.get(k) or "").strip() for k in keys):
                     return False
-        except Exception:  # noqa: BLE001
+        except (AttributeError, OSError, ValueError):
             pass
     return True
 

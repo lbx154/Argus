@@ -178,10 +178,8 @@ def _event_texts_by_id(life_dir: Path, wanted: set[str]) -> dict[str, str]:
             return {}
     except OSError:
         return {}
-    try:
-        from .map_view import EVENT_PREFIXES, event_id
-    except Exception:  # noqa: BLE001 — fall back to explicit event ids only
-        EVENT_PREFIXES, event_id = (), None
+    from .map_view import EVENT_PREFIXES, event_id
+
     found: dict[str, str] = {}
     try:
         with path.open("rb") as handle:
@@ -205,7 +203,7 @@ def _event_texts_by_id(life_dir: Path, wanted: set[str]) -> dict[str, str]:
         if not isinstance(row, dict):
             continue
         row_id = str(row.get("event_id") or "")
-        if not row_id and event_id is not None:
+        if not row_id:
             if not str(row.get("type") or "").startswith(tuple(EVENT_PREFIXES)):
                 continue
             row_id = event_id(row)

@@ -639,12 +639,10 @@ def backend_uses_openai_catalog(
         return False
     if normalized == "copilot":
         return not hosting().enabled(env)
-    try:
-        from ..tools.capability_vault import read_codex_provider_config
+    from ..tools.capability_vault import read_codex_provider_config
 
-        provider = read_codex_provider_config(env)
-    except Exception:  # noqa: BLE001 — preserve legacy Codex behavior on unreadable config
-        return True
+    # An unreadable Codex config reads as None: legacy Codex behaviour.
+    provider = read_codex_provider_config(env)
     if provider is None:
         return True
     # ``codex`` is Codex's built-in OpenAI provider; ``openai`` is a common

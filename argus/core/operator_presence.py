@@ -40,12 +40,9 @@ class OperatorPresence:
 
 
 def _last_operator_turn(life_dir: Path) -> float | None:
-    try:
-        from .transcript import read_turns
+    from .transcript import read_turns
 
-        turns = read_turns(life_dir, limit=200)
-    except Exception:  # noqa: BLE001 - presence is advisory
-        return None
+    turns = read_turns(life_dir, limit=200)
     latest: float | None = None
     for turn in turns:
         if turn.get("role") != "operator":
