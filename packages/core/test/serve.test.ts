@@ -97,10 +97,10 @@ async function eventually<T>(read: () => Promise<T>, done: (value: T) => boolean
 const brief = 'Summarize the CSV.\nreport.md gives the column totals.';
 
 test('the cockpit runs a project: handshake, message, progress, question, answer, results', async t => {
-  const { get, post, call, requests } = await setup(t, [
+  const { home, get, post, call, requests } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', to: 'reviewer', letter: 'report.md written',
-      files: { 'report.md': '# Totals\n\n| a | b |\n', 'page.html': '<script>alert(1)</script>', 'data.bin': '0123456789' } },
+      files: { 'report.md': '# Totals\n\n| a | b |\n', 'page.html': '<script>alert(1)</script>', 'data.bin': '0123456789', '.hidden': 'secret' } },
     { role: 'reviewer', to: 'operator', letter: 'Ship it as is?' },
     { role: 'reviewer', to: 'done', letter: 'accepted' },
   ]);
@@ -170,7 +170,9 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const download = await call(`${P}/artifact/raw?path=page.html&download=true`);
   assert.equal(download.headers.get('content-type'), 'text/plain; charset=utf-8');
   assert.equal(download.headers.get('content-disposition'), "attachment; filename*=UTF-8''page.html");
-  for (const outside of ['../project.json', '/etc/passwd', '.hidden']) {
+  // Outside the workdir by either separator or an absolute path; hidden, also by its Windows short name.
+  const record = join(home, 'projects', sid, 'project.json');
+  for (const outside of [`../../projects/${sid}/project.json`, `..\\..\\projects\\${sid}\\project.json`, record, '.hidden', 'HIDDEN~1']) {
     assert.equal((await call(`${P}/artifact/raw?path=${encodeURIComponent(outside)}`)).status, 404);
   }
 });
