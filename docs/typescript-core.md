@@ -1,7 +1,7 @@
 # The TypeScript core
 
 Goal: on a machine with only Node, `npm i -g argus` installs Argus and a person can run a
-whole research project from one sentence, in the terminal or the web cockpit. Every backend
+whole research project from one sentence in the web cockpit, which `argus` serves. Every backend
 Argus drives (Codex, Claude Code, Copilot CLI, Pi) is an npm package, so its users already
 have Node; Python is the second runtime this removes.
 
@@ -15,7 +15,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 | | What works | Status |
 |---|---|---|
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
-| M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
+| M2 | Planner for multi-task work; operator questions and answers | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints and its progress map, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser; the map showed a real four-task Codex project's tasks and letters |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
@@ -151,16 +151,17 @@ Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
 ## The package
 
 `packages/core` is the npm package, `@lbx154/argus` until the name `argus` is free. Its build
-(`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the CLI with
+(`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the program with
 `@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
-dependencies. Beside it the package carries the prompts the CLI reads, the ways of working its
+dependencies. Beside it the package carries the prompts it reads, the ways of working its
 roles read, and `web/`, the web cockpit, built from `frontend/web`'s source when the package is
 packed (`npm run web`, 6 MB): not the committed `frontend/web/dist`, which keeps every earlier
 release's files for open tabs (482 MB) and was once older than the source it came from.
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
-with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
-from one sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place of codex.
+with `npm i -g` in a `node:22-slim` container with no Python and no network, starts `argus` and
+runs a project through the web cockpit's API (`test/fixtures/e2e.mjs`, as the page does) from one
+sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place of codex.
 
 ## Left out
 
