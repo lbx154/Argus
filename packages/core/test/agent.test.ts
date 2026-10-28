@@ -56,7 +56,7 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   }
 });
 
-test('under bubblewrap a turn writes the directories it is given to write only when its role writes', () => {
+test('under bubblewrap a turn writes the directories it is given to write only when its role writes', { skip: process.platform !== 'linux' && 'Linux only' }, () => {
   const skills = join(root, 'argus', 'skills');
   mkdirSync(skills, { recursive: true });
   const bound = (access: Access): string | undefined => {
