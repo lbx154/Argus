@@ -1,5 +1,5 @@
 /** Frontend release expectations around the shared protocol validators. */
-import { RELEASE_ID } from './release.generated.js';
+import { RELEASE_ID } from '../../../packages/contracts/src/release.generated.js';
 import {
   inspectApiMeta as inspectSharedApiMeta,
   requireCompatibleApiMeta as requireSharedApiMeta,
@@ -8,6 +8,7 @@ import {
 
 export * from '../../../packages/contracts/src/api.js';
 export * from '../../../packages/contracts/src/apiProtocol.generated.js';
+export { RELEASE_ID };
 export { describeApiRuntime, requireSnapshotContract, RELEASE_ARTIFACT_DRIFT_WARNING } from '../../../packages/contracts/src/protocol.js';
 export type { ApiCompatibility, ApiRuntimeExpectation } from '../../../packages/contracts/src/protocol.js';
 

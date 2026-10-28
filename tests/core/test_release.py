@@ -101,7 +101,7 @@ def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
 def test_checked_in_frontend_contract_matches_current_release() -> None:
     root = Path(__file__).parents[2]
     manifest = release_manifest()
-    generated = (root / "frontend/core/src/release.generated.ts").read_text(
+    generated = (root / "packages/contracts/src/release.generated.ts").read_text(
         encoding="utf-8"
     )
     assert manifest["release_id"] in generated

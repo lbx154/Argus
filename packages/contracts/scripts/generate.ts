@@ -22,7 +22,7 @@ const payload = readJson('packages/contracts/schemas/event_payload_schemas.json'
 };
 const api = readJson('packages/contracts/schemas/api_protocol.json') as {
   API_SERVICE: string; API_PROTOCOL_NAME: string; API_PROTOCOL_MAJOR: number;
-  API_PROTOCOL_MINOR: number; SNAPSHOT_SCHEMA_VERSION: number; API_CAPABILITIES: string[];
+  API_PROTOCOL_MINOR: number; SNAPSHOT_SCHEMA_VERSION: number; API_REQUIRED_CAPABILITIES: string[];
 };
 const resource = readJson('packages/contracts/schemas/resource_status.json') as Schema & {
   title: string; $defs: Record<string, Schema>;
@@ -177,7 +177,8 @@ const artifacts = new Map<string, string>([
 export const API_SERVICE = ${JSON.stringify(api.API_SERVICE)};
 export const API_PROTOCOL = { name: ${JSON.stringify(api.API_PROTOCOL_NAME)}, major: ${api.API_PROTOCOL_MAJOR}, minServerMinor: ${api.API_PROTOCOL_MINOR} } as const;
 export const SNAPSHOT_SCHEMA_VERSION = ${api.SNAPSHOT_SCHEMA_VERSION};
-export const REQUIRED_API_CAPABILITIES = ${JSON.stringify(api.API_CAPABILITIES, null, 2)} as const;
+/** What a client may rely on; a server declares API_OPTIONAL_CAPABILITIES only for the features it has. */
+export const REQUIRED_API_CAPABILITIES = ${JSON.stringify(api.API_REQUIRED_CAPABILITIES, null, 2)} as const;
 `],
   ['frontend/core/src/resourceStatus.generated.ts', resourceStatus()],
   ['frontend/core/fixtures/eventCorpus.generated.json', eventCorpus()],

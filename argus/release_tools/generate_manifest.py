@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from argus.release import MANIFEST_SCHEMA_VERSION, source_files  # noqa: E402
 
 MANIFEST_PATH = ROOT / "argus" / "release_manifest.json"
-TS_PATH = ROOT / "frontend" / "core" / "src" / "release.generated.ts"
+TS_PATH = ROOT / "packages" / "contracts" / "src" / "release.generated.ts"
 
 
 def _head_commit() -> str:

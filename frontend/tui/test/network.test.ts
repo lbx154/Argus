@@ -6,7 +6,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/protocol.js';
 
 import { ApiClient } from '../src/api.js';
 import { describeFetchFailure, fetchWithTimeout } from '../src/network.js';

@@ -10,7 +10,7 @@ import {
   type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/protocol.js';
 import type { ProjectRow } from '../../core/src/types.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,

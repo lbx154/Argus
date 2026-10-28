@@ -1260,26 +1260,39 @@ def test_ws_requires_token_when_configured(ctx) -> None:
     (life / "events.jsonl").write_text('{"type": "loop.start"}\n')
     app = server.create_app(global_root=root, auth_token="secret123")
     url = f"/api/projects/{sid}/stream"
-    bearer = "argus.bearer." + "secret123".encode().hex()
     with TestClient(app) as tc:
         # No token, a wrong one, or the token in the logged URL → closed.
         for attempt in (
             {},
             {"headers": {"Authorization": "Bearer nope"}},
-            {"subprotocols": ["argus", "argus.bearer." + b"nope".hex()]},
             {"url": f"{url}?token=secret123"},
         ):
             with tc.websocket_connect(attempt.pop("url", url), **attempt) as ws:
                 with pytest.raises(WebSocketDisconnect) as closed:
                     ws.receive_json()
                 assert closed.value.code == 4401
-        # The bearer header (CLI, TUI, portal) or a browser's subprotocol → open.
+        # The bearer header (CLI, TUI, portal) → open.
         with tc.websocket_connect(url, headers={"Authorization": "Bearer secret123"}) as ws:
-            assert ws.accepted_subprotocol is None
             assert ws.receive_json()["type"] == "loop.start"
-        with tc.websocket_connect(url, subprotocols=["argus", bearer]) as ws:
-            assert ws.accepted_subprotocol == "argus"
-            assert ws.receive_json()["type"] == "loop.start"
+
+
+def test_browser_stream_is_server_sent_events_behind_the_token(ctx, monkeypatch) -> None:
+    root, sid, life = ctx
+
+    async def tail(life_dir, *, replay_limit):
+        assert (life_dir, replay_limit) == (life, 40)
+        for event in ({"type": "loop.start", "text": "Grüße"}, {"type": "agent.io.start"}):
+            yield event
+
+    monkeypatch.setattr(server, "tail_events", tail)
+    url = f"/api/projects/{sid}/stream?view=ui"
+    with TestClient(server.create_app(global_root=root, auth_token="secret123")) as tc:
+        assert tc.get(url).status_code == 401
+        assert tc.get(url, headers={"Authorization": "Bearer nope"}).status_code == 401
+        assert tc.get("/api/projects/s-unknown/stream", headers={"Authorization": "Bearer secret123"}).status_code == 404
+        response = tc.get(url, headers={"Authorization": "Bearer secret123"})
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.text == 'data: {"type": "loop.start", "text": "Grüße"}\n\n'
 
 
 def test_uvicorn_logs_redact_url_tokens() -> None:

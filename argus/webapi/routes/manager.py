@@ -1,6 +1,6 @@
 """Manager streaming/messages API domain: the Manager front-door chat
 endpoints (blocking + SSE-streaming twins) and the live project event
-WebSocket stream.
+stream (server-sent events for the browser, a WebSocket for the terminal).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from starlette.responses import StreamingResponse
 
 from ...daemon import life_worker as daemon_worker
 from .. import project_state, server
-from .context import STREAM_PROTOCOL, ServerContext
+from .context import ServerContext
 from .models import CancelMessageIn, MessageIn
 
 log = logging.getLogger(__name__)
@@ -629,6 +629,20 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/projects/{sid}/stream", dependencies=[Depends(ctx.require_auth)])
+    async def _stream_events(sid: str, replay: int = 40,
+                             view: str = Query(default="full", pattern="^(full|ui)$")) -> StreamingResponse:
+        """The project's events as server-sent events: the last ``replay``, then each new one."""
+        life_dir = ctx.resolve_or_404(sid)
+
+        async def frames():
+            async for event in server.tail_events(life_dir, replay_limit=max(0, min(replay, 200))):
+                if view != "ui" or server._event_visible_in_web_ui(event):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(frames(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     @app.websocket("/api/projects/{sid}/stream")
     async def _stream(ws: WebSocket, sid: str, replay: int = 40,
                       view: str = Query(default="full", pattern="^(full|ui)$")) -> None:
@@ -638,8 +652,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             if project_root is not None
             else None
         )
-        offered = ws.scope.get("subprotocols", ())
-        await ws.accept(subprotocol=STREAM_PROTOCOL if STREAM_PROTOCOL in offered else None)
+        await ws.accept()
         if not ctx.authorized(ws):
             await ws.close(code=4401, reason="unauthorized")
             return

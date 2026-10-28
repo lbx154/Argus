@@ -15,7 +15,7 @@ export default defineConfig({
     port: 5173,
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
     proxy: {
-      '/api': { target: API, changeOrigin: true, ws: true },
+      '/api': { target: API, changeOrigin: true },
       '/admin/api': { target: API, changeOrigin: true },
       '/admin/status': { target: API, changeOrigin: true },
       '/admin/logout': { target: API, changeOrigin: true },

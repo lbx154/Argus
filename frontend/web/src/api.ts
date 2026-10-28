@@ -1,6 +1,6 @@
 /**
  * Browser client for the argus webapi — same surface as the terminal client
- * (frontend/tui/src/api.ts) but using the browser fetch + native WebSocket.
+ * (frontend/tui/src/api.ts) but using the browser fetch, with server-sent events for streams.
  * URLs are relative so Vite proxies /api in dev and the API serves it in prod.
  */
 
@@ -558,16 +558,6 @@ const token = (): string | null => {
 export function authHeaders(): Record<string, string> {
   const t = token();
   return t ? { Authorization: `Bearer ${t}` } : {};
-}
-
-/** Subprotocols that authenticate a project stream. A browser cannot set a
- * WebSocket header, so the token rides hex-encoded beside `argus`, the one the
- * server selects, never in a URL that servers and proxies log. */
-export function streamProtocols(): string[] {
-  const t = token();
-  if (!t) return [];
-  const hex = Array.from(new TextEncoder().encode(t), (b) => b.toString(16).padStart(2, '0')).join('');
-  return ['argus', `argus.bearer.${hex}`];
 }
 
 const API_META_TIMEOUT_MS = 8_000;
@@ -1674,15 +1664,17 @@ export const api = {
     }).then(requireDaemonCommand),
 };
 
-/** Open the live event stream for a project. Returns a close() fn. */
+/** How the live event stream closed: `code` is the HTTP status that refused it, 0 for a lost
+ * connection. An unknown project or a refused token does not reconnect. */
 export type StreamCloseInfo = {
   code: number;
   reason: string;
   retryable: boolean;
 };
 
-const NON_RETRYABLE_STREAM_CLOSE_CODES = new Set([4401, 4404]);
+const NON_RETRYABLE_STREAM_STATUSES = new Set([401, 404]);
 
+/** Open the live event stream (server-sent events) for a project. Returns a close() fn. */
 export function openStream(
   sid: string,
   onEvent: (ev: EventMsg) => void,
@@ -1692,37 +1684,33 @@ export function openStream(
     onClose?: (info: StreamCloseInfo) => void;
   } = {},
 ): () => void {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
   q.set('view', 'ui');
-  const url = `${proto}//${window.location.host}${P(sid, '/stream')}?${q}`;
-  let ws: WebSocket | null = null;
-  let closed = false;
+  const path = `${P(sid, '/stream')}?${q}`;
+  const controller = new AbortController();
   let retry: ReturnType<typeof setTimeout> | undefined;
-  const connect = () => {
-    if (closed) return;
-    ws = new WebSocket(url, streamProtocols());
-    ws.onopen = () => opts.onOpen?.();
-    ws.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data as string) as EventMsg;
-        if (ev && typeof ev === 'object') onEvent(ev);
-      } catch {
-        /* ignore malformed frame */
+  const connect = async () => {
+    let info: StreamCloseInfo;
+    try {
+      const response = await fetch(path, { headers: authHeaders(), signal: controller.signal });
+      if (!response.ok) {
+        info = { code: response.status, reason: response.statusText, retryable: !NON_RETRYABLE_STREAM_STATUSES.has(response.status) };
+      } else {
+        opts.onOpen?.();
+        await readSSE(response, 'Event stream', (frame) => onEvent(frame as EventMsg), controller.signal);
+        info = { code: 0, reason: '', retryable: true };
       }
-    };
-    ws.onclose = (event) => {
-      const retryable = !NON_RETRYABLE_STREAM_CLOSE_CODES.has(event.code);
-      opts.onClose?.({ code: event.code, reason: event.reason, retryable });
-      if (!closed && retryable) retry = setTimeout(connect, 1000); // reconnect with backoff
-    };
-    ws.onerror = () => ws?.close();
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      info = { code: 0, reason: error instanceof Error ? error.message : String(error), retryable: true };
+    }
+    opts.onClose?.(info);
+    if (info.retryable) retry = setTimeout(connect, 1000); // reconnect with backoff
   };
-  connect();
+  void connect();
   return () => {
-    closed = true;
+    controller.abort();
     if (retry) clearTimeout(retry);
-    ws?.close();
   };
 }

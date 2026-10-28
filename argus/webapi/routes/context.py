@@ -14,10 +14,6 @@ from ...core.session import durable_session_activity, read_session_meta
 from ..daemon_services import DaemonServices
 from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_seconds
 
-# A browser offers its token as the hex-encoded ``argus.bearer.`` subprotocol
-# beside ``argus``, which a project stream selects.
-STREAM_PROTOCOL = "argus"
-BEARER_PROTOCOL = "argus.bearer."
 BROWSER_COOKIE = "argus_browser_access"
 # The project list a browser can open; history search covers exactly these.
 PROJECT_LIST_LIMIT = 100
@@ -60,14 +56,12 @@ class ServerContext:
 
     def authorized(self, connection: HTTPConnection, cookie: str | None = None) -> bool:
         """Whether a request or WebSocket presents the token (no token: localhost
-        mode). A browser cannot set the bearer header on a WebSocket or on a
-        document it loads by URL, so it offers the token as a subprotocol or, for
-        such a document, as ``cookie``; never in a URL that servers log."""
+        mode). A browser cannot set the bearer header on a document it loads by
+        URL, so for such a document it offers the token as ``cookie``; never in
+        a URL that servers log."""
         if not self.token:
             return True
         offered = [(connection.headers.get("authorization"), "Bearer " + self.token)]
-        offered += [(protocol, BEARER_PROTOCOL + self.token.encode().hex())
-                    for protocol in connection.scope.get("subprotocols", ())]
         if cookie:
             offered.append((connection.cookies.get(cookie), self.token))
         if any(value is not None and hmac.compare_digest(value.encode(), expected.encode())
