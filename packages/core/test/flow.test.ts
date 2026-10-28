@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -231,4 +232,15 @@ test('one process owns the state root; a dead owner is replaced', async t => {
   writeFileSync(join(home, 'owner.json'), JSON.stringify({ pid }));
   store.own()();
   assert.throws(() => readFileSync(join(home, 'owner.json')), { code: 'ENOENT' });
+});
+
+test('a save outlasts another program holding project.json a moment', { skip: process.platform !== 'win32' && 'Windows only' }, async t => {
+  const { store, id } = await setup(t, []);
+  // Windows refuses to replace a file another program has open without delete sharing, as a
+  // virus scanner or an indexer may.
+  const holder = spawn('powershell', ['-NoProfile', '-Command', `$file = [IO.File]::Open('${join(store.dir(id), 'project.json')}', 'Open', 'Read', 'Read');`
+    + ` [Console]::WriteLine('held'); Start-Sleep -Milliseconds 500; $file.Close()`]);
+  await once(holder.stdout, 'data');
+  store.save({ ...store.load(id), request: 'changed' });
+  assert.equal(store.load(id).request, 'changed');
 });

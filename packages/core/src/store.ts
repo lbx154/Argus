@@ -5,7 +5,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Backend, Role, Usage } from './types.js';
 
 export type Status = 'working' | 'asking' | 'failed' | 'idle' | 'done';
@@ -70,8 +70,11 @@ export type FlowEvent =
   | { type: 'task.settled'; task: string; status: TaskStatus }
   | { type: 'status'; status: Status; error?: string; question?: Question };
 
+/** The state root: $ARGUS_HOME, absolute, or ~/.argus. */
+export const argusHome = (): string => resolve(process.env.ARGUS_HOME || join(homedir(), '.argus'));
+
 export class Store {
-  constructor(readonly home = process.env.ARGUS_HOME || join(homedir(), '.argus')) {}
+  constructor(readonly home = argusHome()) {}
 
   dir(id: string): string { return join(this.home, 'projects', id); }
 
@@ -112,7 +115,7 @@ export class Store {
   save(project: Project): void {
     const path = join(this.dir(project.id), 'project.json');
     writeFileSync(`${path}.${process.pid}.tmp`, JSON.stringify(project, null, 2) + '\n');
-    renameSync(`${path}.${process.pid}.tmp`, path);
+    replace(`${path}.${process.pid}.tmp`, path);
   }
 
   append(id: string, event: FlowEvent): void {
@@ -123,6 +126,20 @@ export class Store {
     let ids: string[];
     try { ids = readdirSync(join(this.home, 'projects')); } catch { return []; }
     return ids.map(id => this.load(id)).sort((a, b) => a.created.localeCompare(b.created));
+  }
+}
+
+const pause = new Int32Array(new SharedArrayBuffer(4));
+
+/** Rename `from` over `to`. Windows refuses while another program (a virus scanner, an indexer)
+ * has `to` open, which lasts a moment: it is tried again for up to two seconds. */
+function replace(from: string, to: string): void {
+  for (let waited = 0; ; waited += 20) {
+    try { renameSync(from, to); return; } catch (error) {
+      const busy = ['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '');
+      if (process.platform !== 'win32' || !busy || waited >= 2_000) throw error;
+      Atomics.wait(pause, 0, 0, 20);
+    }
   }
 }
 

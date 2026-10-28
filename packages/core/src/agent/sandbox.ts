@@ -1,14 +1,14 @@
-// What an agent CLI may see: under bubblewrap, the workdir and the directories its call is
-// given, system software, the CLI itself, and a private home per workdir into which only the
-// CLI's login and settings are brought. Its environment carries no credential but its own.
+// How an agent CLI starts and what it may see: under bubblewrap, the workdir and the directories
+// its call is given, system software, the CLI itself, and a private home per workdir into which
+// only the CLI's login and settings are brought. Its environment carries no credential but its own.
 
 import { spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { argusHome } from '../store.js';
 import type { AgentRequest, Backend } from '../types.js';
 
-export const argusHome = (): string => process.env.ARGUS_HOME || join(homedir(), '.argus');
 
 let bwrap: boolean | undefined;
 /** Bubblewrap that starts here: a host may refuse it the user namespace it needs. Probed once. */
@@ -31,11 +31,25 @@ const outermost = (paths: string[]): string[] => [...new Set(paths)].sort((a, b)
 const namedAs = (path: string): string[] => [...new Set([resolve(path), real(path)])];
 
 function which(name: string): string | null {
-  const candidates = name.includes(sep) ? [name] : (process.env.PATH ?? '').split(delimiter).filter(Boolean).map(dir => join(dir, name));
+  // Windows finds a command by the extensions PATHEXT lists.
+  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : [''];
+  const candidates = name.includes(sep) ? [name]
+    : (process.env.PATH ?? '').split(delimiter).filter(Boolean).flatMap(dir => extensions.map(extension => join(dir, name + extension)));
   for (const candidate of candidates) {
     try { accessSync(candidate, constants.X_OK); if (isFile(candidate)) return candidate; } catch { /* not this one */ }
   }
   return null;
+}
+
+/** How to start the CLI `name` with no shell. On Windows npm installs it as a .cmd shim, which only
+ * cmd.exe runs, reparsing every argument: the shim's target is run instead, a script by this node. */
+export function launcher(name: string): string[] {
+  const found = which(name);
+  if (!found || !/\.(cmd|bat)$/i.test(found)) return [found ?? name];
+  const target = [...read(found).matchAll(/"%~?dp0%?\\([^"]+)"/g)].at(-1)?.[1];
+  if (!target) return [found];
+  const file = join(dirname(found), target);
+  return /\.(exe|com)$/i.test(file) ? [file] : [process.execPath, file];
 }
 
 /** The login files the CLI refreshes, the settings it only reads, and the variables it signs in with. */

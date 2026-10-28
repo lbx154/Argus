@@ -29,7 +29,8 @@ if (codex) emit({ type: 'thread.started', thread_id: thread });
 else emit({ type: 'system', subtype: 'init', session_id: thread, model: 'claude-test' });
 
 if (scenario.hang) {
-  spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', scenario.hang], { stdio: 'ignore' });
+  // A job that runs as long as its connection to the test's port is open.
+  spawn(process.execPath, ['-e', `require('node:net').connect(${scenario.hang}, '127.0.0.1')`], { stdio: 'ignore' });
   setInterval(() => {}, 1000);
 } else {
   const output = scenario.output;

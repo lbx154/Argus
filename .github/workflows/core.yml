@@ -1,0 +1,40 @@
+name: core
+
+# The TypeScript core on every host it ships to, on each push to its branches: its tests, and
+# its package installed with npm running a project. Once merged, tests.yml runs its tests too.
+
+on:
+  push:
+    branches: ['feat/ts-core*']
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node --import tsx --test "packages/core/test/*.test.ts"
+      - name: Install the package with npm, and a scripted codex beside it, and run a project to done
+        shell: bash
+        run: |
+          mkdir -p e2e/fake && cp packages/core/test/fixtures/fake-codex.mjs e2e/fake/
+          echo '{ "name": "fake-codex", "version": "0.0.0", "bin": { "codex": "fake-codex.mjs" } }' > e2e/fake/package.json
+          npm pack -w packages/core --ignore-scripts --loglevel warn --pack-destination e2e
+          npm i -g ./e2e/*.tgz ./e2e/fake
+          argus run "Write hello.txt that says hello" --dir e2e/work
+          argus status | grep "^p-[0-9a-f]*  done "

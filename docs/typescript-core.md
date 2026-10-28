@@ -17,7 +17,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex) |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -110,7 +110,14 @@ Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system 
 read-only, the workdir and the task's write directories writable, a private home per workdir
 with the CLI's login file passed through, and only the environment the CLI needs to sign in.
 A shell waits after the CLI until everything it started has ended, so a detached job is not
-killed when the turn ends. Without `bwrap` the CLI's own sandbox mode is used.
+killed when the turn ends. Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is
+used: Codex's `workspace-write`, on Windows its sandbox that needs no administrator
+(`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without commands.
+
+Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd` shim, which
+only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
+Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
+`taskkill /T` on Windows.
 
 ## The package
 
