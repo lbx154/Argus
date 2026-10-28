@@ -3,7 +3,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Project, Store } from '../store.js';
+import { PROJECT_ID, type Project, type Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
 
@@ -42,7 +42,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
     }],
     ['POST', /^\/api\/trash\/([^/]+)\/restore$/, ({ params: [name] }) => {
       const entry = trashed().find(entry => entry.trash_id === name);
-      if (!entry || !/^p-[0-9a-f]+$/.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
+      if (!entry || !PROJECT_ID.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
       if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists');
       renameSync(join(bin, name!), store.dir(entry.sid));
       return { ok: true, sid: entry.sid };

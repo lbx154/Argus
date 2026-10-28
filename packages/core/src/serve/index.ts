@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
 } from '@argus/contracts';
-import type { Project, Store } from '../store.js';
+import { PROJECT_ID, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
 import { drafts } from './drafts.js';
@@ -70,7 +70,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
 
   const project = (id: string): Project => {
     try {
-      if (/^p-[0-9a-f]+$/.test(id)) return store.load(id);
+      if (PROJECT_ID.test(id)) return store.load(id);
     } catch { /* not a project */ }
     throw new HttpError(404, `unknown project: ${id}`);
   };

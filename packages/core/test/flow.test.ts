@@ -386,6 +386,12 @@ test('a restarted process continues from project.json', async t => {
   assert.match(next.requests[1]?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added$/);
 });
 
+test("the projects are what is named as one: a file the desktop leaves beside them is none", async t => {
+  const { store, id } = await setup(t, []);
+  writeFileSync(join(store.home, 'projects', '.DS_Store'), '');
+  assert.deepEqual(store.list().map(project => project.id), [id]);
+});
+
 test('one process owns the state root; a dead owner is replaced', async t => {
   const home = await mkdtemp(join(tmpdir(), 'argus-owner-'));
   t.after(() => rm(home, { recursive: true, force: true }));
