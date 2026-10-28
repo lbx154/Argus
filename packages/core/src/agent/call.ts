@@ -11,7 +11,7 @@ import type { AgentRequest, AgentResult, Backend, Usage } from '../types.js';
 import { claude } from './claude.js';
 import { codex } from './codex.js';
 import { formSchema, judge } from './handoff.js';
-import { agentEnv, confine, sandboxed } from './sandbox.js';
+import { agentEnv, confine, launcher, sandboxed } from './sandbox.js';
 
 export interface BackendRun {
   /** The CLI's arguments; the prompt goes on stdin. */
@@ -37,7 +37,7 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   try {
     const confined = sandboxed();
     const run = BACKENDS[request.backend](request, { confined, started, schema: formSchema(request.form), stem });
-    const argv = confined ? confine([request.backend, ...run.args], request) : [request.backend, ...run.args];
+    const argv = confined ? confine([request.backend, ...run.args], request) : [...launcher(request.backend), ...run.args];
     const stderr: string[] = [];
     let exit: ProcessExit | undefined;
     for await (const item of executeProcess({

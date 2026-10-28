@@ -117,12 +117,15 @@ for (const backend of ['codex', 'claude'] as const) {
     const controller = new AbortController();
     const pending = call(backend, { hang: (server.address() as AddressInfo).port }, { signal: controller.signal });
     const [job] = await once(server, 'connection') as [Socket];
-    const ended = new Promise(resolve => job.unref().on('error', () => {}).on('close', resolve).resume());
+    job.unref().on('error', () => {}).resume();
     controller.abort();
     const result = await pending;
     assert.equal(result.completed, false);
     assert.match(result.error ?? '', /cancelled/);
-    await ended;
+    for (let waited = 0; !job.closed; waited += 50) {
+      assert.ok(waited < 10_000, 'the job outlived the call');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
   });
 }
 
