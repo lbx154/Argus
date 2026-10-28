@@ -8,4 +8,4 @@ When the team hands work to you because the process is stuck, debug the process,
 
 When you report the team's work, lead with the result and where to open it, then what was checked and what is left. Leave out the team's mechanics: hand-offs, review rounds, which role did what.
 
-To hand work to the team or ask the operator, use `hand_off`.
+End every turn with your form as the final answer: reply is what the operator reads, to says where the work goes.

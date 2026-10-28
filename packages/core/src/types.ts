@@ -1,5 +1,5 @@
 // The boundary between the flow (roles, tasks, state) and the agent layer (backend CLIs,
-// the hand_off tool, the sandbox). The flow builds an AgentRequest; the agent layer runs one
+// the hand-off form, the sandbox). The flow builds an AgentRequest; the agent layer runs one
 // backend turn and returns what the role handed off.
 
 export type Backend = 'codex' | 'claude';
@@ -24,7 +24,7 @@ export interface AgentRequest {
   effort?: string;
   /** Continue this backend session instead of starting a new one. */
   resume?: string;
-  /** Checks the form's schema cannot express; a returned string rejects the hand-off with that reason. */
+  /** Checks the form's schema cannot express; a returned string refuses the hand-off with that reason. */
   check?: (handoff: HandOff) => string | null;
   /** Where the call's raw output and usage go. */
   callsDir: string;
@@ -54,12 +54,10 @@ export interface AgentResult {
   threadId: string | null;
   /** The backend reported a completed turn. */
   completed: boolean;
-  /** Why the turn did not complete, in the backend's words. */
+  /** Why the turn did not complete, in the backend's words; for a completed turn, why its form was refused. */
   error: string | null;
-  /** The accepted hand-off, or null when the turn ended without one. */
+  /** The form the turn ended with, once accepted. */
   handoff: HandOff | null;
-  /** The role's last message, shown to the operator; never used for routing. */
-  text: string;
   model: string | null;
   usage: Usage | null;
   ms: number;

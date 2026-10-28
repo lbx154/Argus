@@ -55,6 +55,10 @@ export function handedTo(role: Role, task: Task | null, summary: string, note: s
   return join(`The ${NAMES[role]} handed ${task ? `task ${task.id} (${task.title})` : 'the work'} to you: ${summary}`, note);
 }
 
+export function refusedPrompt(reason: string): string {
+  return `Argus refused your hand-off: ${reason}\nEnd your turn with the form again, corrected.`;
+}
+
 export function answered(question: string, answer: string): string {
   return `You asked the operator: ${question}\nThey answered: ${answer}`;
 }

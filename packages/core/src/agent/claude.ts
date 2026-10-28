@@ -1,18 +1,13 @@
-// `claude -p --output-format stream-json`: the prompt on stdin, the hand-off tool over HTTP
-// MCP from a 0600 config file, usage and cost from the result event.
+// `claude -p --output-format stream-json`: the prompt on stdin, the final answer held to the
+// form's schema, usage and cost from the result event.
 
-import { writeFileSync } from 'node:fs';
 import { isJsonObject } from '@argus/contracts';
 import type { Usage } from '../types.js';
 import type { StartBackend } from './call.js';
-import { SERVER, TOOL } from './handoff.js';
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
-export const claude: StartBackend = (request, endpoint, { confined, secret }) => {
-  writeFileSync(secret, JSON.stringify({
-    mcpServers: { [SERVER]: { type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${endpoint.token}` } } },
-  }), { mode: 0o600, flag: 'wx' });
+export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [
     '-p', '--verbose', '--output-format', 'stream-json',
     ...request.model ? ['--model', request.model] : [],
@@ -21,23 +16,17 @@ export const claude: StartBackend = (request, endpoint, { confined, secret }) =>
     ...request.access === 'none' ? ['--tools', ''] : request.access === 'read' ? ['--tools', 'Read,Glob,Grep']
       : ['--permission-mode', confined ? 'bypassPermissions' : 'acceptEdits'],
     ...[...request.readDirs ?? [], ...request.writeDirs ?? []].flatMap(dir => ['--add-dir', dir]),
-    // No permission mode pre-approves an MCP tool.
-    '--mcp-config', secret, '--allowedTools', `mcp__${SERVER}__${TOOL}`,
+    '--json-schema', JSON.stringify(schema),
     ...request.resume ? ['--resume', request.resume] : [],
   ];
   let threadId = request.resume ?? null;
   let model: string | null = null;
-  let text = '';
   let result: Record<string, unknown> | null = null;
   return {
     args,
     consume(event) {
       if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
       if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;
-      if (event.type === 'assistant' && isJsonObject(event.message) && Array.isArray(event.message.content)) {
-        const said = event.message.content.filter(block => isJsonObject(block) && block.type === 'text').map(block => String(block.text)).join('\n');
-        if (said.trim()) text = said;
-      }
       if (event.type === 'result') result = event;
     },
     finish() {
@@ -55,7 +44,7 @@ export const claude: StartBackend = (request, endpoint, { confined, secret }) =>
       return {
         threadId, completed, model: model ?? request.model ?? null, usage,
         error: completed ? null : result ? said || `Claude reported ${String(result.subtype ?? 'an error')}.` : null,
-        text: completed && said ? said : text,
+        output: result?.structured_output ?? undefined,
       };
     },
   };

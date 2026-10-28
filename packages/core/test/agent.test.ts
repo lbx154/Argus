@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
-import { handOffTool } from '../src/agent/handoff.js';
+import { formSchema } from '../src/agent/handoff.js';
 import { callAgent, type AgentRequest, type Backend } from '../src/index.js';
 
 // The fake CLIs stand in for codex and claude on PATH; HOME and ARGUS_HOME are the test's own.
@@ -30,36 +30,36 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
   backend, role: 'engineer', form: 'engineer', prompt: JSON.stringify(scenario), cwd: work, access: 'write',
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
-const reply = (text: string) => JSON.parse(text) as { answers: Array<{ isError: boolean; content: Array<{ text: string }> }>; to: string[]; env: string[] };
+const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
+  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[];
+};
 const handoff = { to: 'reviewer', summary: 'The parser reads both formats; its tests pass.', note: 'Run npm test.', assumptions: [] };
 
-test('the hand_off schema holds each form to its limits', () => {
+test('each form holds the hand-off to its limits', () => {
   const choice = { chose: 'one reading', instead_of: 'another' };
-  assert.deepEqual(schemaErrors({ ...handoff, summary: 'two\nlines', assumptions: Array(6).fill(choice), extra: 1 }, handOffTool('engineer').inputSchema), [
+  assert.deepEqual(schemaErrors({ ...handoff, summary: 'two\nlines', assumptions: Array(6).fill(choice), extra: 1 }, formSchema('engineer')), [
     'summary must match ^[^\\n]*$', 'assumptions must have 5 or fewer items', 'extra is not allowed',
   ]);
-  const task = { title: 't', objective: 'o', impact_score: 6, key: 'a b' };
-  assert.deepEqual(schemaErrors({ to: 'engineer', summary: 's', assumptions: [], tasks: [task] }, handOffTool('plan').inputSchema), [
-    'tasks[0].impact_score must be <= 5', 'tasks[0].key must match ^[A-Za-z0-9_.:-]+$',
+  const task = { title: 't', objective: 'o', key: 'a b', impact_score: 3 };
+  assert.deepEqual(schemaErrors({ to: 'engineer', summary: 's', assumptions: [], tasks: [task] }, formSchema('plan')), [
+    'tasks[0].key must match ^[A-Za-z0-9_.:-]+$', 'tasks[0].impact_score is not allowed',
   ]);
-  assert.deepEqual(schemaErrors({ to: 'team', summary: 's', acceptance: [] }, handOffTool('manager').inputSchema), [
-    'assumptions is required', 'acceptance must have 1 or more items',
+  assert.deepEqual(schemaErrors({ to: 'team', summary: 's', acceptance: [] }, formSchema('manager')), [
+    'assumptions is required', 'reply is required', 'acceptance must have 1 or more items',
   ]);
 });
 
 for (const backend of ['codex', 'claude'] as const) {
-  test(`${backend}: the accepted hand-off, the reply, usage and the raw output are recorded`, async () => {
-    const result = await call(backend, { calls: [handoff] });
+  test(`${backend}: the form the turn ends with, usage and the raw output are recorded`, async () => {
+    const result = await call(backend, { output: handoff });
     assert.equal(result.completed, true);
     assert.equal(result.error, null);
     assert.ok(result.threadId);
     const { to, summary, ...fields } = handoff;
     assert.deepEqual(result.handoff, { form: 'engineer', to, summary, fields });
-    const said = reply(result.text);
-    assert.equal(said.answers[0]!.isError, false);
-    assert.deepEqual(said.to, ['reviewer', 'done', 'engineer', 'planner', 'manager', 'operator']);
+    assert.deepEqual(seen(backend).schema.properties.to!.enum, ['reviewer', 'done', 'engineer', 'planner', 'manager', 'operator']);
     // Credentials stay out of the CLI's environment, except the one it signs in with.
-    assert.deepEqual(said.env, backend === 'claude' ? ['ANTHROPIC_API_KEY'] : []);
+    assert.deepEqual(seen(backend).env, backend === 'claude' ? ['ANTHROPIC_API_KEY'] : []);
     if (backend === 'codex') {
       assert.equal(result.model, 'gpt-5.5');
       const cost = quoteTokenUsage('gpt-5.5', { input_tokens: 1000, cached_input_tokens: 400, cache_write_tokens: 100, output_tokens: 50 }).cost_usd;
@@ -72,43 +72,32 @@ for (const backend of ['codex', 'claude'] as const) {
     const { cost_usd, ...tokens } = result.usage!;
     assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, tokens, cost_usd });
     assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"type":"(turn\.completed|result)"/);
-    assert.equal(existsSync(join(root, 'argus', 'calls', `${result.callId}.mcp.json`)), false);
   });
 
-  test(`${backend}: a refused hand-off is corrected in the same turn`, async () => {
+  test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {
     const { assumptions: _, ...incomplete } = handoff;
-    const result = await call(backend, { calls: [incomplete, { ...handoff, summary: 'Done.' }, handoff] }, {
-      check: given => given.summary.includes('tests') ? null : 'Say what the tests showed.',
-    });
-    const [missing, checked, accepted] = reply(result.text).answers;
-    assert.equal(missing!.isError, true);
-    assert.match(missing!.content[0]!.text, /assumptions is required/);
-    assert.deepEqual([checked!.isError, checked!.content[0]!.text], [true, 'Say what the tests showed.']);
-    assert.equal(accepted!.isError, false);
-    assert.equal(result.handoff?.summary, handoff.summary);
+    const missing = await call(backend, { output: incomplete });
+    assert.deepEqual([missing.completed, missing.handoff, missing.error], [true, null, 'assumptions is required']);
+    const checked = await call(backend, { output: handoff }, { check: given => given.to === 'reviewer' ? 'Not yet.' : null });
+    assert.deepEqual([checked.handoff, checked.error], [null, 'Not yet.']);
+    const asking = await call(backend, { output: { ...handoff, to: 'operator' } });
+    assert.match(asking.error ?? '', /to=operator goes with ask/);
   });
 
-  test(`${backend}: a refused call after an accepted one leaves no hand-off`, async () => {
-    const result = await call(backend, { calls: [handoff, { ...handoff, to: 'operator' }] });
-    assert.match(reply(result.text).answers[1]!.content[0]!.text, /to=operator goes with ask/);
-    assert.equal(result.handoff, null);
-  });
-
-  test(`${backend}: a turn without a hand-off completes with none`, async () => {
-    const result = await call(backend, { calls: [] });
-    assert.equal(result.completed, true);
-    assert.equal(result.handoff, null);
+  test(`${backend}: a turn that ends in prose has no hand-off`, async () => {
+    const result = await call(backend, { output: 'Handed off to the reviewer.' });
+    assert.deepEqual([result.completed, result.handoff, result.error], [true, null, 'The turn ended without the hand-off form.']);
   });
 
   test(`${backend}: a failed turn is reported in the backend's words`, async () => {
-    const result = await call(backend, { calls: [], fail: 'The model is overloaded.' });
+    const result = await call(backend, { fail: 'The model is overloaded.' });
     assert.equal(result.completed, false);
     assert.equal(result.error, 'The model is overloaded.');
   });
 
   test(`${backend}: resume continues the session and counts only its own usage`, async () => {
-    const first = await call(backend, { calls: [] });
-    const second = await call(backend, { calls: [handoff] }, { resume: first.threadId! });
+    const first = await call(backend, { output: 'Not done yet.' });
+    const second = await call(backend, { output: handoff }, { resume: first.threadId! });
     assert.equal(second.threadId, first.threadId);
     assert.equal(second.handoff?.to, 'reviewer');
     assert.deepEqual(second.usage, first.usage);
@@ -132,3 +121,12 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.equal(running(), false);
   });
 }
+
+test('codex: every field is required, an optional one nullable, and a null reads as left out', async () => {
+  const result = await call('codex', { output: { ...handoff, ask: null } });
+  assert.deepEqual(result.handoff?.fields, { note: handoff.note, assumptions: [] });
+  const { schema } = seen('codex');
+  assert.deepEqual(schema.required, Object.keys(schema.properties));
+  assert.deepEqual(schema.properties.ask!.type, ['object', 'null']);
+  assert.equal(schema.properties.summary!.type, 'string');
+});

@@ -41,15 +41,18 @@ back into state. The work itself stays in the workdir.
 
 ## Roles and hand-offs
 
-Every role ends its turn by calling the `hand_off` tool with its form from
-`packages/contracts/schemas/handoff_forms.json`. Where the work goes next is the form's `to`,
-and nothing else: the host reads no prose. A turn that ends without a hand-off is a failed
-call, recorded as such. A rejected hand-off (schema or the form's own check) returns the
-reason to the model as a tool error within the same turn.
+Every role's turn ends with its form as the final answer. The backend CLI holds the model to
+the form's schema (Codex `--output-schema`, Claude `--json-schema`), so a turn cannot end in
+prose that only reads like a hand-off. The form takes its fields and their descriptions from
+`packages/contracts/schemas/handoff_forms.json`, only those the flow reads, and the Manager's
+form adds `reply`, what the operator reads. Where the work goes next is the form's `to`, and
+nothing else: the host reads no prose. A form Argus refuses (its schema or its own check) goes
+back to the role once, in the same session, with the reason; refused again, or a turn that
+fails, is a failed call, recorded as such.
 
 | Role | Form | `to` |
 |---|---|---|
-| Manager | `manager` | `team` files the request as a ticket; `operator` asks; no call answers the operator directly |
+| Manager | `manager` | `team` files the request as a ticket; `operator` asks; `manager`, the reply is the whole answer |
 | Planner (M2) | `plan` | `engineer` with tasks; `done`; `operator`; `manager` |
 | Engineer | `engineer` | `reviewer`; `done` (no review needed); `engineer` (keeps working); `planner`; `manager`; `operator` |
 | Reviewer | `review` | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
@@ -66,12 +69,12 @@ The only boundary between the flow and the backends:
 callAgent(request: AgentRequest): Promise<AgentResult>
 ```
 
-(`packages/core/src/types.ts`). The agent layer starts a loopback HTTP server
-(`127.0.0.1:0`, a random bearer token) that serves MCP over plain JSON-RPC (`initialize`,
-`tools/list`, `tools/call`, `ping`) with the one `hand_off` tool of the request's form, and
-points the backend CLI at it. It runs the CLI with the prompt on stdin, reads its JSON event
-stream, takes only the backend's own completion event as success (Codex `turn.completed`,
-Claude `result` with `subtype: success`), and returns the hand-off the tool accepted.
+(`packages/core/src/types.ts`). The agent layer runs the CLI with the prompt on stdin and
+the form's schema for its final answer, reads its JSON event stream, takes only the
+backend's own completion event as success (Codex `turn.completed`, Claude `result` with
+`subtype: success`), and judges the form the turn ended with: Codex's last message, in the
+strict shape OpenAI's structured outputs take (every field required, an optional one
+nullable, a null read as left out), or Claude's `structured_output`.
 
 Usage: Codex from the session's rollout file (`token_usage_record`, per request); Claude from
 `result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost.
