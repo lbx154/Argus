@@ -23,7 +23,10 @@ export class Runs {
 
   live(id: string): Live {
     const active = this.active.get(id);
-    return { since: active?.since ?? null, roles: active?.roles ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
+    return {
+      since: active?.since ?? null, roles: active?.roles ?? [], draining: active?.flow.paused ?? false,
+      requests: [...this.requests.get(id)?.keys() ?? []],
+    };
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
@@ -41,6 +44,13 @@ export class Runs {
   }
 
   stop(id: string): void { this.active.get(id)?.controller.abort(); }
+
+  /** Let the calls under way end, and start no other; false when none is under way. */
+  pause(id: string): boolean {
+    const active = this.active.get(id);
+    if (active) active.flow.paused = true;
+    return active !== undefined;
+  }
 
   /** Interrupt every project's calls, and wait until the work has wound down and written its record. */
   async stopAll(): Promise<void> {

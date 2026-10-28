@@ -197,11 +197,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/daemon\/stop$/, async ({ params: [id], body }) => {
       const asked = await body();
-      if (asked.after_current || asked.drain) {
-        return { rc: 1, command_status: 'rejected', error: 'Stopping after the current step is not available; stop now instead.' };
-      }
-      runs.stop(project(id!).id);
-      return command(id!, asked);
+      const { id: sid } = project(id!);
+      if (asked.after_current || asked.drain) return { ...command(sid, asked), draining: runs.pause(sid) };
+      runs.stop(sid);
+      return command(sid, asked);
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifacts$/, ({ params: [id] }) => ({ artifacts: artifacts(project(id!)) })],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact$/, ({ params: [id], url }) => {
