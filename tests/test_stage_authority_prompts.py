@@ -54,3 +54,16 @@ def test_experiment_measures_the_unmodified_model_before_building_the_method() -
     assert "Measure the starting point first" in md
     assert "unmodified model or system through the real evaluator" in md
     assert "first number is the unmodified model" in _method_card_planner_block("experiment")
+
+
+def test_the_shared_runner_runs_every_arm_on_real_data_before_the_arms_start() -> None:
+    """s-5dc7ab4a (10-27 23:18-00:12): the runner passed its engineering config,
+    then the parallel arms, which may not edit it, met two runner defects on the
+    real development panel (official metadata the records could not serialise,
+    an analysis entry refusing one arm); each cost a hand-back, a replan, a
+    repair task and a rerun."""
+    from argus.verticals.research.prompt_policy import _method_card_planner_block
+
+    block = _method_card_planner_block("experiment")
+    assert "runs each arm's own config one short step on the real development data" in block
+    assert "through the analysis the comparison uses" in block
