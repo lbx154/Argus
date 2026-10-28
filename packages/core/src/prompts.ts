@@ -25,24 +25,10 @@ const rules = (role: Role): string =>
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
-/** What the model calls have cost, as Argus records each in usage.jsonl: the figure a budget is kept in. */
-function spent(record: string): string {
-  let calls = 0;
-  let cost = 0;
-  try {
-    for (const line of readFileSync(resolve(record, 'usage.jsonl'), 'utf8').split('\n').filter(Boolean)) {
-      calls += 1;
-      try { cost += Number((JSON.parse(line) as { cost_usd?: unknown }).cost_usd) || 0; } catch { /* a torn line costs nothing known */ }
-    }
-  } catch { /* no call has ended yet */ }
-  return `Model calls so far: ${calls}, $${cost.toFixed(2)}, as Argus records them in usage.jsonl. An operator's budget is kept in this figure; there is nothing more to verify about it.`;
-}
-
-/** What every role is told once: where the work and Argus's record of it are, what it has cost, and the date. */
+/** What every role is told once: where the work and Argus's record of it are, and the date. */
 const where = (project: Project, record: string, more: string[] = []): string => section('Where things are', [
   `Workspace: ${project.workdir}`,
   `Argus's record of this project: ${record} (project.json holds the tasks and their state; events.jsonl every letter)`,
-  spent(record),
   ...more,
   `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
 ].join('\n'));
@@ -69,8 +55,7 @@ export function taskPrompt(project: Project, record: string, task: Task, resumed
 
 export function plannerPrompt(project: Project, record: string, resumed: boolean): string {
   const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : 'closed'}] ${task.title}`);
-  // The Planner decides what the work goes on to spend, so it hears the cost every turn.
-  return join(!resumed && rules('planner'), resumed ? spent(record) : where(project, record),
+  return join(!resumed && rules('planner'), !resumed && where(project, record),
     section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
 }
 
