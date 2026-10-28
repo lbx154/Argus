@@ -1,0 +1,415 @@
+# Developing an idea through experiments
+
+Use this for the experiment step: implementing the chosen idea faithfully and developing it through adaptive experiments until the evidence supports a strong paper.
+
+## What the experiments should establish
+
+Turn the selected idea into a real implementation and develop it until
+representative evidence supports a scoped thesis with scientific value.
+Building the method and running the experiments happen together: the
+experimental design changes in place as evidence arrives; it is never a frozen
+plan handed down from somewhere else. Judge results the way a strong
+experimentalist does: against baselines, effect sizes, and the question at
+hand, in context. Before each scientific comparison, state the capability, a
+competing explanation, and the control that separates them. Do not impose
+universal success thresholds or an immutable global plan. Report what the
+evidence supports. A credible improvement in any meaningful dimension can carry
+the contribution; the target is a result that a top reviewer would remember,
+not a complete-looking experiment matrix.
+
+When the thesis attributes an effect or interaction to particular components,
+cross those components on the same experimental units. Match the input, model
+state, layer/group, resource budget and evaluator conditions that could explain
+the difference, and use those shared identities in the analysis. Two panels
+with different selection rules or states do not isolate a component
+interaction. Start with a decisive paired pilot, then confirm the claim's
+intended scope; preserve adverse and null cells instead of selecting only the
+favorable pairs.
+
+When exploration reveals a promising layer, group, task or resource regime,
+record the selection rule and inspected data in the configuration or the
+research notes. A selected example establishes that a mechanism can occur.
+Freeze the regime, intervention, strongest comparator, primary outcome and
+sampling rule before testing independent units there. Reproducing the selected
+cases and confirming the mechanism on new cases answer different questions; a
+panel from another regime also cannot settle whether the discovered effect
+generalizes within its proposed regime. Cases examined during selection are
+development evidence even if they were not chosen. A split held out from model
+fitting is not automatically held out from later method or regime selection.
+Retain the exploratory comparisons and all confirmation outcomes. Base
+uncertainty on independent contexts, subjects or runs, rather than counting
+correlated heads, layers or repeated deterministic treatments as independent
+samples.
+
+Match the execution boundary and information timeline to the claim. For an
+online protocol, run each decision with only the context and transmitted data
+available by that point; complete-trace reconstruction does not establish that
+the receiver could act on time. Keep validation-only future data out of the
+decision path. Show how required side information reaches the actual receiver,
+and include its cost unless the declared interface really provides it. Align
+block lengths, framing, termination, latency and setup amortization with the
+deployment being measured. For a whole-system claim, exercise the actual loop,
+including its terminal or bonus decisions, and distinguish component timing
+from full-loop performance. Start with a meaningful pilot of that interface.
+
+## How to develop the evidence
+
+1. Read `RESEARCH_NOTES.md` and trace every load-bearing thesis element to
+   concrete code, configuration, data, outputs, and information boundaries.
+2. For every method the project compares against or extends, clone the
+   official implementation, or the strongest public one when no official code
+   exists, at a pinned revision into `third_party/` and run one of its shipped
+   examples end to end (`method-card.md`). Build the new method as a delta on
+   that code so the code diff is the idea diff; reuse maintained components
+   instead of reimplementing them from a paper summary. Also survey the
+   released code of recent papers in the same area, including ones the
+   experiments will not compare against, and read the high-quality ones as
+   reference implementations: how they structure training and evaluation,
+   which libraries they build on, and how they handle the details a paper
+   summary glosses over. Borrowing a proven pattern from a strong recent
+   codebase beats inventing one.
+   Training, post-training, distributed training and serving go through an
+   established framework chosen by a current survey, never a hand-rolled loop
+   or serving path: those are slower, subtly wrong in ways that contaminate
+   every result built on them, and convince no reviewer. Write custom
+   infrastructure only when that infrastructure is itself the contribution
+   being studied. Choose the framework with `training-infrastructure.md`.
+3. Set up a clean project-local environment before writing method code: the
+   project gets its own virtual environment on the system interpreter, with
+   dependencies installed and pinned there, never inherited from another
+   project's leftovers. Install the complete toolchain the method actually
+   needs and confirm each piece runs: compilers, the CUDA toolkit and
+   driver-compatible libraries, profilers, and domain toolkits. Kernel work in
+   particular depends on many of these (nvcc, Triton, CUTLASS, Nsight and
+   friends), and a missing or mismatched one quietly invalidates every
+   measurement built on top of it.
+   GPU inventory indices are physical, while `cuda:0` means the first device
+   exposed to the launched process. Unless the operator restricted devices (an
+   inherited `CUDA_VISIBLE_DEVICES` mask or a stated allocation), every GPU on
+   the machine is yours to use; nothing else assigns cards, so never wait for
+   an allocation. When choosing a free GPU yourself, put the intended mask in
+   the actual launch command and match the configuration's logical index to
+   it. Writing that environment prefix in a saved command or example does not
+   apply it. Confirm and keep the actual device mapping with the run command
+   before a long execution. A machine inventory is a snapshot, not a
+   reservation: inspect device processes you did not start too.
+4. Implement against `tests/spec`. Write the method card and the executable
+   spec first (`method-card.md`), then implement the method and baseline
+   through real entry points under comparable data, compute, information, and
+   evaluator access until the differential, knockout and parity tests pass.
+   Build the strongest faithful version of the idea, not the easiest version
+   that can pass a local check; where the implementation must simplify the
+   route, say so in the card's Notes column before running anything that bears
+   a claim. Write the code for a Reviewer who reads it without you present:
+   each card row names its entry point as `path:Symbol`, and `# why:` marks a
+   non-obvious decision.
+5. Beyond `tests/spec`, run only the smallest engineering checks needed to
+   establish imports, shapes, branches, numerical behavior, and end-to-end
+   wiring, then run a known detectable positive control through the same
+   evaluator path, before interpreting any null or negative result. If the
+   known detectable case fails, diagnose the implementation, evaluator,
+   truncation, scale, or information boundary instead of treating the
+   hypothesis as tested.
+   Exercise the actual selected method and configuration, including its full
+   update sequence, before a large panel. For an iterative bound, cache, or
+   refinement algorithm, check the terminal limit the method promises as well
+   as intermediate validity: for example, full materialization should recover
+   the declared dense result or accuracy within the numerical contract. An
+   interval can contain the reference while becoming uselessly wide; zero
+   containment misses alone do not establish the requested accuracy. Include
+   removal/replacement updates when those occur in the real path, and make
+   sure the positive control executes this variant rather than a legacy
+   default. Keep a failing real input as the first regression for a repair; a
+   toy convergence check does not establish behavior at the real input's scale
+   or conditioning. Confirm that case and representative affected regimes
+   before launching the replacement panel.
+   When changing measured fields or output metadata, exercise the public
+   consumer and final export on a small complete case as well: result
+   serialization, aggregation, and any consumed table or LaTeX-macro output.
+   Check native runtime types, not only hand-written JSON fixtures. Convert
+   opaque identifiers to suitable scalar metadata at the boundary; do not
+   silently stringify scientific arrays or numbers to suppress a write error.
+6. Develop the method with real models or systems and the strongest
+   same-information baselines the claim requires: real strong published
+   baselines, never a local heuristic renamed after a paper. Prefer existing
+   public or official benchmarks with their released tasks, splits, protocols,
+   and scorers. Small custom benchmarks are allowed under the cost-aware policy
+   below, including as scientific evidence for a scoped mechanism claim.
+   Choose models for task competence and claim scope, not release date.
+7. Keep every run reproducible from its code, explicit configuration, command,
+   and raw output. Preserve the actual executed source and configuration with
+   the attempt; a Git revision alone is insufficient when the working files
+   have changed. Name the method or oracle variant explicitly when its
+   semantics differ from earlier results. Give each attempt its own output
+   directory. If an existing directory must be reused, invalidate the earlier
+   completion marker before opening or truncating any raw file; never leave a
+   prior success beside a new partial run. Mark an attempt complete only after
+   the workers finish producing data and the raw configuration and repeat
+   identities, counts, and scientific invariants agree with the declared run.
+   Preserve interrupted attempts separately. A failed process may already have
+   emitted useful diagnostics or timing rows: keep them and the failure context
+   before retrying in a fresh attempt; incompleteness prevents promotion but is
+   not a reason to erase observations. Persist raw measurements as cases
+   finish, independently of final summary assembly, so a metadata or exporter
+   failure can be repaired from saved measurements without running the
+   scientific computation again.
+8. Treat weak results as optimization signals against the claim in
+   `METHOD.md`. Work the diagnosis ladder below in order, one diagnosed change
+   per attempt, and record each rung's evidence; design and runs live together
+   here precisely so this iteration is cheap.
+9. Separate small engineering diagnostics from claim-bearing experiments. Stop
+   repeating micro-benchmarks once they no longer change the next decision.
+10. Use held-out confirmation after method and evaluation choices stabilize.
+    Freeze the comparison first; held-out data never enters training, method
+    or configuration selection.
+
+Choose sample counts from coverage of independent items and the precision the
+claim needs; explain the choice in the research notes. Repeat stochastic runs
+when seed variation could change the conclusion. Rerunning deterministic
+comparisons adds no independent evidence.
+
+When latency or throughput is compared across runs or devices, keep each run's
+device identity, process occupancy and relevant load over the measurement
+window. Run on an uncontended accelerator, or explicitly define and match the
+competing load when sharing is the experiment. A shared-device smoke test can
+establish correctness without establishing isolated performance. Independent
+repetitions may run one after another on the same released device; three
+processes do not need three cards at once. If another workload overlaps a
+timing run, keep the observations and the overlap record, investigate the
+affected comparisons, and repeat only the measurements whose interpretation
+needs it. Do not silently pool uncontrolled shared-device and isolated timings,
+or stop another project's work to obtain a preferred result. A phase's share of
+one run's own time is read inside that run and needs none of this.
+
+On resuming work, check the actual recorded observations and the code and
+configuration that produced them before deciding whether work is complete. A
+copied `completed` flag or an old checkpoint is not that evidence. Reuse a
+complete, valid attempt; rerun only work made incomplete or invalid by a
+concrete defect. Check the actual compute processes as well as any shell or
+launcher PID: an exited wrapper does not prove its children have stopped.
+Before replacing a run, confirm that every producer for its output has exited;
+use a separate attempt directory and keep the old observations. Low GPU
+utilization while the CPU is working, or output buffered until completion,
+does not establish failure. A speedup goes into the next attempt instead of
+replacing a running one. Long CPU analyses are launched detached like GPU
+experiments, with the project environment, an explicit command, its exit code
+and a separate attempt output. While a job runs, continue independent
+scientific work; then check the real producer and the completed outputs. When
+promoting a new result, validate the whole attempt first and switch the
+canonical reference together, rather than mixing raw rows, summaries, and
+completion records from different attempts.
+
+When configuration or a public wrapper changes, exercise the same command path
+advertised to readers with its current configuration and an empty output
+directory. Use a supported small run first when the full study is costly, then
+run the intended scale once that path works. An import test, a private helper,
+or an old saved result cannot substitute for the public entry point. A changed
+oracle or evaluator also requires updating every affected headline comparison,
+not just the smallest positive case; reuse evidence whose execution contract
+did not change.
+
+If the paper keeps an earlier method or certificate alongside a new one, keep
+both reproducible through an explicit variant choice or the preserved executed
+source and configuration. Changing the default must not silently make the
+published command run a different method from its cited panel. A paper build
+may consume validated results or emit a reproducible runner, but it must not
+silently replace the scientific implementation or its configuration.
+
+Scale the evidence to the claim, not to the first configuration that ran. A
+thesis about language models in general is tested across families and sizes;
+a thesis about a phenomenon needs enough independent items, worlds, or tasks
+that a reviewer cannot attribute it to a handful of templates; a thesis about a
+mechanism needs the matched ablation that isolates it. Use the hardware and
+cached models at hand for the comparisons that resolve the question. A
+development panel sized for quick iteration is not the claim-bearing
+evaluation; once method and evaluation settle, run the comparison at the scale
+the claim needs and say in the research notes why that scale is enough.
+
+### Cost-aware benchmark policy
+
+Use established benchmarks by default for broad task-performance claims and
+large-scale evaluation. Small custom benchmarks are allowed when they consume
+no API calls or only a small amount within the budget already authorized.
+Examples include locally generated factorial controls for token identity,
+position, layer, or activation amplitude, evaluated on a local model. They may
+support the mechanism they actually test, not just implementation smoke
+checks.
+
+Before running one, account for the total API calls and tokens across
+generation, labeling, evaluation, judging, and planned repetitions, as well as
+local compute. A small item count alone does not establish low cost. Expanding
+such a benchmark requires reassessing the total workload; the small-experiment
+exception does not authorize a large API-backed synthetic campaign. The
+project's own restrictions, such as a ban on paid APIs or custom tasks, still
+apply.
+
+Make custom task construction, label derivation, splits, controls, and scoring
+explicit and reproducible. Before scoring any model on a custom benchmark,
+check a constant-answer baseline and verify that the intended targets are
+separable on its items. Resolve a trivial shortcut or indistinguishable labels
+in the task before interpreting model scores. A custom mechanism test must not
+masquerade as official benchmark coverage or replace established evaluation
+needed for a broad performance claim.
+
+### Is the evidence at scale? The Planner's next task after an accepted experiment
+
+The Reviewer's acceptance says the current experiment meets its requirements;
+it does not by itself say the research has enough scale. Before scheduling the
+paper, the Planner inspects the accepted results and actual configuration and
+compares training coverage, independent evaluation items, task or template
+families, model or agent scales, repetitions, and uncertainty with the
+operator's research objective. Identify which dimensions matter for that
+objective rather than imposing universal sample counts or requiring every
+possible benchmark setting.
+
+If coverage or precision is insufficient, the next task is an incremental
+expansion of the existing implementation. Reuse valid completed results and the
+evaluator; prefer relevant released benchmark splits, task settings, training
+data, models, or repetitions. Apply the cost-aware policy to any small custom
+experiment and its expansion. Repeated identical runs are not new independent
+evidence. Make sample counts configurable and validate against the selected
+configuration, not a hard-coded pilot count; a minimum count is not an
+exact-count requirement. Expanding training creates a new checkpoint and
+comparison with fresh held-out confirmation; keep the earlier results
+separately rather than silently pooling them. Use measured throughput and
+available resources to size the next run. Surface an actual access or budget
+blocker instead of quietly shrinking the objective.
+
+If scale is sufficient, the Planner says why in the paper task's brief. The
+judgment is repeated after an expanded experiment is reviewed, not by rerunning
+an unchanged inspection, and a narrower paper claim never replaces it.
+
+### The first loop, and a progress package for the operator
+
+Once the shared runner exists, the first claim-free milestone is a small but
+complete loop on the operator's real data: read, train or fit, the strongest
+same-information baseline, exported predictions, and the one check that decides
+whether the idea can work at all (learnability, transfer). Time its steps, and
+record GPU memory and bytes written per step beside them; size the full run
+from those numbers. It is development evidence, not a claim-bearing result.
+
+Once a real comparison on the operator's data has been reviewed, the Planner's
+next task can be a progress package for the operator, before more diagnosis:
+the results table with its sources, a figure for each result that has a visual
+form (the comparison plotted, the built model rendered) placed first, the
+current method, the command that reproduces each number, what failed and why,
+which operator requirements remain unmet, and what the next round would test.
+Its Reviewer checks every number against its source file and that each figure
+renders and shows the same numbers. The package says plainly that the overall
+goal is not complete; it changes neither the publication target nor the plan.
+Another one is worth writing only when the evidence has materially changed.
+
+### The claim: iterate, then revise or report
+
+Who chose the idea decides who may change the claim in `METHOD.md`; the
+research notes record which. When the operator named the direction, only the
+operator changes the claim. When the team selected it from a broad request,
+the claim is a working hypothesis that the Planner may revise as described
+below. Either way, no role rewrites it to fit the code, the data that happened
+to be at hand, or the first result. A claim-bearing task re-issued after any
+failure keeps the METHOD.md Protocol's data, scale and acceptance: repair the
+cause, never lower the bar. These and the operator's own acceptance words are
+the only numbers that stay frozen; a tolerance or setting chosen for
+engineering is reported, or changed with the reason beside it.
+
+A negative or weak result is first an optimization signal, the way a failing
+test is for infrastructure: the implementation, the setup or the recipe is
+wrong until diagnosed otherwise. Work this ladder in order, one rung per
+attempt, and record the evidence for each rung in the run records before
+moving to the next:
+
+1. **Implementation fidelity** against the method card: every component
+   reached on the executed path from the entry point its row names, knockouts
+   that fail in the component's absence, differential tests against the oracle
+   and the pinned reference (`method-card.md`).
+2. **Setup and evaluator**: the positive control recovers a known signal
+   through the same path, the data pipeline yields what the route describes,
+   no leakage across splits, and the pilot is large enough to resolve the
+   promised margin (`research-grind.md`).
+3. **Hyperparameters and recipe**: start from the framework's recipe at the
+   pinned revision, then change one factor at a time with the reason beside
+   the value (`training-infrastructure.md`).
+4. **Scale and data**: the route's datasets and sizes, not a shrunken pilot;
+   an effect absent at toy scale has not been tested.
+5. **Baseline fairness**: matched information, compute and tuning; a baseline
+   run at an advantage, or below its published number, measures nothing.
+6. **Method variants that still satisfy the claim as stated**: a different
+   realization of the same components, never a different claim.
+
+An attempt counts when it named the rung it was testing and produced evidence
+that rules the rung in or out; a run that changed several things at once, or
+the same comparison repeated on the same panels, is not a diagnosed attempt
+however many cycles it took. A method is below its baseline for a reason you
+can name, and the ladder is worked until that reason is found or the rungs that
+remain could not change the claim's standing; that is when the work stops, not
+when a count of tries is reached. What follows depends on who owns the claim:
+
+- **The operator named it**: a question to the operator carrying the evidence:
+  the diagnosed rungs, the numbers and the candidate changes to the claim.
+- **The team selected it**: the Planner may revise the working hypothesis in
+  one reviewed task: record the refuting evidence and the exhausted rungs under
+  Dead ends in `RESEARCH_NOTES.md`, keep the earlier results and their
+  configurations, and write the revised statement and its falsifier into
+  `METHOD.md` before any run that tests it. Data already used to choose or
+  revise counts as development data, never as independent confirmation.
+
+Never a narrowed claim presented as the original, never a "restricted case" or
+"negative result" paper presented as meeting the operator's publication target,
+never a variant scheduled under a new title. A further attempt needs a
+concrete, diagnosed cause from the ladder. Unfinished development is not a
+negative result.
+
+After a claim-bearing run, the letter says, for each clause of the claim, what
+was obtained, whether it is met (yes, no, partial, untested), and which results
+file and field hold the number. A clause not met is the signal to keep
+iterating, not a sentence to soften.
+
+Plan only on resources that are actually in hand. Human participants, ethics
+approval, paid annotation, credentials, external services, or compute the
+operator has not supplied cannot be scheduled as work; raise the need once,
+then design the claim around what can be run here.
+
+Before the first claim-bearing run, the METHOD.md Protocol says whether the
+experiment can answer the question (`method-card.md`); where it cannot, select
+another established benchmark or a small custom experiment the cost-aware
+policy permits. Follow surprising positive evidence when it reveals a stronger
+contribution, then confirm it on untouched data. Keep relevant losses visible,
+but do not let defensive edge-case coverage replace the main result.
+
+Check real external, numerical, persistence, and security boundaries. Inside
+the controlled implementation, trust established invariants. Do not add
+redundant guards, fallback chains, reports, wrappers, or abstractions merely
+to make the project look robust.
+
+### Real system, not a stand-in
+
+Stand-ins are never results. A mock model, fake environment, oracle policy,
+random inputs or synthetic data standing where the route names a real system
+or real data belong in `tests/spec`, never in a claim-bearing run. When the
+real system cannot run here, in order: stand it up
+(`training-infrastructure.md`); shrink the scale while keeping it real, only as
+a Protocol deviation named in `METHOD.md` first; or name the deviation there and
+claim nothing from that run.
+
+Read a results file for what it is. A 350-task benchmark whose results were
+written in four minutes, or a summary written 57 seconds after its script was
+last edited, cannot hold a 32k-context sweep of two 7B models. A "retrieval
+recall" computed on random keys is a mechanism test whatever models the results
+file lists above it, and presenting it as a result of those models is a false
+account, not a deviation. Before a number bears a claim, look for definitions
+in the project's own code named mock, fake, stub, synthetic or oracle and the
+lines that call them, and for measuring functions that build their inputs from
+random tensors.
+
+### Method card and executable spec
+
+`METHOD.md` at the project root states the method as the paper will claim it:
+written once, from the selected route, by the Engineer who implements it,
+before method code, and touched again only when the method itself changes.
+`tests/spec` says in code that runs without a model what the method must do:
+an oracle transcribed from the route's equations, differential tests against
+the oracle and the `third_party/` reference, one knockout per component, and
+claim-shaped tests for complexity, memory and throughput claims. Outcome-shaped
+tests that assert the headline number prove nothing. `method-card.md` gives the
+procedure and the card's template; `checks/method-card.mjs` checks the card
+(see the README).

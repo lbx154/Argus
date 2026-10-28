@@ -2,13 +2,22 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Role } from './types.js';
 import type { Note, Project, Task } from './store.js';
 
 const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
 };
+
+/** The ways of working: a folder each, whose README.md says how such work goes, starting with what it is for. */
+export const WAYS = fileURLToPath(new URL('../ways', import.meta.url));
+const ways = (): string => readdirSync(WAYS).map(name => {
+  const readme = resolve(WAYS, name, 'README.md');
+  return `- ${name}: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^#\s*/, '')} (${readme})`;
+}).join('\n');
 
 const rules = (role: Role): string =>
   [role, 'common'].map(name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim()).join('\n\n');
@@ -20,6 +29,7 @@ export function managerPrompt(project: Project, record: string, message: string,
   return join(rules('manager'), section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${record} (project.json holds the ticket, the tasks and their state; events.jsonl what happened)`,
+    `Ways of working, which every role can read:\n${ways()}`,
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
   ].join('\n')), section('Message', message));
 }

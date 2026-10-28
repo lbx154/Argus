@@ -66,6 +66,18 @@ stages is the order of the tasks the Planner writes. A project is done when the 
 accepts the task of a ticket the Manager gave the Engineer, or when the Planner writes `done`.
 The Manager may finish a small request in its own turn.
 
+## Ways of working
+
+A way of working is how a kind of work goes, kept as a folder the roles read:
+`packages/core/ways/<name>/` holds `README.md` (how the work goes, what each step delivers and
+when it is done), `skills/` (manuals, each opened when its situation comes up) and `checks/`
+(Node scripts the Engineer runs on its work and the Reviewer before it accepts). Argus only
+points at them: the Manager's prompt lists each way by its README's first line and path, every
+call may read the folder (read-only under the sandbox), and the Manager's brief names the way
+to follow. Nothing records which way a project follows, and no step is enforced. `research`
+(idea, experiment, paper, review) carries over what the Python research vertical knew, without
+its stage machine.
+
 ## The web cockpit
 
 `argus serve` (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that bearer) runs
@@ -126,9 +138,9 @@ Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
 `packages/core` is the npm package, `@lbx154/argus` until the name `argus` is free. Its build
 (`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the CLI with
 `@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
-dependencies. Beside it the package carries the prompts the CLI reads and `web/`, the built
-web cockpit: only the files `frontend/web/dist/index.html` reaches (6 MB), since that
-directory keeps every earlier release's chunks for open tabs (479 MB).
+dependencies. Beside it the package carries the prompts the CLI reads, the ways of working its
+roles read, and `web/`, the built web cockpit: only the files `frontend/web/dist/index.html`
+reaches (6 MB), since that directory keeps every earlier release's chunks for open tabs (479 MB).
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
 with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
@@ -136,7 +148,7 @@ from one sentence to done, with `test/fixtures/fake-codex.mjs` in place of codex
 
 ## Left out
 
-Stage machines, verticals, completion certificates, observers, Manager supervision,
-reflection and learning, skills and wiki, the map and canvas, trial metering, idle
+Stage machines, verticals as code, completion certificates, observers, Manager supervision,
+reflection and learning, the skill library and wiki, the map and canvas, trial metering, idle
 watchdogs, CPU liveness checks, retry ladders, provider circuits and error-text
 classification. Some may come back as plain features later; none is needed to run a project.

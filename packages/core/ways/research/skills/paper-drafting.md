@@ -1,0 +1,149 @@
+# Writing for the selected venue
+
+Use this in the paper step, once the experiment's evidence supports the claim,
+to write the complete paper with the selected venue's author kit in the order
+strong papers are written. Read `RESEARCH_NOTES.md`, the direct evidence, the
+selected venue and its current official author kit first. Read
+`writing-craft.md` once before drafting and keep it open while revising; it is
+the how, this file is the order.
+
+## The standard
+
+The standard is a strong accepted paper at the selected venue, the kind the
+next section has you read. There is no house quota for sentences, words,
+numbers, or caption format; the claim decides the form. The abstract is as long
+and as numerical as the venue's norm and the claim require: a large speedup is
+stated as a speedup, a narrow margin with its uncertainty, a mechanism finding
+perhaps with no number at all. In prose, give a number the precision the
+comparison needs (usually two or three significant digits) and keep full
+precision in tables; a paragraph that has become a list of numbers has stopped
+arguing. Say plainly what the evidence establishes, state each limit once where
+it matters, and hedge a sentence only when the evidence for that sentence is
+uncertain. Keep the complete method, baseline, control, adverse-result,
+uncertainty, and scope coverage in the paper; selection changes where evidence
+lives, never whether it is there.
+
+## Calibrating against strong published papers
+
+When the argument's shape or the visual composition needs a reference, or the
+final visual review is unsure what standard to hold the paper to, read a small
+number of open-access accepted, Oral, Outstanding or Best Papers from the
+selected venue and the closest area. Look at how they handle contribution
+framing, section order and argument pacing; page rhythm, whitespace, column
+balance and float placement; figure and table density; publication-size
+typography; caption length and hierarchy; colour restraint and visual
+consistency. They calibrate judgement; they are not a section template or a
+source of prose. One careful read is what calibrates. Rereading the same PDFs
+every round replaces judgement with ritual and improves nothing, so note the
+concrete differences you found and work from those. Do not build a permanent
+exemplar collection or write reports about adherence to them.
+
+## 1. Shape the argument before writing prose
+
+Write down, before any section:
+
+- the thesis sentence: "This paper shows that X, because Y, as evidenced by Z";
+- the contribution claims, each paired with the results subsection, figure or
+  table that will carry its evidence;
+- the figure and table plan (Figure 1 explains the idea or mechanism; the first
+  table normally carries the main result), and the page budget per section
+  under the venue's limit, following "Plan the manuscript length" in
+  `paper.md`: a full-length paper defaults to using nearly all permitted body
+  space, with official counting rules and a section budget.
+
+Assign the complete evidence to roles while planning: **headline** (establishes
+the thesis; may recur where each location has a distinct job), **mechanism**
+(why it works or fails), **disambiguating control** (rules out an alternative),
+**scope-changing** (changes the claim or its boundary), **completeness** (makes
+the comparison whole without changing the inference). Give each item a
+canonical full location; methods and tables keep complete definitions and
+matrices, prose selects what changes the inference. Moving evidence to the
+appendix changes its placement; it does not remove it. Adverse or null results
+that change the headline interpretation stay in the main reader path. Use these
+roles to plan the argument without reciting the planning labels to the reader.
+Preserve their ordinary scientific meanings, such as a mechanism or an
+experimental control, wherever they help explain the work.
+
+## 2. Write in this order
+
+1. **Draft 0 introduction**: stakes, structural gap, key idea, one-paragraph
+   mental model, contribution claims. Rough, disposable, written to fix what
+   the results must establish.
+2. **Results**, organized by the claims, each cluster closed by a takeaway that
+   states the pattern and its implication. Then **Method**: develop the
+   principle-level analysis from the length plan, explaining the mechanism,
+   assumptions, derivations, and design tradeoffs in depth. **Setup** provides
+   reproducibility detail; it does not replace this reasoning. The setup states
+   the evaluation substrate exactly: the model and environment that ran, or
+   that the evaluation is simulated; a simulation is never described as a
+   benchmark.
+3. **Final introduction**, from a blank page, now that the results stand: every
+   claim maps to a results subsection and the preview carries the real
+   headline numbers. Draft 0 is reference material, not the starting text.
+4. **Related work**: the closest work named, the actual technical difference
+   stated, critiques grounded in numbers or cases.
+5. **Conclusion**, then **abstract** last: problem, insight or mechanism,
+   decisive evidence, what follows; the final sentence lands on the
+   contribution, not on a caveat.
+6. **Compression pass** over the whole draft: remove what serves no explicit
+   claim, move detail the reader does not need on first pass to the appendix,
+   protect every claim, number, named baseline and limit. There is no target
+   reduction fraction; develop principle-level analysis toward the submission
+   type's length target.
+7. **Stranger's read**: the questions in `writing-craft.md`, section 11. Fix
+   what fails before compiling the final PDF.
+
+Build one confident thesis around the method's strongest supported win. Follow
+the selected venue's expected reader path and required end matter. Explain the
+real mechanism and the actual evaluated implementation. Compare against real,
+strong, published baselines under fair information and resource conditions.
+Include every intended claim-bearing experiment, figure, table, and citation.
+
+- Do not write an experiment chronology, and do not present unfinished
+  development as a finding. A clear thesis that the method helps only under
+  identified conditions, or that an expected effect does not hold, is a
+  legitimate paper only when the claim's owner has set that claim and its
+  evidence is as complete as a positive result would need.
+- Keep internal task routing, review status and process bookkeeping out of the
+  scientific account. Preserve established scientific terminology in its correct
+  domain sense, including certified bounds, communication gates and rounds,
+  numerical artifacts, mechanisms and controls. Explain their scientific meaning
+  when needed; do not rename legitimate terms to satisfy a word list. Necessary
+  method and reproduction details belong in the paper; the agents' development
+  history and planning labels do not.
+
+## 3. Figures and tables
+
+Every figure and table carries a scientific claim. A figure earns its place
+when the reader would take something from it that prose and tables cannot give
+as directly: the idea or the mechanism itself, which is what Figure 1 normally
+shows; a comparison whose shape matters more than its numbers; an ablation,
+diagnostic or generalization result whose pattern is the point. A full paper
+at a strong venue usually needs several such figures because it makes several
+such claims, each answering a distinct question from actual evidence; a paper
+with fewer claims that a picture serves needs fewer, and a figure added to
+reach a count, a decorative panel, or one diagram cut into renumbered pieces
+weakens the paper. Table 1 normally carries the main quantitative result,
+because a comparison across many conditions is read faster as numbers than as
+bars. Method and pipeline figures follow `method-figures.md`; data figures
+follow `data-figures.md`. Use readable publication-scale typography and
+conventional axes, units, captions, and uncertainty. A caption tells the reader
+what to see: the question the figure answers, the comparison conditions that
+matter, and the decisive number when the number is the point or the pattern
+when the pattern is the point. The visual carries the complete matrix; the
+caption identifies its reader-facing structure rather than reading every cell
+aloud.
+
+Keep most effort on scientific contribution, experiments, and explanation.
+Substantial drawing can run as a separate figure task while the science goes
+on. Once a figure is checked, keep its composition: new prose or a new review
+round does not justify another design search; update only changed science or a
+concrete figure defect.
+
+## 4. Files and finish
+
+Maintain only `paper/main.tex`, its directly included sources, the
+bibliography, figures with their `.source.json` records, tables, the rendered
+`paper/main.pdf`, and `RESEARCH_NOTES.md`. Compile under the official template
+(`venue.md`). Scientific judgment, strict visual inspection, and
+academic-language polishing happen in the review step.
