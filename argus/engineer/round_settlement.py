@@ -144,11 +144,8 @@ class RoundSettlementMixin:
                 log.warning("review completion hook failed", exc_info=True)
 
         terminal_status, reason = self._classify(review=review)
-        from .round_manager_wait import manager_wait_terminal
-
-        paused = manager_wait_terminal(supervised_config, state)
-        if paused is not None:
-            return control_return(paused)
+        # A verdict is a completed role operation: a Manager STOP applies at
+        # the loop's next boundary, never over a judgment already made.
         if terminal_status is not None:
             return control_return(
                 (

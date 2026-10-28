@@ -674,27 +674,33 @@ def test_no_operator_parks_the_question_for_the_manager(
 
 
 class _HandedToManagerRunner:
-    """The Engineer's ``→ manager``, with no question, in its own words."""
+    """A ``→ manager`` from ``source``, with no question, in its own words."""
+
+    def __init__(self, source: str = "engineer_handoff") -> None:
+        self.source = source
 
     def execute(self, **kwargs: Any) -> _Outcome:
         outcome = _Outcome(
             success=False, status="manager", final_message="A and B conflict.",
             stop_reason="A and B conflict; the choice is not mine.",
         )
-        outcome.final_review_source = "engineer_handoff"
+        outcome.final_review_source = self.source
         return outcome
 
 
-def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path) -> None:
+@pytest.mark.parametrize("source", ["engineer_handoff", "reviewer"])
+def test_work_handed_to_the_manager_parks_for_it_instead_of_failing(tmp_path, source) -> None:
     """2026-10-20: a task an Engineer handed to the Manager settled as failed a
     second after its round, before the Manager could answer; its question then
-    had nothing to park. It now parks where a Manager stop leaves work."""
+    had nothing to park. It now parks where a Manager stop leaves work. A
+    Reviewer's ``→ manager`` (HO-3) parks the same way, not queued back to the
+    Engineer."""
     from argus.life.memory import park_reason
 
     mem = LifeMemory.open(tmp_path / "life")
     sup = LifeSupervisor(
         memory=mem,
-        runner=_HandedToManagerRunner(),
+        runner=_HandedToManagerRunner(source),
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
             budget=LifeBudget(max_missions=1), poll_interval_seconds=0.01,

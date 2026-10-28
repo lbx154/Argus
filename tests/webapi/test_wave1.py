@@ -894,3 +894,33 @@ def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp
         "s-operator-language", result, global_root=tmp_path, operator_text="继续比较两组延迟",
     )
     assert ("目标已更新" if planner_pending else "收到，马上开始") in reply
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+def test_dispatch_ack_carries_one_message_id_in_transcript_and_live_row(
+    tmp_path: Path, monkeypatch, streaming: bool,
+) -> None:
+    """The live acknowledgement and its transcript row share a message id, so
+    the conversation shows "收到，马上开始" once instead of twice."""
+    from argus.webapi import manager_pending_question as mpq
+
+    life_dir = tmp_path / "projects" / "s-ack-id"
+    life_dir.mkdir(parents=True)
+    emitted: list[dict] = []
+    monkeypatch.setattr(
+        mpq, "_emit_ui_turn",
+        lambda _life, role, text, *, message_id: emitted.append({"text": text, "message_id": message_id}),
+    )
+    fragments: list[dict] = []
+    result = {"kind": "task", "daemon_alive": True, "daemon": None, "item": {"status": "running"}, "reply": None}
+    text = mpq.record_task_dispatch_ack(
+        "s-ack-id", result, global_root=tmp_path,
+        on_fragment=(lambda _kind, payload: fragments.append(payload)) if streaming else None,
+    )
+
+    rows = [json.loads(line) for line in (life_dir / "transcript.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["text"] for row in rows] == [text]
+    live = fragments if streaming else emitted
+    assert len(live) == 1
+    assert live[0]["message_id"].startswith("dispatch-")
+    assert rows[0]["message_id"] == live[0]["message_id"]

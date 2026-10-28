@@ -36,12 +36,18 @@ _WAIT_BY_BACKEND = (
     "and Copilot resumes you when it exits; elsewhere, the longest blocking calls "
     "your shell allows. Never poll in short loops."
 )
+# The bubblewrap sandbox runs on until everything started in it has exited
+# (core.sandbox), so the turn's end does not cut a detached job off.
+_JOBS_OUTLIVE_THE_CLI = (
+    " A detached job keeps running after you hand off, so stop servers you no "
+    "longer need."
+)
 _POSIX_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes, start them detached so they outlive your "
     "shell, keeping the exit code: `setsid nohup sh -c '<command>; echo $? > "
     "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Do the work that does not "
     "need the result, then wait for it on `until [ -e <run>/exit_code ]; do "
-    "sleep 30; done`" + _WAIT_BY_BACKEND
+    "sleep 30; done`" + _WAIT_BY_BACKEND + _JOBS_OUTLIVE_THE_CLI
 )
 # The Engineer ends its turn with the one action every role ends with
 # (core.handoff); what each holder means is in the action's own description.
@@ -70,12 +76,11 @@ def engineer_handoff_rule() -> str:
 
 
 _PERFORMANCE_DIAGNOSTIC_RULE = (
-    "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
-    "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
-    "share hardware, but latency evidence needs an uncontended device or an "
-    "explicitly matched concurrent load. Check actual device identity and other "
-    "processes; free memory or a zero-utilization snapshot does not prove isolation. "
-    "Independent process repetitions can run sequentially on a released device."
+    "Timings compared across runs or devices keep each run's device identity and "
+    "concurrent load, matched or uncontended where the comparison turns on it; "
+    "correctness smoke tests can share hardware, and repetitions can run one after "
+    "another on a released device. A phase's share of one run's own time is read "
+    "inside that run and needs none of this."
 )
 _EXPERIMENT_PREREQUISITE_RULE = (
     "Block dependents on failed readiness; keep each attempt's outputs separate."
@@ -340,10 +345,7 @@ def build_mission_prompt(
             "lower-authority guidance may not silently change it.\n\n"
             + unique_original_request
         )
-    # A Planner's implementation brief carries its own '## Claim', '## Tests
-    # that must pass' headings; one level down they read as parts of this
-    # section instead of siblings of it.
-    sections.append("## Current mission task\n" + re.sub(r"(?m)^(#{2,5})(?=\s)", r"#\1", task))
+    sections.append("## Current mission task\n" + task)
     # The Engineer is the role that can most easily satisfy a task while
     # missing the requirement the task exists to serve — the mission text
     # describes this increment, not what the operator agreed "done" means.

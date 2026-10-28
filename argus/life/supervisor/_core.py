@@ -1296,26 +1296,6 @@ class LifeSupervisor(
                 ),
             )
         try:
-            from ...core.metrics import metrics_root_for_project, record_metric
-
-            record_metric(
-                metrics_root_for_project(self.memory.root),
-                "goal.planning",
-                labels={"status": str(status)},
-                fields={
-                    "delivery_id": event["delivery_id"],
-                    "project_id": self.memory.root.name,
-                    "project_done": bool(details.get("project_done", False)),
-                    "task_count": int(details.get("task_count", 0) or 0),
-                    "enqueued_tasks": int(details.get("enqueued_tasks", 0) or 0),
-                    "skipped_duplicate_tasks": int(
-                        details.get("skipped_duplicate_tasks", 0) or 0
-                    ),
-                },
-            )
-        except Exception:  # noqa: BLE001 - metrics never own planner delivery
-            log.debug("goal planning metric skipped", exc_info=True)
-        try:
             record = mark_planner_verdict_delivered(self.memory.root, record)
         except OSError as exc:
             self._emit({

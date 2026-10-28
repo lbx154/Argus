@@ -1,5 +1,5 @@
-import { Children, isValidElement, useEffect, useState, type ReactNode } from 'react';
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { markdownRemarkPlugins, markdownRehypePlugins } from './markdownMath';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
@@ -146,104 +146,115 @@ export function MarkdownContent({
   sid?: string | null;
 }) {
   const { t, locale } = useI18n();
+  // The renderers keep their identity across renders: a new function per
+  // render is a new component type to React, which remounts every node of the
+  // message whenever the page polls (flicker, lost selection, reloaded
+  // images). They read the current props from here.
+  const live = useRef({ artifacts, onOpenArtifact, basePath, sid, locale, t });
+  live.current = { artifacts, onOpenArtifact, basePath, sid, locale, t };
+  const rehypePlugins = useMemo(() => markdownRehypePlugins(locale === 'zh-CN'), [locale]);
+  const components = useMemo((): Components => ({
+    h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
+    h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
+    h3: ({ children: value }) => <h3 className="mb-1 mt-2 text-sm font-medium text-ink first:mt-0">{value}</h3>,
+    p: ({ children: value }) => <p className="my-1.5 whitespace-pre-wrap break-words leading-[1.625] first:mt-0 last:mb-0">{value}</p>,
+    ul: ({ children: value }) => <ul className="my-2 list-disc space-y-1 pl-5">{value}</ul>,
+    ol: ({ children: value }) => <ol className="my-2 list-decimal space-y-1 pl-5">{value}</ol>,
+    li: ({ children: value }) => <li className="pl-0.5">{value}</li>,
+    blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
+    hr: () => <hr className="my-3 border-line/60" />,
+    a: ({ href, title, children: value }) => {
+      const artifactPath = artifactPathFromHref(href, live.current.artifacts, live.current.basePath);
+      const artifact = artifactPath
+        ? live.current.artifacts.find((item) => item.path === artifactPath)
+        : undefined;
+      if (artifactPath && live.current.onOpenArtifact) {
+        return (
+          <a
+            href={href}
+            data-artifact-path={artifactPath}
+            title={artifact?.storage_path || artifactPath}
+            onClick={(event) => {
+              event.preventDefault();
+              live.current.onOpenArtifact?.(artifactPath);
+            }}
+            className="cursor-pointer text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue"
+          >
+            {value}
+          </a>
+        );
+      }
+      const localPath = localFileReference(href || '');
+      if (live.current.onOpenArtifact && localPath) {
+        const relativePath = live.current.basePath && !/^(?:\/|[a-z]:\/)/i.test(localPath)
+          ? `${live.current.basePath.replaceAll('\\', '/').split('/').slice(0, -1).join('/')}/${localPath}`.replace(/^\//, '')
+          : localPath;
+        return <button type="button" onClick={() => live.current.onOpenArtifact?.(relativePath)}
+          title={live.current.locale === 'zh-CN' ? '查看文件；不存在或不允许访问时会显示原因' : 'Preview file; unavailable files show an error'}
+          className="inline cursor-pointer text-left text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+          {value}
+        </button>;
+      }
+      return (
+        <a href={href} title={title} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+          {value}
+        </a>
+      );
+    },
+    code: ({ className, children: value, ...props }) => {
+      const block = Boolean(className) || String(value).includes('\n');
+      return (
+        <code
+          {...props}
+          className={block
+            ? `block min-w-0 whitespace-pre-wrap break-words font-mono text-xs text-ink ${className ?? ''}`
+            : 'break-all rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-ink'}
+        >
+          {value}
+        </code>
+      );
+    },
+    pre: ({ children: value }) => {
+      const block = (
+        <pre className="group/code relative my-2 max-w-full overflow-x-hidden whitespace-pre-wrap break-words rounded-lg border border-line/50 bg-bg px-3 pb-3 pt-10">
+          <CopyButton
+            text={Children.toArray(value).map(nodeText).join('')}
+            label={live.current.t('copy.code')}
+            copiedLabel={live.current.t('copy.copied')}
+            className="absolute right-2 top-2"
+          />
+          {value}
+        </pre>
+      );
+      // A ```run block is how to do it yourself: folded, so the reply leads
+      // with the offer to run it rather than with a command.
+      const first = Children.toArray(value)[0];
+      const language = isValidElement<{ className?: string }>(first) ? first.props.className ?? '' : '';
+      if (!/\blanguage-run\b/.test(language)) return block;
+      return <details className="my-2 text-ink-dim">
+        <summary className="cursor-pointer select-none text-xs">{live.current.locale === 'zh-CN' ? '自己运行' : 'Run it yourself'}</summary>
+        {block}
+      </details>;
+    },
+    table: ({ children: value }) => <table className="my-2 w-full table-fixed border-collapse text-left text-xs">{value}</table>,
+    th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
+    td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
+    strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
+    img: ({ src, alt }) => {
+      // A workspace-relative image the artifact list has not caught up with
+      // yet is still a workspace file, not a path on this web server.
+      const path = artifactPathFromHref(src, live.current.artifacts, live.current.basePath)
+        ?? (live.current.sid && src && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src) ? localFileReference(src) || null : null);
+      return <WorkspaceImage src={src} alt={alt} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
+    },
+  }), []);
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
-      rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
+      rehypePlugins={rehypePlugins}
       urlTransform={(url, key) => key === 'href' && onOpenArtifact
         && (artifactPathFromHref(url, artifacts, basePath) || localFileReference(url)) ? url : defaultUrlTransform(url)}
-      components={{
-        h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
-        h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
-        h3: ({ children: value }) => <h3 className="mb-1 mt-2 text-sm font-medium text-ink first:mt-0">{value}</h3>,
-        p: ({ children: value }) => <p className="my-1.5 whitespace-pre-wrap break-words leading-[1.625] first:mt-0 last:mb-0">{value}</p>,
-        ul: ({ children: value }) => <ul className="my-2 list-disc space-y-1 pl-5">{value}</ul>,
-        ol: ({ children: value }) => <ol className="my-2 list-decimal space-y-1 pl-5">{value}</ol>,
-        li: ({ children: value }) => <li className="pl-0.5">{value}</li>,
-        blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
-        hr: () => <hr className="my-3 border-line/60" />,
-        a: ({ href, title, children: value }) => {
-          const artifactPath = artifactPathFromHref(href, artifacts, basePath);
-          const artifact = artifactPath
-            ? artifacts.find((item) => item.path === artifactPath)
-            : undefined;
-          if (artifactPath && onOpenArtifact) {
-            return (
-              <a
-                href={href}
-                data-artifact-path={artifactPath}
-                title={artifact?.storage_path || artifactPath}
-                onClick={(event) => {
-                  event.preventDefault();
-                  onOpenArtifact(artifactPath);
-                }}
-                className="cursor-pointer text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue"
-              >
-                {value}
-              </a>
-            );
-          }
-          const localPath = localFileReference(href || '');
-          if (onOpenArtifact && localPath) {
-            const relativePath = basePath && !/^(?:\/|[a-z]:\/)/i.test(localPath)
-              ? `${basePath.replaceAll('\\', '/').split('/').slice(0, -1).join('/')}/${localPath}`.replace(/^\//, '')
-              : localPath;
-            return <button type="button" onClick={() => onOpenArtifact(relativePath)}
-              title={locale === 'zh-CN' ? '查看文件；不存在或不允许访问时会显示原因' : 'Preview file; unavailable files show an error'}
-              className="inline cursor-pointer text-left text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
-              {value}
-            </button>;
-          }
-          return (
-            <a href={href} title={title} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
-              {value}
-            </a>
-          );
-        },
-        code: ({ className, children: value, ...props }) => {
-          const block = Boolean(className) || String(value).includes('\n');
-          return (
-            <code
-              {...props}
-              className={block
-                ? `block min-w-0 whitespace-pre-wrap break-words font-mono text-xs text-ink ${className ?? ''}`
-                : 'break-all rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-ink'}
-            >
-              {value}
-            </code>
-          );
-        },
-        pre: ({ children: value }) => {
-          const block = (
-            <pre className="group/code relative my-2 max-w-full overflow-x-hidden whitespace-pre-wrap break-words rounded-lg border border-line/50 bg-bg px-3 pb-3 pt-10">
-              <CopyButton
-                text={Children.toArray(value).map(nodeText).join('')}
-                label={t('copy.code')}
-                copiedLabel={t('copy.copied')}
-                className="absolute right-2 top-2"
-              />
-              {value}
-            </pre>
-          );
-          // A ```run block is how to do it yourself: folded, so the reply leads
-          // with the offer to run it rather than with a command.
-          const first = Children.toArray(value)[0];
-          const language = isValidElement<{ className?: string }>(first) ? first.props.className ?? '' : '';
-          if (!/\blanguage-run\b/.test(language)) return block;
-          return <details className="my-2 text-ink-dim">
-            <summary className="cursor-pointer select-none text-xs">{locale === 'zh-CN' ? '自己运行' : 'Run it yourself'}</summary>
-            {block}
-          </details>;
-        },
-        table: ({ children: value }) => <table className="my-2 w-full table-fixed border-collapse text-left text-xs">{value}</table>,
-        th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
-        td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
-        strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
-        img: ({ src, alt }) => {
-          const path = artifactPathFromHref(src, artifacts, basePath);
-          return <WorkspaceImage src={src} alt={alt} sid={sid} path={path} onOpen={path && onOpenArtifact ? () => onOpenArtifact(path) : undefined} />;
-        },
-      }}
+      components={components}
     >
       {children}
     </ReactMarkdown>

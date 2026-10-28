@@ -892,10 +892,39 @@ def test_usage_delta_for_thread_decumulates_reasoning_output_tokens() -> None:
         thread_id="t1",
         raw_totals=(160, 30, 45, 19),
     ) == (60, 20, 25, 12)
+    # Totals that went down leave no baseline: the call's usage is unknown.
     assert backend._usage.usage_delta_for_thread(
         thread_id="t1",
         raw_totals=(20, 5, 6, 2),
-    ) == (20, 5, 6, 2)
+    ) is None
+    # So is a resumed thread's first call with no baseline anywhere.
+    assert backend._usage.usage_delta_for_thread(
+        thread_id="t2",
+        raw_totals=(20, 5, 6, 2),
+        resume_baseline_unknown=True,
+    ) is None
+
+
+def test_a_resumed_claude_session_records_its_runs_own_usage() -> None:
+    # A claude result reports that -p run's usage; only codex reports thread totals.
+    def result(input_tokens: int, output_tokens: int) -> AgentRunResult:
+        return AgentRunResult(
+            command=["claude"], exit_code=0, thread_id="session-1", turn_completed=True,
+            json_events=[{"type": "result", "total_cost_usd": 0.01, "usage": {
+                "input_tokens": input_tokens, "output_tokens": output_tokens,
+            }}],
+        )
+
+    backend = AgentCliBackend(backend="claude")
+    first = backend._translate_result(result(5000, 800))
+    resumed = backend._translate_result(result(3000, 300), resume_thread_id="session-1")
+    restarted = AgentCliBackend(backend="claude")._translate_result(
+        result(3000, 300), resume_thread_id="session-1",
+    )
+    assert [(run.input_tokens, run.output_tokens, run.cost_usd) for run in (first, resumed, restarted)] == [
+        (5000, 800, 0.01), (3000, 300, 0.01), (3000, 300, 0.01),
+    ]
+    assert resumed.input_tokens_present and restarted.input_tokens_present
 
 
 def test_consumed_interrupt_returns_canonical_result_without_starting_provider(

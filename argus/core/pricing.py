@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 from .contract_resources import contract_schema_path
+from .token_usage import TokenUsage
 
 PriceLookup = Callable[[str], tuple[float, float]]
 PricingStatus = Literal["priced", "partial", "unpriced", "not_billed"]
@@ -85,10 +86,13 @@ def quote_token_usage(
     input_tokens: int | None,
     cached_input_tokens: int | None,
     output_tokens: int | None,
-    reasoning_output_tokens: int | None = None,
     cache_write_tokens: int | None = None,
 ) -> PricingQuote:
-    """Strictly price one token-based call, preserving partial/unpriced states."""
+    """Strictly price one token-based request, preserving partial/unpriced states.
+
+    Reasoning tokens are a part of ``output_tokens`` (codex's ``total_tokens``
+    is input plus output), so they are never billed again.
+    """
     price = model_price_for(model)
     if price is None:
         return PricingQuote(
@@ -125,7 +129,6 @@ def quote_token_usage(
         min(int(cache_write_tokens or 0), input_count - cached_count),
     )
     output_count = max(0, int(output_tokens or 0))
-    reasoning_count = max(0, int(reasoning_output_tokens or 0))
     long_context = bool(
         price.long_context_threshold is not None
         and input_tokens is not None
@@ -144,9 +147,7 @@ def quote_token_usage(
         * price.input_usd_per_mtok
         * input_multiplier
         * price.cache_write_multiplier
-        + (output_count + reasoning_count)
-        * price.output_usd_per_mtok
-        * output_multiplier
+        + output_count * price.output_usd_per_mtok * output_multiplier
     ) / 1_000_000
     complete = input_tokens is not None and output_tokens is not None
     return PricingQuote(
@@ -154,6 +155,31 @@ def quote_token_usage(
         status="priced" if complete else "partial",
         tier="long_context" if long_context else "default",
         reason="" if complete else "input or output token count is missing",
+    )
+
+
+def quote_requests(model: str, requests: Sequence[TokenUsage]) -> PricingQuote:
+    """Price a call request by request: the long-context tier belongs to one
+    request's prompt, never to a call's summed input (2026-10-27: 277
+    requests of at most 240K tokens were billed as one 43.9M-token prompt,
+    $12.68 for $6.28). A count a request did not report stays missing."""
+    quotes = [
+        quote_token_usage(
+            model,
+            **{
+                name: getattr(usage, name) if getattr(usage, f"{name}_present") else None
+                for name in ("input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens")
+            },
+        )
+        for usage in requests
+    ]
+    unsettled = [quote for quote in quotes if quote.status != "priced"]
+    if len(quotes) == 1 or unsettled:
+        return (unsettled or quotes)[0]
+    return PricingQuote(
+        cost_usd=sum(quote.cost_usd or 0.0 for quote in quotes),
+        status="priced",
+        tier="long_context" if any(quote.tier == "long_context" for quote in quotes) else "default",
     )
 
 
@@ -190,10 +216,9 @@ def usd_for_tokens(
     cached_input_tokens: int,
     output_tokens: int,
     *,
-    reasoning_output_tokens: int = 0,
     price_lookup: PriceLookup = price_for,
 ) -> float:
-    """Compute USD with cache-aware input pricing and output-priced reasoning tokens."""
+    """Compute USD with cache-aware input pricing."""
     if price_lookup is price_for:
         strict = quote_token_usage(
             model,
@@ -201,7 +226,6 @@ def usd_for_tokens(
             cached_input_tokens=cached_input_tokens,
             cache_write_tokens=0,
             output_tokens=output_tokens,
-            reasoning_output_tokens=reasoning_output_tokens,
         )
         if strict.cost_usd is not None:
             return strict.cost_usd
@@ -211,11 +235,7 @@ def usd_for_tokens(
     return (
         (fresh * in_price)
         + (cached * (in_price / 10.0))
-        + (
-            max(0, int(output_tokens or 0))
-            + max(0, int(reasoning_output_tokens or 0))
-        )
-        * out_price
+        + max(0, int(output_tokens or 0)) * out_price
     ) / 1_000_000
 
 
@@ -229,6 +249,7 @@ __all__ = [
     "model_price_for",
     "price_for",
     "quote_copilot_usage",
+    "quote_requests",
     "quote_token_usage",
     "usd_for_tokens",
 ]

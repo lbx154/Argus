@@ -1,5 +1,9 @@
 # Simplification Plan
 
+> **Historical snapshot (RL-4, 2026-10-22):** much of this plan has been carried out; the files it
+> names for deletion (`skills/research_gates.py`, the physics gates and stages, the capability
+> trace) no longer exist. It is not current guidance. See [ROADMAP.md](ROADMAP.md).
+
 A plan to make Argus smaller. It is a weight-loss problem, not a rewrite: the
 system works, and the goal is to remove what is not carrying weight.
 

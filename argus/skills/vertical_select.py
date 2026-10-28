@@ -104,6 +104,14 @@ class VerticalResolutionError(RuntimeError):
     """
 
 
+class AwaitingManagerTicketError(VerticalResolutionError):
+    """No route yet: nothing the Manager's ticket chose is persisted for this work.
+
+    The planning cycle holds on it; a caller that has the work in hand (the
+    daemon's ``--objective``) asks the Manager for its ticket instead.
+    """
+
+
 class UnknownVerticalError(ValueError):
     """Raised when a value is required to name a known vertical but does not."""
 
@@ -1272,6 +1280,7 @@ __all__ = [
     "DEFAULT_VERTICAL",
     "ENV_VERTICAL",
     "VerticalResolutionError",
+    "AwaitingManagerTicketError",
     "uninstalled_vertical_message",
     "INSTALL_COMMUNITY_VERTICALS",
     "INSTALL_COMMUNITY_VERTICALS_PIP",

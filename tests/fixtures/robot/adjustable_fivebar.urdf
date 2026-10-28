@@ -1,0 +1,234 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="adjustable_fivebar">
+  <!-- SI units. Closed loop is cut at right distal tip; see closure.json and build_and_check.py:Fivebar. -->
+  <link name="base_frame">
+    <inertial>
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <mass value="0.55" />
+      <inertia ixx="0.00010197916666666668" iyy="0.004153645833333333" izz="0.004198333333333333" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <geometry>
+        <box size="0.3 0.04 0.025" />
+      </geometry>
+      <material name="base_frame_color">
+        <color rgba="0.25 0.29 0.35 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <geometry>
+        <box size="0.3 0.04 0.025" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_carriage">
+    <inertial>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <mass value="0.4" />
+      <inertia ixx="0.000135" iyy="0.00010833333333333334" izz="0.00010833333333333334" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <geometry>
+        <box size="0.035 0.045 0.045" />
+      </geometry>
+      <material name="left_carriage_color">
+        <color rgba="0.45 0.49 0.55 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <geometry>
+        <box size="0.035 0.045 0.045" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_slide" type="prismatic">
+    <parent link="base_frame" />
+    <child link="left_carriage" />
+    <origin xyz="-0.04 0 0.09" rpy="0 0 0" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0.060000000000000005" effort="100.0" velocity="0.01" />
+    <dynamics damping="0.001" friction="0" />
+  </joint>
+  <link name="left_proximal">
+    <inertial>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <mass value="0.048" />
+      <inertia ixx="8.320000000000001e-07" iyy="0.00010265600000000001" izz="0.000102976" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.16 0.012 0.008" />
+      </geometry>
+      <material name="left_proximal_color">
+        <color rgba="0.05 0.4 0.72 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.16 0.012 0.008" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_distal">
+    <inertial>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <mass value="0.066" />
+      <inertia ixx="1.1440000000000002e-06" iyy="0.00026655200000000003" izz="0.000266992" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.22 0.012 0.008" />
+      </geometry>
+      <material name="left_distal_color">
+        <color rgba="0.05 0.4 0.72 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.22 0.012 0.008" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_shoulder" type="revolute">
+    <parent link="left_carriage" />
+    <child link="left_proximal" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="0.08726646259971647" upper="3.0543261909900767" effort="1.0" velocity="0.6" />
+    <dynamics damping="0.001" friction="0" />
+  </joint>
+  <joint name="left_elbow" type="revolute">
+    <parent link="left_proximal" />
+    <child link="left_distal" />
+    <origin xyz="0.16 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.141592653589793" upper="3.141592653589793" effort="1.0" velocity="10.0" />
+    <dynamics damping="0.001" friction="0" />
+  </joint>
+  <link name="right_carriage">
+    <inertial>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <mass value="0.4" />
+      <inertia ixx="0.000135" iyy="0.00010833333333333334" izz="0.00010833333333333334" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <geometry>
+        <box size="0.035 0.045 0.045" />
+      </geometry>
+      <material name="right_carriage_color">
+        <color rgba="0.45 0.49 0.55 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.018" rpy="0 0 0" />
+      <geometry>
+        <box size="0.035 0.045 0.045" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_slide" type="prismatic">
+    <parent link="base_frame" />
+    <child link="right_carriage" />
+    <origin xyz="0.04 0 0.09" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.060000000000000005" effort="100.0" velocity="0.01" />
+    <dynamics damping="0.001" friction="0" />
+    <mimic joint="left_slide" multiplier="1" offset="0" />
+  </joint>
+  <link name="right_proximal">
+    <inertial>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <mass value="0.048" />
+      <inertia ixx="8.320000000000001e-07" iyy="0.00010265600000000001" izz="0.000102976" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.16 0.012 0.008" />
+      </geometry>
+      <material name="right_proximal_color">
+        <color rgba="0.93 0.4 0.1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.08 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.16 0.012 0.008" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_distal">
+    <inertial>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <mass value="0.066" />
+      <inertia ixx="1.1440000000000002e-06" iyy="0.00026655200000000003" izz="0.000266992" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.22 0.012 0.008" />
+      </geometry>
+      <material name="right_distal_color">
+        <color rgba="0.93 0.4 0.1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.11 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.22 0.012 0.008" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_shoulder" type="revolute">
+    <parent link="right_carriage" />
+    <child link="right_proximal" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="0.08726646259971647" upper="3.0543261909900767" effort="1.0" velocity="0.6" />
+    <dynamics damping="0.001" friction="0" />
+  </joint>
+  <joint name="right_elbow" type="revolute">
+    <parent link="right_proximal" />
+    <child link="right_distal" />
+    <origin xyz="0.16 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.141592653589793" upper="3.141592653589793" effort="1.0" velocity="10.0" />
+    <dynamics damping="0.001" friction="0" />
+  </joint>
+  <link name="tool">
+    <inertial>
+      <origin xyz="0 0 -0.012" rpy="0 0 0" />
+      <mass value="0.3" />
+      <inertia ixx="3.059999999999999e-05" iyy="3.059999999999999e-05" izz="1.6199999999999997e-05" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.012" rpy="0 0 0" />
+      <geometry>
+        <box size="0.018 0.018 0.03" />
+      </geometry>
+      <material name="tool_color">
+        <color rgba="0.15 0.66 0.43 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.012" rpy="0 0 0" />
+      <geometry>
+        <box size="0.018 0.018 0.03" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="tool_mount" type="fixed">
+    <parent link="left_distal" />
+    <child link="tool" />
+    <origin xyz="0.22 0 0" rpy="0 0 0" />
+  </joint>
+</robot>

@@ -740,3 +740,41 @@ describe('result cards in the conversation', () => {
     expect(renderer!.root.findByProps({ 'data-project-work': true }).parent!.props.className).toContain('hidden');
   });
 });
+
+describe('a parked task offers Resume where its receipt says so', () => {
+  function parked(status: string, park: string) {
+    const { snapshot } = runtimeFixture(false);
+    snapshot.backlog = [{ id: 'task-a', title: 'Research task A', objective: '', status, priority: 1,
+      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed',
+        resumable: true, park: { reason: park } } } as Snapshot['backlog'][number]];
+    return snapshot;
+  }
+  const receipt = (id: string, ts: number): EventMsg => ({ type: 'ui.argus', ts, mission_result: true, item_id: 'task-a',
+    success: false, message_id: id, text: 'The trial allowance is used up, so the task is paused; all files are kept.' });
+
+  it('puts the Resume button on the newest receipt of the parked task and runs the same start action', () => {
+    const onResumeWork = vi.fn();
+    act(() => { renderer = create(<EventStream snapshot={parked('parked', 'provider_fence')} onResumeWork={onResumeWork}
+      events={[receipt('mission-result-old', 1), receipt('mission-result-new', 2)]}
+      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    const buttons = renderer!.root.findAllByProps({ 'data-receipt-resume': true });
+    expect(buttons).toHaveLength(1);
+    expect(visibleText(buttons[0])).toBe('Resume');
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'mission-result-new' });
+    expect(row.findAllByProps({ 'data-receipt-resume': true })).toHaveLength(1);
+    act(() => buttons[0].props.onClick());
+    expect(onResumeWork).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers nothing while the team runs or when the task waits on an answer instead', () => {
+    for (const snapshot of [{ ...parked('parked', 'provider_fence'), daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'pi' } },
+      parked('parked', 'operator_question')]) {
+      act(() => { renderer = create(<EventStream snapshot={snapshot as Snapshot} onResumeWork={() => {}}
+        events={[receipt('mission-result-new', 2)]} connected showReasoning={false} onToggleReasoning={() => {}} />,
+      { createNodeMock: nodeMock }); });
+      expect(renderer!.root.findAllByProps({ 'data-receipt-resume': true })).toHaveLength(0);
+      act(() => renderer?.unmount());
+    }
+    renderer = undefined;
+  });
+});

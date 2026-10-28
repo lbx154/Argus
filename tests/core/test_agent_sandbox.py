@@ -147,6 +147,73 @@ def test_the_runner_starts_every_agent_cli_in_the_sandbox(world, tmp_path, monke
     assert other.marker("workspace") not in result.last_agent_message
 
 
+def _detaching_cli(path: Path, seconds: float) -> Path:
+    """A fake CLI that starts a job detached, as the Engineer's long-run rule
+    teaches, says so and ends its turn while the job still runs."""
+    job = f"sleep {seconds}; echo 0 > results/exit_code"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"#!{sys.executable}\nimport json, subprocess, sys\nsys.stdin.read()\n"
+        f"subprocess.run({f'setsid nohup sh -c {job!r} > results/log 2>&1 < /dev/null &'!r}, shell=True)\n"
+        "for event in ({'type': 'thread.started', 'thread_id': 't'},\n"
+        "              {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'started detached'}},\n"
+        "              {'type': 'turn.completed', 'usage': {}}):\n"
+        "    print(json.dumps(event), flush=True)\n"
+    )
+    path.chmod(0o755)
+    return path
+
+
+def test_a_job_started_detached_finishes_before_the_turn_ends(world, tmp_path, monkeypatch, host_sandbox):
+    """The sandbox used to end with the CLI, and the kernel killed the job
+    with it: the next round found no exit flag (2026-10-27 trial)."""
+    project = world["tenant-a", "alpha"]
+    fake = _detaching_cli(tmp_path / "bin" / "codex", 2)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(project.state))
+    monkeypatch.setenv("HOME", str(project.home))
+
+    result = AgentCliRunner(agent_bin=str(fake), backend="codex").run_exec(
+        prompt="work", resume_thread_id=None,
+        options=RunnerOptions(dangerous_yolo=True, working_dir=str(project.workdir)),
+    )
+
+    assert result.turn_completed, result.fatal_error
+    assert result.last_agent_message == "started detached"
+    assert (project.workdir / "results" / "exit_code").read_text() == "0\n"
+    assert any(line.startswith(sandbox.SANDBOX_WAIT_MARKER) and "sleep 2" in line for line in result.stderr_lines)
+
+
+def test_the_sandbox_exits_with_the_cli_code_once_its_jobs_end(world, monkeypatch, host_sandbox):
+    project = world["tenant-a", "alpha"]
+    result = _run(project, "(sleep 1; echo late > results/late.txt) & exit 3", monkeypatch)
+    assert result.returncode == 3
+    assert (project.workdir / "results" / "late.txt").read_text() == "late\n"
+
+
+def test_a_turn_stopped_while_its_job_runs_names_the_job(world, tmp_path, monkeypatch, host_sandbox):
+    """Stopping the turn stops its jobs too, a decision someone made; the
+    stop reason names what was stopped, for the next round to relaunch."""
+    project = world["tenant-a", "alpha"]
+    fake = _detaching_cli(tmp_path / "bin" / "codex", 30)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(project.state))
+    monkeypatch.setenv("HOME", str(project.home))
+
+    def decide(snapshot):
+        return "restart: the Manager steered" if snapshot.running_tool else "continue"
+
+    result = AgentCliRunner(agent_bin=str(fake), backend="codex").run_exec(
+        prompt="work", resume_thread_id=None,
+        options=RunnerOptions(
+            dangerous_yolo=True, working_dir=str(project.workdir),
+            watchdog_soft_idle_seconds=1, inactivity_callback=decide,
+        ),
+    )
+
+    assert result.turn_failed
+    assert "running tool:" in result.fatal_error and "sleep 30" in result.fatal_error
+    assert not (project.workdir / "results" / "exit_code").exists()
+
+
 def test_without_a_sandbox_an_isolated_call_is_refused_and_others_run(tmp_path, monkeypatch):
     fake = tmp_path / "codex"
     fake.write_text("#!/bin/sh\necho '{\"type\": \"turn.completed\", \"usage\": {}}'\n")
@@ -181,3 +248,73 @@ def test_macos_hides_the_home_and_runtime_and_shows_the_workdir(tmp_path, monkey
     hidden, shown = command[2].split("(require-not ", 1)
     assert f'(subpath "{home}")' in hidden and f'(subpath "{workdir}")' in shown
     assert command[-1] == os.path.realpath("/bin/echo")
+
+
+def _codex_setup(tmp_path: Path) -> tuple[dict[str, str], dict[str, Path]]:
+    """A codex home whose config names files the way a real one does."""
+    home, codex, shared = tmp_path / "home", tmp_path / "codex", tmp_path / "shared"
+    for path in (home, codex, shared, codex / "prompts"):
+        path.mkdir(parents=True)
+    files = {
+        "catalog": shared / "models-1m.json",
+        "instructions": codex / "prompts" / "base.md",
+        "compact": home / "compact.md",
+        "profile": codex / "fast.config.toml",
+        "profile-catalog": shared / "fast-models.json",
+        "sibling": shared / "other-secret.txt",
+    }
+    for path in files.values():
+        path.write_text("{}\n")
+    (codex / "config.toml").write_text(
+        f'model_catalog_json = "{files["catalog"]}"\n'
+        'model_instructions_file = "prompts/base.md"\n'
+        'experimental_compact_prompt_file = "~/compact.md"\n'
+        f'experimental_instructions_file = "{shared}"\n'
+        f'[profiles.old]\nmodel_instructions_file = "{shared / "missing.md"}"\n'
+    )
+    files["profile"].write_text(f'model_catalog_json = "{files["profile-catalog"]}"\n')
+    return {**os.environ, "HOME": str(home), "CODEX_HOME": str(codex)}, files
+
+
+def _read_only_binds(command: list[str]) -> set[str]:
+    return {command[i + 1] for i, arg in enumerate(command) if arg == "--ro-bind-try"}
+
+
+def test_codex_brings_the_files_its_config_names_and_nothing_beside_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(sandbox, "sandbox_tool", lambda: "/usr/bin/bwrap")
+    env, files = _codex_setup(tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    command = sandbox.isolated_workdir_command(
+        ["/bin/echo", "exec", "--profile", "fast"], backend="codex", working_dir=workdir, env=env,
+    )
+    bound = _read_only_binds(command)
+    for label in ("catalog", "instructions", "compact", "profile", "profile-catalog"):
+        assert str(files[label]) in bound, label
+    assert str(files["catalog"].parent) not in bound  # a directory setting brings nothing
+    assert str(files["sibling"]) not in bound
+    assert str(files["catalog"].parent / "missing.md") not in bound
+
+    # Another backend, or a config codex cannot parse, brings nothing extra.
+    other = sandbox.isolated_workdir_command(["/bin/echo"], backend="claude", working_dir=workdir, env=env)
+    assert str(files["catalog"]) not in _read_only_binds(other)
+    (Path(env["CODEX_HOME"]) / "config.toml").write_text("model_catalog_json = [unclosed\n")
+    broken = sandbox.isolated_workdir_command(["/bin/echo"], backend="codex", working_dir=workdir, env=env)
+    assert str(files["catalog"]) not in _read_only_binds(broken)
+
+
+def test_codex_reads_its_model_catalog_inside_the_sandbox(tmp_path, monkeypatch, host_sandbox):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "state"))
+    env, files = _codex_setup(tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    script = f"cat {files['catalog']} && echo > {files['catalog']}; cat {files['sibling']}"
+    command = sandbox.isolated_workdir_command(
+        ["/bin/sh", "-c", script], backend="codex", working_dir=workdir, env=env,
+    )
+    result = subprocess.run(command, env=env, cwd=workdir, capture_output=True, text=True, timeout=60)
+    assert result.stdout == "{}\n", result.stderr
+    assert "Read-only file system" in result.stderr
+    assert "other-secret.txt" in result.stderr  # the catalog's neighbour stays out of sight
+    assert files["catalog"].read_text() == "{}\n"

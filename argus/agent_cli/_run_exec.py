@@ -25,6 +25,7 @@ from ..core.process_progress import (
     process_tree_cpu_seconds,
 )
 from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
+from ..core.sandbox import SANDBOX_WAIT_MARKER
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
     _CAPTURE_JSON_EVENTS_ENV,
@@ -847,6 +848,11 @@ class RunExecMixin:
                     state.stderr_line_count += 1
                     state.stderr_lines.append(text)
                     state.stderr_since_progress.append(text)
+                    if text.startswith(SANDBOX_WAIT_MARKER):
+                        # The CLI is gone and its sandbox runs on with the
+                        # jobs it started: they are what this turn now runs,
+                        # and what a stop of the turn names.
+                        state.running_tool = text[len(SANDBOX_WAIT_MARKER):].strip()
 
             if not pipe_errors.empty():
                 raise RuntimeError("Provider output reader failed") from pipe_errors.get()

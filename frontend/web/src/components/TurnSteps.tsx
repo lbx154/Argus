@@ -51,7 +51,12 @@ export function TurnSteps({ steps, live, startedTs, status = '', replied = false
   useEffect(() => { if (!live) setOpen(false); }, [live]);
   if (!steps.length && !live) return null;
   const now = Date.now() / 1000;
-  const failed = FAILED.has(status) || steps.some((step) => FAILED.has(step.status));
+  // A tool call that failed on the way and was followed by work that went on
+  // is marked on its own line (a probe that fails before an install is
+  // ordinary work); the turn failed when its status says so or it ended on
+  // the failure.
+  const failed = FAILED.has(status) || FAILED.has(steps[steps.length - 1]?.status ?? '');
+  const failedSteps = steps.filter((step) => FAILED.has(step.status)).length;
   const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
   const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
   const active = [...steps].reverse().find(step => step.status === 'running');
@@ -63,7 +68,8 @@ export function TurnSteps({ steps, live, startedTs, status = '', replied = false
     ? `${active ? stepText(active, locale).primary : locale === 'zh-CN' ? '正在准备回复' : 'Preparing a reply'} · ${seconds}`
     : failed ? `${locale === 'zh-CN' ? '过程出现问题，请查看详情' : 'An issue occurred; see details'} · ${seconds}`
       : stopped ? `${locale === 'zh-CN' ? '已停止' : 'Stopped'} · ${seconds}`
-        : t('chat.stepsDone', { count: steps.length, seconds });
+        : failedSteps ? t('chat.stepsDoneWithErrors', { count: steps.length, seconds, failed: failedSteps })
+          : t('chat.stepsDone', { count: steps.length, seconds });
   const StatusIcon = finishing ? LoaderCircle : live ? LoaderCircle : failed ? CircleAlert : stopped ? Square : Check;
   const Chevron = open ? ChevronDown : ChevronRight;
   return (

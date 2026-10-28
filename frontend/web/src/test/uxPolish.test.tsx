@@ -13,6 +13,7 @@ vi.mock('../i18n', async (importOriginal) => {
 const { TeamPauseButton, teamPhase, teamPhaseLabel } = await import('../components/TeamControls');
 const { translate } = await import('../i18n');
 const { LaunchSettingsBar } = await import('../components/LaunchPanel');
+const { ContinuousSwitch } = await import('../components/ContinuousSwitch');
 const { DEFAULT_LAUNCH_SETTINGS, DEFAULT_ASK_MODE, launchForMessage } = await import('../lib/launch');
 
 const snap = (alive: boolean, backlog: Array<{ status: string }> = [], extra: Partial<Snapshot['daemon']> = {}) => ({
@@ -68,6 +69,19 @@ describe('launch setting: when to ask me', () => {
     expect(software).not.toContain('成果形式');
     const unknown = renderToStaticMarkup(<LaunchSettingsBar {...props} research={null} />);
     expect(unknown).toContain('研究类项目的选项');
+  });
+});
+
+describe('continuous work switch', () => {
+  it('is a labelled switch that says what it does and reflects the project state', () => {
+    const off = renderToStaticMarkup(<ContinuousSwitch enabled={false} onToggle={vi.fn()} />);
+    expect(off).toContain('role="switch"');
+    expect(off).toContain('aria-checked="false"');
+    expect(off).toContain('持续推进');
+    expect(off).toContain('做完一项自动安排下一项，不用每次等你');
+    const on = renderToStaticMarkup(<ContinuousSwitch enabled pending onToggle={vi.fn()} />);
+    expect(on).toContain('aria-checked="true"');
+    expect(on).toContain('disabled=""');
   });
 });
 

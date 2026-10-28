@@ -555,7 +555,7 @@ def _conversation_chinese(life_dir: Path, operator_text: str) -> bool:
 
 
 def manager_canvas_context(life_dir: Path) -> str:
-    """What a person placed on the canvas, as context for one Manager turn (web chat, chat router, team reports)."""
+    """What a person placed on the canvas, for one Manager turn (web chat, chat router, team reports)."""
     from .canvas import canvas_context_block
     from .map_references import _backlog_by_id
 

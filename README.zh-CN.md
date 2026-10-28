@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**Argus v0.1.6 · 源码更新与桌面预览安装包是不同的安装渠道。**
+**Argus v0.1.8 · 源码更新与桌面预览安装包是不同的安装渠道。**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -48,13 +48,13 @@
 | **Manager** | 阶段迁移权，以及被采纳的教训存放在哪一层 | 亲自执行它所要采纳的工作 |
 | **Planner** | 下一个任务，以及它必须产出的证据 | 推动战役进入下一阶段 |
 | **Engineer** | 实现、调研、实验、产物 | 宣布自己的工作已完成 |
-| **Reviewer** | 判决——正确性、证据、局限；可以返回 `blocked` | 修改任何东西。它**只读**运行 |
+| **Reviewer** | 判决——正确性、证据、局限；可以返回 `blocked` | 修改它所评判的工作。它与 Engineer 权限相同，审阅期间改动的文件会记录在判决旁边 |
 
-凭据、支付、不可逆操作和对外发布，永远会停下来等人。
+凭据、支付、不可逆操作和对外发布，永远会停下来等一个决定：由你做；你说了别问你时，由 Manager 代你做并逐条记录。
 
 它还能不重训就变强：被采纳的 Skill 和带来源链接的 Wiki 发现，会按"它被证明成立的范围"放进
 `project` → `vertical` → `global`；而新领域以 **vertical** 的形式接入一个不会改变的核心
-——内置 7 个，另有 17 个在社区包 [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals) 中，
+——少数内置，其余在社区包 [`argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals) 中（见 [Vertical Store](docs/vertical-store.md)），
 全部领域代码里对权限边界的引用为零。
 
 正因为干活的人不能给自己打分，没有人需要盯着它：在 27 场战役、1,548 小时里，它平均**每约
@@ -275,9 +275,9 @@ PowerShell 同时支持普通 `argus` 命令；新窗口的持久 PATH 修复见
 使用 `argus doctor --advisor none --verify`。明确请求的主动修复会执行真实 Agent turn，
 可能需要几分钟；它不是快速版本检查。
 
-Windows 当前支持安装、Manager 对话、配对、Web/TUI、终端作用域 daemon 控制和
-原生 durable subagent。Native Windows 使用独立 worker 承载 direct 或 supervised
-长命令，持久化任务注册与日志，并进行有界进程树清理；此路径不再强制依赖 WSL2。
+Windows 当前支持安装、Manager 对话、配对、Web/TUI 和终端作用域 daemon 控制。
+Native Windows 上每个 provider turn 有自己的 Job Object：角色启动的长命令留在这个 turn 里，
+随 turn 一起清理（见[进程归属](docs/windows-process-ownership.md)）；此路径不再强制依赖 WSL2。
 图形安装见 **[Windows Desktop](docs/windows-desktop.md)**。
 
 ### macOS：uv tool 管理安装，不手工创建虚拟环境
@@ -716,7 +716,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 - `argus/core/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
 - `argus/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
 - `argus/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
-- `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
+- `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：内置垂直（其余由 `argus-verticals` 以 entry point 接入，见 [Vertical Store](docs/vertical-store.md)）、overlay、种子 Skill。
 - `argus/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
 - `argus/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
 - `argus/daemon/` —— 脱离终端的 7x24 worker。

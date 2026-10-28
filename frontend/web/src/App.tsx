@@ -12,6 +12,8 @@ import { ReplyChoiceContext } from './components/ReplyOptions';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
+import { ContinuousSwitch } from './components/ContinuousSwitch';
+import { ModelPickerButton } from './components/ModelPicker';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
@@ -62,7 +64,7 @@ import {
 import { mergeProjectCosts } from './lib/projectCosts';
 import { errorText, managerStreamFailureMessage } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
-import { useProjectDaemonActions } from './useProjectDaemonActions';
+import { keepsGoing, useProjectDaemonActions } from './useProjectDaemonActions';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
@@ -1311,7 +1313,7 @@ export default function App() {
             ? [
                 {
                   id: 'continuous',
-                  label: continuous.enabled ? t('palette.stopContinuous') : t('palette.startContinuous'),
+                  label: keepsGoing(continuous) ? t('palette.stopContinuous') : t('palette.startContinuous'),
                   group: t('palette.action'),
                   run: toggleContinuous,
                 },
@@ -1335,7 +1337,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
@@ -1445,6 +1447,7 @@ export default function App() {
                 onStop={requestStopDaemon}
                 onPause={requestPauseDaemon}
                 onManage={() => activeSid && requestManageSession(activeSid)}
+                onOpenPalette={() => setOverlay('palette')}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
@@ -1456,7 +1459,12 @@ export default function App() {
                   <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{locale === 'zh-CN' ? '研究地图' : 'Research map'}</button>
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
-                <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
+                <button type="button" className="ml-auto flex items-center gap-1.5 px-2 py-1 text-sm text-ink-dim hover:text-ink"
+                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint')}>
+                  {t('topbar.commands')}
+                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd>
+                </button>
+                <button type="button" className="px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
                     else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
@@ -1512,6 +1520,7 @@ export default function App() {
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
                     onPauseWork={snap.daemon.alive && !kiosk ? requestPauseDaemon : undefined}
+                    onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     filter={eventFilter}
@@ -1566,6 +1575,8 @@ export default function App() {
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
+                      modelControl={activeSid && !kiosk ? <ModelPickerButton sid={snap.session.id} onOpenSettings={() => setOverlay('config')} /> : undefined}
+                      continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
                     />
                     {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                       {draftStorageError
@@ -1612,6 +1623,7 @@ export default function App() {
                   onStop={requestStopDaemon}
                   onPause={requestPauseDaemon}
                   onManage={() => activeSid && requestManageSession(activeSid)}
+                  onOpenPalette={() => setOverlay('palette')}
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
                   readOnly={kiosk}

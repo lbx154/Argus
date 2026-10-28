@@ -27,6 +27,7 @@ from argus.engineer.runner import (
     SupervisedEngineer,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
+from argus.roles.task_contract import EXPERIMENT_EVIDENCE_CONTRACT
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 
@@ -74,17 +75,16 @@ def test_engineer_account_is_labeled_and_capped_at_6000_chars() -> None:
     assert "…[middle omitted 1100 characters]…" in account and len(account) <= 6000
 
 
-def test_reviewer_rejects_retroactive_audit_reconstruction() -> None:
+def test_an_audit_objective_reads_the_record_rule_once_from_the_evidence_contract() -> None:
+    # Words like "audit" or "ledger" used to add a section repeating it.
     p = _build(
         "",
         objective="Review an append-only audit ledger and exact COMMAND_LOG.",
     )
 
-    assert "operator mutation freeze or append-only requirement" in p
-    assert "compare directive order with file-write, install, and command events" in p
-    assert 'cannot make an overwritten or reconstructed record contemporaneous' in p
-    assert "unless the cited objective text states it" in p
-    assert "missing byte-faithful command" in p
+    assert p.count(EXPERIMENT_EVIDENCE_CONTRACT) == 1
+    assert "a reconstructed or overwritten record is never the contemporaneous one" in p
+    assert "## Integrity of the historical record" not in p
 
 
 def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:

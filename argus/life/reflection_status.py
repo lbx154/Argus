@@ -87,6 +87,8 @@ def _finish(root: Path, job_id: str, result: dict, entries: list[dict]) -> None:
         counts[channel] += 1
         items.append({"channel": channel, "title": event.get("title", ""),
                       "scope": event.get("scope", ""), "path": event.get("path", "")})
+    # Retiring a page and keeping a reviewed fact change the library too.
+    counts["knowledge"] += len(result.get("retired") or ()) + bool(result.get("reviewed_fact_recorded"))
     paused = _pause_reason(result) if result.get("failure") else ""
     outcome: dict[str, Any] = {"counts": counts, "items": items}
     if paused:
@@ -101,6 +103,11 @@ def _finish(root: Path, job_id: str, result: dict, entries: list[dict]) -> None:
         status, outcome["reason"] = "completed", "saved"
     else:
         status, outcome["reason"] = "unchanged", "no_new_learning"
+        # What the host saw: pages it could not take (no readable front matter,
+        # or outside every library), or no page at all. The model's own INDEX
+        # lines are not pages, so an INDEX edit alone counts as nothing written.
+        ignored = any(Path(str(path)).name != "INDEX.md" for path in result.get("ignored") or ())
+        outcome["detail"] = "ignored_page" if ignored else "wrote_nothing"
     with _database(root) as db:
         db.execute("UPDATE jobs SET status=?, updated=?, outcome=? WHERE id=?",
                    (status, time.time(), json.dumps(outcome, ensure_ascii=False), job_id))

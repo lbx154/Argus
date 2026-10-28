@@ -5,12 +5,13 @@ import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
 import { PHASE_TONE, teamPhase, teamPhaseLabel } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { faPause, faPlay, faStop, faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/launch';
+import { resumableTaskIds } from '../lib/resumable';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -25,6 +26,7 @@ export function TopBar({
   onStop,
   onPause,
   onManage,
+  onOpenPalette,
   onOpenSessions,
   mobileView,
   onToggleMobileView,
@@ -42,6 +44,8 @@ export function TopBar({
   /** Pause once the running task finishes; falls back to onStop when absent. */
   onPause?: () => void;
   onManage: () => void;
+  /** Opens the command palette; shown here on narrow screens, where the workspace tabs are hidden. */
+  onOpenPalette?: () => void;
   onOpenSessions?: () => void;
   mobileView?: 'activity' | 'preview';
   onToggleMobileView?: () => void;
@@ -79,6 +83,9 @@ export function TopBar({
   const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
   const hasQueuedWork = snap.backlog.some(item => ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'].includes(item.status));
   const draining = snap.daemon.alive && snap.daemon.draining === true;
+  // Work paused or cut off with nothing running it: going on is the one thing
+  // to do here, so it is the header's primary action, not a hover control.
+  const resumable = !foregroundWork && resumableTaskIds(snap).size > 0;
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
     : draining
@@ -150,7 +157,17 @@ export function TopBar({
       ) : null}
       {!readOnly ? (
         <>
-          {(snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
+          {resumable ? <button
+            type="button"
+            data-resume-work
+            disabled={busy}
+            onClick={onStart}
+            title={t('topbar.continueRunHint')}
+            className="brand-button brand-button-primary flex h-8 shrink-0 items-center gap-1.5 px-3 disabled:opacity-40"
+          >
+            <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
+            <span>{t('topbar.continueRun')}</span>
+          </button> : (snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
             type="button"
             disabled={busy || externalDaemon || foregroundWork || draining}
             onClick={snap.daemon.alive ? (onPause ?? stopNow) : onStart}
@@ -171,6 +188,16 @@ export function TopBar({
           >
             <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
             <span className="hidden md:inline">{t('topbar.stopNow')}</span>
+          </button> : null}
+          {onOpenPalette ? <button
+            type="button"
+            onClick={onOpenPalette}
+            aria-label={t('topbar.commands')}
+            title={t('topbar.commandsHint')}
+            className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 lg:hidden"
+          >
+            <FontAwesomeIcon icon={faTerminal} className="h-3 w-3" />
+            <span>{t('topbar.commands')}</span>
           </button> : null}
           <button
             type="button"

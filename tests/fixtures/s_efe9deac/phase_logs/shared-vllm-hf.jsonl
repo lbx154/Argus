@@ -1,0 +1,33 @@
+{"phase": "startup_and_model_load", "seconds": 2.0466, "start_monotonic": 1121743.8168}
+{"phase": "generation", "seconds": 19.3131, "start_monotonic": 1121746.3865, "generated_tokens": 1584}
+{"phase": "base_execution", "seconds": 0.1636, "start_monotonic": 1121765.7123}
+{"phase": "selection_and_strict_execution", "seconds": 0.1802, "start_monotonic": 1121765.8761}
+{"phase": "generation", "seconds": 20.1409, "start_monotonic": 1121766.0783, "generated_tokens": 2041}
+{"phase": "base_execution", "seconds": 0.1846, "start_monotonic": 1121786.2312}
+{"phase": "selection_and_strict_execution", "seconds": 0.2029, "start_monotonic": 1121786.416}
+{"phase": "logprob", "seconds": 1.298, "start_monotonic": 1121786.6327}
+{"phase": "backward", "seconds": 0.6785, "start_monotonic": 1121787.953}
+{"phase": "training_step_including_collection_if_any", "seconds": 42.2544, "start_monotonic": 1121746.3801}
+{"phase": "logprob", "seconds": 0.1004, "start_monotonic": 1121788.6445}
+{"phase": "backward", "seconds": 0.2072, "start_monotonic": 1121788.7468}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3219, "start_monotonic": 1121788.6353}
+{"phase": "logprob", "seconds": 0.0954, "start_monotonic": 1121788.9666}
+{"phase": "backward", "seconds": 0.2083, "start_monotonic": 1121789.0638}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3173, "start_monotonic": 1121788.958}
+{"phase": "logprob", "seconds": 0.0951, "start_monotonic": 1121789.2851}
+{"phase": "backward", "seconds": 0.2076, "start_monotonic": 1121789.3819}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3162, "start_monotonic": 1121789.2762}
+{"phase": "logprob", "seconds": 0.0955, "start_monotonic": 1121789.6016}
+{"phase": "backward", "seconds": 0.2113, "start_monotonic": 1121789.6989}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3202, "start_monotonic": 1121789.5933}
+{"phase": "logprob", "seconds": 0.0936, "start_monotonic": 1121789.9221}
+{"phase": "backward", "seconds": 0.2201, "start_monotonic": 1121790.0175}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3256, "start_monotonic": 1121789.9143}
+{"phase": "logprob", "seconds": 0.0936, "start_monotonic": 1121790.2483}
+{"phase": "backward", "seconds": 0.2112, "start_monotonic": 1121790.3437}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3171, "start_monotonic": 1121790.2408}
+{"phase": "logprob", "seconds": 0.095, "start_monotonic": 1121790.5664}
+{"phase": "backward", "seconds": 0.2094, "start_monotonic": 1121790.6633}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.317, "start_monotonic": 1121790.5587}
+{"phase": "optimizer", "seconds": 0.0812, "start_monotonic": 1121790.9414}
+{"phase": "optimizer_update_total", "seconds": 44.649, "start_monotonic": 1121746.3801}

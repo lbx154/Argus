@@ -131,6 +131,10 @@ class ConfigSetIn(BaseModel):
     apply_to_roles: bool = False
 
 
+class ModelProbeIn(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+
+
 class ProjectUpdateIn(BaseModel):
     name: str
 

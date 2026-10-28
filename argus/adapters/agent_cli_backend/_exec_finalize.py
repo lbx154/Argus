@@ -37,6 +37,7 @@ def finalize_result(
     error: str = "",
     startup_receipt: dict | None = None,
     model_output: bool | None = None,
+    request_usage: tuple[TokenUsage, ...] = (),
 ) -> RunnerResult:
     backend = ctx.backend
     persisted_error = redact_secrets_text(
@@ -146,6 +147,7 @@ def finalize_result(
                     else "error"
                 ),
                 token_usage=usage,
+                request_usage=request_usage,
                 premium_requests=premium,
                 total_nano_aiu=result.total_nano_aiu,
                 copilot_token_billing_expected=ctx.copilot_token_billing_expected,

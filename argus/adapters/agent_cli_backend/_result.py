@@ -9,9 +9,9 @@ itself.
 """
 from __future__ import annotations
 
-import logging
 import re
 import threading
+from dataclasses import replace
 from typing import Any
 
 from ...agent_cli._env import _incomplete_turn_error
@@ -32,11 +32,8 @@ from ...core.stop_kinds import (
     normalize_stop_kind,
     stop_kind_from_external_interrupt,
 )
-from ...core.token_usage import TokenUsage, extract_token_usage
+from ...core.token_usage import COUNT_FIELDS, TokenUsage, extract_token_usage, summed_usage
 from ...provider_integrations.copilot_usage import CopilotCallUsage
-
-log = logging.getLogger(__name__)
-
 
 _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
     "unauthorized",
@@ -220,9 +217,16 @@ class UsageAccumulator:
         self,
         *,
         thread_id: str | None,
-        raw_totals: tuple[int, int, int, int],
-    ) -> tuple[int, int, int, int]:
-        """Convert Codex lifecycle-cumulative usage into this call's delta."""
+        raw_totals: tuple[int, ...],
+        resume_baseline_unknown: bool = False,
+    ) -> tuple[int, ...] | None:
+        """Convert Codex lifecycle-cumulative usage into this call's delta.
+
+        A resumed thread with no baseline in memory or in the ledger, or whose
+        totals went down, is unresolved (``None``): the totals would bill its
+        earlier turns again (2026-10-27: a restarted daemon's first Planner
+        turn was recorded as 9.94M tokens and $7.63 for 625K).
+        """
         if not thread_id:
             return raw_totals
 
@@ -239,24 +243,9 @@ class UsageAccumulator:
         remember_usage_totals(thread_id, raw_totals)
 
         if previous is None:
-            return raw_totals
-
-        deltas = (
-            raw_totals[0] - previous[0],
-            raw_totals[1] - previous[1],
-            raw_totals[2] - previous[2],
-            raw_totals[3] - previous[3],
-        )
-        if any(delta < 0 for delta in deltas):
-            log.debug(
-                "codex usage totals decreased; treating current total as fresh delta "
-                "(thread_id=%s, previous=%s, current=%s)",
-                thread_id,
-                previous,
-                raw_totals,
-            )
-            return raw_totals
-        return deltas
+            return None if resume_baseline_unknown and any(raw_totals) else raw_totals
+        deltas = tuple(now - before for now, before in zip(raw_totals, previous))
+        return None if any(delta < 0 for delta in deltas) else deltas
 
     def premium_delta_for_thread(
         self,
@@ -296,13 +285,24 @@ def translate_result(
     resume_thread_id: str | None,
     copilot_usage: CopilotCallUsage | None,
     usage_accumulator: UsageAccumulator,
+    codex_requests: tuple[TokenUsage, ...] = (),
+    is_codex: bool = False,
 ) -> RunnerResult:
-    """Translate the bundled runner's raw result into a ``RunnerResult``."""
+    """Translate the bundled runner's raw result into a ``RunnerResult``.
+
+    Only codex reports a thread's lifetime totals; other CLIs report the run's
+    own usage, which needs no baseline. ``codex_requests`` are the call's model
+    requests codex recorded in its session files; when present they, not the
+    thread totals, are its usage.
+    """
     authoritative_usage_model = str(
         getattr(cli_result, "usage_model", "") or ""
     ).strip()
+    thread_id = cli_result.thread_id or resume_thread_id
+    # A new thread's totals are this call's own; a resumed thread's are not.
+    resumed = bool(resume_thread_id and thread_id == resume_thread_id)
     if copilot_usage is not None:
-        raw_usage = TokenUsage(
+        usage = TokenUsage(
             input_tokens=copilot_usage.input_tokens or 0,
             cached_input_tokens=copilot_usage.cache_read_tokens or 0,
             cache_write_tokens=copilot_usage.cache_write_tokens or 0,
@@ -321,44 +321,32 @@ def translate_result(
             ),
             source="copilot_session_store",
         )
-        (
-            input_tokens,
-            cached_input_tokens,
-            output_tokens,
-            reasoning_output_tokens,
-        ) = raw_usage.as_tuple()
     else:
-        raw_usage = extract_token_usage(
+        usage = extract_token_usage(
             getattr(cli_result, "json_events", None)
         )
-        if raw_usage.source == "cumulative":
-            (
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                reasoning_output_tokens,
-            ) = usage_accumulator.usage_delta_for_thread(
-                thread_id=cli_result.thread_id or resume_thread_id,
-                raw_totals=raw_usage.as_tuple(),
+        if is_codex and usage.source == "cumulative":
+            # The baseline stays current even when codex's request rows settle the call.
+            delta = usage_accumulator.usage_delta_for_thread(
+                thread_id=thread_id,
+                raw_totals=tuple(getattr(usage, name) for name in COUNT_FIELDS),
+                resume_baseline_unknown=resumed,
             )
-        else:
-            (
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                reasoning_output_tokens,
-            ) = raw_usage.as_tuple()
+            usage = (
+                TokenUsage()
+                if delta is None
+                else replace(usage, **dict(zip(COUNT_FIELDS, delta)))
+            )
+        if codex_requests:
+            usage = summed_usage(codex_requests, source="codex_session")
     raw_premium, premium_requests_present = _extract_copilot_premium_requests(
         getattr(cli_result, "json_events", None)
     )
-    premium_thread_id = cli_result.thread_id or resume_thread_id
     premium_requests = (
         usage_accumulator.premium_delta_for_thread(
-            thread_id=premium_thread_id,
+            thread_id=thread_id,
             raw_total=raw_premium,
-            resume_baseline_unknown=bool(
-                resume_thread_id and premium_thread_id == resume_thread_id
-            ),
+            resume_baseline_unknown=resumed,
         )
         if premium_requests_present
         else None
@@ -433,25 +421,15 @@ def translate_result(
         agent_messages=list(cli_result.agent_messages or []),
         stdout_lines=list(cli_result.stdout_lines or []),
         stderr_lines=list(cli_result.stderr_lines or []),
-        thread_id=cli_result.thread_id or resume_thread_id,
+        thread_id=thread_id,
         fatal_error=fatal_error,
         stop_kind=stop_kind,
-        input_tokens=input_tokens,
-        cached_input_tokens=cached_input_tokens,
-        cache_write_tokens=raw_usage.cache_write_tokens,
-        output_tokens=output_tokens,
-        reasoning_output_tokens=reasoning_output_tokens,
+        **{name: getattr(usage, name) for name in COUNT_FIELDS},
+        **{f"{name}_present": getattr(usage, f"{name}_present") for name in COUNT_FIELDS},
         premium_requests=premium_requests or 0.0,
-        input_tokens_present=raw_usage.input_tokens_present,
-        cached_input_tokens_present=raw_usage.cached_input_tokens_present,
-        cache_write_tokens_present=raw_usage.cache_write_tokens_present,
-        output_tokens_present=raw_usage.output_tokens_present,
-        reasoning_output_tokens_present=(
-            raw_usage.reasoning_output_tokens_present
-        ),
         premium_requests_present=premium_requests_present,
         usage_model=usage_model,
-        cost_usd=raw_usage.provider_cost_usd,
+        cost_usd=usage.provider_cost_usd,
         total_nano_aiu=(
             copilot_usage.total_nano_aiu
             if copilot_usage is not None

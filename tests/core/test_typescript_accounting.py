@@ -98,7 +98,7 @@ def test_generated_streams_and_price_boundaries_match_python() -> None:
     quotes = list(QUOTES)
     for _ in range(300):
         counts = {name: rng.choice([None, -1, 0, 1, 999, 272000, 272001, 300000]) for name in [
-            "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens", "reasoning_output_tokens",
+            "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens",
         ]}
         quotes.append({"model": rng.choice(["gpt-5.6-sol", "gpt-5.5", "gpt-5.6-luna", "unknown", "openai/gpt-5.4"]), "counts": counts})
     result = subprocess.run(

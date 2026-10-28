@@ -6,6 +6,10 @@ import { ComposerRuntime } from '../components/ComposerRuntime';
 
 let config: Pick<ConfigSnapshot, 'trial_mode'> & Partial<Pick<ConfigSnapshot, 'roles'>> = {};
 vi.mock('../hooks', () => ({ useConfig: () => ({ data: config }) }));
+vi.mock('../components/ModelPicker', () => ({
+  ModelPicker: ({ open, onOpenSettings }: { open: boolean; onOpenSettings?: () => void }) =>
+    open ? <button type="button" data-picker-open onClick={onOpenSettings} /> : null,
+}));
 vi.mock('../lib/desktopBridge', () => ({ canOpenDesktopSettings: () => true, openDesktopTrialSettings: vi.fn() }));
 const roles: Role[] = [
   { role: 'manager', model: 'manager-model', backend: 'copilot', effort: 'high', active: false },
@@ -80,12 +84,14 @@ describe('composer runtime follows the real calls', () => {
     expect(html).toContain('manager-model');
   });
 
-  it('opens the model settings when clicked', () => {
+  it('opens the model chooser when clicked, which leads on to the settings', () => {
     config = { trial_mode: false, roles: configRoles('called-model') } as typeof config;
     const open = vi.fn();
     let tree: ReactTestRenderer | undefined;
     act(() => { tree = create(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} onOpenSettings={open} />); });
-    act(() => tree!.root.findByProps({ 'data-runtime-open-settings': true }).props.onClick());
+    expect(tree!.root.findAllByProps({ 'data-picker-open': true })).toHaveLength(0);
+    act(() => tree!.root.findByProps({ 'data-runtime-open-models': true }).props.onClick());
+    act(() => tree!.root.findByProps({ 'data-picker-open': true }).props.onClick());
     expect(open).toHaveBeenCalledTimes(1);
     act(() => tree!.unmount());
   });

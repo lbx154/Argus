@@ -48,6 +48,8 @@ class RoundEvidenceRequest:
     command_runs_dropped: int = 0
     #: The exact event log the host writes for this mission, if it has one.
     events_path: Path | None = None
+    #: The task under review; the project's event log holds every task's rows.
+    item_id: str = ""
 
 
 @dataclass(frozen=True)

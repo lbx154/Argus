@@ -1,0 +1,49 @@
+{
+  "clauses": [
+    {
+      "clause": "On natural code-generation tasks, allocating a fixed budget of stricter execution checks across groups first, then expanding checks within groups where an accepted error was found, can improve held-out complete-program success",
+      "obtained": "Untested held-out learning improvement. Reviewer-accepted candidate seed0 has 63 real optimizer updates, then insufficient_retained_batch; the 100-update endpoint was not reached and the required 39-task validation was not run. This CPU-only public-trace diagnosis adds no model work or evaluation and does not change the Working claim.",
+      "met": "untested",
+      "source": {
+        "path": "results/development/learning/candidate-seed0/continuation-001/checks/independent-train-002/result.json",
+        "field": "updates"
+      }
+    },
+    {
+      "clause": "over equally budgeted uniform checking",
+      "obtained": "Untested superiority over equally budgeted uniform. New candidate-only descriptive analysis of all 380 groups finds 34 raw-mixed groups made all-zero by purchased corrections, 131 mixed preserved, 11 mixed created and 204 neither mixed. These are partial-label transitions, not a paired learning comparison; no uniform outcome was read or generated.",
+      "met": "untested",
+      "source": {
+        "path": "results/development/learning/candidate-signal-seed0/attempt-001/summary.json",
+        "field": "overall.transitions.mixed_eliminated"
+      }
+    },
+    {
+      "clause": "and a strong CARE adaptation",
+      "obtained": "Untested superiority over a strong CARE adaptation. This task diagnoses only the incomplete 63-update candidate; it neither reads nor interrupts the running CARE task or infers CARE readiness/outcomes. Reviewer directly observed that the disputed historical command carries CARE task item_id 96a7237f3242 and separately mapped candidate task 02b9996432a5 to session 01a17bb4-3e01-7a53-a23b-4edb6ffdcbcc. CARE task attribution is supported; its exact session_id/original call_id mapping remains unavailable. This attributed observation does not retroactively change the Engineer missing-file record or prove blanket session isolation.",
+      "met": "untested",
+      "source": {
+        "path": "results/development/learning/candidate-signal-seed0/attempt-001/summary.json",
+        "field": "reconciliation.updates"
+      }
+    },
+    {
+      "clause": "and learning per verification cost",
+      "obtained": "Untested learning per verification cost. Existing actual candidate totals reconcile to 607 strict purchases, 1520 responses, 434487 generated and 183251 training tokens. The censored final window costs 26 purchases/64 responses/19290 generated tokens and zero updates. No held-out learning gain or cost-normalized comparison is available; the proposed 8+8-window trial is unexecuted.",
+      "met": "untested",
+      "source": {
+        "path": "results/development/learning/candidate-signal-seed0/attempt-001/summary.json",
+        "field": "overall.purchases"
+      }
+    },
+    {
+      "clause": "The proposed reason is task-level heterogeneity in the stricter checker’s rejection of base-accepted programs: one observed rejection can make further checks in that group more useful",
+      "obtained": "Partial only from the original natural fixed-policy offline pool: candidate-minus-uniform mean per-task advantage residual -0.00864401943, with favorable/equal/adverse collection pairs 74/1619/35. The new adaptive candidate trajectory shows task composition and paid corrections both accompany a low-contrast stopping window, but uses partial labels and few repeats per task; it does not isolate triggering, establish learning improvement or add causal mechanism evidence.",
+      "met": "partial",
+      "source": {
+        "path": "results/development/allocation256/attempt-002/summary.json",
+        "field": "candidate_minus_uniform_mean_per_partition.advantage_residual_l2_mean_per_task"
+      }
+    }
+  ]
+}

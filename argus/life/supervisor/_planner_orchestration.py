@@ -24,6 +24,7 @@ class PlannerOrchestrationMixin:
         config: LifeSupervisorConfig
 
         def _project_state_root(self) -> Path: ...
+        def _bounded_request_accepted(self) -> str: ...
 
     def _planner_cycle_gate_reason(self) -> str:
         gate = self.config.planner_cycle_gate
@@ -300,6 +301,21 @@ class PlannerOrchestrationMixin:
             if len(blockers) >= 8:
                 break
 
+        # The one fact a staged vertical's stage list hides: the finite request
+        # itself has already been accepted, so its later stages are not owed.
+        request_lines: list[str] = []
+        try:
+            accepted_request = self._bounded_request_accepted()
+        except Exception:  # noqa: BLE001 - digest is advisory
+            accepted_request = ""
+        if accepted_request:
+            request_lines.append(
+                f"- operator_request: done — task {accepted_request} carried the operator's "
+                "finite request, its independent Reviewer accepted it, and the delivered files "
+                "are unchanged. That was the request's final review. Unless something the "
+                "operator asked for is still missing, end with `to=done`; the stages after the "
+                "current one, their packages and audits are not part of this request."
+            )
         changed_preview = ", ".join(changed_paths[:12]) or "(clean or unavailable)"
         if len(changed_paths) > 12:
             changed_preview += f", +{len(changed_paths) - 12} more"
@@ -352,6 +368,7 @@ class PlannerOrchestrationMixin:
                     else []
                 ),
                 *self._operator_map_note_lines(),
+                *request_lines,
                 f"- git_changed_paths ({len(changed_paths)}): {changed_preview}",
                 f"- checkpoint_blockers: {'; '.join(blockers) or '(none declared)'}",
                 "The host already read pipeline state, backlog, checkpoint blockers, "

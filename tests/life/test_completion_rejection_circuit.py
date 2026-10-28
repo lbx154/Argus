@@ -102,6 +102,9 @@ class _RejectionHarness(PlanningCycleCompletionMixin):
     def _manager_final_stage_is_completed(self) -> bool:
         return self.final_stage_completed
 
+    def _bounded_request_accepted(self) -> str:
+        return ""
+
     def _open_ended_terminal_idle_signature(self) -> str:
         return ""
 

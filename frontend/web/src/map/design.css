@@ -212,6 +212,44 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* Where the task stands and what it is doing, with its figure beside them. */
+.argus-map .macro-summary .map-card-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 0;
+  margin: 0 0 8px;
+}
+.argus-map .macro-summary .map-card-state:empty { display: none; }
+.argus-map .macro-summary .map-card-state-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.argus-map .macro-summary .map-card-state-text .map-card-conclusion { margin: 0; }
+.argus-map .macro-summary .map-card-figure {
+  flex: 0 0 auto;
+  width: 136px;
+  height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--map-card-line);
+  background: #fff;
+  color: rgb(var(--ink-faint));
+  font-size: 10px;
+}
+.argus-map .macro-summary .map-card-figure-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
 /* The excerpt takes the remaining space in the fixed card layout. */
 .argus-map .macro-summary .map-card-copy {
   display: block;

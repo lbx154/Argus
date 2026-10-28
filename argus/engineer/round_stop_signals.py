@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from ..core.http_status import has_http_status
 from ..core.mission_view import say
 from ..core.models import ReviewDecision, RunnerResult
-from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
+from ..core.stop_kinds import TRIAL_ALLOWANCE_RE, normalize_stop_kind, stop_kind_clause
 
 _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "empty output",
@@ -60,6 +60,9 @@ _NETWORK_ERRNO = (
     r"|HOSTUNREACH|NETUNREACH|NETDOWN|PIPE)"
 )
 _INFRASTRUCTURE_FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # The hosted trial's meter refusing a call: the allowance is spent, the
+    # model service is fine. Ahead of the generic quota notice it also matches.
+    ("allowance_exhausted", TRIAL_ALLOWANCE_RE),
     ("sign_in", re.compile(
         r"unauthori[sz]ed|authentication failed|not (?:logged|signed) in"
         r"|token (?:has )?expired|expired token|invalid token|invalid api key"
@@ -574,6 +577,7 @@ _INFRASTRUCTURE_FAILURE_OPENINGS: dict[str, str] = {
     "cli_missing": "The model CLI could not be started",
     "cli_exit_after_output": "The model returned output, but its launcher failed afterward",
     "service_quota": "The model service reported that its quota is used up",
+    "allowance_exhausted": "The trial allowance is used up",
     "model_catalog": "The model service could not list its models",
     "sign_in": "Argus could not sign in to the model service",
 }
@@ -586,9 +590,24 @@ def infrastructure_failure_review_decision(
 
     Paused for a provider cooldown, like a model that is temporarily
     unavailable: the daemon resumes the task after its waiting period, and a
-    fresh session in the meantime could only fail the same way.
+    fresh session in the meantime could only fail the same way. A spent trial
+    allowance does not come back by waiting: that task waits for Resume.
     """
     error_text = str(fatal_error or f"exit={exit_code}").strip()
+    if cause.kind == "allowance_exhausted":
+        return ReviewDecision(
+            status="blocked",
+            reason=(
+                "The trial allowance is used up, so this round stopped before it "
+                "could be judged; all files are kept. "
+                f"Technical record: error={error_text}"
+            ),
+            next_action="Once the allowance is topped up, click Resume to continue.",
+            backend_unavailable=True,
+            backend_fatal_error=error_text,
+            backend_exit_code=exit_code,
+            backend_stop_kind="provider_fence",
+        )
     opening = _INFRASTRUCTURE_FAILURE_OPENINGS.get(
         cause.kind, _INFRASTRUCTURE_FAILURE_OPENINGS["service_unreachable"],
     )

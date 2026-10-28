@@ -75,7 +75,9 @@ class MemoryBackend:
         backend.queue("engineer-r2", CannedResponse(message="round 2 work"))
         backend.queue("reviewer", CannedResponse(action=("hand_off", {"to": "done", ...})))
 
-    Calls without a queued response return ``default``.
+    An Engineer round of a mission is labelled with its task too
+    (``engineer-r1-<mission id>``). Calls without a queued response return
+    ``default``.
     """
     default: CannedResponse = field(default_factory=lambda: CannedResponse(
         message="(no canned response)",

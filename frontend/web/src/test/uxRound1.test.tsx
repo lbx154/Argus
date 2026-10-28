@@ -206,3 +206,25 @@ describe('pause lets the current task finish; stop now is separate', () => {
     expect(html).toContain('aria-label="立即停止"');
   });
 });
+
+describe('a parked task can be resumed from the header', () => {
+  const parked = (park: string) => snapshot({
+    backlog: [{ id: 'a', title: '视频去噪', objective: 'x', status: 'parked', priority: 1,
+      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed',
+        resumable: true, park: { reason: park } } }],
+  } as Partial<Snapshot>);
+
+  it('shows Resume as the primary header action when nothing runs the parked work', () => {
+    const html = renderToStaticMarkup(<TopBar snap={parked('provider_fence')} streamOk onStart={() => undefined}
+      onStop={() => undefined} onManage={() => undefined} busy={false} />);
+    expect(html).toContain('data-resume-work');
+    expect(html).toContain('brand-button-primary');
+    expect(html).toContain('继续运行');
+  });
+
+  it('does not offer Resume for a question only an answer ends', () => {
+    const html = renderToStaticMarkup(<TopBar snap={parked('operator_question')} streamOk onStart={() => undefined}
+      onStop={() => undefined} onManage={() => undefined} busy={false} />);
+    expect(html).not.toContain('data-resume-work');
+  });
+});

@@ -28,13 +28,16 @@
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "remark-math-extended": "^6.1.1"
+    "remark-math-extended": "^6.1.1",
+    "three": "^0.186.1",
+    "urdf-loader": "^0.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/react-test-renderer": "18.3.1",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.26",

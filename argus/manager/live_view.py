@@ -54,6 +54,8 @@ _RENDERABLE_SUFFIXES = frozenset({
     ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
     ".png", ".pptx", ".py", ".rst", ".sh", ".svg", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
     ".webm", ".webp", ".xlsx", ".yaml", ".yml",
+    # Robot and 3D model results open in the Web 3D viewer.
+    ".urdf", ".stl", ".obj", ".dae", ".glb", ".gltf",
 })
 
 

@@ -1690,6 +1690,128 @@ def test_bounded_daemon_exits_when_manager_objective_is_not_dispatched(
     assert "event_validation" not in failed[0]
 
 
+def test_fresh_project_daemon_objective_is_dispatched_on_the_managers_ticket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``argus --daemon --continuous --objective ... --bounded`` on a new project.
+
+    Nothing routed it yet, so the daemon asks the Manager for its ticket, as
+    the front door does, instead of failing with "Waiting for the Manager's
+    ticket" before any model call.
+    """
+    from argus.apps._runtime_backends import _MemoryRunner
+    from argus.skills.vertical_select import resolve_vertical_if_decided
+    from tests.hand_off import ticket
+
+    global_root = tmp_path / "home"
+    life_dir = global_root / "projects" / "demo"
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(global_root))
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+    turns: list[str] = []
+
+    def manager_turn(self, *, message, actions, **_kwargs):
+        turns.append(message)
+        actions.dispatch(*ticket("Write hello.py that prints hello."))
+        return SimpleNamespace(success=True, stop_reason="", delivery=None)
+
+    monkeypatch.setattr(_MemoryRunner, "manager_turn", manager_turn, raising=False)
+    seen: dict[str, Any] = {}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["objective"] = self.config.continuous_objective
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=global_root,
+            project_fingerprint="demo",
+            project_workdir=workdir,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective="write hello.py",
+            continuous_open_ended=False,
+        )
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 0
+    assert len(turns) == 1 and turns[0].startswith("write hello.py")
+    assert seen["objective"].startswith("Write hello.py that prints hello.")
+    assert resolve_vertical_if_decided(life_dir) == "software"
+    events = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    types = [event["type"] for event in events]
+    assert "life.manager.intent.completed" in types
+    assert "life.manager.intent.failed" not in types
+
+
+def test_fresh_project_daemon_objective_without_a_ticket_is_not_dispatched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.apps._runtime_backends import _MemoryRunner
+
+    global_root = tmp_path / "home"
+    life_dir = global_root / "projects" / "demo"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(global_root))
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    def manager_turn(self, *, sink, **_kwargs):
+        # The Manager only replies; no one reads a reply at daemon boot.
+        sink.handle_event({"type": "round.main.completed", "exit_code": 0, "last_message": "Sure."})
+        return SimpleNamespace(success=True, stop_reason="", delivery=None)
+
+    monkeypatch.setattr(_MemoryRunner, "manager_turn", manager_turn, raising=False)
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def run(self) -> dict[str, Any]:
+            raise AssertionError("an objective without a ticket must not drain")
+
+    monkeypatch.setattr("argus.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=global_root,
+            project_fingerprint="demo",
+            project_workdir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective="write hello.py",
+            continuous_open_ended=False,
+        )
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    assert worker.run_forever() == 2
+    failed = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"life.manager.intent.failed"' in line
+    ]
+    assert len(failed) == 1 and "no ticket for the team" in json.dumps(failed[0])
+
+
 def test_bounded_daemon_exits_after_project_done(
     tmp_path: Path,
 ) -> None:
@@ -1933,31 +2055,53 @@ def test_runner_namespace_propagates_open_ended_and_continuous_objective(
     assert ns.continuous_objective == "keep proving X"
 
 
-def test_idle_helper_keeps_polling_while_primary_mission_runs(tmp_path: Path) -> None:
+def _run_primary_pass(worker: LifeWorker, supervisors: list[Any]) -> dict:
+    """One primary pass beside the helpers, then the worker's stop."""
+    run_primary, helpers = worker._start_helpers(supervisors)
+    try:
+        return run_primary()
+    finally:
+        worker._stop.set()
+        for helper in helpers:
+            helper.join(5.0)
+        assert not any(helper.is_alive() for helper in helpers)
+
+
+def test_idle_helper_polls_while_a_primary_pass_runs_and_sleeps_between(tmp_path: Path) -> None:
     """A helper that finds nothing to claim must look again while the primary
     worker is still busy, so work the primary plans mid-pass is picked up in
-    parallel instead of waiting for the primary's whole pass to end."""
+    parallel instead of waiting for the primary's whole pass to end. Between
+    primary passes it does not spin; the next pass wakes it."""
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
-    primary_release = threading.Event()
     helper_calls: list[int] = []
 
     def primary_run() -> dict:
-        assert primary_release.wait(5.0)
+        wanted = len(helper_calls) + 3
+        deadline = time.monotonic() + 5.0
+        while len(helper_calls) < wanted:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
         return {"stopped_by": "backlog_empty"}
 
     def helper_run() -> dict:
         helper_calls.append(1)
-        if len(helper_calls) >= 3:
-            primary_release.set()
         return {"stopped_by": "backlog_empty", "suggested_sleep": 0.01}
 
     primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
     helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
-
-    summary = worker._run_supervisor_passes([primary, helper])
-
-    assert summary == {"stopped_by": "backlog_empty"}
-    assert len(helper_calls) >= 3
+    run_primary, helpers = worker._start_helpers([primary, helper])
+    try:
+        assert run_primary() == {"stopped_by": "backlog_empty"}
+        after_pass = len(helper_calls)
+        time.sleep(0.3)
+        # At most the pass that was in flight as the primary pass ended.
+        assert len(helper_calls) - after_pass <= 1
+        assert run_primary() == {"stopped_by": "backlog_empty"}
+    finally:
+        worker._stop.set()
+        for thread in helpers:
+            thread.join(5.0)
+    assert not any(thread.is_alive() for thread in helpers)
     assert worker._supervisor_execution_threads == {}
 
 
@@ -1994,7 +2138,7 @@ def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Pa
     )
 
     started = time.monotonic()
-    summary = worker._run_supervisor_passes([primary, helper])
+    summary = _run_primary_pass(worker, [primary, helper])
 
     assert summary == {"stopped_by": "backlog_empty"}
     assert ready_item_claimed.is_set()
@@ -2002,6 +2146,31 @@ def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Pa
     assert len(helper_calls) == 2
     assert time.monotonic() - started < 5.0
     assert worker._supervisor_execution_threads == {}
+
+
+def test_helper_pass_that_raises_is_retried(tmp_path: Path) -> None:
+    """A helper's loop outlives a pass that raises, as the main loop outlives
+    a failed primary pass: nothing else would start the helper again."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
+    retried = threading.Event()
+    helper_calls: list[int] = []
+
+    def helper_run() -> dict:
+        helper_calls.append(1)
+        if len(helper_calls) == 1:
+            raise RuntimeError("peer inbox unreadable")
+        retried.set()
+        return {"stopped_by": "backlog_empty"}
+
+    def primary_run() -> dict:
+        assert retried.wait(5.0)
+        return {"stopped_by": "backlog_empty"}
+
+    primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
+    helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
+
+    assert _run_primary_pass(worker, [primary, helper]) == {"stopped_by": "backlog_empty"}
+    assert len(helper_calls) >= 2
 
 
 def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_path: Path) -> None:
@@ -2029,7 +2198,7 @@ def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_pa
     )
     helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
 
-    worker._run_supervisor_passes([primary, helper])
+    _run_primary_pass(worker, [primary, helper])
 
     assert order[0] == "resume"
     assert order.count("resume") == 1

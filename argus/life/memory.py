@@ -915,14 +915,14 @@ class PlanRevisionResult:
 
 _GPU_PROBE_TTL_S = 10.0
 _GPU_PROBE_LOCK = threading.Lock()
-_GPU_PROBE_CACHE: tuple[float, tuple[tuple[int, bool], ...] | None] | None = None
+_GPU_PROBE_CACHE: tuple[float, tuple[bool, ...] | None] | None = None
 # ``last_error`` prefix for a task that asks for more GPUs than the machine
 # has; the Planner digest lists these so the task can be re-planned smaller.
 GPU_UNFITTABLE_PREFIX = "gpus: "
 
 
-def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
-    """``(index, busy)`` per GPU on this machine, or ``None`` when none is visible.
+def _gpu_cards() -> tuple[bool, ...] | None:
+    """Whether each GPU on this machine is busy, or ``None`` when none is visible.
 
     A card is busy over 5 % utilisation or over 2 GiB in use, whichever
     process holds it. The nvidia-smi probe is consulted on every claim, so its
@@ -936,19 +936,19 @@ def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
             return cached[1]
     try:
         output = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu",
+            ["nvidia-smi", "--query-gpu=memory.used,utilization.gpu",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=15, check=True,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         output = ""
-    cards: list[tuple[int, bool]] = []
+    cards: list[bool] = []
     for line in output.splitlines():
         try:
-            index, mem_used_mib, util_pct = (int(part) for part in line.split(","))
+            mem_used_mib, util_pct = (int(part) for part in line.split(","))
         except ValueError:
             continue
-        cards.append((index, util_pct > 5 or mem_used_mib > 2048))
+        cards.append(util_pct > 5 or mem_used_mib > 2048)
     value = tuple(cards) or None
     with _GPU_PROBE_LOCK:
         _GPU_PROBE_CACHE = (now, value)
@@ -962,31 +962,6 @@ def gpu_reservation(items: Iterable[Any]) -> int:
         for item in items
         if _holds_resources(item)
     )
-
-
-def _free_gpu_indices(
-    cards: tuple[tuple[int, bool], ...], items: Iterable[Any],
-) -> list[int]:
-    """Cards neither busy (by any process) nor reserved by an active task.
-
-    Per card, not by count: a card busy with another process's job and a card
-    reserved by one of our tasks whose job has not started are both
-    unavailable, so neither can hide the other. An active task claimed before
-    cards were assigned reserves its count from the remaining cards.
-    """
-    reserved: set[int] = set()
-    unassigned = 0
-    for item in items:
-        if not _holds_resources(item):
-            continue
-        count = max(0, int(getattr(item, "gpu_count", 0) or 0))
-        indices = list(getattr(item, "gpu_indices", None) or [])
-        if indices:
-            reserved.update(int(index) for index in indices)
-        else:
-            unassigned += count
-    free = [index for index, busy in cards if not busy and index not in reserved]
-    return free[unassigned:]
 
 
 def _usable_cpus() -> int:
@@ -1052,15 +1027,23 @@ def admission_limit(admission: Mapping[str, Any], slots: int) -> dict[str, Any]:
 
 
 def gpu_capacity_summary(items: Iterable[Any]) -> dict[str, int] | None:
+    """This machine's GPUs against running tasks, or ``None`` when none is visible.
+
+    Argus assigns no cards, so free is a count: the total minus the larger of
+    busy and reserved, which counts a running task's cards once whether or not
+    its job has started. Until it starts, a card another process keeps busy
+    can stand in for it and let a task in early; the Engineer still sees which
+    cards are taken.
+    """
     cards = _gpu_cards()
     if cards is None:
         return None
-    rows = list(items)
+    busy, reserved = sum(cards), gpu_reservation(items)
     return {
         "total": len(cards),
-        "busy": sum(1 for _, busy in cards if busy),
-        "reserved": gpu_reservation(rows),
-        "free": len(_free_gpu_indices(cards, rows)),
+        "busy": busy,
+        "reserved": reserved,
+        "free": max(0, len(cards) - max(busy, reserved)),
     }
 
 
@@ -1163,12 +1146,9 @@ class BacklogItem:
     # workers. The primary worker remains able to execute every backlog item.
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
-    # GPUs this task needs. A task is claimed only when that many are free:
-    # not busy now and not reserved by another active task.
+    # GPUs this task needs. A task is claimed only when that many are free
+    # (see :func:`gpu_capacity_summary`).
     gpu_count: int = 0
-    # Admission bookkeeping only, never handed to the Engineer: the cards
-    # counted as reserved while the task runs or is parked on its own job.
-    gpu_indices: list[int] = field(default_factory=list)
     # CPU cores this task (and the background jobs it parks on) keeps busy.
     # A task is claimed only when that many of the usable cores are not
     # declared by other running or parked tasks.
@@ -1361,11 +1341,6 @@ class BacklogItem:
             ],
             gpu_count=max(0, int(row.get("gpu_count", 0) or 0)),
             cpu_count=max(0, int(row.get("cpu_count", 0) or 0)),
-            gpu_indices=[
-                int(index)
-                for index in (row.get("gpu_indices", []) or [])
-                if isinstance(index, int) and not isinstance(index, bool)
-            ],
             outcome=(
                 {str(key): value for key, value in row.get("outcome", {}).items()}
                 if isinstance(row.get("outcome"), dict)
@@ -1622,19 +1597,17 @@ class Backlog:
     ) -> list[BacklogItem]:
         """Drop candidates whose GPUs are not free right now.
 
-        A card is free when no process is using it and no active task holds
-        it (see :func:`_free_gpu_indices`). With no GPU visible nothing is
-        gated: the Engineer then reports the missing hardware itself.
+        Free as :func:`gpu_capacity_summary` counts it. With no GPU visible
+        nothing is gated: the Engineer then reports the missing hardware itself.
         """
         if not any(getattr(item, "gpu_count", 0) > 0 for item in candidates):
             return candidates
-        cards = _gpu_cards()
-        if cards is None:
+        summary = gpu_capacity_summary(items)
+        if summary is None:
             return candidates
-        free = len(_free_gpu_indices(cards, items))
         return [
             item for item in candidates
-            if getattr(item, "gpu_count", 0) <= free
+            if getattr(item, "gpu_count", 0) <= summary["free"]
         ]
 
     @staticmethod
@@ -1729,9 +1702,9 @@ class Backlog:
         before_gpu = len(ready)
         ready = self._fit_gpus(ready, items)
         admission["gpu_fit"] = len(ready)
-        cards = _gpu_cards() if before_gpu != len(ready) else None
-        if cards is not None:
-            admission["gpus_free"] = len(_free_gpu_indices(cards, items))
+        summary = gpu_capacity_summary(items) if before_gpu != len(ready) else None
+        if summary is not None:
+            admission["gpus_free"] = summary["free"]
         ready, usable_cpus, free_cpus = self._fit_cpus(ready, items)
         admission.update(
             cpu_fit=len(ready), cpus_usable=usable_cpus, cpus_free=free_cpus,
@@ -2698,14 +2671,6 @@ class Backlog:
             # ``to_jsonable`` drops it, so it is never persisted: the
             # supervisor copies it onto the mission-start event.
             head.admission = admission
-            # Pick the cards while the head is still pending, so it does not
-            # count as an active task that holds unassigned cards.
-            indices: list[int] = []
-            if head.gpu_count > 0:
-                cards = _gpu_cards()
-                if cards is not None:
-                    indices = _free_gpu_indices(cards, items)[: head.gpu_count]
-            head.gpu_indices = indices
             head.status = "running"
             head.started_ts = time.time()
             head.running_owner = str(owner)

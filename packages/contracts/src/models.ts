@@ -477,6 +477,7 @@ export type ArtifactKind =
   | 'pdf'
   | 'audio'
   | 'video'
+  | 'model'
   | 'binary';
 
 /** An immutable, server-retained version of a progress explanation. */
@@ -526,6 +527,8 @@ export interface ArtifactInfo {
   /** Included by the single-artifact endpoint for text/HTML files only. */
   preview?: string;
   truncated?: boolean;
+  /** For a URDF: files beside it that declare a loop closure or constraint the URDF tree cannot hold. */
+  constraint_files?: string[];
 }
 
 export interface GitDiffView {

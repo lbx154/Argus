@@ -13,14 +13,6 @@ from __future__ import annotations
 
 import re
 
-MODEL_INTEGRITY_BOUNDARY = """## Opaque integrity IDs
-Checksums, digests, fingerprints, and commit IDs are host-only. Never inspect,
-quote, compare, or use their values as evidence. Differences cannot prove
-freshness, correctness, provenance, completion, contradiction, or justify
-a handoff. Use content, timestamps, tests,
-metrics, and readable provenance; ignore lower-level identifier adjudication.
-"""
-
 # Agent CLIs and Argus mask credentials in what a role sees, so a file view can
 # show ``f"******"`` where the source says ``f"Bearer {token}"``. Neither role
 # can see past the mask; arguing over it from either side cannot converge (one
@@ -85,7 +77,7 @@ _PREFIXED_DIGEST_RE = re.compile(rf"(?i)\b(?:sha(?:-?1|-?256|-?512)?|md5):{_HEX_
 _LABELED_IDENTIFIER_RE = re.compile(
     rf"""(?ix)
     \b[a-z0-9_.-]*
-    (?:sha(?:-?256)?|hash|checksum|digest|fingerprint|commit(?:[_ -]?id)?|revision)
+    (?:hash|checksum|digest|fingerprint)
     [a-z0-9_.-]*\b
     \s*(?::|=|\bis\b)?\s*
     [`\"']?(?:sha(?:-?256)?:)?{_HEX_VALUE}[`\"']?
@@ -106,7 +98,6 @@ __all__ = [
     "FIXTURE_EVIDENCE_RULE",
     "LABELLED_FIXTURE_CARVE_OUT",
     "MASKED_DISPLAY_ENGINEER_RULE",
-    "MODEL_INTEGRITY_BOUNDARY",
     "REVIEW_EVIDENCE_RULE",
     "sanitize_model_visible_text",
 ]

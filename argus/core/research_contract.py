@@ -46,9 +46,8 @@ STATEMENT_FIDELITY_STATUSES = ("verified", "failed", "uncertain", "not_applicabl
 #: Every enum-valued field of a research result, paired with its legal set.
 #:
 #: One table, read by the validator, by the diagnostic that explains a
-#: rejection, and by the Reviewer prompt that asks for the block in the first
-#: place — so the three cannot describe three different contracts. The prompt
-#: renders this; it does not restate it.
+#: rejection, and by the Reviewer's hand_off schema that asks for the block in
+#: the first place — so the three cannot describe three different contracts.
 RESULT_FIELD_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("result_class", RESULT_CLASSES),
     ("correctness_status", CORRECTNESS_STATUSES),
@@ -213,7 +212,7 @@ def research_result_rejection(value: Any) -> str:
     research result was missing, against a reviewer message that visibly
     contained one, and the project could not close at its final stage.
 
-    The prompt now renders ``RESULT_FIELD_CHOICES``, which is the actual fix.
+    The hand_off schema now lists ``RESULT_FIELD_CHOICES``, which is the actual fix.
     This is the second line: when a value still misses, the trace says which
     field and which value rather than leaving an operator to diff two enums by
     eye.

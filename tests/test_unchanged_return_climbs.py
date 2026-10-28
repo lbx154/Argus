@@ -95,7 +95,7 @@ def test_the_brief_says_where_the_engineer_handed_the_work(tmp_path: Path) -> No
     state = _state(tmp_path)
     packet = create_mission_context(life_dir=state, mission_id="parser-1", stage="", objective="repair the parser")
     first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(action=hand_off("planner", "Two rounding rules conflict.")))
+    first.queue("engineer-r1-parser-1", CannedResponse(action=hand_off("planner", "Two rounding rules conflict.")))
     _run(tmp_path, first, packet=packet)
 
     brief = render_mission_brief(packet)
@@ -155,18 +155,18 @@ def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) ->
         life_dir=state, mission_id="parser-1", stage="", objective="repair the parser",
     )
     first = MemoryBackend()
-    first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+    first.queue("engineer-r1-parser-1", _write(tmp_path / "work", "v1"))
     first.queue("reviewer", _review("done"))
     assert _run(tmp_path, first, packet=packet)[0] == "done"
     refuse(backlog)
 
     second = MemoryBackend()
-    second.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
+    second.queue("engineer-r1-parser-1", CannedResponse(action=hand_off("reviewer", "Nothing to change.")))
     status, rounds, labels = _run(tmp_path, second, packet=packet)
 
     # The host did not take the acceptance, so it does not stand again; the
     # Reviewer already judged this very candidate, so the work climbs past it.
-    assert labels == ["engineer-r1"]
+    assert labels == ["engineer-r1-parser-1"]
     assert status == "planner"
     climbed = rounds[-1].review
     assert climbed.review_source == "unchanged_return"

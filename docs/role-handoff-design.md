@@ -2,7 +2,7 @@
 
 Chinese version: [role-handoff-design.zh-CN.md](role-handoff-design.zh-CN.md)
 
-Status: proposal (2026-10-16). Implementation is tracked in
+Status: proposal (2026-10-16); the baton line is being replaced by the `hand_off` form (roadmap L2). Implementation is tracked in
 [the roadmap](ROADMAP.md); this document explains why each item exists. The
 liveness part ([The baton](#the-baton)) starts with fixes for the defects
 listed under [Handoffs that do not end](#handoffs-that-do-not-end), each an

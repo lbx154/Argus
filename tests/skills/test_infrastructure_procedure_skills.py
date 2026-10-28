@@ -55,7 +55,7 @@ def test_stand_up_pilot_profiles_a_real_step_and_measures_engine_agreement() -> 
     pilot = _flat(GUIDE)
     assert "pinned" in pilot
     assert "third_party/<name>/" in pilot
-    assert "phase table" in pilot
+    assert "python training_scripts/phase_table.py <log>" in pilot
     assert "log-prob" in pilot
     assert "engine on and off" in pilot
     assert "exit-code file named after the candidate (`<candidate>@<sha>`)" in pilot

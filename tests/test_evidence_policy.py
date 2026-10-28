@@ -31,3 +31,4 @@ def test_every_role_gets_the_one_evidence_contract_and_old_policy_is_ignored(
     ]
     assert all(prompt.count(EXPERIMENT_EVIDENCE_CONTRACT) == 1 for prompt in prompts)
     assert "required independent validation" in EXPERIMENT_EVIDENCE_CONTRACT
+    assert "visual as its primary output" in EXPERIMENT_EVIDENCE_CONTRACT

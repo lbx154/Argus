@@ -42,6 +42,9 @@ review, dispatch, research, Web-error, or classification-telemetry contract.
 
 ## Remaining model-authored carriers
 
+> Being replaced by structured handoff: roles now end their turn with the `hand_off` action, whose forms are in
+> [`handoff_forms.json`](../packages/contracts/schemas/handoff_forms.json) (roadmap L2); the list below predates it.
+
 These carriers still represent irreducible choices or handoffs and must not be
 described as already eliminated:
 

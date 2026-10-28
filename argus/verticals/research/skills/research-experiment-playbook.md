@@ -15,9 +15,9 @@ a frozen plan handed down from somewhere else.
 Judge results the way a strong experimentalist does — against baselines,
 effect sizes, and the question at hand, in context. Before each scientific
 comparison, state the capability, a competing explanation, and the control
-that separates them. Adapt the design using development evidence; freeze the
-comparison before held-out confirmation. Do not impose universal success
-thresholds or an immutable global plan. Report what the evidence supports.
+that separates them. Adapt the design using development evidence. Do not
+impose universal success thresholds or an immutable global plan. Report what
+the evidence supports.
 A credible improvement in any meaningful dimension can carry the
 contribution; the target is a result that a top reviewer would remember,
 not a complete-looking experiment matrix.
@@ -99,28 +99,18 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
    A prompt's machine inventory is a snapshot, not a reservation. Inspect
-   unmanaged device processes too: available memory and momentary zero GPU
-   utilization do not establish an uncontended measurement window.
+   unmanaged device processes too.
 4. Implement against `tests/spec`. Write the method card and the executable
    spec first (sections below), then implement the method and baseline
    through real entry points under comparable data, compute, information,
    and evaluator access until the differential, knockout and parity tests
-   pass without loosened tolerances or skips. Build the strongest faithful
-   version of the idea, not the easiest version that can pass a local check;
-   where the implementation must simplify the route, say so in the card's
-   Notes column and mark the entry point `# @simplified` before running
-   anything that bears a claim. Each implementation task arrives as a brief
-   (the implementation brief in `engineer/method-card.md`): the claim named from `METHOD.md`,
-   the components this task builds with their entry points, interfaces,
-   the `tests/spec` ids that must pass, data and scale as the route states
-   them, commands, environment prerequisites and an executable definition
-   of done. A brief missing a field is completed from `METHOD.md` and the
-   route before code is written, and the completion is named in the round
-   summary; the brief is never narrowed to fit what is convenient. Write
-   the code for the Reviewer that reads it without you present
-   (the anchors in `engineer/method-card.md`): `# @component <name>` above every
-   component entry point, `# @simplified`, `# @reuses` and `# why:` where
-   they apply; the host builds the review packet from these anchors.
+   pass. Build the strongest faithful version of the idea, not the easiest
+   version that can pass a local check; where the implementation must
+   simplify the route, say so in the card's Notes column before running
+   anything that bears a claim. Write the code for the Reviewer that reads
+   it without you present: each card row names its entry point as
+   `path:Symbol`, and `# why:` marks a non-obvious decision
+   (`engineer/method-card.md`).
 5. Beyond `tests/spec`, run only the smallest engineering checks needed to
    establish imports, shapes, branches, numerical behavior, and end-to-end
    wiring, then run a known detectable positive control through the same
@@ -180,17 +170,18 @@ needed for the claim; explain the choice in the research notes. Repeat stochasti
 runs when seed variation could change the conclusion. Rerunning deterministic
 comparisons adds no independent evidence.
 
-For latency, throughput or bottleneck claims, preserve the actual device
-identity, process occupancy and relevant load over the measurement window.
-Run on an uncontended accelerator, or explicitly define and match the competing
-load when sharing is the experiment. A shared-device smoke test can establish
-correctness without establishing isolated performance. Independent repetitions
-may run sequentially on the same released device; three processes do not
-require three simultaneously available cards. If another workload overlaps a
-timing run, keep the observations and overlap record, investigate the affected
-comparisons, and repeat only the measurements whose interpretation needs it.
-Do not silently pool uncontrolled shared-device and isolated timings, or stop
-another project's work to obtain a preferred result.
+When latency or throughput is compared across runs or devices, preserve each
+run's device identity, process occupancy and relevant load over the measurement
+window. Run on an uncontended accelerator, or explicitly define and match the
+competing load when sharing is the experiment. A shared-device smoke test can
+establish correctness without establishing isolated performance. Independent
+repetitions may run sequentially on the same released device; three processes
+do not require three simultaneously available cards. If another workload
+overlaps a timing run, keep the observations and overlap record, investigate
+the affected comparisons, and repeat only the measurements whose interpretation
+needs it. Do not silently pool uncontrolled shared-device and isolated timings,
+or stop another project's work to obtain a preferred result. A phase's share of
+one run's own time is read inside that run and needs none of this.
 
 On resume, check the actual recorded observations and the code/configuration
 that produced them before deciding whether work is complete. A copied
@@ -201,7 +192,7 @@ wrapper does not prove its children have stopped. Before replacing a run,
 confirm that every producer for its output has exited; use a separate attempt
 directory and preserve the old observations. Low GPU utilization while the CPU
 is working, or output buffered until completion, does not establish failure.
-Let healthy attempts finish before applying optional performance optimizations.
+A speedup goes into the next attempt instead of replacing a running one.
 Launch long CPU analyses as well as GPU experiments detached, with the project
 environment, an explicit command, its exit code and a separate attempt output,
 so they survive the model call. A provider's native background shell can be
@@ -288,9 +279,9 @@ identical runs as new independent evidence. Make sample counts configurable and 
 selected configuration, not a hard-coded pilot count. A minimum count is not
 an exact-count requirement.
 
-Keep held-out data out of training and method selection. Expanding training
-creates a new checkpoint and comparison with fresh held-out confirmation;
-preserve the earlier results separately rather than silently pooling them.
+Expanding training creates a new checkpoint and comparison with fresh
+held-out confirmation; preserve the earlier results separately rather than
+silently pooling them.
 Use measured throughput and available resources to size the next run. Surface
 an actual access or budget blocker instead of quietly shrinking the objective.
 
@@ -307,16 +298,19 @@ validation-only mission.
 After the shared runner exists, the first claim-free milestone is a small but
 complete loop on the operator's real data: read, train or fit, the strongest
 same-information baseline, exported predictions, and the one check that
-decides whether the idea can work at all (learnability, transfer). Record wall
-time, GPU memory and bytes written per step beside it, and size the full run
-from those numbers. It is development evidence, not a claim-bearing result.
+decides whether the idea can work at all (learnability, transfer). Time its
+steps with `engineer/training_scripts/phase_table.py`, record GPU memory and
+bytes written per step beside them, and size the full run from those numbers.
+It is development evidence, not a claim-bearing result.
 
 Once a real comparison on the operator's data has been reviewed, the Planner
 schedules one stage package task (`TASK_STAGE_PACKAGE=true`) before more
-diagnosis: the results table with its sources, the current method, the
-command that reproduces each number, what failed and why, which operator
-requirements remain unmet, and what the next round would test. Its Reviewer
-checks every number against its source file. The package is labelled "stage
+diagnosis: the results table with its sources, a figure for each result that
+has a visual form (the comparison plotted, the built model rendered) placed
+first, the current method, the command that reproduces each number, what
+failed and why, which operator requirements remain unmet, and what the next
+round would test. Its Reviewer checks every number against its source file and
+that each figure renders and shows the same numbers. The package is labelled "stage
 package, overall goal not complete", earns a non-terminal delivery, and the
 campaign continues; it never changes the publication target or completes the
 goal. Schedule another only when the evidence has materially changed.
@@ -335,9 +329,9 @@ Work this ladder in order, one rung per attempt, and record the evidence for
 each rung in the run records before moving to the next:
 
 1. **Implementation fidelity** against the method card: every component
-   anchored and reached on the executed path, knockouts that fail in the
-   component's absence, differential tests against the oracle and the
-   pinned reference (`engineer/method-card.md`).
+   reached on the executed path from the entry point its row names,
+   knockouts that fail in the component's absence, differential tests
+   against the oracle and the pinned reference (`engineer/method-card.md`).
 2. **Setup and evaluator**: the positive control recovers a known signal
    through the same path, the data pipeline yields what the route describes,
    no leakage across splits, and the pilot is large enough to resolve the
@@ -371,8 +365,7 @@ who owns the claim:
   results and their configurations, and write the revised statement and its
   falsifier into `METHOD.md` before any run that tests it. Data already used to
   choose or revise counts as development data, never as independent
-  confirmation. Idea selection is not reopened and the stage does not move
-  back.
+  confirmation.
 
 Never a narrowed claim presented as the original, never a "restricted case" or
 "negative result" paper presented as meeting the operator's publication
@@ -383,32 +376,29 @@ Plan only on resources that are actually in hand. Human participants, ethics
 approval, paid annotation, credentials, external services, or compute the
 operator has not supplied cannot be scheduled as work in an autonomous
 campaign; raise the need once, then design the claim around what can be
-executed here. Never stand in for missing evidence with fabricated,
-placeholder, or projected results: not in the runs, not in the research notes, and
-never in a manuscript.
+executed here.
 
-Choose benchmarks that expose the method's mechanism and real advantage rather
-than convenient saturated tasks. Inspect the existing benchmark's label
-provenance, shortcut opportunities, and ability to distinguish the claimed
-mechanism; if unsuitable, select another established benchmark or a small
-custom experiment permitted by the cost-aware benchmark policy. Follow surprising positive evidence when it
-reveals a stronger contribution, then confirm it on untouched data. Keep
-relevant losses visible internally, but do not let defensive edge-case coverage
-replace the main result.
+Before the first claim-bearing run, the METHOD.md Protocol states whether the
+experiment can answer the question (`engineer/method-card.md`); where it
+cannot, select another established benchmark or a small custom experiment
+permitted by the cost-aware benchmark policy. Follow surprising positive
+evidence when it reveals a stronger contribution, then confirm it on untouched
+data. Keep relevant losses visible internally, but do not let defensive
+edge-case coverage replace the main result.
 
 Check real external, numerical, persistence, and security boundaries. Inside
 the controlled implementation, trust established invariants. Do not add
 redundant guards, fallback chains, reports, wrappers, or abstractions merely to
 make the project look robust.
 
-Do not freeze a global experiment plan, reopen Idea selection, hide relevant
-losses, or present unfinished development as a negative result. The paper
-argues the claim as stated in `METHOD.md`, including any recorded revision; a
-negative or boundary paper exists only after the claim's owner has changed it.
+Do not freeze a global experiment plan, hide relevant losses, or present
+unfinished development as a negative result. The paper argues the claim as
+stated in `METHOD.md`, including any recorded revision; a negative or boundary
+paper exists only after the claim's owner has changed it.
 
 ### Real system, not a stand-in
 
-A claim about a model, an agent, an environment or a dataset is evidence only when that system ran. A mock model, a fake environment, an oracle policy or synthetic data standing where the route names real data belongs in `tests/spec` (knockouts, differential tests) and nowhere in a claim-bearing run. When the real system cannot run on this machine, the honest moves are, in order: stand it up (a local open-weight model behind a serving engine on the idle GPU, the environment's official example end to end — `engineer/training-infrastructure.md`), shrink the scale while keeping the system real, or name the deviation in METHOD.md and stop the run from being claim-bearing. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
+The rule is the Experiment item `experiment.stand_ins`; standing the real system up is `engineer/training-infrastructure.md`. The host lists possible stand-ins with their call sites and the results footprint (files, minutes written) under "Run reality" in the task brief and the review packet; a 350-task benchmark whose results were written in four minutes is read for what it is. The same lines date each result file against the last edit to the code (a summary written 57 s after its script cannot hold a 32k-context sweep of two 7B models) and name measuring functions that build their inputs with random tensors: a mechanism sweep on random keys is a spec test, and a results file that lists real models above numbers such a sweep produced is a false account, not a deviation.
 
 ### Say what the claim got
 
@@ -476,7 +466,7 @@ decision, then return here. Do not read all the sources in advance.
 
 | When needed | Open | Use it for |
 |---|---|---|
-| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, an implementation task is briefed, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; the brief a Planner writes before code; the `# @component`, `# @simplified`, `# @reuses` and `# why:` anchors the host turns into the review packet; keeping thesis and code aligned |
+| The method must be stated before it is built or has changed, a baseline has public code, the spec suite is written or extended, or code must be readable by a Reviewer who was not there | `engineer/method-card.md` | Write `METHOD.md` once from the selected route; clone the reference at a pinned revision under `third_party/` and build the method as its diff; oracle, differential, knockout and claim-shaped tests under `tests/spec`; whether the experiment can answer the question; each component's entry point as `path:Symbol`; keeping thesis and code aligned |
 | A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
 | Training or large inference infrastructure is required | `engineer/training-infrastructure.md` | Choose the framework from a current, verified survey, stand it up in isolation, and tune from the official recipe |
 | A project environment needs setup or repair, or a dependency or resource may block a claim-bearing run | `project-venv-package-management.md` in the global library | Reuse the configured environment, install only required dependencies, and verify only the resources the run uses |

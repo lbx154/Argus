@@ -600,3 +600,17 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
     line = format_event_message(completed)
     assert "Completed with residual risk: Ingest the feed." in line
     assert risk in line
+
+
+def test_a_risk_the_manager_accepts_is_listed_with_its_other_decisions(tmp_path, no_operator, monkeypatch) -> None:
+    """Accepting a risk is the operator's decision taken in their place (HO-6)."""
+    from argus.core.autonomy import read_autonomous_assumptions, render_autonomous_assumptions
+
+    monkeypatch.setenv("ARGUS_AUTONOMY_RUN_ID", "risk-run")
+    item, event = _supervised_project(tmp_path)
+    record = _supervise(tmp_path, event, _ManagerBackend(_ACCEPT))
+    assert record["status"] == "applied", record
+    (row,) = read_autonomous_assumptions(tmp_path)
+    assert row["source"] == "manager_decision" and row["item_id"] == item.id
+    assert _CHECK in row["conflict"] and "Live feed behaviour is unverified." in row["reading"]
+    assert "the Manager decided for you" in render_autonomous_assumptions(tmp_path)

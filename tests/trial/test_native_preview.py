@@ -18,6 +18,7 @@ from deploy.trial.native_preview import (
     model_app,
     portal_app,
     provider_cost,
+    token_cost,
 )
 from deploy.trial.native_runtime import sandbox_command
 
@@ -55,6 +56,20 @@ def test_two_limits_are_atomic_and_never_reset(tmp_path):
     assert reopened.status('alice')['remaining_usd'] == pytest.approx(0.8)
     with pytest.raises(ValueError, match='cannot be reset'):
         Ledger(tmp_path / 'ledger', total_usd=500, user_usd=100)
+
+
+def test_a_call_larger_than_what_is_left_is_admitted_for_the_rest(ledger):
+    first = ledger.reserve('alice', 6.88)
+    ledger.settle(first, 6.88)
+    capped = ledger.reserve('alice', 4.5)  # a long-context ceiling above the $3.12 left
+    assert ledger.status('alice')['remaining_usd'] == 0
+    ledger.settle(capped, 0.9)  # settles at the real cost
+    assert ledger.status('alice')['remaining_usd'] == pytest.approx(2.22)
+    last = ledger.reserve('alice', 5)
+    ledger.settle(last, 2.5)  # overdraws by at most that one call
+    assert ledger.status('alice')['remaining_usd'] == 0
+    with pytest.raises(QuotaExceeded):
+        ledger.reserve('alice', 0.5)
 
 
 def test_missing_receipts_stay_charged_and_settlement_is_idempotent(ledger):
@@ -180,6 +195,41 @@ def test_meter_streams_real_receipt_and_settles_exactly(config, ledger, monkeypa
         assert 'response.completed' in r.text
     else:
         assert r.json()['status'] == 'completed'
+
+
+def test_token_usage_is_priced_and_missing_usage_keeps_the_reservation():
+    from argus.core.pricing import quote_token_usage
+    usage = {'input_tokens': 1_000_000, 'output_tokens': 100_000, 'input_tokens_details': {'cached_tokens': 400_000}}
+    expected = quote_token_usage(MODEL, input_tokens=1_000_000, output_tokens=100_000, cached_input_tokens=400_000).cost_usd
+    assert token_cost({'type': 'response.completed', 'response': {'usage': usage}}) == pytest.approx(expected)
+    assert expected > 0
+    for event in ({}, {'response': {}}, {'response': {'usage': {'input_tokens': 5}}},
+                  {'response': {'usage': {'input_tokens': -1, 'output_tokens': 1}}}):
+        assert token_cost(event) is None
+
+
+def test_meter_sends_to_a_configured_upstream_and_charges_its_usage(config, ledger, monkeypatch, tmp_path):
+    key = tmp_path / 'upstream.key'
+    key.write_text('upstream-secret\n')
+    config['upstream'] = {'base_url': 'https://relay.example/v1/', 'token_file': str(key)}
+    seen = []
+    def provider(request):
+        seen.append(str(request.url))
+        assert request.headers['authorization'] == 'Bearer upstream-secret'
+        event = {'type': 'response.completed', 'response': {'id': 'r', 'status': 'completed', 'output': [],
+                 'usage': {'input_tokens': 100_000, 'output_tokens': 10_000}}}
+        return httpx.Response(200, headers={'Content-Type': 'text/event-stream'},
+                              content=('data: ' + json.dumps(event) + '\n\n').encode())
+    original = httpx.AsyncClient
+    monkeypatch.setattr('deploy.trial.native_preview.httpx.AsyncClient',
+                        lambda **kwargs: original(transport=httpx.MockTransport(provider)))
+    r = TestClient(model_app(config, ledger)).post('/v1/responses', headers={'Authorization': 'Bearer meter-a'},
+                                                   json={'model': MODEL, 'input': 'hello', 'max_output_tokens': 256})
+    assert r.status_code == 200
+    assert seen == ['https://relay.example/v1/responses']
+    from argus.core.pricing import quote_token_usage
+    expected = quote_token_usage(MODEL, input_tokens=100_000, output_tokens=10_000, cached_input_tokens=0).cost_usd
+    assert ledger.status('alice')['used_usd'] == pytest.approx(expected, abs=1e-6)
 
 
 def test_meter_exhaustion_never_submits_to_provider(config, ledger, monkeypatch):

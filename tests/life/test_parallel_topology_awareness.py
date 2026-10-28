@@ -173,7 +173,7 @@ def test_digest_names_a_task_that_asked_for_more_gpus_than_the_machine_has(
     from argus.life import memory as memory_module
 
     monkeypatch.setattr(
-        memory_module, "_gpu_cards", lambda: ((0, False), (1, False)),
+        memory_module, "_gpu_cards", lambda: (False, False),
     )
     project = tmp_path / "project"
     project.mkdir()

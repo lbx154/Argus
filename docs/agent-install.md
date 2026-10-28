@@ -163,10 +163,11 @@ entry point was tested instead of another copy earlier on PATH. If a later
 window cannot find plain `argus`, report `$Scripts` and ask before changing the
 user PATH; do not create a venv as a workaround.
 
-Windows supports Manager chat, pairing, Web/TUI, terminal-scoped daemon
-control, and native durable subagents. Native Windows workers own direct or
-supervised long commands, persist registry and log state, and perform bounded
-process-tree cleanup. WSL2 is optional, not a prerequisite for this path.
+Windows supports Manager chat, pairing, Web/TUI and terminal-scoped daemon
+control. Each provider turn owns a private Job Object, so a long command a role
+starts stays in that turn and is cleaned up with it (see
+[process ownership](windows-process-ownership.md)). WSL2 is optional, not a
+prerequisite for this path.
 
 ## macOS
 

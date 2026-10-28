@@ -70,8 +70,8 @@ model, thread id, turn count, inspected paths, and decisive output
 [`argus/core/role_session.py:23-155`].
 Role-session prompts point back to the capsule, mission contract and latest
 handoff while warning that project artifacts remain authoritative. Rolling
-sessions resume until branch, turn, token, or quality signals rotate them; a
-fresh policy intentionally clears the provider thread. Each Role may use one or more provider sessions or turns over time.
+sessions resume until the runtime starts a new thread (see
+`core/role_session.py`); Argus does not rotate for turn count or size. A fresh policy intentionally clears the provider thread. Each Role may use one or more provider sessions or turns over time.
 
 ## Campaign: workflow term, not a core hierarchy level
 
@@ -107,14 +107,14 @@ have a universal one-to-one mapping.
 
 Durable truth remains in Argus state, not in any model transcript. A Project
 persists across Missions. A Mission may settle as terminal `done`, `failed`,
-`aborted`, `skipped`, or `superseded`; it may also remain in recoverable paused
-or research-incomplete states, and iteration can requeue the same item for
-another bounded cycle [`argus/life/memory.py:653-685`,
+`aborted`, `skipped`, or `superseded`; it may also be `parked` (one status
+whose reason is data; older `paused_*` rows read as `parked`), and iteration can
+requeue the same item for another bounded cycle [`argus/life/memory.py:653-685`,
 `argus/life/supervisor/_mission_execution_settlement.py:474-491`].
-Those paused and research-incomplete statuses are resumable mission states.
+A parked row is a resumable mission state.
 Terminal rows are not resurrected; a new attempt after terminal failure requires
 fresh mission state. Project lifecycle is separate from role/provider continuity.
-Role/provider sessions may be discarded, rotated, or resumed, but the event log,
+Role/provider sessions may be discarded, replaced, or resumed, but the event log,
 backlog, handoff files, checkpoints, and operator context remain the durable
 authority.
 

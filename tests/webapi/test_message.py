@@ -446,7 +446,9 @@ def test_active_mission_team_message_uses_continuous_dispatch(
 
     assert result["kind"] == "task"
     assert result["continuous"] is True
-    assert seen["enqueued"] == "你怎么不动了？"
+    # This fake Manager's ticket is its whole message: the operator's words,
+    # then what Argus told it about the running work.
+    assert str(seen["enqueued"]).startswith("你怎么不动了？\n\nThe team is working now")
     assert len(memory.backlog.all()) == 1
 
 

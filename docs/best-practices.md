@@ -212,15 +212,11 @@ with its default, its current value and where the value came from
 (`env`, `persisted`, `default`); `argus --config-snapshot` writes the same to
 a file you can attach to a report.
 
-| Setting | Default | Notes |
-|---|---|---|
-| `ARGUS_SKILL_RUNNER_BACKEND` | `codex` | `codex`, `claude`, `copilot`, `cursor`, `opencode`, `pi`, `grok`, `qoder`, `dsh` |
-| `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
-| `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
-| `ARGUS_SKILL_LIGHT_MODEL` | `auto` | every light route: front-door classify, `/plan` preview, prompt rewrite, map text, reflection (`gpt-6.1-sol` on Copilot, the Manager model elsewhere) |
-| `ARGUS_SKILL_LIGHT_REASONING_EFFORT` | `low` | effort for every light route |
-| `ARGUS_SKILL_<ROLE>_REASONING_EFFORT` | Engineer `xhigh`, others `high`, Supervisor `low` | `low`, `medium`, `high`, `xhigh`, `max` |
-| `ARGUS_SKILL_PI_PROVIDER` / `ARGUS_SKILL_OPENCODE_PROVIDER` | unset | provider prefix for bare model ids on those two backends; on OpenCode the model is dropped without it |
+Every setting, with its default and what it accepts, is listed once in
+[`argus/core/knobs.py`](../argus/core/knobs.py) and printed by `argus --config-help`.
+The ones that matter here are `ARGUS_SKILL_RUNNER_BACKEND`, `ARGUS_SKILL_MODEL`,
+the per-role `ARGUS_SKILL_<ROLE>_MODEL` and `ARGUS_SKILL_<ROLE>_REASONING_EFFORT`,
+and `ARGUS_SKILL_LIGHT_MODEL` for the light routes.
 
 Why the roles are separable: they do different jobs. The Engineer runs long
 tool-using turns and benefits from the strongest model at high effort; the
@@ -282,8 +278,9 @@ It fits well when:
   waited for them, and had a draft sent back for rework, all without an
   operator message. That is what the daemon, the stage checklists and the
   independent review exist for.
-- **There is a vertical for the field.** Seven ship with Argus (`research`,
-  `software`, `math`, ...) and the store carries seventeen more. A vertical is
+- **There is a vertical for the field.** `research` and `software` ship with
+  Argus; `math` and the others install from the
+  [Vertical Store](vertical-store.md). A vertical is
   what turns "done" into a checklist the Reviewer can apply; without one the
   Manager still routes the task, but the acceptance standard is generic. See
   [building a vertical](building-a-vertical.md).

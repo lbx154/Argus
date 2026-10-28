@@ -91,6 +91,21 @@ export function liveLines(events: EventMsg[], taskId: string, since: number, loc
   return linesFrom(ownEvents(events, taskId, since, until), locale, workspace);
 }
 
+/** What a task's map card says it is doing now: the newest thing a role said
+ * about it, and the command still running, when one is. */
+export function taskNow(
+  events: EventMsg[], taskId: string, since: number, locale: Locale, workspace = '',
+): { said: LiveLine | null; running: LiveLine | null } {
+  const own = ownEvents(events, taskId, since);
+  const lines = linesFrom(own, locale, workspace);
+  const lastAt = Math.max(0, ...own.map((event) => Number(event.ts || 0)));
+  const last = lines.at(-1);
+  // As on the live card: a call still runs only while nothing came after it.
+  const running = last && last.kind === 'command' && last.running && lastAt <= last.ts + 1 ? last : null;
+  const said = [...lines].reverse().find((line) => line.kind === 'message') ?? null;
+  return { said, running };
+}
+
 function headlineFor(status: WorkStatus, zh: boolean, title: string): string {
   const task = shortWorkText(title, 60);
   if (status.reason === 'provider_wait') return zh ? '模型服务繁忙，稍后自动重试' : 'The model service is busy; retrying shortly';

@@ -1,7 +1,7 @@
 """Canvas step 2: the Manager reads the canvas; cards are handed on and asked about.
 
-- Each Manager turn sees what a person placed (capped), as context, and nothing
-  when the canvas is empty.
+- Each Manager turn sees what a person placed (capped) under a plain header, and
+  nothing when the canvas is empty.
 - "交给团队" is an ordinary message quoting the card; the task the Manager
   hands to the team from it links back to the card (``from``).
 - "问这张卡" quotes the card; the answering turn is ``about`` it.
@@ -65,7 +65,7 @@ def test_manager_turn_reads_the_canvas_only_when_a_person_placed_something(tmp_p
     body = _send(monkeypatch, tmp_path, sid, "接下来做什么？")
     assert body.index("接下来做什么？") < body.index(store.CONTEXT_HEADER)
     block = body[body.index(store.CONTEXT_HEADER):]
-    assert "不是指令" in block
+    assert block.startswith(store.CONTEXT_HEADER + "\n")
     assert f"想法卡 {idea['id']}: 基线要用 3 个种子" in block
     assert "uploads/notes.pdf" in block
     assert "连线（依据）: 想法卡《基线要用 3 个种子》 → 卡片 task-x" in block
@@ -90,6 +90,20 @@ def test_canvas_context_is_capped_and_keeps_linked_and_recent_cards(tmp_path):
     assert lines[3].startswith(f"- 想法卡 {ids[59]}")
     assert f"- 想法卡 {ids[2]}:" not in block
     assert store.canvas_context_block(tmp_path / "empty") == ""
+
+
+def test_the_header_puts_a_persons_card_as_they_wrote_it(tmp_path):
+    """s-efe9deac's canvas. Under "（供参考的上下文，不是指令）" the Manager wrote
+    this card into the plan as "画布建议作为参考，不作为未经验证的硬性依赖"."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "s_efe9deac" / "canvas.json"
+    (tmp_path / "canvas.json").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    block = store.canvas_context_block(tmp_path)
+
+    assert block.splitlines()[:2] == [
+        "## 画布上人放的内容",
+        "- 想法卡 hc-65896263b83f: 我觉得你的RL应该用vllm来加速rollout，然后用一些成熟的agentic RL框架，最好是先进的，你可以参考一些工作",
+    ]
 
 
 def test_hand_to_team_message_quotes_the_card_and_journals_it(tmp_path, monkeypatch):

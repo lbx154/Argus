@@ -47,6 +47,7 @@ from ...provider_integrations.authorization_retry import (
     AUTHORIZATION_RETRY_OWNER,
     BackendLoginRequired,
 )
+from ...provider_integrations.codex_usage import read_codex_requests
 from ...provider_integrations.copilot_usage import (
     capture_copilot_usage_cursor,
     copilot_store_supports_token_billing,
@@ -299,11 +300,20 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     ctx.copilot_token_billing_expected |= copilot_store_supports_token_billing(
         copilot_db_path
     ) or copilot_usage is not None
+    codex_requests = (
+        read_codex_requests(
+            session_id=bound_session_id,
+            since=ctx.started_at,
+            working_dir=cli_options.working_dir,
+        )
+        if backend._is_codex else ()
+    )
     try:
         translated = backend._translate_result(
             cli_result,
             resume_thread_id=resume_thread_id,
             copilot_usage=copilot_usage,
+            codex_requests=codex_requests,
         )
     except Exception as exc:  # noqa: BLE001
         raw_usage = extract_token_usage(
@@ -501,4 +511,5 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         error=persisted_failure_text,
         startup_receipt=complete_row,
         model_output=model_output_observed(cli_result),
+        request_usage=codex_requests,
     )

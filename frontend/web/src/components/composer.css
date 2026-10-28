@@ -35,6 +35,19 @@
 .composer-meta:empty { display: none; }
 .composer-meta .composer-options { margin-top: 4px; }
 .composer-meta .composer-options[open] { flex-basis: 100%; }
+.composer-model-chip { min-height: var(--control-height); max-width: 100%; padding: 4px 8px; border-radius: var(--radius-control); color: rgb(var(--ink-dim)); font-size: 12px; overflow-wrap: anywhere; text-align: left; }
+.composer-model-chip:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+.composer-model-chip:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+.composer-continuous { display: inline-flex; align-items: center; gap: 6px; min-height: var(--control-height); max-width: 100%; margin-right: auto; padding: 4px 8px; border-radius: var(--radius-control); color: rgb(var(--ink-dim)); font-size: 12px; text-align: left; }
+.composer-continuous:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+.composer-continuous:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+.composer-continuous:disabled { opacity: .55; cursor: default; }
+.composer-continuous-track { position: relative; flex-shrink: 0; width: 26px; height: 15px; border-radius: 999px; background: rgb(var(--silver)); transition: background-color 160ms ease; }
+.composer-continuous-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: rgb(var(--surface)); transition: transform 160ms cubic-bezier(.32,.72,0,1); }
+.composer-continuous[aria-checked="true"] .composer-continuous-track { background: rgb(var(--accent)); }
+.composer-continuous[aria-checked="true"] .composer-continuous-track::after { transform: translateX(11px); }
+.composer-continuous-hint { color: rgb(var(--ink-faint)); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .composer-continuous-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
 .composer-rewrite { min-height: var(--control-height); padding: 4px 8px; margin-left: auto; border-radius: var(--radius-control); color: rgb(var(--ink-faint)); font-size: 12px; }
 .composer-rewrite:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .composer-rewrite:disabled { opacity: .5; }

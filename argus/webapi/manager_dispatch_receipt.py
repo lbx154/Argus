@@ -131,7 +131,10 @@ def record_task_dispatch_ack(
     import json as _json
 
     transcript_path = life_dir / "transcript.jsonl"
-    rec = {"ts": time.time(), "role": "argus", "text": text}
+    # The transcript row and the live row carry one id, so the page that
+    # streamed the acknowledgement shows it once when the transcript replays.
+    message_id = f"dispatch-{uuid.uuid4().hex}"
+    rec = {"ts": time.time(), "role": "argus", "text": text, "message_id": message_id}
     try:
         life_dir.mkdir(parents=True, exist_ok=True)
         with transcript_path.open("a", encoding="utf-8") as fh:
@@ -149,14 +152,13 @@ def record_task_dispatch_ack(
         try:
             on_fragment("delta", {
                 "text": text,
-                "message_id": "dispatch",
+                "message_id": message_id,
                 "fragment_mode": "snapshot",
             })
         except Exception:  # noqa: BLE001 — UI progress must never break dispatch
             pass
     else:
         # Blocking callers rely on the shared Activity stream for the live echo.
-        message_id = f"dispatch-{uuid.uuid4().hex}"
         _emit_ui_turn(life_dir, "argus", text, message_id=message_id)
 
     result["reply"] = text

@@ -42,13 +42,6 @@ operator only for a concrete missing decision or resource.
   check.
 - Failed verification overrides self-reported success.
 - Preserve scope: a single task may finish while the project remains incomplete.
-- Judge the deliverable the operator asked for. Argus's own records (files
-  under `.argus/`, evidence logs, certification notes) are not it: a slip in
-  them is a note in your review, fixed in passing where the task owns that
-  record, and never a reason to hold a deliverable that meets its acceptance.
-- Judge the files as they are now. An earlier review's text is not a
-  precondition: when it is not in front of you, reach your own judgment from
-  the current files instead of blocking or asking for it.
 - Judge evidence quality, construct fidelity, limitations, and whether the
   result changes the next decision.
 - Treat honest negative or null results as evidence, not automatic failure or
@@ -89,6 +82,20 @@ them. Write a coherent repair brief: ask the Engineer to inspect the page map,
 the sufficiency of the evidence, how the source files feed one another, the
 freshness of any generated review, and where each figure and table comes from,
 then make the smallest complete root-cause repair.
+
+## Visual results
+
+When a result has a visual form (a plot of the numbers, a rendered robot body
+or mechanism, an interactive page), the visual is part of the deliverable, not
+decoration: a person judges such a result by looking at it, and a picture
+exposes a wrong shape or trend that prose hides. Check that it exists, open or
+load it the way a person will (render the image, load the model, open the page)
+rather than trusting that the file is present, and check that what it shows
+agrees with the numbers in the text. A missing or broken visual for a result
+that admits one is a material gap for the Engineer. Name the primary visual
+first among the files your verdict cites: the delivery opens the first named
+file. For a robot body or mechanism, the checks are in
+`engineer/robot-embodiment-urdf.md`.
 
 ## Figures and the paper
 

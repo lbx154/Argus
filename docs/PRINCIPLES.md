@@ -185,7 +185,7 @@ is not portability evidence.
 These are currently sensible policies, not eternal principles:
 
 - splitting Core and Verticals follows principle 2;
-- prose handoffs and minimal footers follow principles 1 and 3;
+- prose handoffs ending in one `hand_off` form follow principles 1 and 3;
 - direct short paths, on-demand Skills, and a shared mission view follow
   principle 4;
 - explore/develop/certify follows principle 5;

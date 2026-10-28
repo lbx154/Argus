@@ -1,0 +1,8 @@
+{
+  "item_id": "02a2583442f7",
+  "title": "16组K8候选更新与续训及一次HF单步对照",
+  "objective": "### Claim\n服务METHOD.md Working claim，本任务只完成四项有限迁移验收中的candidate真实更新/续训和一次匹配HF计时，不是科学优越性实验。\n\n### Data and scale\n本任务合计strict最多600、generated最多800000、optimizer新增3；vLLM整条fresh+resume合同strict300/generated400000/目标2，HF相同strict300/generated400000预算机会但仅执行匹配第一步。只记实际用量，不用光额度，不转用CARE的预留。若无法在此合同完成，保留原件和缺口，不自动重跑或放宽。\n\n### Environment prerequisites\n依赖finite_vllm_control全部共享入口和相对大扰动控制正式接受；共同.venv、固定TRL/vLLM和实际空闲GPU。任务前读取METHOD.md的新工程Protocol及前置一次实际结果，不读取兄弟CARE结果。",
+  "engineer_at_11_52_47": "本次运行在 vLLM 初始化 KV 缓存时退出，错误为 `No available memory for the cache blocks`，尚未开始训练或产生更新。按任务的失败处理边界，我会保留原始输出、核清实际费用并执行公开核验，不自动改显存参数重跑；恢复和 HF 计时也会停止。",
+  "operator_question_at_11_57_25": "原任务禁止自动重跑或放宽合同。是否授权另一个有限任务修复引擎内存配置，再执行原定真实更新、续训与匹配HF计时验收？这次失败本身不证明无法修复。",
+  "operator_question_at_14_28_53": "是否授权一次有限的训练兼容性修复，超出此前“只限引擎配置”的范围？"
+}

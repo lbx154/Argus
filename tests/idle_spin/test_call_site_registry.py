@@ -43,10 +43,10 @@ class Site(NamedTuple):
 REGISTRY: tuple[Site, ...] = (
     # -- foreground ---------------------------------------------------------
     Site(
-        r"engineer-r\d+(\.winddown)?", FOREGROUND,
+        r"engineer-r\d+(-\w+)?(\.winddown)?", FOREGROUND,
         "One Engineer turn of a mission round; the round's own stop checks bound it.",
         ("argus/engineer/round_execution.py:218", "argus/engineer/round_execution.py:1183"),
-        ("engineer-r3", "engineer-r3.winddown"),
+        ("engineer-r3", "engineer-r3-ec540a8ca32e", "engineer-r3.winddown"),
     ),
     Site(
         r"reviewer(-[a-z0-9]+)?", FOREGROUND,

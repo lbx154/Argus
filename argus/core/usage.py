@@ -19,7 +19,7 @@ import weakref
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal
+from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
 
 import portalocker
 
@@ -29,7 +29,13 @@ from ..provider_integrations.copilot_usage import (
     find_copilot_usage_near,
 )
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
-from .pricing import PricingQuote, PricingStatus, quote_copilot_usage, quote_token_usage
+from .pricing import (
+    PricingQuote,
+    PricingStatus,
+    quote_copilot_usage,
+    quote_requests,
+    quote_token_usage,
+)
 from .runner_errors import (
     is_local_startup_parser_error,
     is_local_startup_refusal,
@@ -643,7 +649,6 @@ def _reconciled_token_quote(record: UsageRecord) -> PricingQuote | None:
         cached_input_tokens=record.cached_input_tokens,
         cache_write_tokens=record.cache_write_tokens,
         output_tokens=record.output_tokens,
-        reasoning_output_tokens=record.reasoning_output_tokens,
     )
     return quote if quote.status == "priced" and quote.cost_usd is not None else None
 
@@ -664,7 +669,6 @@ def usage_pricing_reason(record: UsageRecord) -> str:
             cached_input_tokens=record.cached_input_tokens,
             cache_write_tokens=record.cache_write_tokens,
             output_tokens=record.output_tokens,
-            reasoning_output_tokens=record.reasoning_output_tokens,
         )
         if quote.reason:
             return quote.reason
@@ -683,6 +687,7 @@ def build_usage_record(
     completed_at: float,
     status: CallStatus,
     token_usage: TokenUsage | None = None,
+    request_usage: Sequence[TokenUsage] = (),
     premium_requests: float | None = None,
     total_nano_aiu: int | None = None,
     copilot_token_billing_expected: bool = False,
@@ -795,20 +800,7 @@ def build_usage_record(
         cost_usd = max(0.0, float(provider_cost_usd))
         cost_basis = "provider_reported"
     else:
-        quote = quote_token_usage(
-            model,
-            input_tokens=usage.input_tokens if usage.input_tokens_present else None,
-            cached_input_tokens=(
-                usage.cached_input_tokens if usage.cached_input_tokens_present else None
-            ),
-            cache_write_tokens=(
-                usage.cache_write_tokens if usage.cache_write_tokens_present else None
-            ),
-            output_tokens=usage.output_tokens if usage.output_tokens_present else None,
-            reasoning_output_tokens=(
-                usage.reasoning_output_tokens if usage.reasoning_output_tokens_present else None
-            ),
-        )
+        quote = quote_requests(model, request_usage or (usage,))
         pricing_status = quote.status
         pricing_tier = quote.tier
         cost_usd = quote.cost_usd

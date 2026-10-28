@@ -1,0 +1,112 @@
+# Provenance: official third_party/trl/trl/scripts/grpo.py at pinned clone SHA,
+# accessed 2026-10-26. GRPOTrainer/GRPOConfig own the training loop and objective.
+model:
+  name: Qwen/Qwen2.5-Coder-1.5B-Instruct # why: locked task-competent public initial model
+  revision: 2e1fd397ee46e1388853d2af2c993145b0f1098a # why: live publisher API revision
+  local_path: .cache/huggingface/hub/models--Qwen--Qwen2.5-Coder-1.5B-Instruct/snapshots/2e1fd397ee46e1388853d2af2c993145b0f1098a # why: reuse pinned download
+  torch_dtype: bfloat16 # why: A6000 supports bf16; shared across arms
+data:
+  revision: 4bb6404fdc6cacfda99d4ac4205087b89d32030c # why: pinned sanitized publisher source
+  plus_version: v0.2.0 # why: locked official release with training overlap
+  train_public: data/train_public.jsonl # why: only prompt/id/entry point; no test labels
+  validation_public: data/validation_public.jsonl # why: development only
+  train_private: data/private/train_private.jsonl # why: read only in private evaluator worker
+  validation_private: data/private/validation_private.jsonl # why: separate development worker
+group_size: 4 # why: required initial readiness K
+strict_query_fraction: 0.5 # why: permits a paid whole K4 bootstrap group per eight-row collection
+coverage_fraction: 0.5 # why: locked initial half-budget coverage rule
+filter_enabled: true # why: shared nonconstant accuracy filter before policy updates
+adv_std_ddof: 1 # why: official GRPO group sample std; fixed across arms
+adv_epsilon: 0.0001 # why: pinned official TRL GRPO normalization
+shaping_config:
+  type: none # why: first contract has binary accuracy rewards; exact CARE count aggregation
+readiness:
+  train_tasks: 8 # why: first eight valid public training IDs, fixed before model scoring
+  validation_tasks: 8 # why: development smoke cap; no confirmation test
+  max_updates: 2 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  raw_groups_per_collection: 2 # why: K4*2=8 response batch and >=2 groups for official CARE BatchNorm
+  retained_groups_per_update: 2 # why: common eight-response update batch, no CARE-only replenishment
+  max_collections_per_update: 8 # why: bounded dynamic replenishment; inability to fill is recorded
+  replenishment_seed_offset: 100003 # why: independent official RepeatSampler stream for fresh raw task batches rather than repeated draws from a stuck pair
+limits:
+  strict_requests: 64 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  response_attempts: 128 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  generated_tokens: 131072 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  optimizer_steps: 2 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  training_tokens: 13500 # why: preallocated per-attempt cap within task total200000
+  feature_forward_tokens: 100000 # why: preallocated CARE and teacher-forcing work within total2000000
+  selector_steps: 64 # why: at most16 collections with two optimizers and two replay iterations
+  selector_examples: 20000 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+decoding:
+  max_new_tokens: 1024 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  temperature: 0.8 # why: stochastic K4 task draws with shared seed contract
+  top_p: 0.95 # why: standard nucleus sampling shared across arms
+  top_k: 0 # why: no extra top-k cutoff shared across arms
+recipe:
+  learning_rate: 0.00001 # why: conservative official GRPO/PEFT initial recipe
+  per_device_train_batch_size: 1 # why: bound activation memory at sequence allowance
+  gradient_accumulation_steps: 8 # why: exact common eight-response update batch
+  num_iterations: 1 # why: one official policy pass per collected batch
+  loss_type: dapo # why: native official token denominator; no local loss rewrite
+  beta: 0.0 # why: official example GRPO default; regularizer boundary still inherited
+  epsilon: 0.2 # why: native shared clipping interval
+  epsilon_high: 0.28 # why: DAPO asymmetric clipping reference recipe
+  gradient_checkpointing: true # why: reduce policy activation memory on A6000
+  lora_r: 16 # why: real efficient policy updates; no full-weight optimizer-state duplication
+  lora_alpha: 32 # why: standard 2*r LoRA scaling
+  lora_dropout: 0.0 # why: no dropout-induced rollout/trainer probability mismatch
+  target_modules: [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj] # why: all Qwen attention/MLP linear projections
+  vllm_model_impl: auto # why: original native vLLM backend; selection requires frozen probability checks
+  vllm_mode: colocate # why: official one-device engine path
+  vllm_gpu_memory_utilization: 0.25 # why: 12GiB engine allocation leaves room for native LoRA training
+  vllm_tensor_parallel_size: 1 # why: one allowed A6000 only
+  vllm_max_model_length: 3072 # why: real prompt plus maximum1024 response allowance
+  vllm_enable_sleep_mode: false # why: retain engine memory; native step-based synchronization remains enabled
+  vllm_importance_sampling_correction: true # why: use pinned official correction in inherited DAPO
+  vllm_importance_sampling_mode: token_truncate # why: native token-level clipped train/rollout ratio
+  vllm_importance_sampling_clip_min: 0.8 # why: predeclared common correction bounds
+  vllm_importance_sampling_clip_max: 1.2 # why: predeclared common correction bounds
+  use_vllm: false # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+care:
+  width: 128 # why: bounded two-level probe capacity opportunity for K4 readiness
+  bootstrap_groups: 16 # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  reliable_fraction: 0.5 # why: exercise reliable unlabeled and lower-reliability acquisition paths
+  replay_capacity: 128 # why: bounded online FIFO groups, no off-run labels
+  replay_batch: 4 # why: paid replay with replacement supplies official BatchNorm batch>=2
+  steps_per_collection: 2 # why: small real online replay workload after each closed paid collection
+  learning_rate: 0.001 # why: initial Adam probe recipe, not tuned on heldout outcomes
+  aux_weight: 1.0 # why: retain complete purchased-response auxiliary supervision
+  branch: count # why: no individual shaping, so rejection count exactly aggregates D
+controls:
+  nonadaptive_groups: 1 # why: fixed random expansion set before observing labels, distinct from triggered expansion
+  coverage_only_rule: round_robin # why: one per group each seeded cycle; no rejection triggering
+  shuffle_rule: raw_row_permutation # why: selector grouping only; true update uid unchanged
+execution:
+  min_time_limit: 2.0 # why: exceed one-second OS CPU cap so busy-loop failures carry attribution instead of an earlier unresolved wall watchdog
+  gt_time_limit_factor: 4.0 # why: official EvalPlus scaling against frozen canonical timing
+  maximum_memory_bytes: 4294967296 # why: common per-program four-GiB cap, no host-OOM zero labels
+  worker_timeout: 180.0 # why: readiness preflight plus isolated execution; unattributed wall timeout stays null
+  required_modules: [numpy] # why: declared MBPP harness dependency
+  cpu_time_limit_seconds: 1 # why: actual candidate busy-loop smoke exposed wall-before-CPU attribution gap; common base/union cap with kernel signal evidence
+evaluation:
+  seed: 0 # why: development draw fixed before model evaluation
+  batch_size: 4 # why: small independent complete-program inference batch
+instrumentation:
+  profile_first_update_for_arm: null # why: bounded engine migration; same K4/scientific recipe, first8 real training tasks
+  save_engine_tensors: true # why: retain native per-token probabilities and effective masks for raw recomputation
+migration:
+  root: results/infrastructure/shared-vllm # why: task-owned attempt tree only
+  criteria:
+    ratio_low: 0.8 # why: fixed lower clip boundary; declared before any model parity observation
+    ratio_high: 1.2 # why: fixed upper clip boundary; declared before any model parity observation
+    max_outside_fraction: 0.01 # why: BF16 engine/kernel differences may affect a small token tail, not systematic disagreement
+    max_abs_logprob_error: 0.1 # why: BF16 mantissa spacing is 1/128; bound substantial sampled log probability error
+  total_caps:
+    strict_requests: 1024 # why: operator task-wide hard limit including failed attempts
+    response_attempts: 2048 # why: operator task-wide hard limit including repeated scoring exports
+    generated_tokens: 2097152 # why: operator task-wide hard limit
+    optimizer_steps: 32 # why: operator task-wide hard limit
+    training_tokens: 200000 # why: operator task-wide hard limit
+    feature_forward_tokens: 2000000 # why: operator task-wide hard limit including teacher forcing
+    selector_steps: 1024 # why: operator task-wide hard limit
+    selector_examples: 400000 # why: operator task-wide hard limit

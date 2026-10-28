@@ -20,9 +20,9 @@ export interface TokenCounts {
   output_tokens: number | null;
   cached_input_tokens?: number | null;
   cache_write_tokens?: number | null;
-  reasoning_output_tokens?: number | null;
 }
 
+/** Reasoning tokens are a part of output tokens and are never billed again. */
 export function quoteTokenUsage(model: string, usage: TokenCounts): PricingQuote {
   // Validate before selecting a price: unknown models must not hide corrupt counts.
   const count = (value: number | null | undefined): number => {
@@ -34,7 +34,6 @@ export function quoteTokenUsage(model: string, usage: TokenCounts): PricingQuote
   const cached = Math.min(count(usage.cached_input_tokens), input);
   const writes = Math.min(count(usage.cache_write_tokens), input - cached);
   const output = count(usage.output_tokens);
-  const reasoning = count(usage.reasoning_output_tokens);
   const price = modelPriceFor(model);
   if (!price) return { cost_usd: null, status: 'unpriced', tier: 'unknown', reason: `no configured price for model ${model || '(missing)'}` };
   if (usage.input_tokens == null && usage.output_tokens == null) {
@@ -51,7 +50,7 @@ export function quoteTokenUsage(model: string, usage: TokenCounts): PricingQuote
     (input - cached - writes) * price.input_usd_per_mtok * inputMultiplier
     + cached * price.cached_input_usd_per_mtok * cachedMultiplier
     + writes * price.input_usd_per_mtok * inputMultiplier * price.cache_write_multiplier
-    + exactCount(output + reasoning) * price.output_usd_per_mtok * outputMultiplier
+    + output * price.output_usd_per_mtok * outputMultiplier
   ) / 1_000_000;
   const complete = usage.input_tokens != null && usage.output_tokens != null;
   return { cost_usd: addCost(0, cost), status: complete ? 'priced' : 'partial', tier: long ? 'long_context' : 'default',
@@ -70,7 +69,6 @@ export function quoteObservedUsage(model: string, usage: TokenUsage): PricingQuo
     cached_input_tokens: usage.cached_input_tokens_present ? usage.cached_input_tokens : null,
     cache_write_tokens: usage.cache_write_tokens_present ? usage.cache_write_tokens : null,
     output_tokens: usage.output_tokens_present ? usage.output_tokens : null,
-    reasoning_output_tokens: usage.reasoning_output_tokens_present ? usage.reasoning_output_tokens : null,
   });
 }
 

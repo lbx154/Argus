@@ -275,7 +275,7 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
                 "ARGUS_SKILL_LIFE_BACKEND": "codex",
                 "ARGUS_SKILL_MODEL": model,
                 "ARGUS_SKILL_MANAGER_MODEL": model,
-                "ARGUS_SKILL_PLANNER_MODEL": model,
+                "ARGUS_SKILL_PLAN_MODEL": model,
                 "ARGUS_SKILL_ENGINEER_MODEL": model,
                 "ARGUS_SKILL_REVIEWER_MODEL": model,
                 "ARGUS_SKILL_MANAGER_REASONING_EFFORT": self._argus_reasoning_effort,

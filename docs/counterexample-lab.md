@@ -1,5 +1,10 @@
 # Counterexample Lab setup
 
+> **Outdated (checked 2026-10-22, RL-4):** the workbench page for the Counterexample Lab was
+> removed from the Web UI (`948cbb4d`); only the read-only `GET /api/projects/{sid}/counterexamples`
+> projection described below remains. For the current workbench see
+> [web-control-responsiveness.md](web-control-responsiveness.md).
+
 The integration adds two independent capabilities without including any
 private campaign data:
 
@@ -43,7 +48,7 @@ grant Reviewer acceptance or complete an Argus mission.
 
 ## Update safely from the workbench
 
-Open Operations, choose Runtime, and press **Pull latest version**. The updater
+Open **Workbench → Runtime controls** and press **Pull latest version**. The updater
 checks the branch currently in use, pulls only the matching branch from the
 published repository with `--ff-only`, reinstalls the editable checkout when
 the revision changes, and then asks for a safe cockpit/daemon restart. Local

@@ -90,15 +90,27 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
+            id="experiment.stand_ins",
+            statement=(
+                "Stand-ins are never results: a mock model, fake environment, oracle "
+                "policy, random inputs or synthetic data standing where the route names "
+                "a real system or data belong in tests/spec, never in a claim-bearing "
+                "run; when the real system cannot run here, in order: stand it up, "
+                "shrink the scale keeping it real only as a Protocol deviation named in "
+                "METHOD.md first, or name the deviation there and claim nothing from "
+                "that run."
+            ),
+            evidence_hint="Run reality and METHOD.md deviations",
+        ),
+        ChecklistItem(
             id="experiment.fidelity",
             statement=(
                 "Trace the actual call path and confirm the method, baseline, controls, "
                 "information boundary, and evaluator test the selected idea. Repair "
-                "implementation or setup defects in place; do not reopen selection or "
-                "move the work backward. A hypothesis-to-code mapping must name the "
-                "executed quantities and path rather than merely matching labels: each "
-                "METHOD.md component row names path:Symbol and a tests/spec knockout "
-                "that fails when that component is disabled."
+                "implementation or setup defects in place. A hypothesis-to-code mapping "
+                "must name the executed quantities and path rather than merely matching "
+                "labels: each METHOD.md component row names path:Symbol and a tests/spec "
+                "knockout that fails when that component is disabled."
             ),
             evidence_hint=(
                 "METHOD.md component rows, implemented entry points, and tests/spec "
@@ -126,10 +138,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "revise the experimental design in place as evidence arrives. No frozen "
                 "global experiment plan is required. Choose independent units, sample "
                 "counts, and repetitions for the coverage and precision the claim needs; "
-                "repeat stochastic runs when seed variation could change the conclusion. "
-                "Freeze the comparison before held-out confirmation."
+                "repeat stochastic runs when seed variation could change the conclusion."
             ),
             evidence_hint="executed commands/configuration and raw experimental outputs",
+        ),
+        ChecklistItem(
+            id="experiment.held_out",
+            statement=(
+                "Freeze the comparison before held-out confirmation; held-out data never "
+                "enters training, method or configuration selection."
+            ),
+            evidence_hint="where the held-out split is read",
         ),
         ChecklistItem(
             id="experiment.paper_bar",
@@ -154,11 +173,23 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="claim-bearing comparisons, controls, and direct raw outputs",
         ),
         ChecklistItem(
+            id="experiment.fixed_claim",
+            statement=(
+                "Keep the selected idea and current stage; never request a rollback or "
+                "reopen Idea selection. A claim-bearing task re-issued after any failure "
+                "keeps the METHOD.md Protocol's data, scale and acceptance: repair the "
+                "cause, never lower the bar. These and the operator's own acceptance words "
+                "are the only numbers frozen, never relaxed; a tolerance or setting an "
+                "agent chose for engineering is reported, or changed with the reason "
+                "beside it."
+            ),
+            evidence_hint="re-issued tasks against the METHOD.md Protocol",
+        ),
+        ChecklistItem(
             id="experiment.repair",
             statement=(
                 "Treat method, experiment, evaluator, and evidence defects as repair work "
-                "inside Experiment. Keep the selected idea and current stage; never request "
-                "a rollback or reopen Idea selection. A negative or weak result is first an optimization "
+                "inside Experiment. A negative or weak result is first an optimization "
                 "signal, worked down the diagnosis ladder in "
                 "research-experiment-playbook.md in order (implementation fidelity, setup "
                 "and evaluator, hyperparameters and recipe, scale and data, baseline "
@@ -182,14 +213,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Once a real comparison on the operator's data has been reviewed, deliver "
                 "one stage package (stage_package) before further diagnosis: "
-                "results with their source files, the current method, the command behind "
+                "results with their source files and, first, a figure for each result "
+                "that has a visual form, the current method, the command behind "
                 "each number, failures and their explanation, the operator requirements "
                 "still unmet, and the next round's purpose. It is labelled 'stage package, "
                 "overall goal not complete', earns a non-terminal delivery, and changes "
                 "neither the publication target nor the stage. Another package follows "
                 "only a material change in the evidence."
             ),
-            evidence_hint="the reviewed package files and the result files each number cites",
+            evidence_hint=(
+                "the reviewed package files, its rendered figures, and the result "
+                "files each number cites"
+            ),
         ),
         ChecklistItem(
             id="experiment.notes",
@@ -592,19 +627,20 @@ _AMBITIOUS_RESEARCH_POLICY = (
     "Treat mixed or weak development evidence as a prompt to improve the method, "
     "implementation, evaluator, controls, or experiment. Enter Paper only when "
     "credible evidence, at the scale the claim needs, supports a scientifically "
-    "meaningful claim; a claim of superiority must beat the strongest "
-    "same-information baseline. When evidence supports "
-    "a strong claim, state it plainly instead of burying it under defensive caveats. "
+    "meaningful claim. When evidence supports a strong claim, state it plainly "
+    "instead of burying it under defensive caveats. "
     "In Idea, a route passes as a solid, publishable contribution at the target "
     "venue with a clear delta from its closest work, not an Oral or Best Paper; "
-    "related work is a risk to record, not by itself a reason to reject."
+    "related work is a risk to record, not by itself a reason to reject. An "
+    "operator-locked direction waives only an objection that the idea is not "
+    "original; evidence against its effect is listed under Known prior art in "
+    "METHOD.md and tested, never set aside."
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
     _AMBITIOUS_RESEARCH_POLICY
-    + " Plan only work for the current stage. Research stages are forward-only: "
-    "schedule any upstream method, experiment, or paper repair in the current stage "
-    "and never request rollback. The project-root research notes, RESEARCH_NOTES.md, "
+    + " Plan only work for the current stage; schedule any upstream method, "
+    "experiment, or paper repair there. The project-root research notes, RESEARCH_NOTES.md, "
     "are the sole normal cross-stage context until Review, with one named exception: "
     "the method card, METHOD.md, is a work product every role reads and its claim "
     "changes only as the experiment.repair item allows. Review uses "
@@ -621,8 +657,8 @@ _ENGINEER_RESEARCH_METHOD = (
     "not extra reporting files; the method card, METHOD.md, is a work product, not a "
     "report. Make the code satisfy the claim in METHOD.md, never the card fit the "
     "code; revising a working hypothesis is a Planner task, not an edit made "
-    "while implementing. Repair defects in the current stage and never move the "
-    "work backward. Keep experiments adaptive"
+    "while implementing. Repair defects in the current stage. Keep experiments "
+    "adaptive"
 )
 
 _ENGINEER_RESEARCH_EXECUTION = (
@@ -634,7 +670,7 @@ _ENGINEER_RESEARCH_EXECUTION = (
 _REVIEWER_RESEARCH_JUDGEMENT = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Distinguish scientific failure from implementation or evaluator failure. "
-    "Keep defects in the current stage and specify the repair; never request rollback. "
+    "Keep defects in the current stage and specify the repair. "
     "In Review, your review becomes paper/REVIEW.md: give the complete judgment "
     "naturally. The host preserves your opinion and binds it to the current paper. "
     "Engineer performs the requested scientific repairs and experiments directly in Review "

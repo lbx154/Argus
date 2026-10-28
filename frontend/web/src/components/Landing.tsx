@@ -1,7 +1,7 @@
 import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
-import { StartPrompts } from './StartPrompts';
+import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { ArgusMark } from './Wordmark';
 import { ChatBox } from './ChatBox';
 import { useSessionComposer } from '../useSessionComposer';
@@ -77,6 +77,10 @@ export function Landing({
           ) : null}
         </div>
       )}
+      {!loading && !error && canCreate && <section className="landing-starters">
+        <h2>{locale === 'zh-CN' ? '看看它能做什么：这些任务都实际跑过' : 'See what it can do: each of these was run end to end'}</h2>
+        <ShowcasePrompts onPick={onSubmit ? text => { setText(text); setFocus(value => value + 1); } : onNew} disabled={creating} />
+      </section>}
       {!loading && !error && !hasProjects && canCreate && <section className="landing-starters">
         <h2>{locale === 'zh-CN' ? '也可以从这里开始' : 'Or start with an idea'}</h2>
         <StartPrompts onPick={onSubmit ? text => { setText(text); setFocus(value => value + 1); } : onNew} disabled={creating} />

@@ -99,7 +99,7 @@
 | 编号 | 任务 | 版本 | 状态 | 吸收 |
 | --- | --- | --- | --- | --- |
 | L2.0 | 前置：一行交接代替页脚；只剩一种挂起状态；原样退回就往上交 | — | 已完成 [ff151a2c] [9f787bc7] [87cc238a] [b608655c] | HO-16 |
-| L2.1 | 第 1 批：共用动作；Engineer、Reviewer、前门、落地分类、监督、显示层。包括：Reviewer 没提交就再要一次；Reviewer 判不了的障碍填 `to: manager`；删掉 `latest_role_decision` 和 `role_decision.py`；不再对用户提 `CHECKPOINT.md` | 0.2 | 进行中（`feat/handoff-forms-1`）；HO-4 PR 开着 [#294]；HO-3 PR 开着 [#297] | HO-3、HO-4、HO-10、HO-11 |
+| L2.1 | 第 1 批：共用动作；Engineer、Reviewer、前门、落地分类、监督、显示层。包括：Reviewer 没提交就再要一次；Reviewer 判不了的障碍填 `to: manager`；删掉 `latest_role_decision` 和 `role_decision.py`；不再对用户提 `CHECKPOINT.md` | 0.2 | 进行中（`feat/handoff-forms-1`）；HO-4 PR 开着 [#294]；HO-3 PR 开着 [#297]；前门：团队在做时 Manager 每回合都填表，没填就再要一次，仍不填就不发回复 [23b0edcd] | HO-3、HO-4、HO-10、HO-11 |
 | L2.2 | 第 2 批：Planner、阶段决定、报告的输入。验收标准变成表单字段，逐条判；标准外的后续事项不阻断 | 0.3 | 待做；从没合入的 `fix/completion-objective-status` 并到这里 | HO-9 |
 | L2.3 | 第 3 批：领域接入、代答、待答问题判读、Observer、复盘、知识整合、零散小调用 | 0.3 | 待做 | EC-12 |
 | L2.4 | 谁说的记在谁名下：结论从不被改写，宿主的干预另记在旁边；去掉"默认算 Reviewer 说的"；下一步指令只有一个写入者 | 0.3 | 部分完成：干预记在结论旁边已完成 [d75caf4d]；默认作者和单一写入者待做 | HO-8 |

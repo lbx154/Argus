@@ -15,6 +15,8 @@ import { translate, useI18n, type Locale } from '../i18n';
 import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
+import { ModelPreview } from './ModelPreview';
+import { modelFormat } from '../lib/modelFiles';
 import { canEditArtifact, isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 import { theme } from '../lib/theme';
@@ -632,7 +634,12 @@ export function ResearchCanvas({
             <video controls playsInline preload="metadata" src={previewUrl} className="max-h-full max-w-full" />
           </div>
         ) : null}
-        {info?.kind === 'binary' ? (
+        {info && sid && (info.kind === 'model' || modelFormat(info.path)) ? (
+          <div className="flex min-h-0 flex-1 flex-col p-2">
+            <ModelPreview key={info.path} sid={sid} path={info.path} constraintFiles={info.constraint_files} />
+          </div>
+        ) : null}
+        {info?.kind === 'binary' && !modelFormat(info.path) ? (
           <div className="m-auto max-w-sm px-8 text-center text-sm text-ink-dim">
             {t('research.fileUnavailable')}
           </div>

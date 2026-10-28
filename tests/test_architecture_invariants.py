@@ -953,10 +953,11 @@ def _target_package(module: str) -> str:
 
 
 def _every_python_file() -> list[Path]:
-    # Every ``.py`` under the package on purpose, including the two
-    # directories with no ``__init__.py`` (research's ``figure_spec_scripts``
-    # and ``research_visual_scripts``): they ship in the wheel and run as
-    # scripts, so what they import is a coupling the tree still pays for.
+    # Every ``.py`` under the package on purpose, including the directories
+    # with no ``__init__.py`` (research's ``figure_spec_scripts``,
+    # ``research_visual_scripts`` and ``training_scripts``): they ship in the
+    # wheel and run as scripts, so what they import is a coupling the tree
+    # still pays for.
     return sorted(ARGUS.rglob("*.py"))
 
 
@@ -1623,15 +1624,9 @@ def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
 
 # Prose that tells an agent or operator which module to run. After the rename
 # every such citation must spell the package ``argus``; the historical
-# handoff notes below describe the tree as it was and are left alone.
+# record below describes the tree as it was and is left alone.
 _LEGACY_MODULE_CITATION = re.compile(r"\bargus_skill\.[A-Za-z_]")
-_HISTORICAL_DOCS = (
-    "docs/handoff-2026-09-04-capability-tests.md",
-    "docs/HANDOFF-2026-09-05-NEXT.md",
-    "docs/WHAT_ARGUS_GREW.md",
-    "docs/team-intelligence-",
-    "docs/notes-2026-09-06-",
-)
+_HISTORICAL_DOCS = ("docs/WHAT_ARGUS_GREW.md",)
 
 
 def _rename_citation_files() -> list[Path]:
@@ -1874,7 +1869,8 @@ def test_retired_names_do_not_spread() -> None:
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
-MEMORY_ROOT_READS = 65
+# 65 - 4: the goal.* metric rows (_core.py and settlement) went unread.
+MEMORY_ROOT_READS = 61
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 
@@ -1891,3 +1887,77 @@ def test_memory_root_reads_do_not_grow() -> None:
     assert sum(per_file.values()) == MEMORY_ROOT_READS, _ratchet_report(
         "memory.root", MEMORY_ROOT_READS, per_file, "MEMORY_ROOT_READS"
     )
+
+
+# Broad handlers (``except Exception``, ``except BaseException``, bare
+# ``except:``, or a tuple holding one of them) per top-level package of
+# ``argus/``; "<root>" is the modules directly under it. Counted 2026-10-27.
+BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
+    "<root>": 3,
+    "adapters": 16,
+    "advisor": 4,
+    "agent_cli": 12,
+    "apps": 41,
+    "cli": 1,
+    "core": 58,
+    "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
+    "engineer": 19,
+    "life": 181,
+    "maintenance": 2,
+    "manager": 66,
+    "messaging": 1,
+    "planner": 1,
+    "plugin": 9,
+    "release_tools": 1,
+    "reviewer": 2,
+    "roles": 4,
+    "skills": 30,
+    "tools": 3,
+    "trial": 15,
+    "verticals": 59,
+    "webapi": 125,
+    "wiki": 6,
+}
+
+
+def _is_broad_except(caught: ast.expr | None) -> bool:
+    if caught is None:
+        return True
+    if isinstance(caught, ast.Tuple):
+        return any(_is_broad_except(item) for item in caught.elts)
+    name = caught.attr if isinstance(caught, ast.Attribute) else getattr(caught, "id", None)
+    return name in {"Exception", "BaseException"}
+
+
+def test_broad_excepts_do_not_grow_per_package() -> None:
+    """A broad ``except`` turns a bug into a quiet fallback (CO-1, CO-3).
+
+    Most of these handlers return a default or pass, so the failure they
+    catch never reaches a log a person reads, and the run carries on with
+    wrong state. Existing ones are debt to pay down; a new one must catch the
+    specific exception its boundary raises or let the error propagate. The
+    count is pinned per package, so a reduction is banked and cannot be spent
+    elsewhere.
+    """
+    per_package: dict[str, dict[str, int]] = {}
+    for relpath, text in _package_sources().items():
+        head, sep, _ = relpath.partition("/")
+        count = sum(
+            isinstance(node, ast.ExceptHandler) and _is_broad_except(node.type)
+            for node in ast.walk(ast.parse(text))
+        )
+        per_package.setdefault(head if sep else "<root>", {})[relpath] = count
+    problems = [
+        _ratchet_report(
+            f"broad excepts in {package}", BROAD_EXCEPTS_PER_PACKAGE.get(package, 0),
+            per_file, f"BROAD_EXCEPTS_PER_PACKAGE[{package!r}]",
+        )
+        for package, per_file in sorted(per_package.items())
+        if sum(per_file.values()) != BROAD_EXCEPTS_PER_PACKAGE.get(package, 0)
+    ]
+    problems += [
+        f"broad excepts in {package}: package is gone; drop BROAD_EXCEPTS_PER_PACKAGE[{package!r}]"
+        for package in BROAD_EXCEPTS_PER_PACKAGE if package not in per_package
+    ]
+
+    assert problems == []

@@ -174,13 +174,16 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
 
 
 def render_autonomous_assumptions(
-    state_root: Path | str, *, item_id: str = "", limit: int = 8, chinese: bool = False,
+    state_root: Path | str, *, item_id: str = "", chinese: bool = False,
 ) -> str:
-    """What was decided without asking, this run's or, with ``item_id``, that task's."""
+    """What was decided without asking, this run's or, with ``item_id``, that task's.
+
+    None is left out: each is the operator's to review and change.
+    """
     rows = [
         row for row in read_autonomous_assumptions(state_root)
         if not item_id or row.get("item_id") == item_id
-    ][-limit:]
+    ]
     if not rows:
         return ""
     lines = [say("assumed_head", chinese)]

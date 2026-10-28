@@ -120,6 +120,12 @@ def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
 #: A research vertical's assessment of the result, beside the review form's own fields.
 _RESEARCH_RESULT: dict[str, Any] = {
     "type": "object",
+    "description": (
+        "Your research assessment from evidence you inspected, one listed value per field so "
+        "the record stays comparable across campaigns; it summarizes your judgment and never "
+        "replaces it. A survey is result_class literature_review with novelty_status known or "
+        "not_applicable."
+    ),
     "properties": {
         **{key: {"type": "string", "enum": list(values)} for key, values in RESULT_FIELD_CHOICES},
         "evidence": {"type": "array", "items": {"type": "string"}},

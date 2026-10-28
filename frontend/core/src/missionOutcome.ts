@@ -146,6 +146,9 @@ const CLAUSES: Record<string, Pair> = {
   research_open: ['the work waits for the team to decide how it goes on', '工作在等团队决定下一步怎么做'],
 };
 
+// Mirrors why_allowance_exhausted in argus/core/mission_view/_wording.py.
+const ALLOWANCE_EXHAUSTED: Pair = ['the trial allowance is used up', '试用额度已用完'];
+
 function normalizedString(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
@@ -274,7 +277,12 @@ export function missionOutcomePresentation(
         : {};
       const stopKind = normalizedString(event.stop_kind) || normalizedString(outcome.interruption_kind);
       kind = 'mission_paused';
-      label = say('mission_paused').replace('{why}', pauseClause(status, event.park_reason, stopKind, zh));
+      // A spent trial allowance parks like a provider fence, but the model
+      // service is fine: say what actually ran out.
+      const why = normalizedString(event.failure_kind) === 'allowance_exhausted'
+        ? ALLOWANCE_EXHAUSTED[zh ? 1 : 0]
+        : pauseClause(status, event.park_reason, stopKind, zh);
+      label = say('mission_paused').replace('{why}', why);
     }
   }
   return {

@@ -32,6 +32,31 @@ grok --version
 qodercli --list-models
 ```
 
+### Models offered by the web model chooser
+
+The web chooser (the "Model" button under the message box, or Settings →
+Compare models) lists the backend's own live list where one exists (Copilot),
+models that answered on this machine in the last 30 days, and the ids named in
+`ARGUS_SKILL_MODEL_CHOICES`. Codex behind a relay publishes no list Argus can
+read, so name what the relay serves there, comma-separated:
+
+```bash
+export ARGUS_SKILL_MODEL_CHOICES=gpt-6.1-sol,gpt-6-sol,gpt-6-astra,gpt-5.6-sol,gpt-5.6-luna
+```
+
+Prices come from `packages/contracts/schemas/model_pricing.json` (an id missing
+there shows "price unknown" and can still be chosen); speed and availability
+come from `usage.jsonl`. Opening the chooser calls no model; its "Test" button
+makes one small call, recorded in the project's usage like any other.
+
+A choice is saved in `config.json` through the same settings write as
+Settings → Model. "One model for every role" saves `ARGUS_SKILL_MODEL` and
+releases per-role pins; "per role" saves `ARGUS_SKILL_<ROLE>_MODEL`. A saved
+shared model replaces a deployment `ARGUS_SKILL_MODEL`, and saved role pins
+outrank it (also after the web server restarts). A task process takes the
+models it was started with, so one that is already running switches after it
+restarts.
+
 ## Cursor CLI
 
 Install and authenticate Cursor's official CLI:

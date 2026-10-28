@@ -24,6 +24,8 @@ import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
+import { ModelThumbnail } from './ModelPreview';
+import { modelFormat } from '../lib/modelFiles';
 import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { useI18n, type Locale } from '../i18n';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
@@ -45,14 +47,15 @@ import { projectOverview } from '../lib/projectOverview';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
-import { StartPrompts } from './StartPrompts';
+import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
+import { resumableTaskIds } from '../lib/resumable';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
 import type { ConversationRevision } from './ExperiencePanels';
-import { History, PencilLine, RotateCcw } from 'lucide-react';
+import { History, PencilLine, Play, RotateCcw } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -71,6 +74,8 @@ export const SessionIdContext = createContext<string | null>(null);
 const OpenWorkContext = createContext<(taskId: string) => (() => void) | undefined>(() => undefined);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
+/** Run, offered on a task's newest receipt while that task waits to be resumed. */
+const ResumeTaskContext = createContext<(taskId: string, messageId: string) => (() => void) | undefined>(() => undefined);
 
 type RowText = ProgressText & { prose: boolean };
 
@@ -310,8 +315,11 @@ function ConversationRow({
   const roots = useContext(WorkspaceRootsContext);
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
+  const resumeFor = useContext(ResumeTaskContext);
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
+  const resume = taskReceipt && typeof ev.item_id === 'string'
+    ? resumeFor(ev.item_id, String(ev.message_id || ev.event_id || '')) : undefined;
   // Preserve the full recorded message, including research/control-like lines.
   const reportText = taskReceipt ? (typeof ev.text === 'string' ? ev.text : r.text) : r.text;
   const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
@@ -398,6 +406,10 @@ function ConversationRow({
               }) : clockOf(ev)}{responseLatency}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+            {resume ? <button type="button" data-receipt-resume onClick={resume}
+              className="brand-button brand-button-primary mt-3 inline-flex items-center gap-1.5">
+              <Play size={14} aria-hidden="true" />{t('topbar.continueRun')}
+            </button> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText) && !isDraftReply(ev)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
@@ -638,6 +650,7 @@ export function latestConversationDelivery(
 function fileGlyph(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   if (['csv', 'tsv', 'xlsx', 'xls', 'parquet'].includes(ext)) return '▦';
+  if (modelFormat(path)) return '◇';
   if (ext === 'pdf') return '◧';
   if (['py', 'ts', 'tsx', 'js', 'sh', 'r', 'ipynb', 'json', 'yaml', 'yml'].includes(ext)) return '‹›';
   return '▤';
@@ -654,7 +667,7 @@ function DeliveryCard({
   onHowMade,
 }: {
   delivery: DeliveryReceipt;
-  onOpen?: (delivery: DeliveryReceipt) => void;
+  onOpen?: (delivery: DeliveryReceipt, path?: string) => void;
   onHowMade?: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -664,10 +677,12 @@ function DeliveryCard({
   const howMade = onHowMade ?? workFor(delivery.item_id);
   const stage = isStagePackage(delivery);
   const files = deliveryFiles(delivery);
-  // Result first: a delivered chart or picture shows itself, not just a button.
-  // Without a project to load it from, it stays in the file list.
-  const image = sid ? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
-  const others = files.filter(file => file !== image);
+  // Result first: a delivered robot, model, chart or picture shows itself, not
+  // just a button. A model wins over a picture: it is the thing itself, and
+  // the picture is usually a render of it. Without a project to load it from,
+  // it stays in the file list.
+  const visual = sid ? files.find((file) => modelFormat(file.path)) ?? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
+  const others = files.filter(file => file !== visual);
   const listed = others.slice(0, 3);
   return (
     <aside
@@ -675,10 +690,13 @@ function DeliveryCard({
       data-stage={stage || undefined}
       className="result-card mx-auto my-4 w-[calc(100%-2rem)] max-w-full sm:w-[calc(100%-3rem)] lg:max-w-[760px]"
     >
-      {image && sid ? <div className="result-card-preview" data-delivery-thumbnail={image.path}>
-        <WorkspaceImage sid={sid} path={image.path} src={image.path} alt={image.label || image.path}
+      {visual && sid && modelFormat(visual.path) ? <div className="result-card-preview result-card-model" data-delivery-model={visual.path}>
+        <ModelThumbnail sid={sid} path={visual.path} label={visual.label}
+          onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
+      </div> : visual && sid ? <div className="result-card-preview" data-delivery-thumbnail={visual.path}>
+        <WorkspaceImage sid={sid} path={visual.path} src={visual.path} alt={visual.label || visual.path}
           className="max-h-64 w-auto max-w-full object-contain"
-          onOpen={onOpen ? () => onOpen(delivery) : undefined} />
+          onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
         <span className="sr-only">{zh ? '点击查看大图' : 'Click to view full size'}</span>
       </div> : null}
       <div className="result-card-body">
@@ -833,7 +851,7 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenWork,
   view?: MissionView | null;
   events: EventMsg[];
   onOpenWork: () => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   onPause?: () => void;
 }) {
   const { locale, t } = useI18n();
@@ -914,7 +932,7 @@ function ConversationThread({
   group: ConversationGroup;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
@@ -1040,6 +1058,7 @@ export function EventStream({
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
+  onResumeWork,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -1052,7 +1071,7 @@ export function EventStream({
   skipFirst?: number;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
-  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
+  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   snapshot?: Snapshot;
   missionView?: MissionView | null;
   historyStatus?: ConversationHistoryStatus;
@@ -1068,6 +1087,8 @@ export function EventStream({
   latestDelivery?: DeliveryReceipt | null;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
+  /** Run again; offered on the receipt of a task that waits to be resumed. */
+  onResumeWork?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -1159,6 +1180,18 @@ export function EventStream({
   const openWork = () => { setWorkTask(null); setWorkOpen(true); };
   const taskBlock = (taskId: string | null) => timeline.blocks.find((block): block is Extract<TimelineBlock, { kind: 'task' }> =>
     block.kind === 'task' && Boolean(taskId) && block.taskId === taskId);
+  const resumable = useMemo(() => resumableTaskIds(snapshot), [snapshot]);
+  const resumeFor = useMemo(() => {
+    // Only a task's newest receipt offers Run; earlier ones are history.
+    const newest = new Map<string, string>();
+    for (const event of deferredEvents) {
+      if (event.type === 'ui.argus' && event.mission_result === true && typeof event.item_id === 'string') {
+        newest.set(event.item_id, String(event.message_id || event.event_id || ''));
+      }
+    }
+    return (taskId: string, messageId: string) => onResumeWork && resumable.has(taskId) && newest.get(taskId) === messageId
+      ? onResumeWork : undefined;
+  }, [deferredEvents, onResumeWork, resumable]);
   const workFor = (taskId: string) => taskBlock(taskId)?.rows.length ? () => { setWorkTask(taskId); setWorkOpen(true); } : undefined;
   const drawerTask = taskBlock(workTask);
   const drawerRows = drawerTask?.rows ?? timeline.workRows;
@@ -1274,6 +1307,7 @@ export function EventStream({
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
     <OpenWorkContext.Provider value={workFor}>
+    <ResumeTaskContext.Provider value={resumeFor}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1326,6 +1360,8 @@ export function EventStream({
             <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
             <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
             <StartPrompts onPick={onCompose} />
+            <p className="mt-6 text-xs text-ink-faint">{locale === 'zh-CN' ? '或者直接试一个实际跑过的任务' : 'Or try a task that was run end to end'}</p>
+            <ShowcasePrompts onPick={onCompose} />
           </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
@@ -1372,6 +1408,7 @@ export function EventStream({
         </section>
       </aside> : null}
     </section>
+    </ResumeTaskContext.Provider>
     </OpenWorkContext.Provider>
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>

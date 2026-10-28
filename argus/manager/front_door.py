@@ -1100,13 +1100,20 @@ def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
 
 def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                  on_fragment: Any = None, root_task_id: str | None = None,
-                 team_allowed: bool = True, setup: str = "") -> "tuple[str | None, HandOff | None]":
+                 team_allowed: bool = True, setup: str = "", runner: Any = None) -> "tuple[str | None, HandOff | None]":
     """Hand one operator message to the Manager's session: its reply, and what it handed off.
 
     The tasks paused on a question for the operator go with the message, so the
     Manager can apply its answer, and so do what the team told the operator
     since its last turn and a stage question still waiting for its ruling. ``setup`` is the state of a workflow setup
-    under way with the operator, which the message continues.
+    under way with the operator, which the message continues. ``runner`` is
+    the runner whose Manager takes the turn (the daemon's own); by default the
+    front door's.
+
+    While the team is working, the message says so and the turn must file its
+    ``hand_off``: what the Manager tells the operator about the team's work is
+    then what Argus recorded. A turn that files nothing is sent back once; if
+    it still files nothing, its reply is not sent and the turn fails.
 
     The reply is ``None`` only when no Manager is available. A failed turn
     replies with the failure and sets ``chat_state["_self_failure"]``.
@@ -1118,13 +1125,14 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
     from ..core.team_reports import mark_team_messages_read, unread_team_messages
+    from ..daemon.state import read_continuous_state
     from ..provider_integrations.authorization_retry import BackendLoginRequired
     from ._session_ops import reset_manager_session
-    from .form import manager_actions, waiting_questions
+    from .form import FILE_WHILE_TEAM_WORKS, manager_actions, team_at_work, waiting_questions
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
-    runner = _ensure_manager_runner(chat_state, mem)
+    runner = runner or _ensure_manager_runner(chat_state, mem)
     if runner is None:
         return None, None
     chinese = uses_cjk(body)
@@ -1166,7 +1174,9 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         _fragment("phase", payload)
 
     class _Capture:
-        def __init__(self) -> None:
+        def __init__(self, *, stream: bool = True) -> None:
+            # A turn sent back only to file its hand_off streams nothing: its reply is written.
+            self._stream = stream
             self._message_id = ""
             self._live_at = 0.0
             self._live_message_id = ""
@@ -1182,7 +1192,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
             if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
                 self._message_id = str(event.get("message_id") or "")
                 live = _redact(_extract_chat_reply_text(str(event.get("text") or "")))
-                if event.get("transient") or not live or live.startswith("{"):
+                if not self._stream or event.get("transient") or not live or live.startswith("{"):
                     return
                 # Pacing snapshots of one message keeps a long reply from
                 # re-sending itself per token; the final text always follows.
@@ -1199,13 +1209,17 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
                 round_failure = _redact(event.get("fatal_error") or "The Manager turn did not complete.").strip()
                 return
             text = _redact(_extract_chat_reply_text(str(event.get("last_message") or "")))
-            if text:
+            if text and self._stream:
                 captured.append(text)
                 _fragment("delta", {"text": text, "message_id": self._message_id, "fragment_mode": "snapshot"})
 
-    waiting, waiting_text = waiting_questions(
-        [item for item in mem.backlog.active() if item.pending_question.strip()],
-    )
+    active = mem.backlog.active()
+    waiting, waiting_text = waiting_questions([item for item in active if item.pending_question.strip()])
+    running = [] if setup else [item for item in active if str(item.status or "") == "running"]
+    working_text = ""
+    if running:
+        campaign = read_continuous_state(_life_dir_for(mem))
+        working_text = team_at_work(running, ongoing=campaign.enabled and campaign.open_ended)
     told, told_through = unread_team_messages(mem.project_root)
     actions = manager_actions(
         body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,
@@ -1213,25 +1227,64 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
                       allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
     )
-    try:
-        outcome = runner.manager_turn(
-            message="\n\n".join(part for part in (told, setup, body, waiting_text) if part),
-            sink=_Capture(), actions=actions, seed_thread_id=manager_session(mem),
-            phase_cb=_phase, root_task_id=root_task_id,
-        )
-    except BackendLoginRequired:
-        raise
-    except Exception as exc:  # noqa: BLE001 — preserve failure, never dispatch or replay
-        if is_pre_provider_refusal_error(exc):
-            return _redact(_pre_provider_refusal_reply(exc, body)), None
-        return _failure_reply(f"{type(exc).__name__}: {exc}"), None
-    if not outcome.success or round_failure:
-        return _failure_reply(outcome.stop_reason or round_failure), None
+
+    def _turn(message: str, sink: _Capture) -> "tuple[Any, str | None]":
+        try:
+            outcome = runner.manager_turn(
+                message=message, sink=sink, actions=actions, seed_thread_id=manager_session(mem),
+                phase_cb=_phase, root_task_id=root_task_id,
+            )
+        except BackendLoginRequired:
+            raise
+        except Exception as exc:  # noqa: BLE001 — preserve failure, never dispatch or replay
+            if is_pre_provider_refusal_error(exc):
+                return None, _redact(_pre_provider_refusal_reply(exc, body))
+            return None, _failure_reply(f"{type(exc).__name__}: {exc}")
+        if not outcome.success or round_failure:
+            return None, _failure_reply(outcome.stop_reason or round_failure)
+        return outcome, None
+
+    outcome, failed = _turn(
+        "\n\n".join(part for part in (told, setup, body, working_text, waiting_text) if part), _Capture(),
+    )
+    if failed is not None:
+        return failed, None
     mark_team_messages_read(mem.project_root, told_through)
     if isinstance(outcome.delivery, dict):
         chat_state["_self_delivery"] = outcome.delivery
+    if running and actions.handoff is None:
+        # The team holds the project's work: the reply cannot take any on, or
+        # leave it, without the call that records it.
+        _again, failed = _turn(FILE_WHILE_TEAM_WORKS, _Capture(stream=False))
+        if failed is not None:
+            return failed, None
+        if actions.handoff is None:
+            chat_state.pop("_self_delivery", None)
+            chat_state["_self_failure"] = {"detail": say("reply_unrecorded", chinese)}
+            return say("reply_unrecorded", chinese), None
     handoff = actions.handoff
     return (captured[-1] if captured else handoff.summary if handoff else say("reply_empty", chinese)), handoff
+
+
+_STARTED_ON_OBJECTIVE = (
+    "The operator started the team from the command line on the objective above, "
+    "and no one reads a reply here: hand it to the team."
+)
+
+
+def manager_ticket(mem: Any, objective: str, runner: Any) -> Any:
+    """The route for an objective handed in without a conversation (the daemon's ``--objective``).
+
+    The Manager chooses it as at the front door: one turn of its session, whose
+    ``to=team`` ticket carries the route, checked by ``Manager.adopt_route``.
+    No one is there to read a reply, so anything but a ticket fails closed.
+    """
+    chat_state: dict[str, Any] = {}
+    reply, handoff = manager_turn(mem, f"{objective}\n\n{_STARTED_ON_OBJECTIVE}", chat_state, runner=runner)
+    if handoff is None or handoff.to != "team":
+        said = (chat_state.get("_self_failure") or {}).get("detail") or reply or "no reply"
+        raise ManagerHandoffError(f"the Manager wrote no ticket for the team: {said}")
+    return handoff.value
 
 
 def _extract_chat_reply_text(msg: str) -> str:
@@ -1266,6 +1319,7 @@ __all__ = [
     "manager_execution_task",
     "manager_bounded_handoff",
     "manager_continuous_handoff",
+    "manager_ticket",
     "manager_turn",
     "mission_is_running",
     "prepare_manager_execution_task",
