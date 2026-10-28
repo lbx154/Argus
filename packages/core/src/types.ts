@@ -2,7 +2,8 @@
 // the hand-off form, the sandbox). The flow builds an AgentRequest; the agent layer runs one
 // backend turn and returns what the role handed off.
 
-export type Backend = 'codex' | 'claude';
+export const BACKENDS = ['codex', 'claude', 'copilot', 'pi'] as const;
+export type Backend = (typeof BACKENDS)[number];
 export type Role = 'manager' | 'planner' | 'engineer' | 'reviewer';
 /** A form name in packages/contracts/schemas/handoff_forms.json. */
 export type Form = 'manager' | 'plan' | 'engineer' | 'review';

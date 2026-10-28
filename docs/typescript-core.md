@@ -17,7 +17,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex) |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex); Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -43,14 +43,15 @@ back into state. The work itself stays in the workdir.
 
 A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "letter": ... }`
 as its final answer, and the backend CLI holds the model to that shape (Codex
-`--output-schema`, Claude `--json-schema`), so a turn cannot end in prose that only reads like
-a hand-off. The addressee is the one thing the host reads: it is one of the places the role
-can write to, and routing is that and nothing else. The letter is free text, passed to its
-reader as written: they see the workspace and the letter, not the writer's conversation, so a
-letter that hands on new work is that work's whole brief. The operator reads every letter, so
-the letters are the project's timeline. A hand-off Argus refuses goes back to its writer once,
-in the same session, with the reason; refused again, or a turn that fails, is a failed call,
-recorded as such.
+`--output-schema`, Claude `--json-schema`), or, with no such answer, takes it as the arguments
+of a `hand_off` tool whose call ends the turn (Copilot, Pi), so a turn cannot end in prose that
+only reads like a hand-off. The addressee is the one thing the host reads: it is one of the
+places the role can write to, and routing is that and nothing else. The letter is free text,
+passed to its reader as written: they see the workspace and the letter, not the writer's
+conversation, so a letter that hands on new work is that work's whole brief. The operator reads
+every letter, so the letters are the project's timeline. A hand-off Argus refuses goes back to
+its writer once, in the same session, with the reason; refused again, or a turn that fails, is a
+failed call, recorded as such.
 
 | Role | Writes to |
 |---|---|
@@ -87,12 +88,25 @@ callAgent(request: AgentRequest): Promise<AgentResult>
 (`packages/core/src/types.ts`). The agent layer runs the CLI with the prompt on stdin and
 the form's schema for its final answer, reads its JSON event stream, takes only the
 backend's own completion event as success (Codex `turn.completed`, Claude `result` with
-`subtype: success`), and judges the hand-off the turn ended with: Codex's last message or
-Claude's `structured_output`. The shape is already the strict one OpenAI's structured outputs
-take: both fields required, no other allowed.
+`subtype: success`, Copilot `result` with `exitCode: 0`, Pi `agent_settled` after a last answer
+that did not fail), and judges the hand-off the turn ended with: Codex's last message, Claude's
+`structured_output`, or the `hand_off` call in the last message of Copilot's main agent or of
+Pi. The shape is already the strict one OpenAI's structured outputs take: both fields required,
+no other allowed.
+
+Copilot and Pi have no final answer held to a schema, so each call writes an extension that
+registers `hand_off` with the form's schema: for Copilot a plugin (`--plugin-dir`) whose tool is
+`isTerminal`, its experimental extensions enabled for the run by
+`COPILOT_CLI_ENABLED_FEATURE_FLAGS=EXTENSIONS` (`--experimental` would turn them on in the
+operator's settings for good); for Pi `--extension` with a tool returning `terminate: true`. Pi
+checks the call against the schema, so the model corrects a malformed form inside its turn;
+Copilot does not, and Argus's judgment is the check.
 
 Usage: Codex from the session's rollout file (`token_usage_record`, per request); Claude from
-`result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost.
+`result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost;
+Copilot from the session's event log (`session-state/<id>/events.jsonl`, a
+`session.usage_record` per request, subagents' included), its AI credits as the cost ($0.01
+each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
 read-only, the workdir and the task's write directories writable, a private home per workdir

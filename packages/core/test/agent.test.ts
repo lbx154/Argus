@@ -8,21 +8,20 @@ import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema } from '../src/agent/handoff.js';
-import { callAgent, type AgentRequest, type Backend } from '../src/index.js';
+import { BACKENDS, callAgent, type AgentRequest, type AgentResult, type Backend } from '../src/index.js';
 
-// The fake CLIs stand in for codex and claude on PATH; HOME and ARGUS_HOME are the test's own.
+// The fake CLIs stand in for every backend on PATH; HOME and ARGUS_HOME are the test's own.
 const root = mkdtempSync(join(tmpdir(), 'argus-agent-'));
 const bin = join(root, 'bin');
 const work = join(root, 'work');
 for (const dir of [bin, work, join(root, 'home')]) mkdirSync(dir);
 const fake = fileURLToPath(new URL('./fixtures/fake-agent.mjs', import.meta.url));
-for (const name of ['codex', 'claude']) symlinkSync(fake, join(bin, name));
+for (const name of BACKENDS) symlinkSync(fake, join(bin, name));
 Object.assign(process.env, {
   HOME: join(root, 'home'), ARGUS_HOME: join(root, 'argus'), PATH: `${bin}${delimiter}${process.env.PATH}`,
-  GH_TOKEN: 'push', MY_SECRET: 'secret', ANTHROPIC_API_KEY: 'login',
+  GH_TOKEN: 'push', MY_SECRET: 'secret', ANTHROPIC_API_KEY: 'login', COPILOT_GITHUB_TOKEN: 'login',
 });
-delete process.env.CODEX_HOME;
-delete process.env.CLAUDE_CONFIG_DIR;
+for (const name of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'COPILOT_HOME', 'PI_CODING_AGENT_DIR']) delete process.env[name];
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const usageFile = join(root, 'argus', 'usage.jsonl');
@@ -31,7 +30,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
-  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[];
+  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.' };
 
@@ -47,7 +46,22 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   }
 });
 
-for (const backend of ['codex', 'claude'] as const) {
+// What each fake CLI reports: its model, usage and the credentials it signs in with.
+const codexCost = quoteTokenUsage('gpt-5.5', { input_tokens: 1000, cached_input_tokens: 400, cache_write_tokens: 100, output_tokens: 50 }).cost_usd;
+const reported: Record<Backend, Pick<AgentResult, 'model' | 'usage'> & { env: string[] }> = {
+  codex: { model: 'gpt-5.5', env: [],
+    usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50, reasoning_output_tokens: 20, cost_usd: codexCost } },
+  claude: { model: 'claude-test', env: ['ANTHROPIC_API_KEY'],
+    usage: { input_tokens: 360, cached_input_tokens: 300, output_tokens: 40, reasoning_output_tokens: 5, cost_usd: 0.0123 } },
+  // Two model requests, a subagent's among them, each $0.025 of AI credits.
+  copilot: { model: 'copilot-test', env: ['COPILOT_GITHUB_TOKEN'],
+    usage: { input_tokens: 2400, cached_input_tokens: 1600, output_tokens: 60, reasoning_output_tokens: 20, cost_usd: 0.05 } },
+  // Two assistant messages.
+  pi: { model: 'anthropic/claude-test', env: ['ANTHROPIC_API_KEY'],
+    usage: { input_tokens: 740, cached_input_tokens: 600, output_tokens: 80, reasoning_output_tokens: 10, cost_usd: 0.0084 } },
+};
+
+for (const backend of BACKENDS) {
   test(`${backend}: the form the turn ends with, usage and the raw output are recorded`, async () => {
     const result = await call(backend, { output: handoff });
     assert.equal(result.completed, true);
@@ -55,20 +69,16 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.ok(result.threadId);
     assert.deepEqual(result.handoff, { form: 'engineer', ...handoff });
     assert.deepEqual(seen(backend).schema.properties.to!.enum, ['reviewer', 'engineer', 'planner', 'manager', 'operator']);
+    // Where the form is a tool, its call ends the turn.
+    assert.equal(seen(backend).ends, backend === 'copilot' || backend === 'pi' ? true : undefined);
     // Credentials stay out of the CLI's environment, except the one it signs in with.
-    assert.deepEqual(seen(backend).env, backend === 'claude' ? ['ANTHROPIC_API_KEY'] : []);
-    if (backend === 'codex') {
-      assert.equal(result.model, 'gpt-5.5');
-      const cost = quoteTokenUsage('gpt-5.5', { input_tokens: 1000, cached_input_tokens: 400, cache_write_tokens: 100, output_tokens: 50 }).cost_usd;
-      assert.deepEqual(result.usage, { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50, reasoning_output_tokens: 20, cost_usd: cost });
-    } else {
-      assert.equal(result.model, 'claude-test');
-      assert.deepEqual(result.usage, { input_tokens: 360, cached_input_tokens: 300, output_tokens: 40, reasoning_output_tokens: 5, cost_usd: 0.0123 });
-    }
+    const { env, ...report } = reported[backend];
+    assert.deepEqual(seen(backend).env, env);
+    assert.deepEqual({ model: result.model, usage: result.usage }, report);
     const line = readFileSync(usageFile, 'utf8').trim().split('\n').map(row => JSON.parse(row)).find(row => row.callId === result.callId);
     const { cost_usd, ...tokens } = result.usage!;
     assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, tokens, cost_usd });
-    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"type":"(turn\.completed|result)"/);
+    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"type":"(turn\.completed|result|agent_settled)"/);
   });
 
   test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {

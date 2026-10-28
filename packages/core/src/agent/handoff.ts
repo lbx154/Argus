@@ -1,6 +1,7 @@
 // A hand-off is a letter and its addressee. The addressee (`to`) is the one thing the host
 // reads, and the backend CLI holds the model's final answer to it (Codex --output-schema,
-// Claude --json-schema), so a turn cannot end in prose that only reads like a hand-off. The
+// Claude --json-schema), or, with no such answer, takes the hand-off as a tool whose call ends
+// the turn (Copilot, Pi), so a turn cannot end in prose that only reads like a hand-off. The
 // letter is free text: it reaches the addressee as written, and the operator reads every one.
 
 import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
@@ -56,6 +57,11 @@ export function formSchema(form: Form): PayloadSchema {
     required: ['to', 'letter'],
   };
 }
+
+/** The form as a tool, for a backend whose turn ends with a tool call; its arguments are the form. */
+export const handOffTool = (schema: PayloadSchema) => ({
+  name: 'hand_off', description: `${schema.description} Call it last: the call ends your turn.`, parameters: schema,
+});
 
 /** The hand-off a turn's final answer records, or the reason Argus refuses it. */
 export function judge(form: Form, payload: unknown, check: AgentRequest['check']): string | HandOff {
