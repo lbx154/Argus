@@ -337,6 +337,17 @@ test('a second question that arrives as the first is asked goes back to its writ
   assert.equal(project.tasks[1]?.holder, 'reviewer');
 });
 
+test("the Planner hears only of its own tasks: a letter on the Manager's goes back to its writer", async t => {
+  const { flow, id } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added', refuse: ['planner'] },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.', refuse: ['planner'] },
+    report,
+  ]);
+  const project = await say(flow, id, 'Make me a CSV summary tool');
+  assert.deepEqual([project.status, project.inbox], ['idle', []]);
+});
+
 test('a task that cannot go on as briefed goes back to the Planner, and on to the Manager', async t => {
   const { flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
