@@ -308,6 +308,8 @@ test("a letter for the Manager outlasts its failed turn, and reaches it when the
   const project = await again.settled(id);
   assert.deepEqual([project.status, project.forManager], ['idle', []]);
   assert.equal(next.requests[0]?.prompt, 'From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.');
+  // Taken, it is gone from the record too: a process started after this one never hands it on again.
+  assert.deepEqual(new Store(home).load(id).forManager, []);
 });
 
 test('a failed call stays failed when a letter from the team reaches the Manager: nothing retries it', async t => {

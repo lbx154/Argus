@@ -199,7 +199,10 @@ export class Flow {
   private async handOver(project: Project, letter: string): Promise<void> {
     this.handing.add(letter);
     try {
-      if (await this.manager(project, letter)) project.forManager?.splice(project.forManager.indexOf(letter), 1);
+      if (await this.manager(project, letter)) {
+        project.forManager?.splice(project.forManager.indexOf(letter), 1);
+        this.store.save(project);
+      }
     } finally {
       this.handing.delete(letter);
     }
