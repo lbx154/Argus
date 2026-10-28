@@ -6,9 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { argusHome } from '../store.js';
 import type { AgentRequest, Backend } from '../types.js';
 
-export const argusHome = (): string => process.env.ARGUS_HOME || join(homedir(), '.argus');
 
 let bwrap: boolean | undefined;
 /** Bubblewrap that starts here: a host may refuse it the user namespace it needs. Probed once. */

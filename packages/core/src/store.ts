@@ -5,7 +5,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Backend, Role, Usage } from './types.js';
 
 export type Status = 'working' | 'asking' | 'failed' | 'idle' | 'done';
@@ -70,8 +70,11 @@ export type FlowEvent =
   | { type: 'task.settled'; task: string; status: TaskStatus }
   | { type: 'status'; status: Status; error?: string; question?: Question };
 
+/** The state root: $ARGUS_HOME, absolute, or ~/.argus. */
+export const argusHome = (): string => resolve(process.env.ARGUS_HOME || join(homedir(), '.argus'));
+
 export class Store {
-  constructor(readonly home = process.env.ARGUS_HOME || join(homedir(), '.argus')) {}
+  constructor(readonly home = argusHome()) {}
 
   dir(id: string): string { return join(this.home, 'projects', id); }
 
