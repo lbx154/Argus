@@ -90,15 +90,17 @@ only as what an agent can run or recheck, proven on a real case.
 
 ## The web cockpit
 
-`argus` (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that bearer) serves the
-cockpit and runs the work of its projects in its own process: one Flow call at a time per project,
-in the order asked for, projects side by side. The page reads files as they are: the snapshot from
-`project.json` and `usage.jsonl`, events and the conversation from `events.jsonl` in the
-cockpit's event vocabulary, results from the workdir's files created or changed since the
-project began. A message's stream follows the Manager's turn and ends with its reply; the team's
-work goes on after it. A message sent while work runs, or typed while a reply is under way, waits
-until it stops; Stop interrupts the call under way and Start resumes. The live event stream is
-server-sent events, in both runtimes.
+`argus` serves the cockpit (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that
+bearer) and runs the work of its projects in its own process, projects side by side. The page
+reads files as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
+conversation from `events.jsonl` in the cockpit's event vocabulary, results from the workdir's
+files created or changed since the project began. The operator may write at any time: the
+Manager takes the message up in its next turn, at once unless it is answering a letter from the
+team, while the team's work goes on, and what its letter hands on joins that work. The message
+is recorded when the Manager takes it up, so the Manager's letter after it is its reply; the
+message's stream follows that turn and ends with the reply. Stop interrupts every call under
+way on the project and Start resumes. The live event stream is server-sent events, in both
+runtimes.
 
 The composer's draft is kept in the project's directory, so a reload or another device picks it
 up; a save names the revision it replaces and is refused over one it never saw. Files attached to
@@ -106,7 +108,7 @@ a message are uploaded as they are picked, small ones at once and a large one in
 workdir's `.argus/attachments/<id>/`, out of the results; the message names their paths and the
 Manager reads them, so nothing in Argus reads what they hold. Deleting a project stops its work
 and moves its directory to `$ARGUS_HOME/trash/<id>-<time>`, its workdir left as it is; while the
-interrupted call is still recording how it ended, the deletion is refused rather than waited on.
+interrupted calls are still recording how they ended, the deletion is refused rather than waited on.
 
 The page offers only what the server declares in `/api/meta`. The core declares the required
 capabilities and `project.attachments.v1`; the page hides the settings and model chooser

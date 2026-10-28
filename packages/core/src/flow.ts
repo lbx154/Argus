@@ -1,11 +1,11 @@
-// The flow: every turn ends in a letter to someone. The operator writes to the Manager. A letter
-// to the Engineer opens a task, whose brief it is; the Engineer and the Reviewer write to each
-// other about it, and their letter to anyone else closes it. Open tasks run side by side. The
-// Planner reads its letters when no task is open, and may open several at once; a letter to the
-// Manager is answered at once. Nothing is done or finished: the work rests when no letter waits
-// for anyone but the operator. Where work goes is the
-// addressee and nothing else; the letter is passed on as written. A failed turn is recorded and
-// the flow stops, without a retry; a hand-off Argus refuses goes back to its writer once.
+// The flow: every turn ends in a letter to someone. The operator writes to the Manager, who
+// answers at once, whether or not the team is working. A letter to the Engineer opens a task,
+// whose brief it is; the Engineer and the Reviewer write to each other about it, and their letter
+// to anyone else closes it. Open tasks run side by side. The Planner reads its letters when no
+// task is open, and may open several at once. Nothing is done or finished: the work rests when no
+// letter waits for anyone but the operator. Where work goes is the addressee and nothing else; the
+// letter is passed on as written. A failed turn is recorded and the work stops, without a retry;
+// a hand-off Argus refuses goes back to its writer once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
@@ -21,28 +21,33 @@ const TURN: Record<Role, { form: Form; access: Access }> = {
 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
+  /** Interrupts every call under way, and ends the work. */
   signal?: AbortSignal;
 }
 
 export class Flow {
-  constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
+  /** Each project this flow has opened: one object, which every turn on it shares. */
+  private readonly projects = new Map<string, Project>();
+  /** Each project's work under way, and how to wake it when a Manager turn adds to it. */
+  private readonly works = new Map<string, { done: Promise<void>; wake: () => void }>();
   /** Each project's last Manager turn, which its next one follows. */
-  private readonly managing = new Map<string, Promise<void>>();
+  private readonly managing = new Map<string, Promise<unknown>>();
 
-  /** The operator's message: the Manager's turn, then the team's work until it stops. */
-  async say(id: string, text: string): Promise<Project> {
-    const project = this.store.load(id);
+  constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
+
+  /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
+   * joins the work. Resolves with the Manager's hand-off, or null when the turn failed or `signal`
+   * interrupted it. */
+  say(id: string, text: string, signal?: AbortSignal): Promise<HandOff | null> {
+    const project = this.project(id);
     project.request ||= text;
-    this.record(project, { type: 'message', from: 'operator', text });
     if (project.status === 'failed') this.status(project, 'working');
-    await this.manager(project, text);
-    await this.run(project);
-    return project;
+    return this.manager(project, text, { signal, operator: true });
   }
 
   /** The operator's answer to the open question goes to whoever asked it. */
-  async answer(id: string, text: string): Promise<Project> {
-    const project = this.store.load(id);
+  answer(id: string, text: string): void {
+    const project = this.project(id);
     const question = project.question;
     if (!question) throw new Error(`${id} has no open question`);
     this.record(project, { type: 'message', from: 'operator', text });
@@ -51,21 +56,44 @@ export class Flow {
     const note = answered(question.question, text);
     if (question.role === 'planner') project.inbox.push(note);
     else Object.assign(this.task(project, question.task), { holder: question.role, note: { from: 'operator', text: note } });
-    await this.run(project);
-    return project;
+    this.run(project);
   }
 
   /** Carry on where the work stopped: after an interruption, or a failed call the operator retries. */
-  async resume(id: string): Promise<Project> {
-    const project = this.store.load(id);
+  resume(id: string): void {
+    const project = this.project(id);
     if (project.status === 'failed') this.status(project, 'working');
-    await this.run(project);
+    this.run(project);
+  }
+
+  /** The project once nothing is under way on it: no Manager turn, no work. */
+  async settled(id: string): Promise<Project> {
+    for (let busy = this.busy(id); busy.length; busy = this.busy(id)) await Promise.all(busy);
+    return this.project(id);
+  }
+
+  private busy(id: string): Promise<unknown>[] {
+    return [this.managing.get(id), this.works.get(id)?.done].filter(promise => promise !== undefined);
+  }
+
+  private project(id: string): Project {
+    const project = this.projects.get(id) ?? this.store.load(id);
+    this.projects.set(id, project);
     return project;
   }
 
-  /** Every open task goes on in its own turns, a task opened meanwhile as soon as one ends; with
-   * none open, the Planner reads its letters. */
-  private async run(project: Project): Promise<void> {
+  /** Start the project's work, or wake the work under way to take up what a Manager turn added. */
+  private run(project: Project): void {
+    const under = this.works.get(project.id);
+    if (under) return under.wake();
+    const work = { done: Promise.resolve(), wake: () => {} };
+    this.works.set(project.id, work);
+    work.done = this.carryOn(project, work).finally(() => this.works.delete(project.id));
+  }
+
+  /** Every open task goes on in its own turns, one opened meanwhile at once; with none open, the
+   * Planner reads its letters. */
+  private async carryOn(project: Project, work: { wake: () => void }): Promise<void> {
     const running = new Map<Task, Promise<void>>();
     for (;;) {
       if (this.going(project)) {
@@ -73,7 +101,7 @@ export class Flow {
           if (!running.has(task)) running.set(task, this.carry(project, task).finally(() => running.delete(task)));
         }
       }
-      if (running.size) await Promise.race(running.values());
+      if (running.size) await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
       else if (!this.going(project)) break;
       else if (project.inbox.length) await this.plan(project);
       else this.status(project, 'idle');
@@ -90,29 +118,37 @@ export class Flow {
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
-  private manager(project: Project, message: string): Promise<void> {
-    const turn = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message));
-    this.managing.set(project.id, turn.catch(() => undefined));
-    return turn;
+  private manager(project: Project, message: string, turn: { signal?: AbortSignal | undefined; operator?: boolean } = {}): Promise<HandOff | null> {
+    const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message, turn));
+    const last: Promise<unknown> = next.catch(() => null).finally(() => {
+      if (this.managing.get(project.id) === last) this.managing.delete(project.id);
+    });
+    this.managing.set(project.id, last);
+    return next;
   }
 
-  private async managerTurn(project: Project, message: string): Promise<void> {
+  private async managerTurn(project: Project, message: string, { signal, operator }: { signal?: AbortSignal | undefined; operator?: boolean }):
+    Promise<HandOff | null> {
+    if (signal?.aborted) return null;
+    // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
+    if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed)))?.handoff;
-    if (!handoff) return;
-    // A letter to the operator is the Manager's reply; one to the team sets it working.
-    const { to } = handoff;
-    const letter = read(handoff);
-    if (to === 'operator') return;
-    if (to === 'engineer') this.open(project, 'manager', letter);
-    else project.inbox.push(handedTo('manager', null, letter));
-    if (!project.question) this.status(project, 'working');
+      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed), { signal }))?.handoff ?? null;
+    // A letter to the operator is the Manager's reply; one to the team adds to the work.
+    if (handoff && handoff.to !== 'operator') {
+      const letter = read(handoff);
+      if (handoff.to === 'engineer') this.open(project, 'manager', letter);
+      else project.inbox.push(handedTo('manager', null, letter));
+      if (!project.question) this.status(project, 'working');
+    }
+    this.run(project);
+    return handoff;
   }
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store.dir(project.id), task, resumed),
-      oneQuestion(project)))?.handoff;
+      { check: oneQuestion(project) }))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
     const letter = read(handoff);
@@ -134,24 +170,29 @@ export class Flow {
   }
 
   private async plan(project: Project): Promise<void> {
+    // Letters that reach the Planner during its turn wait for its next one.
+    const taken = project.inbox.length;
     const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, this.store.dir(project.id), resumed)))?.handoff;
     if (!handoff) return;
-    project.inbox = [];
+    project.inbox.splice(0, taken);
     const { to, letters } = handoff;
     if (to === 'engineer') for (const letter of letters) this.open(project, 'planner', letter);
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
     else await this.manager(project, handedTo('planner', null, read(handoff)));
   }
 
-  /** One backend turn that ends in an accepted form; null when it failed (recorded, the flow
+  /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     formCheck?: Check, refused?: string): Promise<AgentResult | null> {
+                     turn: { check?: Check; signal?: AbortSignal | undefined; refused?: string } = {}): Promise<AgentResult | null> {
+    const { check, refused } = turn;
+    const signals = [this.options.signal, turn.signal].filter(signal => signal !== undefined);
+    const signal = signals.length ? AbortSignal.any(signals) : undefined;
+    if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
     const resume = project.sessions[key];
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
-    const { signal } = this.options;
     this.record(project, { type: 'call.start', role, ...where });
     let result: AgentResult;
     try {
@@ -161,7 +202,7 @@ export class Flow {
         // Every role reads Argus's record of the project and the ways of working.
         readDirs: [dir, ...wayRoots(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
-        ...(formCheck ? { check: formCheck } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        ...(check ? { check } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (error) {
       if (!signal?.aborted) this.status(project, 'failed', error instanceof Error ? error.message : String(error));
@@ -175,7 +216,7 @@ export class Flow {
       for (const letter of handoff.letters) this.record(project, { type: 'handoff', role, ...where, to: handoff.to, letter });
       return result;
     }
-    if (completed && threadId && !refused) return this.call(project, role, task, prompt, formCheck, error ?? '');
+    if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
     if (!signal?.aborted) {
       this.status(project, 'failed', completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
     }

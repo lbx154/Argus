@@ -64,15 +64,15 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         });
         break;
       case 'handoff':
-        // The Manager's letter is its reply, unless it asks: the decision card carries a question.
-        if (event.role === 'manager' && event.to !== 'operator') {
+        // Every letter of the Manager's is in the conversation: its reply, and what it hands the team.
+        if (event.role === 'manager') {
           row('ui.argus', { agent_layer: 'manager', text: event.letter, message_id: `m${asked ?? line}-argus` });
           asked = null;
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });
         } else if (event.role === 'engineer' && event.to === 'reviewer') {
           row('engineer.progress', { kind: 'agent_message', agent_layer: 'engineer', text: event.letter, ...where });
-        } else if (event.role !== 'manager') {
+        } else {
           row('round.review.completed', {
             status: event.to, reason: event.letter, review_source: event.role === 'reviewer' ? 'reviewer' : 'engineer_handoff', ...where,
           });
