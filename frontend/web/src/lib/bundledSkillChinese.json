@@ -81,7 +81,7 @@
     "summary": "写清目标、验收标准、约束和背景，选好工作流程后交工单；团队自己规划、验收、推进阶段，经理不替它裁决。",
     "originalName": "Handing work to the team",
     "source": "argus/builtin_skills/manager/team-handoff/SKILL.md",
-    "sourceBytes": 5900
+    "sourceBytes": 5752
   },
   "global/manager/workspace-and-view/SKILL.md": {
     "title": "工作区与进度查看",
