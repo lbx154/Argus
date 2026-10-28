@@ -37,8 +37,9 @@ export interface HandOff {
   form: Form;
   /** Who holds the work next; the only part the host reads. */
   to: string;
-  /** Free text for them, passed on as written; the operator reads it too. */
-  letter: string;
+  /** Free text for them, passed on as written; the operator reads it too. One letter, except
+   * when the Planner opens several tasks at once: one letter each. */
+  letters: string[];
 }
 
 export interface Usage {

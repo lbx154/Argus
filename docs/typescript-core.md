@@ -56,18 +56,21 @@ a failed call, recorded as such.
 | Role | Writes to |
 |---|---|
 | Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
-| Planner | `engineer`: the next task, a result to carry through, the letter its brief; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question the work waits on |
+| Planner | `engineer`: the next tasks, a letter each, each a result to carry through and its letter its brief; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question the work waits on |
 | Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
 | Reviewer | `engineer`: repairs; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
 
 A letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
 the two of them closes it, and stays on it as its last word. Nothing is done or finished: the
-host never decides whether a task succeeded, the letter says so. The Planner cuts work too
-large for one task into a few large ones, each ending in a result rather than a plan for a
-later one, and hands them out one at a time. There are no stages: what a research project calls
-its stages is the order of the tasks the Planner writes. The work rests (`idle`) when no letter
-waits for anyone but the operator, which is after the Manager's report; the Manager may also
-finish a small request in its own turn.
+host never decides whether a task succeeded, the letter says so. Open tasks run side by side,
+in the same workspace. The Planner cuts work too large for one task into a few large ones, each
+ending in a result rather than a plan for a later one; those that do not depend on each other
+it opens together, a letter each, and it reads their letters together when all have ended.
+Letters to the Manager are answered one after another, and the operator is asked one question
+at a time: a second, while one is open, goes back to its writer. There are no stages: what a
+research project calls its stages is the order of the tasks the Planner writes. The work rests
+(`idle`) when no letter waits for anyone but the operator, which is after the Manager's report;
+the Manager may also finish a small request in its own turn.
 
 ## Ways of working
 

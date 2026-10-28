@@ -1,8 +1,9 @@
 // The flow: every turn ends in a letter to someone. The operator writes to the Manager. A letter
 // to the Engineer opens a task, whose brief it is; the Engineer and the Reviewer write to each
-// other about it, and their letter to anyone else closes it. The Planner reads its letters when
-// no task is open; a letter to the Manager is answered at once. Nothing is done or finished:
-// the work rests when no letter waits for anyone but the operator. Where work goes is the
+// other about it, and their letter to anyone else closes it. Open tasks run side by side. The
+// Planner reads its letters when no task is open, and may open several at once; a letter to the
+// Manager is answered at once. Nothing is done or finished: the work rests when no letter waits
+// for anyone but the operator. Where work goes is the
 // addressee and nothing else; the letter is passed on as written. A failed turn is recorded and
 // the flow stops, without a retry; a hand-off Argus refuses goes back to its writer once.
 
@@ -25,6 +26,8 @@ export interface FlowOptions {
 
 export class Flow {
   constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
+  /** Each project's last Manager turn, which its next one follows. */
+  private readonly managing = new Map<string, Promise<void>>();
 
   /** The operator's message: the Manager's turn, then the team's work until it stops. */
   async say(id: string, text: string): Promise<Project> {
@@ -60,22 +63,46 @@ export class Flow {
     return project;
   }
 
+  /** Every open task goes on in its own turns, a task opened meanwhile as soon as one ends; with
+   * none open, the Planner reads its letters. */
   private async run(project: Project): Promise<void> {
-    while (project.status === 'working' && !this.options.signal?.aborted) {
-      const task = nextTask(project);
-      if (task) await this.work(project, task);
+    const running = new Map<Task, Promise<void>>();
+    for (;;) {
+      if (this.going(project)) {
+        for (const task of openTasks(project)) {
+          if (!running.has(task)) running.set(task, this.carry(project, task).finally(() => running.delete(task)));
+        }
+      }
+      if (running.size) await Promise.race(running.values());
+      else if (!this.going(project)) break;
       else if (project.inbox.length) await this.plan(project);
       else this.status(project, 'idle');
     }
     this.store.save(project);
   }
 
-  private async manager(project: Project, message: string): Promise<void> {
+  private going(project: Project): boolean {
+    return project.status === 'working' && !this.options.signal?.aborted;
+  }
+
+  private async carry(project: Project, task: Task): Promise<void> {
+    while (task.status === 'open' && this.going(project)) await this.work(project, task);
+  }
+
+  /** The Manager's turns on a project come one after another, in the order their letters came. */
+  private manager(project: Project, message: string): Promise<void> {
+    const turn = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message));
+    this.managing.set(project.id, turn.catch(() => undefined));
+    return turn;
+  }
+
+  private async managerTurn(project: Project, message: string): Promise<void> {
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed), checkManager(project)))?.handoff;
+      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed)))?.handoff;
     if (!handoff) return;
     // A letter to the operator is the Manager's reply; one to the team sets it working.
-    const { to, letter } = handoff;
+    const { to } = handoff;
+    const letter = read(handoff);
     if (to === 'operator') return;
     if (to === 'engineer') this.open(project, 'manager', letter);
     else project.inbox.push(handedTo('manager', null, letter));
@@ -84,9 +111,11 @@ export class Flow {
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store.dir(project.id), task, resumed)))?.handoff;
+    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store.dir(project.id), task, resumed),
+      oneQuestion(project)))?.handoff;
     if (!handoff) return;
-    const { to, letter } = handoff;
+    const { to } = handoff;
+    const letter = read(handoff);
     switch (to) {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
@@ -108,10 +137,10 @@ export class Flow {
     const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, this.store.dir(project.id), resumed)))?.handoff;
     if (!handoff) return;
     project.inbox = [];
-    const { to, letter } = handoff;
-    if (to === 'engineer') this.open(project, 'planner', letter);
-    else if (to === 'operator') this.ask(project, 'planner', null, letter);
-    else await this.manager(project, handedTo('planner', null, letter));
+    const { to, letters } = handoff;
+    if (to === 'engineer') for (const letter of letters) this.open(project, 'planner', letter);
+    else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
+    else await this.manager(project, handedTo('planner', null, read(handoff)));
   }
 
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the flow
@@ -143,7 +172,7 @@ export class Flow {
     if (completed && threadId) project.sessions[key] = threadId;
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {
-      this.record(project, { type: 'handoff', role, ...where, to: handoff.to, letter: handoff.letter });
+      for (const letter of handoff.letters) this.record(project, { type: 'handoff', role, ...where, to: handoff.to, letter });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, formCheck, error ?? '');
@@ -194,17 +223,14 @@ export class Flow {
   }
 }
 
-/** The open task, the one worked next: there is at most one. */
-export function nextTask({ tasks }: Project): Task | undefined {
-  return tasks.find(task => task.status === 'open');
-}
+export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => task.status === 'open');
+
+/** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
+const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 type Check = (handoff: HandOff) => string | null;
 
-/** The rule the Manager's form cannot say: the Engineer works one task at a time. A returned string
- * refuses the hand-off, and the Manager corrects it in one more turn of its session. */
-const checkManager = (project: Project): Check => ({ to }) => {
-  const open = nextTask(project);
-  return to === 'engineer' && open
-    ? `The Engineer is still on ${open.id} (${open.title}): write to the Planner to steer the work, or to the operator.` : null;
-};
+/** The rule a task's form cannot say: the operator answers one question at a time. A returned
+ * string refuses the hand-off, and its writer corrects it in one more turn of its session. */
+const oneQuestion = (project: Project): Check => ({ to }) => to === 'operator' && project.question
+  ? `The operator has yet to answer another question: carry on without them, or write to someone else.` : null;

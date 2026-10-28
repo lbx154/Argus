@@ -49,7 +49,9 @@ export function taskPrompt(project: Project, record: string, task: Task, resumed
   // How each earlier task ended is in Argus's record, which the workspace may not say.
   const earlier = project.tasks.filter(other => other.status === 'closed')
     .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);
+  const beside = project.tasks.filter(other => other.status === 'open' && other !== task).map(({ id, title }) => `- ${id} ${title}`);
   return join(rules(task.holder), where(project, record), earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
+    beside.length > 0 && section('Running beside it, in the same workspace', beside.join('\n')),
     section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note);
 }
 

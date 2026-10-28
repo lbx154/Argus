@@ -46,6 +46,8 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
     'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
   assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required']);
+  // The Planner's letters to the Engineer open a task each.
+  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.
   for (const form of ['manager', 'plan', 'engineer', 'review'] as const) {
     const { properties, required, additionalProperties } = formSchema(form);
@@ -74,7 +76,7 @@ for (const backend of BACKENDS) {
     assert.equal(result.completed, true);
     assert.equal(result.error, null);
     assert.ok(result.threadId);
-    assert.deepEqual(result.handoff, { form: 'engineer', ...handoff });
+    assert.deepEqual(result.handoff, { form: 'engineer', to: handoff.to, letters: [handoff.letter] });
     assert.deepEqual(seen(backend).schema.properties.to!.enum, ['reviewer', 'engineer', 'planner', 'manager', 'operator']);
     // Where the form is a tool, its call ends the turn.
     assert.equal(seen(backend).ends, backend === 'copilot' || backend === 'pi' ? true : undefined);

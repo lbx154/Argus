@@ -19,7 +19,7 @@ const TO: Record<Form, Record<string, string>> = {
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next task, a result for the Engineer to carry through; the letter is its whole brief',
+    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, and its letter is its whole brief; they run side by side',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
   },
@@ -39,17 +39,19 @@ const TO: Record<Form, Record<string, string>> = {
 };
 
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
+const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
 
 export function formSchema(form: Form): PayloadSchema {
   const to = TO[form];
   const meanings = Object.entries(to).map(([place, meaning]) => `${place}, ${meaning}`).join('; ');
+  const letter: PayloadSchema = { type: 'string', minLength: 1, maxLength: 20000 };
+  // The Planner may open several tasks at once; every other turn ends in one letter.
+  const [name, letters]: [string, PayloadSchema] = form === 'plan'
+    ? ['letters', { type: 'array', minItems: 1, items: letter, description: LETTERS }] : ['letter', { ...letter, description: LETTER }];
   return {
     type: 'object', description: 'Your hand-off: the final answer of your turn.', additionalProperties: false,
-    properties: {
-      to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` },
-      letter: { type: 'string', minLength: 1, maxLength: 20000, description: LETTER },
-    },
-    required: ['to', 'letter'],
+    properties: { to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, [name]: letters },
+    required: ['to', name],
   };
 }
 
@@ -63,6 +65,7 @@ export function judge(form: Form, payload: unknown, check: AgentRequest['check']
   if (payload === undefined) return 'The turn ended without the hand-off form.';
   const errors = schemaErrors(payload, formSchema(form));
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
-  const handoff: HandOff = { form, to: String(payload.to), letter: String(payload.letter).trim() };
+  const letters = Array.isArray(payload.letters) ? payload.letters : [payload.letter];
+  const handoff: HandOff = { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()) };
   return check?.(handoff) ?? handoff;
 }
