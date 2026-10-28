@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
@@ -359,4 +359,58 @@ test('deleting a project stops its work and moves its directory to the trash, it
   assert.equal((await remove(sid)).status, 200);
   assert.equal((await call(`${P}/snapshot`)).status, 404);
   assert.deepEqual((await get<{ projects: unknown[] }>('/api/projects')).projects, []);
+});
+
+interface Attachment { attachment_id: string; relative_path: string; original_name: string; stored_name: string; mime: string; size_bytes: number }
+interface UploadState { attachment_id: string; offset: number; size_bytes: number; complete: boolean; attachment?: Attachment }
+
+test('attached files land in the workdir, and the message that carries them says where', async t => {
+  const { call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);
+  const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const P = `/api/projects/${sid}`;
+  assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.attachments.v1'));
+  assert.deepEqual(await get(`${P}/attachments/limits`), { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 });
+
+  // Small files in one request, as the page sends them.
+  const form = new FormData();
+  form.append('files', new Blob(['a,b\n1,2\n'], { type: 'text/csv' }), 'data.csv');
+  form.append('files', new Blob(['# Notes'], { type: 'text/markdown' }), '../.notes.md');
+  const { attachments: [csv, notes] } = await (await call(`${P}/attachments`, { method: 'POST', body: form })).json() as { attachments: Attachment[] };
+  assert.deepEqual(csv, {
+    attachment_id: csv!.attachment_id, relative_path: `.argus/attachments/${csv!.attachment_id}/data.csv`,
+    original_name: 'data.csv', stored_name: 'data.csv', mime: 'text/csv', size_bytes: 8,
+  });
+  assert.equal(notes!.stored_name, 'notes.md');
+  assert.equal(await readFile(join(workdir, csv!.relative_path), 'utf8'), 'a,b\n1,2\n');
+
+  // A large file in parts, each appended where the last ended.
+  const begun = await (await post(`${P}/attachments/uploads`, { name: 'weights.bin', mime: 'application/octet-stream', size_bytes: 6 })).json() as UploadState;
+  assert.deepEqual(begun, { attachment_id: begun.attachment_id, offset: 0, size_bytes: 6, complete: false });
+  const U = `${P}/attachments/uploads/${begun.attachment_id}`;
+  const put = (offset: number, body: string) => call(`${U}?offset=${offset}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body });
+  assert.equal((await (await put(0, 'abc')).json() as UploadState).offset, 3);
+  assert.equal((await put(0, 'abc')).status, 409);
+  assert.equal((await post(`${U}/complete`, {})).status, 409);
+  assert.equal((await put(3, 'defg')).status, 413);
+  assert.equal((await (await put(3, 'def')).json() as UploadState).offset, 6);
+  const weights = (await (await post(`${U}/complete`, {})).json() as UploadState).attachment!;
+  assert.equal(weights.relative_path, `.argus/attachments/${begun.attachment_id}/weights.bin`);
+  assert.deepEqual(await get(U), { attachment_id: begun.attachment_id, offset: 6, size_bytes: 6, complete: true, attachment: weights });
+  assert.equal(await readFile(join(workdir, weights.relative_path), 'utf8'), 'abcdef');
+
+  // One taken out of the draft, one begun and cancelled: neither is kept.
+  assert.deepEqual(await (await call(`${P}/attachments/${notes!.attachment_id}`, { method: 'DELETE' })).json(),
+    { discarded: true, attachment_id: notes!.attachment_id });
+  const cancelled = `${P}/attachments/uploads/${(await (await post(`${P}/attachments/uploads`, { name: 'x.txt', size_bytes: 1 })).json() as UploadState).attachment_id}`;
+  assert.deepEqual(await (await call(cancelled, { method: 'DELETE' })).json(), { cancelled: true });
+  assert.equal((await call(cancelled)).status, 404);
+  assert.deepEqual((await readdir(join(workdir, '.argus', 'attachments'))).sort(), [csv!.attachment_id, weights.attachment_id].sort());
+  // The operator's files are not results of the work.
+  assert.deepEqual((await get<{ artifacts: unknown[] }>(`${P}/artifacts`)).artifacts, []);
+
+  // The Manager is told where they are, and reads them there.
+  assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: [{ attachment_id: notes!.attachment_id }] })).status, 400);
+  const files = [csv!, weights].map(({ attachment_id }) => ({ attachment_id }));
+  assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: files })).status, 200);
+  assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
 });
