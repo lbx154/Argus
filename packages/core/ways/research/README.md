@@ -6,6 +6,10 @@ Reviewer accepts work against its "done when". Beside this overview are `skills/
 situation, opened when that situation comes up, and `checks/`, scripts that check what can be
 checked mechanically.
 
+It is for work that ends in a claim others should trust: a method, an experiment, a paper. A
+measurement, a one-off script or a comparison someone asked for in a sentence needs none of it:
+do it, check it, and report what came out.
+
 ## How the work goes
 
 Research goes through four steps, in this order:
