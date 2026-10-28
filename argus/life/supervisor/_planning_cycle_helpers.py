@@ -185,30 +185,48 @@ def _research_project_done_issue(
                 ):
                     continue
             return ""
-        delivery = extra.get("delivery")
-        if (
-            not submission_candidate_exists
-            and extra.get("operator_request") is True
-            and extra.get("success") is True
-            and extra.get("review_source") == "reviewer"
-            and isinstance(delivery, dict)
-            and delivery.get("review_source") == "reviewer"
+        # A paper keeps its venue-bound certification.
+        if not submission_candidate_exists and _reviewed_request_is_current(
+            extra,
+            candidate_root=candidate_root,
+            delivery_state_root=(
+                delivery_state_root if delivery_state_root is not None else project_root
+            ),
         ):
-            # The operator's whole request, accepted by its own independent
-            # Reviewer, with every delivered file unchanged since: that review
-            # is the final one, and a second full review of the same files
-            # would only repeat it. A paper keeps its venue-bound certification.
-            from ..delivery import delivery_is_current
-
-            if delivery_is_current(
-                str(extra.get("execution_workdir") or candidate_root),
-                delivery_state_root if delivery_state_root is not None else project_root,
-                delivery.get("snapshots") or (),
-            ):
-                return ""
+            return ""
     if target_level is None:
         return ""
     return f"missing_{target_level}_reviewer_certification"
+
+
+def _reviewed_request_is_current(
+    extra: dict[str, Any],
+    *,
+    candidate_root: Path,
+    delivery_state_root: object,
+) -> bool:
+    """Whether a journal record is the operator's request, accepted and unchanged.
+
+    The operator's whole request, accepted by its own independent Reviewer,
+    with every delivered file unchanged since: that review is the final one,
+    and a second full review of the same files would only repeat it.
+    """
+    delivery = extra.get("delivery")
+    if not (
+        extra.get("operator_request") is True
+        and extra.get("success") is True
+        and extra.get("review_source") == "reviewer"
+        and isinstance(delivery, dict)
+        and delivery.get("review_source") == "reviewer"
+    ):
+        return False
+    from ..delivery import delivery_is_current
+
+    return delivery_is_current(
+        str(extra.get("execution_workdir") or candidate_root),
+        delivery_state_root,
+        delivery.get("snapshots") or (),
+    )
 
 
 def _staged_goal_completion_issue(project_root: object) -> str:

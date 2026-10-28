@@ -189,13 +189,26 @@ describe('App session composer ownership', () => {
     setContinuous.mockClear();
     const control = () => props().continuousControl as { type?: unknown; props: ComponentProps<typeof ContinuousSwitch> };
     for (const enabled of [false, true]) {
-      fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled, objective: 'keep improving the model' } } });
+      fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled, open_ended: enabled, objective: 'keep improving the model' } } });
       refresh();
       expect(control().type).toBe(ContinuousSwitch);
       expect(control().props.enabled).toBe(enabled);
       act(() => control().props.onToggle());
       expect(setContinuous).toHaveBeenLastCalledWith({ enabled: !enabled, objective: 'keep improving the model' }, expect.any(Object));
     }
+  });
+  it('shows a finite task as not keeping going: its campaign ends when the task is done', () => {
+    // A bounded CartPole study armed a finite campaign (enabled, not open-ended)
+    // and the switch read only `enabled`, so it showed 持续推进 on although the
+    // person never turned it on.
+    const setContinuous = fixture.actions.setContinuous.mutate;
+    setContinuous.mockClear();
+    const control = () => props().continuousControl as { props: ComponentProps<typeof ContinuousSwitch> };
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled: true, open_ended: false, objective: 'write the CartPole report' } } });
+    refresh();
+    expect(control().props.enabled).toBe(false);
+    act(() => control().props.onToggle());
+    expect(setContinuous).toHaveBeenLastCalledWith({ enabled: true, objective: 'write the CartPole report' }, expect.any(Object));
   });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');

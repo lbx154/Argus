@@ -64,7 +64,7 @@ import {
 import { mergeProjectCosts } from './lib/projectCosts';
 import { errorText, managerStreamFailureMessage } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
-import { useProjectDaemonActions } from './useProjectDaemonActions';
+import { keepsGoing, useProjectDaemonActions } from './useProjectDaemonActions';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
@@ -1313,7 +1313,7 @@ export default function App() {
             ? [
                 {
                   id: 'continuous',
-                  label: continuous.enabled ? t('palette.stopContinuous') : t('palette.startContinuous'),
+                  label: keepsGoing(continuous) ? t('palette.stopContinuous') : t('palette.startContinuous'),
                   group: t('palette.action'),
                   run: toggleContinuous,
                 },
@@ -1337,7 +1337,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
@@ -1576,7 +1576,7 @@ export default function App() {
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
                       modelControl={activeSid && !kiosk ? <ModelPickerButton sid={snap.session.id} onOpenSettings={() => setOverlay('config')} /> : undefined}
-                      continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={continuous.enabled} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
+                      continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
                     />
                     {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                       {draftStorageError
