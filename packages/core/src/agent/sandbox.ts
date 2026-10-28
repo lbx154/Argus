@@ -93,11 +93,13 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
   }
   const dir = process.env.CODEX_HOME || join(homedir(), '.codex');
   const config = read(join(dir, 'config.toml'));
+  // A setting's string, in TOML's quotes, double or single.
+  const values = (keys: string): string[] => [...config.matchAll(new RegExp(`^\\s*(?:${keys})\\s*=\\s*(?:"([^"]+)"|'([^']+)')`, 'gm'))]
+    .map(([, double, single]) => (double ?? single)!);
   // Files the config names for codex to read before its first turn; one missing fails the call.
-  const named = [...config.matchAll(
-    /^\s*(?:model_catalog_json|model_instructions_file|experimental_compact_prompt_file|experimental_instructions_file)\s*=\s*"([^"]+)"/gm,
-  )].map(([, value]) => value!.startsWith('~/') ? join(homedir(), value!.slice(2)) : resolve(dir, value!));
-  const keys = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY', ...[...config.matchAll(/^\s*env_key\s*=\s*"([^"]+)"/gm)].map(([, key]) => key!)]);
+  const named = values('model_catalog_json|model_instructions_file|experimental_compact_prompt_file|experimental_instructions_file')
+    .map(value => value.startsWith('~/') ? join(homedir(), value.slice(2)) : resolve(dir, value));
+  const keys = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY', ...values('env_key')]);
   return {
     login: [join(dir, 'auth.json')], settings: [join(dir, 'config.toml'), join(dir, 'AGENTS.md'), ...named],
     signsInWith: name => keys.has(name),
