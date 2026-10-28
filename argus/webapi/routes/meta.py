@@ -206,12 +206,12 @@ def register_meta_routes(app, ctx: ServerContext) -> None:
         from ...core.hosting import hosting
         from .. import model_choices
 
-        project_dir = ctx.resolve_or_404(sid)
+        life_dir = ctx.resolve_or_404(sid)
         if hosting().enabled():
             raise HTTPException(status_code=409, detail="the hosted trial chooses its own model")
         try:
             return model_choices.probe_model(
-                body.model, project_dir, global_root=ctx.project_root_or_404(sid),
+                body.model, life_dir, global_root=ctx.project_root_or_404(sid),
             )
         except LookupError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
