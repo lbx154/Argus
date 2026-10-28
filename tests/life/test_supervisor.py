@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from argus.core.event_catalog import EventType
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory, park_reason
 from argus.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
@@ -901,11 +901,11 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
     assert blocked and blocked[0].status == "parked"
 
 
-def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
-    """The Reviewer's ``replan_requested`` stands however often it repeats:
-    a planned node goes back to pending for its plan's revision and is
-    re-dispatched, never rewritten into a no-progress failure by a host-side
-    count."""
+def test_replan_requested_parks_the_node_for_its_plan_revision(tmp_path) -> None:
+    """The Reviewer's ``replan_requested`` hands a planned node to the Planner:
+    it parks in the Planner's hands for its plan's revision, is not dispatched
+    again by a free slot meanwhile, and is never rewritten into a no-progress
+    failure by a host-side count."""
     mem = LifeMemory.open(tmp_path / "life")
     runner = _CountingReplanRunner()
     sup = LifeSupervisor(
@@ -922,12 +922,13 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
         plan_id="plan-1", plan_version=1,
     ))
 
-    for calls in range(1, 5):
-        result = sup.tick()
-        assert result is not None and result["status"] == "planner"
-        row = {row.id: row for row in mem.backlog.all()}[item.id]
-        assert row.status == "pending"
-        assert runner.calls == calls
+    result = sup.tick()
+    assert result is not None and result["status"] == "planner"
+    for _ in range(3):
+        sup.tick()
+    row = {row.id: row for row in mem.backlog.all()}[item.id]
+    assert (row.status, park_reason(row)) == ("parked", "research_open")
+    assert runner.calls == 1
 
     assert not [
         e for e in mem.journal.all()

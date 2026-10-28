@@ -671,8 +671,10 @@ def _assert_replan_replace_commits_after_source_terminalized(
     outcome = supervisor._run_one(trigger)
 
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
-    # The Planner's replacement, not a progress bit, retires it.
-    assert rows_after_run["source-route"].status == "pending"
+    # The Planner's replacement, not a progress bit, retires it; until then it
+    # is the Planner's, not a free slot's to claim.
+    assert rows_after_run["source-route"].status == "parked"
+    assert supervisor.memory.backlog.next_pending() is None
     assert outcome["status"] == "planner"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",
@@ -786,3 +788,52 @@ def test_research_planner_is_granted_the_playbook_its_prompt_names(
     assert named.is_file()
     assert str(named.parent) in config.add_dirs
     assert str(named.parents[3]) not in config.add_dirs
+
+
+def test_a_plan_task_handed_to_the_planner_waits_for_the_revision_unclaimed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """s-5dc7ab4a (10-27 23:18, 23:19, 23:58): three experiment arms handed to
+    the Planner for a shared-code repair were claimed again by a free mission
+    slot 13-27 s later, while the Planner was still writing the revision; one
+    re-ran its Engineer ($0.29) and each drew an Observer note and a Manager
+    check. Handed to the Planner, the task is the Planner's until its revision
+    retires or replaces it."""
+
+    class _HandsToPlanner:
+        def execute(self, **_kwargs):  # noqa: ANN003
+            return SimpleNamespace(
+                success=False, status="planner", rounds=1,
+                stop_reason="the shared runner rejects the official metadata; this arm may not edit it",
+                final_review_status="planner",
+                final_review_reason="Schedule the shared repair, then rerun this arm.",
+                stage_transition={},
+            )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    planner = _PlannerBackend([
+        plan(summary="repair the shared runner first, then rerun the arm", tasks=[
+            {"key": "repair", "title": "Repair the shared metadata path",
+             "objective": "Make the runner keep official metadata.", "acceptance_check": "spec passes"},
+            {"key": "arm", "title": "Rerun the paired-credit arm", "objective": "Run the arm.",
+             "acceptance_check": "the run completes", "deps": ["repair"]},
+        ])
+    ])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    supervisor.runner = _HandsToPlanner()
+    arm = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Paired-credit arm", objective="Run the paired-credit arm.",
+        item_id="arm", plan_id="plan-arms", plan_version=1, node_key="arm",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+
+    outcome = supervisor._run_one(arm)
+
+    assert supervisor.memory.backlog.next_pending() is None, "no slot claims it before the revision"
+    assert supervisor._plan_next_work(revision_request=outcome) is True
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows["arm"].status == "superseded"
+    assert supervisor.memory.backlog.next_pending().title == "Repair the shared metadata path"
