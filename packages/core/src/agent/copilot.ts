@@ -28,8 +28,7 @@ export const copilot: StartBackend = (request, { confined, started, schema, stem
     // Inside bubblewrap the sandbox is bubblewrap's; outside it, copilot's own path checks. A
     // turn that may not write sees only the tools that read.
     request.access === 'write' && confined ? '--yolo' : '--allow-all-tools',
-    ...request.access === 'none' ? [`--available-tools=${tool.name}`]
-      : request.access === 'read' ? [`--available-tools=view,rg,glob,${tool.name}`] : [],
+    ...request.access === 'read' ? [`--available-tools=view,rg,glob,${tool.name}`] : [],
     ...[...request.readDirs ?? [], ...request.writeDirs ?? []].flatMap(dir => ['--add-dir', dir]),
     '--plugin-dir', plugin,
     ...request.resume ? [`--resume=${request.resume}`] : [],

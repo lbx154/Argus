@@ -20,7 +20,7 @@ export const pi: StartBackend = (request, { schema, stem }) => {
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--thinking', request.effort] : [],
     // A turn that may not write sees only the tools that read.
-    ...request.access === 'none' ? ['--tools', tool.name] : request.access === 'read' ? ['--tools', `read,grep,find,ls,${tool.name}`] : [],
+    ...request.access === 'read' ? ['--tools', `read,grep,find,ls,${tool.name}`] : [],
     ...request.resume ? ['--session', request.resume] : [],
   ];
   let threadId = request.resume ?? null;

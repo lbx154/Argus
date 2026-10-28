@@ -27,7 +27,6 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
       : request.access !== 'write' ? ['-c', 'sandbox_mode="read-only"']
       : ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true',
         '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(request.writeDirs ?? [])}`],
-    ...request.access === 'none' ? ['-c', 'features.shell_tool=false'] : [],
     '--output-schema', schemaFile,
     ...request.resume ? [request.resume] : [], '-',
   ];
