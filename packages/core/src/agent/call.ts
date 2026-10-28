@@ -13,7 +13,7 @@ import { codex } from './codex.js';
 import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
 import { pi } from './pi.js';
-import { agentEnv, confine, launcher, sandboxed } from './sandbox.js';
+import { agentEnv, confine, launcher, notInstalled, sandboxed } from './sandbox.js';
 
 export interface BackendRun {
   /** The CLI's arguments; the prompt goes on stdin. */
@@ -59,9 +59,10 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
     const verdict = turn.completed ? judge(request.form, output, request.check) : null;
     const result: AgentResult = {
       callId, ...turn, handoff: typeof verdict === 'string' ? null : verdict, ms: Date.now() - started,
-      // A refused form says why; a failed turn its cause, in order: a stop (cancelled), the
-      // backend's own words, its stderr, its exit.
-      error: typeof verdict === 'string' ? verdict : turn.completed ? null : (exit?.stopKind ? exit.error : null) ?? turn.error
+      // A refused form says why; a failed turn its cause, in order: a CLI not installed, a stop
+      // (cancelled), the backend's own words, its stderr, its exit.
+      error: typeof verdict === 'string' ? verdict : turn.completed ? null
+        : notInstalled(request.backend) ?? (exit?.stopKind ? exit.error : null) ?? turn.error
         ?? (stderr.join('\n').trim() || `${request.backend} exited with ${exit?.code ?? exit?.signal ?? 'no status'}`),
     };
     mkdirSync(dirname(request.usageFile), { recursive: true });

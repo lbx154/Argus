@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
+import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
@@ -111,6 +111,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const compatibility = inspectApiMeta(await metaResponse.json(), { releaseId: RELEASE_ID });
   assert.equal(compatibility.compatible, true, compatibility.reason);
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
+  // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
+  assert.deepEqual(compatibility.meta?.capabilities, [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1']);
   assert.equal((await get('/api/application-brand')).id, 'argus');
 
   const created = await (await post('/api/daemons', { objective: '', name: '', workdir: '' })).json() as { sid: string; rc: number; workdir: string };
@@ -153,6 +155,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
   assert.deepEqual(done.pending_questions, []);
   assert.match(requests.at(-2)!.prompt, /They answered: Ship it today/);
+  // The Manager's report, written after the team's work, is in the conversation too.
+  assert.deepEqual((await get<{ turns: { text: string }[] }>(`${P}/transcript?n=120`)).turns.at(-1)?.text, 'report.md gives the totals.');
 
   const streamed = await stream;
   live.abort();
@@ -179,10 +183,10 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
 });
 
 test('a refused form goes back to the Manager within the same message', async t => {
-  const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'manager', letter: 'Hello.' }]);
+  const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'operator', letter: 'Hello.' }]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const reply = await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Hi', request_id: 'r1' }));
-  assert.deepEqual(reply.map(frame => frame.type), ['phase', 'phase', 'delta', 'done']);
+  assert.deepEqual(reply.map(frame => frame.type), ['phase', 'delta', 'done']);
   assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
@@ -303,4 +307,113 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
   assert.equal(requests[3]!.resume, undefined);
+});
+
+test('each project keeps the composer draft, and a save over a revision it never saw is refused', async t => {
+  const { home, call, get, post } = await setup(t, []);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const D = `/api/projects/${sid}/browser-draft`;
+  assert.deepEqual(await get(D), { value: {}, revision: 0 });
+  const value = { text: 'Total the columns', attachments: ['data.csv'], uploaded: [] };
+  assert.deepEqual(await (await post(D, { value, revision: 0 })).json(), { value, revision: 1 });
+  assert.deepEqual(await get(D), { value, revision: 1 });
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'projects', sid, 'draft.json'), 'utf8')), { value, revision: 1 });
+  // Another device's save over revision 0, which it saw before this one.
+  assert.equal((await post(D, { value: { text: 'Other' }, revision: 0 })).status, 409);
+  assert.equal((await post(D, { value: { text: 'x'.repeat(130 * 1024) }, revision: 1 })).status, 413);
+  assert.equal((await post(D, { value: 'Total', revision: 1 })).status, 400);
+  assert.deepEqual(await get(D), { value, revision: 1 });
+  assert.equal((await call('/api/projects/p-00000000/browser-draft')).status, 404);
+});
+
+test('a message typed while a reply is under way is answered after it', async t => {
+  const { get, post } = await setup(t, [{ role: 'manager', hang: true }, { role: 'manager', to: 'manager', letter: 'Both answered.' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  const first = frames(await post(`${P}/message/stream`, { text: 'first', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
+  assert.deepEqual(await (await post(`${P}/message/followup`, { text: 'second' })).json(), { ok: true, queued: true });
+  assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
+  await post(`${P}/message/cancel`, { request_id: 'r1' });
+  await first;
+  const { turns } = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 3);
+  assert.deepEqual(turns.map(turn => [turn.role, turn.text]), [['operator', 'first'], ['operator', 'second'], ['argus', 'Both answered.']]);
+});
+
+test('deleting a project stops its work and moves its directory to the trash, its workdir left as it is', async t => {
+  const { home, call, get, post } = await setup(t, [{ role: 'manager', to: 'engineer', letter: brief }, { role: 'engineer', hang: true }]);
+  const remove = (sid: string) => call(`/api/projects/${sid}`, { method: 'DELETE' });
+  // A project made and never used, which the page deletes when the operator leaves it.
+  const unused = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const deleted = await (await remove(unused.sid)).json() as Record<string, unknown>;
+  assert.deepEqual(deleted, { ok: true, sid: unused.sid, trash_path: deleted.trash_path, workdir: unused.workdir, workdir_preserved: true });
+  assert.match(String(deleted.trash_path), new RegExp(`^trash[/\\\\]${unused.sid}-\\d{14}$`));
+  assert.ok((await stat(join(home, String(deleted.trash_path), 'project.json'))).isFile());
+  assert.ok((await stat(unused.workdir)).isDirectory());
+  assert.deepEqual((await get<{ projects: unknown[] }>('/api/projects')).projects, []);
+  assert.equal((await remove(unused.sid)).status, 404);
+
+  // A project at work: the request stops the work, and once it has stopped the project goes.
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  assert.equal((await remove(sid)).status, 409);
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  assert.equal((await remove(sid)).status, 200);
+  assert.equal((await call(`${P}/snapshot`)).status, 404);
+  assert.deepEqual((await get<{ projects: unknown[] }>('/api/projects')).projects, []);
+});
+
+interface Attachment { attachment_id: string; relative_path: string; original_name: string; stored_name: string; mime: string; size_bytes: number }
+interface UploadState { attachment_id: string; offset: number; size_bytes: number; complete: boolean; attachment?: Attachment }
+
+test('attached files land in the workdir, and the message that carries them says where', async t => {
+  const { call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);
+  const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const P = `/api/projects/${sid}`;
+  assert.deepEqual(await get(`${P}/attachments/limits`), { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 });
+
+  // Small files in one request, as the page sends them.
+  const form = new FormData();
+  form.append('files', new Blob(['a,b\n1,2\n'], { type: 'text/csv' }), 'data.csv');
+  form.append('files', new Blob(['# Notes'], { type: 'text/markdown' }), '../.notes.md. ');
+  const { attachments: [csv, notes] } = await (await call(`${P}/attachments`, { method: 'POST', body: form })).json() as { attachments: Attachment[] };
+  assert.deepEqual(csv, {
+    attachment_id: csv!.attachment_id, relative_path: `.argus/attachments/${csv!.attachment_id}/data.csv`,
+    original_name: 'data.csv', stored_name: 'data.csv', mime: 'text/csv', size_bytes: 8,
+  });
+  assert.equal(notes!.stored_name, 'notes.md');
+  assert.equal(await readFile(join(workdir, csv!.relative_path), 'utf8'), 'a,b\n1,2\n');
+
+  // A large file in parts, each appended where the last ended.
+  const begun = await (await post(`${P}/attachments/uploads`, { name: 'weights.bin', mime: 'application/octet-stream', size_bytes: 6 })).json() as UploadState;
+  assert.deepEqual(begun, { attachment_id: begun.attachment_id, offset: 0, size_bytes: 6, complete: false });
+  const U = `${P}/attachments/uploads/${begun.attachment_id}`;
+  const put = (offset: number, body: string) => call(`${U}?offset=${offset}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body });
+  assert.equal((await (await put(0, 'abc')).json() as UploadState).offset, 3);
+  assert.equal((await put(0, 'abc')).status, 409);
+  assert.equal((await post(`${U}/complete`, {})).status, 409);
+  assert.equal((await put(3, 'defg')).status, 413);
+  assert.equal((await (await put(3, 'def')).json() as UploadState).offset, 6);
+  const weights = (await (await post(`${U}/complete`, {})).json() as UploadState).attachment!;
+  assert.equal(weights.relative_path, `.argus/attachments/${begun.attachment_id}/weights.bin`);
+  assert.deepEqual(await get(U), { attachment_id: begun.attachment_id, offset: 6, size_bytes: 6, complete: true, attachment: weights });
+  assert.equal(await readFile(join(workdir, weights.relative_path), 'utf8'), 'abcdef');
+
+  // One taken out of the draft, one begun and cancelled: neither is kept.
+  assert.deepEqual(await (await call(`${P}/attachments/${notes!.attachment_id}`, { method: 'DELETE' })).json(),
+    { discarded: true, attachment_id: notes!.attachment_id });
+  const cancelled = `${P}/attachments/uploads/${(await (await post(`${P}/attachments/uploads`, { name: 'x.txt', size_bytes: 1 })).json() as UploadState).attachment_id}`;
+  assert.deepEqual(await (await call(cancelled, { method: 'DELETE' })).json(), { cancelled: true });
+  assert.equal((await call(cancelled)).status, 404);
+  assert.deepEqual((await readdir(join(workdir, '.argus', 'attachments'))).sort(), [csv!.attachment_id, weights.attachment_id].sort());
+  // The operator's files are not results of the work.
+  assert.deepEqual((await get<{ artifacts: unknown[] }>(`${P}/artifacts`)).artifacts, []);
+
+  // The Manager is told where they are, and reads them there.
+  assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: [{ attachment_id: notes!.attachment_id }] })).status, 400);
+  const files = [csv!, weights].map(({ attachment_id }) => ({ attachment_id }));
+  assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: files })).status, 200);
+  assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
 });

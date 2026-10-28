@@ -30,6 +30,9 @@
     "research.events.v1",
     "source.update.v1",
     "usage.recorded.v2",
-    "verticals.store.v1"
+    "verticals.store.v1",
+    "project.config.v1",
+    "system.resources.v1",
+    "composer.commands.v1"
   ]
 }

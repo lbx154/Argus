@@ -53,6 +53,7 @@ import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseCommand } from '../../core/src/commands';
+import { COMMANDS_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -173,6 +174,8 @@ export default function App() {
     .find((error) => isConnectionError(error));
 
   const [overlay, setOverlay] = useState<Overlay>('none');
+  const commands = useCapability(COMMANDS_CAPABILITY);
+  const openSettings = useCapability(SETTINGS_CAPABILITY) ? () => setOverlay('config') : undefined;
   const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
   const [learningScope, setLearningScope] = useState<LearningScope>('feed');
   const openLearningLibrary = useCallback((scope: LearningScope) => {
@@ -944,7 +947,7 @@ export default function App() {
     let serverRequestId: string;
     let controller: AbortController;
     try {
-      if (!revision && !attachments.length && !uploadOptions?.ready?.length) {
+      if (commands && !revision && !attachments.length && !uploadOptions?.ready?.length) {
         const command = await dispatchWebCommand(text, commandHandlers);
         if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
         if (command.kind === 'error') {
@@ -1212,7 +1215,7 @@ export default function App() {
       // commands; a plain message is shown now and answered as the next turn
       // (Argus decides whether it steers a live mission or is answered in chat).
       try {
-        if (!files.length) {
+        if (commands && !files.length) {
           const command = await dispatchWebCommand(text, commandHandlers);
           if (command.kind === 'error') { notify('error', command.message); return false; }
           if (command.kind === 'handled') { consumeDraft(draft, files); return true; }
@@ -1228,7 +1231,7 @@ export default function App() {
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.
-    const rewriteCommand = !revisionContext && !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
+    const rewriteCommand = commands && !revisionContext && !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
@@ -1273,7 +1276,7 @@ export default function App() {
 
   const paletteItems: PaletteItem[] = useMemo(() => {
     const commandRows = commandPaletteRows(
-      COMMANDS,
+      commands ? COMMANDS : [],
       (name) => { void sendMessageRef.current(name); },
       (text) => { setComposerDraft(text); setComposerFocus((x) => x + 1); },
       locale,
@@ -1337,7 +1340,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...commandRows, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t, commands]);
 
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
@@ -1473,7 +1476,7 @@ export default function App() {
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
                 onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1574,8 +1577,8 @@ export default function App() {
                       settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
-                      footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
-                      modelControl={activeSid && !kiosk ? <ModelPickerButton sid={snap.session.id} onOpenSettings={() => setOverlay('config')} /> : undefined}
+                      footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
+                      modelControl={openSettings && activeSid && !kiosk ? <ModelPickerButton sid={snap.session.id} onOpenSettings={openSettings} /> : undefined}
                       continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
                     />
                     {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
