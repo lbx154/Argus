@@ -1059,10 +1059,18 @@ export default function App() {
       // Kept in a local rather than state because React batches setManagerSteps
       // and a reply block can land in the same tick as the phase before it.
       let trail: PhaseStep[] = [];
+      // A project's first message names it and starts its work: the list and the project are
+      // read again once the server has it.
+      let named = Boolean(projects.find(project => project.id === requestSid)?.objective);
       try {
         try {
           await api.messageStream(requestSid, text, {
             onPhase: (label, role, meta) => {
+              if (!named) {
+                named = true;
+                void projectsQ.refetch();
+                void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
+              }
               if (!isCurrent() || meta.heartbeat) return;
               trail = appendPhaseStep(trail, {
                 label,

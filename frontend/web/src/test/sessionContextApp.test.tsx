@@ -167,6 +167,16 @@ describe('App session composer ownership', () => {
     await act(async () => { await renderer.root.findByType(Landing).props.onSubmit('Total the columns of data.csv', []); });
     expect(create).toHaveBeenCalledTimes(1);
   });
+  it('reads the project list again once the first message has reached the server, so the new row is named by it', async () => {
+    vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
+      handlers.onPhase?.('Manager', 'manager', { heartbeat: false, quietS: 0, kind: '', detail: '', tool: '', toolKind: '', callId: '', status: '', output: '' });
+      // The reply is still being written.
+      await new Promise(() => {});
+    });
+    fixture.idle.refetch.mockClear();
+    await act(async () => { expect(await props().onSend('Total the columns of data.csv')).toBe(true); });
+    expect(fixture.idle.refetch).toHaveBeenCalled();
+  });
   it('keeps the ask choice reachable after the project has started', () => {
     const started = snapshot('s-A');
     started.daemon.alive = true;
