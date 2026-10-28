@@ -73,20 +73,31 @@ research project calls its stages is the order of the tasks the Planner writes. 
 (`idle`) when no letter waits for anyone but the operator, which is after the Manager's report;
 the Manager may also finish a small request in its own turn.
 
-## Ways of working
+## The skill library
 
-A way of working is what Argus has learned about a kind of work, kept as one short `README.md`
-in a folder: Argus's own in `packages/core/ways/<name>/`, the operator's in
-`$ARGUS_HOME/ways/<name>/`. It holds the pitfalls past projects hit and what good work looks like,
-not steps, files or who does what, and nothing a capable model already knows: Codex on its own did
-a grokking study well in 15 minutes for $1.40, while an Argus project on the same study spent 46%
-of its tool-output tokens rereading the research way's manuals. Argus only points at them: the Manager's prompt lists
-each way by its README's first line and path, every call may read the folder (read-only under the
-sandbox), and a brief may mention a way for reference. Nothing records which way a project follows,
-nothing requires reading one, and no step is enforced. Argus's own are `research`, `software` (a
-change that builds, whose tests ran, and that does what was asked), `argus-maintenance` (changing
-this core) and `learning`, whose workspace is a new way's folder under `$ARGUS_HOME/ways/`, kept
-only as what an agent can run or recheck, proven on a real case.
+A skill is what was learned about a kind of work, kept as a folder whose `README.md` says in its
+first line what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
+replaces, and the roles' and the operator's in `$ARGUS_HOME/skills/<name>/`, where one takes the
+place of Argus's of the same name. It holds the pitfalls past projects hit and what good work
+looks like, not steps, files or who does what, and nothing a capable model already knows: Codex on
+its own did a grokking study well in 15 minutes for $1.40, while an Argus project on the same study
+spent 46% of its tool-output tokens rereading the research skill's manuals.
+
+The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
+role's prompt lists each skill by its README's first line and path and tells the role the library
+is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
+write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
+plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
+or approval, and nothing records which skill a project used. Argus's own are `research`,
+`software` (a change that builds, whose tests ran, and that does what was asked),
+`argus-maintenance` (changing this core) and `learning`, on writing a skill worth keeping: what an
+agent can run or recheck, proven on a real case.
+
+The web cockpit shows the library: its skills, and as its learning feed the files of
+`$ARGUS_HOME/skills/`, newest first, so a skill a role writes appears while the work goes on. A
+plugin is a skill whose folder holds `plugin.json` (`{ name, description, version, url }`):
+whoever installs it starts it, and the cockpit lists it among its plugins and opens its url. The
+wiki the page also asks for is empty.
 
 ## The web cockpit
 
@@ -170,10 +181,10 @@ Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
 `packages/core` is the npm package, `@lbx154/argus` until the name `argus` is free. Its build
 (`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the program with
 `@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
-dependencies. Beside it the package carries the prompts it reads, the ways of working its
-roles read, and `web/`, the web cockpit, built from `frontend/web`'s source when the package is
-packed (`npm run web`, 6 MB): not the committed `frontend/web/dist`, which keeps every earlier
-release's files for open tabs (482 MB) and was once older than the source it came from.
+dependencies. Beside it the package carries the prompts it reads, Argus's own skills, and `web/`,
+the web cockpit, built from `frontend/web`'s source when the package is packed (`npm run web`,
+6 MB): not the committed `frontend/web/dist`, which keeps every earlier release's files for open
+tabs (482 MB) and was once older than the source it came from.
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
 with `npm i -g` in a `node:22-slim` container with no Python and no network, starts `argus` and
@@ -183,6 +194,6 @@ sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place o
 ## Left out
 
 Stage machines, verticals as code, completion certificates, observers, Manager supervision,
-reflection, the skill library and wiki, the map's canvas and notes, trial metering, idle
-watchdogs, CPU liveness checks, retry ladders, provider circuits and error-text
-classification. Some may come back as plain features later; none is needed to run a project.
+reflection, recall, the wiki, the map's canvas and notes, trial metering, idle watchdogs, CPU
+liveness checks, retry ladders, provider circuits and error-text classification. Some may come
+back as plain features later; none is needed to run a project.
