@@ -491,10 +491,6 @@ def resolve_skill_scope(project_root: object = ".") -> str:
 
 
 
-_PROJECT_VERTICAL_RECORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("manager-handoff.json", ("vertical",)),
-    ("mission-view.json", ("routing", "vertical")),
-)
 
 
 def resolve_project_vertical(project_root: object, life_dir: object | None = None) -> str:
@@ -507,7 +503,8 @@ def resolve_project_vertical(project_root: object, life_dir: object | None = Non
     host's s-fb4716b7 ran nine research missions that way), and the knowledge
     base would file its lessons under the global tier. The Manager's record
     sits beside the project's events in ``manager-handoff.json``; the mission
-    view repeats it under ``routing``. Unknown names are ignored.
+    view, computed from those events, repeats it under ``routing``. Unknown
+    names are ignored.
     """
     for state_root in (life_dir, project_root):
         if state_root is None:
@@ -522,14 +519,17 @@ def resolve_project_vertical(project_root: object, life_dir: object | None = Non
         return ""
     root = Path(str(life_dir)).expanduser()
     known = set(available_verticals())
-    for name, keys in _PROJECT_VERTICAL_RECORDS:
-        try:
-            payload: object = json.loads((root / name).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        for key in keys:
-            payload = payload.get(key) if isinstance(payload, dict) else None
-        candidate = _strip_needed(str(payload or ""))
+    try:
+        handoff: object = json.loads((root / "manager-handoff.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        handoff = None
+    candidate = _strip_needed(str((handoff.get("vertical") if isinstance(handoff, dict) else "") or ""))
+    if candidate in known:
+        return candidate
+    if (root / "events.jsonl").exists() or (root / "events.jsonl.1").exists():
+        from ..core.mission_view import load_mission_view
+
+        candidate = _strip_needed(str(load_mission_view(root)["routing"].get("vertical") or ""))
         if candidate in known:
             return candidate
     return ""

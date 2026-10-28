@@ -136,7 +136,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
                 refs.append({"path": str(handoff.relative_to(root))})
         items.append(row)
     refs.append({"path": "backlog.jsonl"})
-    refs.append({"path": "mission-view.json"})
+    # The stage, review and delivery above are computed from this log.
+    refs.append({"path": "events.jsonl"})
     if len(active) > len(selected):
         diagnostics.append(f"showing {len(selected)} of {len(active)} active tasks")
     # Archived completions remain visible through their canonical event and

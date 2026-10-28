@@ -39,7 +39,7 @@ def review(root, status, reason):
 
 
 def hand_off(options, **payload):
-    bridge_request(PREFIX, "hand_off", {"evidence_refs": ["mission-view.json"], "assumptions": [], **payload},
+    bridge_request(PREFIX, "hand_off", {"evidence_refs": ["events.jsonl"], "assumptions": [], **payload},
                    env=options.extension_env)
 
 

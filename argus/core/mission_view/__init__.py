@@ -1,11 +1,11 @@
-"""Durable event-sourced Mission View read model.
+"""Event-sourced Mission View read model, computed from the event log on read.
 
 The reducer only consumes structured event fields. Free-form text may be shown
 as detail, but it is never parsed to infer scientific state.
 
 This package was split out of a single ~1.5k-line module. It is organized as:
 
-- ``_view_state``: on-disk schema defaults, file locking, load/bootstrap.
+- ``_view_state``: schema defaults and the projected event types.
 - ``_reduce_helpers``: small shared primitives (text/number coercion,
   timeline/role-work upserts) used by every event-family reducer.
 - ``_wording``: every sentence shown to a person, keyed by the stable code
@@ -15,14 +15,12 @@ This package was split out of a single ~1.5k-line module. It is organized as:
   ``_reduce_skill`` / ``_reduce_wiki``: one module per mission-view
   event family, each exposing a small ``reduce_<family>_event(view, event,
   *, event_type, ts, mission)`` function.
-- ``_dispatch``: the stable ``event_type -> family reducer`` table plus the
-  public ``reduce_mission_view_event`` / ``update_mission_view_event``
-  entry points.
-- ``_replay``: bounded event-log reconciliation; the consumed position and view
-  are one checkpoint. Readers acquire events.lock before mission-view.lock.
-  Projection failures are retried from that position; ordinary polling reads
-  no event history. Direct, unlogged projection producers retain their own mode.
-- ``_snapshot``: live daemon/session merge and legacy projection compatibility
+- ``_dispatch``: the stable ``event_type -> family reducer`` table and the
+  public ``reduce_mission_view_event``.
+- ``_replay``: the view computed from the event log. Nothing is written; each
+  process caches the views it computed with the log position consumed, so
+  ordinary polling reads only appended bytes.
+- ``_snapshot``: live daemon/session merge
   (``snapshot_mission_view`` / ``merge_mission_view_snapshot``).
 
 The public API (every name importable as ``argus.core.mission_view.X``)
@@ -30,7 +28,7 @@ is re-exported here so existing imports keep working unchanged.
 """
 from __future__ import annotations
 
-from ._dispatch import reduce_mission_view_event, update_mission_view_event
+from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _event_id as work_record_event_id
 from ._snapshot import (
     awaits_operator,
@@ -39,7 +37,6 @@ from ._snapshot import (
     snapshot_mission_view,
 )
 from ._view_state import (
-    MISSION_VIEW_FILE,
     MISSION_VIEW_SCHEMA_VERSION,
     empty_mission_view,
     load_mission_view,
@@ -56,7 +53,6 @@ from ._wording import (
 )
 
 __all__ = [
-    "MISSION_VIEW_FILE",
     "MISSION_VIEW_SCHEMA_VERSION",
     "awaits_operator",
     "empty_mission_view",
@@ -69,7 +65,6 @@ __all__ = [
     "sentences",
     "session_is_chinese",
     "snapshot_mission_view",
-    "update_mission_view_event",
     "uses_cjk",
     "conversation_is_chinese",
     "written_language",

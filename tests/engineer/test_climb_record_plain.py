@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.core.mission_view import update_mission_view_event
 from argus.core.models import ReviewDecision
 from argus.core.operator_decision import build_operator_decision
 from argus.engineer.round_routing import climb_record
+from tests.mission_view_events import project_event
 
 ROLES = ("rung", "nothing changed", "engineer", "reviewer", "planner", "manager", "operator",
          "工程师", "审阅者", "规划者", "经理")
@@ -48,7 +48,7 @@ def test_the_question_to_the_person_is_plain_in_the_tasks_language() -> None:
 
 def test_the_mission_view_shows_the_climb_plainly(tmp_path: Path) -> None:
     reason = climb_record("manager", chinese=True).reason
-    view = update_mission_view_event(tmp_path, {
+    view = project_event(tmp_path, {
         "type": "round.review.completed", "ts": 1, "round_index": 2, "status": "manager",
         "review_source": "unchanged_return", "reason": reason,
     })
