@@ -50,7 +50,7 @@
     "resources": {
       "../../packages/core/dist/argus.mjs": "argus-core/dist/argus.mjs",
       "../../packages/core/prompts": "argus-core/prompts",
-      "../../packages/core/ways": "argus-core/ways",
+      "../../packages/core/skills": "argus-core/skills",
       "../../packages/core/web": "argus-core/web"
     },
     "icon": [

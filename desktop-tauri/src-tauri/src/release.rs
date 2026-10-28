@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::OnceLock};
 
 // The Argus this desktop ships: the npm package packages/core, carried as a
 // resource directory `argus-core/` with its layout (dist/argus.mjs beside
-// prompts/, ways/ and web/). Not `argus/`: on a case-insensitive file system
+// prompts/, skills/ and web/). Not `argus/`: on a case-insensitive file system
 // that is the `Argus` executable beside it. Its version is part of the executable.
 const CORE_PACKAGE: &str = include_str!("../../../packages/core/package.json");
 

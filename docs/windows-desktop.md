@@ -2,7 +2,7 @@
 
 Argus 的桌面端由 **Tauri 2 + Rust** 实现。它不分叉 Argus 的角色、Web API 或 Web UI：
 安装包带着 TypeScript 核心（npm 包 `packages/core` 的 `dist/argus.mjs`，旁边是它读的
-`prompts/`、`ways/` 和网页工作台 `web/`），宿主用**本机的 Node.js** 运行它，再把它服务的
+`prompts/`、`skills/` 和网页工作台 `web/`），宿主用**本机的 Node.js** 运行它，再把它服务的
 Web cockpit 显示在本地受限容器中。
 
 `desktop-tauri/` 是唯一一套桌面实现。它继续使用产品标识 `cn.argusbot.desktop`、`Argus.exe`
