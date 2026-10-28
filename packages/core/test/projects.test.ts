@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent } from '../src/types.js';
 import { Store } from '../src/store.js';
@@ -81,6 +81,8 @@ test('a project works in an existing directory, set when it is made or later, wh
 
 test('a project has its own backend, model and effort, which the settings change and every call uses', async t => {
   const { store, requests, send, get, create, busy } = await setup(t);
+  // The page offers its settings and the model chooser where the server declares them.
+  assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.config.v1'));
   const sid = await create();
   const P = `/api/projects/${sid}`;
   const set = (name: string, value: string) => send('POST', `${P}/config/set`, { name, value, apply_to_roles: true });
@@ -149,18 +151,15 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   for (const [body, status] of [[{ sid: 'p-00000000', field: 'pinned', value: true }, 404], [{ sid, field: 'hidden', value: true }, 400],
     [{ sid, field: 'pinned', value: 'yes' }, 400]] as const) assert.equal((await organize(body)).status, status, JSON.stringify(body));
 
-  // Deleting a project moves its directory to the trash.
   await send('PATCH', `/api/projects/${sid}`, { name: 'Column totals' });
-  await mkdir(join(home, 'trash'), { recursive: true });
-  await rename(join(home, 'projects', sid), join(home, 'trash', `${sid}-20261028T120000Z`));
+  const { trash_path } = await (await send('DELETE', `/api/projects/${sid}`)).json() as { trash_path: string };
   assert.equal(await row(), undefined);
   type Trash = { entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trash_path: string; trashed_at: number }[]; total: number };
   const { entries, total } = await get<Trash>('/api/trash?query=&limit=100&offset=0');
   assert.equal(total, 1);
   const [entry] = entries;
   assert.deepEqual({ ...entry, trashed_at: entry!.trashed_at > 0 }, {
-    trash_id: `${sid}-20261028T120000Z`, sid, label: 'Column totals', launch_cwd: join(home, 'workspaces', sid),
-    trash_path: `trash/${sid}-20261028T120000Z`, trashed_at: true,
+    trash_id: basename(trash_path), sid, label: 'Column totals', launch_cwd: join(home, 'workspaces', sid), trash_path, trashed_at: true,
   });
   assert.equal((await get<Trash>('/api/trash?query=column')).total, 1);
   assert.equal((await get<Trash>('/api/trash?query=nothing')).total, 0);

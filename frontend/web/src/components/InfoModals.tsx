@@ -21,6 +21,7 @@ import { roleLabel } from '../lib/enumLabels';
 import { agentRoleDescription, isAgentRole } from '../lib/agentRoles';
 import { useI18n } from '../i18n';
 import { requestFailureText } from '../lib/requestFailure';
+import { ADVISOR_CAPABILITY, useCapability } from '../lib/capabilities';
 import { AppearanceControls } from './AppearanceControls';
 import type { ThemeMode } from './TopBar';
 import {
@@ -160,6 +161,7 @@ export function ConfigModal({
   const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advisor = useCapability(ADVISOR_CAPABILITY);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
   const [pendingBackend, setPendingBackend] = useState<BackendOption | ''>('');
@@ -367,7 +369,7 @@ export function ConfigModal({
                   {t('models.compare')}
                 </button>
               </div>
-              <div className="mt-2 flex items-center gap-2">
+              {data.operator_knobs.some((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL') && <div className="mt-2 flex items-center gap-2">
                 <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.lightModel')}</span>
                 <select
                   value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || 'auto'}
@@ -384,7 +386,7 @@ export function ConfigModal({
                     return options.map(model => <option key={model} value={model}>{model}</option>);
                   })()}
                 </select>
-              </div>
+              </div>}
               {(data.model_options ?? []).some(option => option.offline) && (
                 <p className="mt-1 text-[10px] text-ink-faint" data-model-offline>{t('settings.modelOfflineList')}</p>
               )}
@@ -416,7 +418,7 @@ export function ConfigModal({
               </div>
             </section>}
 
-            {advancedOpen && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
+            {advancedOpen && advisor && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
 
             <section className="settings-section">
               <button

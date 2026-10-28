@@ -1,10 +1,9 @@
 // What the operator sets on a project: its directory, its name, and the backend, model and
 // reasoning effort of all its roles; and across projects: the sidebar's pins and archive, kept in
-// $ARGUS_HOME/browser-state.json, the trash a deleted project's directory goes to, and what each
-// project has spent. A project's record is changed only while nothing is under way on it, since
-// the work under way holds the record and writes it back.
+// $ARGUS_HOME/browser-state.json, and what each project has spent. A project's record is changed
+// only while nothing is under way on it, since the work under way holds the record and writes it back.
 
-import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ProjectCostRow } from '@argus/contracts';
@@ -15,7 +14,7 @@ import type { Runs } from './runs.js';
 import { daemon, projectRow } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
-export const CAPABILITIES = ['project.workdir.v1', 'project.cost-feed.v1'];
+export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1'];
 
 /** The settings the page writes, by the Python runtime's names for them: a project has one
  * backend, model and effort, which every role uses. A model or effort is the backend's own word
@@ -53,22 +52,6 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
   const kept = (): { organization?: { value: Record<string, Record<string, boolean>>; revision: number } } => {
     try { return JSON.parse(readFileSync(browserState, 'utf8')); } catch { return {}; }
   };
-  const trash = join(store.home, 'trash');
-  /** Each project in the trash, as deleting it left it: its directory, named `<id>-<when>`. */
-  const trashed = () => {
-    let names: string[];
-    try { names = readdirSync(trash); } catch { return []; }
-    return names.flatMap(name => {
-      try {
-        const work = JSON.parse(readFileSync(join(trash, name, 'project.json'), 'utf8')) as Project;
-        return [{
-          trash_id: name, sid: work.id, label: work.name || work.request.split('\n')[0] || work.id, launch_cwd: work.workdir,
-          // Moving the directory there is the last change to it.
-          trash_path: `trash/${name}`, trashed_at: statSync(join(trash, name)).ctimeMs / 1000,
-        }];
-      } catch { return []; }
-    }).sort((a, b) => b.trashed_at - a.trashed_at);
-  };
 
   return [
     ['POST', /^\/api\/projects\/([^/]+)\/workdir$/, async ({ params: [id], body }) => {
@@ -103,19 +86,6 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       writeFileSync(`${browserState}.tmp`, JSON.stringify(state));
       renameSync(`${browserState}.tmp`, browserState);
       return state.organization;
-    }],
-    ['GET', /^\/api\/trash$/, ({ url }) => {
-      const query = (url.searchParams.get('query') ?? '').trim().toLowerCase();
-      const [offset, limit] = [Number(url.searchParams.get('offset')) || 0, Number(url.searchParams.get('limit')) || 100];
-      const entries = trashed().filter(entry => [entry.sid, entry.label, entry.launch_cwd, entry.trash_path].join(' ').toLowerCase().includes(query));
-      return { entries: entries.slice(offset, offset + limit), total: entries.length, offset, limit };
-    }],
-    ['POST', /^\/api\/trash\/([^/]+)\/restore$/, ({ params: [name] }) => {
-      const entry = trashed().find(entry => entry.trash_id === name);
-      if (!entry || !/^p-[0-9a-f]+$/.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
-      if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists');
-      renameSync(join(trash, name!), store.dir(entry.sid));
-      return { ok: true, sid: entry.sid };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
       const work = project(id!);
