@@ -45,6 +45,17 @@ describe("task submap evidence", () => {
     expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "manager", ["e2", "e3", "e4"]]);
   });
 
+  it("shows a letter as who wrote it to whom, in its own words", () => {
+    const rows = buildSubmap(task, [
+      event("e1", "handoff", { role: "engineer", to: "reviewer", text: "Report written. See report.md." }),
+      event("e2", "handoff", { role: "reviewer", to: "operator", text: "Ship it?" }),
+    ], true);
+    const by = (id: string) => rows.find((row) => row.id === id)!;
+    expect([by("e1").kind, by("e1").title, by("e1").summary, by("e1").detail])
+      .toEqual(["execution", "工程师 → 审阅者", "Report written.", "Report written. See report.md."]);
+    expect([by("e2").kind, by("e2").title, by("e2").status]).toEqual(["review", "审阅者 → 你", "recorded"]);
+  });
+
   it("shows the question, its answer, remarks, direction and why the work paused", () => {
     const rows = buildSubmap({ ...task, status: "parked" }, [
       event("e1", "life.mission.started"),

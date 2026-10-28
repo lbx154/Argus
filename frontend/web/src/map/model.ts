@@ -97,6 +97,8 @@ export interface MapEvent {
   tool_details_recorded?: boolean;
   overflow?: number;
   role?: string;
+  /** handoff: whom the letter is to; ``role`` wrote it. */
+  to?: string;
   status?: string;
   /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
   park_reason?: string;

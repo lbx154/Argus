@@ -186,6 +186,65 @@ test('a refused form goes back to the Manager within the same message', async t 
   assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
+interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string }
+interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
+interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string; history_cursor: string }
+interface Trace { task_id: string; groups: { call_id: string; role: string; output: string; entries: { kind: string; text: string }[] }[] }
+
+test('the map shows each task and the letters written about it, and a task its calls and their raw output', async t => {
+  const { home, get, post } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Total the columns, in steps.' },
+    { role: 'planner', to: 'engineer', letter: brief },
+    { role: 'engineer' },
+    { role: 'engineer', to: 'reviewer', letter: 'report.md written' },
+    { role: 'reviewer', to: 'operator', letter: 'Ship it as is?' },
+    { role: 'reviewer', to: 'engineer', letter: 'Add the units.' },
+    { role: 'engineer', to: 'reviewer', letter: 'Units added.' },
+    { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    { role: 'planner', to: 'manager', letter: 'The totals are in report.md.' },
+    { role: 'manager', to: 'operator', letter: 'report.md gives the totals.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  assert.deepEqual(await get('/api/map-datasets'), { datasets: [] });
+  await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
+  const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
+
+  const first = await get<ProgressMap>(`${P}/map-history`);
+  assert.equal(first.id, `live:${sid}`);
+  assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]),
+    [['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?']]);
+  assert.deepEqual(first.events.map(letter => [letter.item_id, letter.type, letter.role, letter.to, letter.text]), [
+    ['t1', 'handoff', 'engineer', 'reviewer', 'report.md written'],
+    ['t1', 'handoff', 'reviewer', 'operator', 'Ship it as is?'],
+  ]);
+  const card = (asking.pending_questions![0] as { operator_decision: { id: string } }).operator_decision;
+  await post(`${P}/decisions/${card.id}/resolve`, { note: 'Add the units first.' });
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
+
+  // A page that holds a cursor is sent the letters after it, and every task as it stands.
+  const later = await get<ProgressMap>(`${P}/map?after=${first.history_cursor}`);
+  assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
+    [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
+  const [task] = later.tasks;
+  assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
+  assert.ok(task!.ts < task!.finished_ts!);
+  assert.equal(later.cursor, later.history_cursor);
+  assert.deepEqual((await get<ProgressMap>(`${P}/map-history?after=${later.cursor}`)).events, []);
+  const info = await get<{ task_count: number; event_bytes: number; requires_choice: boolean }>(`${P}/map-info`);
+  assert.deepEqual([info.task_count, info.event_bytes > 0, info.requires_choice], [1, true, false]);
+
+  // The Planner's call wrote the brief; the Engineer's refused form is a call with no letter.
+  const trace = await get<Trace>(`${P}/map-trace?task=t1`);
+  assert.equal(trace.task_id, 't1');
+  assert.deepEqual(trace.groups.map(group => [group.role, group.entries.map(entry => entry.text)]), [
+    ['planner', [brief]], ['engineer', []], ['engineer', ['report.md written']], ['reviewer', ['Ship it as is?']],
+    ['reviewer', ['Add the units.']], ['engineer', ['Units added.']], ['reviewer', ['Accepted.']],
+  ]);
+  assert.deepEqual(trace.groups.map(group => group.output), trace.groups.map(group => join(home, 'projects', sid, 'calls', `${group.call_id}.jsonl`)));
+  assert.deepEqual((await get<Trace>(`${P}/map-trace?task=t9`)).groups, []);
+});
+
 test('the built pages are served with the shell uncached and the assets immutable', async t => {
   const { call } = await setup(t, []);
   const shell = await call('/');

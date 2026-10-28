@@ -16,7 +16,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 |---|---|---|
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
-| M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
+| M3 | `argus serve`: the web cockpit's 18 essential endpoints and its progress map, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser; the map showed a real four-task Codex project's tasks and letters |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
@@ -95,6 +95,12 @@ project began. A message's stream follows the Manager's turn and ends with its r
 work goes on after it. A message sent while work runs waits until it stops; Stop interrupts the
 call under way and Start resumes. The live event stream is server-sent events, in both runtimes.
 
+The progress map reads the same files: a card per task, its brief the letter that opened it, and
+on it a step per letter written about it, by whom to whom. A task opened in the reader lists its
+calls in order, each with the letter it ended with and the path of its raw output
+(`calls/<call>.jsonl`). Nothing on the map is inferred: no relations between tasks beyond their
+order, no written explanations.
+
 ## The agent call
 
 The only boundary between the flow and the backends:
@@ -155,6 +161,6 @@ from one sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` i
 ## Left out
 
 Stage machines, verticals as code, completion certificates, observers, Manager supervision,
-reflection, the skill library and wiki, the map and canvas, trial metering, idle
+reflection, the skill library and wiki, the map's canvas and notes, trial metering, idle
 watchdogs, CPU liveness checks, retry ladders, provider circuits and error-text
 classification. Some may come back as plain features later; none is needed to run a project.

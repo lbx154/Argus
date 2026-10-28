@@ -14,6 +14,8 @@ import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNote
 import { visibleAgentText } from "../../../core/src/events";
 import { isPauseStatus, parkReason, settledStatus, stopClause } from "../../../core/src/missionOutcome";
 import { plainStopSentence } from "../lib/plainStatus";
+import { roleLabel } from "../lib/enumLabels";
+import { translate } from "../i18n";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
 export const MAP_FRAME = { width: 1440, height: 1080 };
@@ -377,6 +379,23 @@ export function buildSubmap(
         detail: answer || noDetails(zh),
         status: e.status || "done",
         ts: e.ts,
+        source: "event",
+        eventIds: [e.id],
+      });
+      continue;
+    }
+    if (e.type === "handoff") {
+      // A letter, as written: who wrote it to whom.
+      const name = (role?: string) => roleLabel(role, (key) => translate(key, {}, zh ? "zh-CN" : "en"));
+      rows.push({
+        id: e.id,
+        kind: e.role === "reviewer" ? "review" : "execution",
+        title: `${name(e.role)} → ${name(e.to)}`,
+        summary: clipSentence(e.text) || undefined,
+        detail: e.text || noDetails(zh),
+        status: "recorded",
+        ts: e.ts,
+        episode,
         source: "event",
         eventIds: [e.id],
       });

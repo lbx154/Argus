@@ -196,3 +196,55 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
   };
 }
+
+/** The progress map: a card per task, and on it a step per letter written about it; the letter
+ * that opened a task is its objective. A letter's id is its line, and the lines read are the
+ * cursor: a page that holds one is sent only the letters after it. */
+export function progressMap(store: Store, project: Project, after: number) {
+  const added = new Map<string, number>();
+  const closed = new Map<string, number>();
+  const letters: Record<string, unknown>[] = [];
+  const events = readEvents(store, project.id);
+  events.forEach((event, line) => {
+    if (event.type === 'task.added') added.set(event.task.id, seconds(event.ts));
+    else if (event.type === 'task.closed') closed.set(event.task, seconds(event.ts));
+    else if (event.type === 'handoff' && event.task && line >= after) {
+      letters.push({ id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter });
+    }
+  });
+  const { question } = project;
+  const tasks = backlog(project).map((item, index) => ({
+    ...item, ts: added.get(item.id), started_ts: added.get(item.id), finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
+    ...(question?.task === item.id ? { pending_question: question.question } : {}),
+  }));
+  const cursor = String(events.length);
+  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor, history_cursor: cursor };
+}
+
+/** What the page asks before it loads the map: the whole map is one answer, with no part to choose. */
+export function mapInfo(store: Store, project: Project) {
+  return {
+    task_count: project.tasks.length, event_bytes: statSync(join(store.dir(project.id), 'events.jsonl'), { throwIfNoEntry: false })?.size ?? 0,
+    requires_choice: false, current_task_id: null, current_task_ts: 0, current_event_ts: 0,
+  };
+}
+
+type CallEnd = Extract<Recorded, { type: 'call.end' }>;
+
+/** One task's calls in order: the role, the letter it ended with, and where its raw output is.
+ * The call whose letter opened the task comes first. */
+export function taskTrace(store: Store, project: Project, task: string) {
+  const group = (call: CallEnd, ...letters: string[]) => ({
+    call_id: call.callId, role: call.role, started_ts: seconds(call.ts) - call.ms / 1000, ended_ts: seconds(call.ts),
+    output: join(store.dir(project.id), 'calls', `${call.callId}.jsonl`), entries: letters.map(text => ({ kind: 'message', text })),
+  });
+  const groups: ReturnType<typeof group>[] = [];
+  let last: CallEnd | undefined;
+  for (const event of readEvents(store, project.id)) {
+    if (event.type === 'call.end') last = event;
+    if (event.type === 'call.end' && event.task === task) groups.push(group(event));
+    else if (event.type === 'handoff' && event.task === task) groups.at(-1)!.entries.push({ kind: 'message', text: event.letter });
+    else if (event.type === 'task.added' && event.task.id === task && last) groups.push(group(last, event.task.objective));
+  }
+  return { task_id: task, groups };
+}

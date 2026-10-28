@@ -299,9 +299,10 @@ export function MapCanvas({
     return sceneCache.current;
   }, [graph, data.events, zh, links, expandedMissions, narrow]);
   // The canvas: what a person placed, linked and moved. Moved cards keep
-  // their place; Argus's own cards are laid out around people's cards.
-  const editable = data.kind === "live" && !readOnly;
+  // their place; Argus's own cards are laid out around people's cards. It is
+  // edited once read: a server that keeps none leaves the map as laid out.
   const canvasApi = useCanvas(sessionId, data.kind === "live");
+  const editable = data.kind === "live" && !readOnly && canvasApi.ready;
   const canvasRecord = canvasApi.canvas;
   const peopleBoxes = useMemo(() => canvasRecord.cards.flatMap((card) => {
     const at = canvasRecord.positions[card.id];

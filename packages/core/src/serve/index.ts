@@ -16,7 +16,7 @@ import type { Project, Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { Runs, type Frame } from './runs.js';
-import { daemon, projectRow, questionId, readEvents, snapshot, turns, webEvents } from './views.js';
+import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 
 export interface ServeOptions {
   store: Store;
@@ -108,6 +108,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The page asks for its pins and archive on load; this server keeps none.
     ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],
+    // And for the saved maps it may open beside a project's.
+    ['GET', /^\/api\/map-datasets$/, () => ({ datasets: [] })],
     ['GET', /^\/api\/projects$/, () => ({
       projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
       local_cwd: process.cwd(),
@@ -139,6 +141,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/transcript$/, ({ params: [id], url }) =>
       ({ turns: turns(webEvents(readEvents(store, project(id!).id))).slice(-Number(url.searchParams.get('n') ?? 30)) })],
+    ['GET', /^\/api\/projects\/([^/]+)\/map-info$/, ({ params: [id] }) => mapInfo(store, project(id!))],
+    // The page asks for the whole history or for the current part of it: either is the whole map.
+    ['GET', /^\/api\/projects\/([^/]+)\/map(?:-history)?$/, ({ params: [id], url }) =>
+      progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0)],
+    ['GET', /^\/api\/projects\/([^/]+)\/map-trace$/, ({ params: [id], url }) => taskTrace(store, project(id!), url.searchParams.get('task') ?? '')],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/stream$/, async context => {
       const reply = await message(context);
       const send = sse(context.response);
