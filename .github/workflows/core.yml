@@ -44,13 +44,16 @@ jobs:
               console.log('== launcher', name, JSON.stringify([file, ...args]));
               console.log(execFileSync(file, [...args, '--version'], { encoding: 'utf8' }).trim());
             }"
+          set +e +o pipefail
           mkdir -p probe && cd probe
+          inside="$(cygpath -w "$PWD")"
           write='require("fs").writeFileSync(process.argv[1], "x"); console.log("wrote", process.argv[1])'
           for mode in none unelevated; do
             set=(); [ $mode = none ] || set=(-c "windows.sandbox=\"$mode\"")
-            echo "== windows.sandbox $mode, inside the workdir"
-            codex sandbox "${set[@]}" -c 'sandbox_mode="workspace-write"' -- node -e "$write" "$PWD/inside-$mode.txt" 2>&1 | tail -n 3; echo "exit ${PIPESTATUS[0]}"
-            echo "== windows.sandbox $mode, outside it"
-            codex sandbox "${set[@]}" -c 'sandbox_mode="workspace-write"' -- node -e "$write" "$USERPROFILE/outside-$mode.txt" 2>&1 | tail -n 3; echo "exit ${PIPESTATUS[0]}"
+            for dir in "$inside" "$USERPROFILE"; do
+              echo "== windows.sandbox $mode, writing in $dir"
+              codex sandbox "${set[@]}" -c 'sandbox_mode="workspace-write"' -- node -e "$write" "$dir\\probe-$mode.txt" 2>&1 | tail -n 12
+              echo "exit ${PIPESTATUS[0]}"
+            done
           done
-          ls -la . "$USERPROFILE" | grep -E "inside|outside" || true
+          ls "$inside" "$USERPROFILE" | grep probe
