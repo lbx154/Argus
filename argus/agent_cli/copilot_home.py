@@ -41,11 +41,11 @@ import json
 import logging
 import os
 import shutil
-import tempfile
 import time
 from pathlib import Path
 from typing import Mapping
 
+from ..core.atomic_replace import write_atomic
 from ..core.hosting import hosting
 from ..core.paths import global_root
 
@@ -265,30 +265,16 @@ def _read_managed_config(path: Path) -> dict[str, object] | None:
 
 def _write_managed_config(path: Path, value: dict[str, object]) -> bool:
     """Atomically write a private Copilot managed config."""
-    temp_name = ""
     try:
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
+        write_atomic(
+            path,
+            _CONFIG_HEADER + json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+            fsync=True,
+            mode=0o600,
         )
-        if hasattr(os, "fchmod"):
-            os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(_CONFIG_HEADER)
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
         os.chmod(path, 0o600)
         return True
     except OSError:
-        if temp_name:
-            try:
-                Path(temp_name).unlink(missing_ok=True)
-            except OSError:
-                pass
         return False
 
 

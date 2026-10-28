@@ -41,6 +41,7 @@ from typing import Any, Callable, Iterator
 
 import portalocker
 
+from ..core.atomic_replace import write_atomic
 from ..core.waypoints import CANVAS_FILENAME, STEP_KIND, read_step_states, route_digest_lines
 
 log = logging.getLogger(__name__)
@@ -117,12 +118,7 @@ def _read(path: Path) -> dict[str, Any]:
 
 
 def _write(path: Path, canvas: dict[str, Any]) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(canvas, handle, ensure_ascii=False, separators=(",", ":"))
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    write_atomic(path, json.dumps(canvas, ensure_ascii=False, separators=(",", ":")), fsync=True)
 
 
 def read_canvas(life_dir: Path | str) -> dict[str, Any]:

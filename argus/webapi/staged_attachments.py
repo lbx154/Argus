@@ -9,12 +9,12 @@ staged (older uploads, other clients) are never touched here.
 from __future__ import annotations
 
 import json
-import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from ..core.atomic_replace import write_atomic
 from ..core.file_lock import exclusive_file_lock
 from . import attachments as store
 from .artifacts import project_workspace
@@ -56,9 +56,7 @@ def _ledger(life: Path) -> Iterator[dict[str, float]]:
             if not entries:
                 path.unlink(missing_ok=True)
                 return
-            temporary = path.with_name(f".{STAGED_FILENAME}.{os.getpid()}.tmp")
-            temporary.write_text(json.dumps(entries, sort_keys=True) + "\n", encoding="utf-8")
-            os.replace(temporary, path)
+            write_atomic(path, json.dumps(entries, sort_keys=True) + "\n")
 
 
 def stage(root: Path | str, sid: str, attachment_ids: Iterable[str], *, now: float | None = None) -> None:

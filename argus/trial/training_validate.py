@@ -11,10 +11,8 @@ import argparse
 import io
 import json
 import math
-import os
 import re
 import stat
-import tempfile
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -23,6 +21,7 @@ from jsonschema import Draft202012Validator, SchemaError
 
 from argus.core.secret_guard import contains_secret
 
+from ..core.atomic_replace import write_atomic
 from .analytics import _mask_credentials
 from .training_capture import HOSTED_PROFILE, _hosted_sensitive
 from .training_public_assets import check_public_skill_event
@@ -660,10 +659,7 @@ def main(argv=None):
     output = json.dumps(report, ensure_ascii=True, indent=2) + "\n"
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=args.report.parent, delete=False) as stream:
-            stream.write(output)
-            temporary = stream.name
-        os.replace(temporary, args.report)
+        write_atomic(args.report, output, mode=0o600)
     print(output, end="")
     return 0 if report["valid"] and (not args.require_agentic or report["agentic_training_ready"]) else 1
 

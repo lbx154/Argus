@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..core.atomic_replace import write_atomic
 from ..core.file_lock import exclusive_file_lock
 
 
@@ -113,14 +113,10 @@ def save_advisor_config(project_root: Path | str, values: AdvisorConfig | Mappin
         document = (values.to_dict() if isinstance(values, AdvisorConfig)
                     else {**load_advisor_config(project_root, env={}).to_dict(), **values})
         config = _validated(document)
-        fd, temporary = tempfile.mkstemp(prefix=".config-", dir=directory)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as output:
-                json.dump(config.to_dict(), output, ensure_ascii=False, allow_nan=False)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, directory / "config.json")
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_atomic(
+            directory / "config.json",
+            json.dumps(config.to_dict(), ensure_ascii=False, allow_nan=False) + "\n",
+            fsync=True,
+            mode=0o600,
+        )
     return config

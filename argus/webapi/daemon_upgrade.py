@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 import threading
 import time
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
 from ..core import runtime_identity as runtime_identity_module
+from ..core.atomic_replace import write_atomic
 from ..daemon import commands as daemon_commands
 from ..daemon import life_worker as daemon_worker
 from ..daemon import protocol as daemon_protocol
@@ -114,18 +112,12 @@ def _write_daemon_upgrade_request(
     payload: dict[str, Any],
 ) -> None:
     life_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=".daemon-upgrade-", dir=str(life_dir))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, _daemon_upgrade_request_path(life_dir))
-    finally:
-        with suppress(FileNotFoundError):
-            os.unlink(tmp_name)
+    write_atomic(
+        _daemon_upgrade_request_path(life_dir),
+        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        fsync=True,
+        mode=0o600,
+    )
 
 
 def _upgrade_request_matches_current_source(request: dict[str, Any]) -> bool:

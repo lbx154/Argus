@@ -5,7 +5,6 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
+from ..core.atomic_replace import write_atomic
 from .doctor import DoctorContext, run_full_doctor
 from .models import DoctorFinding, RepairAction, RepairPlanRef, RepairResult
 
@@ -59,19 +59,12 @@ def repairs_root(global_root: Path) -> Path:
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
+    write_atomic(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        fsync=True,
+        mode=0o600,
+    )
 
 
 def _append_history(global_root: Path, event: dict[str, Any]) -> None:
