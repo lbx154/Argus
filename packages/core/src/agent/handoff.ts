@@ -19,7 +19,7 @@ const TO: Record<Form, Record<string, string>> = {
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next task; the letter is its whole brief: the decision, its inputs and its check',
+    engineer: 'the next task, a result for the Engineer to carry through; the letter is its whole brief',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
   },
