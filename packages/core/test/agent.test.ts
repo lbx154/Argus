@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { once } from 'node:events';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import test, { after } from 'node:test';
@@ -10,15 +11,21 @@ import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema } from '../src/agent/handoff.js';
 import { callAgent, type AgentRequest, type Backend } from '../src/index.js';
 
-// The fake CLIs stand in for codex and claude on PATH; HOME and ARGUS_HOME are the test's own.
+// The fake CLIs stand in for codex and claude on PATH, installed as npm installs a node CLI: a
+// link on POSIX, on Windows the .cmd shim npm writes beside it. HOME and ARGUS_HOME are the test's own.
 const root = mkdtempSync(join(tmpdir(), 'argus-agent-'));
 const bin = join(root, 'bin');
 const work = join(root, 'work');
-for (const dir of [bin, work, join(root, 'home')]) mkdirSync(dir);
-const fake = fileURLToPath(new URL('./fixtures/fake-agent.mjs', import.meta.url));
-for (const name of ['codex', 'claude']) symlinkSync(fake, join(bin, name));
+const home = join(root, 'home');
+for (const dir of [bin, work, home]) mkdirSync(dir);
+const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
+copyFileSync(fixture('fake-agent.mjs'), join(bin, 'fake-agent.mjs'));
+for (const name of ['codex', 'claude']) {
+  if (process.platform === 'win32') copyFileSync(fixture('fake-agent.cmd'), join(bin, `${name}.cmd`));
+  else symlinkSync(join(bin, 'fake-agent.mjs'), join(bin, name));
+}
 Object.assign(process.env, {
-  HOME: join(root, 'home'), ARGUS_HOME: join(root, 'argus'), PATH: `${bin}${delimiter}${process.env.PATH}`,
+  HOME: home, USERPROFILE: home, ARGUS_HOME: join(root, 'argus'), PATH: `${bin}${delimiter}${process.env.PATH}`,
   GH_TOKEN: 'push', MY_SECRET: 'secret', ANTHROPIC_API_KEY: 'login',
 });
 delete process.env.CODEX_HOME;
@@ -103,22 +110,19 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.deepEqual(second.usage, first.usage);
   });
 
-  test(`${backend}: cancelling ends the CLI and everything it started`, async () => {
-    const marker = `argus-agent-test-${process.pid}-${backend}`;
-    const running = (): boolean => {
-      try { execFileSync('pgrep', ['-f', marker]); return true; } catch { return false; }
-    };
+  test(`${backend}: cancelling ends the CLI and everything it started`, { timeout: 30_000 }, async () => {
+    // The job the CLI starts holds a connection here, which closes when the job ends.
+    const server = createServer().listen(0, '127.0.0.1').unref();
+    await once(server, 'listening');
     const controller = new AbortController();
-    const pending = call(backend, { hang: marker }, { signal: controller.signal });
-    for (let waited = 0; !running(); waited += 50) {
-      assert.ok(waited < 10_000, 'the fake CLI never started its job');
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    const pending = call(backend, { hang: (server.address() as AddressInfo).port }, { signal: controller.signal });
+    const [job] = await once(server, 'connection') as [Socket];
+    const ended = new Promise(resolve => job.unref().on('error', () => {}).on('close', resolve).resume());
     controller.abort();
     const result = await pending;
     assert.equal(result.completed, false);
     assert.match(result.error ?? '', /cancelled/);
-    assert.equal(running(), false);
+    await ended;
   });
 }
 
