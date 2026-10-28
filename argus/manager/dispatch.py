@@ -391,8 +391,13 @@ def enqueue_mission(
             exc = front_door.ManagerHandoffError(error)
             prepared_handoff.failed(exc)
             raise exc
+        # A new objective lasts as long as its own ticket says; only work that
+        # carries the running objective on keeps that campaign's lifetime.
+        carries_on = campaign_running and not front_door.objective_update_requires_stage_reset(
+            campaign.objective, body, prepared_handoff.execution_task,
+        )
         chat_state["_continuous_open_ended"] = (
-            campaign.open_ended if campaign_running else standing
+            campaign.open_ended if carries_on else standing
         )
         objective = front_door.manager_continuous_handoff(
             mem,

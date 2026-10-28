@@ -9,10 +9,9 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import partial
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping
 
 from ..core.knobs import resolve_role_model
 from ..core.progress_step import REPLY_KINDS
@@ -418,14 +417,17 @@ def _accepts_parameter(fn: Any, name: str) -> bool:
 def _allow_manager_route_contract_change(
     mem: Any,
     chat_state: dict[str, Any],
+    ticket: Mapping[str, Any] | None = None,
 ) -> bool:
     """Whether this operator handoff may revise the persisted route contract.
 
-    A finite supplemental task inside an active campaign inherits that
-    campaign's vertical, topology, and research bar. Outside an active campaign,
-    a fresh operator handoff is allowed to select a new topology or success bar.
-    An explicit standing handoff may replace the active campaign and therefore
-    also needs that authority. State-read failures preserve the contract.
+    The operator owns the objective. Outside an active campaign a fresh
+    handoff selects its own topology and success bar. Inside one, only a
+    direct bounded ``ticket`` joins the campaign as supplemental work
+    (``dispatch.enqueue_mission``) and inherits its vertical, topology and
+    research bar; any other ticket replaces the campaign's objective, so it
+    chooses them as a fresh project would. Without a ticket, only a standing
+    handoff replaces the campaign. State-read failures preserve the contract.
     """
     try:
         from ..daemon.state import read_continuous_state
@@ -436,9 +438,13 @@ def _allow_manager_route_contract_change(
     if not active.enabled or not active.objective.strip():
         return True
     lifetime = str(
-        chat_state.get("_team_lifetime", "bounded") or "bounded"
+        (ticket or {}).get("lifetime") or chat_state.get("_team_lifetime", "bounded") or "bounded"
     ).strip().lower()
-    return lifetime == "standing"
+    if lifetime == "standing":
+        return True
+    if ticket is None:
+        return False
+    return str(ticket.get("workflow_mode") or "").strip().lower() != "direct"
 
 
 def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
@@ -633,7 +639,7 @@ class PreparedManagerHandoff:
             "type": "life.manager.intent.completed",
             "agent_layer": "manager",
             "intent_id": self.intent_id,
-            "item_id": self.root_task_id,
+            "item_id": self.root_task_id or self.intent_id,
             "source": "user",
             "objective": execution_task,
             "execution_task": execution_task,
@@ -694,7 +700,7 @@ class PreparedManagerHandoff:
             "type": "life.manager.intent.failed",
             "agent_layer": "manager",
             "intent_id": self.intent_id,
-            "item_id": self.root_task_id,
+            "item_id": self.root_task_id or self.intent_id,
             "source": "user",
             "objective": self.body if self.public_objective is None else self.public_objective,
             "error": f"{type(exc).__name__}: {exc}",
@@ -717,7 +723,7 @@ class PreparedManagerHandoff:
             "type": "life.manager.intent.superseded",
             "agent_layer": "manager",
             "intent_id": self.intent_id,
-            "item_id": self.root_task_id,
+            "item_id": self.root_task_id or self.intent_id,
             "source": "user",
             "text": "newer continuous command superseded Manager handoff",
         })
@@ -761,7 +767,7 @@ def prepare_manager_execution_task(
         "type": "life.manager.intent.started",
         "agent_layer": "manager",
         "intent_id": intent_id,
-        "item_id": root_task_id,
+        "item_id": root_task_id or intent_id,
         "source": "user",
         "objective": public_objective,
         "text": "manager interpreting user task",
@@ -1224,8 +1230,10 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     actions = manager_actions(
         body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,
         waiting=waiting, setting_up=bool(setup),
-        route=partial(runner.manager.adopt_route, root_task_id=root_task_id,
-                      allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state)),
+        route=lambda handed: runner.manager.adopt_route(
+            handed, root_task_id=root_task_id,
+            allow_route_contract_change=_allow_manager_route_contract_change(mem, chat_state, handed),
+        ),
     )
 
     def _turn(message: str, sink: _Capture) -> "tuple[Any, str | None]":

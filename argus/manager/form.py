@@ -20,7 +20,7 @@ _ROLE_KNOBS = frozenset({"model", "effort"})
 _ROUTE_FIELDS = (
     "summary", "assumptions", "vertical", "domain", "workflow_mode", "start_stage",
     "research_target_level", "research_direction_mode", "target_venue", "require_independent_review",
-    "operator_decides_stages", "plan", "waypoint_id",
+    "operator_decides_stages", "plan", "waypoint_id", "lifetime",
 )
 
 
@@ -126,7 +126,10 @@ def _check(payload: dict[str, Any], *, message: str, active_mission: bool, team_
     if _folded(control["quote"]) not in _folded(message):
         raise ValueError("control.quote must be the operator's own words giving the command, copied from the message.")
     if control["kind"] == "steer" and not active_mission:
-        raise ValueError("No mission is running, so there is nothing to steer: leave control out.")
+        raise ValueError(
+            "No mission is running, so there is nothing to steer: leave control out. "
+            "A new or changed goal for the team is a to=team ticket."
+        )
     if control["kind"] == "steer" and not control.get("directive"):
         raise ValueError("A steer needs its new direction in control.directive.")
     return None

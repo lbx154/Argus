@@ -92,29 +92,18 @@ class PlanningCycleVerdictMixin:
             # The question the revision put on its task still waits: it stays
             # as it was asked, as the planning slot's does.
             return False
+        from .pending_notify import ask_operator, planning_slot_card
+
         if asks_only:
             # One open question per planning slot, kept as it was asked: a
             # Planner that comes back while it waits neither adds a card nor
             # rewords it. Their answer is new input that calls it again; a
             # question another task waits on is that task's, not this one.
-            if any(
-                "operator_decision" in row.tags and str(row.pending_question or "").strip()
-                for row in self.memory.backlog.active()
-            ):
-                return False
-            from ...core.operator_messages import brief_title
-            from ..memory import BacklogItem
-
-            # The work resumes under this title once answered: name the work.
-            item = self.memory.backlog.add(
-                BacklogItem.new(
-                    title=brief_title(str(self.config.continuous_objective or question)),
-                    objective=str(self.config.continuous_objective or question),
-                    tags=["planner", "operator_decision", "scope:bounded"],
-                    iterate=False,
-                )
+            item, new = planning_slot_card(
+                self.memory.backlog, str(self.config.continuous_objective or question),
             )
-        from .pending_notify import ask_operator
+            if not new:
+                return False
 
         card_fields: dict[str, Any] = {}
         if about_waypoint:

@@ -536,6 +536,50 @@ def test_finite_staged_paper_request_runs_as_a_finite_campaign(
     assert continuous["objective"] == objective
 
 
+def test_a_finite_request_replacing_a_standing_campaign_runs_finite(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Trial s-dacac579: the CVPR request was filed bounded but inherited the standing campaign."""
+    from argus.daemon.state import compare_and_swap_continuous_config, read_continuous_state
+
+    sid = "s-replace-standing"
+    life = _make_project(tmp_path, sid)
+    assert compare_and_swap_continuous_config(
+        life, expected=read_continuous_state(life), enabled=True,
+        objective="撰写一篇中文人工智能文献综述。", open_ended=True,
+    )
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    _install_manager(monkeypatch, lambda text: text, lifetime="bounded")
+    request = "写一篇cvpr水平的，质量要高，到时候给我pdf"
+
+    result = manager_bridge.manager_message(sid, request, global_root=tmp_path)
+
+    assert result["kind"] == "task"
+    state = read_continuous_state(life)
+    assert (state.enabled, state.open_ended, state.objective) == (True, False, request)
+
+
+def test_work_carrying_a_standing_campaign_on_keeps_it_standing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus.daemon.state import compare_and_swap_continuous_config, read_continuous_state
+
+    sid = "s-extend-standing"
+    life = _make_project(tmp_path, sid)
+    standing = "持续改进检索增强生成的评测。"
+    assert compare_and_swap_continuous_config(
+        life, expected=read_continuous_state(life), enabled=True, objective=standing, open_ended=True,
+    )
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    _install_manager(monkeypatch, lambda text: text, lifetime="bounded")
+
+    manager_bridge.manager_message(sid, f"{standing} 另外补一组消融。", global_root=tmp_path)
+
+    assert read_continuous_state(life).open_ended is True
+
+
 def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,

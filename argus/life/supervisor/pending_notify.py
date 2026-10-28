@@ -34,7 +34,9 @@ __all__ = [
     "notify_pending_question",
     "numbered_options",
     "pending_question_message",
+    "planning_slot_card",
     "should_report_pending_wait",
+    "waiting_planning_card",
 ]
 
 #: Ids already announced, so a restart or a re-read does not re-notify.
@@ -204,6 +206,41 @@ def notify_pending_question(life_dir: Any, item: Any) -> bool:
     except Exception:  # noqa: BLE001
         log.exception("pending-question notify: unexpected failure")
         return False
+
+
+def waiting_planning_card(backlog: Any) -> Any | None:
+    """The planning slot's card while its question waits on the operator, else ``None``."""
+    return next(
+        (
+            row for row in backlog.active()
+            if "operator_decision" in row.tags and str(row.pending_question or "").strip()
+        ),
+        None,
+    )
+
+
+def planning_slot_card(backlog: Any, objective: str) -> tuple[Any, bool]:
+    """The card for a question about the campaign that no task holds, and whether it is new.
+
+    The planning slot keeps one open question, as it was asked: while one
+    waits it is returned as it is, and the caller asks nothing more. Otherwise
+    a card is added under the campaign's objective, the work that resumes
+    once the operator answers.
+    """
+    waiting = waiting_planning_card(backlog)
+    if waiting is not None:
+        return waiting, False
+    from ...core.operator_messages import brief_title
+    from ..memory import BacklogItem
+
+    return backlog.add(
+        BacklogItem.new(
+            title=brief_title(objective),
+            objective=objective,
+            tags=["planner", "operator_decision", "scope:bounded"],
+            iterate=False,
+        )
+    ), True
 
 
 def ask_operator(
