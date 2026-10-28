@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
+import { Capabilities } from '../lib/capabilities';
+import { ResourceStatusView } from '../components/ResourceStatus';
 import { RuntimeControlPage } from '../research-workbench/pages/RuntimeControlPage';
 import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageTypes';
 
@@ -35,6 +37,14 @@ const mount = async () => { await act(async () => { tree = create(element()); })
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.children.includes(label))!;
 
 describe('embedded runtime control page', () => {
+  it('neither shows nor reads the machine\'s resources where the server has none', async () => {
+    props.active = true;
+    await act(async () => { tree = create(<Capabilities.Provider value={['manager.sse.v1']}>{element()}</Capabilities.Provider>); });
+    expect(tree!.root.findAllByType(ResourceStatusView)).toHaveLength(0);
+    act(() => button('Refresh').props.onClick());
+    expect(api.resources).not.toHaveBeenCalled();
+    expect(props.refresh).toHaveBeenCalledOnce();
+  });
   it('takes an empty project to its conversation without claiming it was paused or starting work', async () => {
     props.snapshot = { ...snap, session: { ...snap.session, display_name: '' } };
     props.controls.error = 'synthetic command error';
