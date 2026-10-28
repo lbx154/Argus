@@ -285,7 +285,9 @@ def test_replace_project_daemon_parks_state_then_starts_target(
 ) -> None:
     target = _make_project(tmp_path, "s-target001")
     victim = _make_project(tmp_path, "s-victim001")
-    mission_items.enqueue_task("s-victim001", "unfinished work", global_root=tmp_path)
+    mission_items.enqueue_task_command(
+        "s-victim001", "unfinished work", autostart_daemon=False, global_root=tmp_path
+    )
     running = {"s-victim001"}
     spawned = []
 
@@ -411,7 +413,7 @@ def test_disable_continuous_surfaces_persistence_failure(
     )
 
     with pytest.raises(ManagerHandoffError, match="could not be persisted"):
-        project_crud.set_continuous(
+        project_crud.apply_continuous_update(
             sid,
             enabled=False,
             global_root=root,

@@ -98,20 +98,6 @@ def _enqueue_task_unlocked(
     return item.to_jsonable()
 
 
-def enqueue_task(
-    sid: str,
-    text: str,
-    *,
-    global_root: Path | str | None = None,
-    lifecycle_root: Path | str | None = None,
-) -> dict[str, Any] | None:
-    """Append one Manager-authored task while excluding delete/restore races."""
-    root = _global_root(global_root)
-    lock_root = _global_root(lifecycle_root) if lifecycle_root is not None else root
-    with session_lifecycle_lock(lock_root, sid):
-        return _enqueue_task_unlocked(sid, text, global_root=root)
-
-
 def enqueue_task_command(
     sid: str,
     text: str,

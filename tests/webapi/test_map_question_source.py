@@ -39,7 +39,6 @@ def project(tmp_path, monkeypatch):
         "event_ids": [*(event["id"] for event in dataset["events"]), "lost-event"],
     }
     monkeypatch.setattr(MapFeed, "read", lambda *a, **k: copy.deepcopy(dataset))
-    monkeypatch.setattr(map_narrative, "_source_lock", lambda *a, **k: pytest.fail("Question acquired generation lock"))
     return sid, life, workspace, dataset, card
 
 
@@ -47,7 +46,7 @@ def save_copy(root, sid, card, *, key="t", locale="en-US", preview=False, founda
     source = map_narrative.copy_source(f"live:{sid}", locale, preview=preview, foundation_id=foundation_id)
     path = map_narrative.cache_path(root, source)
     path.parent.mkdir(exist_ok=True)
-    map_narrative._write_cache(path, {"cards": {key: card}, "cache_revision": 3})
+    path.write_text(json.dumps({"cards": {key: card}, "cache_revision": 3}, ensure_ascii=False), encoding="utf-8")
     return path
 
 

@@ -294,14 +294,6 @@ def start_continuous_update(
         return start(sid, global_root=global_root, resume_continuous=True)
 
 
-def set_continuous(
-    sid: str, *, enabled: bool, objective: str = "", global_root: Path | str | None = None,
-) -> bool | None:
-    """Compatibility entry point for callers that only need the applied status."""
-    receipt = apply_continuous_update(sid, enabled=enabled, objective=objective, global_root=global_root)
-    return True if receipt is not None else None
-
-
 # ---------------------------------------------------------------------------
 # Wave-1 read/inspect + backlog-lifecycle helpers — 1:1 with the Python
 # cockpit's /status /journal /note /doctor /config /identity /transcript and

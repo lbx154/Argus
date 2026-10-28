@@ -6,15 +6,11 @@ import copy
 import json
 import logging
 import math
-import threading
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
-from weakref import WeakValueDictionary
 
-from ..core.file_lock import exclusive_file_lock
 from .map_model import (
     resolve_map_model,
 )
@@ -26,8 +22,6 @@ PROMPT_VERSION = 26
 SOURCE_FIRST_VERSION = 25
 LEARNING_PATH_VERSION = 27
 Preview = bool | Literal["learning-path", "question-foundation"]
-_LOCK = threading.Lock()
-_SOURCES: WeakValueDictionary = WeakValueDictionary()
 
 
 log = logging.getLogger(__name__)
@@ -53,29 +47,6 @@ def copy_version(*, preview: Preview = False) -> int:
     if preview:
         return SOURCE_FIRST_VERSION
     return PROMPT_VERSION
-
-
-@contextmanager
-def _source_lock(root: Path, source: str):
-    key = (str(root.resolve()), source)
-    with _LOCK:
-        lock = _SOURCES.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _SOURCES[key] = lock
-    with lock:
-        path = cache_path(root, source).with_suffix(".lock")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a+b") as handle, exclusive_file_lock(
-            handle, timeout_seconds=210, lock_name="map summaries",
-        ):
-            yield
-
-
-def _write_cache(path: Path, value: dict):
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-    temp.replace(path)
 
 
 def configured() -> bool:
