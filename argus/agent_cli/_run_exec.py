@@ -26,6 +26,8 @@ from ..core.process_progress import (
 )
 from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from ..core.sandbox import SANDBOX_WAIT_MARKER
+from ..core.turn_jobs import describe as describe_turn_jobs
+from ..core.turn_jobs import tag_turn
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
     _CAPTURE_JSON_EVENTS_ENV,
@@ -62,6 +64,9 @@ _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
 # This is process-group detach grace, not a role-turn deadline.
 _ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
+# After the CLI exits, how often the runner looks whether what it started
+# still runs. A look reads the process table; it makes no model call.
+_TURN_JOBS_POLL_SECONDS = 1.0
 # Enough of the CLI's closing stderr to hold its terminal error line.
 _TERMINAL_STDERR_LINES = 20
 
@@ -164,6 +169,10 @@ class _StreamState:
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
     process_group_cleanup_checked: bool = False
+    # What the turn started that still runs after its CLI exited (pids), and
+    # when the runner last looked (core.turn_jobs).
+    turn_jobs: list[int] = field(default_factory=list)
+    turn_jobs_checked_at: float | None = None
 
 
 class RunExecMixin:
@@ -273,9 +282,9 @@ class RunExecMixin:
     ) -> None:
         """Clean descendants left in this turn's private process group.
 
-        Durable Argus jobs launch in their own session/process group. Anything
-        still in the provider turn's group after the provider itself exits has
-        no durable owner, regardless of the command text that created it.
+        Runs once the CLI and the jobs it started have ended
+        (``_turn_runs_on``), so a member found here is one the turn could not
+        see (it cleared its environment), not a job the turn was waiting for.
         """
         process_group_id = int(getattr(process, "pid", 0) or 0)
         job = getattr(process, "_argus_windows_job", None)
@@ -307,6 +316,31 @@ class RunExecMixin:
         state.orphan_process_group_cleanup_succeeded = not cls._process_group_alive(
             process_group_id
         )
+
+    def _turn_runs_on(self, process, state: _StreamState, run_label: str | None) -> bool:
+        """Whether what the exited CLI started still runs, so its turn does too.
+
+        The bubblewrap sandbox waits for these jobs itself; elsewhere the
+        runner does (``core.turn_jobs``). It names them once on stderr, as the
+        sandbox does, and records them as what the turn is running, which is
+        what a stop of the turn names.
+        """
+        now = time.monotonic()
+        if state.turn_jobs_checked_at is not None and (
+            now - state.turn_jobs_checked_at < _TURN_JOBS_POLL_SECONDS
+        ):
+            return bool(state.turn_jobs)
+        state.turn_jobs_checked_at = now
+        named = bool(state.turn_jobs)
+        state.turn_jobs = self._turn_jobs(process)
+        if state.turn_jobs and not named:
+            line = f"{SANDBOX_WAIT_MARKER} {describe_turn_jobs(state.turn_jobs)}"
+            self._emit(self._stream_name("stderr", run_label), line)
+            state.stderr_line_count += 1
+            state.stderr_lines.append(line)
+            state.stderr_since_progress.append(line)
+            state.running_tool = line[len(SANDBOX_WAIT_MARKER):].strip()
+        return bool(state.turn_jobs)
 
     def _prebound_session_id(self, options) -> str | None:
         """The provider-session identity passed to a NEW Copilot CLI session."""
@@ -384,6 +418,8 @@ class RunExecMixin:
         # Every agent CLI Argus starts is a role process; the marker keeps
         # orchestrator control state out of its reach.
         env = mark_role_process_env(self._child_env(options, executable=command[0]))
+        # Everything the CLI starts inherits the tag: the turn's jobs.
+        turn = tag_turn(env)
         try:
             command = self._confined(command, options, env)
         except RuntimeError as exc:
@@ -418,6 +454,7 @@ class RunExecMixin:
                     env=env,
                     **background_subprocess_kwargs(),
                 )
+            process._argus_turn = turn
         except BaseException:
             if prompt_path is not None:
                 prompt_path.unlink(missing_ok=True)
@@ -479,7 +516,17 @@ class RunExecMixin:
         last_activity_at = time.monotonic()
         provider_turn_cap = _provider_turn_cap(run_label)
         last_soft_check_at = last_activity_at
-        cpu_seconds = process_tree_cpu_seconds(getattr(process, "pid", None))
+
+        def turn_running() -> bool:
+            """The CLI, or a job it started, still runs (``_turn_runs_on``)."""
+            return process.poll() is None or bool(state.turn_jobs)
+
+        def turn_cpu_seconds() -> float:
+            if process.poll() is None:
+                return process_tree_cpu_seconds(getattr(process, "pid", None))
+            return sum(process_tree_cpu_seconds(pid) for pid in state.turn_jobs if pid > 0)
+
+        cpu_seconds = turn_cpu_seconds()
         cpu_sampled_at = last_activity_at
         provider_exited_at: float | None = None
         stdout_closed = False
@@ -530,7 +577,7 @@ class RunExecMixin:
         )
 
         def check_external_interrupt() -> bool:
-            if state.watchdog_terminated or process.poll() is not None:
+            if state.watchdog_terminated or not turn_running():
                 return False
             if options.external_interrupt_reason_provider is None:
                 return False
@@ -556,11 +603,11 @@ class RunExecMixin:
             the commands it runs: a live process alone is not progress.
             """
             nonlocal last_soft_check_at, last_activity_at, cpu_seconds, cpu_sampled_at
-            if state.watchdog_terminated or process.poll() is not None:
+            if state.watchdog_terminated or not turn_running():
                 return
             now = time.monotonic()
             if now - cpu_sampled_at >= CPU_SAMPLE_SECONDS:
-                previous, cpu_seconds = cpu_seconds, process_tree_cpu_seconds(getattr(process, "pid", None))
+                previous, cpu_seconds = cpu_seconds, turn_cpu_seconds()
                 cpu_sampled_at = now
                 if cpu_seconds - previous >= CPU_PROGRESS_SECONDS:
                     last_activity_at = now
@@ -612,7 +659,7 @@ class RunExecMixin:
 
             last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
             for stage in idle_escalation.newly_due(idle_seconds):
-                if state.watchdog_terminated or process.poll() is not None:
+                if state.watchdog_terminated or not turn_running():
                     break
                 if stage == WARNING_STAGE:
                     self._emit(
@@ -664,7 +711,15 @@ class RunExecMixin:
             while True:
                 if not pipe_errors.empty():
                     raise RuntimeError("Provider output reader failed") from pipe_errors.get()
-                if process.poll() is not None:
+                if (
+                    process.poll() is not None
+                    and not state.watchdog_terminated
+                    and self._turn_runs_on(process, state, run_label)
+                ):
+                    # The CLI exited and the jobs it started still run: so
+                    # does the turn. Its output drain starts when they end.
+                    provider_exited_at = None
+                elif process.poll() is not None:
                     if provider_exited_at is None:
                         provider_exited_at = time.monotonic()
                     if not state.process_group_cleanup_checked:
@@ -700,7 +755,7 @@ class RunExecMixin:
                     # (terminate -> kill via the shared helper) so it is not
                     # orphaned and does not keep burning tokens, then re-raise so
                     # the interactive caller can return to its prompt.
-                    if process.poll() is None:
+                    if turn_running():
                         self._terminate_process(
                             process,
                             include_detached_children=self.backend == BACKEND_OPENCODE,
@@ -859,7 +914,7 @@ class RunExecMixin:
             if process.poll() is None:
                 process.wait(timeout=10.0)
         except BaseException:
-            if process.poll() is None:
+            if turn_running():
                 self._terminate_process(
                     process, include_detached_children=self.backend == BACKEND_OPENCODE,
                 )

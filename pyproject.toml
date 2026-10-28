@@ -214,5 +214,5 @@ warn_unused_configs = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["yaml"]
+module = ["yaml", "psutil"]
 ignore_missing_imports = true

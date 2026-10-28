@@ -160,6 +160,29 @@ class _WindowsTurnJob:
             raise ctypes.WinError(ctypes.get_last_error())
         return accounting.ActiveProcesses
 
+    def process_ids(self, limit: int = 64) -> list[int]:
+        """Up to ``limit`` ids of the Job's processes, to name what a turn waits for."""
+        import ctypes
+        from ctypes import wintypes as w
+
+        class ProcessIdList(ctypes.Structure):
+            _fields_ = [
+                ("NumberOfAssignedProcesses", w.DWORD),
+                ("NumberOfProcessIdsInList", w.DWORD),
+                ("ProcessIdList", ctypes.c_size_t * limit),
+            ]
+
+        if not self.handle:
+            return []
+        listed = ProcessIdList()
+        # A Job with more members than fit fails with ERROR_MORE_DATA yet
+        # fills the list; any other failure lists none.
+        self.api.QueryInformationJobObject(
+            self.handle, 3, ctypes.byref(listed), ctypes.sizeof(listed), None,
+        )
+        count = min(int(listed.NumberOfProcessIdsInList), limit)
+        return [int(pid) for pid in listed.ProcessIdList[:count]]
+
     def terminate(self) -> bool:
         if not self.handle:
             return True

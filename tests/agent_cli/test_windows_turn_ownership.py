@@ -21,6 +21,7 @@ class HeldProcess:
     """Retain process identity before the action; never clean up a reused PID."""
 
     def __init__(self, pid: int):
+        self.pid = pid
         self.api = ctypes.WinDLL("kernel32", use_last_error=True)
         self.api.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
         self.api.OpenProcess.restype = ctypes.c_void_p
@@ -123,7 +124,12 @@ def test_streaming_turn_reaps_children(monkeypatch, tmp_path, action):
             process=process, command=[sys.executable], options=options,
             run_label="engineer-r1", thread_id=None,
         )
-        assert state.watchdog_terminated is (action != "natural")
+        # After a natural exit the turn runs on with the children it started,
+        # so the idle stop that ends it names them.
+        assert state.watchdog_terminated
+        if action == "natural":
+            assert "running tool: [" in state.watchdog_reason
+            assert any(f"[{child.pid}]" in state.watchdog_reason for child in held)
         assert all(child.exited() for child in held)
     finally:
         runner._terminate_process(process)

@@ -19,6 +19,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from urllib.parse import quote
 
+from .turn_jobs import TURN_JOBS_MARKER
+
 
 def _package_root() -> str | None:
     try:
@@ -311,7 +313,8 @@ def _backend_support_executables(executable: Path) -> list[Path]:
 # sandbox runs, then exits with the CLI's code: a turn ends when everything it
 # started has ended. It names what it waits for once, on stderr, after
 # ``SANDBOX_WAIT_MARKER``; the runner reads that as what the turn is running.
-SANDBOX_WAIT_MARKER = "[argus-sandbox] the agent CLI exited; its turn runs on with what it started:"
+# Hosts without bubblewrap wait for the same jobs in the runner (core.turn_jobs).
+SANDBOX_WAIT_MARKER = TURN_JOBS_MARKER
 _WAIT_FOR_EVERYTHING = r"""
 "$@"
 code=$?
