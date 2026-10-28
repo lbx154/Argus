@@ -1881,19 +1881,16 @@ def _render_lifecycle_status_lines(
     from the canonical project ``state_root`` shared with the daemon. Returns the
     lines to print. Fail-soft: any error returns an empty list.
     """
-    try:
-        from ...life.project_lifecycle import (
-            advisory_time_signals,
-            infer_observable_status,
-            is_token_allocatable,
-        )
-        from ...life.project_lifecycle_io import (
-            LifecycleIOError,
-            apply_persisted_to_status,
-            load_persisted,
-        )
-    except Exception:  # noqa: BLE001
-        return []
+    from ...life.project_lifecycle import (
+        advisory_time_signals,
+        infer_observable_status,
+        is_token_allocatable,
+    )
+    from ...life.project_lifecycle_io import (
+        LifecycleIOError,
+        apply_persisted_to_status,
+        load_persisted,
+    )
 
     # ``infer_observable_status`` tolerates a non-existent workdir
     # (returns an INCUBATING status using "now" as created_at), so we
@@ -1966,7 +1963,7 @@ def _render_inbox_injection_lines(bundle: Any, *, limit: int = 3) -> list[str]:
             ) != "life.inbox.drained":
                 continue
             injected.append(row)
-    except Exception:  # noqa: BLE001
+    except OSError:
         return []
     injected = injected[-limit:]
     if not injected:
@@ -1978,7 +1975,7 @@ def _render_inbox_injection_lines(bundle: Any, *, limit: int = 3) -> list[str]:
             stamp = _dt.datetime.fromtimestamp(
                 float(row.get("ts", 0.0))
             ).strftime("%H:%M:%S")
-        except Exception:  # noqa: BLE001
+        except (OSError, OverflowError, TypeError, ValueError):
             stamp = "?"
         messages = row.get("messages")
         summary = " | ".join(
@@ -2022,7 +2019,7 @@ def _render_mid_mission_progress_lines(bundle: Any, *, current_item_id: str | No
         recent = events[-4:]
         if not recent:
             return []
-    except Exception:  # noqa: BLE001
+    except OSError:
         return []
 
     lines = ["  in_flight:"]

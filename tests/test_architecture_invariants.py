@@ -1893,14 +1893,14 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "adapters": 16,
     "advisor": 4,
     "agent_cli": 12,
-    "apps": 41,
+    "apps": 37,
     "cli": 1,
-    "core": 56,
-    "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
+    "core": 44,
+    "daemon": 36,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 18,
-    "life": 181,
+    "life": 177,
     "maintenance": 2,
-    "manager": 66,
+    "manager": 61,
     "messaging": 1,
     "planner": 1,
     "plugin": 9,
@@ -1911,7 +1911,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "tools": 3,
     "trial": 14,
     "verticals": 59,
-    "webapi": 125,
+    "webapi": 124,
     "wiki": 5,
 }
 

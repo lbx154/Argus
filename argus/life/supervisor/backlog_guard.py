@@ -170,11 +170,7 @@ def ensure_manager_decision(
     if not objective:
         return item
 
-    try:
-        from ...manager.front_door import prepare_manager_execution_task
-    except Exception:  # noqa: BLE001 - never let this path break execution
-        log.exception("backlog guard: manager front door unavailable")
-        return item
+    from ...manager.front_door import prepare_manager_execution_task
 
     try:
         manager_runner = (

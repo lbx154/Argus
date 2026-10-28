@@ -737,7 +737,7 @@ class LifeWorkerRunMixin:
                 # responsive even during a long await-external backoff.
                 try:
                     suggested = float(summary.get("suggested_sleep") or 0.0)
-                except Exception:  # noqa: BLE001
+                except (AttributeError, TypeError, ValueError):
                     suggested = 0.0
                 self._wakeable_sleep(
                     max(float(rf_state.cfg.poll_interval), suggested),

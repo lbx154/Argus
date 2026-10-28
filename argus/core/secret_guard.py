@@ -457,9 +457,9 @@ def secret_redaction_enabled() -> bool:
     explicit = str(os.environ.get(REDACT_SECRETS_KNOB, "") or "").strip().lower()
     if explicit:
         return explicit in _TRUE_VALUES
-    try:
-        from .knob_store import config_path, read_persisted_knobs
+    from .knob_store import KnobStoreCorruptError, config_path, read_persisted_knobs
 
+    try:
         path = config_path()
         try:
             info = path.stat()
@@ -473,7 +473,7 @@ def secret_redaction_enabled() -> bool:
         enabled = saved.strip().lower() in _TRUE_VALUES
         _REDACTION_CACHE[str(path)] = (stamp, enabled)
         return enabled
-    except Exception:  # noqa: BLE001 - an unreadable store keeps the default
+    except KnobStoreCorruptError:  # an unreadable store keeps the default
         return False
 
 

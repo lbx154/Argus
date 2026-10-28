@@ -64,7 +64,8 @@ def append_turn(
         with p.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return True
-    except Exception:  # noqa: BLE001 — never break the cockpit over transcript I/O
+    except (OSError, TypeError, ValueError):
+        # Unwritable transcript or unserializable metadata: the cockpit keeps working.
         return False
 
 
@@ -81,12 +82,12 @@ def read_turns(life_dir: Any, *, limit: int | None = None) -> list[dict[str, Any
                 continue
             try:
                 rec = json.loads(line)
-            except Exception:  # noqa: BLE001
+            except (ValueError, RecursionError):
                 continue
             if isinstance(rec, dict) and rec.get("text"):
                 out.append(rec)
         return out[-limit:] if (limit and limit > 0) else out
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError):
         return []
 
 

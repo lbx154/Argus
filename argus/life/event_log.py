@@ -315,7 +315,7 @@ class JsonlEventSink:
         for k, v in list(out.items()):
             try:
                 json.dumps(v)
-            except Exception:  # noqa: BLE001
+            except (TypeError, ValueError, RecursionError):
                 out[k] = repr(v)  # full repr — events.jsonl is the ground-truth replay; don't clip diagnostics
         return redact_secrets_record(
             out,
@@ -325,9 +325,7 @@ class JsonlEventSink:
     def _maybe_roll(self) -> None:
         try:
             size = self._path.stat().st_size
-        except FileNotFoundError:
-            return
-        except Exception:  # noqa: BLE001
+        except OSError:
             return
         if size < self._roll_bytes:
             return
@@ -344,7 +342,7 @@ class JsonlEventSink:
                     n += 1
                 os.replace(self._roll_path, self._dir / f"{EVENT_FILE}.{n}")
             os.replace(self._path, self._roll_path)
-        except Exception:  # noqa: BLE001
+        except OSError:
             pass
 
 

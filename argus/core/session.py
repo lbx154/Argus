@@ -295,7 +295,8 @@ def read_session_meta(global_root: Path | None, sid: str) -> SessionMeta | None:
         return None
     try:
         return SessionMeta.from_dict(json.loads(raw))
-    except Exception:  # noqa: BLE001
+    except (AttributeError, TypeError, ValueError):
+        # Not JSON, or not an object of the expected field types.
         return None
 
 
@@ -405,7 +406,7 @@ def list_sessions(
                     (filesystem_dir / "continuous.json").read_text(encoding="utf-8")
                 )
                 obj = str(cj.get("objective", "") or "")
-            except Exception:  # noqa: BLE001
+            except (AttributeError, OSError, ValueError):
                 pass
             meta = SessionMeta(id=d.name, created=mtime, last_active=mtime, objective=obj)
         else:
@@ -442,14 +443,13 @@ def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
         return True
     if _project_has_content(project_dir):
         return True
-    try:
-        from .daemon_lock import is_pid_running, read_daemon_pid
+    from .daemon_lock import is_pid_running, read_daemon_pid
 
-        for lock in ("daemon.pid",):
-            pid = read_daemon_pid(project_dir / lock)
-            if pid is not None and is_pid_running(pid):
-                return True
-    except Exception:  # noqa: BLE001
+    try:
+        pid = read_daemon_pid(project_dir / "daemon.pid")
+        if pid is not None and is_pid_running(pid):
+            return True
+    except (OSError, ValueError):
         pass
     return False
 
@@ -476,7 +476,7 @@ def live_daemon_sessions(global_root: Path | None = None) -> list[SessionMeta]:
     for meta in list_sessions(global_root):
         try:
             pid = read_daemon_pid(projects / meta.id / "daemon.pid")
-        except Exception:  # noqa: BLE001
+        except ValueError:  # a pid file that is not ASCII
             pid = None
         if pid is not None and is_pid_running(pid):
             out.append(meta)

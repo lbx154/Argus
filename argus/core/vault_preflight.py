@@ -26,6 +26,7 @@ Design:
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -159,7 +160,7 @@ def default_probe(
         # return JSON with a `code` / `message` field.
         try:
             payload = exc.read().decode("utf-8", errors="replace")
-        except Exception:  # noqa: BLE001
+        except (OSError, http.client.HTTPException):
             payload = ""
         snippet = payload[:200].replace("\n", " ").strip()
         return (False, exc.code, f"HTTP {exc.code}: {snippet}")
