@@ -19,6 +19,7 @@ import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { preview } from './preview.js';
 import { records } from './records.js';
+import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
@@ -79,7 +80,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-    capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1'],
+    capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1'],
     runtime: {
       package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
@@ -208,7 +209,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, 'no such result');
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, url.searchParams.get('download') === 'true'));
     }],
-    ...workspace(project), ...preview(project), ...records(store, project),
+    ...workspace(project), ...preview(project), ...records(store, project), ...resources(),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

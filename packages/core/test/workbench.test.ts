@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import test, { type TestContext } from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Store, type Task } from '../src/store.js';
@@ -161,4 +161,34 @@ test('a task in full, a role\'s letters to download, and a search of every proje
   ]);
   assert.equal(results[1]!.message_id, 'm0-operator');
   assert.equal((await call('/api/search?q=%20')).status, 422);
+});
+
+test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lists, when asked', async t => {
+  const { store, get } = await setup(t);
+  type Accelerator = { kind: string; status: string; device_count: number; detail: string; devices: Record<string, unknown>[] };
+  const accelerators = async () => (await get<{ enforcement: string; accelerators: Accelerator[] }>('/api/system/resources')).accelerators;
+  const bin = join(store.home, 'bin');
+  await mkdir(bin);
+  const path = process.env.PATH;
+  t.after(() => { process.env.PATH = path; });
+  process.env.PATH = bin;
+  // Without nvidia-smi there is no GPU to tell of.
+  const [cpu, ...rest] = await accelerators();
+  assert.deepEqual(rest, []);
+  assert.equal(cpu!.kind, 'cpu');
+  assert.ok(cpu!.device_count > 0);
+  assert.match(cpu!.detail, /^load \d+\.\d\d · memory \d+\.\d of \d+\.\d GiB in use$/);
+  if (process.platform === 'win32') return;
+  await writeFile(join(bin, 'nvidia-smi'), '#!/bin/sh\nprintf "0, NVIDIA A100, 81920, 1024, 37\\n1, NVIDIA A100, 81920, [N/A], 0\\n"\n');
+  await chmod(join(bin, 'nvidia-smi'), 0o755);
+  assert.deepEqual((await accelerators()).slice(1), [{
+    kind: 'cuda', status: 'available', device_count: 2, detail: '', devices: [
+      { index: '0', name: 'NVIDIA A100', total_memory_mib: 81920, used_memory_mib: 1024, utilization_percent: 37 },
+      { index: '1', name: 'NVIDIA A100', total_memory_mib: 81920, used_memory_mib: 0, utilization_percent: 0 },
+    ],
+  }]);
+  await writeFile(join(bin, 'nvidia-smi'), '#!/bin/sh\necho "NVIDIA-SMI has failed" >&2\nexit 9\n');
+  const [, failed] = await accelerators();
+  assert.deepEqual([failed!.kind, failed!.status], ['cuda', 'inaccessible']);
+  assert.match(failed!.detail, /NVIDIA-SMI has failed/);
 });
