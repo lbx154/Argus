@@ -542,7 +542,7 @@ INTERRUPTED_REQUEST_TIER = "copilot_interrupted_request"
 PROVIDER_REJECTED_TIER = "provider_rejected"
 
 
-def _is_argus_interrupt(error: object) -> bool:
+def is_argus_interrupt(error: object) -> bool:
     return str(error or "").strip().lower().startswith(_ARGUS_INTERRUPT_PREFIX)
 
 
@@ -571,7 +571,7 @@ def is_interrupted_empty_copilot_turn(
     """
     if str(provider or "").strip().lower() != "copilot":
         return False
-    if str(status or "").strip().lower() != "error" or not _is_argus_interrupt(error):
+    if str(status or "").strip().lower() != "error" or not is_argus_interrupt(error):
         return False
     if (
         premium_requests is not None
@@ -591,7 +591,7 @@ def is_interrupted_empty_copilot_turn(
         and not r.get("premium_requests_present")
         and r.get("premium_requests") is None
         and r.get("total_nano_aiu") is None
-        and _is_argus_interrupt(r.get("fatal_error"))
+        and is_argus_interrupt(r.get("fatal_error"))
         and all(
             r.get(key) in (None, 0)
             for key in (
@@ -1187,7 +1187,7 @@ class UsageLedger:
                     if usage.cost_usd is not None:
                         continue
 
-                if usage is None and _is_argus_interrupt(row.get("error")):
+                if usage is None and is_argus_interrupt(row.get("error")):
                     if completion_receipts is None:
                         completion_receipts = _startup_completion_receipts(self.project_root)
                     if is_interrupted_empty_copilot_turn(

@@ -14,8 +14,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import argus
 from test_hard_gate_homes import _engineer, _planner, _project, _reviewer
+
+import argus
 
 BRIEF = json.loads(
     (Path(__file__).resolve().parents[1] / "fixtures" / "s_efe9deac" / "brief_02a2583442f7.json")

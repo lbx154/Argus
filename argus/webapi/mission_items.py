@@ -567,10 +567,7 @@ def _configured_model_ids() -> list[str]:
     from ..core.knob_store import read_persisted_knobs
     from ..core.knobs import resolve_knob
 
-    try:
-        raw = resolve_knob("ARGUS_SKILL_MODEL_CHOICES", "", persisted=read_persisted_knobs()).value
-    except Exception:  # noqa: BLE001 - a corrupt store still leaves the other sources
-        raw = os.environ.get("ARGUS_SKILL_MODEL_CHOICES", "")
+    raw = resolve_knob("ARGUS_SKILL_MODEL_CHOICES", "", persisted=read_persisted_knobs()).value
     models = [part.strip() for part in raw.split(",")]
     return list(dict.fromkeys(m for m in models if m and m.lower() not in {"auto", "inherit", "default"}))
 

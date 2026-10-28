@@ -129,6 +129,12 @@ REGISTRY: tuple[Site, ...] = (
         ("setup-smoke",),
     ),
     Site(
+        r"model-probe", FOREGROUND,
+        "One test call per click of Test in the model chooser; a second test of the same model in flight is refused.",
+        ("argus/webapi/model_choices.py:242",),
+        ("model-probe",),
+    ),
+    Site(
         r"doctor-repair", FOREGROUND,
         "One repair prompt per `argus doctor` run.",
         ("argus/maintenance/advisor.py:265", "argus/core/agent_probe.py:125"),

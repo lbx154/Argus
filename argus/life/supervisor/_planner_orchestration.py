@@ -304,10 +304,7 @@ class PlannerOrchestrationMixin:
         # The one fact a staged vertical's stage list hides: the finite request
         # itself has already been accepted, so its later stages are not owed.
         request_lines: list[str] = []
-        try:
-            accepted_request = self._bounded_request_accepted()
-        except Exception:  # noqa: BLE001 - digest is advisory
-            accepted_request = ""
+        accepted_request = self._bounded_request_accepted()
         if accepted_request:
             request_lines.append(
                 f"- operator_request: done — task {accepted_request} carried the operator's "
