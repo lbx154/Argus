@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema } from '../src/agent/handoff.js';
-import { BACKENDS, callAgent, type AgentRequest, type AgentResult, type Backend } from '../src/index.js';
+import { confine } from '../src/agent/sandbox.js';
+import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend } from '../src/index.js';
 
 // The fake CLIs stand in for every backend on PATH, installed as npm installs a node CLI: a
 // link on POSIX, on Windows the .cmd shim npm writes beside it. HOME and ARGUS_HOME are the test's own.
@@ -53,6 +54,18 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
     const { properties, required, additionalProperties } = formSchema(form);
     assert.deepEqual([required, additionalProperties], [Object.keys(properties!), false]);
   }
+});
+
+test('under bubblewrap a turn writes the directories it is given to write only when its role writes', { skip: process.platform !== 'linux' && 'Linux only' }, () => {
+  const skills = join(root, 'argus', 'skills');
+  mkdirSync(skills, { recursive: true });
+  const bound = (access: Access): string | undefined => {
+    const argv = confine(['codex'], {
+      backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: work, access, writeDirs: [skills], callsDir: '', usageFile: '',
+    });
+    return argv[argv.lastIndexOf(skills) - 2];
+  };
+  assert.deepEqual([bound('write'), bound('read')], ['--bind-try', '--ro-bind-try']);
 });
 
 // What each fake CLI reports: its model, usage and the credentials it signs in with.

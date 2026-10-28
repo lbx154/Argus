@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Status, Store, Task } from './store.js';
-import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, wayRoots } from './prompts.js';
+import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
@@ -133,7 +133,7 @@ export class Flow {
     // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed), { signal }))?.handoff ?? null;
+      resumed => managerPrompt(project, this.store, message, resumed), { signal }))?.handoff ?? null;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
       const letter = read(handoff);
@@ -147,7 +147,7 @@ export class Flow {
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store.dir(project.id), task, resumed),
+    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed),
       { check: oneQuestion(project) }))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
@@ -172,7 +172,7 @@ export class Flow {
   private async plan(project: Project): Promise<void> {
     // Letters that reach the Planner during its turn wait for its next one.
     const taken = project.inbox.length;
-    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, this.store.dir(project.id), resumed)))?.handoff;
+    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, this.store, resumed)))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
     const { to, letters } = handoff;
@@ -199,8 +199,8 @@ export class Flow {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: project.workdir,
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
-        // Every role reads Argus's record of the project and the ways of working.
-        readDirs: [dir, ...wayRoots(this.store.home)], ...(project.model ? { model: project.model } : {}),
+        // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
+        readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(check ? { check } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { WAYS } from '../src/prompts.js';
+import { SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -73,32 +73,46 @@ const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
 test('the Manager answers directly', async t => {
-  const { store, flow, id, requests, events } = await setup(t, [{ role: 'manager', to: 'operator', letter: '42' }]);
+  const { home, store, flow, id, requests, events } = await setup(t, [{ role: 'manager', to: 'operator', letter: '42' }]);
   const project = await say(flow, id, 'What is 6 times 7?');
   assert.equal(project.status, 'idle');
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
-  assert.deepEqual([request?.form, request?.access, request?.readDirs], ['manager', 'write', [store.dir(id), WAYS]]);
+  assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
+    ['manager', 'write', [store.dir(id), SKILLS], [join(home, 'skills')]]);
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Where things are[\s\S]*## Message\nWhat is 6 times 7\?$/);
-  const readme = join(WAYS, 'research', 'README.md');
-  const research = `- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})`;
-  assert.ok(request?.prompt.split('Ways of working, which every role can read:\n')[1]?.includes(`${research}\n`));
+  const readme = join(SKILLS, 'research', 'README.md');
+  assert.ok(request?.prompt.includes(`\n- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})\n`));
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'status']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
 });
 
-test("the operator's ways of working, under the state root, are listed and read beside Argus's own", async t => {
-  const { home, store, flow, id, requests } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'ok' }]);
-  const mine = join(home, 'ways', 'quant');
-  mkdirSync(mine, { recursive: true });
-  writeFileSync(join(mine, 'README.md'), '# Backtest a trading idea without lookahead\n');
-  await say(flow, id, 'hello');
-  assert.deepEqual(requests[0]?.readDirs, [store.dir(id), WAYS, join(home, 'ways')]);
-  assert.ok(requests[0]?.prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(mine, 'README.md')})\n`));
+test("every role is shown the skills, its own in place of Argus's of the same name, and may write them when it writes", async t => {
+  const { home, store, flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Parse data.csv' },
+    { role: 'engineer', to: 'reviewer', letter: 'parsed' },
+    { role: 'reviewer', to: 'operator', letter: 'Is the first row a header?' },
+  ]);
+  const own = join(home, 'skills');
+  for (const [name, purpose] of [['quant', 'Backtest a trading idea without lookahead'], ['research', 'Research as this operator wants it']]) {
+    mkdirSync(join(own, name!), { recursive: true });
+    writeFileSync(join(own, name!, 'README.md'), `# ${purpose}\n`);
+  }
+  await say(flow, id, 'Summarise data.csv');
+  assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
+  for (const { prompt, readDirs, writeDirs } of requests) {
+    // A role that only reads is given the skills to write as well; its sandbox lets it read them.
+    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
+    assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'README.md')})\n`));
+    assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'README.md')})\n`));
+    assert.ok(prompt.includes(`\n- software: `) && !prompt.includes(join(SKILLS, 'research')));
+    assert.ok(prompt.includes(`\nThe skills are yours: when your work teaches you something later projects can use, write a new skill in ${own} or improve one there.\n`));
+  }
 });
 
 test("the Manager's letter opens a task, whose Reviewer writes its judgment back for the Manager to report", async t => {
-  const { store, flow, id, requests, events } = await setup(t, [
+  const { flow, id, requests, events } = await setup(t, [
     toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'summary.py added; run python summary.py data.csv' },
     { role: 'reviewer', to: 'manager', letter: 'Accepted: the totals match the data.' },
@@ -110,7 +124,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
     ['t1', 'Build the CSV summary tool.', 'manager', 'closed', { from: 'reviewer', text: 'Accepted: the totals match the data.' }],
   ]);
   const [, engineer, reviewer, manager] = requests;
-  assert.deepEqual([engineer?.form, engineer?.access, engineer?.readDirs], ['engineer', 'write', [store.dir(id), WAYS]]);
+  assert.deepEqual([engineer?.form, engineer?.access], ['engineer', 'write']);
   assert.match(engineer?.prompt ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n[\s\S]*## Task t1, from the Manager\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
   assert.match(reviewer?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
@@ -190,7 +204,7 @@ test('a call the agent layer cannot make is a failed call too', async t => {
 });
 
 test('the Planner hands out tasks as earlier ones end, and writes to the Manager when the goal is met', async t => {
-  const { store, flow, id, requests } = await setup(t, [
+  const { flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Parse data.csv\nCheck: the parser tests pass.' },
     { role: 'engineer', to: 'reviewer', letter: 'parsed' },
@@ -206,7 +220,7 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
   assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.from, task.status]),
     [['t1', 'Parse data.csv', 'planner', 'closed'], ['t2', 'Write the totals report', 'planner', 'closed']]);
   const [, planner, parse, , replan, report2, , , manager] = requests;
-  assert.deepEqual([planner?.form, planner?.access, planner?.readDirs], ['plan', 'read', [store.dir(id), WAYS]]);
+  assert.deepEqual([planner?.form, planner?.access], ['plan', 'read']);
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1, from the Planner\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
