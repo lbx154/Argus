@@ -14,7 +14,7 @@ interface Job {
   onEvent?: (event: FlowEvent) => void;
 }
 
-interface Run { job: Job; controller: AbortController; since: number; role: Role | null }
+interface Run { job: Job; controller: AbortController; since: number; roles: Role[] }
 
 /** `changed` is told of each event a project records. */
 export class Runs {
@@ -27,7 +27,7 @@ export class Runs {
 
   live(id: string): Live {
     const run = this.running.get(id);
-    return { since: run?.since ?? null, role: run?.role ?? null, requests: [...this.requests.get(id)?.keys() ?? []] };
+    return { since: run?.since ?? null, roles: run?.roles ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
   }
 
   answer(id: string, text: string): void { this.enqueue(id, { run: flow => flow.answer(id, text) }); }
@@ -104,13 +104,13 @@ export class Runs {
   private async next(id: string): Promise<void> {
     const job = this.queues.get(id)?.shift();
     if (!job) return void this.queues.delete(id);
-    const run: Run = { job, controller: new AbortController(), since: Date.now() / 1000, role: null };
+    const run: Run = { job, controller: new AbortController(), since: Date.now() / 1000, roles: [] };
     this.running.set(id, run);
     const flow = new Flow(this.store, this.callAgent, {
       signal: run.controller.signal,
       onEvent: event => {
-        if (event.type === 'call.start') run.role = event.role;
-        else if (event.type === 'call.end') run.role = null;
+        if (event.type === 'call.start') run.roles.push(event.role);
+        else if (event.type === 'call.end') run.roles.splice(run.roles.indexOf(event.role), 1);
         job.onEvent?.(event);
         this.changed(id);
       },

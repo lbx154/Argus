@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { Role } from './types.js';
 import type { Note, Project, Task } from './store.js';
 
-const NAMES: Record<Note['from'], string> = {
+export const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
 };
 

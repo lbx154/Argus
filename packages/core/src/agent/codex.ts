@@ -6,11 +6,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
-import type { Usage } from '../types.js';
+import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { privatePath } from './sandbox.js';
-
-const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
 export const codex: StartBackend = (request, { confined, started, schema, stem }) => {
   const schemaFile = `${stem}.schema.json`;

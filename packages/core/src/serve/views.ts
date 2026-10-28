@@ -9,25 +9,23 @@ import {
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
 import { openTasks } from '../flow.js';
-import type { FlowEvent, Project, Question, Store, TaskStatus } from '../store.js';
-import type { Backend, Role } from '../types.js';
+import { NAMES } from '../prompts.js';
+import type { FlowEvent, Project, Question, Store } from '../store.js';
+import { ROLES, type Backend, type Role } from '../types.js';
 
 /** What this process knows of a project's run right now. */
 export interface Live {
   /** When the run under way started (epoch seconds); null when none is. */
   since: number | null;
-  /** The role whose call is under way. */
-  role: Role | null;
+  /** The role of each call under way: tasks run side by side. */
+  roles: Role[];
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
 
 export type Recorded = FlowEvent & { ts: string };
 
-const ROLES: Role[] = ['manager', 'planner', 'engineer', 'reviewer'];
-const NAMES: Record<Role, string> = { manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer' };
 const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
-const SETTLED: Record<Exclude<TaskStatus, 'open'>, string> = { closed: 'done' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
@@ -132,7 +130,7 @@ export function daemon(project: Project, live: Live): Daemon {
 function backlog(project: Project): BacklogItem[] {
   return project.tasks.map(task => ({
     id: task.id, title: task.title, objective: task.objective, priority: 0, deps: [],
-    status: task.status !== 'open' ? SETTLED[task.status] : project.question?.task === task.id ? 'blocked' : 'in_progress',
+    status: task.status === 'closed' ? 'done' : project.question?.task === task.id ? 'blocked' : 'in_progress',
   }));
 }
 
@@ -163,8 +161,8 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     },
     daemon: daemon(project, live),
     roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKENDS[backend], model: project.model ?? '', effort: null, active: live.role === role,
-      label: NAMES[role], status: live.role === role ? 'running' : 'idle', age_s: null,
+      role, backend, backend_label: BACKENDS[backend], model: project.model ?? '', effort: null, active: live.roles.includes(role),
+      label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null,
     })),
     last_call: null,
     backlog: backlog(project),
@@ -189,7 +187,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     id: project.id, label: project.id, display_name: '', objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
-    active_role: live.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
+    active_role: live.roles.at(-1) ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
     unfinished_tasks: openTasks(project).length,
     spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,

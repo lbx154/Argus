@@ -4,8 +4,9 @@
 
 export const BACKENDS = ['codex', 'claude', 'copilot', 'pi'] as const;
 export type Backend = (typeof BACKENDS)[number];
-export type Role = 'manager' | 'planner' | 'engineer' | 'reviewer';
-/** A form name in packages/contracts/schemas/handoff_forms.json. */
+export const ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
+export type Role = (typeof ROLES)[number];
+/** The hand-off form a role's turn ends with (agent/handoff.ts). */
 export type Form = 'manager' | 'plan' | 'engineer' | 'review';
 /** What the turn may touch: nothing, read the workdir, or write it. */
 export type Access = 'none' | 'read' | 'write';
@@ -41,6 +42,9 @@ export interface HandOff {
    * when the Planner opens several tasks at once: one letter each. */
   letters: string[];
 }
+
+/** A token count as a backend reports it: a whole number, 0 when missing. */
+export const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
 export interface Usage {
   input_tokens: number;

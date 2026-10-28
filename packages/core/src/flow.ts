@@ -12,7 +12,7 @@ import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './type
 import type { FlowEvent, Project, Status, Store, Task } from './store.js';
 import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, wayRoots } from './prompts.js';
 
-const ROLES: Record<Role, { form: Form; access: Access }> = {
+const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
   planner: { form: 'plan', access: 'read' },
   engineer: { form: 'engineer', access: 'write' },
@@ -156,7 +156,7 @@ export class Flow {
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...ROLES[role], cwd: project.workdir,
+        backend: project.backend, role, ...TURN[role], cwd: project.workdir,
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the ways of working.
         readDirs: [dir, ...wayRoots(this.store.home)], ...(project.model ? { model: project.model } : {}),

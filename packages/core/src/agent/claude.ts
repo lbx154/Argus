@@ -2,10 +2,8 @@
 // form's schema, usage and cost from the result event.
 
 import { isJsonObject } from '@argus/contracts';
-import type { Usage } from '../types.js';
+import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
-
-const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
 export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [

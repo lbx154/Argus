@@ -4,11 +4,9 @@
 
 import { writeFileSync } from 'node:fs';
 import { isJsonObject } from '@argus/contracts';
-import type { Usage } from '../types.js';
+import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
-
-const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
 export const pi: StartBackend = (request, { schema, stem }) => {
   const tool = handOffTool(schema);

@@ -6,12 +6,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
-import type { Usage } from '../types.js';
+import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { privatePath } from './sandbox.js';
-
-const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
 export const copilot: StartBackend = (request, { confined, started, schema, stem }) => {
   const tool = handOffTool(schema);
