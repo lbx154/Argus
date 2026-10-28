@@ -16,6 +16,7 @@ import { MapPanel } from '../map/MapPanel';
 import { DaemonManageModal } from '../components/DaemonManageModal';
 import { ConversationEditor } from '../components/ExperiencePanels';
 import { EventStream } from '../components/EventStream';
+import { Capabilities } from '../lib/capabilities';
 
 const fixture = vi.hoisted(() => {
   const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, refetch: vi.fn(async () => ({})) };
@@ -321,6 +322,17 @@ describe('App session composer ownership', () => {
     type('/help');
     await act(async () => { expect(await props().onSend('/help')).toBe(true); });
     expect(props().value).toBe('');
+  });
+
+  it('offers settings, the model chooser and slash commands only where the server declares them', async () => {
+    const send = vi.spyOn(api, 'messageStream').mockResolvedValue();
+    // A server that declares only what every server has, as the TypeScript core does.
+    await act(async () => { renderer.update(<Capabilities.Provider value={['manager.sse.v1']}>{mountedApp()}</Capabilities.Provider>); });
+    expect(props().modelControl).toBeUndefined();
+    expect(renderer.root.findByType(ComposerRuntime).props.onOpenSettings).toBeUndefined();
+    type('/help');
+    await act(async () => { expect(await props().onSend('/help')).toBe(true); });
+    expect(send).toHaveBeenCalledWith('s-A', '/help', expect.any(Object), expect.any(Object));
   });
 
   it('retains drafts through transient index errors but drops them only after explicit successful deletion', async () => {

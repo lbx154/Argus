@@ -7,6 +7,7 @@ import { referenceText, splitDraft } from '../map/presentation';
 import { isPromptRewriteShortcut } from '../../../core/src/shortcuts';
 import { clampSlashCompletionSelection, slashCompletionOptionId, SlashCompletionMenu, SLASH_COMPLETION_LISTBOX_ID } from './SlashCompletionMenu';
 import { useI18n } from '../i18n';
+import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../lib/attachments';
 import { formatBytes } from '../lib/format';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
@@ -119,7 +120,9 @@ export function ChatBox({
   const at = cursor?.text === text ? cursor.at : null;
   const token = completion && at != null && cursor?.typed ? completionToken(text, at) : null;
   useEffect(() => completion?.wantFiles(token?.trigger === '@'), [token?.trigger, completion]);
-  const menu = completionMenu(value, token, completion, t, locale);
+  const listed = completionMenu(value, token, completion, t, locale);
+  // Without the server's slash commands a line starting with / is a message like any other.
+  const menu = useCapability(COMMANDS_CAPABILITY) || listed?.kind !== 'command' ? listed : null;
   const visibleCompletions = menu?.items ?? [];
   const completionOpen = visibleCompletions.length > 0 && !menuDismissed;
   const bounded = completionOpen ? clampSlashCompletionSelection(slashSelection, visibleCompletions.length) : 0;

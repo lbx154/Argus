@@ -5,6 +5,7 @@ import { api } from '../../api';
 import { ResourceStatusView } from '../../components/ResourceStatus';
 import { RawDisclosure } from '../../components/primitives';
 import { useI18n } from '../../i18n';
+import { RESOURCES_CAPABILITY, useCapability } from '../../lib/capabilities';
 import { isImeComposing } from '../../lib/ime';
 import { requestFailureText, routeRefused } from '../../lib/requestFailure';
 import { currentWorkStatus, workStatusLabel } from '../../lib/workStatus';
@@ -39,9 +40,10 @@ export function RuntimeControlPage({
   const busyRef = useRef(false);
   const [output, setOutput] = useState('');
   const [failure, setFailure] = useState<ReturnType<typeof requestFailureText> | null>(null);
+  const hasResources = useCapability(RESOURCES_CAPABILITY);
   const resources = useQuery({
     queryKey: ['runtime-resources'], queryFn: ({ signal }) => api.resources(signal),
-    enabled: active, refetchInterval: 10_000, retry: false,
+    enabled: active && hasResources, refetchInterval: 10_000, retry: false,
   });
   const trash = useQuery({
     queryKey: ['runtime-trash', trashQuery], queryFn: () => api.trash(trashQuery),
@@ -108,7 +110,7 @@ export function RuntimeControlPage({
           {snap.daemon.alive ? <Pause size={16} /> : <Play size={16} />}
           {controls.busy || foreground ? zh ? '正在处理…' : 'Working…' : empty ? zh ? '描述任务' : 'Describe a task' : snap.daemon.alive ? zh ? '安全暂停' : 'Pause safely' : work.state === 'paused' ? zh ? '继续运行' : 'Resume' : zh ? '启动运行' : 'Start work'}
         </button>
-        <button className="button button--ghost" disabled={resources.isFetching} onClick={() => { void resources.refetch(); void refresh(); }}><RefreshCw size={15} />{zh ? '刷新状态' : 'Refresh'}</button>
+        <button className="button button--ghost" disabled={resources.isFetching} onClick={() => { if (hasResources) void resources.refetch(); void refresh(); }}><RefreshCw size={15} />{zh ? '刷新状态' : 'Refresh'}</button>
       </div>
       <p className="runtime-summary-hint">{empty
         ? zh ? '在对话里描述目标后，这里会显示运行状态。' : 'Describe your goal in the conversation; work status will appear here.'
@@ -120,7 +122,7 @@ export function RuntimeControlPage({
       {controls.error && <p role="alert" className="text-err">{controls.error}</p>}
     </section>
 
-    <ResourceStatusView status={resources.isError ? null : resources.data ?? null} error={requestError(resources.error)} />
+    {hasResources && <ResourceStatusView status={resources.isError ? null : resources.data ?? null} error={requestError(resources.error)} />}
 
     {failure && <div className="runtime-feedback" role="alert"><p>{failure.text}</p>{failure.technical && <RawDisclosure label={t('operations.technicalDetails')}><pre>{failure.technical}</pre></RawDisclosure>}</div>}
     {output && <p className="runtime-feedback" role="status"><Check size={16} />{output}</p>}

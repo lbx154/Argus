@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { adoptTokenFromUrl, api, isAuthenticationError } from './api';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { errorText } from './lib/format';
+import { Capabilities } from './lib/capabilities';
 import { APPLICATION_WORKFLOWS } from '../../core/src/applicationWorkflows';
 import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
@@ -64,9 +65,10 @@ function WorkbenchEntry() {
     </button>
   </div>;
   if (!meta.data) return <div className="p-8">{locale === 'zh-CN' ? '正在连接…' : 'Connecting…'}</div>;
-  return meta.data.capabilities.includes(APPLICATION_WORKFLOWS)
-    && new URLSearchParams(window.location.search).get('legacy') !== '1'
-    ? <WorkflowWorkbench /> : <App />;
+  return <Capabilities.Provider value={meta.data.capabilities}>
+    {meta.data.capabilities.includes(APPLICATION_WORKFLOWS) && new URLSearchParams(window.location.search).get('legacy') !== '1'
+      ? <WorkflowWorkbench /> : <App />}
+  </Capabilities.Provider>;
 }
 
 function WebApp() {
