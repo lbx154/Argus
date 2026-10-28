@@ -153,6 +153,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
   assert.deepEqual(done.pending_questions, []);
   assert.match(requests.at(-2)!.prompt, /They answered: Ship it today/);
+  // The Manager's report, written after the team's work, is in the conversation too.
+  assert.deepEqual((await get<{ turns: { text: string }[] }>(`${P}/transcript?n=120`)).turns.at(-1)?.text, 'report.md gives the totals.');
 
   const streamed = await stream;
   live.abort();
