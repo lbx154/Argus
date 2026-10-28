@@ -51,19 +51,16 @@ native icons and updater channels are separate packaging concerns.
 The shared desktop uses the Tauri product name for task notifications and
 diagnostic-export labels. Backend lifecycle messages are product-neutral:
 compatible applications are not mislabeled as Argus. This does not rename
-the actual `argus-backend` dependency, protocol events, account bindings or
-retained logs, and does not move an existing Copilot authentication directory.
+the actual Argus engine, protocol events, account bindings or retained logs,
+and does not move an existing Copilot authentication directory.
 
-The Tauri host validates both its bundled files and the authenticated backend
-against the engine release manifest compiled into the host. Its application
-version is independent and remains the version used by the desktop updater.
-A compatible product can therefore have a different version from its pinned
-Argus engine without accepting a different engine version or source file list.
-Executable, token, launch nonce and process-ownership checks still apply.
-This does not configure a downstream installer: it must separately supply its
-own application identity, state directories, icons, backend resources and
-update channel. The standard Argus release builder continues to enforce the
-Argus distribution's version matrix.
+The Tauri host ships the Argus engine (the TypeScript core, `packages/core`) as
+a resource and runs it with the system's Node.js; the engine's version is the
+one compiled into the host. The host's application version is independent and
+remains the version used by the desktop updater, so a compatible product can
+have a different version from the Argus engine it ships. This does not
+configure a downstream installer: it must separately supply its own
+application identity, state directories, icons, resources and update channel.
 
 ### Desktop storage profiles
 
@@ -75,20 +72,18 @@ cannot redirect the compiled desktop's settings. A non-Argus Tauri application
 identifier requires a non-Argus profile, and a custom profile cannot use the
 Argus identifier. This check runs before opening settings or starting a backend.
 
-The default profile keeps `argus-desktop`, its existing legacy-settings
-migration, and `~/.argus-skill` unchanged. Custom profiles use
-`<profile>-desktop` in the platform application-data directory and never import
-Argus settings, tokens, backend ownership or projects. Their default engine root
-is `~/.<profile>`; an explicit `<PROFILE>_HOME` is supported, while the established
-`ARGUS_SKILL_HOME` override takes precedence for compatibility. Preview storage
-remains separate and ignores both engine-home overrides.
+The default profile keeps `argus-desktop` and its existing legacy-settings
+migration. Custom profiles use `<profile>-desktop` in the platform
+application-data directory and never import Argus settings, tokens or projects.
+The engine's state root, given to it as `ARGUS_HOME`, is `$<PROFILE>_HOME` or
+`~/.<profile>` (`~/.argus` for Argus); a custom profile ignores an inherited
+`ARGUS_HOME`. Preview storage remains separate and ignores engine-home overrides.
 
-These settings are shared by the real desktop backend, trial setup, diagnostics,
-updater cache and Windows webview callers. Profile selection does not configure
-product artwork, the frozen backend, a signing key or an update channel. A
-downstream package still needs its own Tauri identity and a validated package;
-the Argus-specific preview build and installer scripts are not automatically
-downstream installers.
+These settings are shared by the desktop backend, diagnostics, updater cache
+and Windows webview callers. Profile selection does not configure product
+artwork, a signing key or an update channel. A downstream package still needs
+its own Tauri identity and a validated package; the Argus installer scripts are
+not automatically downstream installers.
 
 ## Application-owned workflows
 

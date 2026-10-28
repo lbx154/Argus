@@ -117,24 +117,17 @@ jobs:
           node-version: ${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             frontend/web/package-lock.json
-            frontend/tui/package-lock.json
             desktop-tauri/package-lock.json
+      # The Mac and Linux staging scripts are Python.
       - uses: actions/setup-python@v5
+        if: runner.os != 'Windows'
         with:
-          python-version: ${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            desktop-tauri/scripts/windows-build-requirements.txt
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ runner.os == 'Windows' && '1.98.0-x86_64-pc-windows-msvc' || 'stable' }}
-      - uses: astral-sh/setup-uv@v5
-        if: runner.os == 'Windows'
-        with:
-          version: '0.12.16'
-          enable-cache: false
       # The Tauri shell pulls in several hundred crates; compiling them cold is
       # the single longest step on every platform (10 min on the Intel Mac
       # runner). Keep the compiled dependencies between runs. Only main saves,
@@ -149,35 +142,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
-      - name: Install Windows build dependencies
+      - name: Pin the Windows Rust toolchain and crates
         if: runner.os == 'Windows'
-        env:
-          UV_PYTHON_DOWNLOADS: never
         run: |
-          uv sync --extra dev --extra trial --no-install-project --python 3.11.9
-          uv pip install --python .venv/Scripts/python.exe --no-deps -r desktop-tauri/scripts/windows-build-requirements.txt
-          uv pip install --python .venv/Scripts/python.exe --no-deps --no-build-isolation --editable .
-          uv pip check --python .venv/Scripts/python.exe
-          echo "$GITHUB_WORKSPACE/.venv/Scripts" >> "$GITHUB_PATH"
           echo 'RUSTUP_TOOLCHAIN=1.98.0-x86_64-pc-windows-msvc' >> "$GITHUB_ENV"
           cargo fetch --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
-      - name: Install non-Windows Python build dependencies
-        if: runner.os != 'Windows'
-        run: python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
-      - name: Install frontend build dependencies
+      - name: Install build dependencies
         run: |
+          npm ci
           npm --prefix frontend/web ci
-          npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
-      - name: Build release sources
-        run: |
-          npm --prefix frontend/web run build
-          npm --prefix frontend/tui run build
       - name: Verify Windows staging and signature boundary
         if: runner.os == 'Windows'
         run: npm --prefix desktop-tauri run test:release
-      - name: Build frozen backend
-        run: npm --prefix desktop-tauri run build:backend
+      # The build makes the Argus the desktop ships (packages/core) first.
       - name: Build signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -190,13 +168,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./desktop-tauri/scripts/stage-release.ps1
-      - name: Verify reviewed Windows source and artifacts
+      - name: Verify the Windows build left the reviewed source unchanged
         if: runner.os == 'Windows'
         run: |
-          python -m argus.release_tools.generate_manifest --check
-          python -m argus.release_tools.check_artifacts
           git diff --exit-code HEAD
-          if [ -n "$(git ls-files --others --exclude-standard -- argus frontend)" ]; then
+          if [ -n "$(git ls-files --others --exclude-standard -- packages frontend desktop-tauri)" ]; then
             echo 'Unreviewed generated inputs remain; refusing to upload a release candidate.'
             exit 1
           fi

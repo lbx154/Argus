@@ -48,7 +48,10 @@
     "homepage": "https://github.com/lbx154/Argus",
     "shortDescription": "Argus autonomous research runtime",
     "resources": {
-      "../resources/argus-backend": "argus-backend"
+      "../../packages/core/dist/argus.mjs": "argus-core/dist/argus.mjs",
+      "../../packages/core/prompts": "argus-core/prompts",
+      "../../packages/core/ways": "argus-core/ways",
+      "../../packages/core/web": "argus-core/web"
     },
     "icon": [
       "icons/icon-light-rounded.png",

@@ -92,8 +92,6 @@ def _source_files(root: Path) -> Iterable[Path]:
         "desktop-tauri/src-tauri/capabilities/**/*",
         "desktop-tauri/src-tauri/icons/**/*",
         "desktop-tauri/resources/.gitignore",
-        "desktop-tauri/resources/argus-backend/.gitkeep",
-        "desktop-tauri/argus_backend.spec",
         "desktop-tauri/src-tauri/Cargo.toml",
         "desktop-tauri/src-tauri/Cargo.lock",
         "desktop-tauri/src-tauri/build.rs",

@@ -1,119 +1,75 @@
-# Windows Desktop（Tauri / Rust）
+# 桌面端（Tauri / Rust）
 
-Argus 的 Windows 桌面端由 **Tauri 2 + Rust** 实现。它不分叉 Argus 的
-Manager、Planner、Engineer、Reviewer、WebAPI 或 Web UI：桌面宿主启动同一份
-冻结 Python 运行时，并把检查入库的 Web cockpit 显示在本地受限容器中。
+Argus 的桌面端由 **Tauri 2 + Rust** 实现。它不分叉 Argus 的角色、Web API 或 Web UI：
+安装包带着 TypeScript 核心（npm 包 `packages/core` 的 `dist/argus.mjs`，旁边是它读的
+`prompts/`、`ways/` 和网页工作台 `web/`），宿主用**本机的 Node.js** 运行它，再把它服务的
+Web cockpit 显示在本地受限容器中。
 
-当前 Windows 桌面端只保留 `desktop-tauri/` 这一套实现。它继续使用产品标识
-`cn.argusbot.desktop`、`Argus.exe`、既有 Python 后端协议和兼容的 per-user 数据根，
-因此迁移不会丢失已选 CLI、Web token 或可验证的后端 ownership record。
+`desktop-tauri/` 是唯一一套桌面实现。它继续使用产品标识 `cn.argusbot.desktop`、`Argus.exe`
+和既有的 per-user 数据根，因此升级不会丢失已选 CLI 和 Web token。
 
 ## 安装与使用
 
-本仓库的 Windows 发行渠道是
+本仓库的发行渠道是
 [lbx154/Argus Releases](https://github.com/lbx154/Argus/releases)；
 [microsoft/ArgusAgent Releases](https://github.com/microsoft/ArgusAgent/releases)
 是另一个上游渠道，不要混用更新签名或安装包。
 本地产物只有完成验收、真实签名并经发布负责人批准上传后才是该渠道的正式 Release。
-下载对应页面提供的 `Argus-<version>-setup.exe` 并运行 NSIS 安装包。
-它包含冻结的 Argus backend；终端用户不需要为桌面端另行安装 Python、Node.js 或
-virtual environment。若 Release 页面没有匹配的安装包，请使用主 README 中的 Windows
-pip 安装方式，不要把贡献者构建目录当作发布物。
+Windows 下载对应页面提供的 `Argus-<version>-setup.exe` 并运行 NSIS 安装包；macOS 和 Linux
+的构建见下文。
 
-预览 EXE 可能落后于源码 `main`。源码修复提交或两仓同步不会重新发布安装包；
-需要某个修复时，先确认安装包的 release notes，或使用 README 的源码安装方式。
+**需要 Node.js 22 或更高版本。** Argus 驱动的 Codex、Claude Code、Copilot CLI 和 Pi 都是
+npm 包，装它们时本机已经有了 Node。桌面端找不到 Node 或版本过低时，启动页显示
+“需要 Node.js 22 或更高版本”、找到的版本和 <https://nodejs.org/> 下载链接；安装 LTS 版本后
+点“重试”。桌面端不会自动下载或安装 Node。
 
-首次启动必须在设置向导中明确选择并确认已安装、已登录的 Agent CLI，确认前不会启动
-本地后端。共享配置仅提供候选，不会跳过首次确认，也不会默默选择 Codex。桌面保存过
-选择且仍能找到对应 CLI 时，后续启动直接打开 cockpit；CLI 已被卸载或路径失效时，
-重新显示向导。检测到可执行文件不代表已经完成鉴权；桌面中明确保存的选择优先于共享配置。
-试用版另提供 **使用内部测试 Key** 入口：持有邀请 Key 的用户可直接粘贴并点击
-**开始试用**。客户端会验证 Key、下载官方独立版 Copilot、校验安装包，并完成一次真实
-连接验证后进入工作台。此路径不需要终端、Python、Node.js 或用户自己的 Coding 账号。
-试用配置会保留，重启后直接进入工作台；每个 Key 累计额度为 100 万 token。
-这个入口从 0.1.3 桌面安装包提供；0.1.2 及更早的 EXE 需要升级。
-Mac 构建与当前验证范围见 [桌面内部试用版](desktop-trial.md)。
-需要修改 Agent CLI、可执行文件或端口时，使用 **文件 → 设置**。浅／深色使用工作台的全局切换，启动页和原生标题栏同步该选择。普通关闭和
-菜单中的 **隐藏窗口并在后台继续** 是同一个行为：隐藏到系统托盘并保留正在进行的工作；
-只有 **停止本地后端并退出** 会终止已验证的后端。
-
-## 功能范围
-
-Tauri 桌面端提供完整的原生宿主功能：
-
-- 首次运行时选择 Codex、Claude、Copilot、Cursor、Pi、OpenCode、Grok Build、Qoder 或
-  DeepSeek Harness，并支持显式选择可执行文件；
-- 启动、认证、接管和安全停止冻结的 `argus-backend.exe`；
-- 对 PID、启动时间、可执行文件、端口和 Web-token hash 做严格 ownership 验证；
-- 有界的健康检测和自动恢复，避免无限 crash loop；
-- 原生 Windows 标题栏、单实例、托盘、隐藏到后台、菜单和显式“停止后端并退出”；
-- 后端失败时仍可操作的启动/恢复页，和脱敏诊断 ZIP 导出；
-- 完成交付时的去重通知、工作台定位和右侧成果视图；
-- 完整的 Web cockpit，而非维护第二套桌面 UI；
-- **签名自动更新**：启动后异步检查、发现新版本时桌面通知和页面提示、用户确认后
-  下载、验证 minisign 签名、交给 NSIS 安装器并重启。
-
-它不会接管无法证明属于当前桌面安装的监听进程，也不会从未经签名或 HTTP 更新源
-下载/执行内容。
-
-Desktop 不改变 Manager、Planner、Engineer、Reviewer、Workbench 或 Vertical 的职责；
-这些行为由同一源码树中的 Argus Python 运行时拥有。冻结包中的
-`resources/argus-backend/_internal` 是 release payload，不是源码 checkout。框架修复必须在
-独立源码工作区中完成并经过审查，再通过唯一的 reviewed deployment boundary 进入新的
-Desktop release，不能直接修改安装目录中的冻结文件。
-
-已完成桌面首次确认的安装不重复显示向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
-直接打开 cockpit。缺少 CLI 或可执行文件时先完成设置；之后从 **文件 → 设置**
-修改 Agent CLI 和端口。cockpit 左下角设置
-按钮保留为当前项目的预算、角色与模型等运行时配置入口。文件/帮助菜单由可信 Tauri shell
-渲染为随浅色/深色主题变化的渐变栏，不再使用与上下内容割裂的 Windows 原生菜单色块。
+首次启动必须在设置向导中明确选择并确认已安装、已登录的 Agent CLI（Codex、Claude Code、
+Copilot CLI 或 Pi），确认前不会启动本地后端。桌面保存过选择且仍能找到对应 CLI 时，后续
+启动直接打开 cockpit；CLI 已被卸载或路径失效时，重新显示向导。检测到可执行文件不代表已经
+完成鉴权。需要修改 Agent CLI、可执行文件或端口时，使用 **文件 → 设置**。浅／深色使用工作台
+的全局切换，启动页和原生标题栏同步该选择。
 
 ## 架构
 
-### 兼容产品宿主
-
-下游产品可以把 `argus-desktop` 作为 Rust path dependency，设置
-`default-features = false`，再调用
-`argus_desktop_lib::run_with_context(tauri::generate_context!())`。产品自己的
-Tauri context 提供名称、版本、identifier、图标、资源和 capabilities；后端
-ownership、设置和生命周期仍由共享宿主负责。默认 Argus 构建保留 `default-host`
-feature，行为不变。编译时仍须设置独立的 `ARGUS_DESKTOP_PROFILE`，且产品后端的
-Argus release manifest 必须与宿主使用的精确上游源码一致。
-
-共享启动页的 Vite 构建接受 `ARGUS_DESKTOP_BRAND` JSON，字段为 `name`、
-`mark`、`markDark`，两张图片使用 `data:image/...` URL。自定义产品展示自己的
-浅／深色图标，不等待已隐藏的 Argus 眼睛动画。未配置时保留原始 Argus 外观。
-
-冻结打包可设置可信的构建期 `ARGUS_FROZEN_APPLICATION=module:function`；
-函数接收 Argus 源码根目录，返回 `(entry_path, additional_datas, additional_imports)`。
-产品入口调用 `argus.desktop_backend_entry.main(application_package="产品包名")`，
-只为该包及其子模块开放冻结 `-m` 派发。此参数不是命令行或环境中的运行时白名单；
-原有 provider fail-fast、兼容解释器和 Argus 默认模块边界保留。
-产品需自行携带依赖及其 provenance metadata，不得跳过精确版本核验。
-
-下游不得继承 Argus 的更新 endpoint 或签名公钥。未设置产品签名更新渠道时，
-产品入口应设置 `ARGUS_DESKTOP_DISABLE_UPDATE_CHECK=1`，并关闭自己的
-`createUpdaterArtifacts`。这些扩展不表示下游产品已完成任何平台的安装包验收。
-
 ```text
-Windows native non-client frame
-  └─ Argus.exe (Tauri/Rust)
-       ├─ 本地 launcher / settings / update shell
-       ├─ 隔离 iframe：认证后的 127.0.0.1 Web cockpit
-       ├─ 受控托盘、菜单、通知和诊断
-       └─ resources/argus-backend/argus-backend.exe
-            └─ 既有 Argus WebAPI + checked-in Web cockpit
+Argus.exe / Argus.app (Tauri/Rust)
+  ├─ 本地 launcher / settings / update shell
+  ├─ 隔离 iframe：带令牌的 127.0.0.1 Web cockpit
+  ├─ 托盘、菜单、通知和诊断
+  └─ node <resources>/argus-core/dist/argus.mjs --port P --backend B
+       └─ Argus：Web API、项目的工作、它带的 web/ cockpit
 ```
+
+桌面端启动 Argus 的流程（`desktop-tauri/src-tauri/src/backend.rs`）：
+
+1. 设置已完成，所选 CLI 仍在磁盘上；随包的 `argus-core/dist/argus.mjs` 存在。
+2. 找 Node：先看所选 CLI 的目录（nvm、Volta、Homebrew 把 npm 装的 CLI 放在 Node 旁边），
+   再看 PATH，再看常见安装目录（`Program Files\nodejs`、nvm-windows、Volta、scoop、
+   `/opt/homebrew/bin`、`/usr/local/bin`、`~/.volta/bin`、`~/.nvm/versions/node/*/bin`），
+   取第一个 `node --version` 不低于 22 的。桌面应用不继承登录 shell 的 PATH（macOS 从
+   Finder 启动时只有系统目录），所以要看这些目录。
+3. 端口上若还有一个认得本桌面 Web token 的 Argus（上次桌面崩溃或被强杀后留下的），先停掉它：
+   只有本桌面持有这个 token，`/api/meta` 认证通过即证明它是自己启动的。
+4. 启动 `node argus.mjs --port <设置的端口> --backend <所选 CLI>`，环境变量：
+   `ARGUS_WEB_TOKEN`（设置里的 Web token，cockpit 的每个项目请求都要带它）、
+   `ARGUS_HOME`（状态根，默认 `~/.argus`；兼容产品用 `$<PROFILE>_HOME` 或 `~/.<profile>`，
+   预览构建用自己数据目录下的 `argus-home/`）、`PATH`（Node 和所选 CLI 的目录在前，Argus
+   按名字找 CLI）。工作目录是状态根；Windows 上不弹控制台窗口。
+5. Argus 开始监听后在 stdout 打印 `Argus is at <url>`。这一行是唯一的就绪信号，cockpit 的
+   地址取自它；子进程退出是唯一的失败信号，启动页显示退出码和最后几行输出。宿主不轮询健康、
+   不自动重启，用户点“重试”。
+6. 停止：Windows 用 `taskkill /T` 结束进程树；macOS、Linux 发 SIGTERM，Argus 收到后停下
+   正在进行的调用并归还状态根。
 
 工作台 iframe 和 Tauri shell 是两个安全域。Tauri IPC 只存在于本地 shell；iframe
 只可通过 `postMessage` 发送长度受限的交付通知数据。父窗口同时验证消息来源必须是
-当前 iframe，且 origin 必须等于配置的 `http://127.0.0.1:<port>`。因此 loopback
+当前 iframe，且 origin 必须等于 Argus 报告的 `http://127.0.0.1:<port>`。因此 loopback
 cockpit 不会获得文件系统、Shell、更新器或任意 Tauri command 的权限。
 
 原型冻结仅在可信顶层 shell 的初始化脚本中执行。Windows WebView2 会把 Tauri 初始化
 脚本也注入 iframe；全局 `freezePrototype` 会破坏 d3／React Flow 的正常原型继承，
 因此不能用于整棵 WebView。iframe 保持普通浏览器语义，但原生命令仍受 capability/origin
-限制：真实宿主测试同时验证 shell 已冻结、iframe 未冻结以及 iframe 原生调用被拒绝。
+限制。
 Web 懒加载失败最多在同一 tab 的一分钟内自动刷新一次；代码执行错误直接显示恢复页，
 不会把所有错误误认为旧资源而反复刷新。
 
@@ -123,76 +79,47 @@ WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapp
 Windows 标题栏会随 launcher 设置和 cockpit 当前的浅色/深色主题同步，不使用覆盖
 Windows caption controls 的黑色自绘条。
 
-Desktop 首次 ready 时读取已有配置并检测 CLI，决定打开 cockpit 还是首次设置。
-同一 URL 的后端重连保留现有 React cockpit，
-不会整页重载。WebSocket 事件按短帧批处理，长会话的离屏事件行由 WebView2 跳过 layout/paint；
-嵌入模式还避免第二层启动 splash 和持续全屏模糊动画。以上只减少宿主与渲染开销，不改变
-Manager、Planner、Engineer、Reviewer、轮询安全网或任务状态语义。
+Windows 包会把 Microsoft 的 `WebView2Loader.dll` 显式放在 `Argus.exe` 同目录；这和
+WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapper` 策略处理
+缺失或过旧的 Runtime，但启动不再依赖构建机 PATH 中碰巧存在的 Loader DLL。原生
+Windows 标题栏会随 launcher 设置和 cockpit 当前的浅色/深色主题同步，不使用覆盖
+Windows caption controls 的黑色自绘条。
 
-Desktop 输入框默认显示 **自动** 模式，由 front-door 区分对话与正式任务，避免问候、状态查询
-等消息误入 Manager → Planner 任务管线。操作员可显式切换为 **任务**，把确定的工作直接交给
-Manager 路由并省去消息类别调用；也可切换为 **对话**，保证消息不入队。Planner 签发、
-Engineer 执行和 Reviewer 审查仍全部保留。Codex
-无工具控制调用继续读取用户的 provider/auth，但临时关闭 plugins、MCP、JS REPL 和 rules
-加载；`workflow_mode=direct` 使用精简但真实的单节点 Planner 签发提示。隔离真实性能探针中，
-严格 Planner-owned dispatch 从 141.160 秒降到 28.025 秒（Manager 10.550 秒、Planner
-16.465 秒）。实际网络/provider 负载仍会造成波动。
+### 兼容产品宿主
+
+下游产品可以把 `argus-desktop` 作为 Rust path dependency，设置
+`default-features = false`，再调用
+`argus_desktop_lib::run_with_context(tauri::generate_context!())`。产品自己的
+Tauri context 提供名称、版本、identifier、图标、资源和 capabilities；后端、设置和生命周期
+仍由共享宿主负责。默认 Argus 构建保留 `default-host` feature，行为不变。编译时须设置独立的
+`ARGUS_DESKTOP_PROFILE`，它决定桌面数据目录和 Argus 状态根（`$<PROFILE>_HOME` 或
+`~/.<profile>`），产品不会读到 Argus 的数据。
+
+共享启动页的 Vite 构建接受 `ARGUS_DESKTOP_BRAND` JSON，字段为 `name`、
+`mark`、`markDark`，两张图片使用 `data:image/...` URL。自定义产品展示自己的
+浅／深色图标，不等待已隐藏的 Argus 眼睛动画。未配置时保留原始 Argus 外观。
+
+下游不得继承 Argus 的更新 endpoint 或签名公钥。未设置产品签名更新渠道时，
+产品入口应设置 `ARGUS_DESKTOP_DISABLE_UPDATE_CHECK=1`，并关闭自己的
+`createUpdaterArtifacts`。这些扩展不表示下游产品已完成任何平台的安装包验收。
 
 ## 关闭、后台运行和单实例
 
-- Windows 的普通 **关闭** 按钮会隐藏窗口到托盘，后端、daemon 和进行中的任务继续；
+- 普通 **关闭** 按钮会隐藏窗口到托盘，Argus 和进行中的工作继续；
 - 托盘左键、菜单“显示 Argus”或再次启动 `Argus.exe` 会恢复同一窗口；
-- 过去两个近似的“关闭/退出但保留后端”入口已合并为一个 **隐藏窗口并在后台继续**；
-- **停止本地后端并退出** 是唯一会终止后台进程树的路径，且只对已验证 ownership 的
-  PID/root PID 使用 `taskkill /t /f`；
+- **停止本地后端并退出** 停止 Argus 后退出；退出应用（包括 macOS 的 Cmd+Q）也会停止它：
+  Argus 是桌面进程的子进程，随它结束；
 - NSIS 安装器只核对目标安装目录的进程；目录仍在运行或无法核实进程路径时阻止替换，
   提示使用该安装的 **停止本地后端并退出** 后重试，不按名称终止其他安装或预览；
 - Windows 升级采用就地替换，不执行旧版卸载器；否则旧卸载器可能绕过新版保护，
-  终止独立预览。卸载仍是通过新安装的卸载器执行的独立操作；
-- 项目管理中的 **立即停止** 使用 PID/start identity 已验证的 force-stop：先给 daemon 1 秒
-  响应控制请求，再只终止该进程树。状态刷新为“未运行”后，删除按钮立即可用；删除仍只是
-  移入可恢复 trash，workspace 默认保留。
+  终止独立预览。卸载仍是通过新安装的卸载器执行的独立操作。
 
 ## 完成交付
 
-成功任务只产生一份 durable delivery receipt。稳定的 `delivery_id` 关联生命周期事件、
-Manager 对话、transcript replay、Mission View 和右侧成果面板；receipt 包含经验证的摘要、
-审查状态及最多六个安全的 workspace-relative target。
-
-目标只来自 Reviewer 明确给出的 evidence、当前 Vertical 声明的主交付物，或 Manager Live
-View 的展示回退；Desktop 不扫描 workspace 猜测成果。每个 target 在打开或下载前仍需通过
-受保护 artifact API 校验。窗口隐藏或失焦时 Tauri 发送原生通知；点击通知恢复已认证的
-cockpit，并在存在目标时定位到对应成果。没有可展示文件时仍显示可信摘要和 Mission View，
-不会虚构产物。
-
-## 后端身份与恢复
-
-首次启动会生成 32-byte URL-safe Web token，保存在当前用户的
-`%APPDATA%\argus-desktop\settings.json`。ownership record 也原样记下这个 token，
-用来证明旧后端归属；它和 settings.json 一样只对当前用户可读，token 从不写进日志或
-诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
-
-1. listener PID 与启动时间；
-2. 精确后端 executable path；
-3. loopback host/port；
-4. Web token（逐字节比较，耗时与内容无关）；
-5. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
-
-新版本只能替换两类旧 listener：完整旧 ownership record 精确匹配的后端，或经过
-当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
-远程地址、身份缺字段或发布标识不一致均 fail closed。
-
-健康检测每 5 秒一次。当前宿主的预期发布标识（版本号 + git 提交号）编译进 EXE，已认证的 PID、启动时间、路径和
-启动证明保存在当前会话中；不再因磁盘清单／ownership 记录暂时不可读而变成“陌生后端”。
-ownership 记录使用同目录临时文件与原子替换写入，写入失败会明确拒绝完成启动。
-
-磁盘包完整性与活跃进程身份分别检查。清单缺失、无效或与当前 EXE 不匹配时，保持已验证
-的运行连接并显示非阻断提示，但拒绝从损坏／混版目录重启。真正的认证、PID、启动时间、
-路径、构建身份或启动证明冲突仍 fail closed，不会接管或终止未知进程。
-
-短暂网络故障快速重试两次；进程仍存活时转为低频健康观察并提示重连，不因忙碌或响应体
-超时强杀任务。确认进程退出后按 0.5 s、1.5 s、4 s 最多自动恢复三次；每次恢复有独立
-生命周期代次，稳定 60 秒才重置熔断计数。响应体超时／连接截断不再误分类为身份冲突。
+cockpit 通过 `postMessage` 把交付通知（标题、摘要、可选的成果路径和项目）交给宿主；宿主按
+`delivery_id` 去重，窗口隐藏或失焦时发送原生通知。点击通知恢复已认证的 cockpit，并在有
+成果路径时定位到它。成果在打开或下载前仍由 Argus 的 artifact API 校验；宿主只接受当前
+Argus 地址发出的 blob 下载。
 
 ## 自动更新与签名信任
 
@@ -219,7 +146,7 @@ cockpit 首屏竞争。成功检查按 6 小时节流；临时网络失败使用
 
 手动菜单“检查更新”可绕过 6 小时缓存，并显示“已是最新版本”或具体错误。后台检查中的
 “检查中”、当前已是最新版本、网络失败和暂时无法取得 manifest 都只写入脱敏日志，不打断
-cockpit 工作流。确认安装后，先完成下载与签名验证，再由当前宿主停止自己已验证拥有的后端，
+cockpit 工作流。确认安装后，先完成下载与签名验证，再由当前宿主停止自己启动的 Argus，
 最后交给 NSIS。下载失败、取消或验签失败不会停止任务；请在任务边界操作。安装器会再次核对
 目标进程已退出，拒绝降级，也不会执行历史卸载器或从注册表读取任意旧文件名后删除它。
 WebView2 安装器使用每个安装事务自己的临时目录，不清空共享 TEMP 中的同名文件。
@@ -256,184 +183,54 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 
 这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
 
-## 内部体验预览（不安装、不发布）
+## 开发与构建
 
-`npm --prefix desktop-tauri run build:preview` 是独立的本地验收路径，不调用 `dist`、
-NSIS、签名或上传脚本。它刷新仓库已有的运行身份清单和 Web/TUI 静态资源，冻结当前
-Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿主，再对实际
-暂存目录执行 WebView2 端到端检查。仅检查通过后生成 `desktop-tauri/build/previews/`
-下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。内置 `release_manifest.json`
-仍是后端身份校验的必要数据，不是更新发布清单。
+开发要求：Node.js 22.12+；Rust stable（Windows 用 `x86_64-pc-windows-msvc` toolchain 和
+Visual Studio 2022 Build Tools，macOS 用 Xcode command-line tools，Linux 见 Tauri 的
+WebKitGTK 依赖）；一个已登录的支持 Agent CLI（如需实际运行任务）。不需要 Python。
 
-构建前需提交手写源码，再按现有生成器一致生成并独立提交 Web/TUI/manifest。
-预览构建前后要求跟踪输入干净、没有未跟踪的产品输入或资产，并绑定同一候选 commit/tree；
-若生成器或并发修改造成变化，会拒绝 ZIP，不手改清单。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base 提交号，
-省略时取本地 `HEAD` 与 `origin/dev` 的 merge-base，不查询或追逐远端 HEAD。
-可用 `ARGUS_PREVIEW_REVIEW` 指向不含凭据的 JSON 回归记录；其 `candidate_sha`、`base_sha`、
-`release_id`、`git_commit` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
-它随包保存为 `PREVIEW-VALIDATION.json`；`SOURCE-IDENTITY.json` 总是记录实际构建身份。
-没有此回归记录时不宣称源码回归全部通过。
-
-完整解压后运行 `Argus.exe`。本轮整合预览沿用单独标识
-`cn.argusbot.desktop.preview.integration20260913`，桌面设置、日志与 WebView 缓存位于
-`%APPDATA%/argus-desktop-preview-integration-20260913/`，项目与运行时配置位于其
-`argus-home/` 子目录，默认端口 18799。它与正式版数据隔离，但与此前使用同一
-integration20260913 标识的预览共享 profile 和单实例命名空间。新 ZIP 名不代表新数据根；
-必须先明确退出旧预览，不能并行运行，不清空或自动导入旧目录。
-即使从设置过 `ARGUS_SKILL_HOME` 的终端启动，也不读取该生产数据根；不会迁移正式版设置。
-CLI 自身的登录仍由原 CLI 管理。不要让两个版本同时写同一个项目工作目录。
-
-预览在编译期禁用发布检查和安装，手动“检查更新”会解释原因。它不是新增的正式便携
-发布渠道，也不会创建 Start Menu 安装记录。需要 Windows 10/11 x64、WebView2 Runtime
-及一个已安装并登录的 Agent CLI；没有 WebView2 时请安装 Microsoft 官方 Evergreen Runtime。
-
-桌面设置提供端口校验和重新检测 CLI，不再提供独立外观选项。界面固定统一配色，旧渐变
-偏好归一到标准；工作台全局浅／深色同步并持久化到宿主，主题变动不重载工作台。保存失败保留编辑内容
-并就地显示原因，已占用的新端口不会中断当前后端；后端恢复时保留同 URL 的 Web 文档和
-未发送输入。`Ctrl+,` 与 `Ctrl+N` 在工作台 iframe 内同样有效。角色显示名使用共享本地化，
-协议标识仍为 Manager、Planner、Engineer、Reviewer；普通操作（例如管理会话）不误改为角色。
-四种角色标记分别使用蓝、紫、青绿和琥珀色，空闲或失败时也保留角色颜色，状态另以文字表达。
-
-主动打开右侧文件时，预览扩到窗口宽度约 45%（上限 840px，并保留至少 360px 对话区）；
-仍支持手动拖拽，后台刷新不主动改宽度。PDF 的放大页面使用可扩展的滚动内容区域，四边均可
-滚动到达；“适合页面”恢复整页，缩放保留阅读中心，先在离屏 canvas 完成绘制再替换可见画面。
-
-“更多 → 工作台”保留项目概览、研究排期、运行进程和 AI IDE，概览卡片与标签共享同一份入口定义。
-插件、技能库和知识库入口位于侧栏品牌栏下方，会话搜索/列表在其下，设置和外观控件仍在底部。
-资源区独立限高滚动，保留原有库折叠偏好、插件状态/管理语义及紧凑图标栏。
-工作台模块 ID 与顺序保持，不改变默认地图、主题、栏宽或快捷键。
-中文模式提供与随包来源绑定的内置技能中文名称、用途导读和中文搜索；执行原文保留，可展开核对。
-学习/自定/第三方文档不因同名路径被套用内置导读，也不在查看时触发翻译模型或写回文件。
-知识页提供中文类型/范围说明，但不是正文翻译或真实性证明；个人知识仍遵循上游既有存储与读取逻辑。
-会话头部与概览仅展示已加载快照的会话工作目录，可展开查看完整路径；缺值显示待确认。
-它不是每个任务的实际 cwd 或安全沙箱边界，不通过目录扫描或设置接口补齐。
-AI IDE 的“此视图只读”不限制 Agent 本身的文件写入权限。Changes 使用现有差异文本安全着色，
-原文可切换/复制；二进制、未知或大文本回退原始 pre，后端截断信息仍显示，未新增 Git 请求或写操作。
-AI IDE 的编辑区、文件树、Git 区域、终端和状态栏统一跟随全局浅色／深色主题；切换主题不
-重新打开文件；已访问模块切换时保留文件选择、目录展开状态及阅读位置。隐藏工作台或切到其他
-模块时暂停 IDE 文件／目录／Git 轮询，已停止的进程视图不再每秒刷新，
-并尊重系统减少动态效果设置。
-
-主对话与地图沿用各自适合的输入组件，通过 App 按会话共享内存草稿、附件和发送生命周期；
-切换会话保留各自草稿，刷新恢复不在范围内。带会话身份的通知等待目标快照后定位成果，
-迟到结果不覆盖更新的用户导航意图；旧消息保留兼容与安全回退，不承诺恢复历史文件版本。
-主对话保留
-模式选择、斜杠命令、改写、附件及停止等待。视图切换或上传期间的新输入不会被旧提交清空，
-迟到失败只恢复原会话的空草稿。眼睛动效固定开启，不提供开关或跟随系统选项；旧的关闭偏好
-不再生效。白色高光和黑瞳孔由同一动画相位驱动；其他界面仍尊重减少动态效果，
-不会修改 Windows 全局设置。再次双击唤醒保留后端与草稿，启动交接按实际可见帧计时。
-
-经用户明确选择的手测包可运行 `npm --prefix desktop-tauri run build:preview -- --manual-preview`：
-一致构建、复制校验、冻结模块及原生后端启动/短时健康检查后生成 ZIP，不等待 CDP 或长稳。
-包内必须标明这是最低限度检查，未做真实 Windows Toast、成品像素动效、完整界面、故障注入和长稳验收；不代表 PR-ready。
-手测预览的最低启动检查使用随机测试实例标识和隔离 profile，保留真实单实例保护；
-认证后端的 release ID 须匹配冻结清单。该检查不等于托盘/再次唤醒/明确退出已验收。
-
-不带该参数的 `build:preview` 默认仍要求 1800 秒连续运行及故障注入检查通过，再生成 ZIP。开发者可通过
-`ARGUS_PREVIEW_SOAK_SECONDS` 缩短本地诊断，但交付验收不得把短检查当成长稳测试。
-测试会在自有临时运行包中模拟清单缺失、替换和 ownership 记录损坏，恢复原始字节后继续
-观测同一认证 PID；不会修改用户安装。正式版本不能被 `ARGUS_DESKTOP_DEV` 环境变量切换
-到源码运行，开发调试使用 `tauri dev` 的 debug 构建。
-
-浏览器交互回归：`npm --prefix desktop-tauri run test:ui`（Windows 使用已安装的 Edge）。
-已暂存的真实预览可以再次执行 `npm --prefix desktop-tauri run smoke:preview -- <Argus.exe>`。
-测试在源码和安装目录之外创建独立 fixture，不读取实际用户配置、不发送付费模型任务；
-研究地图以 kiosk 只读模式验证。浏览器边界拒绝除合成附件上传之外的所有非只读 API 请求，
-因此新的 Reader、Advisor 和任务启动入口不能绕过仅检查地图 URL 的旧规则。宿主验证还覆盖
-CLI 预检、再次启动、单实例恢复、退出和独立数据目录；这些检查不等于真实模型或完整科研求解验收。
-
-本轮预览和正式发布均使用 MSVC 路径验证。GNU / MinGW 工具链存在不代表成品已可用，
-不应把它当作本轮已验收的替代路径。预览会在无编译器 PATH 的环境中测试 DLL 布局。
-移动或清理旧源码前应检查构建脚本是否仍引用其中的工具链；先迁移并验证，再删除旧目录。
-
-## 开发要求
-
-- Windows 10/11 x64；
-- Python 3.11+ 与 PyInstaller；
-- Node.js 22.12+；
-- Rust stable 的 `x86_64-pc-windows-msvc` toolchain；
-- Visual Studio 2022 Build Tools（Desktop development with C++ / MSVC）；
-- 一个已登录的支持 Agent CLI（如需实际运行任务）。
-
-### Role session 复用
-
-Desktop 不需要任何设置来复用角色上下文：支持 resume 的 Pi、Codex、Claude/Qoder、
-Copilot、OpenCode 和 Grok 按角色续用各自的 provider thread；DeepSeek Harness 等
-fresh-only backend 保持 fresh。Planner、Engineer、Reviewer 各自维护独立 capsule，不会跨角色
-或无关任务共享 provider thread。上下文由 backend 自己压缩，Argus 不按轮数或大小轮换，只在
-分支、目标、backend、模型变化时换新 thread。完整契约见
-[Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
-
-安装依赖：
-
-```powershell
-uv venv --python 3.12 --seed .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e . pytest ruff "pyinstaller>=6.11,<7"
-
+```bash
+npm ci
 npm --prefix frontend/web ci
-npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci
-rustup toolchain install stable-x86_64-pc-windows-msvc
-```
-
-开发模式使用源码 Python runtime，不需要构建冻结后端：
-
-```powershell
-$env:ARGUS_DESKTOP_DEV = "1"
-$env:ARGUS_DESKTOP_REPO_ROOT = (Get-Location).Path
-$env:ARGUS_SKILL_BIN = "$PWD\.venv\Scripts\python.exe"
+# 随包的 Argus：packages/core 的 dist/argus.mjs 与 web/（Tauri 编译时把它们复制为资源）
+npm --prefix desktop-tauri run build:argus
 npm --prefix desktop-tauri run dev
 ```
 
-只允许一个受管理 API 占用同一端口。桌面端可以替换其已验证的前一版本 listener，
-但不会接管手工启动、未认证、非本地或路径不一致的 `argus --web`。
-
-### 终端退出与后台任务
-
-`argus` TUI、loopback WebAPI 和每个项目 daemon 是不同进程。默认交互退出策略为 `detach`：
-关闭终端只结束 TUI，WebAPI 和任务可继续；再次进入同一目录会重连现有 session。需要清理时
-应显式使用 `argus --exit-policy stop-api` 或 `argus --exit-policy stop-all`。这些路径按
-ownership、PID/start identity 和 daemon 控制协议 fail closed，不应以 Task Manager 杀任意 PID
-代替正常停止。
+宿主在编译时把 `packages/core` 的资源复制到可执行文件旁（开发构建也一样），所以改了核心后
+要重新 `build:argus` 并重新编译宿主。未签名安装包：
+`npm --prefix desktop-tauri run build:unsigned`，产物在
+`desktop-tauri/src-tauri/target/release/bundle/`（Windows NSIS、macOS `.app`/`.dmg`、
+Linux `.AppImage`/`.deb`）。
 
 ## 启动排查
 
-- **本地后端启动超时**：检查 Desktop log 和认证后的 `/api/meta`；ownership 同时记录
-  Windows launcher/root PID 与真实 listener PID。
-- **安装更新后提示端口版本不一致**：正常关闭旧 Desktop，完成新安装后启动一次。只有完整旧
-  ownership record 匹配，或当前 token 可认证且 executable 精确等于 bundled backend 时，
-  Tauri 才能替换旧 listener；其余端口占用保持 fail closed。
-- **项目列表已出现但仍显示 Connecting**：API handshake 和项目索引已经成功，当前 snapshot
-  仍在有界读取中；这不代表 CLI 与 Web 使用了不同状态。
-- **`snapshot refresh failed · fetch failed`**：表示针对共享本地 WebAPI 的新 REST 请求失败，
-  应查看 socket 原因和后端日志。
-- **`background executor failed to start (rc=...)`**：检查 UI 诊断和最新
-  `daemons/boot-*.log`；当前运行时保留 helper stderr、workdir/interpreter 校验及 Windows exit code。
-- **角色 turn 成功后出现可选 CHECKPOINT 文件错误**：checkpoint 只承载 role-session metadata，
-  不是 mission authority；capsule 持久化失败不能覆盖 provider/Reviewer 的权威结果。
-- **冻结 backend 需要框架更新**：`_internal` 不是源码 checkout，应安装新构建的 release，
-  不要原地编辑冻结文件。
+- **需要 Node.js 22 或更高版本**：见上文；装好后点“重试”。用 nvm 等版本管理器时，确认
+  默认版本不低于 22。
+- **本地后端启动失败**：启动页显示退出码和最后几行输出，完整输出在 desktop log。
+  `listen EADDRINUSE` 表示端口被别的程序占用，在 **文件 → 设置** 换一个端口；
+  `... is in use by process N` 表示另一个 Argus（例如终端里用同一 `ARGUS_HOME` 运行的
+  `argus`）占着状态根，先停掉它。
+- **本地后端意外退出**：同上看输出；点“重试”重新启动，项目状态在状态根里，不会丢。
 
 ## 验证
 
-```powershell
-.\.venv\Scripts\python.exe -m ruff check argus desktop-tauri/scripts tests/desktop
-.\.venv\Scripts\python.exe -m pytest -q tests/desktop
-npm --prefix frontend/web test
+```bash
 npm --prefix desktop-tauri run ui:typecheck
 npm --prefix desktop-tauri run test:ui
 npm --prefix desktop-tauri run test:release
+# cargo check + 宿主单元测试；其中一个测试用本机 Node 启动随包的 Argus，
+# 确认它报告地址、认得 token、使用 ARGUS_HOME、在 SIGTERM 后干净退出
 npm --prefix desktop-tauri run test:rust
-# 在已完成 Tauri build 后，以临时 AppData/端口验证真实宿主启动；不会触碰用户数据
-npm --prefix desktop-tauri run smoke:host
 ```
 
-构建冻结后端与 Tauri NSIS 包时，使用**新的源码工作区与输出目录**，不要在含有旧构建的
-目录中依赖自动清理。Windows 后端构建会统一校验 Python/Rust/npm/锁文件/插件元数据的版本，
-刷新发行身份和 Web/TUI，编译第一方适配器，再冻结和验证后端。Python、原生适配器、backend
-staging 都不删除旧产物；已准备的 backend 只有逐文件完全一致时才允许复用，否则要求新目录。
-构建验证使用独立 HOME/AppData，不继承用户 Argus 或 Agent CLI 的账户配置。
+CI：`.github/workflows/desktop.yml` 在 Windows、macOS（arm64、x86_64）和 Linux 上构建
+未签名安装包、跑以上测试，并检查安装包里带着 `argus-core/dist/argus.mjs` 与 `argus-core/web/`。
+
+构建 Tauri NSIS 包时，使用**新的源码工作区与输出目录**，不要在含有旧构建的目录中依赖
+自动清理。构建先生成随包的 Argus（`packages/core` 的 `npm run prepack`：TypeScript 构建、
+esbuild 打包成 `dist/argus.mjs`、从 `frontend/web` 源码构建 `web/`），再编译宿主并打包。
 
 ```powershell
 # 在已经安装依赖的新源码工作区执行，MSVC/SDK 环境应已配置。
@@ -444,7 +241,7 @@ $env:ARGUS_WINDOWS_RELEASE_DIR = Join-Path $PWD "desktop-tauri\release"
 npm --prefix desktop-tauri run dist
 ```
 
-`dist` 的 Windows 路径先一致构建、冻结、签名；正式发行只产生 NSIS installer、detached `.exe.sig`
+`dist` 的 Windows 路径先一致构建、签名；正式发行只产生 NSIS installer、detached `.exe.sig`
 和 updater `latest.json`。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
 `stage-release.ps1 -BundleDirectory <NSIS目录> -OutputDirectory <新目录>` 指定路径。
 目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器与输入逐字节一致，且安装器和
@@ -452,7 +249,7 @@ trusted comment 均通过应用内置公钥验证，才写 `latest.json`；缺�
 错误公钥或被篡改的签名不能生成发布元数据。发布说明列出版本号、git 提交号和各文件的字节数。
 JSON 是更新元数据，不是账户凭据。
 
-只有诊断候选才使用 `build:backend` 后接 `build:unsigned`；此路径没有可发布的 SIG/JSON，
+只有诊断候选才使用 `build:unsigned`；此路径没有可发布的 SIG/JSON，
 不能把文件改名后称为正式版。新的发行还必须使用高于已发布版本的统一版本号。
 
 Windows NSIS 模板基于固定的 Tauri CLI 2.11.4，修改范围与来源哈希记录在
@@ -466,16 +263,15 @@ Windows NSIS 模板基于固定的 Tauri CLI 2.11.4，修改范围与来源哈�
 
 ## 本地数据与诊断
 
-桌面设置、ownership record、日志、更新检查缓存均保留在
-`%APPDATA%\argus-desktop\`：
+桌面设置、日志、更新检查缓存保留在每个用户的桌面数据目录（Windows
+`%APPDATA%\argus-desktop\`，macOS `~/Library/Application Support/argus-desktop/`，Linux
+`~/.local/share/argus-desktop/`）；项目在 Argus 的状态根（默认 `~/.argus`）：
 
 ```text
 settings.json
-runtime/backend.json
 logs/desktop.log
 update-check.json
 ```
 
-`Export diagnostics` 只包含脱敏后的 settings、ownership、最后 500 KB desktop log
-和平台元数据；它会遮蔽 JSON token、URL token 和 bearer authorization。仍应在分享前
-由操作员审阅 ZIP 内容。
+`Export diagnostics` 只包含脱敏后的 settings、最后 500 KB desktop log 和平台元数据；
+它会遮蔽 JSON token、URL token 和 bearer authorization。仍应在分享前由操作员审阅 ZIP 内容。

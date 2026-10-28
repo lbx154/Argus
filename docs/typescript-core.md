@@ -17,7 +17,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 | M1 | One sentence to a reviewed delivery: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min); a grokking replication handed whole to one Engineer took 24.6 min and $2.05 against 15 min and $1.40 for Codex alone, with the same findings |
 | M2 | Planner for work too large for one task, its independent tasks side by side; operator questions and answers; the operator writes to the Manager at any time | built and tested with a scripted backend; a real Manager answered in 19 s while an Engineer worked; a real multi-task Planner run is still to come |
 | M3 | `argus`: the web cockpit as the way in (no subcommands), its progress map, drafts, attachments, settings, trash, the code workspace, search, resources and the skill library | built; the milestone check runs a project through the web API; the trial ran on it with real Codex projects |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap; desktop sidecar: the desktop app carries the package and runs it with the system's Node, in place of the frozen Python backend; CI (`desktop.yml`) builds its unsigned installers on Windows, macOS and Linux and its tests start the shipped Argus with Node |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -219,6 +219,20 @@ tabs (482 MB) and was once older than the source it came from.
 with `npm i -g` in a `node:22-slim` container with no Python and no network, starts `argus` and
 runs a project through the web cockpit's API (`test/fixtures/e2e.mjs`, as the page does) from one
 sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place of codex.
+
+## The desktop app
+
+The desktop app (`desktop-tauri/`, Tauri) carries the package as a resource directory `argus-core/`
+in the package's layout (`dist/argus.mjs` beside `prompts/`, `ways/` and `web/`) and runs it with
+the Node.js on the machine: `node argus.mjs --port P --backend B`, the backend being the CLI the
+operator chose. Every backend Argus drives is an npm package, so its users have Node; the app
+looks for one of at least 22 beside the chosen CLI, on PATH and in the usual install directories,
+and without one says so and where to get it, rather than installing it. It gives Argus its Web
+token as `ARGUS_WEB_TOKEN` and its state root as `ARGUS_HOME`; the line `Argus is at <url>` is
+the only sign Argus is ready and where, and its exit the only sign it failed. The desktop does not
+poll it or restart it; it stops it (SIGTERM, or `taskkill /T` on Windows) when asked or when it
+quits. An Argus the desktop lost (it crashed) is known by answering `/api/meta` as authenticated
+to the desktop's token, and is stopped before a new one starts. No Python is bundled.
 
 ## Left out
 

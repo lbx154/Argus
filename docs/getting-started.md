@@ -158,6 +158,47 @@ A plugin is a skill folder that also holds `plugin.json`:
 
 Whoever installs a plugin starts it; the page lists it and opens its `url`.
 
+## The desktop app
+
+The desktop app is a Tauri host that ships Argus (the TypeScript core,
+`packages/core`) and runs it with the Node.js already on your machine; it opens
+the web cockpit Argus serves. It is a packaged preview channel, separate from
+source updates.
+
+- **Download:** the Releases page of
+  [lbx154/Argus](https://github.com/lbx154/Argus/releases). Windows ships as
+  an NSIS installer named `Argus-<version>-setup.exe`. The release workflow can
+  also build macOS (`.dmg`, arm64 and x86_64) and Linux (`.AppImage`, `.deb`)
+  packages, but the workflow file notes that v0.1.7 and v0.1.8 were published
+  for Windows only, so check the assets of the release you pick.
+  `microsoft/ArgusAgent` Releases is a separate channel; do not mix installers
+  or updates between the two.
+- **What it needs:** Node.js 22 or newer. The agent CLIs Argus drives (Codex,
+  Claude Code, Copilot CLI, Pi) are npm packages, so a machine with one of them
+  has Node. Without it, or with an older one, the app says so and links to
+  <https://nodejs.org/>; it does not install Node itself. No Python is needed.
+- **First launch:** a setup wizard asks you to pick an installed, logged-in
+  agent CLI (Codex, Claude Code, Copilot CLI or Pi) and confirm it; the local
+  backend does not start until you do. The choice is remembered; **File →
+  Settings** changes the CLI, executable or port later.
+- **After that** the app is the web cockpit: create a project, type the
+  objective, watch the feed.
+
+To build it from source instead (Node 22.12+, Rust stable, plus MSVC Build
+Tools on Windows or Xcode command-line tools on macOS):
+
+```bash
+npm ci
+npm --prefix frontend/web ci
+npm --prefix desktop-tauri ci
+npm --prefix desktop-tauri run build:unsigned
+```
+
+The unsigned bundle lands under `desktop-tauri/src-tauri/target/release/bundle/`.
+[docs/windows-desktop.md](windows-desktop.md) covers how the app starts Argus,
+signing and the update channel.
+
+
 ## Where things live
 
 | Path | Contents |

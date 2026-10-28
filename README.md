@@ -133,8 +133,6 @@ npm i -g ./lbx154-argus-0.1.8.tgz
 
 For the development preview, clone `https://github.com/lbx154/Argus.git` instead.
 
-**Desktop version:** see the [Releases](https://github.com/lbx154/Argus/releases) page.
-
 ## Run
 
 ```bash
@@ -164,6 +162,10 @@ The work runs inside the `argus` process: closing the browser does not stop it, 
 `argus` (Ctrl-C) does, and you start the project again from the page. On a remote server,
 run `argus` there and forward the port with `ssh -L 8799:127.0.0.1:8799 user@server`.
 A walkthrough is in **[Getting started](docs/getting-started.md)**.
+
+**Desktop.** The desktop app carries Argus and runs it with the machine's Node.js 22+, then
+opens the cockpit it serves; see **[Desktop](docs/windows-desktop.md)** and the
+[Releases](https://github.com/lbx154/Argus/releases) page.
 
 ## Upgrade and uninstall
 

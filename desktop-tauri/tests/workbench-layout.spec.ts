@@ -45,13 +45,13 @@ test.afterEach(async ({ page }, info) => {
 
 test.afterAll(() => { server?.kill(); });
 
-test('titles expand with the pane and trial model/Key controls remain visible in both themes', async ({ page }, testInfo) => {
+test('titles expand with the pane and the theme control stays centered in both themes', async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.route('**/bridge.ts', (route) => route.fulfill({
     contentType: 'application/javascript',
     body: `export const desktopBridge = new Proxy({
       getStatus: async () => ({ state: 'ready', message: 'Ready' }),
-      getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
+      getSetup: async () => ({ complete: true, port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
       isWindowVisible: async () => true,
@@ -60,26 +60,8 @@ test('titles expand with the pane and trial model/Key controls remain visible in
       openCockpit: async () => ${JSON.stringify(`${origin}/?token=local-layout-test&project=s-layout&view=activity`)}
     }, { get: (object, key) => object[key] || (() => undefined) });`,
   }));
-  const configUrl = `${origin}/api/projects/s-layout/config`;
-  // This case exercises trial layout and native Key controls. Keep its trial
-  // configuration deterministic instead of waiting for backend discovery on
-  // a cold Windows runner before applying the existing trial-mode override.
-  await page.route(configUrl, (route) => route.fulfill({ json: {
-    schema_version: 1, generated_at_utc: '2026-09-11T00:00:00Z', trial_mode: true,
-    roles: [{
-      role: 'manager', backend: 'copilot', backend_label: 'Copilot', backend_source: 'trial fixture',
-      model: 'gpt-5.5', model_source: 'trial fixture', reasoning_effort: 'high',
-      reasoning_effort_source: 'trial fixture', description: 'Layout fixture manager',
-    }],
-    operator_knobs: [], how_to_change: [],
-  } }));
   await page.setViewportSize({ width: 1280, height: 820 });
-  const [configResponse] = await Promise.all([
-    page.waitForResponse(configUrl),
-    page.goto('/'),
-  ]);
-  expect(configResponse.ok()).toBe(true);
-  expect(await configResponse.json()).toMatchObject({ trial_mode: true });
+  await page.goto('/');
   await expect(page.locator('#splash')).toBeHidden();
   const frame = page.frameLocator('#cockpitFrame');
   const title = frame.locator('.topbar-title').filter({ visible: true });
@@ -94,9 +76,6 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   await page.setViewportSize({ width: 1920, height: 820 });
   await expect.poll(async () => (await title.boundingBox())!.width).toBeGreaterThan(narrow!.width + 250);
   await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  const runtime = frame.locator('.composer-runtime').filter({ visible: true });
-  const trialModel = /^(Trial|试用) · GPT-5\.5 · high$/;
-  await expect(runtime.locator('.composer-runtime-model')).toHaveText(trialModel);
   const themeButton = frame.getByRole('button', { name: /theme; switch|主题；切换/ });
   for (const theme of ['light', 'dark']) {
     if (await frame.locator('html').getAttribute('data-theme') !== theme) await themeButton.click();
@@ -108,16 +87,6 @@ test('titles expand with the pane and trial model/Key controls remain visible in
     expect(Math.abs(icon!.y + icon!.height / 2 - button!.y - button!.height / 2)).toBeLessThan(1);
     await page.screenshot({ path: testInfo.outputPath(`runtime-${theme}.png`) });
   }
-  await runtime.getByRole('button', { name: /更换 Key|Change Key/ }).click();
-  await expect(page.locator('#trialKey')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await frame.getByRole('button', { name: /打开设置|Open settings/ }).click();
-  await frame.getByRole('dialog').getByRole('button', { name: /更换 Key|Change Key/, exact: true }).click();
-  await expect(page.locator('#trialKey')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await frame.locator('.workspace-tabs').getByRole('button', { name: /^(Map|地图)$/ }).click();
-  await expect(frame.locator('.map-island-dock .composer-runtime-model')).toHaveText(trialModel);
-  await expect(frame.locator('.map-island-dock .composer-runtime button')).toBeInViewport();
 });
 
 test('real embedded workbench retains typography and fits the pane between both sidebars', async ({ page }) => {
@@ -136,7 +105,7 @@ test('real embedded workbench retains typography and fits the pane between both 
     contentType: 'application/javascript',
     body: `export const desktopBridge = new Proxy({
       getStatus: async () => ({ state: 'ready', message: 'Ready' }),
-      getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
+      getSetup: async () => ({ complete: true, port: 8799,
         runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
         piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
       isWindowVisible: async () => true,

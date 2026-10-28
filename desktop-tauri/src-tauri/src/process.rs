@@ -6,8 +6,7 @@ use std::{
 };
 use tokio::{process::Command, time::sleep};
 
-// The Tauri host is a GUI process. Keep its maintenance commands invisible just
-// like the backend and runner preflight, including infrequent recovery paths.
+// The Tauri host is a GUI process. Keep its maintenance commands invisible.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -15,18 +14,18 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub fn is_process_alive(pid: u32) -> bool {
     use windows_sys::Win32::{
         Foundation::CloseHandle,
-        System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+        System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
     };
+    const STILL_ACTIVE: u32 = 259;
     if pid == 0 {
         return false;
     }
-    // Query-only access treats access denied as "alive", so a PID is never
-    // considered dead merely because this process lacks rights to signal it.
+    // Query-only access suffices, so a PID is never considered dead merely
+    // because this process lacks rights to signal it.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
-        // A protected process can reject query access. tasklist is only a
-        // liveness fallback; no kill decision is made unless ownership is
-        // already authenticated by the supervisor.
+        // A protected process can reject query access; tasklist is only a
+        // liveness fallback.
         let mut command = std::process::Command::new("tasklist");
         command.creation_flags(CREATE_NO_WINDOW);
         return command
@@ -37,8 +36,12 @@ pub fn is_process_alive(pid: u32) -> bool {
                 String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
             });
     }
+    // An ended process stays open while anyone holds a handle to it (its
+    // parent, an antivirus scanner); only its exit code says it ended.
+    let mut code = 0;
+    let running = unsafe { GetExitCodeProcess(handle, &mut code) } == 0 || code == STILL_ACTIVE;
     unsafe { CloseHandle(handle) };
-    true
+    running
 }
 
 #[cfg(not(windows))]
@@ -51,8 +54,10 @@ pub fn is_process_alive(pid: u32) -> bool {
             .unwrap_or(false)
 }
 
-/// Terminate one proven Windows process tree and verify the root actually died.
-pub async fn terminate_windows_process_tree(pid: u32) -> bool {
+/// End Argus and what it started, and wait until it is gone: on Windows its
+/// whole process tree (`taskkill /T`); on POSIX it gets SIGTERM, on which it
+/// ends its own calls.
+pub async fn terminate_process_tree(pid: u32) -> bool {
     if pid == 0 || !is_process_alive(pid) {
         return pid != 0;
     }

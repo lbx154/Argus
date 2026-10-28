@@ -8,14 +8,13 @@ use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env, fs,
-    io::{self, Write},
-    net::TcpListener,
+    io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
 /// Keep the established `argus-desktop` per-user root so Tauri releases retain
-/// the Web token and can prove ownership of a prior bundled backend.
+/// the Web token and the operator's choices.
 const CANONICAL_USER_DATA_DIR: &str = "argus-desktop";
 
 const DESKTOP_PROFILE: &str = match option_env!("ARGUS_DESKTOP_PROFILE") {
@@ -101,19 +100,6 @@ impl SettingsStore {
         Ok(())
     }
 
-    pub fn prepare_backend_port(&self) -> anyhow::Result<DesktopSettings> {
-        let mut current = self.settings.lock().expect("settings mutex poisoned");
-        let port = available_backend_port(&current)
-            .with_context(|| format!("无法准备本地服务端口 {}", current.port))?;
-        if port != current.port {
-            let mut next = current.clone();
-            next.port = port;
-            self.write_settings(&next)?;
-            *current = next;
-        }
-        Ok(current.clone())
-    }
-
     pub fn set_appearance(&self, theme: AppearanceTheme) -> anyhow::Result<DesktopAppearance> {
         {
             let mut current = self.settings.lock().expect("settings mutex poisoned");
@@ -149,7 +135,7 @@ impl SettingsStore {
         let payload = serde_json::to_vec_pretty(settings)?;
         fs::create_dir_all(&self.data_dir)?;
         // Commit disk state before publishing it in memory. An interrupted write
-        // must not destroy the saved CLI choice or local backend identity.
+        // must not destroy the saved CLI choice or the Web token.
         let mut temporary = tempfile::NamedTempFile::new_in(&self.data_dir)?;
         temporary.write_all(&payload)?;
         temporary.as_file().sync_all()?;
@@ -157,35 +143,15 @@ impl SettingsStore {
         Ok(())
     }
 
-    pub fn api_base_url(settings: &DesktopSettings) -> String {
-        format!("http://{}:{}", settings.host, settings.port)
-    }
-
-    pub fn is_artifact_download_url(settings: &DesktopSettings, url: &url::Url) -> bool {
-        let backend = url::Url::parse(&Self::api_base_url(settings))
-            .expect("desktop settings contain a valid backend URL");
-        url.scheme() == "blob" && url.origin() == backend.origin()
-    }
-
-    pub fn cockpit_url(settings: &DesktopSettings) -> String {
+    /// The cockpit at `origin`, where Argus listens, signed in with the token.
+    pub fn cockpit_url(origin: &str, settings: &DesktopSettings) -> String {
         let token: String =
             url::form_urlencoded::byte_serialize(settings.token.as_bytes()).collect();
         let theme = match settings.appearance_theme {
             AppearanceTheme::System => "system", AppearanceTheme::Light => "light", AppearanceTheme::Dark => "dark",
         };
-        format!("{}/?token={token}&desktopTheme={theme}", Self::api_base_url(settings))
+        format!("{origin}/?token={token}&desktopTheme={theme}")
     }
-}
-
-pub fn available_backend_port(settings: &DesktopSettings) -> io::Result<u16> {
-    let listener = match TcpListener::bind((settings.host.as_str(), settings.port)) {
-        Ok(listener) => listener,
-        Err(error) if settings.trial_mode && error.kind() == io::ErrorKind::AddrInUse => {
-            TcpListener::bind((settings.host.as_str(), 0))?
-        }
-        Err(error) => return Err(error),
-    };
-    listener.local_addr().map(|address| address.port())
 }
 
 pub(crate) fn desktop_data_dir() -> PathBuf {
@@ -251,8 +217,17 @@ fn load_settings_file(path: &Path) -> anyhow::Result<(DesktopSettings, bool)> {
         Err(error) => return Err(error).context("无法读取桌面设置；原文件不会被覆盖。"),
     };
 
-    if let Some(value) = parsed.as_ref() {
+    if let Some(mut value) = parsed {
         anyhow::ensure!(value.is_object(), "桌面设置必须是 JSON 对象；原文件已保留。");
+        // A CLI Argus no longer drives is chosen again at setup.
+        let retired = value.get("runnerKind").and_then(Value::as_str)
+            .is_some_and(|kind| !RUNNER_KINDS.iter().any(|known| known.as_str() == kind));
+        if retired {
+            for key in ["runnerKind", "runnerConfigured", "setupComplete"] {
+                value.as_object_mut().expect("checked above").remove(key);
+            }
+            needs_save = true;
+        }
         settings = serde_json::from_value::<DesktopSettings>(value.clone())
             .context("桌面设置字段无效；原文件已保留。")?;
         let object = value.as_object();
@@ -284,11 +259,6 @@ fn load_settings_file(path: &Path) -> anyhow::Result<(DesktopSettings, bool)> {
         }
     }
 
-    settings.host = settings.host.trim().to_owned();
-    if settings.host != "127.0.0.1" {
-        settings.host = "127.0.0.1".to_owned();
-        needs_save = true;
-    }
     if settings.port == 0 {
         settings.port = DesktopSettings::default().port;
         needs_save = true;
@@ -306,7 +276,8 @@ pub fn normalized_runner_bins(input: &BTreeMap<String, String>) -> BTreeMap<Stri
         .iter()
         .filter_map(|(kind, path)| {
             RUNNER_KINDS
-                .contains(&kind.as_str())
+                .iter()
+                .any(|known| known.as_str() == kind)
                 .then(|| (kind.trim(), path.trim()))
                 .filter(|(_, path)| !path.is_empty())
                 .map(|(kind, path)| (kind.to_owned(), path.to_owned()))
@@ -330,149 +301,30 @@ pub fn runner_bin(settings: &DesktopSettings, kind: &RunnerKind) -> Option<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_runner_bins, random_token, SettingsStore};
-    use crate::models::DesktopSettings;
-    use std::{
-        collections::BTreeMap,
-        io,
-        net::{TcpListener, TcpStream},
-        sync::Mutex,
-        time::{Duration, Instant},
-    };
+    use super::{normalized_runner_bins, random_token};
+    use crate::models::{DesktopSettings, RunnerKind};
+    use std::collections::BTreeMap;
 
-    fn port_store(port: u16, trial_mode: bool) -> (tempfile::TempDir, SettingsStore) {
-        let directory = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap();
-        let store = SettingsStore {
-            data_dir: directory.path().to_path_buf(),
-            settings_path: directory.path().join("settings.json"),
-            settings: Mutex::new(DesktopSettings {
-                port,
-                trial_mode,
-                token: "test-web-token".into(),
-                runner_configured: true,
-                setup_complete: true,
-                ..Default::default()
-            }),
-        };
-        store.save().unwrap();
-        (directory, store)
+    #[test]
+    fn the_cockpit_url_signs_in_at_the_origin_argus_reports() {
+        let settings = DesktopSettings { token: "a b&c".into(), ..Default::default() };
+        let url = url::Url::parse(&super::SettingsStore::cockpit_url("http://127.0.0.1:41234", &settings)).unwrap();
+        assert_eq!(url.port(), Some(41234));
+        assert!(url.query_pairs().any(|(key, value)| key == "token" && value == "a b&c"));
+        assert!(url.query_pairs().any(|(key, value)| key == "desktopTheme" && value == "light"));
     }
 
     #[test]
-    fn artifact_downloads_accept_only_current_backend_blobs() {
-        for port in [55418, 80] {
-            let settings = DesktopSettings { port, ..Default::default() };
-            let accepted = url::Url::parse(&format!("blob:http://127.0.0.1:{port}/artifact")).unwrap();
-            assert!(SettingsStore::is_artifact_download_url(&settings, &accepted));
-            for denied in [
-                "blob:http://127.0.0.1:9999/artifact",
-                "blob:https://example.com/artifact",
-                "blob:null/artifact",
-                "http://127.0.0.1:55418/api/projects",
-                "file:///example.txt",
-            ] {
-                assert!(!SettingsStore::is_artifact_download_url(
-                    &settings, &url::Url::parse(denied).unwrap()
-                ));
-            }
-        }
-    }
-
-    #[test]
-    fn trial_port_collision_and_restart_preserve_foreign_listeners_and_saved_urls() {
-        let foreign = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let (_directory, store) = port_store(foreign.local_addr().unwrap().port(), true);
-        let mut listeners = vec![foreign];
-        // Startup avoids the preferred port; restart avoids the now-occupied saved port.
-        for _ in 0..2 {
-            let preferred = store.snapshot().port;
-            let selected = store.prepare_backend_port().unwrap();
-            assert_ne!(selected.port, preferred);
-            assert_ne!(selected.port, 0);
-            assert_eq!(store.snapshot().port, selected.port);
-            let (saved, _) = super::load_settings_file(&store.settings_path).unwrap();
-            assert_eq!(saved.port, selected.port);
-            assert!(saved.trial_mode && saved.setup_complete && saved.runner_configured);
-            assert_eq!(saved.token, "test-web-token");
-            let cockpit = url::Url::parse(&SettingsStore::cockpit_url(&saved)).unwrap();
-            assert_eq!(cockpit.host_str(), Some("127.0.0.1"));
-            assert_eq!(cockpit.port(), Some(selected.port));
-            assert!(cockpit
-                .query_pairs()
-                .any(|(key, value)| key == "token" && value == saved.token));
-            assert_eq!(
-                SettingsStore::api_base_url(&saved),
-                format!("http://127.0.0.1:{}", selected.port)
-            );
-            // The selected port can be bound, while every foreign listener remains reachable.
-            listeners.push(TcpListener::bind((selected.host.as_str(), selected.port)).unwrap());
-            for listener in &listeners {
-                listener.set_nonblocking(true).unwrap();
-                let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-                // A successful connect can precede accept readiness on macOS.
-                // Wait for the nonblocking listener without hiding real errors.
-                let deadline = Instant::now() + Duration::from_secs(5);
-                let (connection, _) = loop {
-                    match listener.accept() {
-                        Ok(connection) => break connection,
-                        Err(error)
-                            if error.kind() == io::ErrorKind::WouldBlock
-                                && Instant::now() < deadline =>
-                        {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(error) => panic!("foreign listener accept failed: {error}"),
-                    }
-                };
-                assert_eq!(connection.local_addr().unwrap(), client.peer_addr().unwrap());
-            }
-        }
-    }
-
-    #[test]
-    fn trial_port_keeps_an_available_preference() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let (_directory, store) = port_store(port, true);
-        assert_eq!(store.prepare_backend_port().unwrap().port, port);
-        assert_eq!(
-            super::load_settings_file(&store.settings_path).unwrap().0.port,
-            port
-        );
-    }
-
-    #[test]
-    fn manual_port_choices_are_never_reassigned() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (_directory, store) = port_store(port, false);
-        let original = std::fs::read(&store.settings_path).unwrap();
-        let error = store.prepare_backend_port().unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<io::Error>().unwrap().kind(),
-            io::ErrorKind::AddrInUse
-        );
-        assert_eq!(store.snapshot().port, port);
-        assert_eq!(std::fs::read(&store.settings_path).unwrap(), original);
-        drop(listener);
-        assert_eq!(store.prepare_backend_port().unwrap().port, port);
-    }
-
-    #[test]
-    fn trial_port_save_failure_does_not_publish_an_unsaved_port() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (_directory, mut store) = port_store(port, true);
-        let original = std::fs::read(&store.settings_path).unwrap();
-        store.settings_path = store.data_dir.join("blocked");
-        std::fs::create_dir(&store.settings_path).unwrap();
-        assert!(store.prepare_backend_port().is_err());
-        assert_eq!(store.snapshot().port, port);
-        assert_eq!(
-            std::fs::read(store.data_dir.join("settings.json")).unwrap(),
-            original
-        );
+    fn a_retired_cli_is_chosen_again_without_losing_other_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("settings.json");
+        let raw = r#"{"token":"kept","port":9001,"runnerKind":"cursor","runnerConfigured":true,"setupComplete":true,"trialMode":false,"host":"127.0.0.1"}"#;
+        std::fs::write(&file, raw).unwrap();
+        let (settings, needs_save) = super::load_settings_file(&file).unwrap();
+        assert!(needs_save);
+        assert_eq!((settings.token.as_str(), settings.port), ("kept", 9001));
+        assert_eq!(settings.runner_kind, RunnerKind::Codex);
+        assert!(!settings.runner_configured && !settings.setup_complete);
     }
 
     #[test]
@@ -490,7 +342,7 @@ mod tests {
     fn compiled_product_storage_is_isolated() {
         let profile = option_env!("ARGUS_DESKTOP_PROFILE").unwrap_or("argus");
         let product_home = format!("{}_HOME", profile.to_ascii_uppercase());
-        for explicit_home in ["default", "compat", "product", "both"] {
+        for explicit_home in ["default", "argus", "product"] {
             let directory = tempfile::tempdir().unwrap();
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
             command.args(["--exact", "settings::tests::product_storage_child", "--ignored"])
@@ -498,14 +350,14 @@ mod tests {
                 .env("HOME", directory.path())
                 .env("USERPROFILE", directory.path())
                 .env("APPDATA", directory.path())
-                .env_remove("ARGUS_SKILL_HOME")
+                .env_remove("ARGUS_HOME")
                 .env_remove(&product_home)
                 // A launcher environment must not change a compiled product.
                 .env("ARGUS_DESKTOP_PROFILE", "anotherproduct");
-            if matches!(explicit_home, "compat" | "both") {
-                command.env("ARGUS_SKILL_HOME", directory.path().join("explicit-engine"));
+            if explicit_home == "argus" {
+                command.env("ARGUS_HOME", directory.path().join("argus-engine"));
             }
-            if matches!(explicit_home, "product" | "both") {
+            if explicit_home == "product" {
                 command.env(&product_home, directory.path().join("product-engine"));
             }
             let output = command.output().unwrap();
@@ -533,9 +385,9 @@ mod tests {
         std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
         let legacy_bytes = br#"{"token":"legacy-token","runnerConfigured":true,"runnerKind":"copilot"}"#;
         std::fs::write(&legacy, legacy_bytes).unwrap();
-        let ownership = base.join("argus-desktop/runtime/backend.json");
-        std::fs::create_dir_all(ownership.parent().unwrap()).unwrap();
-        std::fs::write(&ownership, b"existing ownership must not move").unwrap();
+        let existing = base.join("argus-desktop/logs/desktop.log");
+        std::fs::create_dir_all(existing.parent().unwrap()).unwrap();
+        std::fs::write(&existing, b"existing data must not move").unwrap();
         let store = super::SettingsStore::open().unwrap();
         assert_eq!(store.data_dir(), base.join(name));
         if profile == "argus" && !preview {
@@ -543,19 +395,17 @@ mod tests {
         } else {
             assert_ne!(store.snapshot().token, "legacy-token");
             assert!(!store.snapshot().runner_configured);
-            assert!(!store.data_dir().join("runtime/backend.json").exists());
+            assert!(!store.data_dir().join("logs/desktop.log").exists());
         }
+        // Argus's state root: the product's own variable or home directory, never another product's.
         let expected_home = if preview { store.data_dir().join("argus-home") }
-            else if let Some(explicit) = std::env::var_os("ARGUS_SKILL_HOME") {
-                std::path::PathBuf::from(explicit)
-            } else if profile == "argus" { root.join(".argus-skill") }
             else if let Some(explicit) = std::env::var_os(format!("{}_HOME", profile.to_ascii_uppercase())) {
                 std::path::PathBuf::from(explicit)
             }
             else { root.join(format!(".{profile}")) };
         assert_eq!(crate::runner::argus_home_dir(), expected_home);
         assert_eq!(std::fs::read(&legacy).unwrap(), legacy_bytes);
-        assert_eq!(std::fs::read(&ownership).unwrap(), b"existing ownership must not move");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"existing data must not move");
         let token = store.snapshot().token;
         assert_eq!(super::SettingsStore::open().unwrap().snapshot().token, token);
     }

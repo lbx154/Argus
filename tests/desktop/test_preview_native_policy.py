@@ -1,4 +1,4 @@
-"""Native verification may inspect its own preview, never enable a release debugger."""
+"""The native shell's policy: Tauri IPC only for itself, no web inspector in a shipped build."""
 import json
 import tomllib
 from pathlib import Path
@@ -27,11 +27,8 @@ def test_eye_animation_has_no_menu_or_native_adjustment_entry():
     assert 'set_startup_eye_motion' not in native
 
 
-def test_developer_inspection_feature_is_scoped_to_preview_builds():
+def test_no_shipped_build_enables_the_web_inspector():
     cargo = tomllib.loads((ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8"))
-    assert "tauri/devtools" in cargo["features"]["preview"]
+    assert "devtools" not in json.dumps(cargo["features"])
     assert "devtools" not in cargo["dependencies"]["tauri"]["features"]
-    source = (ROOT / "src-tauri/src/lib.rs").read_text(encoding="utf-8")
-    assert ".devtools(qa_devtools)" in source
-    assert "identity::preview_qa_enabled(" in source
-    assert 'std::env::var("ARGUS_DESKTOP_TEST_INSTANCE")' in source
+    assert ".devtools(" not in (ROOT / "src-tauri/src/lib.rs").read_text(encoding="utf-8")

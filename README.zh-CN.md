@@ -120,8 +120,6 @@ npm i -g ./lbx154-argus-0.1.8.tgz
 
 要用开发预览版，改为克隆 `https://github.com/lbx154/Argus.git`。
 
-**桌面版：**见 [Releases](https://github.com/lbx154/Argus/releases) 页面。
-
 ## 运行
 
 ```bash
@@ -149,6 +147,9 @@ argus
 重新启动项目即可。在远程服务器上，在服务器运行 `argus`，再用
 `ssh -L 8799:127.0.0.1:8799 user@server` 转发端口。完整的上手流程见
 **[入门指南（英文）](docs/getting-started.md)**。
+
+**桌面版**随包带着 Argus，用本机的 Node.js 22+ 运行它，再打开它服务的网页工作台；见
+**[桌面版文档](docs/windows-desktop.md)** 和 [Releases](https://github.com/lbx154/Argus/releases) 页面。
 
 ## 升级与卸载
 

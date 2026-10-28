@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const RUNNER_KINDS: [&str; 9] = [
-    "codex", "claude", "copilot", "cursor", "pi", "opencode", "grok", "qoder", "dsh",
-];
+/// The backends the TypeScript core drives (`argus --backend`).
+pub const RUNNER_KINDS: [RunnerKind; 4] = [RunnerKind::Codex, RunnerKind::Claude, RunnerKind::Copilot, RunnerKind::Pi];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -12,12 +11,7 @@ pub enum RunnerKind {
     Codex,
     Claude,
     Copilot,
-    Cursor,
     Pi,
-    Opencode,
-    Grok,
-    Qoder,
-    Dsh,
 }
 
 impl RunnerKind {
@@ -26,12 +20,7 @@ impl RunnerKind {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Copilot => "copilot",
-            Self::Cursor => "cursor",
             Self::Pi => "pi",
-            Self::Opencode => "opencode",
-            Self::Grok => "grok",
-            Self::Qoder => "qoder",
-            Self::Dsh => "dsh",
         }
     }
 
@@ -40,12 +29,7 @@ impl RunnerKind {
             Self::Codex => "Codex CLI",
             Self::Claude => "Claude Code",
             Self::Copilot => "GitHub Copilot CLI",
-            Self::Cursor => "Cursor CLI",
             Self::Pi => "Pi (follows your Pi model)",
-            Self::Opencode => "OpenCode",
-            Self::Grok => "Grok Build",
-            Self::Qoder => "Qoder CLI",
-            Self::Dsh => "DeepSeek Harness",
         }
     }
 }
@@ -61,18 +45,7 @@ pub enum AppearanceTheme {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OwnAccountSettings {
-    pub runner_kind: RunnerKind,
-    pub runner_bins: BTreeMap<String, String>,
-    pub runner_configured: bool,
-    pub setup_complete: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DesktopSettings {
-    #[serde(default = "default_host")]
-    pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
     #[serde(default)]
@@ -86,15 +59,7 @@ pub struct DesktopSettings {
     #[serde(default)]
     pub setup_complete: bool,
     #[serde(default)]
-    pub trial_mode: bool,
-    #[serde(default)]
-    pub own_account: Option<OwnAccountSettings>,
-    #[serde(default)]
     pub appearance_theme: AppearanceTheme,
-}
-
-fn default_host() -> String {
-    "127.0.0.1".to_owned()
 }
 
 const fn default_port() -> u16 {
@@ -104,15 +69,12 @@ const fn default_port() -> u16 {
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
-            host: default_host(),
             port: default_port(),
             token: String::new(),
             runner_kind: RunnerKind::default(),
             runner_bins: BTreeMap::new(),
             runner_configured: false,
             setup_complete: false,
-            trial_mode: false,
-            own_account: None,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -133,8 +95,6 @@ pub enum BackendState {
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
     pub state: BackendState,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -149,7 +109,6 @@ impl Default for BackendStatus {
         Self {
             state: BackendState::Idle,
             message: "尚未启动".to_owned(),
-            warning: None,
             detail: None,
             pid: None,
             url: None,
@@ -173,7 +132,6 @@ pub struct PiConfiguration {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopReleaseIdentity {
     pub package_version: String,
-    pub release_id: String,
     pub distribution: String,
 }
 
@@ -191,9 +149,6 @@ pub struct DesktopRuntimeIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSetup {
     pub complete: bool,
-    pub trial_mode: bool,
-    pub can_restore_own_account: bool,
-    pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,
     pub runner_bins: BTreeMap<String, String>,
@@ -341,49 +296,6 @@ impl Default for UpdateStatus {
             detail: None,
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BackendOwnership {
-    pub schema: u32,
-    pub pid: u32,
-    pub root_pid: u32,
-    pub host: String,
-    pub port: u16,
-    pub executable: String,
-    #[serde(default)]
-    pub release_id: String,
-    /// The Web token itself, as the settings file already keeps it.
-    #[serde(default)]
-    pub token: String,
-    /// Migration only: schema-3 records kept a token hash. Delete next release
-    /// together with `identity::legacy_token_matches`.
-    #[serde(default, skip_serializing)]
-    pub token_sha256: String,
-    pub started_at: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProbeIdentity {
-    pub compatible: bool,
-    pub occupied: bool,
-    pub authenticated: bool,
-    pub detail: Option<String>,
-    pub pid: Option<u32>,
-    pub executable: Option<String>,
-    pub release_id: Option<String>,
-    pub started_at: Option<String>,
-    pub launch_nonce: Option<String>,
-    pub failure_kind: Option<ProbeFailureKind>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProbeFailureKind {
-    Timeout,
-    Network,
-    Http,
-    Identity,
 }
 
 #[cfg(test)]
