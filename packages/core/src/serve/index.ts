@@ -17,6 +17,7 @@ import type { Backend, CallAgent } from '../types.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { Runs, type Frame } from './runs.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
+import { workspace } from './workspace.js';
 
 export interface ServeOptions {
   store: Store;
@@ -37,7 +38,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const STARTED = new Date().toISOString();
 const BODY_LIMIT = 1 << 20;
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
@@ -50,7 +51,7 @@ interface Context {
   body(): Promise<Record<string, unknown>>;
 }
 
-type Handler = (context: Context) => unknown;
+export type Handler = (context: Context) => unknown;
 
 export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token } = options;
@@ -195,6 +196,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, 'no such result');
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, url.searchParams.get('download') === 'true'));
     }],
+    ...workspace(project),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
