@@ -9,14 +9,15 @@ import { serve } from './serve/index.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
 
-const USAGE = `Usage: argus [--port N] [--backend codex|claude|copilot|pi] [--model M] [--web DIR]
-Serves the web cockpit on 127.0.0.1. ARGUS_WEB_TOKEN: require this bearer token. ARGUS_HOME: the state root (~/.argus).
+const USAGE = `Usage: argus [--host H] [--port N] [--backend codex|claude|copilot|pi] [--model M] [--web DIR]
+Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), which needs ARGUS_WEB_TOKEN.
+ARGUS_WEB_TOKEN: require this bearer token. ARGUS_HOME: the state root (~/.argus).
 `;
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
-    port: { type: 'string', default: '8799' }, backend: { type: 'string', default: 'codex' }, model: { type: 'string' },
-    web: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+    host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '8799' },
+    backend: { type: 'string', default: 'codex' }, model: { type: 'string' }, web: { type: 'string' }, help: { type: 'boolean', short: 'h' },
   } });
   if (values.help) {
     process.stdout.write(USAGE);
@@ -28,7 +29,7 @@ async function main(): Promise<void> {
   const release = store.own();
   const token = process.env.ARGUS_WEB_TOKEN || undefined;
   const served = await serve({
-    store, callAgent, backend, model: values.model ?? null, port: Number(values.port), ...(token ? { token } : {}),
+    store, callAgent, backend, model: values.model ?? null, host: values.host, port: Number(values.port), ...(token ? { token } : {}),
     web: resolve(values.web ?? fileURLToPath(new URL('../web', import.meta.url))),
   }).catch((error: unknown) => { release(); throw error; });
   process.stdout.write(`Argus is at ${served.url}/${token ? `?token=${encodeURIComponent(token)}` : ''}\n`);

@@ -8,6 +8,9 @@
 .model-picker-roles button[aria-selected='true'] { border-color: rgb(var(--accent)); background: rgb(var(--accent) / .08); color: rgb(var(--ink)); }
 .model-picker-role-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 11px; color: rgb(var(--ink-faint)); }
 .model-picker-note { margin-top: 12px; font-size: 12px; line-height: 18px; color: rgb(var(--ink-faint)); }
+.model-picker-by-name { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: rgb(var(--ink-dim)); }
+.model-picker-by-name input { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); background: rgb(var(--bg)); font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 12px; color: rgb(var(--ink)); }
+.model-picker-by-name input:focus { outline: none; border-color: rgb(var(--blue)); }
 .model-picker-link { color: rgb(var(--blue)); text-decoration: underline; text-underline-offset: 3px; }
 
 .model-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }

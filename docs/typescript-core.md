@@ -31,7 +31,7 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 
 | File | Holds | Written |
 |---|---|---|
-| `project.json` | the current state: workdir, request, tasks, role sessions, the open question, status | replaced atomically (write temp, rename) |
+| `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, role sessions, the open question, status | replaced atomically (write temp, rename) |
 | `events.jsonl` | what happened, in order: messages, hand-offs, calls, task changes | appended |
 | `usage.jsonl` | one record per backend call: tokens, cost | appended |
 | `calls/<call>.jsonl` | the backend's raw output, for debugging | written by the call |
@@ -101,9 +101,10 @@ wiki the page also asks for is empty.
 
 ## The web cockpit
 
-`argus` serves the cockpit (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that
-bearer) and runs the work of its projects in its own process, projects side by side. The page
-reads files as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
+`argus` serves the cockpit (on 127.0.0.1; `ARGUS_WEB_TOKEN` makes project requests need that
+bearer, and `--host` serves it on another address, `0.0.0.0` for every network, only with one)
+and runs the work of its projects in its own process, projects side by side. The page reads files
+as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
 conversation from `events.jsonl` in the cockpit's event vocabulary, results from the workdir's
 files created or changed since the project began. The operator may write at any time: the
 Manager takes the message up in its next turn, at once unless it is answering a letter from the
@@ -120,6 +121,20 @@ workdir's `.argus/attachments/<id>/`, out of the results; the message names thei
 Manager reads them, so nothing in Argus reads what they hold. Deleting a project stops its work
 and moves its directory to `$ARGUS_HOME/trash/<id>-<time>`, its workdir left as it is; while the
 interrupted calls are still recording how they ended, the deletion is refused rather than waited on.
+The trash lists what it holds, from each entry's `project.json`, and a restore moves the directory
+back unless a project with its id exists.
+
+What the operator sets on a project is in its `project.json`: its workdir, any existing directory,
+given when the project is made or later; its name, which the project list and the snapshot show,
+an unnamed project named by its request; and the backend, model and reasoning effort every role's
+call uses, written by the Python runtime's setting names, a per-role model refused rather than half
+applied. A model or effort is the backend's own word for it, passed to its command line as one
+argument; the model chooser offers the one set and takes any other by name. A new workdir or
+backend clears the role sessions, which belong to the directory and the backend that started them,
+and resetting the conversation clears the Manager's. These changes are refused while work is under
+way on the project: that work holds the record and would write it back. The sidebar's pins, archive
+and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`, and `/api/projects/costs` gives
+each project's spend from the same figures as the project list.
 
 The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
@@ -133,9 +148,10 @@ conversation and letters as they are, with no index. The machine's CPUs and memo
 and NVIDIA GPUs (from `nvidia-smi`) are read when the page asks, never polled.
 
 The page offers only what the server declares in `/api/meta`. The core declares the required
-capabilities, `project.attachments.v1` and `system.resources.v1`; the page hides the settings and
-model chooser (`project.config.v1`) and the slash commands, the doctor among them
-(`composer.commands.v1`). The Python server declares every capability.
+capabilities, `project.attachments.v1`, `system.resources.v1`, `project.workdir.v1`,
+`project.config.v1` and `project.cost-feed.v1`; the page hides the slash commands, the doctor among
+them (`composer.commands.v1`), and in the settings the advisor (`advisor.config.v1`) and the light
+model, which the core's settings do not list. The Python server declares every capability.
 
 The progress map reads the same files: a card per task, its brief the letter that opened it, and
 on it a step per letter written about it, by whom to whom. A task opened in the reader lists its

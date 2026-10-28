@@ -1,13 +1,11 @@
-// `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1 only. Requests read
-// the projects' files as they are; messages, answers, starts and stops go to the Flow runs of
-// this process. With a token (ARGUS_WEB_TOKEN) every project request needs it as a bearer.
+// `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1, or with a token on any
+// address. Requests read the projects' files as they are; messages, answers, starts and stops go
+// to the Flow runs of this process. With a token (ARGUS_WEB_TOKEN) every project request needs it
+// as a bearer.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
@@ -19,6 +17,7 @@ import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { preview } from './preview.js';
+import { CAPABILITIES, directory, projectRoutes } from './projects.js';
 import { records } from './records.js';
 import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
@@ -35,6 +34,8 @@ export interface ServeOptions {
   port: number;
   /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
   web: string;
+  /** The address to listen on, 127.0.0.1 by default; one beyond this machine needs a token. */
+  host?: string;
   token?: string;
 }
 
@@ -49,7 +50,7 @@ export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-interface Context {
+export interface Context {
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -61,7 +62,9 @@ interface Context {
 export type Handler = (context: Context) => unknown;
 
 export async function serve(options: ServeOptions): Promise<Served> {
-  const { store, token } = options;
+  const { store, token, host = '127.0.0.1' } = options;
+  // Whoever reaches the cockpit can run work on this machine.
+  if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
   const listeners = new Map<string, Set<() => void>>();
   const runs = new Runs(store, options.callAgent, id => { for (const wake of listeners.get(id) ?? []) wake(); });
 
@@ -81,7 +84,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-    capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1'],
+    capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', ...CAPABILITIES],
     runtime: {
       package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
@@ -116,21 +119,22 @@ export async function serve(options: ServeOptions): Promise<Served> {
   const routes: [string, RegExp, Handler][] = [
     ...drafts(store, project), ...trash(store, runs, project), ...attachments(project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
-    // The page asks for its pins and archive on load; this server keeps none.
-    ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],
-    // And for the saved maps it may open beside a project's.
+    // The brand is Argus's own, so its manifest is the one the page was built with.
+    ['GET', /^\/api\/application-brand\/manifest\.webmanifest$/, ({ request, response }) => {
+      if (!sendStatic(request, response, options.web, '/manifest.webmanifest')) throw new HttpError(404, 'Not Found');
+    }],
+    // The page asks for the saved maps it may open beside a project's; this server keeps none.
     ['GET', /^\/api\/map-datasets$/, () => ({ datasets: [] })],
     ['GET', /^\/api\/projects$/, () => ({
       projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
       local_cwd: process.cwd(),
     })],
     ['POST', /^\/api\/daemons$/, async ({ body }) => {
-      const asked = String((await body()).workdir ?? '').replace(/^~(?=$|\/)/, homedir());
-      const workdir = asked && resolve(asked);
-      if (workdir && !statSync(workdir, { throwIfNoEntry: false })?.isDirectory()) throw new HttpError(400, `workdir is not a directory: ${workdir}`);
+      const workdir = directory(String((await body()).workdir ?? ''));
       const created = store.create({ workdir, request: '', backend: options.backend, model: options.model });
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
+    ...projectRoutes(store, runs, project),
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],
     ['GET', /^\/api\/projects\/([^/]+)\/events$/, ({ params: [id], url }) =>
       ({ events: webEvents(readEvents(store, project(id!).id)).slice(-Number(url.searchParams.get('limit') ?? 120)) })],
@@ -225,7 +229,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       response.setHeader('cache-control', 'no-store');
       return json(response, 200, meta(authorized(request)));
     }
-    if (url.pathname !== '/api/application-brand' && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
+    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
     for (const [verb, pattern, handler] of routes) {
       const match = pattern.exec(url.pathname);
       if (!match || verb !== method) continue;
@@ -248,10 +252,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
     });
   });
   await new Promise<void>((resolveListen, reject) => {
-    server.once('error', reject).listen(options.port, '127.0.0.1', resolveListen);
+    server.once('error', reject).listen(options.port, host, resolveListen);
   });
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {
       runs.stopAll();
       server.closeAllConnections();

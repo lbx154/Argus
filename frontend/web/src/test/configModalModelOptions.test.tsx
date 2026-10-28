@@ -2,7 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api, type ConfigSnapshot } from '../api';
+import { AdvisorSettings } from '../components/AdvisorSettings';
 import { ConfigModal } from '../components/InfoModals';
+import { Capabilities } from '../lib/capabilities';
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient | undefined;
@@ -100,4 +102,26 @@ it('replaces a stale saved backend hidden by the environment and says what chang
   expect(applyBackend.props.disabled).toBe(false);
   await act(async () => { applyBackend.props.onClick(); });
   expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
+});
+
+it('offers the light model and the advisor only where the server has them', async () => {
+  vi.spyOn(api, 'advisorSettings').mockReturnValue(new Promise(() => {}));
+  const light = { name: 'ARGUS_SKILL_LIGHT_MODEL', value: 'auto' } as ConfigSnapshot['operator_knobs'][number];
+  for (const [knobs, declared, shown] of [[[light], ['advisor.config.v1'], true], [[], ['manager.sse.v1'], false]] as const) {
+    const config = { ...baseConfig(), operator_knobs: [...baseConfig().operator_knobs, ...knobs] };
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
+    vi.spyOn(api, 'config').mockResolvedValue(config);
+    client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    client.setQueryData(['config', 'one'], config);
+    await act(async () => {
+      renderer = create(<QueryClientProvider client={client!}><Capabilities.Provider value={declared}>
+        <ConfigModal sid="one" open onClose={() => {}} />
+      </Capabilities.Provider></QueryClientProvider>);
+    });
+    await act(async () => { renderer!.root.findByProps({ 'aria-controls': 'config-advanced-settings' }).props.onClick(); });
+    expect(renderer!.root.findAllByProps({ 'aria-label': 'Light' })).toHaveLength(shown ? 1 : 0);
+    expect(renderer!.root.findAllByType(AdvisorSettings)).toHaveLength(shown ? 1 : 0);
+    act(() => renderer!.unmount());
+  }
+  renderer = undefined;
 });

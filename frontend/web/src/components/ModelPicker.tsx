@@ -279,6 +279,12 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
                 />
               ))}
             </div>}
+          {/* A model the list does not have, as the backend names it. */}
+          <label className="model-picker-by-name">
+            <span>{t('models.byName')}</span>
+            <input value={options.some(choice => choice.model === selectedModel) ? '' : selectedModel} spellCheck={false} data-model-name
+              placeholder={t('models.byNamePlaceholder')} onChange={event => select(event.target.value.trim())} />
+          </label>
           <p className="model-picker-note">
             {t('models.persistNote')}
             {onOpenSettings && <> <button type="button" className="model-picker-link" onClick={() => { onClose(); onOpenSettings(); }}>{t('models.moreSettings')}</button></>}

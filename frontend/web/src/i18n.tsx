@@ -706,6 +706,8 @@ const en: Record<string, string> = {
   'models.trial': 'The trial account chooses its model for you.',
   'models.loadError': 'Could not read the model list.',
   'models.empty': 'No models to choose from yet.',
+  'models.byName': 'A model by name',
+  'models.byNamePlaceholder': 'as the backend names it',
 };
 
 const zhCN: Record<string, string> = {
@@ -1398,6 +1400,8 @@ const zhCN: Record<string, string> = {
   'models.trial': '试用账号由服务方选择模型。',
   'models.loadError': '无法读取模型列表。',
   'models.empty': '暂时没有可选的模型。',
+  'models.byName': '按名称指定模型',
+  'models.byNamePlaceholder': '后端使用的模型名',
 };
 
 function initialLocale(): Locale {
