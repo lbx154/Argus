@@ -44,8 +44,9 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
   const declare = (work: Project, name: string, mime: string, size: number): Upload => {
     if (size > LIMITS.max_bytes_per_file) throw new HttpError(413, `${name} is larger than ${LIMITS.max_bytes_per_file} bytes`);
     const id = `att-${randomBytes(6).toString('hex')}`;
-    // The name as given, as one the file system takes and never hidden.
-    const stored = name.split(/[\\/]/).at(-1)!.replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^[.\s]+/, '').slice(-200) || 'attachment';
+    // The name as given, as one every file system keeps as it is (Windows drops a trailing dot)
+    // and never hidden.
+    const stored = name.split(/[\\/]/).at(-1)!.slice(-200).replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^[.\s]+|[.\s]+$/g, '') || 'attachment';
     return {
       sid: work.id, dir: folder(work.workdir, id),
       attachment: { attachment_id: id, relative_path: `.argus/attachments/${id}/${stored}`, original_name: name, stored_name: stored, mime, size_bytes: size },
@@ -123,7 +124,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
   ];
 }
 
-async function bytes(request: IncomingMessage, limit: number): Promise<Buffer> {
+async function bytes(request: IncomingMessage, limit: number): Promise<Buffer<ArrayBuffer>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request as AsyncIterable<Buffer>) {

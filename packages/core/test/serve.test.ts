@@ -375,7 +375,7 @@ test('attached files land in the workdir, and the message that carries them says
   // Small files in one request, as the page sends them.
   const form = new FormData();
   form.append('files', new Blob(['a,b\n1,2\n'], { type: 'text/csv' }), 'data.csv');
-  form.append('files', new Blob(['# Notes'], { type: 'text/markdown' }), '../.notes.md');
+  form.append('files', new Blob(['# Notes'], { type: 'text/markdown' }), '../.notes.md. ');
   const { attachments: [csv, notes] } = await (await call(`${P}/attachments`, { method: 'POST', body: form })).json() as { attachments: Attachment[] };
   assert.deepEqual(csv, {
     attachment_id: csv!.attachment_id, relative_path: `.argus/attachments/${csv!.attachment_id}/data.csv`,
