@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core.atomic_replace import write_atomic
+
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
     "[ACTIVE MANAGER STEERING DIRECTIVE - persists until replaced or cleared] "
@@ -356,31 +358,11 @@ def set_active_manager_directive(
         ),
     )
     path = _directive_path(state_root)
-    temporary = path.with_name(
-        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-    )
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with temporary.open("w", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    asdict(record),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n"
-            )
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        from ..daemon.state import _fsync_directory
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, json.dumps(asdict(record), ensure_ascii=False, sort_keys=True) + "\n", fsync=True)
+    from ..daemon.state import _fsync_directory
 
-        _fsync_directory(path.parent)
-    finally:
-        try:
-            temporary.unlink()
-        except OSError:
-            pass
+    _fsync_directory(path.parent)
     if not record.source.startswith("manager.supervision"):
         append_steering_directive(state_root, normalized, source=record.source)
     return record

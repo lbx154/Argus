@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_replace import write_atomic
 from ..core.mission_view import uses_cjk
 from .domain_author import VerticalDecision, parse_domain_proposal
 
@@ -56,10 +57,7 @@ def read_intake(root: Path) -> dict:
 
 
 def write_intake(root: Path, state: dict) -> None:
-    path = root / "domain-intake.json"
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    temp.replace(path)
+    write_atomic(root / "domain-intake.json", json.dumps(state, ensure_ascii=False))
 
 
 def intake_card(state: dict) -> dict | None:

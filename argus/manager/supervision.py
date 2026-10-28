@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -16,6 +15,7 @@ from typing import Any, Callable
 
 import portalocker
 
+from ..core.atomic_replace import write_atomic
 from ..core.autonomy import record_assumptions
 from ..core.event_catalog import EventType
 from ..core.handoff import HandOffActions, holder_of
@@ -56,16 +56,8 @@ class SupervisionSuperseded(RuntimeError):
 
 def _write(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(record, handle, ensure_ascii=False, allow_nan=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        _fsync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_atomic(path, json.dumps(record, ensure_ascii=False, allow_nan=False), fsync=True)
+    _fsync_directory(path.parent)
     if path.name != "latest.json":
         _write(path.parent / "latest.json", record)
 

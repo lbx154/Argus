@@ -100,7 +100,7 @@ def _valid_selected_idea(payload: dict[str, Any] | None) -> dict[str, Any] | Non
 
 
 def _write_handoff(project_root: Path, selection: dict[str, Any]) -> None:
-    from ...manager.source_writeback import atomic_write
+    from ...core.atomic_replace import write_atomic
 
     selection = _valid_selected_idea(selection) or {}
     rejections = selection.get("rejections")
@@ -130,7 +130,9 @@ def _write_handoff(project_root: Path, selection: dict[str, Any]) -> None:
         "## Rejected routes\n"
         f"{rejection_lines}\n"
     )
-    atomic_write(research_notes_path(project_root), text)
+    path = research_notes_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, text)
 
 
 def _legacy_selection(project_root: Path) -> dict[str, Any] | None:

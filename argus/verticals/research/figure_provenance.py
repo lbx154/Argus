@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,7 +13,7 @@ from typing import Iterable
 
 import portalocker
 
-from ...core.atomic_replace import replace as _replace
+from ...core.atomic_replace import write_atomic
 from ...core.file_facts import file_facts
 
 FIGURE_PROVENANCE_PATH = Path("paper/figures/FIGURE_PROVENANCE.json")
@@ -101,12 +100,7 @@ def _load_manifest(path: Path) -> dict[str, object]:
 
 def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    _replace(temporary, path)
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
 
 def _file_record(project_root: Path, raw: Path | str) -> dict[str, object]:

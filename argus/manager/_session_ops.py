@@ -16,7 +16,6 @@ from __future__ import annotations
 import errno
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -29,6 +28,7 @@ from typing import Any, Callable
 
 import portalocker
 
+from ..core.atomic_replace import write_atomic
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ..provider_integrations.authorization_retry import BackendLoginRequired
@@ -240,9 +240,7 @@ def _restore_files_on_error(paths: list[Path]):
                     path.unlink(missing_ok=True)
                     continue
                 path.parent.mkdir(parents=True, exist_ok=True)
-                tmp = path.with_name(f".{path.name}.rollback.{os.getpid()}")
-                tmp.write_bytes(content)
-                os.replace(tmp, path)
+                write_atomic(path, content)
             except OSError:
                 log.exception("failed to restore Manager pipeline artifact %s", path)
         raise
@@ -290,20 +288,14 @@ class _ManagerSession:
     def _write_tid(self, tid: str, *, state: dict[str, Any] | None = None) -> None:
         # Atomic replace so a concurrent reader never sees a half-written file.
         self.project_root.mkdir(parents=True, exist_ok=True)
-        tmp = self._session_path.with_suffix(
-            self._session_path.suffix + f".tmp.{os.getpid()}"
+        write_atomic(
+            self._session_path,
+            json.dumps({**(state or {}), "thread_id": tid}, ensure_ascii=False),
+            fsync=True,
         )
-        try:
-            with tmp.open("w", encoding="utf-8") as handle:
-                json.dump({**(state or {}), "thread_id": tid}, handle, ensure_ascii=False)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, self._session_path)
-            from ..daemon.state import _fsync_directory
+        from ..daemon.state import _fsync_directory
 
-            _fsync_directory(self.project_root)
-        finally:
-            tmp.unlink(missing_ok=True)
+        _fsync_directory(self.project_root)
 
     @property
     def backend(self) -> str:

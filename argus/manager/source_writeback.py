@@ -4,9 +4,9 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-import threading
-import uuid
 from pathlib import Path
+
+from ..core.atomic_replace import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -19,20 +19,9 @@ def source_root() -> Path:
 
 
 def atomic_write(path: Path, text: str) -> None:
-    """Atomically replace a UTF-8 source file without sharing temp paths."""
+    """Atomically replace a UTF-8 source file, creating its directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(
-        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"
-    )
-    try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+    write_atomic(path, text)
 
 
 def _autocommit_enabled() -> bool:

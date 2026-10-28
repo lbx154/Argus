@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..core import paths as core_paths
+from ..core.atomic_replace import write_atomic
 
 PPT_MASTER_REPOSITORY = "https://github.com/hugohe3/ppt-master.git"
 PPT_MASTER_REVISION = "2e29f3d3cfc379c689b07027d0fa776b9ff79291"
@@ -308,13 +309,7 @@ def _write_manifest(
         "python_executable": python_executable,
         "dependencies_installed": dependencies_installed,
     }
-    destination = _manifest_path(root)
-    temporary = destination.with_name(f".{INSTALL_MANIFEST}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, destination)
+    write_atomic(_manifest_path(root), json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def install_ppt_master(

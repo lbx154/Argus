@@ -107,7 +107,7 @@ def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
 def test_post_call_report_failures_preserve_usage_and_block_approval(
     paper, monkeypatch, backend, failure,
 ):
-    from argus.manager import source_writeback
+    from argus.core import atomic_replace
 
     metadata = {
         "input_tokens": 100,
@@ -125,14 +125,14 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
     runner.backend = backend
     error = f"synthetic {failure} failure"
     if failure == "report_write":
-        atomic_write = source_writeback.atomic_write
+        write_atomic = atomic_replace.write_atomic
 
-        def fail_write(path, text):
+        def fail_write(path, data, **kwargs):
             if runner.calls and Path(path).name == "REVIEW.md":
                 raise OSError(error)
-            return atomic_write(path, text)
+            return write_atomic(path, data, **kwargs)
 
-        monkeypatch.setattr(source_writeback, "atomic_write", fail_write)
+        monkeypatch.setattr(atomic_replace, "write_atomic", fail_write)
     elif failure == "state_write":
         def fail_state_write(*_args, **_kwargs):
             raise OSError(error)
