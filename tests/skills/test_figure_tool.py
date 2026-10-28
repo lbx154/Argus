@@ -49,17 +49,21 @@ def test_review_cli_builds_paper_prompt_and_calls_generic_reviewer(
         return _FakeResponse()
 
     monkeypatch.setattr("argus.tools.image_api._urlopen", fake_urlopen)
-    from argus.tools.capability_vault import ModelApiGrant, save_model_api_grant
+    from argus.tools.capability_vault import ModelApiRoute, save_model_api_routes
 
     vault = tmp_path / "vault.json"
-    save_model_api_grant(
-        ModelApiGrant(
-            api_key="dummy-key",
-            base_url="https://example.invalid/openai/v1/",
-            image_model="gpt-image-2",
-            image_review_model="gpt-5.4",
-            vault_path=vault,
-        )
+    save_model_api_routes(
+        [
+            ModelApiRoute(
+                name="image", api_key="dummy-key", base_url="https://example.invalid/openai/v1/",
+                model="gpt-image-2", wire_api="images",
+            ),
+            ModelApiRoute(
+                name="image_review", api_key="dummy-key", base_url="https://example.invalid/openai/v1/",
+                model="gpt-5.4",
+            ),
+        ],
+        vault,
     )
     monkeypatch.setenv("ARGUS_SKILL_CAPABILITY_VAULT", str(vault))
 

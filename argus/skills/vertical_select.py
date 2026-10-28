@@ -570,23 +570,6 @@ def resolve_vertical(project_root: object = ".") -> str:
 # --- persistence (write side) ---------------------------------------------
 
 
-def _vertical_first_stage(vertical: str, project_root: object = None) -> str | None:
-    """Return the active vertical's first System-(B) checklist stage, if any.
-
-    Late import to avoid a module-load cycle (``_base`` ↔ ``stage_machine``).
-    ``project_root`` is threaded so a project-local DATA domain resolves to its
-    own first stage. Fail-open: any error yields ``None`` so persistence remains
-    available.
-    """
-    try:
-        from ..verticals._base import load_vertical_contract
-
-        order = load_vertical_contract(vertical, project_root=project_root).stage_order
-        return _normalize_stage(order[0]) if order else None
-    except Exception:  # noqa: BLE001 — best-effort: never break persistence
-        return None
-
-
 def persist_vertical(
     project_root: object,
     vertical: str,

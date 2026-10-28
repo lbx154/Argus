@@ -193,15 +193,6 @@ def iter_builtin_skill_texts() -> Iterable[tuple[str, str]]:
     yield from _iter_builtin_skill_resources(root)
 
 
-def iter_common_builtin_skill_texts() -> Iterable[tuple[str, str]]:
-    """Yield top-level common skills, excluding domain-pack subdirectories."""
-    root = resources.files(_BUILTIN_PACKAGE)
-    for entry in sorted(root.iterdir(), key=lambda item: item.name):
-        if entry.name.startswith(("_", ".")) or not entry.name.endswith(".md"):
-            continue
-        yield entry.name, entry.read_text(encoding="utf-8")
-
-
 def vertical_skill_source_path(vertical: str) -> Path:
     """Filesystem path of a vertical's own skills: ``verticals/<v>/skills``.
 
@@ -546,20 +537,6 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
     )
 
 
-def seed_builtin_skills_for_vertical(
-    skills_dir: Path,
-    vertical: str,
-    *,
-    overwrite: bool = False,
-) -> dict[str, bool]:
-    """Compatibility wrapper for a workflow without a domain overlay."""
-    return seed_builtin_skills_for_context(
-        skills_dir,
-        vertical,
-        overwrite=overwrite,
-    )
-
-
 def seed_builtin_skills_for_context(
     skills_dir: Path,
     vertical: str,
@@ -576,11 +553,11 @@ def seed_builtin_skills_for_context(
     stub under ``builtin_skills/``; here the real body wins), so the workspace
     never carries the pointer.
 
-    Note: this uses the FULL bundled set (``iter_builtin_skill_texts``), not
-    ``iter_common_builtin_skill_texts`` — the latter skips the ``engineer/`` and
-    ``reviewer/`` subdirectories, which is exactly where the cross-vertical
-    skills live. Files the vertical will overwrite are skipped on the builtin
-    pass so a pointer stub is never written into the workspace at all.
+    Note: this uses the FULL bundled set (``iter_builtin_skill_texts``),
+    including the ``engineer/`` and ``reviewer/`` subdirectories where the
+    cross-vertical skills live. Files the vertical will overwrite are skipped
+    on the builtin pass so a pointer stub is never written into the workspace
+    at all.
 
     Returns a map of relative filename → created/replaced (True) or skipped
     (False, an existing file left untouched because ``overwrite`` is False).
@@ -624,36 +601,18 @@ def seed_builtin_skills_for_context(
     return created
 
 
-def seed_vertical_skills(
-    skills_dir: Path,
-    vertical: str,
-    *,
-    overwrite: bool = False,
-    overwrite_unidentified: bool = False,
-) -> dict[str, bool]:
-    """Compatibility wrapper for a vertical-only runtime layer."""
-    return seed_context_skills(
-        skills_dir,
-        vertical,
-        overwrite=overwrite,
-        overwrite_unidentified=overwrite_unidentified,
-    )
-
-
 def seed_context_skills(
     skills_dir: Path,
     vertical: str,
     *,
     domain: str | None = None,
     overwrite: bool = False,
-    overwrite_unidentified: bool = False,
 ) -> dict[str, bool]:
     """Seed only the active workflow/domain context into one runtime layer."""
     skills_dir = Path(skills_dir)
     skills_dir.mkdir(parents=True, exist_ok=True)
     # Moved global paths are valid here; never retire learned vertical copies.
     retire_orphaned_builtin_seeds(skills_dir, include_moved=False)
-    _ = overwrite_unidentified  # Retained caller compatibility; edits stay owned.
     created = _seed_texts(
         skills_dir, iter_context_skill_texts(vertical, domain), overwrite=overwrite,
     )
@@ -661,25 +620,6 @@ def seed_context_skills(
         skills_dir, iter_context_skill_assets(vertical, domain), overwrite=overwrite,
     ))
     return created
-
-
-
-def remove_unmodified_vertical_skill_seeds(
-    skills_dir: Path,
-    vertical: str,
-) -> list[str]:
-    """Remove legacy project-layer factory copies without touching learned edits."""
-    root = Path(skills_dir)
-    removed: list[str] = []
-    for filename, source_text in iter_vertical_skill_texts(vertical):
-        path = root / filename
-        try:
-            if path.is_file() and path.read_text(encoding="utf-8") == source_text:
-                path.unlink()
-                removed.append(filename)
-        except OSError:
-            continue
-    return removed
 
 
 def remove_unmodified_inactive_context_skill_seeds(

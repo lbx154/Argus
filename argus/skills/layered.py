@@ -5,7 +5,7 @@ from itertools import islice
 from pathlib import Path
 
 from ..core.paths import NATIVE_SKILLS_DIR
-from .store import Skill, SkillStore, role_of_path
+from .store import Skill, SkillStore
 
 LAYER_PROJECT = "project"
 LAYER_VERTICAL = "vertical"
@@ -119,10 +119,6 @@ class LayeredSkillStore:
         if layer == LAYER_GLOBAL:
             return self.global_
         raise ValueError(f"unknown Skill layer: {layer}")
-
-    def role_for(self, skill: Skill) -> str:
-        layer = self.layer_for_skill(skill)
-        return role_of_path(skill.path, self.store_for_layer(layer).skills_dir)
 
     def list_paths(self) -> list[str]:
         paths: list[str] = []
