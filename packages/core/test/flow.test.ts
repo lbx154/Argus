@@ -207,6 +207,7 @@ test('the Planner schedules two dependent tasks and closes the ticket', async t 
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nThe Manager filed the ticket above: plan its work\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1: Parse\nParse data\.csv\nCheck: the parser tests pass$/);
   assert.equal(report?.resume, undefined);
+  assert.match(report?.prompt ?? '', /## Done before this task\n- t1 Parse\nEach is finished, and accepted by its review where it needed one\.\n\n## Task t2: Report\n/);
   assert.equal(replan?.resume, 'planner-2');
   assert.match(replan?.prompt ?? '', /^## Ticket\n[\s\S]*- t1 \[done\] Parse\n- t2 \[done, after t1\] Report\n\n## Since your last turn\nTask t1 is done: reviewer to done\n\nTask t2 is done: reviewer to done$/);
   assert.deepEqual(project.inbox, []);

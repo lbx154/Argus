@@ -37,7 +37,10 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
       && 'The Engineer has worked on the task since your last judgment. Judge the current files afresh: your earlier judgment is not a fact.';
     return join(again, note || 'Continue the task.');
   }
+  // What the task builds on is settled in Argus's record, which the workdir may not say.
+  const before = task.deps.map(id => project.tasks.find(other => other.id === id)!).map(dep => `- ${dep.id} ${dep.title}`);
   return join(rules(task.holder), project.ticket && section('Ticket', ticketText(project.ticket)),
+    before.length > 0 && section('Done before this task', `${before.join('\n')}\nEach is finished, and accepted by its review where it needed one.`),
     task.objective && section(`Task ${task.id}: ${task.title}`, task.objective), note);
 }
 
