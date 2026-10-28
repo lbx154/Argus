@@ -99,8 +99,8 @@ describe('Sidebar session identity and health', () => {
     }]);
 
     expect(markup).toContain('Update required');
-    expect(markup).not.toContain('title="Argus background is online"');
-    expect(markup).not.toContain('Background online · 2m');
+    expect(markup).not.toContain('title="The team is working"');
+    expect(markup).not.toContain('Working · 2m');
     expect(markup).not.toContain('aria-label="Resume"');
   });
 
@@ -113,8 +113,8 @@ describe('Sidebar session identity and health', () => {
       uptime_seconds: 120,
     }]);
 
-    expect(markup).toContain('title="Argus background is online"');
-    expect(markup).toContain('Background online · 2m');
+    expect(markup).toContain('title="The team is working"');
+    expect(markup).toContain('Working · 2m');
     expect(markup).toContain('Update available');
     expect(markup).not.toContain('Update required');
     expect(markup).not.toContain('aria-label="Resume"');
@@ -129,8 +129,8 @@ describe('Sidebar session identity and health', () => {
       uptime_seconds: 120,
     }]);
 
-    expect(markup).toContain('title="Background stopped"');
-    expect(markup).not.toContain('Background online · 2m');
+    expect(markup).toContain('title="Not running"');
+    expect(markup).not.toContain('Working · 2m');
     expect(markup).not.toContain('Update available');
   });
 
@@ -150,7 +150,7 @@ describe('Sidebar session identity and health', () => {
     const markup = sidebarMarkup(projects, activeWork);
     expect(markup).toContain('A question is waiting for your answer');
     expect(markup).toContain('data-session-work-state="paused"');
-    expect(markup).toContain('Background online · 2m');
+    expect(markup).toContain('Working · 2m');
     expect(markup).not.toContain('running · 2m');
     expect(markup).not.toContain('aria-label="Resume"');
     const switching = sidebarMarkup(projects, { ...activeWork, sessionId: 'remote' });
