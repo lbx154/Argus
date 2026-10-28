@@ -3,6 +3,7 @@
   "version": "0.1.8",
   "private": true,
   "type": "module",
+  "bin": { "argus": "dist/cli.js" },
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "build": "tsc -p tsconfig.json" },
   "dependencies": { "@argus/contracts": "0.1.8" }
