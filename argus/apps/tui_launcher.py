@@ -9,7 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-_PYTHON_ADMIN_COMMANDS = frozenset({"doctor", "repair", "update", "wiki", "learn", "verticals", "cost"})
+_PYTHON_ADMIN_COMMANDS = frozenset(
+    {"doctor", "repair", "update", "upgrade-state", "wiki", "learn", "verticals", "cost"}
+)
 
 _PYTHON_ADMIN_FLAGS = frozenset(
     {

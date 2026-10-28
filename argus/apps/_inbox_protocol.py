@@ -49,7 +49,7 @@ class InboxProtocolError(InboxError):
 
 
 class InboxMigrationRequired(InboxProtocolError):
-    """A nonempty legacy queue needs explicit stopped-writer migration."""
+    """A nonempty legacy queue needs ``argus upgrade-state`` with its writers stopped."""
 
 
 class InboxPartialLine(InboxProtocolError):
@@ -330,10 +330,10 @@ def _activate_locked(root: Path, folder: Path, *, migrate: bool) -> None:
         finally:
             db.close()
         if not migrate:
-            raise InboxMigrationRequired("inbox activation was interrupted; stopped-writer recovery required")
+            raise InboxMigrationRequired("inbox activation was interrupted; stop the daemon and run `argus upgrade-state`")
     paths = _legacy_files(root)
     if not migrate and any(path.is_dir() for path in paths.values()):
-        raise InboxMigrationRequired("inbox activation was interrupted; explicit recovery required")
+        raise InboxMigrationRequired("inbox activation was interrupted; stop the daemon and run `argus upgrade-state`")
     # A prior interrupted activation has private copies, still bounded by the
     # same limits. Reimport happens in one SQLite transaction, never per file.
     archives = {}
@@ -357,7 +357,7 @@ def _activate_locked(root: Path, folder: Path, *, migrate: bool) -> None:
             raise InboxPressure("legacy inbox exceeds migration byte bound")
         raw = original.read_bytes()
         if raw and not migrate:
-            raise InboxMigrationRequired("nonempty legacy inbox requires writers_stopped=True migration")
+            raise InboxMigrationRequired("this inbox predates 0.1.7; stop the daemon and run `argus upgrade-state`")
         if raw and not raw.endswith(b"\n"):
             raise InboxPartialLine("complete the legacy partial line before stopped-writer migration")
         offset_file = _offset_path(root, stage)
@@ -715,7 +715,7 @@ def claim_inbox_message(
     root = Path(life_dir)
     if not _database_exists(root):
         if _legacy_status(root):
-            raise InboxMigrationRequired("legacy input requires explicit stopped-writer migration")
+            raise InboxMigrationRequired("this inbox predates 0.1.7; stop the daemon and run `argus upgrade-state`")
         return None
     stage = _stage(current_stage)
     if not consumer or len(consumer) > 80 or len(mission_id) > 512:

@@ -757,6 +757,24 @@ could not be proven`, stop the old `--web` backend (its PID is recorded in
 `~/.argus-skill/runtime/webapi-<host>-<port>.owner.json`; `kill <pid>`) or
 start the cockpit on another port.
 
+## Upgrading project state from 0.1.x
+
+The runtime reads only the current on-disk formats. A project written by a
+tagged release from v0.1.1 on can still hold one of three older ones: a project
+directory named by a 12-character hash (every release up to 0.1.9), an operator
+inbox kept as `inbox.jsonl` files (0.1.1 to 0.1.6), or failure experiences kept
+as an append log (0.1.1 to 0.1.6). Convert them once, with the daemons stopped:
+
+```bash
+argus upgrade-state --dry-run   # list what would change
+argus upgrade-state
+```
+
+A project whose daemon is still running is skipped and listed; stop it and run
+the command again. A hash-named directory is matched to its project through the
+workdir it recorded; when it recorded none, name the project directory with
+`--workdir <path>`. Formats written only before v0.1.1 are no longer read.
+
 ## Uninstall
 
 ```powershell

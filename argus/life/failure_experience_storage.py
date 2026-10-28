@@ -1,4 +1,4 @@
-"""Bounded canonical experience snapshots and streaming legacy migration.
+"""Bounded canonical experience snapshots.
 
 One atomic replacement commits current records, retained history and the
 admission watermark together. SQLite is a disposable projection of this file.
@@ -43,7 +43,6 @@ class ExperienceSnapshot:
     history: list[FailureExperience] = field(default_factory=list)
     admission_floor: float = 0.0
     generation: int = 0
-    legacy: bool = False
 
 
 def active(item: FailureExperience, *, now: float) -> bool:
@@ -116,7 +115,7 @@ class ExperienceRepository:
                     "experience identity does not match its original creation timestamp"
                 )
 
-    def load(self, *, full_legacy: bool = False, max_bytes: int = 1_000_000) -> ExperienceSnapshot:
+    def load(self) -> ExperienceSnapshot:
         from .failure_experience import FailureExperience
 
         self._guard_paths()
@@ -146,9 +145,13 @@ class ExperienceRepository:
                 and header.get("record_type") != "snapshot"
             ):
                 raise ValueError("experience snapshot header is corrupt")
+            if not first.strip():
+                return ExperienceSnapshot()
             if not isinstance(header, dict) or header.get("record_type") != "snapshot":
-                handle.seek(0)
-                return self._legacy(handle, full=full_legacy, max_bytes=max_bytes)
+                # The append log of v0.1.6 and earlier; ``argus upgrade-state`` converts it.
+                raise ValueError(
+                    "failure experiences predate snapshots; run `argus upgrade-state`"
+                )
             if header.get("schema_version") != _SCHEMA_VERSION:
                 raise ValueError("unsupported experience snapshot version")
             body = handle.read(_MAX_SOURCE_BYTES + 1)
@@ -179,64 +182,6 @@ class ExperienceRepository:
             ):
                 raise ValueError("experience snapshot record count mismatch")
             return snapshot
-
-    def _legacy(self, handle: Any, *, full: bool, max_bytes: int) -> ExperienceSnapshot:
-        from .failure_experience import FailureAnnotation, FailureExperience
-
-        snapshot = ExperienceSnapshot(legacy=True)
-        if not full:
-            size = handle.seek(0, os.SEEK_END)
-            start = max(0, size - max(0, max_bytes))
-            handle.seek(start)
-            if start:
-                handle.readline(_MAX_RECORD_BYTES + 1)
-        while True:
-            offset = handle.tell()
-            raw = handle.readline(_MAX_RECORD_BYTES + 1)
-            if not raw:
-                break
-            if len(raw) > _MAX_RECORD_BYTES:
-                while raw and not raw.endswith(b"\n"):
-                    raw = handle.readline(_MAX_RECORD_BYTES + 1)
-                continue
-            try:
-                row = json.loads(raw)
-                if not isinstance(row, dict):
-                    continue
-                if row.get("record_type") == "annotation":
-                    previous = snapshot.current.get(str(row.get("experience_id") or ""))
-                    payload = row.get("annotation")
-                    if previous is not None and isinstance(payload, dict):
-                        annotation = FailureAnnotation(
-                            id=str(payload.get("id") or f"legacy-{offset}"),
-                            created_at=float(payload.get("created_at") or previous.created_at),
-                            text=str(payload.get("text") or "")[:4000],
-                            relation=str(payload.get("relation") or "")[:200],
-                            evidence_refs=[
-                                str(ref)[:800] for ref in (payload.get("evidence_refs") or [])[:24]
-                            ],
-                        )
-                        snapshot.current[previous.id] = replace(
-                            previous, annotations=(previous.annotations + [annotation])[-24:]
-                        )
-                    continue
-                if row.get("record_type") not in {None, "experience"}:
-                    continue
-                # Missing old identities take their line's place in the stream.
-                row.setdefault("id", f"legacy-{offset}")
-                item = FailureExperience.from_jsonable(row)
-                self.validate(item)
-                previous = snapshot.current.get(item.id)
-                if previous is None and item.created_at <= snapshot.admission_floor:
-                    continue
-                if previous is None or item.revision >= previous.revision:
-                    snapshot.current[item.id] = item
-            except (TypeError, ValueError, UnicodeError, AttributeError):
-                continue
-            # Migration reads the original stream once, keeping bounded state.
-            if len(snapshot.current) > self.max_active * 2:
-                self.trim(snapshot, now=0)
-        return snapshot
 
     def trim(
         self, snapshot: ExperienceSnapshot, *, now: float, protected: set[str] | None = None
@@ -354,4 +299,3 @@ class ExperienceRepository:
         finally:
             Path(temporary).unlink(missing_ok=True)
         snapshot.generation += 1
-        snapshot.legacy = False

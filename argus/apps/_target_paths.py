@@ -1,22 +1,16 @@
 """Shared CLI target-path normalization helpers."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from ..core import paths as core_paths
 from ..core.project import is_state_directory_name
 
-# 迁移专用，下个版本删除: the names project directories had before they were escaped paths.
-_LEGACY_NAME_RE = re.compile(r"^[0-9a-f]{12}$")
-
 
 def looks_like_project_life_dir(path: Path) -> bool:
     """Return True when ``path`` already points at ``.../projects/<state directory>``."""
     path = core_paths.resolve_runtime_path(path, context="--life-dir")
-    return path.parent.name == "projects" and (
-        is_state_directory_name(path.name) or bool(_LEGACY_NAME_RE.fullmatch(path.name))
-    )
+    return path.parent.name == "projects" and is_state_directory_name(path.name)
 
 
 def resolve_life_root(life_dir: str | Path | None) -> Path:

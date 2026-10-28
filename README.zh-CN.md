@@ -669,6 +669,20 @@ uv tool install --force --python 3.12 \
 `incompatible Argus API at <host>:<port>: ... — ownership could not be proven`,请停掉旧的 `--web` 后端
 (PID 记在 `~/.argus-skill/runtime/webapi-<host>-<port>.owner.json` 里,`kill <pid>`),或换一个端口启动驾驭舱。
 
+## 升级 0.1.x 的项目状态
+
+运行时只读当前的磁盘格式。v0.1.1 及以后的正式版本写出的项目,可能还留着三种旧格式之一:以 12 位哈希命名的
+项目目录(0.1.9 及以前的所有版本)、存成 `inbox.jsonl` 文件的操作员收件箱(0.1.1 到 0.1.6)、存成追加日志的
+失败经验(0.1.1 到 0.1.6)。停掉守护进程后转换一次:
+
+```bash
+argus upgrade-state --dry-run   # 只列出会改什么
+argus upgrade-state
+```
+
+守护进程还在跑的项目会被跳过并列出来;停掉后再运行一次。哈希命名的目录靠它记录过的工作目录找到对应项目;
+没有记录的,用 `--workdir <路径>` 指明项目目录。只在 v0.1.1 之前写过的格式不再读取。
+
 ## 卸载
 
 ```powershell

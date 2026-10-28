@@ -1783,7 +1783,8 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     "manager_session_root": 22,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
-    "session_states_root": 20,
+    # apps/state_upgrade walks every project directory once (+1).
+    "session_states_root": 21,
     "session_state_root": 25,
 }
 

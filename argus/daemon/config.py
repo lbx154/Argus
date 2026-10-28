@@ -97,13 +97,6 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
 
 def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
     from ..core.knobs import resolve_role_model
-    from ..core.project import resolve_legacy_project_state
-
-    # 迁移专用，下个版本删除: a config saved before a project's state directory
-    # was renamed still names the old one.
-    recorded_life_dir = Path(str(data["life_dir"])).expanduser()
-    life_dir = resolve_legacy_project_state(recorded_life_dir)
-    fingerprint = str(data.get("project_fingerprint") or "")
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
     project_workdir = str(data.get("project_workdir") or "")
@@ -130,10 +123,10 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
             return default
 
     return LifeWorkerConfig(
-        life_dir=life_dir,
+        life_dir=Path(str(data["life_dir"])).expanduser(),
         global_root=Path(global_root).expanduser() if global_root else None,
         project_workdir=Path(project_workdir).expanduser() if project_workdir else None,
-        project_fingerprint=life_dir.name if fingerprint == recorded_life_dir.name else fingerprint,
+        project_fingerprint=str(data.get("project_fingerprint") or ""),
         project_label=str(data.get("project_label") or ""),
         backend=backend,
         engineer_model=_model(

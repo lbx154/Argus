@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus.life import (
@@ -47,29 +46,3 @@ def test_facets_are_advisory_and_context_denies_hard_blocking(
     assert "not rules" in rendered
     assert "does not prove impossibility" in rendered
     assert "block a changed approach" in rendered
-
-
-def test_reads_are_byte_bounded_and_corrupt_rows_fail_soft(tmp_path: Path) -> None:
-    path = tmp_path / "failure_experiences.jsonl"
-    old = _experience("Old", objective="old")
-    recent = _experience("Recent", objective="recent")
-    path.write_text(
-        json.dumps({"record_type": "experience", **old.to_jsonable()})
-        + "\n"
-        + (" " * 4096)
-        + "\nnot-json\n"
-        + json.dumps({
-            "record_type": "experience",
-            "created_at": "not-a-number",
-            "title": "Malformed",
-        })
-        + "\n"
-        + json.dumps({"record_type": "experience", **recent.to_jsonable()})
-        + "\n",
-        encoding="utf-8",
-    )
-    store = FailureExperienceStore(path)
-
-    loaded = store.recent(max_bytes=2_048)
-
-    assert [item.title for item in loaded] == ["Recent"]

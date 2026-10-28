@@ -488,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
         except (FileNotFoundError, PermissionError, RuntimeError, ValueError) as exc:
             sys.stderr.write(f"argus: repair refused: {exc}\n")
             return 3
+    if args.command == "upgrade-state":
+        return _run_with_path_resolution_errors(lambda: _cmd_upgrade_state(args))
     if getattr(args, "update", False) or args.command == "update":
         from ..update import run_update
 
@@ -918,6 +920,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                 f"{repair_payload['status']}\n"
             )
     return 0 if report.ok and agent_ok else 3
+
+
+def _cmd_upgrade_state(args: argparse.Namespace) -> int:
+    from ..state_upgrade import upgrade_state
+
+    global_root = resolve_life_root(getattr(args, "life_dir", None))
+    steps = upgrade_state(global_root, workdirs=args.workdir, dry_run=args.dry_run)
+    for step in steps:
+        mark = "ok" if step.done else ("--" if args.dry_run else "!!")
+        sys.stdout.write(f"{mark} {step.project}: {step.change}{': ' + step.note if step.note else ''}\n")
+    if not steps:
+        sys.stdout.write(f"argus: project state under {global_root} is current\n")
+    return 0 if args.dry_run or all(step.done for step in steps) else 1
 
 
 def _cmd_repair(args: argparse.Namespace) -> int:
