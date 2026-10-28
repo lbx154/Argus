@@ -61,9 +61,9 @@ def _row_time(row: dict[str, Any]) -> float:
 def _interrupted(row: dict[str, Any]) -> bool:
     # A call Argus itself stopped (operator cancel, shutdown) says nothing
     # about whether the model works.
-    from ..core.usage import _is_argus_interrupt
+    from ..core.usage import is_argus_interrupt
 
-    return _is_argus_interrupt(row.get("error"))
+    return is_argus_interrupt(row.get("error"))
 
 
 def _short_reason(error: str) -> str:
@@ -100,10 +100,10 @@ def _call_stats(global_root: Path, now: float) -> dict[str, dict[str, Any]]:
     return stats
 
 
-def _project_tasks(project_dir: Path) -> list[list[dict[str, Any]]]:
+def _project_tasks(life_dir: Path) -> list[list[dict[str, Any]]]:
     """This project's latest tasks that recorded token counts, each as its calls."""
     tasks: dict[str, list[dict[str, Any]]] = {}
-    for row in _tail_rows(project_dir / "usage.jsonl", _PROJECT_TAIL_BYTES):
+    for row in _tail_rows(life_dir / "usage.jsonl", _PROJECT_TAIL_BYTES):
         mission = str(row.get("mission_id") or "").strip()
         if not mission or row.get("input_tokens") is None or row.get("output_tokens") is None:
             continue
@@ -139,7 +139,7 @@ def _task_estimate(model: str, tasks: list[list[dict[str, Any]]]) -> float | Non
 
 
 def model_choices(
-    project_dir: Path | str,
+    life_dir: Path | str,
     *,
     global_root: Path | str | None = None,
     now: float | None = None,
@@ -150,7 +150,7 @@ def model_choices(
     backend = mission_items._active_backend()[0]
     per_request = backend == "copilot"
     stats = _call_stats(root, current)
-    tasks = [] if per_request else _project_tasks(Path(project_dir))
+    tasks = [] if per_request else _project_tasks(Path(life_dir))
     options = mission_items.model_options(root)
     if backend != "pi" and any(option.get("source") == "configured" for option in options):
         # The harness catalog is Pi's list. Once the operator has named what
@@ -188,7 +188,7 @@ def model_choices(
 
 def probe_model(
     model: str,
-    project_dir: Path | str,
+    life_dir: Path | str,
     *,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -222,7 +222,7 @@ def probe_model(
             default_watchdog_hard_idle_seconds=90,
         )
         runner.set_usage_context(
-            project_root=Path(project_dir),
+            project_root=Path(life_dir),
             global_root=project_state.resolve_global_root(global_root),
         )
         with tempfile.TemporaryDirectory(prefix="argus-model-probe-") as workdir:

@@ -11,7 +11,6 @@ from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
-    parse_continue_work_request,
 )
 from argus.reviewer import Reviewer, ReviewerConfig
 from tests.hand_off import hand_off
@@ -28,13 +27,6 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
         engineer_config=EngineerConfig(model="m"),
         reviewer_config=ReviewerConfig(model="m"),
     )
-
-
-def test_legacy_continue_work_parser_remains_compatible() -> None:
-    assert parse_continue_work_request(
-        "Changed the parser.\nCONTINUE_WORK: wire it into the runner"
-    ) == "wire it into the runner"
-    assert parse_continue_work_request("CONTINUE_WORK: wire it in") is None
 
 
 def test_a_question_nobody_may_be_asked_is_refused_to_the_engineer() -> None:

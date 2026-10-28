@@ -41,8 +41,6 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "--install-ppt-master",
         "--ppt-master-status",
         "--export-builtin-skills",
-        "--evidence-chain-check",
-        "--anti-mediocrity-check",
         "--lifecycle-status",
         "--lifecycle-resume",
         "--lifecycle-archive",
@@ -67,8 +65,6 @@ _PYTHON_PRE_ACTION_VALUE_OPTIONS = frozenset(
         "--trial-url",
         "--skills-dir",
         "--project-root",
-        "--proposed-condition",
-        "--baseline-condition",
     }
 )
 

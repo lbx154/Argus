@@ -16,10 +16,7 @@ from argus.core.secret_guard import (
     redact_secrets_text_with_count,
     scrub_recent_text_artifacts,
 )
-from argus.engineer.runner import (
-    _apply_round_secret_guard,
-    parse_continue_work_request,
-)
+from argus.engineer.runner import _apply_round_secret_guard
 from argus.life.event_log import JsonlEventSink
 
 # Masking is off by default (ARGUS_SKILL_REDACT_SECRETS); this module tests the
@@ -151,7 +148,7 @@ def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
     assert report.scanned_files == 1
 
 
-def test_round_guard_keeps_engineer_control_sentinels_pristine(
+def test_round_guard_tells_the_reviewer_about_a_redaction(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "response.headers").write_text(
@@ -165,10 +162,7 @@ def test_round_guard_keeps_engineer_control_sentinels_pristine(
         round_max=10,
         on_event=None,
     )
-    continue_message = "work completed\nCONTINUE_WORK: rebuild the hash chain"
-
     assert reviewer_note
-    assert parse_continue_work_request(continue_message) == "rebuild the hash chain"
 
 
 def test_jsonl_event_sink_redacts_downstream_and_disk(

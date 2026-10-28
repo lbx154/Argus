@@ -45,12 +45,6 @@ commit the result; otherwise `argus --web` from a source checkout keeps serving
 the previous interface. `argus doctor` reports `ARGUS-ASSET-002` when a bundle
 was committed before the newest change to its source.
 
-The `npm run build` scripts of both frontends run Python through
-`frontend/scripts/python.mjs`, which uses `ARGUS_PYTHON` when set, then the
-checkout's `.venv`, then `python3`/`python`, keeping only an interpreter that
-can import the module about to run. Set `ARGUS_PYTHON` when the project
-environment lives elsewhere.
-
 ## Archived work
 
 The September 14, 2026 cleanup preserved unmerged remote branch tips under

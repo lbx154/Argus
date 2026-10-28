@@ -2,7 +2,6 @@
 import json
 
 import pytest
-from test_training_data import training as training
 
 from argus.trial.analytics import Analytics, AnalyticsError
 from argus.trial.journey_journal import Journal
@@ -66,29 +65,3 @@ def test_explicit_global_root_preserves_path_and_operator_index_boundaries(tmp_p
     analytics.record_consent("trial-11", analytics.notice_version)
     with pytest.raises(AnalyticsError, match="unsafe_path"):
         analytics.projects("trial-11")
-
-
-def test_session_recovery_uses_explicit_native_root_without_rearranging_files(training, tmp_path):
-    from test_training_recovery import SESSION, iso, legacy, native
-
-    from argus.trial.training_recovery import recover_episode
-
-    data, _, now = training
-    episode = legacy(training)
-    decoy = native(training, [{"role": "user", "content": "Default-layout decoy."}])
-    root = tmp_path / "original-native/state"
-    directory = root / "pi-sessions"
-    directory.mkdir(parents=True)
-    source = directory / f"actual_{SESSION}.jsonl"
-    source.write_text("\n".join(json.dumps(row) for row in [
-        {"type": "session", "id": SESSION, "timestamp": iso(now[0])},
-        {"type": "message", "id": "native-real", "timestamp": iso(now[0] + 1),
-         "message": {"role": "user", "content": "Original native input."}},
-    ]) + "\n")
-    data.analytics.tenants["tenant-one"]["global_root"] = root
-    now[0] += 10
-    assert recover_episode(data, episode)["status"] == "recovered"
-    with data.analytics._db() as db:
-        events = data.capture.events(db, episode)
-    assert events[0]["payload"]["messages"][0]["content"] == "Original native input."
-    assert decoy.is_file() and source.is_file() and not source.is_symlink()
