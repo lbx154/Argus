@@ -182,7 +182,7 @@ sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place o
 
 ## The desktop app
 
-The desktop app (`desktop-tauri/`, Tauri) carries the package as a resource directory `argus/`
+The desktop app (`desktop-tauri/`, Tauri) carries the package as a resource directory `argus-core/`
 in the package's layout (`dist/argus.mjs` beside `prompts/`, `ways/` and `web/`) and runs it with
 the Node.js on the machine: `node argus.mjs --port P --backend B`, the backend being the CLI the
 operator chose. Every backend Argus drives is an npm package, so its users have Node; the app

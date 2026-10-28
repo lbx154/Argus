@@ -36,13 +36,13 @@ Argus.exe / Argus.app (Tauri/Rust)
   ├─ 本地 launcher / settings / update shell
   ├─ 隔离 iframe：带令牌的 127.0.0.1 Web cockpit
   ├─ 托盘、菜单、通知和诊断
-  └─ node <resources>/argus/dist/argus.mjs --port P --backend B
+  └─ node <resources>/argus-core/dist/argus.mjs --port P --backend B
        └─ Argus：Web API、项目的工作、它带的 web/ cockpit
 ```
 
 桌面端启动 Argus 的流程（`desktop-tauri/src-tauri/src/backend.rs`）：
 
-1. 设置已完成，所选 CLI 仍在磁盘上；随包的 `argus/dist/argus.mjs` 存在。
+1. 设置已完成，所选 CLI 仍在磁盘上；随包的 `argus-core/dist/argus.mjs` 存在。
 2. 找 Node：先看所选 CLI 的目录（nvm、Volta、Homebrew 把 npm 装的 CLI 放在 Node 旁边），
    再看 PATH，再看常见安装目录（`Program Files\nodejs`、nvm-windows、Volta、scoop、
    `/opt/homebrew/bin`、`/usr/local/bin`、`~/.volta/bin`、`~/.nvm/versions/node/*/bin`），
@@ -226,7 +226,7 @@ npm --prefix desktop-tauri run test:rust
 ```
 
 CI：`.github/workflows/desktop.yml` 在 Windows、macOS（arm64、x86_64）和 Linux 上构建
-未签名安装包、跑以上测试，并检查安装包里带着 `argus/dist/argus.mjs` 与 `argus/web/`。
+未签名安装包、跑以上测试，并检查安装包里带着 `argus-core/dist/argus.mjs` 与 `argus-core/web/`。
 
 构建 Tauri NSIS 包时，使用**新的源码工作区与输出目录**，不要在含有旧构建的目录中依赖
 自动清理。构建先生成随包的 Argus（`packages/core` 的 `npm run prepack`：TypeScript 构建、

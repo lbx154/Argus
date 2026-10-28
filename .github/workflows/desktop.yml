@@ -97,12 +97,12 @@ jobs:
         run: |
           bundle=desktop-tauri/src-tauri/target/release/bundle
           case "$RUNNER_OS" in
-            macOS) test -f "$(ls -d $bundle/macos/*.app)/Contents/Resources/argus/dist/argus.mjs"
-                   test -f "$(ls -d $bundle/macos/*.app)/Contents/Resources/argus/web/index.html" ;;
-            Linux) dpkg-deb -c $bundle/deb/*.deb | grep -q 'argus/dist/argus.mjs$'
-                   dpkg-deb -c $bundle/deb/*.deb | grep -q 'argus/web/index.html$' ;;
-            Windows) 7z l "$(ls $bundle/nsis/*.exe)" | grep -q 'argus.dist.argus\.mjs' ;;
+            macOS) contents=$(cd $bundle/macos/*.app/Contents/Resources && find argus-core) ;;
+            Linux) contents=$(dpkg-deb -c $bundle/deb/*.deb) ;;
+            Windows) contents=$(7z l $bundle/nsis/*.exe | tr '\\' / | tr -d '\r') ;;
           esac
+          grep -q 'argus-core/dist/argus\.mjs$' <<<"$contents"
+          grep -q 'argus-core/web/index\.html$' <<<"$contents"
       - uses: actions/upload-artifact@v4
         with:
           name: argus-desktop-${{ matrix.platform }}

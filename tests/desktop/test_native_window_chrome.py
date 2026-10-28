@@ -176,7 +176,7 @@ def test_compatible_desktop_uses_product_attribution_not_argus_status_labels() -
     main = (source / "lib.rs").read_text(encoding="utf-8")
     assert "application_name(&app).to_owned()," in main
     assert "argus:open-delivery" in main
-    assert 'resources.join("argus")' in (source / "release.rs").read_text(encoding="utf-8")
+    assert 'resources.join("argus-core")' in (source / "release.rs").read_text(encoding="utf-8")
 
 
 def test_update_checks_leave_startup_idle_and_retry_transient_failures() -> None:

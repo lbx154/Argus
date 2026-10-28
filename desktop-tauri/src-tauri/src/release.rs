@@ -2,8 +2,9 @@ use crate::models::{BackendStatus, DesktopReleaseIdentity, DesktopRuntimeIdentit
 use std::{path::PathBuf, sync::OnceLock};
 
 // The Argus this desktop ships: the npm package packages/core, carried as a
-// resource directory `argus/` with its layout (dist/argus.mjs beside prompts/,
-// ways/ and web/). Its version is part of the executable.
+// resource directory `argus-core/` with its layout (dist/argus.mjs beside
+// prompts/, ways/ and web/). Not `argus/`: on a case-insensitive file system
+// that is the `Argus` executable beside it. Its version is part of the executable.
 const CORE_PACKAGE: &str = include_str!("../../../packages/core/package.json");
 
 #[derive(Clone)]
@@ -26,7 +27,7 @@ impl ReleaseContext {
     /// The program Node runs. Tauri copies the resources beside the
     /// executable in development builds too, so both use the same path.
     pub fn argus_script(&self) -> Option<PathBuf> {
-        self.resource_dir.as_ref().map(|resources| resources.join("argus").join("dist").join("argus.mjs"))
+        self.resource_dir.as_ref().map(|resources| resources.join("argus-core").join("dist").join("argus.mjs"))
     }
 
     pub fn identity(&self) -> DesktopReleaseIdentity {
@@ -85,7 +86,7 @@ mod tests {
             development: false, app_version: "42.0.0".into(), resource_dir: Some(directory.path().to_path_buf()),
         };
         assert!(context.validate_payload().unwrap_err().contains("缺失"));
-        let script = directory.path().join("argus/dist/argus.mjs");
+        let script = directory.path().join("argus-core/dist/argus.mjs");
         std::fs::create_dir_all(script.parent().unwrap()).unwrap();
         std::fs::write(&script, b"// argus").unwrap();
         assert_eq!(context.validate_payload().unwrap(), script);

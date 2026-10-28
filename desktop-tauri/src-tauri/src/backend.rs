@@ -174,7 +174,9 @@ impl BackendSupervisor {
             runtime.pid.take()
         };
         if let Some(pid) = pid {
-            terminate_process_tree(pid).await;
+            if !terminate_process_tree(pid).await {
+                self.logger.error(format!("the local backend (pid {pid}) was still running after it was stopped"));
+            }
         }
         self.set_status(BackendState::Stopped, "已停止", None);
     }
@@ -411,7 +413,7 @@ mod tests {
     /// resources beside a development executable: the package's layout.
     fn shipped_argus() -> PathBuf {
         let target = env::current_exe().unwrap().parent().and_then(Path::parent).unwrap().to_path_buf();
-        target.join("argus").join("dist").join("argus.mjs")
+        target.join("argus-core").join("dist").join("argus.mjs")
     }
 
     #[tokio::test]
@@ -439,9 +441,11 @@ mod tests {
         assert!(page.status().is_success(), "the web cockpit is beside it");
         // As the supervisor does: the child is reaped while it is stopped.
         let exited = tokio::spawn(async move { child.wait().await.unwrap() });
-        assert!(terminate_process_tree(meta.runtime.pid).await);
+        let stopped = terminate_process_tree(meta.runtime.pid).await;
+        let exit = timeout(Duration::from_secs(10), exited).await;
+        assert!(stopped, "stop timed out; the child: {exit:?}; alive: {}", crate::process::is_process_alive(meta.runtime.pid));
         if cfg!(unix) {
-            assert!(exited.await.unwrap().success(), "SIGTERM is a clean stop");
+            assert!(exit.unwrap().unwrap().success(), "SIGTERM is a clean stop");
             assert!(!home.path().join("owner.json").exists(), "and gives the state root back");
         }
     }
