@@ -30,6 +30,7 @@ from .state import (
     _daemon_status_payload,
     _new_boot_id,
     _point_active_daemon_log,
+    _truthy_env,
 )
 
 log = logging.getLogger(__name__)
@@ -73,15 +74,6 @@ def _record_handoff_alert(config: LifeWorkerConfig, text: str, *, reason: str) -
     except Exception:  # noqa: BLE001 - the log line below still records it
         log.exception("daemon handoff: could not record the operator alert")
     log.error("daemon handoff: %s", text)
-
-def _truthy_env(name: str, default: str = "1") -> bool:
-    return os.environ.get(name, default).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
 
 def _strip_git_config_injection(env: MutableMapping[str, str]) -> list[str]:
     """Remove the ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_*`` /

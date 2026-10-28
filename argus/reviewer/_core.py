@@ -651,22 +651,6 @@ def _changed_during_review(snapshots: WorkspaceSnapshots | None) -> list[str]:
     return [change.path for change in snapshots.changes("candidate", "reviewed") or []]
 
 
-def _load_wiki_curator_skill_if_present(
-    working_dir: str | Path | None = None,
-) -> str | None:
-    """Compatibility wrapper for the prompt-module helper."""
-    from ..roles.prompts.reviewer import _load_wiki_curator_skill_if_present
-
-    return _load_wiki_curator_skill_if_present(working_dir)
-
-
-def _verification_directive() -> str:
-    """Compatibility wrapper for the prompt-module helper."""
-    from ..roles.prompts.reviewer import _verification_directive
-
-    return _verification_directive()
-
-
 def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     """What the Reviewer's "impossible here" quotes and acceptances must match.
 

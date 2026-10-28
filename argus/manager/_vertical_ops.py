@@ -44,16 +44,6 @@ def _software_grounding_required(workflow_mode: str) -> bool:
 
 
 _CURRENT_OPERATOR_MARKER = "[CURRENT OPERATOR MESSAGE]"
-_ROUTING_PROJECT_MARKERS = frozenset({
-    ".git",
-    "AGENTS.md",
-    "Cargo.toml",
-    "CMakeLists.txt",
-    "go.mod",
-    "package.json",
-    "pyproject.toml",
-    "requirements.txt",
-})
 
 
 class _VerticalDecisionMixin:
