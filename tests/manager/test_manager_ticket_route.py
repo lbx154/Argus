@@ -91,3 +91,42 @@ def test_a_nudge_is_a_turn_of_the_manager_session(tmp_path, monkeypatch):
                         lambda sid, text, **kw: sent.append((sid, text, kw["source_channel"])) or {"kind": "chat"})
     assert mission_items.enqueue_nudge("s-1", " 先做图表 ") == {"kind": "chat"}
     assert sent == [("s-1", "先做图表", "web")]
+
+
+def test_a_new_operator_request_chooses_its_own_route_contract_over_the_campaign_it_replaces(tmp_path, monkeypatch):
+    """Trial s-dacac579: "写一篇ai论文" fixed exploratory; the later CVPR request could not raise it.
+
+    A staged ticket replaces the running campaign's objective (``dispatch.enqueue_mission``),
+    so it picks its target level as a fresh project would. Only a direct bounded
+    ticket joins the campaign and keeps its contract.
+    """
+    from argus.daemon.state import compare_and_swap_continuous_config, read_continuous_state
+    from argus.life.memory import LifeMemory
+    from argus.manager import front_door
+    from tests.hand_off import manager_runner
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    persist_vertical(tmp_path, "research", workflow_mode="staged", research_target_level="exploratory",
+                     research_direction_mode="broad")
+    assert compare_and_swap_continuous_config(
+        tmp_path, expected=read_continuous_state(tmp_path), enabled=True,
+        objective="撰写一篇中文人工智能文献综述。", open_ended=True,
+    )
+    request = "写一篇cvpr水平的，质量要高，到时候给我pdf"
+
+    def handed(**fields):
+        return "hand_off", _team(goal="以CVPR水平开展计算机视觉研究并交付PDF", vertical="research",
+                                 research_target_level="publishable", research_direction_mode="broad",
+                                 target_venue="CVPR", lifetime="bounded", **fields)
+
+    mem = SimpleNamespace(project_root=tmp_path, backlog=LifeMemory.open(tmp_path).backlog)
+    staged = manager_runner(Manager(project_root=tmp_path, runner=_Runner()), hand=handed(workflow_mode="staged"))
+    reply, handoff = front_door.manager_turn(mem, request, {}, runner=staged)
+    assert handoff is not None, reply
+    assert (handoff.value.research_target_level, handoff.value.target_venue) == ("publishable", "CVPR")
+
+    direct = manager_runner(Manager(project_root=tmp_path, runner=_Runner()), hand=handed(workflow_mode="direct"))
+    chat_state: dict = {}
+    _reply, handoff = front_door.manager_turn(mem, request, chat_state, runner=direct)
+    assert handoff is None
+    assert "the active route contract fixes it" in chat_state["_self_failure"]["detail"]

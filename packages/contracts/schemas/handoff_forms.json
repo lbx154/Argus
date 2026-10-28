@@ -207,7 +207,7 @@
         },
         "control": {
           "type": "object", "additionalProperties": false, "required": ["kind", "quote"],
-          "description": "Only for an explicit command: pause stops the campaign; abort ends the current mission; steer gives the running mission a new direction, priority, method or constraint, in directive. quote: the operator's own words giving the command, verbatim.",
+          "description": "Only for an explicit command: pause stops the campaign; abort ends the current mission; steer gives the running mission a new direction, priority, method or constraint, in directive; with no mission running, a new or changed goal is a to=team ticket instead. quote: the operator's own words giving the command, verbatim.",
           "properties": {
             "kind": {"enum": ["pause", "abort", "steer"]},
             "directive": {"type": "string", "minLength": 1},
