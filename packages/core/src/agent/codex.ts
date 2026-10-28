@@ -1,21 +1,20 @@
-// `codex exec --json`: the prompt on stdin, the hand-off tool over HTTP MCP, usage from the
-// session's rollout files.
+// `codex exec --json`: the prompt on stdin, the final answer held to the form's schema (in the
+// strict shape OpenAI's structured outputs take), usage from the session's rollout files.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { isJsonObject } from '@argus/contracts';
+import { isJsonObject, type PayloadSchema } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import type { Usage } from '../types.js';
 import type { StartBackend } from './call.js';
-import { SERVER } from './handoff.js';
 import { privatePath } from './sandbox.js';
 
-const TOKEN = 'ARGUS_ACTION_TOKEN';
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
-export const codex: StartBackend = (request, endpoint, { confined, started }) => {
-  const server = `mcp_servers.${SERVER}`;
+export const codex: StartBackend = (request, { confined, started, schema, stem }) => {
+  const schemaFile = `${stem}.schema.json`;
+  writeFileSync(schemaFile, JSON.stringify(strict(schema)));
   const args = [
     'exec', ...request.resume ? ['resume'] : [], '--json', '--skip-git-repo-check',
     // An inherited desktop notify hook would hold every turn; a background terminal waits as long as its turn.
@@ -28,9 +27,7 @@ export const codex: StartBackend = (request, endpoint, { confined, started }) =>
       : ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true',
         '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(request.writeDirs ?? [])}`],
     ...request.access === 'none' ? ['-c', 'features.shell_tool=false'] : [],
-    '-c', `${server}.url=${JSON.stringify(endpoint.url)}`, '-c', `${server}.bearer_token_env_var="${TOKEN}"`,
-    // Codex asks before an MCP call, and a call with no one to ask is refused.
-    '-c', `${server}.default_tools_approval_mode="approve"`,
+    '--output-schema', schemaFile,
     ...request.resume ? [request.resume] : [], '-',
   ];
   let threadId = request.resume ?? null;
@@ -39,7 +36,7 @@ export const codex: StartBackend = (request, endpoint, { confined, started }) =>
   let error: string | null = null;
   let text = '';
   return {
-    args, env: { [TOKEN]: endpoint.token },
+    args,
     consume(event) {
       if (event.type === 'thread.started' && typeof event.thread_id === 'string') threadId = event.thread_id;
       else if (event.type === 'item.completed' && isJsonObject(event.item) && event.item.type === 'agent_message') text = String(event.item.text ?? '');
@@ -55,10 +52,33 @@ export const codex: StartBackend = (request, endpoint, { confined, started }) =>
       const { usage, model } = threadId
         ? codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, threadId, started)
         : { usage: null, model: null };
-      return { threadId, completed: completed && !failed, error, text, model: model ?? request.model ?? null, usage };
+      return { threadId, completed: completed && !failed, error, output: form(text), model: model ?? request.model ?? null, usage };
     },
   };
 };
+
+/** OpenAI's strict form of `schema`: every field required, an optional one nullable. */
+function strict(schema: PayloadSchema): PayloadSchema {
+  if (schema.properties) {
+    const required = new Set(schema.required);
+    const properties = Object.fromEntries(Object.entries(schema.properties).map(([name, field]) => {
+      const held = strict(field);
+      return [name, required.has(name) ? held : {
+        ...held, ...held.type ? { type: [held.type, 'null'].flat() } : {}, ...held.enum ? { enum: [...held.enum, null] } : {},
+      }];
+    }));
+    return { ...schema, properties, required: Object.keys(properties), additionalProperties: false };
+  }
+  return schema.items ? { ...schema, items: strict(schema.items) } : schema;
+}
+
+/** The form in the turn's last message, a null field read as one left out. */
+function form(text: string): unknown {
+  const absent = (value: unknown): unknown => Array.isArray(value) ? value.map(absent)
+    : isJsonObject(value) ? Object.fromEntries(Object.entries(value).filter(([, field]) => field !== null).map(([name, field]) => [name, absent(field)]))
+    : value;
+  try { return absent(JSON.parse(text)); } catch { return undefined; }
+}
 
 /** Codex keeps a thread in YYYY/MM/DD/rollout-<time>-<id>.jsonl of the day it began, which its
  * UUIDv7 id carries; the day is local, or UTC's where codex cannot tell the local offset. */

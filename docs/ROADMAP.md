@@ -71,11 +71,11 @@ TypeScript on top of them. The product lines keep their goals and depend on the 
 
 | Version | Theme | Done means | Tasks |
 | --- | --- | --- | --- |
-| **0.2** | A ruler, and handoff as a form | The replay suite runs on every commit and blocks merges; about 10 standard tasks run before every merge to `dev`; form batch 1 is in `dev`; the form schema is in the shared contracts; open PRs for old items are merged or closed | L1.1–L1.4, L2.1, L2.6, L6.1 |
-| **0.3** | One place per fact; the host stops guessing | Every role ends with the form; summaries rebuild from records; the frontend only displays; the host follows the form's `to` and nothing else; the injected-defect set has a baseline | L1.5, L2.2–L2.5, L3, L4, L7.1–L7.2 |
-| **0.4** | Rules written once; subtraction shows | One rule table that prompts cite; production lines, swallowed errors and type issues all lower than at 0.2; the first public comparison table; the TS kernel finishes one full task | L1.6, L5, L6, L7.3 |
-| **0.5** | Anyone can get started | A first result in 10 minutes on Linux and macOS; signed installer; the TS kernel passes replay and the standard set in shadow | P1, L7.4–L7.5 |
-| **0.6** | Kernel switch; safe for many users | Production runs on the TS kernel and the Python kernel is deleted; Windows native; isolation by construction; security review passed | L7.6, P2, P1 (Windows) |
+| **0.2** | A ruler, and handoff as a form | The replay suite runs on every commit and blocks merges; about 10 standard tasks run before every merge to `dev`; form batch 1 is in `dev`; the form schema is in the shared contracts; the TS core runs a project from one sentence (`argus run`); open PRs for old items are merged or closed | L1.1–L1.4, L2.1, L2.6, L6.1, L7.1–L7.3 |
+| **0.3** | One place per fact; the host stops guessing | Every role ends with the form; summaries rebuild from records; the frontend only displays; the host follows the form's `to` and nothing else; the injected-defect set has a baseline; on a Node-only machine `npm i -g` runs a project from the terminal or the web | L1.5, L2.2–L2.5, L3, L4, L7.4–L7.5 |
+| **0.4** | Rules written once; subtraction shows | One rule table that prompts cite; production lines, swallowed errors and type issues all lower than at 0.2; the first public comparison table; new projects run on the TS core | L1.6, L5, L6, L7.6 |
+| **0.5** | Anyone can get started | A first result in 10 minutes on Linux and macOS; signed installer | P1 |
+| **0.6** | Kernel switch; safe for many users | The Python kernel is deleted; Windows native; isolation by construction; security review passed | P2, P1 (Windows) |
 | **0.7** | An ecosystem you can rely on | Domain SDK v1 is the plugin-worker interface; version matrix; old data upgrades | P3 |
 | **0.8** | Gets better with use; research you can trust | Experience → outcome is traceable; first public "gets better" curve; host checks research numbers | P4, P5, L1.7 |
 | **0.9** | Release candidate | Long unattended run passes; metric targets met; release rehearsed | L1.8, L6.3–L6.4, P6 |
@@ -177,21 +177,24 @@ code is allowed only in the same PR as deleting code; Python kernel code that L7
 | — | Downgraded: LAYOUT phases (move leaf modules, `pipeline/`, `mission_runner/`, renames, public loader names, tests by package) happen only inside a PR that deletes code | — | downgraded | CO-6–CO-13 |
 | — | Downgraded: daemon service objects, short locks, standalone scheduler are not done in Python; the TS kernel is designed with them | — | moved to L7.3 | CO-14, CO-15, CO-16 |
 
-### L7 TypeScript kernel (plan A)
+### L7 TypeScript core (Node only)
 
-The form lands in Python first and its schema goes into the shared contracts (L2.6). The TS kernel is written in
-parallel and uses that form and the single state model (L3) from day one. Once it passes replay and the standard set,
-production switches to it and the Python kernel is deleted. Domain plugins that depend on the scientific Python stack
-stay in Python behind a plugin worker. Details: [typescript-migration.md](typescript-migration.md).
+Installing Argus should take one command on a machine that has only Node: every backend Argus drives is an npm
+package, so its users already have Node, and Python is the second runtime this removes. The core is small: it hands
+work between roles by the form's `to`, records what happened and keeps the permission boundary. Stage machines,
+observers, supervision and the watchdog, retry and guessing layers are left out, not ported. New projects run on the
+core under its own state root (`~/.argus`); the Python runtime finishes the projects it holds and is then deleted.
+Domain plugins that need the scientific Python stack run behind a plugin worker. Design and status:
+[typescript-core.md](typescript-core.md).
 
 | ID | Task | Ver | Status | Absorbs |
 | --- | --- | --- | --- | --- |
-| L7.1 | Write commands in the shared contracts; read-only frontend profile | 0.3 | todo; read API, event and snapshot contracts exist | TS-1 |
-| L7.2 | Pi adapter on an external provider; training capture; session ownership | 0.3 | todo; local adapter exists | TS-2 |
-| L7.3 | Kernel on the form and the state model: storage and budget primitives, one P→E→R→M task with restart and cancel; short locks and a separate scheduler by design | 0.4 | todo | TS-3, CO-15, CO-16 |
-| L7.4 | Continuous scheduling, the other backends, write API | 0.5 | todo | TS-4 |
-| L7.5 | Shadow run: passes the replay suite and the standard set on copied state | 0.5 | todo | — |
-| L7.6 | Switch production; delete the Python kernel; Python plugin worker; one install and desktop path | 0.6 | todo | TS-5, CO-14 |
+| L7.1 | Every contract artifact generated in TS; unused Python deleted (front-end builds need no Python) | 0.2 | PR open (#352) | TS-1 |
+| L7.2 | Agent layer: Codex and Claude Code, `hand_off` served over loopback HTTP MCP, bwrap sandbox, usage | 0.2 | done on `feat/ts-core`; real calls on both backends | TS-2 |
+| L7.3 | Flow: Manager, Planner, Engineer, Reviewer on one `project.json`; `argus run/say/answer/status` | 0.2 | M1 done on `feat/ts-core`: a real Codex run from one sentence to a reviewed delivery; multi-task real run in progress | TS-3, CO-15, CO-16 |
+| L7.4 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | 0.3 | in progress | TS-4 |
+| L7.5 | One npm package with no runtime dependencies; Copilot and Pi; macOS and Windows; desktop runs the core as its sidecar | 0.3 | todo | — |
+| L7.6 | New projects default to the TS core after it passes replay and the standard set; the Python kernel goes once its projects end; plugin worker | 0.4 | todo | TS-5, CO-14 |
 
 ## Product lines
 

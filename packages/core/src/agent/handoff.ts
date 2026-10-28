@@ -1,34 +1,56 @@
-// The hand_off tool of one call: its schema from the form, the judgment of each call, and
-// a loopback MCP endpoint (plain JSON-RPC over HTTP POST) through which the CLI reaches it.
+// The hand-off form a turn ends with. The backend CLI holds the model's final answer to the
+// form's schema (Codex --output-schema, Claude --json-schema), so a turn cannot end in prose
+// that only reads like a hand-off; Argus then judges what the model filled in.
 
-import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { createServer, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { HANDOFF_FORMS, isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
 import type { AgentRequest, Form, HandOff } from '../types.js';
 
-/** The MCP server name the CLIs know the tool under. */
-export const SERVER = 'argus_actions';
-export const TOOL = HANDOFF_FORMS.action;
+/** What each place a form can send the work to means. */
+const TO: Record<Form, string> = {
+  manager: 'team, the request becomes the team\'s ticket (goal, acceptance, constraints, context), their whole brief: they do not see this conversation; operator, a question only the operator can decide (ask); manager, nothing for the team: your reply is the whole answer.',
+  plan: 'engineer, the tasks below start, or with none the work in flight decides what comes next (invent no work that needs results still in flight); manager, the process is stuck for a mechanical reason no plan can route around (a failure that keeps repeating, an environment, tool, credential or quota failure, a loop of hand-offs), and the Manager debugs it; operator, only the operator can unblock it; done, the operator\'s complete goal is met, with no tasks.',
+  engineer: 'reviewer, the work is ready for the independent review (do not start one yourself or through a subagent); done, the task is complete and requires no independent review; engineer, you keep working next turn; planner, the task is mis-scoped; manager, the process is stuck (an environment, tool, access, credential or quota failure, or the same error repeating) and needs the Manager to debug it; operator, a decision only the operator can make.',
+  review: 'done accepts it, only after you checked each requirement and acceptance check of the task against the deliverable: tests the Engineer wrote show the code matches its reading of the task, not that the reading is right; engineer returns concrete in-scope repairs, named in note; planner, the task or plan is wrong; manager, the process is stuck (an environment, tool or access failure you cannot judge past) and needs the Manager to debug it; operator, a decision only the operator can make.',
+};
 
-export function handOffTool(form: Form): { name: string; description: string; inputSchema: PayloadSchema } {
+/** The fields of the shared forms the flow reads; those forms carry more for the Python runtime. */
+const FIELDS: Record<Form, string[]> = {
+  manager: ['goal', 'acceptance', 'constraints', 'context', 'plan', 'lifetime', 'workflow_mode', 'require_independent_review'],
+  plan: ['tasks', 'retire'],
+  engineer: [],
+  review: [],
+};
+const TASK_FIELDS = ['title', 'objective', 'key', 'deps', 'hypothesis', 'decision_rule', 'acceptance_check', 'expected_regressions', 'non_goals', 'require_independent_review'];
+
+const REPLY: PayloadSchema = {
+  type: 'string',
+  description: 'What the operator reads from you this turn, in their language: the answer, or what the team will deliver. With to=operator, only what they need before your question.',
+};
+
+const pick = (schema: PayloadSchema, names: string[]): PayloadSchema => ({
+  ...schema, properties: Object.fromEntries(names.map(name => [name, schema.properties![name]!])),
+  ...(schema.required ? { required: schema.required.filter(name => names.includes(name)) } : {}),
+});
+
+export function formSchema(form: Form): PayloadSchema {
   const spec = HANDOFF_FORMS.forms[form]!;
-  const core = HANDOFF_FORMS.core;
-  const properties: Record<string, PayloadSchema> = Object.fromEntries(spec.core.map(name => [name, core[name]!]));
-  if (spec.to.length) {
-    // The operator rule goes only to a form that can hand to them.
-    const rule = spec.to.includes('operator') ? ` ${HANDOFF_FORMS.operator}` : '';
-    properties.to = { ...core.to, description: `${core.to!.description}${rule}`, enum: spec.to };
-  }
+  const properties: Record<string, PayloadSchema> = {
+    ...Object.fromEntries(spec.core.map(name => [name, HANDOFF_FORMS.core[name]!])),
+    to: { type: 'string', enum: spec.to, description: `Who holds the work next: ${TO[form]} ${HANDOFF_FORMS.operator}` },
+    ...(form === 'manager' ? { reply: REPLY } : {}),
+    ...Object.fromEntries(FIELDS[form].map(name => [name, spec.properties[name]!])),
+  };
+  if (properties.tasks?.items) properties.tasks = { ...properties.tasks, items: pick(properties.tasks.items, TASK_FIELDS) };
   return {
-    name: TOOL, description: spec.description,
-    inputSchema: { type: 'object', properties: { ...properties, ...spec.properties }, required: spec.required, additionalProperties: false },
+    type: 'object', description: 'Your hand-off: the final answer of your turn.', properties,
+    required: [...spec.required, ...(form === 'manager' ? ['reply'] : [])], additionalProperties: false,
   };
 }
 
-/** The reason a call is refused, or the hand-off it records. */
-function judge(form: Form, schema: PayloadSchema, payload: unknown, check: AgentRequest['check']): string | HandOff {
-  const errors = schemaErrors(payload, schema);
+/** The hand-off a turn's final answer records, or the reason Argus refuses it. */
+export function judge(form: Form, payload: unknown, check: AgentRequest['check']): string | HandOff {
+  if (payload === undefined) return 'The turn ended without the hand-off form.';
+  const errors = schemaErrors(payload, formSchema(form));
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
   const { to, summary, ...fields } = payload;
   // The rule every form shares: a question to the operator is their turn, asked properly.
@@ -40,79 +62,6 @@ function judge(form: Form, schema: PayloadSchema, payload: unknown, check: Agent
   if (labels.length === 1 || new Set(labels).size < labels.length) {
     return 'ask.options: offer two to five different answers, or none for an open question.';
   }
-  const handoff: HandOff = { form, to: String(to ?? ''), summary: String(summary ?? ''), fields };
+  const handoff: HandOff = { form, to: String(to), summary: String(summary), fields };
   return check?.(handoff) ?? handoff;
-}
-
-export interface HandOffEndpoint {
-  url: string;
-  token: string;
-  /** The last call, when it was accepted. */
-  handoff: HandOff | null;
-  close(): Promise<void>;
-}
-
-const send = (response: ServerResponse, status: number, body?: unknown): void => {
-  if (body === undefined) response.writeHead(status).end();
-  else response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
-};
-
-export async function serveHandOff(form: Form, check: AgentRequest['check']): Promise<HandOffEndpoint> {
-  const tool = handOffTool(form);
-  const token = randomBytes(32).toString('base64url');
-  const authorization = Buffer.from(`Bearer ${token}`);
-  const reply = (text: string, isError: boolean) => ({ content: [{ type: 'text', text }], isError });
-
-  const call = (params: Record<string, unknown>) => {
-    if (params.name !== tool.name) return reply(`Unknown tool: ${String(params.name)}`, true);
-    // A new call replaces the last: if it is refused, the turn does not settle on the call it was correcting.
-    endpoint.handoff = null;
-    const verdict = judge(form, tool.inputSchema, params.arguments ?? {}, check);
-    if (typeof verdict === 'string') return reply(verdict, true);
-    endpoint.handoff = verdict;
-    return reply(`Recorded: the work goes to ${verdict.to || form}.`, false);
-  };
-  const answer = (method: string, params: Record<string, unknown>): unknown => {
-    switch (method) {
-      case 'initialize': return {
-        protocolVersion: typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18',
-        capabilities: { tools: {} }, serverInfo: { name: 'argus', version: '1' },
-      };
-      case 'ping': return {};
-      case 'tools/list': return { tools: [tool] };
-      case 'tools/call': return call(params);
-      default: return undefined;
-    }
-  };
-
-  const server = createServer(async (request, response) => {
-    const given = Buffer.from(request.headers.authorization ?? '');
-    if (given.length !== authorization.length || !timingSafeEqual(given, authorization)) return send(response, 401);
-    if (request.method !== 'POST') return send(response, 405);
-    let message: unknown;
-    try {
-      const chunks: Buffer[] = [];
-      for await (const chunk of request) chunks.push(chunk as Buffer);
-      message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    } catch {
-      return send(response, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
-    }
-    // Notifications and responses need no answer.
-    if (!isJsonObject(message) || message.id === undefined || typeof message.method !== 'string') return send(response, 202);
-    const { id, method } = message;
-    try {
-      const result = answer(method, isJsonObject(message.params) ? message.params : {});
-      send(response, 200, result === undefined
-        ? { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } }
-        : { jsonrpc: '2.0', id, result });
-    } catch (error) {
-      send(response, 200, { jsonrpc: '2.0', id, error: { code: -32603, message: String(error) } });
-    }
-  });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const endpoint: HandOffEndpoint = {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`, token, handoff: null,
-    close: () => new Promise(resolve => { server.closeAllConnections(); server.close(() => resolve()); }),
-  };
-  return endpoint;
 }

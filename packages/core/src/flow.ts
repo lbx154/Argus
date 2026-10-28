@@ -1,12 +1,12 @@
 // The flow: the operator's message goes to the Manager; a ticket becomes tasks the Engineer and
 // the Reviewer hand between them; the Planner is called when no task is ready and something
-// came to it. Where work goes next is the hand-off's `to` and nothing else. A turn that ends
-// without a hand-off is a failed call: it is recorded and the flow stops, without a retry.
+// came to it. Where work goes next is the hand-off's `to` and nothing else. A failed turn is
+// recorded and the flow stops, without a retry; a form Argus refuses goes back to the role once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Question, Status, Store, Task, TaskStatus, Ticket } from './store.js';
-import { answered, handedTo, managerPrompt, plannerPrompt, taskPrompt } from './prompts.js';
+import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt } from './prompts.js';
 
 const ROLES: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
@@ -79,13 +79,13 @@ export class Flow {
   }
 
   private async manager(project: Project, message: string): Promise<void> {
-    const result = await this.call(project, 'manager', null,
-      resumed => managerPrompt(project, this.store.dir(project.id), message, resumed), checkManager(project));
-    if (!result) return;
-    const handoff = result.handoff;
-    if (handoff?.to === 'operator') return this.ask(project, 'manager', null, handoff);
-    if (result.text) this.record(project, { type: 'message', from: 'manager', text: result.text });
-    if (handoff?.to === 'team') this.file(project, handoff);
+    const handoff = (await this.call(project, 'manager', null,
+      resumed => managerPrompt(project, this.store.dir(project.id), message, resumed), checkManager(project)))?.handoff;
+    if (!handoff) return;
+    const reply = String(handoff.fields.reply ?? '').trim();
+    if (reply) this.record(project, { type: 'message', from: 'manager', text: reply });
+    if (handoff.to === 'operator') this.ask(project, 'manager', null, handoff);
+    else if (handoff.to === 'team') this.file(project, handoff);
   }
 
   /** A ticket: a direct one becomes one task; a staged one goes to the Planner. */
@@ -149,9 +149,10 @@ export class Flow {
     else await this.manager(project, handedTo('planner', null, handoff.summary, ''));
   }
 
-  /** One backend turn; null when it failed (recorded, the flow stops) or was interrupted. */
+  /** One backend turn that ends in an accepted form; null when it failed (recorded, the flow
+   * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     formCheck?: Check): Promise<AgentResult | null> {
+                     formCheck?: Check, refused?: string): Promise<AgentResult | null> {
     const key = task ? `${task.id}.${role}` : role;
     const resume = project.sessions[key];
     const where = task ? { task: task.id } : {};
@@ -161,7 +162,8 @@ export class Flow {
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...ROLES[role], prompt: prompt(resume !== undefined), cwd: project.workdir,
+        backend: project.backend, role, ...ROLES[role], cwd: project.workdir,
+        prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         ...(task ? {} : { readDirs: [dir] }), ...(project.model ? { model: project.model } : {}),
         ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(formCheck ? { check: formCheck } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
@@ -171,14 +173,17 @@ export class Flow {
       return null;
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
-    // A Manager's completed turn without a call answered the operator; any other turn needs a hand-off.
-    const ended = handoff !== null || (role === 'manager' && completed);
-    // Only a turn that ended is continued; after a failed or interrupted one the role starts afresh.
-    if (ended && threadId) project.sessions[key] = threadId;
+    // Only a completed turn is continued; after a failed or interrupted one the role starts afresh.
+    if (completed && threadId) project.sessions[key] = threadId;
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
-    if (handoff) this.record(project, { type: 'handoff', role, ...where, to: handoff.to, summary: handoff.summary, fields: handoff.fields });
-    if (ended) return result;
-    if (!signal?.aborted) this.status(project, 'failed', error ?? `The ${role}'s turn ended without a hand-off.`);
+    if (handoff) {
+      this.record(project, { type: 'handoff', role, ...where, to: handoff.to, summary: handoff.summary, fields: handoff.fields });
+      return result;
+    }
+    if (completed && threadId && !refused) return this.call(project, role, task, prompt, formCheck, error ?? '');
+    if (!signal?.aborted) {
+      this.status(project, 'failed', completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
+    }
     return null;
   }
 
@@ -245,7 +250,7 @@ function list<T = string>(value: unknown): T[] {
 }
 
 // The forms' own rules, beyond what their schema can say: a returned string refuses the
-// hand-off, and the model corrects it within the same turn.
+// hand-off, and the role corrects it in one more turn of its session.
 
 type Check = (handoff: HandOff) => string | null;
 
@@ -255,7 +260,7 @@ const checkManager = (project: Project): Check => ({ to, fields }) => {
     return 'to=team goes with goal and acceptance, and they only with to=team.';
   }
   return to === 'team' && (project.question || project.tasks.some(task => task.status === 'open'))
-    ? 'The team is still on the current ticket: reply to the operator now, and file new work once that ticket is done.' : null;
+    ? 'The team is still on the current ticket: answer with to=manager now, and file new work once that ticket is done.' : null;
 };
 
 const checkEngineer = (task: Task): Check => ({ to }) =>

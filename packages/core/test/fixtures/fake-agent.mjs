@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Stands in for `codex exec --json` and `claude -p --output-format stream-json`. It reads a
-// scenario as its prompt, submits each hand_off the scenario lists to the host's MCP endpoint
-// over HTTP, and replies with the tool's answers and the credentials it can see.
+// scenario as its prompt and ends the turn with the scenario's output as its final answer, as
+// the real CLI does under --output-schema or --json-schema. Beside the workdir it notes the
+// schema it was held to and the credentials it could see.
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,28 +14,11 @@ const codex = args[0] === 'exec';
 const scenario = JSON.parse(readFileSync(0, 'utf8'));
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
-const setting = key => {
-  const value = args.find((arg, at) => args[at - 1] === '-c' && arg.startsWith(`${key}=`));
-  return value && JSON.parse(value.slice(key.length + 1));
-};
 
-let url;
-let headers;
-if (codex) {
-  url = setting('mcp_servers.argus_actions.url');
-  headers = { authorization: `Bearer ${process.env[setting('mcp_servers.argus_actions.bearer_token_env_var')]}` };
-} else {
-  ({ url, headers } = JSON.parse(readFileSync(option('--mcp-config'), 'utf8')).mcpServers.argus_actions);
-}
-let id = 0;
-const post = async (message) => {
-  const response = await fetch(url, {
-    method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', ...message }),
-    headers: { ...headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-  });
-  return response.status === 202 ? null : (await response.json()).result;
-};
-const rpc = (method, params = {}) => post({ id: ++id, method, params });
+const schema = JSON.parse(codex ? readFileSync(option('--output-schema'), 'utf8') : option('--json-schema'));
+writeFileSync(join(process.cwd(), `seen-${codex ? 'codex' : 'claude'}.json`), JSON.stringify({
+  schema, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY)$/.test(name)),
+}));
 
 const uuid7 = () => {
   const hex = Date.now().toString(16).padStart(12, '0') + randomBytes(10).toString('hex');
@@ -48,17 +32,8 @@ if (scenario.hang) {
   spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', scenario.hang], { stdio: 'ignore' });
   setInterval(() => {}, 1000);
 } else {
-  const answers = [];
-  let to;
-  if (scenario.calls.length) {
-    await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '0' } });
-    await post({ method: 'notifications/initialized' });
-    const [tool] = (await rpc('tools/list')).tools;
-    to = tool.inputSchema.properties.to.enum;
-    for (const payload of scenario.calls) answers.push(await rpc('tools/call', { name: tool.name, arguments: payload }));
-  }
-  const reply = JSON.stringify({ answers, to, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY)$/.test(name)) });
-
+  const output = scenario.output;
+  const answer = typeof output === 'string' ? output : JSON.stringify(output);
   if (codex) {
     const began = new Date(parseInt(thread.replace(/-/g, '').slice(0, 12), 16));
     const pad = value => String(value).padStart(2, '0');
@@ -75,15 +50,15 @@ if (scenario.hang) {
       emit({ type: 'turn.failed', error: { message: scenario.fail } });
       process.exit(1);
     }
-    emit({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: reply } });
+    emit({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'Working on it.' } });
+    emit({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: answer } });
     emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } });
   } else {
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
-    emit({ type: 'assistant', session_id: thread, message: { role: 'assistant', content: [{ type: 'text', text: reply }] } });
-    emit(scenario.fail
-      ? { type: 'result', subtype: 'success', is_error: true, result: scenario.fail, session_id: thread, usage, total_cost_usd: 0.0123 }
-      : { type: 'result', subtype: 'success', is_error: false, result: reply, session_id: thread, usage, total_cost_usd: 0.0123 });
+    const result = { type: 'result', subtype: 'success', session_id: thread, usage, total_cost_usd: 0.0123 };
+    emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
+      : { ...result, is_error: false, result: answer, ...typeof output === 'object' ? { structured_output: output } : {} });
     process.exit(scenario.fail ? 1 : 0);
   }
 }

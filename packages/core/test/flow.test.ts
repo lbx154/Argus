@@ -9,11 +9,12 @@ import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { Store, type FlowEvent } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 
-/** One scripted turn: the role expected, and what it hands off (no `to`: no hand-off). */
+/** One scripted turn: the role expected, and the form it ends with (no `to`: none). */
 interface Step {
   role: Role;
   to?: string;
   fields?: Record<string, unknown>;
+  /** The Manager's reply, with to=manager unless `to` says otherwise. */
   text?: string;
   /** Hand-offs the form's check must refuse before the scripted one passes. */
   refuse?: Omit<HandOff, 'form' | 'summary'>[];
@@ -35,12 +36,15 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     }
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
-    const handoff = step.to === undefined ? null
-      : { form: request.form, to: step.to, summary: `${step.role} to ${step.to}`, fields: { assumptions: [], ...step.fields } };
+    const manager = step.role === 'manager';
+    const to = step.to ?? (manager && step.text !== undefined ? 'manager' : undefined);
+    const handoff = to === undefined ? null : {
+      form: request.form, to, summary: `${step.role} to ${to}`, fields: { assumptions: [], ...manager ? { reply: step.text ?? '' } : {}, ...step.fields },
+    };
     if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
-      error: step.interrupt ? 'interrupted' : null, handoff, text: step.text ?? '', model: 'fake', usage: null, ms: 1,
+      error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
     };
   };
   return { callAgent, requests };
@@ -69,8 +73,8 @@ test('the Manager answers directly', async t => {
   assert.equal(request?.access, 'write');
   assert.deepEqual(request?.readDirs, [store.dir(id)]);
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Writing for people[\s\S]*## Message\nWhat is 6 times 7\?$/);
-  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'message', 'status']);
-  assert.deepEqual(events()[3], { ...events()[3], from: 'manager', text: '42' });
+  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'message', 'status']);
+  assert.deepEqual(events()[4], { ...events()[4], from: 'manager', text: '42' });
 });
 
 test('a bounded ticket goes from the Engineer to the Reviewer, who accepts it', async t => {
@@ -137,20 +141,29 @@ test("the Engineer's question stops the work until the operator answers", async 
   assert.equal(store.load(id).status, 'done');
 });
 
-test('a turn without a hand-off is a failed call: recorded, and nothing runs after it', async t => {
-  const steps: Step[] = [{ role: 'manager', to: 'team', fields: ticket }, { role: 'engineer' }];
+const refusal = 'Argus refused your hand-off: The turn ended without the hand-off form.\nEnd your turn with the form again, corrected.';
+
+test('a refused form goes back to the role once, in its session, with why', async t => {
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'team', fields: ticket }, { role: 'engineer' },
+    { role: 'engineer', to: 'reviewer', fields: { note: 'n' } }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
+  ]);
+  assert.equal((await flow.say(id, 'Make me a CSV summary tool')).status, 'done');
+  assert.deepEqual([requests[2]?.resume, requests[2]?.prompt], ['engineer-2', refusal]);
+});
+
+test('a form refused again is a failed call: recorded, and nothing runs after it', async t => {
+  const steps: Step[] = [{ role: 'manager', to: 'team', fields: ticket }, { role: 'engineer' }, { role: 'engineer' }];
   const { flow, id, requests, events } = await setup(t, steps);
   const failed = await flow.say(id, 'Make me a CSV summary tool');
   assert.equal(failed.status, 'failed');
-  assert.equal(failed.error, "The engineer's turn ended without a hand-off.");
-  assert.equal(failed.sessions['t1.engineer'], undefined);
-  assert.equal(requests.length, 2);
+  assert.equal(failed.error, "The engineer's hand-off was refused: The turn ended without the hand-off form.");
+  assert.equal(requests.length, 3);
   assert.deepEqual(events().slice(-3).map(event => event.type), ['call.start', 'call.end', 'status']);
-  // The operator's next message continues the work; the Engineer starts afresh.
+  // The operator's next message continues the work, in the Engineer's session.
   steps.push({ role: 'manager', text: 'Trying again.' }, { role: 'engineer', to: 'reviewer', fields: { note: 'n' } }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } });
   assert.equal((await flow.say(id, 'try again')).status, 'done');
-  assert.equal(requests[3]?.resume, undefined);
-  assert.match(requests[3]?.prompt ?? '', /^You are the Argus Engineer/);
+  assert.deepEqual([requests[4]?.resume, requests[4]?.prompt], ['engineer-2', 'Continue the task.']);
 });
 
 test('a call the agent layer cannot make is a failed call too', async t => {
@@ -194,6 +207,7 @@ test('the Planner schedules two dependent tasks and closes the ticket', async t 
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nThe Manager filed the ticket above: plan its work\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1: Parse\nParse data\.csv\nCheck: the parser tests pass$/);
   assert.equal(report?.resume, undefined);
+  assert.match(report?.prompt ?? '', /## Done before this task\n- t1 Parse\nEach is finished, and accepted by its review where it needed one\.\n\n## Task t2: Report\n/);
   assert.equal(replan?.resume, 'planner-2');
   assert.match(replan?.prompt ?? '', /^## Ticket\n[\s\S]*- t1 \[done\] Parse\n- t2 \[done, after t1\] Report\n\n## Since your last turn\nTask t1 is done: reviewer to done\n\nTask t2 is done: reviewer to done$/);
   assert.deepEqual(project.inbox, []);
