@@ -1,38 +1,27 @@
+// The desktop's Argus: the TypeScript core it ships, run with the system's
+// Node.js as a child process (`node argus.mjs --port P --backend B`). Argus
+// says where it listens on its first line, `Argus is at <url>`; that line is
+// the only readiness signal, and the child's exit is the only failure signal.
+// The desktop gives it the Web token (ARGUS_WEB_TOKEN) and its state root
+// (ARGUS_HOME), and stops it when asked or when the desktop quits.
+
 use crate::{
-    identity::{
-        authenticated_bundled_backend_matches, backend_launch_claim_matches,
-        backend_ownership_matches, prior_backend_ownership_matches,
-        same_path, shell_command_path, ExpectedBackendIdentity, ExpectedBackendLaunch, ExpectedPriorBackendOwnership,
-    },
     logger::DesktopLogger,
-    models::{
-        BackendOwnership, BackendState, BackendStatus, DesktopSettings, ProbeFailureKind,
-        ProbeIdentity,
-    },
-    process::{is_process_alive, terminate_windows_process_tree},
-    probe::response_bytes,
+    models::{BackendState, BackendStatus, DesktopSettings},
+    process::terminate_process_tree,
     redaction::redact_sensitive_text,
     release::ReleaseContext,
-    resilience::{AutomaticRecoveryDecision, BackendResiliencePolicy, HealthDecision},
-    runner::{
-        argus_home_dir, desktop_setup_complete, detect_runners, resolve_runner_configuration,
-        runner_runtime_path_entries,
-    },
+    runner::{argus_home_dir, desktop_setup_complete, find_node, resolve_runner_configuration, NODE_MAJOR},
     settings::SettingsStore,
 };
-use base64::Engine as _;
-use chrono::Utc;
-use rand::RngCore;
-use reqwest::{header::AUTHORIZATION, Client};
+use reqwest::Client;
 use serde::Deserialize;
 use std::{
     collections::VecDeque,
     env,
     ffi::OsString,
     fs,
-    future::Future,
     path::{Path, PathBuf},
-    pin::Pin,
     process::Stdio,
     sync::{Arc, Mutex},
     time::Duration,
@@ -40,28 +29,18 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    net::TcpStream,
     process::Command,
-    time::{sleep, timeout, Instant},
+    time::timeout,
 };
 
-const INITIAL_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
-const HEALTH_INTERVAL: Duration = Duration::from_secs(5);
-const STABLE_RESET_DELAY: Duration = Duration::from_secs(60);
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const READY_PREFIX: &str = "Argus is at ";
+const PRIOR_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const RUNNER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(8);
-// A console-subsystem frozen backend must not flash a terminal window while
-// the native desktop host starts it.
+// A GUI host must not flash a console window for its child processes.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-#[derive(Clone)]
 pub struct BackendSupervisor {
-    inner: Arc<BackendSupervisorInner>,
-}
-
-struct BackendSupervisorInner {
     app: AppHandle,
     settings: Arc<SettingsStore>,
     release: ReleaseContext,
@@ -70,46 +49,34 @@ struct BackendSupervisorInner {
     runtime: Mutex<Runtime>,
 }
 
+#[derive(Default)]
 struct Runtime {
     status: BackendStatus,
-    root_pid: Option<u32>,
-    runtime_pid: Option<u32>,
-    stopping: bool,
-    lifecycle_generation: u64,
-    reached_ready: bool,
-    recovery_scheduled: bool,
-    ownership: Option<BackendOwnership>,
-    launch_nonce: Option<String>,
-    resilience: BackendResiliencePolicy,
+    /// The Argus process this desktop started, while it runs.
+    pid: Option<u32>,
+    /// Where it listens, from its first line.
+    origin: Option<String>,
+    /// Each start and stop begins a new generation, so a process's late
+    /// output or exit never changes the status of a newer one.
+    generation: u64,
     log_tail: VecDeque<String>,
 }
 
-#[derive(Clone)]
-struct BackendCommand {
-    command: PathBuf,
-    args: Vec<String>,
-    cwd: PathBuf,
-}
-
+/// The fields of `/api/meta` that identify a running Argus to its token holder.
 #[derive(Deserialize)]
-struct MetaResponse {
-    authentication: Option<MetaAuthentication>,
-    runtime: Option<MetaRuntime>,
+struct Meta {
+    authentication: MetaAuthentication,
+    runtime: MetaRuntime,
 }
 
 #[derive(Deserialize)]
 struct MetaAuthentication {
-    authenticated: Option<bool>,
+    authenticated: bool,
 }
 
 #[derive(Deserialize)]
 struct MetaRuntime {
-    package_version: Option<String>,
-    release_id: Option<String>,
-    executable: Option<String>,
-    pid: Option<u32>,
-    started_at: Option<String>,
-    desktop_launch_nonce: Option<String>,
+    pid: u32,
 }
 
 impl BackendSupervisor {
@@ -119,1424 +86,372 @@ impl BackendSupervisor {
         release: ReleaseContext,
         logger: DesktopLogger,
     ) -> anyhow::Result<Arc<Self>> {
-        // Uvicorn's default keep-alive is five seconds, exactly matching the
-        // supervisor heartbeat.  Keeping a pooled connection alive across that
-        // boundary caused recurrent three-second health timeouts even though
-        // the local API was responsive.  Keep short startup retries reusable,
-        // but retire an idle connection well before the next heartbeat and
-        // never send loopback identity probes through a host proxy.
-        let client = Client::builder()
-            .no_proxy()
-            .pool_idle_timeout(Some(Duration::from_secs(1)))
-            .build()?;
-        Ok(Arc::new(Self {
-            inner: Arc::new(BackendSupervisorInner {
-                app,
-                settings,
-                release,
-                logger,
-                client,
-                runtime: Mutex::new(Runtime {
-                    status: BackendStatus::default(),
-                    root_pid: None,
-                    runtime_pid: None,
-                    stopping: false,
-                    lifecycle_generation: 0,
-                    reached_ready: false,
-                    recovery_scheduled: false,
-                    ownership: None,
-                    launch_nonce: None,
-                    resilience: BackendResiliencePolicy::default(),
-                    log_tail: VecDeque::with_capacity(200),
-                }),
-            }),
-        }))
+        // Loopback requests never go through a host proxy.
+        let client = Client::builder().no_proxy().build()?;
+        Ok(Arc::new(Self { app, settings, release, logger, client, runtime: Mutex::default() }))
+    }
+
+    fn runtime(&self) -> std::sync::MutexGuard<'_, Runtime> {
+        self.runtime.lock().expect("runtime mutex poisoned")
     }
 
     pub fn current_status(&self) -> BackendStatus {
-        let settings = self.inner.settings.snapshot();
-        let runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+        let settings = self.settings.snapshot();
+        let runtime = self.runtime();
         let mut status = runtime.status.clone();
-        status.pid = runtime.runtime_pid.or(runtime.root_pid);
+        status.pid = runtime.pid;
         if status.state == BackendState::Ready {
-            status.url = Some(SettingsStore::cockpit_url(&settings));
+            status.url = runtime.origin.as_deref().map(|origin| SettingsStore::cockpit_url(origin, &settings));
         }
         status
     }
 
-    pub fn release(&self) -> &ReleaseContext {
-        &self.inner.release
+    /// The origin the running Argus serves, which alone may hand the window a download.
+    pub fn origin(&self) -> Option<String> {
+        self.runtime().origin.clone()
     }
 
-    fn emit_status(&self) {
-        let status = self.current_status();
-        let _ = self.inner.app.emit("argus:status", status);
+    pub fn release(&self) -> &ReleaseContext {
+        &self.release
     }
 
     fn set_status(&self, state: BackendState, message: impl Into<String>, detail: Option<String>) {
         let message = message.into();
-        {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            runtime.status = BackendStatus {
-                state: state.clone(),
-                message: message.clone(),
-                detail: detail.clone(),
-                warning: None,
-                pid: None,
-                url: None,
-            };
-        }
-        let suffix = detail.as_deref().unwrap_or_default();
-        self.inner
-            .logger
-            .info(format!("backend {state:?}: {message} {suffix}"));
-        self.emit_status();
+        self.logger.info(format!("backend {state:?}: {message} {}", detail.as_deref().unwrap_or_default()));
+        self.runtime().status = BackendStatus { state, message, detail, pid: None, url: None };
+        let _ = self.app.emit("argus:status", self.current_status());
     }
 
-    fn generation(&self) -> u64 {
-        self.inner
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned")
-            .lifecycle_generation
+    fn is_current(&self, generation: u64) -> bool {
+        self.runtime().generation == generation
     }
 
-    fn is_current_generation(&self, generation: u64) -> bool {
-        let runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-        runtime.lifecycle_generation == generation && !runtime.stopping
-    }
-
-    fn is_stopping(&self) -> bool {
-        self.inner
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned")
-            .stopping
-    }
-
-    /// Box the public startup future so a crash-triggered recovery may schedule
-    /// another startup without creating an infinitely-sized async future type.
-    pub fn start(self: &Arc<Self>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let supervisor = Arc::clone(self);
-        Box::pin(async move {
-            supervisor.start_inner().await;
-        })
-    }
-
-    async fn start_inner(self: &Arc<Self>) {
+    pub async fn start(self: &Arc<Self>) {
         let generation = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            if matches!(
-                runtime.status.state,
-                BackendState::Starting | BackendState::Ready
-            ) {
+            let mut runtime = self.runtime();
+            if matches!(runtime.status.state, BackendState::Starting | BackendState::Ready) {
                 return;
             }
-            runtime.stopping = false;
-            runtime.lifecycle_generation
+            runtime.generation += 1;
+            runtime.generation
         };
-        let mut settings = self.inner.settings.snapshot();
-        let configured = match resolve_runner_configuration(&settings) {
-            Ok(configured) => configured,
-            Err(error) => {
-                self.set_status(BackendState::Error, "无法读取 Agent CLI 配置", Some(error.to_string()));
-                return;
-            }
-        };
+        let settings = self.settings.snapshot();
+        let configured = resolve_runner_configuration(&settings);
         if !desktop_setup_complete(&settings, configured.as_ref()) {
-            self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
-            return;
+            return self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
         }
-        let mut command = match self.resolve_command(&settings) {
-            Ok(command) => command,
-            Err(error) => {
-                self.set_status(
-                    BackendState::Error,
-                    "无法准备本地运行环境",
-                    Some(error.to_string()),
-                );
-                return;
-            }
+        let runner = configured.and_then(|runner| runner.executable).map(PathBuf::from);
+        let script = match self.release.validate_payload() {
+            Ok(script) => script,
+            Err(detail) => return self.set_status(BackendState::Error, "本地后端文件需要修复", Some(detail)),
         };
-        if let Err(error) = self.inner.release.validate_payload() {
-            self.set_status(BackendState::Error, "运行包文件需要修复", Some(error));
-            return;
-        }
-        self.inner.logger.info(format!("starting verified release {} from {}", self.inner.release.identity().release_id, command.command.display()));
-
-        self.set_status(BackendState::Starting, "正在检查本地服务", None);
-        let probe = self.probe_for_startup(&settings).await;
-        if !self.is_current_generation(generation) {
-            return;
-        }
-        if probe.compatible {
-            if self.ownership_matches(&probe, &settings, &command) {
-                let ownership = self.read_ownership();
-                {
-                    let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-                    runtime.runtime_pid = probe.pid;
-                    runtime.ownership = ownership;
-                    runtime.launch_nonce = probe.launch_nonce.clone();
-                }
-                self.mark_backend_ready(generation, "本地服务已就绪");
-                return;
-            }
-            if !settings.trial_mode {
-                self.set_status(
-                    BackendState::Error,
-                    format!(
-                        "端口 {} 已由未受当前桌面进程管理的应用占用",
-                        settings.port
-                    ),
-                    Some(
-                        "请先正常退出另一份应用；桌面端不会接管或终止无法证明所有权的进程。"
-                            .to_owned(),
-                    ),
-                );
-                return;
-            }
-        }
-
-        if probe.occupied {
-            let may_replace = self.prior_ownership_matches(&probe, &settings)
-                || self.legacy_bundled_backend_matches(&probe, &command);
-            if !may_replace && !settings.trial_mode {
-                self.set_status(
-                    BackendState::Error,
-                    format!("端口 {} 已被其他程序占用", settings.port),
-                    probe.detail,
-                );
-                return;
-            }
-            if may_replace {
-                self.set_status(
-                    BackendState::Starting,
-                    "正在升级受管理的本地后端",
-                    probe.detail.clone(),
-                );
-                if !self
-                    .stop_prior_owned_backend(&probe, &settings, &command)
-                    .await
-                {
-                    self.set_status(
-                        BackendState::Error,
-                        "无法安全替换上一版本的本地后端",
-                        Some("旧后端的身份已验证，但其监听进程未能在限定时间内退出；请从旧版应用正常退出后重试。".to_owned()),
-                    );
-                    return;
-                }
-            }
-            if !self.is_current_generation(generation) {
-                return;
-            }
-        }
-
-        if settings.trial_mode {
-            let prepared = self
-                .inner
-                .settings
-                .prepare_backend_port()
-                .and_then(|settings| {
-                    self.resolve_command(&settings)
-                        .map(|command| (settings, command))
-                });
-            match prepared {
-                Ok((selected_settings, selected_command)) => {
-                    settings = selected_settings;
-                    command = selected_command;
-                }
-                Err(error) => {
-                    self.set_status(
-                        BackendState::Error,
-                        "无法准备本地服务端口",
-                        Some(format!("{error:#}")),
-                    );
-                    return;
-                }
-            }
-        }
-
+        let node = match find_node(runner.as_deref()) {
+            Ok(node) => node,
+            Err(detail) => return self.set_status(
+                BackendState::Error, format!("需要 Node.js {NODE_MAJOR} 或更高版本"), Some(detail),
+            ),
+        };
         self.set_status(BackendState::Starting, "正在启动本地后端", None);
-        if let Err(error) = self.spawn_backend(command, settings, generation).await {
-            self.handle_backend_failure("无法准备本地运行环境", error.to_string())
-                .await;
+        self.stop_prior(&settings).await;
+        if !self.is_current(generation) {
+            return;
+        }
+        if let Err(error) = self.spawn(generation, &node, &script, runner.as_deref(), &settings) {
+            self.set_status(BackendState::Error, "无法启动本地后端", Some(format!("{error:#}")));
         }
     }
 
-    pub async fn restart(self: &Arc<Self>) -> Result<(), String> {
-        self.inner.release.validate_payload()?;
+    pub async fn restart(self: &Arc<Self>) {
         self.stop().await;
         self.start().await;
-        Ok(())
     }
 
-    pub async fn stop(self: &Arc<Self>) {
-        {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            runtime.lifecycle_generation = runtime.lifecycle_generation.wrapping_add(1);
-            runtime.stopping = true;
-            runtime.reached_ready = false;
-            runtime.recovery_scheduled = false;
-            runtime.resilience.reset();
+    pub async fn stop(&self) {
+        let pid = {
+            let mut runtime = self.runtime();
+            runtime.generation += 1;
+            runtime.origin = None;
+            runtime.pid.take()
+        };
+        if let Some(pid) = pid {
+            terminate_process_tree(pid).await;
         }
-        self.terminate_owned_backend().await;
         self.set_status(BackendState::Stopped, "已停止", None);
     }
 
-    async fn handle_backend_failure(self: &Arc<Self>, message: impl Into<String>, detail: String) {
-        if self.is_stopping() {
-            return;
-        }
-        let ready = self
-            .inner
-            .runtime
-            .lock()
-            .expect("runtime mutex poisoned")
-            .reached_ready;
-        if ready {
-            self.schedule_automatic_recovery(detail).await;
-        } else {
-            self.set_status(BackendState::Error, message, Some(detail));
+    /// An Argus this desktop started and lost (the desktop crashed or was
+    /// killed) still holds the port. It answers `/api/meta` as authenticated
+    /// only to this desktop's token, which proves it is ours to stop.
+    async fn stop_prior(&self, settings: &DesktopSettings) {
+        let request = self.client.get(format!("http://127.0.0.1:{}/api/meta", settings.port))
+            .bearer_auth(&settings.token)
+            .timeout(PRIOR_PROBE_TIMEOUT);
+        let Ok(response) = request.send().await else { return };
+        let Ok(meta) = response.json::<Meta>().await else { return };
+        if meta.authentication.authenticated {
+            self.logger.info(format!("stopping the Argus this desktop left running (pid {})", meta.runtime.pid));
+            terminate_process_tree(meta.runtime.pid).await;
         }
     }
 
-    async fn schedule_automatic_recovery(self: &Arc<Self>, detail: String) {
-        let decision = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            if runtime.stopping || runtime.recovery_scheduled {
-                return;
-            }
-            runtime.recovery_scheduled = true;
-            runtime.resilience.begin_automatic_recovery()
-        };
-        let AutomaticRecoveryDecision::Allowed {
-            attempt,
-            max_attempts,
-            delay_ms,
-        } = decision
-        else {
-            let AutomaticRecoveryDecision::Denied {
-                attempts,
-                max_attempts,
-            } = decision
-            else {
-                return;
-            };
-            self.inner
-                .runtime
-                .lock()
-                .expect("runtime mutex poisoned")
-                .recovery_scheduled = false;
-            self.set_status(
-                BackendState::Error,
-                "本地服务无法自动恢复",
-                Some(format!("{detail}\n已完成 {attempts}/{max_attempts} 次自动恢复；请检查诊断信息后手动重试。")),
-            );
-            return;
-        };
-        let generation = self.generation();
-        self.set_status(
-            BackendState::Starting,
-            format!("本地服务短暂中断，正在自动恢复（{attempt}/{max_attempts}）"),
-            Some(detail),
-        );
-        let supervisor = Arc::clone(self);
-        tokio::spawn(async move {
-            sleep(Duration::from_millis(delay_ms)).await;
-            if !supervisor.is_current_generation(generation) {
-                return;
-            }
-            supervisor.terminate_owned_backend().await;
-            if !supervisor.is_current_generation(generation) {
-                return;
-            }
-            {
-                let mut runtime = supervisor
-                    .inner
-                    .runtime
-                    .lock()
-                    .expect("runtime mutex poisoned");
-                runtime.lifecycle_generation = runtime.lifecycle_generation.wrapping_add(1);
-                runtime.status.state = BackendState::Idle;
-                runtime.status.message = "自动恢复正在重新启动".to_owned();
-                runtime.status.detail = None;
-                runtime.recovery_scheduled = false;
-            }
-            supervisor.start().await;
-        });
-    }
-
-    fn mark_backend_ready(self: &Arc<Self>, generation: u64, message: impl Into<String>) {
-        if !self.is_current_generation(generation) {
-            return;
-        }
-        let should_arm_stable_reset = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            runtime.reached_ready = true;
-            runtime.recovery_scheduled = false;
-            runtime.resilience.record_health_success();
-            runtime.resilience.restart_attempt_count() > 0
-        };
-        self.set_status(BackendState::Ready, message, None);
-        self.start_health_monitor(generation);
-        if should_arm_stable_reset {
-            let supervisor = Arc::clone(self);
-            tokio::spawn(async move {
-                sleep(STABLE_RESET_DELAY).await;
-                if !supervisor.is_current_generation(generation) {
-                    return;
-                }
-                let attempts = {
-                    let mut runtime = supervisor
-                        .inner
-                        .runtime
-                        .lock()
-                        .expect("runtime mutex poisoned");
-                    let attempts = runtime.resilience.restart_attempt_count();
-                    runtime.resilience.mark_runtime_stable();
-                    attempts
-                };
-                supervisor.inner.logger.info(format!("backend remained healthy; reset automatic recovery circuit after {attempts} attempt(s)"));
-            });
-        }
-    }
-
-    fn start_health_monitor(self: &Arc<Self>, generation: u64) {
-        let supervisor = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut delay = HEALTH_INTERVAL;
-            loop {
-                sleep(delay).await;
-                if !supervisor.is_current_generation(generation)
-                    || supervisor.current_status().state != BackendState::Ready
-                {
-                    return;
-                }
-                let settings = supervisor.inner.settings.snapshot();
-                let command = match supervisor.resolve_command(&settings) {
-                    Ok(command) => command,
-                    Err(error) => {
-                        supervisor.set_status(
-                            BackendState::Error,
-                            "无法验证本地后端",
-                            Some(error.to_string()),
-                        );
-                        return;
-                    }
-                };
-                let probe = supervisor.probe(&settings, HEALTH_PROBE_TIMEOUT).await;
-                if !supervisor.is_current_generation(generation)
-                    || supervisor.current_status().state != BackendState::Ready
-                {
-                    return;
-                }
-                if probe.compatible && supervisor.ownership_matches(&probe, &settings, &command) {
-                    {
-                        let mut runtime = supervisor
-                            .inner
-                            .runtime
-                            .lock()
-                            .expect("runtime mutex poisoned");
-                        runtime.resilience.record_health_success();
-                    }
-                    supervisor.report_runtime_warning(supervisor.inner.release.validate_payload().err());
-                    delay = HEALTH_INTERVAL;
-                    continue;
-                }
-                let pid = {
-                    let runtime = supervisor
-                        .inner
-                        .runtime
-                        .lock()
-                        .expect("runtime mutex poisoned");
-                    runtime.runtime_pid.or(runtime.root_pid)
-                };
-                let identity_conflict = probe.failure_kind == Some(ProbeFailureKind::Identity)
-                    || (probe.compatible
-                        && !supervisor.ownership_matches(&probe, &settings, &command));
-                let decision = {
-                    let mut runtime = supervisor
-                        .inner
-                        .runtime
-                        .lock()
-                        .expect("runtime mutex poisoned");
-                    runtime
-                        .resilience
-                        .record_health_failure(identity_conflict, pid.is_some_and(is_process_alive))
-                };
-                let detail = probe.detail.unwrap_or_else(|| {
-                    if identity_conflict {
-                        format!("认证响应与本次启动记录不一致（预期 PID {:?}，响应 PID {:?}）；将拒绝不一致的启动时间、路径、构建或启动证明。", pid, probe.pid)
-                    } else {
-                        format!("127.0.0.1:{} 暂时未响应", settings.port)
-                    }
-                });
-                match decision {
-                    HealthDecision::Retry { delay_ms, .. } => {
-                        supervisor
-                            .inner
-                            .logger
-                            .warn(format!("backend health probe transient failure: {detail}"));
-                        delay = Duration::from_millis(delay_ms);
-                    }
-                    HealthDecision::Wait { .. } => {
-                        supervisor.report_runtime_warning(Some("本地连接暂时中断，任务进程仍在运行；正在重新连接，未自动终止任务。".into()));
-                        delay = HEALTH_INTERVAL;
-                    }
-                    HealthDecision::Fail { .. } => {
-                        supervisor.set_status(
-                            BackendState::Error,
-                            "本地后端身份验证失败",
-                            Some(format!(
-                                "{detail}\n桌面端不会接管、重启或终止无法证明所有权的进程。"
-                            )),
-                        );
-                        return;
-                    }
-                    HealthDecision::Recover { .. } => {
-                        supervisor.schedule_automatic_recovery(detail).await;
-                        return;
-                    }
-                }
-            }
-        });
-    }
-
-    fn report_runtime_warning(&self, warning: Option<String>) {
-        let changed = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            if runtime.status.warning == warning { false } else {
-                runtime.status.warning = warning.clone();
-                true
-            }
-        };
-        if changed {
-            if let Some(detail) = warning { self.inner.logger.warn(format!("runtime warning (live backend identity unchanged): {detail}")); }
-            else { self.inner.logger.info("runtime warnings cleared"); }
-            self.emit_status();
-        }
-    }
-
-    async fn probe_for_startup(&self, settings: &DesktopSettings) -> ProbeIdentity {
-        let mut probe = self.probe(settings, INITIAL_PROBE_TIMEOUT).await;
-        for delay in [Duration::from_millis(250), Duration::from_millis(750)] {
-            if self.is_stopping()
-                || !probe.occupied
-                || probe.failure_kind == Some(ProbeFailureKind::Identity)
-            {
-                break;
-            }
-            sleep(delay).await;
-            if self.is_stopping() {
-                break;
-            }
-            probe = self.probe(settings, INITIAL_PROBE_TIMEOUT).await;
-        }
-        probe
-    }
-
-    async fn probe(&self, settings: &DesktopSettings, timeout_value: Duration) -> ProbeIdentity {
-        let base = SettingsStore::api_base_url(settings);
-        let request = self
-            .inner
-            .client
-            .get(format!("{base}/api/meta"))
-            .header(AUTHORIZATION, format!("Bearer {}", settings.token))
-            .timeout(timeout_value);
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(error) => {
-                let occupied = self.port_occupied(settings).await;
-                let timeout_failure = error.is_timeout();
-                return ProbeIdentity {
-                    compatible: false,
-                    occupied,
-                    authenticated: false,
-                    detail: Some(if occupied {
-                        format!(
-                            "本地服务端口仍在监听，但健康检查在 {}ms 内未完成",
-                            timeout_value.as_millis()
-                        )
-                    } else if timeout_failure {
-                        format!("本地服务暂时不可达（{}ms 超时）", timeout_value.as_millis())
-                    } else {
-                        "本地服务暂时不可达".to_owned()
-                    }),
-                    pid: None,
-                    executable: None,
-                    release_id: None,
-                    started_at: None,
-                    launch_nonce: None,
-                    failure_kind: Some(if timeout_failure {
-                        ProbeFailureKind::Timeout
-                    } else {
-                        ProbeFailureKind::Network
-                    }),
-                };
-            }
-        };
-        if !response.status().is_success() {
-            return ProbeIdentity {
-                compatible: false,
-                occupied: true,
-                authenticated: false,
-                detail: Some(format!("本地服务健康检查返回 HTTP {}", response.status())),
-                pid: None,
-                executable: None,
-                release_id: None,
-                started_at: None,
-                launch_nonce: None,
-                failure_kind: Some(ProbeFailureKind::Http),
-            };
-        }
-        let bytes = match response_bytes(response).await {
-            Ok(bytes) => bytes,
-            Err(kind) => return ProbeIdentity {
-                failure_kind: Some(kind),
-                detail: Some("本地服务响应体暂时未读取完成，将按连接故障重试。".into()),
-                ..identity_probe("", false, None)
-            },
-        };
-        let body = match serde_json::from_slice::<MetaResponse>(&bytes) {
-            Ok(body) => body,
-            Err(_) => {
-                return ProbeIdentity {
-                    compatible: false,
-                    occupied: true,
-                    authenticated: false,
-                    detail: Some("端口上的服务返回了无法验证的后端身份数据".to_owned()),
-                    pid: None,
-                    executable: None,
-                    release_id: None,
-                    started_at: None,
-                    launch_nonce: None,
-                    failure_kind: Some(ProbeFailureKind::Identity),
-                };
-            }
-        };
-        let runtime = body.runtime;
-        let authenticated = body
-            .authentication
-            .and_then(|auth| auth.authenticated)
-            .unwrap_or(false);
-        if !authenticated {
-            return identity_probe("端口上的服务未通过当前桌面端身份认证", false, None);
-        }
-        let Some(runtime) = runtime else {
-            return identity_probe("端口上的服务缺少当前桌面运行身份", true, None);
-        };
-        let package_version = runtime.package_version.clone();
-        let probe = ProbeIdentity {
-            compatible: false,
-            occupied: true,
-            authenticated: true,
-            detail: None,
-            pid: runtime.pid,
-            executable: runtime.executable,
-            release_id: runtime.release_id,
-            started_at: runtime.started_at,
-            launch_nonce: runtime.desktop_launch_nonce,
-            failure_kind: None,
-        };
-        if probe.pid.filter(|value| *value > 0).is_none()
-            || probe.executable.as_deref().map_or(true, str::is_empty)
-            || probe.started_at.as_deref().map_or(true, str::is_empty)
-        {
-            return ProbeIdentity {
-                detail: Some("端口上的服务缺少当前桌面运行身份".to_owned()),
-                failure_kind: Some(ProbeFailureKind::Identity),
-                ..probe
-            };
-        }
-        if !self.inner.release.development {
-            let expected = self
-                .resolve_command(settings)
-                .ok()
-                .map(|command| normalized_path(&command.command));
-            if !probe.executable.as_deref().is_some_and(|value| {
-                expected
-                    .as_deref()
-                    .is_some_and(|expected| same_path(value, expected))
-            }) {
-                return ProbeIdentity {
-                    detail: Some(format!(
-                        "端口由另一份应用占用：{}",
-                        probe.executable.clone().unwrap_or_default()
-                    )),
-                    failure_kind: Some(ProbeFailureKind::Identity),
-                    ..probe
-                };
-            }
-            if let Err(detail) = self.inner.release.validate_backend_release(
-                package_version.as_deref(), probe.release_id.as_deref(),
-            ) {
-                return ProbeIdentity {
-                    detail: Some(detail),
-                    failure_kind: Some(ProbeFailureKind::Identity),
-                    ..probe
-                };
-            }
-        }
-        ProbeIdentity {
-            compatible: true,
-            occupied: false,
-            ..probe
-        }
-    }
-
-    async fn port_occupied(&self, settings: &DesktopSettings) -> bool {
-        timeout(
-            Duration::from_millis(500),
-            TcpStream::connect(format!("{}:{}", settings.host, settings.port)),
-        )
-        .await
-        .is_ok_and(|result| result.is_ok())
-    }
-
-    fn resolve_command(&self, settings: &DesktopSettings) -> anyhow::Result<BackendCommand> {
-        if self.inner.release.development {
-            let command = env::var_os("ARGUS_SKILL_BIN")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("python"));
-            return Ok(BackendCommand {
-                command,
-                args: vec![
-                    "-m".to_owned(),
-                    "argus".to_owned(),
-                    "--web".to_owned(),
-                    "--web-host".to_owned(),
-                    settings.host.clone(),
-                    "--web-port".to_owned(),
-                    settings.port.to_string(),
-                ],
-                cwd: self.inner.release.repo_root.clone(),
-            });
-        }
-        let command =
-            self.inner.release.backend_executable().ok_or_else(|| {
-                anyhow::anyhow!("bundled backend resource directory is unavailable")
-            })?;
-        Ok(BackendCommand {
-            command,
-            args: vec![
-                "--web".to_owned(),
-                "--web-host".to_owned(),
-                settings.host.clone(),
-                "--web-port".to_owned(),
-                settings.port.to_string(),
-            ],
-            cwd: self.inner.settings.data_dir().to_path_buf(),
-        })
-    }
-
-
-    fn ownership_path(&self) -> PathBuf {
-        self.inner
-            .settings
-            .data_dir()
-            .join("runtime")
-            .join("backend.json")
-    }
-
-    fn read_ownership(&self) -> Option<BackendOwnership> {
-        let path = self.ownership_path();
-        match fs::read_to_string(&path) {
-            Ok(raw) => match serde_json::from_str(&raw) {
-                Ok(record) => Some(record),
-                Err(error) => { self.inner.logger.warn(format!("ownership record invalid at {}: {error}", path.display())); None }
-            },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => { self.inner.logger.warn(format!("ownership record unavailable at {}: {error}", path.display())); None }
-        }
-    }
-
-    fn ownership_matches(
-        &self,
-        probe: &ProbeIdentity,
-        settings: &DesktopSettings,
-        command: &BackendCommand,
-    ) -> bool {
-        let (cached, nonce) = {
-            let runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            (runtime.ownership.clone(), runtime.launch_nonce.clone())
-        };
-        if nonce.as_deref().is_some_and(|expected| probe.launch_nonce.as_deref() != Some(expected)) {
-            return false;
-        }
-        let Some(ownership) = cached.or_else(|| self.read_ownership()) else { return false; };
-        let executable = if self.inner.release.development {
-            probe.executable.clone().unwrap_or_default()
-        } else {
-            normalized_path(&command.command)
-        };
-        backend_ownership_matches(
-            &ownership,
-            probe,
-            &ExpectedBackendIdentity {
-                host: settings.host.clone(),
-                port: settings.port,
-                executable,
-                release_id: self.inner.release.release_id(),
-                token: settings.token.clone(),
-            },
-        )
-    }
-
-    fn prior_ownership_matches(&self, probe: &ProbeIdentity, settings: &DesktopSettings) -> bool {
-        let Some(ownership) = self.read_ownership() else {
-            return false;
-        };
-        prior_backend_ownership_matches(
-            &ownership,
-            probe,
-            &ExpectedPriorBackendOwnership {
-                host: settings.host.clone(),
-                port: settings.port,
-                token: settings.token.clone(),
-            },
-        )
-    }
-
-    fn legacy_bundled_backend_matches(
-        &self,
-        probe: &ProbeIdentity,
-        command: &BackendCommand,
-    ) -> bool {
-        !self.inner.release.development
-            && authenticated_bundled_backend_matches(probe, &normalized_path(&command.command))
-    }
-
-    async fn stop_prior_owned_backend(
-        &self,
-        probe: &ProbeIdentity,
-        settings: &DesktopSettings,
-        command: &BackendCommand,
-    ) -> bool {
-        let Some(pid) = probe.pid else { return false };
-        if !(self.prior_ownership_matches(probe, settings)
-            || self.legacy_bundled_backend_matches(probe, command))
-        {
-            return false;
-        }
-        self.inner.logger.info(format!(
-            "replacing authenticated prior backend pid={pid} on {}:{}",
-            settings.host, settings.port
-        ));
-        if is_process_alive(pid) && !terminate_windows_process_tree(pid).await {
-            return false;
-        }
-        self.clear_ownership(Some(pid));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while self.port_occupied(settings).await {
-            if Instant::now() >= deadline {
-                return false;
-            }
-            sleep(Duration::from_millis(100)).await;
-        }
-        true
-    }
-
-    async fn spawn_backend(
+    fn spawn(
         self: &Arc<Self>,
-        command: BackendCommand,
-        settings: DesktopSettings,
         generation: u64,
+        node: &Path,
+        script: &Path,
+        runner: Option<&Path>,
+        settings: &DesktopSettings,
     ) -> anyhow::Result<()> {
-        let release_id = self.inner.release.release_id();
-        self.ensure_special_prompts()?;
-        let runtime_bin = self.ensure_runtime_command_shims(&command.command)?;
-        let shell_command = shell_command_path(&command.command);
-        let launch_nonce = random_nonce();
-        let configured_runner = resolve_runner_configuration(&settings)?;
-        let runner = configured_runner
-            .as_ref()
-            .and_then(|configured| configured.executable.clone());
-        // The Rust host can locate an npm .cmd launcher even when the GUI
-        // inherited a PATH without Node.  Supply its verified Node directory
-        // to the frozen backend so every later AgentCliRunner subprocess gets
-        // a runnable environment.  Python repeats this defensively for hosts
-        // other than Tauri.
-        let runner_runtime_paths = runner
-            .as_deref()
-            .map(runner_runtime_path_entries)
-            .unwrap_or_default();
-        let argus_home = argus_home_dir();
-        let mut process = Command::new(&command.command);
-        #[cfg(windows)]
-        process.creation_flags(CREATE_NO_WINDOW);
-        process
-            .args(&command.args)
-            .current_dir(&command.cwd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(false)
-            .env("ARGUS_BINARY_DISTRIBUTION", "1")
-            .env("ARGUS_BINARY_MODE", "cli")
-            .env("ARGUS_SKILL_BIN", &shell_command)
-            .env("ARGUS_SKILL_PYTHON", &shell_command)
-            .env("ARGUS_SKILL_WEB_TOKEN", &settings.token)
-            .env("ARGUS_DESKTOP_LAUNCH_NONCE", &launch_nonce)
-            .env("ARGUS_SKILL_HOME", &argus_home)
-            .env("ARGUS_WORKBENCH_HOST_ROOT", &argus_home)
-            .env(
-                "PYTHONUTF8",
-                env::var("PYTHONUTF8").unwrap_or_else(|_| "1".to_owned()),
-            )
-            .env(
-                "PYTHONIOENCODING",
-                env::var("PYTHONIOENCODING").unwrap_or_else(|_| "utf-8".to_owned()),
-            );
-        if settings.trial_mode {
-            // Desktop trial is an environment-scoped profile; the user's
-            // persistent model/role knobs are not rewritten when switching.
-            process.env("ARGUS_SKILL_MODEL", "argus-trial")
-                .env("ARGUS_SKILL_LIFE_BACKEND", "copilot")
-                .env("ARGUS_SKILL_BACKEND_AUTH_MODE", "subscription_cli");
-        }
-        process.env_remove("ARGUS_DESKTOP_TRIAL_PROFILE");
-        if settings.runner_configured {
-            process
-                .env(
-                    "ARGUS_SKILL_COPILOT_TRIAL",
-                    if settings.trial_mode { "1" } else { "0" },
-                )
-                .env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
-                .env_remove("ARGUS_SKILL_RUNNER_BIN");
-        }
-        if let Some(runner) = runner.as_deref() {
-            process.env("ARGUS_SKILL_RUNNER_BIN", runner);
-            self.inner
-                .logger
-                .info(format!("resolved runner binary: {runner}"));
-            if !runner_runtime_paths.is_empty() {
-                self.inner.logger.info(format!(
-                    "added Node runtime path for npm runner {}: {}",
-                    runner,
-                    runner_runtime_paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-        } else {
-            self.inner.logger.warn(format!(
-                "no configured Agent CLI binary found ({}); open File > Settings to select one",
-                configured_runner
-                    .as_ref()
-                    .map(|configured| configured.kind.label())
-                    .unwrap_or("no backend selected")
-            ));
-        }
-        let mut path_prefixes = runner_runtime_paths;
-        if let Some(runtime_bin) = runtime_bin {
-            path_prefixes.insert(0, runtime_bin.clone());
-            process.env("ARGUS_SKILL_RUNTIME_BIN", runtime_bin);
-        }
-        let runner_path = if path_prefixes.is_empty() {
-            None
-        } else {
-            let current_path = env::var_os("PATH").unwrap_or_default();
-            Some(env::join_paths(
-                path_prefixes
-                    .into_iter()
-                    .chain(env::split_paths(&current_path)),
-            )?)
-        };
-        if let Some(path) = runner_path.as_ref() {
-            process.env("PATH", path);
-        }
+        self.logger.info(format!("starting {} {} with {}", node.display(), script.display(), settings.runner_kind.label()));
+        let mut child = argus_command(node, script, runner, settings, &argus_home_dir())?.spawn()?;
         {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+            let mut runtime = self.runtime();
+            if runtime.generation != generation {
+                return Ok(()); // stopped meanwhile: dropping the child kills it
+            }
+            runtime.pid = child.id();
+            runtime.origin = None;
             runtime.log_tail.clear();
         }
-        let spawned_at_ms = Utc::now().timestamp_millis();
-        let mut child = process.spawn()?;
-        let root_pid = child
-            .id()
-            .ok_or_else(|| anyhow::anyhow!("backend process did not report a PID"))?;
-        {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            if runtime.lifecycle_generation != generation || runtime.stopping {
-                return Err(anyhow::anyhow!("backend start was superseded"));
-            }
-            runtime.root_pid = Some(root_pid);
-            runtime.runtime_pid = None;
-        }
         if let Some(stdout) = child.stdout.take() {
-            self.spawn_log_reader(stdout);
-        }
-        if let Some(stderr) = child.stderr.take() {
-            self.spawn_log_reader(stderr);
-        }
-        if let Some(runner) = runner {
             let supervisor = Arc::clone(self);
             tokio::spawn(async move {
-                let _ = supervisor.verify_runner_launch(runner, runner_path).await;
+                let mut lines = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if let Some(origin) = ready_origin(&line) {
+                        supervisor.ready(generation, origin);
+                    }
+                    supervisor.append_log(&line);
+                }
+            });
+        }
+        if let Some(stderr) = child.stderr.take() {
+            let supervisor = Arc::clone(self);
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    supervisor.append_log(&line);
+                }
             });
         }
         let supervisor = Arc::clone(self);
         tokio::spawn(async move {
-            let exit = child.wait().await;
-            supervisor
-                .handle_child_exit(root_pid, exit.map(|status| status.code()))
-                .await;
-        });
-        let supervisor = Arc::clone(self);
-        tokio::spawn(async move {
-            supervisor
-                .wait_until_ready(
-                    root_pid,
-                    settings,
-                    generation,
-                    ExpectedBackendLaunch {
-                        launch_nonce,
-                        release_id,
-                        spawned_at_ms,
-                        now_ms: 0,
-                    },
-                )
-                .await;
+            let code = child.wait().await.ok().and_then(|status| status.code());
+            supervisor.exited(generation, code);
         });
         Ok(())
     }
 
-    /// Validate the selected external runner in the exact PATH given to the
-    /// frozen backend.  This intentionally checks only `--version`: startup
-    /// stays non-blocking and never spends a model turn, but a stale GUI PATH
-    /// can no longer remain invisible until every Manager message fails.
-    pub async fn validate_runner(&self, runner: String) -> Result<(), String> {
-        let current = env::var_os("PATH").unwrap_or_default();
-        let path = env::join_paths(
-            runner_runtime_path_entries(&runner).into_iter().chain(env::split_paths(&current)),
-        ).map_err(|error| error.to_string())?;
-        self.verify_runner_launch(runner, Some(path)).await
+    fn ready(&self, generation: u64, origin: String) {
+        {
+            let mut runtime = self.runtime();
+            if runtime.generation != generation || runtime.status.state != BackendState::Starting {
+                return;
+            }
+            runtime.origin = Some(origin);
+        }
+        self.set_status(BackendState::Ready, "本地后端已就绪", None);
     }
 
-    async fn verify_runner_launch(&self, runner: String, path: Option<OsString>) -> Result<(), String> {
-        let mut command = Command::new(&runner);
+    fn exited(&self, generation: u64, code: Option<i32>) {
+        let was_ready = {
+            let mut runtime = self.runtime();
+            if runtime.generation != generation {
+                return;
+            }
+            runtime.pid = None;
+            runtime.origin = None;
+            runtime.status.state == BackendState::Ready
+        };
+        let code = code.map_or_else(|| "none".to_owned(), |code| code.to_string());
+        self.set_status(
+            BackendState::Error,
+            if was_ready { "本地后端意外退出" } else { "本地后端启动失败" },
+            Some(format!("exit code: {code}\n{}", self.log_tail())),
+        );
+    }
+
+    /// Check the chosen CLI starts (`--version`, no model turn) with the
+    /// PATH Argus will give it, so a CLI that cannot run is seen at setup.
+    pub async fn validate_runner(&self, runner: &str) -> Result<(), String> {
+        let runner = Path::new(runner);
+        let path = runtime_path(&find_node(Some(runner))?, Some(runner)).map_err(|error| error.to_string())?;
+        let mut command = Command::new(runner);
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
         command
             .arg("--version")
+            .env("PATH", path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        if let Some(path) = path {
-            command.env("PATH", path);
-        }
         let result = match timeout(RUNNER_PREFLIGHT_TIMEOUT, command.output()).await {
-            Ok(Ok(output)) if output.status.success() => {
-                self.inner
-                    .logger
-                    .info(format!("runner preflight passed: {runner}"));
-                Ok(())
-            }
+            Ok(Ok(output)) if output.status.success() => Ok(()),
             Ok(Ok(output)) => {
                 let stderr = redact_sensitive_text(&String::from_utf8_lossy(&output.stderr));
                 let detail = stderr.trim();
                 Err(format!(
-                    "Agent CLI 无法运行（runner preflight failed, exit {}）：{}",
-                    output
-                        .status
-                        .code()
-                        .map_or_else(|| "none".to_owned(), |code| code.to_string()),
-                    if detail.is_empty() {
-                        "no stderr"
-                    } else {
-                        detail
-                    }
+                    "Agent CLI 无法运行（exit {}）：{}",
+                    output.status.code().map_or_else(|| "none".to_owned(), |code| code.to_string()),
+                    if detail.is_empty() { "no stderr" } else { detail },
                 ))
             }
-            Ok(Err(error)) => Err(format!("无法启动 Agent CLI（runner preflight could not start）：{error}")),
-            Err(_) => Err(format!("Agent CLI 启动检查超时（{}ms），请在终端确认 CLI 可运行后重试。", RUNNER_PREFLIGHT_TIMEOUT.as_millis())),
+            Ok(Err(error)) => Err(format!("无法启动 Agent CLI：{error}")),
+            Err(_) => Err(format!(
+                "Agent CLI 启动检查超时（{}ms），请在终端确认 CLI 可运行后重试。",
+                RUNNER_PREFLIGHT_TIMEOUT.as_millis(),
+            )),
         };
-        if let Err(error) = &result {
-            self.inner.logger.warn(error);
+        match &result {
+            Ok(()) => self.logger.info(format!("runner preflight passed: {}", runner.display())),
+            Err(error) => self.logger.warn(error),
         }
         result
     }
 
-    fn spawn_log_reader(
-        self: &Arc<Self>,
-        stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
-    ) {
-        let supervisor = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stream).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                supervisor.append_log(&line);
-            }
-        });
-    }
-
     fn append_log(&self, line: &str) {
-        // Uvicorn writes one access line for every health heartbeat and for the
-        // cockpit's own readiness polling.  Persisting and flushing all of
-        // those lines kept the desktop log hot indefinitely (tens of thousands
-        // of writes in one session) while contributing no diagnostic signal.
-        // Keep failures and every non-meta request; suppress only successful,
-        // routine authenticated health access records.
-        if is_routine_backend_access_log(line) {
-            return;
-        }
         let safe = redact_sensitive_text(line);
         {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+            let mut runtime = self.runtime();
             runtime.log_tail.push_back(safe.clone());
             while runtime.log_tail.len() > 200 {
                 runtime.log_tail.pop_front();
             }
         }
-        self.inner.logger.verbose(format!("backend output: {safe}"));
-    }
-
-    async fn wait_until_ready(
-        self: &Arc<Self>,
-        root_pid: u32,
-        settings: DesktopSettings,
-        generation: u64,
-        mut launch: ExpectedBackendLaunch,
-    ) {
-        let command = match self.resolve_command(&settings) {
-            Ok(command) => command,
-            Err(error) => {
-                self.handle_backend_failure("本地后端就绪检查失败", error.to_string())
-                    .await;
-                return;
-            }
-        };
-        let deadline = Instant::now() + STARTUP_TIMEOUT;
-        let mut last_detail = String::new();
-        loop {
-            if !self.is_current_generation(generation) {
-                return;
-            }
-            let probe = self.probe(&settings, INITIAL_PROBE_TIMEOUT).await;
-            if let Some(detail) = probe.detail.as_ref() {
-                last_detail = detail.clone();
-            }
-            launch.now_ms = Utc::now().timestamp_millis();
-            if backend_launch_claim_matches(&probe, &launch) {
-                let runtime_pid = probe.pid.expect("launch match proves pid");
-                let executable = probe
-                    .executable
-                    .clone()
-                    .expect("launch match proves executable");
-                let started_at = probe
-                    .started_at
-                    .clone()
-                    .expect("launch match proves started timestamp");
-                {
-                    let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-                    runtime.runtime_pid = Some(runtime_pid);
-                }
-                if let Err(error) = self.write_ownership(runtime_pid, root_pid, &executable, &started_at) {
-                    self.cleanup_timed_out_backend(root_pid).await;
-                    self.set_status(BackendState::Error, "无法保存后端运行记录", Some(error.to_string()));
-                    return;
-                }
-                self.inner.runtime.lock().expect("runtime mutex poisoned").launch_nonce = probe.launch_nonce.clone();
-                if self.ownership_matches(&probe, &settings, &command) {
-                    self.mark_backend_ready(generation, "桌面端已就绪");
-                    return;
-                }
-                last_detail = "本地后端身份记录未能通过完整性校验".to_owned();
-            } else if probe.compatible {
-                last_detail = "响应端未能证明它属于本次桌面端启动".to_owned();
-            }
-            if Instant::now() >= deadline {
-                self.cleanup_timed_out_backend(root_pid).await;
-                self.handle_backend_failure(
-                    "本地后端启动超时",
-                    if last_detail.is_empty() {
-                        self.log_tail()
-                    } else {
-                        last_detail
-                    },
-                )
-                .await;
-                return;
-            }
-            sleep(Duration::from_millis(500)).await;
-        }
-    }
-
-    async fn handle_child_exit(
-        self: &Arc<Self>,
-        root_pid: u32,
-        exit_code: Result<Option<i32>, std::io::Error>,
-    ) {
-        let (was_current, stopping, reached_ready, runtime_pid) = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            let was_current = runtime.root_pid == Some(root_pid);
-            let stopping = runtime.stopping;
-            let reached_ready = runtime.reached_ready;
-            let runtime_pid = runtime.runtime_pid;
-            if was_current {
-                runtime.root_pid = None;
-                runtime.runtime_pid = None;
-            }
-            (was_current, stopping, reached_ready, runtime_pid)
-        };
-        if !was_current {
-            return;
-        }
-        if stopping {
-            self.clear_dead_ownership();
-            return;
-        }
-        if let Some(runtime_pid) = runtime_pid {
-            if runtime_pid != root_pid && is_process_alive(runtime_pid) {
-                if terminate_windows_process_tree(runtime_pid).await {
-                    self.clear_ownership(Some(runtime_pid));
-                }
-            } else {
-                self.clear_ownership(Some(runtime_pid));
-            }
-        } else {
-            self.clear_dead_ownership();
-        }
-        let code = exit_code
-            .ok()
-            .flatten()
-            .map_or_else(|| "none".to_owned(), |code| code.to_string());
-        let detail = format!("exit code: {code}\n{}", self.log_tail());
-        self.handle_backend_failure(
-            if reached_ready {
-                "本地后端意外退出"
-            } else {
-                "本地后端启动失败"
-            },
-            detail,
-        )
-        .await;
-    }
-
-    async fn cleanup_timed_out_backend(&self, root_pid: u32) {
-        let runtime_pid = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            if runtime.root_pid == Some(root_pid) {
-                runtime.root_pid = None;
-            }
-            let runtime_pid = runtime.runtime_pid;
-            runtime.runtime_pid = None;
-            runtime_pid
-        };
-        let mut terminated = true;
-        if is_process_alive(root_pid) {
-            terminated &= terminate_windows_process_tree(root_pid).await;
-        }
-        if let Some(runtime_pid) =
-            runtime_pid.filter(|pid| *pid != root_pid && is_process_alive(*pid))
-        {
-            terminated &= terminate_windows_process_tree(runtime_pid).await;
-        }
-        if let Some(runtime_pid) = runtime_pid {
-            if terminated && !is_process_alive(root_pid) && !is_process_alive(runtime_pid) {
-                self.clear_ownership(Some(runtime_pid));
-            }
-        }
-    }
-
-    async fn terminate_owned_backend(&self) {
-        let (root_pid, runtime_pid) = {
-            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-            runtime.ownership = None;
-            runtime.launch_nonce = None;
-            (runtime.root_pid.take(), runtime.runtime_pid.take())
-        };
-        let mut terminated = true;
-        if let Some(root_pid) = root_pid.filter(|pid| is_process_alive(*pid)) {
-            terminated &= terminate_windows_process_tree(root_pid).await;
-        }
-        if let Some(runtime_pid) =
-            runtime_pid.filter(|pid| Some(*pid) != root_pid && is_process_alive(*pid))
-        {
-            terminated &= terminate_windows_process_tree(runtime_pid).await;
-        }
-        if let Some(runtime_pid) = runtime_pid {
-            if terminated && !is_process_alive(runtime_pid) {
-                self.clear_ownership(Some(runtime_pid));
-            } else if is_process_alive(runtime_pid) {
-                self.inner.logger.error(format!("backend process tree remained alive; retaining ownership record runtime_pid={runtime_pid}"));
-            }
-        } else {
-            self.clear_dead_ownership();
-        }
-    }
-
-    fn write_ownership(&self, pid: u32, root_pid: u32, executable: &str, started_at: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(pid > 0 && root_pid > 0, "invalid backend process identity");
-        let settings = self.inner.settings.snapshot();
-        let ownership = BackendOwnership {
-            schema: 4,
-            pid,
-            root_pid,
-            host: settings.host,
-            port: settings.port,
-            executable: normalized_path(Path::new(executable)),
-            release_id: self.inner.release.release_id(),
-            token: settings.token.clone(),
-            token_sha256: String::new(),
-            started_at: started_at.to_owned(),
-        };
-        crate::identity::save_ownership(&self.ownership_path(), &ownership)?;
-        self.inner.runtime.lock().expect("runtime mutex poisoned").ownership = Some(ownership);
-        Ok(())
-    }
-
-    fn clear_ownership(&self, expected_pid: Option<u32>) {
-        let path = self.ownership_path();
-        if let Some(expected_pid) = expected_pid {
-            let matches = fs::read_to_string(&path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<BackendOwnership>(&raw).ok())
-                .is_some_and(|record| record.pid == expected_pid);
-            if !matches {
-                return;
-            }
-        }
-        let _ = fs::remove_file(path);
-    }
-
-    fn clear_dead_ownership(&self) {
-        let Some(ownership) = self.read_ownership() else {
-            return;
-        };
-        if ownership.pid > 0
-            && !is_process_alive(ownership.pid)
-            && ownership.root_pid > 0
-            && !is_process_alive(ownership.root_pid)
-        {
-            self.clear_ownership(Some(ownership.pid));
-        }
-    }
-
-    fn ensure_special_prompts(&self) -> anyhow::Result<()> {
-        let home = argus_home_dir();
-        let file = home.join("special_prompts").join("10-house-rules.md");
-        if !file.is_file() {
-            if let Some(parent) = file.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::write(&file, "Operational house rules for this machine.\n")?;
-            self.inner.logger.info(format!(
-                "created default operator prompts at {}",
-                file.display()
-            ));
-        }
-        Ok(())
-    }
-
-    fn ensure_runtime_command_shims(&self, command: &Path) -> anyhow::Result<Option<PathBuf>> {
-        if self.inner.release.development {
-            return Ok(None);
-        }
-        let runtime_bin = self.inner.settings.data_dir().join("runtime").join("bin");
-        fs::create_dir_all(&runtime_bin)?;
-        // cmd.exe cannot execute Rust's verbatim \\?\ paths and decodes batch
-        // files using the user's OEM code page. Keep the batch file ASCII and
-        // expand the Unicode-safe environment value supplied to the backend.
-        let cmd_body = "@echo off\r\nif not defined ARGUS_SKILL_PYTHON exit /b 1\r\n\"%ARGUS_SKILL_PYTHON%\" %*\r\n";
-        for name in ["python.cmd", "python3.cmd"] {
-            fs::write(runtime_bin.join(name), &cmd_body)?;
-        }
-        let shell = shell_command_path(command)
-            .replace('\\', "/")
-            .replace('\'', "'\"'\"'");
-        let shell_body = format!("#!/bin/sh\nexec '{shell}' \"$@\"\n");
-        for name in ["python", "python3"] {
-            fs::write(runtime_bin.join(name), &shell_body)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(runtime_bin.join(name), fs::Permissions::from_mode(0o700))?;
-            }
-        }
-        Ok(Some(runtime_bin))
+        self.logger.verbose(format!("backend output: {safe}"));
     }
 
     fn log_tail(&self) -> String {
-        let runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-        runtime
-            .log_tail
-            .iter()
-            .rev()
-            .take(8)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    pub fn detected_runners(&self) -> std::collections::BTreeMap<String, String> {
-        detect_runners()
+        let runtime = self.runtime();
+        let skip = runtime.log_tail.len().saturating_sub(8);
+        runtime.log_tail.iter().skip(skip).cloned().collect::<Vec<_>>().join("\n")
     }
 }
 
-fn is_routine_backend_access_log(line: &str) -> bool {
-    line.contains("\"GET /api/meta HTTP/1.1\" 200")
-}
-
-fn identity_probe(
-    message: &str,
-    authenticated: bool,
-    probe: Option<ProbeIdentity>,
-) -> ProbeIdentity {
-    let base = probe.unwrap_or(ProbeIdentity {
-        compatible: false,
-        occupied: true,
-        authenticated,
-        detail: None,
-        pid: None,
-        executable: None,
-        release_id: None,
-        started_at: None,
-        launch_nonce: None,
-        failure_kind: None,
-    });
-    ProbeIdentity {
-        detail: Some(message.to_owned()),
-        failure_kind: Some(ProbeFailureKind::Identity),
-        ..base
-    }
-}
-
-fn normalized_path(path: &Path) -> String {
-    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+/// `node argus.mjs --port P --backend B`, with the Web token and its state root.
+fn argus_command(
+    node: &Path,
+    script: &Path,
+    runner: Option<&Path>,
+    settings: &DesktopSettings,
+    home: &Path,
+) -> anyhow::Result<Command> {
+    fs::create_dir_all(home)?;
+    let mut command = Command::new(node);
     #[cfg(windows)]
-    {
-        crate::identity::normalized_windows_path(&resolved.to_string_lossy())
-    }
-    #[cfg(not(windows))]
-    {
-        resolved.to_string_lossy().into_owned()
-    }
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+        .arg(script)
+        .args(["--port", &settings.port.to_string(), "--backend", settings.runner_kind.as_str()])
+        .current_dir(home)
+        .env("ARGUS_WEB_TOKEN", &settings.token)
+        .env("ARGUS_HOME", home)
+        .env("PATH", runtime_path(node, runner)?)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    Ok(command)
 }
 
-fn random_nonce() -> String {
-    let mut bytes = [0_u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+/// Where Argus listens, from the line it prints once it does.
+fn ready_origin(line: &str) -> Option<String> {
+    let url = url::Url::parse(line.trim().strip_prefix(READY_PREFIX)?).ok()?;
+    (url.scheme() == "http").then(|| url.origin().ascii_serialization())
+}
+
+/// PATH for Argus and the CLIs it starts: Node's directory (an npm-installed
+/// CLI is a Node script) and the chosen CLI's (Argus finds it by name) first.
+fn runtime_path(node: &Path, runner: Option<&Path>) -> anyhow::Result<OsString> {
+    let current = env::var_os("PATH").unwrap_or_default();
+    let first = [Some(node), runner].into_iter().flatten().filter_map(Path::parent).map(Path::to_path_buf);
+    Ok(env::join_paths(first.chain(env::split_paths(&current)))?)
+}
+
+/// A download the window may accept: a blob of the page Argus serves.
+pub fn is_artifact_download(origin: Option<&str>, url: &url::Url) -> bool {
+    url.scheme() == "blob" && origin.is_some_and(|origin| url.origin().ascii_serialization() == origin)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn successful_meta_access_logs_are_not_persisted_as_diagnostics() {
-        assert!(super::is_routine_backend_access_log(
-            "INFO: 127.0.0.1 - \"GET /api/meta HTTP/1.1\" 200 OK"
-        ));
-        assert!(!super::is_routine_backend_access_log(
-            "INFO: 127.0.0.1 - \"GET /api/meta HTTP/1.1\" 401 Unauthorized"
-        ));
-        assert!(!super::is_routine_backend_access_log(
-            "INFO: 127.0.0.1 - \"GET /api/projects/s-1/events HTTP/1.1\" 200 OK"
-        ));
+    fn readiness_is_the_line_argus_prints_once_it_listens() {
+        assert_eq!(
+            ready_origin("Argus is at http://127.0.0.1:8799/?token=secret\n").as_deref(),
+            Some("http://127.0.0.1:8799"),
+        );
+        assert_eq!(ready_origin("Argus is at http://127.0.0.1:41234/").as_deref(), Some("http://127.0.0.1:41234"));
+        for other in ["", "listening", "Argus is at", "Argus is at not a url", "warning: Argus is at http://x/"] {
+            assert_eq!(ready_origin(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn artifact_downloads_accept_only_the_running_argus_blobs() {
+        let origin = Some("http://127.0.0.1:55418");
+        let accepted = url::Url::parse("blob:http://127.0.0.1:55418/artifact").unwrap();
+        assert!(is_artifact_download(origin, &accepted));
+        assert!(!is_artifact_download(None, &accepted));
+        for denied in [
+            "blob:http://127.0.0.1:9999/artifact",
+            "blob:https://example.com/artifact",
+            "blob:null/artifact",
+            "http://127.0.0.1:55418/api/projects",
+            "file:///example.txt",
+        ] {
+            assert!(!is_artifact_download(origin, &url::Url::parse(denied).unwrap()), "{denied}");
+        }
+    }
+
+    /// The Argus the build copied beside the test binary, as Tauri places
+    /// resources beside a development executable: the package's layout.
+    fn shipped_argus() -> PathBuf {
+        let target = env::current_exe().unwrap().parent().and_then(Path::parent).unwrap().to_path_buf();
+        target.join("argus").join("dist").join("argus.mjs")
+    }
+
+    #[tokio::test]
+    async fn the_shipped_argus_runs_with_node_and_says_where_it_listens() {
+        let node = find_node(None).expect("Node.js 22 or newer for the desktop's tests");
+        let home = tempfile::tempdir().unwrap();
+        let settings = DesktopSettings { port: 0, token: "desktop-test-token".into(), ..Default::default() };
+        let mut child = argus_command(&node, &shipped_argus(), None, &settings, home.path()).unwrap().spawn().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let origin = timeout(Duration::from_secs(30), async {
+            loop {
+                let line = lines.next_line().await.unwrap().expect("Argus exited before it listened");
+                if let Some(origin) = ready_origin(&line) {
+                    break origin;
+                }
+            }
+        }).await.expect("Argus said where it listens");
+        let client = Client::builder().no_proxy().build().unwrap();
+        let meta: Meta = client.get(format!("{origin}/api/meta")).bearer_auth(&settings.token)
+            .send().await.unwrap().json().await.unwrap();
+        assert!(meta.authentication.authenticated, "the token reached Argus");
+        assert_eq!(Some(meta.runtime.pid), child.id());
+        assert!(home.path().join("owner.json").is_file(), "ARGUS_HOME is its state root");
+        let page = client.get(format!("{origin}/")).send().await.unwrap();
+        assert!(page.status().is_success(), "the web cockpit is beside it");
+        // As the supervisor does: the child is reaped while it is stopped.
+        let exited = tokio::spawn(async move { child.wait().await.unwrap() });
+        assert!(terminate_process_tree(meta.runtime.pid).await);
+        if cfg!(unix) {
+            assert!(exited.await.unwrap().success(), "SIGTERM is a clean stop");
+            assert!(!home.path().join("owner.json").exists(), "and gives the state root back");
+        }
+    }
+
+    #[test]
+    fn node_and_the_cli_come_first_on_path() {
+        let node = Path::new("/opt/node/bin/node");
+        let runner = Path::new("/home/me/.npm/bin/codex");
+        let path = runtime_path(node, Some(runner)).unwrap();
+        let entries: Vec<PathBuf> = env::split_paths(&path).collect();
+        assert_eq!(entries[..2], [PathBuf::from("/opt/node/bin"), PathBuf::from("/home/me/.npm/bin")]);
     }
 }

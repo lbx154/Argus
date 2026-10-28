@@ -1,12 +1,15 @@
 use crate::models::{DesktopSettings, PiConfiguration, RunnerKind, RUNNER_KINDS};
 use crate::settings::runner_bin;
-use anyhow::Context;
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
 };
+
+/// The oldest Node.js major the desktop runs Argus with.
+pub const NODE_MAJOR: u32 = 22;
+const NODE_DOWNLOAD: &str = "https://nodejs.org/";
 
 fn home_dir() -> PathBuf {
     env::var_os("USERPROFILE")
@@ -15,25 +18,17 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// The state root of the desktop's Argus, given to it as `ARGUS_HOME`:
+/// `$<PROFILE>_HOME` or `~/.<profile>` (`~/.argus`); a preview keeps its own.
 pub fn argus_home_dir() -> PathBuf {
-    // Preview always has its own project/configuration store, even if launched
-    // from a terminal that exports the operator's production ARGUS_SKILL_HOME.
     if crate::release::preview_mode() {
         return crate::settings::desktop_data_dir().join("argus-home");
     }
-    env::var_os("ARGUS_SKILL_HOME")
-        .filter(|value| !value.is_empty())
+    let profile = crate::settings::desktop_profile();
+    env::var_os(format!("{}_HOME", profile.to_ascii_uppercase()))
+        .filter(|value| !value.to_string_lossy().trim().is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let profile = crate::settings::desktop_profile();
-            if profile == "argus" {
-                return home_dir().join(".argus-skill");
-            }
-            env::var_os(format!("{}_HOME", profile.to_ascii_uppercase()))
-                .filter(|value| !value.to_string_lossy().trim().is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home_dir().join(format!(".{profile}")))
-        })
+        .unwrap_or_else(|| home_dir().join(format!(".{profile}")))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,115 +37,30 @@ pub struct RunnerConfiguration {
     pub executable: Option<String>,
 }
 
-fn configured_backend(values: &BTreeMap<String, String>) -> Option<&str> {
-    ["ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND"]
-        .iter()
-        .find_map(|key| {
-            values
-                .get(*key)
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-        })
-}
-
-fn parse_runner_kind(name: &str) -> Option<RunnerKind> {
-    serde_json::from_value(Value::String(name.to_ascii_lowercase())).ok()
-}
-
-fn configured_bin(values: &BTreeMap<String, String>) -> Option<String> {
-    values
-        .get("ARGUS_SKILL_RUNNER_BIN")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-fn select_runner_configuration(
-    settings: &DesktopSettings,
-    environment: &BTreeMap<String, String>,
-    persisted: &BTreeMap<String, String>,
-) -> Option<RunnerConfiguration> {
-    let environment_backend = configured_backend(environment);
-    let environment_kind = environment_backend.and_then(parse_runner_kind);
-    let persisted_backend = configured_backend(persisted);
-    let persisted_kind = persisted_backend.and_then(parse_runner_kind);
-    let kind = if settings.runner_configured {
-        settings.runner_kind.clone()
-    } else {
-        parse_runner_kind(environment_backend.or(persisted_backend)?)?
-    };
-    let manual = settings
-        .runner_configured
-        .then(|| runner_bin(settings, &kind))
-        .flatten();
-    let executable = manual
-        .or_else(|| {
-            (environment_kind.is_none() || environment_kind.as_ref() == Some(&kind))
-                .then(|| configured_bin(environment))
-                .flatten()
-        })
-        .or_else(|| {
-            (persisted_kind.as_ref() == Some(&kind))
-                .then(|| configured_bin(persisted))
-                .flatten()
-        });
-    Some(RunnerConfiguration { kind, executable })
-}
-
-fn read_shared_configuration(path: &Path) -> anyhow::Result<BTreeMap<String, String>> {
-    let raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
-        Err(error) => return Err(error).with_context(|| format!("Cannot read {}", path.display())),
-    };
-    let values = serde_json::from_str::<BTreeMap<String, Value>>(&raw)
-        .with_context(|| format!("Invalid shared backend configuration at {}", path.display()))?;
-    Ok(values
-        .into_iter()
-        .filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_owned())))
-        .collect())
-}
-
-pub fn resolve_runner_configuration(
-    settings: &DesktopSettings,
-) -> anyhow::Result<Option<RunnerConfiguration>> {
-    let environment = env::vars().collect();
-    let persisted = read_shared_configuration(&argus_home_dir().join("config.json"))?;
-    let Some(mut configured) = select_runner_configuration(settings, &environment, &persisted)
-    else {
-        return Ok(None);
-    };
-    if configured.executable.is_none() {
-        configured.executable = resolve_runner_binary(&configured.kind);
-    } else if let Some(requested) = configured.executable.as_ref() {
-        if !Path::new(requested).is_file() {
-            let candidates = if cfg!(windows) && Path::new(requested).extension().is_none() {
-                vec![
-                    format!("{requested}.cmd"),
-                    format!("{requested}.exe"),
-                    requested.clone(),
-                ]
+/// The CLI the operator chose in the desktop, found on disk. Nothing is
+/// chosen until they confirm one.
+pub fn resolve_runner_configuration(settings: &DesktopSettings) -> Option<RunnerConfiguration> {
+    if !settings.runner_configured {
+        return None;
+    }
+    let kind = settings.runner_kind.clone();
+    let executable = match runner_bin(settings, &kind) {
+        Some(requested) if Path::new(&requested).is_file() => Some(requested),
+        // A bare command name is looked up as the shell would.
+        Some(requested) => {
+            let candidates = if cfg!(windows) && Path::new(&requested).extension().is_none() {
+                vec![format!("{requested}.cmd"), format!("{requested}.exe"), requested.clone()]
             } else {
                 vec![requested.clone()]
             };
-            let command_names: Vec<&str> = candidates.iter().map(String::as_str).collect();
-            let resolved = env::var_os("PATH")
-                .and_then(|path| {
-                    env::split_paths(&path)
-                        .find_map(|directory| first_file(&directory, &command_names))
-                })
+            env::var_os("PATH")
+                .and_then(|path| env::split_paths(&path).find_map(|directory| first_file(&directory, &candidates)))
                 .map(|path| path.to_string_lossy().into_owned())
-                .or_else(|| {
-                    (requested == configured.kind.as_str())
-                        .then(|| resolve_runner_binary(&configured.kind))
-                        .flatten()
-                });
-            if let Some(resolved) = resolved {
-                configured.executable = Some(resolved);
-            }
+                .or_else(|| (requested == kind.as_str()).then(|| resolve_runner_binary(&kind)).flatten())
         }
-    }
-    Ok(Some(configured))
+        None => resolve_runner_binary(&kind),
+    };
+    Some(RunnerConfiguration { kind, executable })
 }
 
 pub fn desktop_setup_complete(
@@ -176,49 +86,11 @@ fn local_app_data_dir() -> PathBuf {
         .unwrap_or_else(|| home_dir().join("AppData").join("Local"))
 }
 
-fn names(kind: &RunnerKind) -> &'static [&'static str] {
-    match kind {
-        RunnerKind::Codex => &["codex.cmd", "codex.exe", "codex"],
-        RunnerKind::Claude => &["claude.cmd", "claude.exe", "claude"],
-        RunnerKind::Copilot => &["copilot.cmd", "copilot.exe", "copilot"],
-        RunnerKind::Cursor => &[
-            "agent.cmd",
-            "agent.exe",
-            "agent",
-            "cursor-agent.cmd",
-            "cursor-agent.exe",
-            "cursor-agent",
-        ],
-        RunnerKind::Pi => &["pi.cmd", "pi.exe", "pi"],
-        RunnerKind::Opencode => &["opencode.cmd", "opencode.exe", "opencode"],
-        RunnerKind::Grok => &["grok.cmd", "grok.exe", "grok"],
-        RunnerKind::Qoder => &["qodercli.cmd", "qodercli.exe", "qodercli"],
-        RunnerKind::Dsh => &["dsh.cmd", "dsh.exe", "dsh"],
-    }
-}
-
-fn first_file(directory: &Path, names: &[&str]) -> Option<PathBuf> {
+fn first_file(directory: &Path, names: &[String]) -> Option<PathBuf> {
     names
         .iter()
         .map(|name| directory.join(name))
         .find(|candidate| candidate.is_file())
-}
-
-/// npm's Windows shims (for example `%APPDATA%\\npm\\codex.cmd`) execute a
-/// bare `node`.  A GUI process may have inherited a PATH from before Node/nvm
-/// was installed even though it can still discover the shim by absolute path.
-/// Resolve a real Node directory before handing that shim to the frozen Python
-/// backend; otherwise every Manager turn exits before reaching its provider.
-fn is_node_batch_wrapper(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
-        })
-}
-
-fn node_in_directory(directory: &Path) -> bool {
-    directory.join("node.exe").is_file() || directory.join("node").is_file()
 }
 
 fn nvm_node_dirs(settings: &Path) -> Vec<PathBuf> {
@@ -237,23 +109,14 @@ fn nvm_node_dirs(settings: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn first_node_runtime_dir(paths: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
-    paths
-        .into_iter()
-        .find(|directory| node_in_directory(directory))
-}
-
-fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
+/// Where Node.js and the CLIs npm installs beside it usually live. A desktop
+/// app does not inherit a login shell's PATH (macOS starts it with only the
+/// system directories), so these are searched as well as PATH.
+fn install_dirs() -> Vec<PathBuf> {
     let home = home_dir();
     let app_data = app_data_dir();
     let local_app_data = local_app_data_dir();
     let mut candidates = Vec::new();
-    if let Some(parent) = runner.parent() {
-        candidates.push(parent.to_path_buf());
-    }
-    if let Some(path) = env::var_os("PATH") {
-        candidates.extend(env::split_paths(&path));
-    }
     for name in ["NVM_SYMLINK", "NVM_HOME"] {
         if let Some(path) = env::var_os(name).filter(|path| !path.is_empty()) {
             candidates.push(PathBuf::from(path));
@@ -262,10 +125,6 @@ fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
     let mut nvm_settings = vec![
         local_app_data.join("nvm").join("settings.txt"),
         app_data.join("nvm").join("settings.txt"),
-        home.join("AppData")
-            .join("Local")
-            .join("nvm")
-            .join("settings.txt"),
     ];
     if let Some(nvm_home) = env::var_os("NVM_HOME").filter(|path| !path.is_empty()) {
         nvm_settings.push(PathBuf::from(nvm_home).join("settings.txt"));
@@ -281,82 +140,99 @@ fn node_runtime_candidates(runner: &Path) -> Vec<PathBuf> {
     candidates.extend([
         local_app_data.join("Volta").join("bin"),
         local_app_data.join("nvs").join("default"),
-        home.join("scoop")
-            .join("apps")
-            .join("nodejs")
-            .join("current"),
+        home.join("scoop").join("apps").join("nodejs").join("current"),
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        home.join(".volta").join("bin"),
     ]);
+    // nvm on macOS and Linux: one directory per installed version, newest first.
+    let mut versions: Vec<PathBuf> = fs::read_dir(home.join(".nvm").join("versions").join("node"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join("bin"))
+        .collect();
+    versions.sort_by(|a, b| b.cmp(a));
+    candidates.extend(versions);
     candidates
 }
 
-/// Return PATH entries needed to launch an npm batch wrapper.  The returned
-/// directory is verified to contain Node, so prepending it cannot mask a
-/// missing/foreign command with an arbitrary PATH element.
-pub fn runner_runtime_path_entries(runner: &str) -> Vec<PathBuf> {
-    let runner = Path::new(runner);
-    if !is_node_batch_wrapper(runner) {
-        return Vec::new();
+fn path_dirs() -> Vec<PathBuf> {
+    env::var_os("PATH").map(|path| env::split_paths(&path).collect()).unwrap_or_default()
+}
+
+/// `vMAJOR.MINOR.PATCH`, as `node --version` prints it.
+fn node_major(version: &str) -> Option<u32> {
+    version.trim().strip_prefix('v')?.split('.').next()?.parse().ok()
+}
+
+fn node_version(node: &Path) -> Option<String> {
+    let mut command = std::process::Command::new(node);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000);
     }
-    first_node_runtime_dir(node_runtime_candidates(runner))
-        .into_iter()
-        .collect()
+    let output = command.arg("--version").stdin(std::process::Stdio::null()).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// The first Node.js at least NODE_MAJOR in `directories`, or why there is none.
+fn first_node(directories: impl IntoIterator<Item = PathBuf>) -> Result<PathBuf, String> {
+    let name = if cfg!(windows) { "node.exe" } else { "node" };
+    let mut older = None;
+    for node in directories.into_iter().map(|directory| directory.join(name)).filter(|node| node.is_file()) {
+        let Some(version) = node_version(&node) else { continue };
+        if node_major(&version).is_some_and(|major| major >= NODE_MAJOR) {
+            return Ok(node);
+        }
+        older.get_or_insert(format!("{}（{version}）", node.display()));
+    }
+    let found = match older {
+        Some(older) => format!("本机的 Node.js 版本过低：{older}。"),
+        None => "未在本机找到 Node.js。".to_owned(),
+    };
+    Err(format!(
+        "{found}本地后端需要 Node.js {NODE_MAJOR} 或更高版本。请从 {NODE_DOWNLOAD} 下载安装 LTS 版本\
+         （Codex、Claude Code、Copilot CLI 和 Pi 也都通过 npm 安装，同样需要它），安装后点击“重试”。"
+    ))
+}
+
+/// The Node.js to run Argus with: beside the chosen CLI first (npm puts CLIs
+/// next to Node with nvm, Volta and Homebrew), then PATH, then install_dirs.
+pub fn find_node(runner: Option<&Path>) -> Result<PathBuf, String> {
+    let beside = runner.and_then(Path::parent).map(Path::to_path_buf);
+    first_node(beside.into_iter().chain(path_dirs()).chain(install_dirs()))
 }
 
 pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
-    let names = names(kind);
+    let name = kind.as_str();
+    let names = [format!("{name}.cmd"), format!("{name}.exe"), name.to_owned()];
     let home = home_dir();
-    let app_data = app_data_dir();
     let local_app_data = local_app_data_dir();
-    let mut candidates = vec![app_data.join("npm"), home.join(".local").join("bin")];
-
+    let mut candidates = vec![app_data_dir().join("npm"), home.join(".local").join("bin")];
     match kind {
         RunnerKind::Codex => candidates.push(local_app_data.join("Microsoft").join("WindowsApps")),
         RunnerKind::Claude => candidates.push(local_app_data.join("Programs").join("claude-code")),
         RunnerKind::Copilot => {
             candidates.push(local_app_data.join("Programs").join("github-copilot-cli"))
         }
-        RunnerKind::Cursor => candidates.push(local_app_data.join("cursor-agent")),
-        RunnerKind::Opencode => {
-            candidates.push(home.join(".opencode").join("bin"));
-            candidates.push(local_app_data.join("Programs").join("opencode"));
-        }
-        RunnerKind::Grok => candidates.push(local_app_data.join("Programs").join("grok")),
-        RunnerKind::Pi | RunnerKind::Qoder | RunnerKind::Dsh => {}
+        RunnerKind::Pi => {}
     }
-
-    if let Some(path) = env::var_os("PATH") {
-        candidates.extend(env::split_paths(&path).filter(|path| {
-            !path
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                .contains("windowsapps")
-        }));
-    }
-
+    candidates.extend(path_dirs().into_iter().filter(|path| {
+        !path.to_string_lossy().to_ascii_lowercase().contains("windowsapps")
+    }));
+    candidates.extend(install_dirs());
     candidates
         .iter()
-        .find_map(|directory| first_file(directory, names))
+        .find_map(|directory| first_file(directory, &names))
         .map(|path| path.to_string_lossy().into_owned())
 }
 
 pub fn detect_runners() -> BTreeMap<String, String> {
     RUNNER_KINDS
         .iter()
-        .filter_map(|name| {
-            let kind = match *name {
-                "codex" => RunnerKind::Codex,
-                "claude" => RunnerKind::Claude,
-                "copilot" => RunnerKind::Copilot,
-                "cursor" => RunnerKind::Cursor,
-                "pi" => RunnerKind::Pi,
-                "opencode" => RunnerKind::Opencode,
-                "grok" => RunnerKind::Grok,
-                "qoder" => RunnerKind::Qoder,
-                "dsh" => RunnerKind::Dsh,
-                _ => return None,
-            };
-            resolve_runner_binary(&kind).map(|path| ((*name).to_owned(), path))
-        })
+        .filter_map(|kind| resolve_runner_binary(kind).map(|path| (kind.as_str().to_owned(), path)))
         .collect()
 }
 
@@ -423,144 +299,33 @@ pub fn detect_pi_configuration() -> PiConfiguration {
 #[cfg(test)]
 mod tests {
     use super::{
-        desktop_setup_complete, first_node_runtime_dir, is_node_batch_wrapper, nvm_node_dirs,
-        read_shared_configuration, select_runner_configuration, RunnerConfiguration,
+        desktop_setup_complete, node_major, nvm_node_dirs, resolve_runner_configuration,
+        RunnerConfiguration,
     };
     use crate::models::{DesktopSettings, RunnerKind};
-    use std::{collections::BTreeMap, fs, path::Path};
+    use std::{collections::BTreeMap, fs};
 
     #[test]
-    fn missing_shared_configuration_is_an_unconfigured_installation() {
-        let directory = tempfile::tempdir().unwrap();
-        assert!(
-            read_shared_configuration(&directory.path().join("config.json"))
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn corrupt_shared_configuration_is_reported_instead_of_discarded() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("config.json");
-        for contents in ["{broken", "[]"] {
-            fs::write(&path, contents).unwrap();
-            let error = read_shared_configuration(&path).unwrap_err().to_string();
-            assert!(error.contains("Invalid shared backend configuration"));
-            assert!(error.contains("config.json"));
-        }
-    }
-
-    #[test]
-    fn fresh_desktop_reuses_persisted_claude_and_copilot_without_saving_a_desktop_choice() {
-        for (backend, expected) in [
-            ("claude", RunnerKind::Claude),
-            ("copilot", RunnerKind::Copilot),
-        ] {
-            let settings = DesktopSettings::default();
-            let persisted = BTreeMap::from([
-                ("ARGUS_SKILL_RUNNER_BACKEND".to_owned(), backend.to_owned()),
-                (
-                    "ARGUS_SKILL_RUNNER_BIN".to_owned(),
-                    format!("C:/agents/{backend}.cmd"),
-                ),
-            ]);
-            let selected =
-                select_runner_configuration(&settings, &BTreeMap::new(), &persisted).unwrap();
-            assert_eq!(selected.kind, expected);
-            assert_eq!(
-                selected.executable,
-                Some(format!("C:/agents/{backend}.cmd"))
-            );
-            assert!(!settings.runner_configured);
-            assert!(!settings.setup_complete);
-        }
-    }
-
-    #[test]
-    fn explicit_desktop_choice_is_authoritative_over_another_shared_backend() {
-        let settings = DesktopSettings {
-            runner_kind: RunnerKind::Copilot,
-            runner_configured: true,
-            setup_complete: true,
-            ..DesktopSettings::default()
-        };
-        let shared = BTreeMap::from([
-            ("ARGUS_SKILL_RUNNER_BACKEND".to_owned(), "claude".to_owned()),
-            (
-                "ARGUS_SKILL_RUNNER_BIN".to_owned(),
-                "C:/agents/claude.cmd".to_owned(),
-            ),
-        ]);
-        let selected = select_runner_configuration(&settings, &shared, &shared).unwrap();
-        assert_eq!(selected.kind, RunnerKind::Copilot);
-        assert_eq!(selected.executable, None);
-    }
-
-    #[test]
-    fn inherited_environment_backend_overrides_persisted_backend_without_reusing_its_binary() {
-        let environment =
-            BTreeMap::from([("ARGUS_SKILL_LIFE_BACKEND".to_owned(), "copilot".to_owned())]);
-        let persisted = BTreeMap::from([
-            ("ARGUS_SKILL_RUNNER_BACKEND".to_owned(), "claude".to_owned()),
-            (
-                "ARGUS_SKILL_RUNNER_BIN".to_owned(),
-                "C:/agents/claude.cmd".to_owned(),
-            ),
-        ]);
-        let selected =
-            select_runner_configuration(&DesktopSettings::default(), &environment, &persisted)
-                .unwrap();
-        assert_eq!(selected.kind, RunnerKind::Copilot);
-        assert_eq!(selected.executable, None);
-    }
-
-    #[test]
-    fn fresh_unconfigured_desktop_does_not_select_codex() {
+    fn a_fresh_desktop_selects_no_cli() {
         let settings = DesktopSettings::default();
-        assert!(
-            select_runner_configuration(&settings, &BTreeMap::new(), &BTreeMap::new()).is_none()
-        );
+        assert!(resolve_runner_configuration(&settings).is_none());
         assert!(!desktop_setup_complete(&settings, None));
     }
 
     #[test]
-    fn an_unknown_environment_backend_does_not_silently_choose_a_persisted_backend() {
-        let environment = BTreeMap::from([(
-            "ARGUS_SKILL_RUNNER_BACKEND".to_owned(),
-            "copilto".to_owned(),
-        )]);
-        let persisted =
-            BTreeMap::from([("ARGUS_SKILL_RUNNER_BACKEND".to_owned(), "claude".to_owned())]);
-        assert!(
-            select_runner_configuration(&DesktopSettings::default(), &environment, &persisted,)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn explicit_desktop_binary_wins_over_shared_binary() {
+    fn the_desktop_choice_names_the_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("claude.cmd");
+        fs::write(&executable, b"test-cli").unwrap();
         let settings = DesktopSettings {
             runner_kind: RunnerKind::Claude,
             runner_configured: true,
-            runner_bins: BTreeMap::from([(
-                "claude".to_owned(),
-                "C:/desktop/claude.cmd".to_owned(),
-            )]),
+            runner_bins: BTreeMap::from([("claude".to_owned(), executable.to_string_lossy().into_owned())]),
             ..DesktopSettings::default()
         };
-        let shared = BTreeMap::from([
-            ("ARGUS_SKILL_RUNNER_BACKEND".to_owned(), "claude".to_owned()),
-            (
-                "ARGUS_SKILL_RUNNER_BIN".to_owned(),
-                "C:/shared/claude.cmd".to_owned(),
-            ),
-        ]);
-        let selected = select_runner_configuration(&settings, &shared, &shared).unwrap();
-        assert_eq!(
-            selected.executable.as_deref(),
-            Some("C:/desktop/claude.cmd")
-        );
+        let selected = resolve_runner_configuration(&settings).unwrap();
+        assert_eq!(selected.kind, RunnerKind::Claude);
+        assert_eq!(selected.executable.as_deref(), Some(executable.to_string_lossy().as_ref()));
     }
 
     #[test]
@@ -587,40 +352,40 @@ mod tests {
     }
 
     #[test]
-    fn all_supported_runner_labels_are_stable() {
-        assert_eq!(RunnerKind::Cursor.label(), "Cursor CLI");
-        assert_eq!(RunnerKind::Opencode.label(), "OpenCode");
-        assert_eq!(RunnerKind::Grok.label(), "Grok Build");
-        assert_eq!(RunnerKind::Qoder.label(), "Qoder CLI");
-        assert_eq!(RunnerKind::Dsh.label(), "DeepSeek Harness");
+    fn node_versions_are_read_by_their_major() {
+        assert_eq!(node_major("v22.12.0\n"), Some(22));
+        assert_eq!(node_major("v8.17.0"), Some(8));
+        assert_eq!(node_major("22.1.0"), None);
+        assert_eq!(node_major(""), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_first_recent_enough_node_is_chosen_and_an_old_one_is_named() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let node = |version: &str| {
+            let directory = root.path().join(version);
+            fs::create_dir_all(&directory).unwrap();
+            let file = directory.join("node");
+            fs::write(&file, format!("#!/bin/sh\necho v{version}\n")).unwrap();
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+            directory
+        };
+        let (old, recent) = (node("20.11.1"), node("22.12.0"));
+        let missing = root.path().join("missing");
+        assert_eq!(super::first_node([missing.clone(), old.clone(), recent.clone()]).unwrap(), recent.join("node"));
+        let error = super::first_node([missing, old]).unwrap_err();
+        assert!(error.contains("v20.11.1") && error.contains("https://nodejs.org/"), "{error}");
+        assert!(super::first_node([]).unwrap_err().contains("未在本机找到"));
     }
 
     #[test]
-    fn npm_batch_wrapper_requires_node_but_native_runner_does_not() {
-        assert!(is_node_batch_wrapper(Path::new("codex.cmd")));
-        assert!(is_node_batch_wrapper(Path::new("CLAUDE.BAT")));
-        assert!(!is_node_batch_wrapper(Path::new("codex.exe")));
-        assert!(!is_node_batch_wrapper(Path::new("pi")));
-    }
-
-    #[test]
-    fn nvm_settings_yield_a_verified_node_runtime_directory() {
+    fn nvm_settings_yield_node_directories() {
         let temporary = tempfile::tempdir().unwrap();
         let node_dir = temporary.path().join("nodejs");
-        fs::create_dir_all(&node_dir).unwrap();
-        fs::write(node_dir.join("node.exe"), b"test-node").unwrap();
         let settings = temporary.path().join("settings.txt");
-        fs::write(
-            &settings,
-            format!("root: ignored\npath: {}\n", node_dir.display()),
-        )
-        .unwrap();
-
-        let candidates = nvm_node_dirs(&settings);
-        assert_eq!(candidates, vec![node_dir.clone()]);
-        assert_eq!(
-            first_node_runtime_dir(candidates).as_deref(),
-            Some(node_dir.as_path())
-        );
+        fs::write(&settings, format!("root: ignored\npath: {}\n", node_dir.display())).unwrap();
+        assert_eq!(nvm_node_dirs(&settings), vec![node_dir]);
     }
 }

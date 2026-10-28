@@ -25,8 +25,8 @@ export async function startSessionFixture(options = {}) {
   const manifestPath = process.env.ARGUS_SESSION_WEB_DIST
     ? resolve(dist, 'fixture-release.json') : resolve(checkout, 'argus/release_manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const protocol = await readFile(resolve(checkout, 'frontend/core/src/protocol.ts'), 'utf8');
-  const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/'([^']+)'/g)].map(match => match[1]);
+  const protocol = await readFile(resolve(checkout, 'packages/contracts/src/apiProtocol.generated.ts'), 'utf8');
+  const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/"([^"]+)"/g)].map(match => match[1]);
   const schema = Number(protocol.match(/SNAPSHOT_SCHEMA_VERSION = (\d+)/)[1]);
   const minor = Number(protocol.match(/minServerMinor: (\d+)/)[1]);
   const rows = [];

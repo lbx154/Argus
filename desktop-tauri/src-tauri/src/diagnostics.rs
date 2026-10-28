@@ -50,9 +50,6 @@ pub async fn export_diagnostics(
         if let Some(settings) = safe_read(&data_dir.join("settings.json")) {
             add_text(&mut zip, "settings.json", &redact_sensitive_text(&settings))?;
         }
-        if let Some(backend) = safe_read(&data_dir.join("runtime").join("backend.json")) {
-            add_text(&mut zip, "backend.json", &redact_sensitive_text(&backend))?;
-        }
         if let Some(log) = safe_read(logger.path()) {
             add_text(&mut zip, "desktop.log", &redact_sensitive_text(&log))?;
         }

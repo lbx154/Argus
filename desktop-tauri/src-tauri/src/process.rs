@@ -6,8 +6,7 @@ use std::{
 };
 use tokio::{process::Command, time::sleep};
 
-// The Tauri host is a GUI process. Keep its maintenance commands invisible just
-// like the backend and runner preflight, including infrequent recovery paths.
+// The Tauri host is a GUI process. Keep its maintenance commands invisible.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -24,9 +23,8 @@ pub fn is_process_alive(pid: u32) -> bool {
     // considered dead merely because this process lacks rights to signal it.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
-        // A protected process can reject query access. tasklist is only a
-        // liveness fallback; no kill decision is made unless ownership is
-        // already authenticated by the supervisor.
+        // A protected process can reject query access; tasklist is only a
+        // liveness fallback.
         let mut command = std::process::Command::new("tasklist");
         command.creation_flags(CREATE_NO_WINDOW);
         return command
@@ -51,8 +49,10 @@ pub fn is_process_alive(pid: u32) -> bool {
             .unwrap_or(false)
 }
 
-/// Terminate one proven Windows process tree and verify the root actually died.
-pub async fn terminate_windows_process_tree(pid: u32) -> bool {
+/// End Argus and what it started, and wait until it is gone: on Windows its
+/// whole process tree (`taskkill /T`); on POSIX it gets SIGTERM, on which it
+/// ends its own calls.
+pub async fn terminate_process_tree(pid: u32) -> bool {
     if pid == 0 || !is_process_alive(pid) {
         return pid != 0;
     }

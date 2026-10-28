@@ -1,4 +1,4 @@
-"""Keep the authorized Windows-only release and frozen build-input boundaries."""
+"""Keep the authorized Windows-only release and locked build-input boundaries."""
 from __future__ import annotations
 
 import json
@@ -49,48 +49,22 @@ def test_windows_dispatch_selects_one_explicit_msvc_runner():
 
 def test_windows_toolchain_pins_leave_other_platform_inputs_unchanged():
     assert _action("actions/setup-node@v4")["with"]["node-version"] == "${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}"
-    assert _action("actions/setup-python@v5")["with"]["python-version"] == "${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}"
     assert _action("dtolnay/rust-toolchain@stable")["with"]["toolchain"] == "${{ runner.os == 'Windows' && '1.98.0-x86_64-pc-windows-msvc' || 'stable' }}"
-    uv = _action("astral-sh/setup-uv@v5")
-    assert uv["if"] == "runner.os == 'Windows'"
-    assert uv["with"]["version"] == "0.12.16"
-    other = _step("Install non-Windows Python build dependencies")
-    assert other["if"] == "runner.os != 'Windows'"
-    assert 'python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata' == other["run"]
+    # The desktop ships no Python; only the Mac and Linux staging scripts are Python.
+    assert _action("actions/setup-python@v5")["if"] == "runner.os != 'Windows'"
 
 
 def test_windows_build_isolation_cannot_resolve_new_tools():
-    step = _step("Install Windows build dependencies")
+    step = _step("Pin the Windows Rust toolchain and crates")
     assert step["if"] == "runner.os == 'Windows'"
-    assert step["env"]["UV_PYTHON_DOWNLOADS"] == "never"
     script = step["run"]
-    assert "uv sync --extra dev --extra trial --no-install-project --python 3.11.9" in script
-    assert "--no-deps -r desktop-tauri/scripts/windows-build-requirements.txt" in script
-    assert "--no-deps --no-build-isolation --editable ." in script
-    assert "uv pip check --python .venv/Scripts/python.exe" in script
     assert "cargo fetch --locked" in script
     assert "--target x86_64-pc-windows-msvc" in script
     assert "RUSTUP_TOOLCHAIN=1.98.0-x86_64-pc-windows-msvc" in script
-    assert "--upgrade" not in script
-    frontend = _step("Install frontend build dependencies")["run"]
-    for package in ("frontend/web", "frontend/tui", "desktop-tauri"):
-        assert f"npm --prefix {package} ci" in frontend
-
-
-def test_windows_build_tool_pins_are_exact():
-    path = ROOT / "desktop-tauri/scripts/windows-build-requirements.txt"
-    pins = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        name, version = line.split("==")
-        assert name not in pins
-        assert re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", version)
-        pins[name] = version
-    assert pins["pyinstaller"] == "6.22.3"
-    assert pins["pyinstaller-hooks-contrib"] == "2026.7"
-    # --no-build-isolation also needs Hatchling's dynamic editable hook input.
-    assert pins["editables"] == "0.6"
+    install = _step("Install build dependencies")["run"]
+    for prefix in ("npm ci", "npm --prefix frontend/web ci", "npm --prefix desktop-tauri ci"):
+        assert prefix in install
+    assert "--upgrade" not in script + install
 
 
 def test_windows_tauri_build_passes_locked_to_cargo_after_tauri_options():
@@ -113,13 +87,11 @@ def test_signing_configuration_remains_scoped_to_the_existing_signing_step():
 
 def test_source_or_artifact_drift_stops_windows_artifact_upload():
     steps = _workflow()["jobs"]["desktop"]["steps"]
-    gate = _step("Verify reviewed Windows source and artifacts")
+    gate = _step("Verify the Windows build left the reviewed source unchanged")
     assert gate["if"] == "runner.os == 'Windows'"
     for check in (
-        "argus.release_tools.generate_manifest --check",
-        "argus.release_tools.check_artifacts",
         "git diff --exit-code HEAD",
-        "git ls-files --others --exclude-standard -- argus frontend",
+        "git ls-files --others --exclude-standard -- packages frontend desktop-tauri",
         "exit 1",
     ):
         assert check in gate["run"]

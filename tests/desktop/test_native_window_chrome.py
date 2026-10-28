@@ -58,25 +58,16 @@ def test_desktop_launches_backend_without_a_console_or_forced_backend() -> None:
     process = (TAURI_ROOT / "src-tauri" / "src" / "process.rs").read_text(encoding="utf-8")
 
     assert "CREATE_NO_WINDOW" in backend
-    assert "process.creation_flags(CREATE_NO_WINDOW)" in backend
+    assert "command.creation_flags(CREATE_NO_WINDOW)" in backend
     assert 'Command::new("taskkill")' in process
     assert 'Command::new("tasklist")' in process
     assert "creation_flags(CREATE_NO_WINDOW)" in process
     assert "if !settings.runner_configured || !settings.setup_complete" not in settings
     assert "resolve_runner_configuration(&settings)" in backend
-    assert 'if settings.runner_configured {' in backend
-    assert '.env_remove("ARGUS_SKILL_RUNNER_BIN")' in backend
+    # The operator's CLI is the backend Argus drives; nothing else is forced.
+    assert '"--backend", settings.runner_kind.as_str()' in backend
     assert "if (!setup.value.complete)" in shell
     assert "showWizard(setup.value)" in shell
-
-
-def test_frozen_command_shims_do_not_embed_unicode_or_verbatim_paths_in_batch_files() -> None:
-    backend = (TAURI_ROOT / "src-tauri/src/backend.rs").read_text(encoding="utf-8")
-    assert '.env("ARGUS_SKILL_PYTHON", &shell_command)' in backend
-    assert "shell_command_path(&command.command)" in backend
-    assert "shell_command_path(command)" in backend
-    assert "%ARGUS_SKILL_PYTHON%" in backend
-    assert "if not defined ARGUS_SKILL_PYTHON exit /b 1" in backend
 
 
 def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
@@ -185,7 +176,7 @@ def test_compatible_desktop_uses_product_attribution_not_argus_status_labels() -
     main = (source / "lib.rs").read_text(encoding="utf-8")
     assert "application_name(&app).to_owned()," in main
     assert "argus:open-delivery" in main
-    assert "argus-backend" in (source / "release.rs").read_text(encoding="utf-8")
+    assert 'resources.join("argus")' in (source / "release.rs").read_text(encoding="utf-8")
 
 
 def test_update_checks_leave_startup_idle_and_retry_transient_failures() -> None:
@@ -199,11 +190,9 @@ def test_update_checks_leave_startup_idle_and_retry_transient_failures() -> None
     assert "AUTO_START_DELAY: Duration = Duration::from_secs(30)" in updater
     assert "UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15)" in updater
     assert "PROGRESS_EMIT_INTERVAL" in updater
-    smoke = (TAURI_ROOT / "scripts" / "smoke-host.py").read_text(encoding="utf-8")
     assert "automatic_check_due" in updater
     assert "automatic_retry_delay_seconds" in policy
     assert "ARGUS_DESKTOP_DISABLE_UPDATE_CHECK" in updater
-    assert "ARGUS_DESKTOP_DISABLE_UPDATE_CHECK" in smoke
 
 
 def test_release_build_requires_signed_tauri_update_artifacts() -> None:
@@ -225,7 +214,6 @@ def test_release_build_requires_signed_tauri_update_artifacts() -> None:
     assert "Release output already exists" in stage
     wrapper = (TAURI_ROOT / "scripts" / "stage-release.ps1").read_text(encoding="utf-8")
     assert "Remove-Item" not in wrapper
-    assert (TAURI_ROOT / "scripts" / "smoke-host.py").is_file()
     assert "dangerousInsecureTransportProtocol" not in json.dumps(config)
     assert "也不允许证书绕过" in desktop_doc
 
@@ -257,7 +245,7 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "--chrome-bg: #161618" in styles
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
-    assert "inset: calc(var(--desktop-menu-height) + var(--desktop-notice-height)) 0 0" in styles
+    assert "inset: var(--desktop-menu-height) 0 0" in styles
 
 
 def test_native_brand_keeps_the_sclera_and_highlight_white_in_dark_mode() -> None:

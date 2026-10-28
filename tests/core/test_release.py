@@ -33,14 +33,10 @@ def test_release_files_cover_runtime_and_frontend_build_inputs() -> None:
         "frontend/web/package-lock.json",
         "frontend/web/vite.config.ts",
         "frontend/web/index.html",
-        "argus/desktop_backend_entry.py",
-        "desktop-tauri/argus_backend.spec",
         "desktop-tauri/src-tauri/src/backend.rs",
         "desktop-tauri/src-tauri/tauri.conf.json",
         "desktop-tauri/src-tauri/installer-hooks.nsh",
         "desktop-tauri/scripts/stage-release.ps1",
-        "desktop-tauri/scripts/smoke-host.py",
-        "desktop-tauri/resources/argus-backend/.gitkeep",
         "desktop-tauri/package-lock.json",
         "argus_doctor.py",
         ".agents/plugins/marketplace.json",
@@ -205,18 +201,16 @@ def test_windows_release_checks_live_in_explicit_ci_workflows() -> None:
     import of the removed maintenance.deploy_boundary module.
     """
     root = Path(__file__).parents[2]
-    extended = yaml.safe_load((root / ".github/workflows/extended.yml").read_text(encoding="utf-8"))
-    commands = "\n".join(step.get("run", "") for step in extended["jobs"]["desktop"]["steps"])
-    assert "npm --prefix frontend/tui ci" in commands
+    desktop = yaml.safe_load((root / ".github/workflows/desktop.yml").read_text(encoding="utf-8"))
+    commands = "\n".join(step.get("run", "") for step in desktop["jobs"]["desktop"]["steps"])
     assert "npm --prefix desktop-tauri ci" in commands
     assert "npm --prefix desktop-tauri run test:release" in commands
-    assert "cargo check --manifest-path desktop-tauri" in commands
-    assert "desktop-tauri/scripts/build-backend.ps1" in commands
+    assert "cargo test --manifest-path desktop-tauri" in commands
     assert "npm --prefix desktop-tauri run build:unsigned" in commands
     assert "electron-builder" not in commands
 
     workflow = yaml.safe_load((root / ".github/workflows/release.yml").read_text(encoding="utf-8"))
     steps = workflow["jobs"]["desktop"]["steps"]
     names = [step.get("name", "") for step in steps]
-    assert names.index("Verify Windows staging and signature boundary") < names.index("Build frozen backend")
+    assert names.index("Verify Windows staging and signature boundary") < names.index("Build signed desktop updates")
     assert any("stage-release.ps1" in step.get("run", "") for step in steps)

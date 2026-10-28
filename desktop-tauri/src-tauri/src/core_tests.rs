@@ -1,20 +1,14 @@
 #![allow(dead_code)]
 
-// Keep ownership, redaction, resilience, settings and release-identity tests
-// executable without constructing a WebView2/Tauri window. The full desktop
-// host is separately checked by `cargo check` and packaged in Windows CI.
-#[path = "identity.rs"]
-mod identity;
+// Keep redaction, runner, settings and release tests executable without
+// constructing a WebView2/Tauri window. The full desktop host is separately
+// checked by `cargo check` and `cargo test --lib`.
 #[path = "models.rs"]
 mod models;
-#[path = "probe.rs"]
-mod probe;
 #[path = "redaction.rs"]
 mod redaction;
 #[path = "release.rs"]
 mod release;
-#[path = "resilience.rs"]
-mod resilience;
 #[path = "runner.rs"]
 mod runner;
 #[path = "settings.rs"]

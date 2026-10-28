@@ -21,7 +21,7 @@ async function open(page: Page, sid = 's-B') {
     window.fixtureNotifications = [];
     export const desktopBridge = new Proxy({
       getStatus: async () => ({ state: 'ready', message: 'Synthetic ready' }),
-      getSetup: async () => ({ complete: true, trialMode: false, host: '127.0.0.1', port: 8799, runnerKind: 'copilot', runnerConfigured: true,
+      getSetup: async () => ({ complete: true, port: 8799, runnerKind: 'copilot', runnerConfigured: true,
         runnerBins: {}, detectedRunners: {}, piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
       isWindowVisible: async () => true,
       getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light' }),

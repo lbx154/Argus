@@ -531,8 +531,8 @@ impl UpdateManager {
             async {
                 #[cfg(windows)]
                 {
-                    // The supervisor already authenticates ownership. Never ask
-                    // NSIS to kill arbitrary processes with the same filename.
+                    // Stop the Argus this desktop started. Never ask NSIS to
+                    // kill arbitrary processes with the same filename.
                     let supervisor = Arc::clone(&crate::state(&self.inner.app).supervisor);
                     supervisor.stop().await;
                 }

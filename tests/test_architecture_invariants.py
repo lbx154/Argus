@@ -897,9 +897,8 @@ def test_one_dead_route_permanently_disqualifies_a_consumer_of_both(
 # lists can only shrink. This table is the single source that the package
 # docstrings (test_every_package_docstring_names_its_layer) and
 # docs/LAYOUT.md (test_layout_map_lists_every_directory) are checked against.
-# The four package-root modules (``__init__``, ``__main__``, ``loop``,
-# ``desktop_backend_entry``) form one pseudo-package ``<root>`` in the
-# delivery layer.
+# The package-root modules (``__init__``, ``__main__``, ``loop``) form one
+# pseudo-package ``<root>`` in the delivery layer.
 
 LAYERS: dict[str, tuple[str, ...]] = {
     "kernel": ("core",),
@@ -1574,7 +1573,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 SUBPROCESS_REENTRY_MODULES = (
     "argus.daemon.spawn_helper",
     "argus.tools.manager_live_view",
-    "argus.desktop_backend_entry",
     "argus.plugin.mcp_server",
     "argus.__main__",
 )
@@ -1893,7 +1891,7 @@ def test_memory_root_reads_do_not_grow() -> None:
 # ``except:``, or a tuple holding one of them) per top-level package of
 # ``argus/``; "<root>" is the modules directly under it. Counted 2026-10-27.
 BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
-    "<root>": 3,
+    "<root>": 1,
     "adapters": 16,
     "advisor": 4,
     "agent_cli": 12,
