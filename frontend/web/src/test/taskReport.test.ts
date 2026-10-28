@@ -63,4 +63,36 @@ describe('historical task-report presentation', () => {
     expect(report.text).toContain(prose);
     expect(report.technical).toBe('');
   });
+
+  it('says a recorded stop in the reader’s language from its stop kind, keeping the original aside', () => {
+    // Hosted trial: an old receipt read in English inside the Chinese UI.
+    const reason = 'The work was paused before the Engineer finished this round because the model provider is not accepting calls right now, so this round was not judged; it resumes from the saved progress.';
+    const raw = `Could not complete Survey the field.\nReason: ${reason} Technical record: stop_kind=provider_fence; error=HTTP 403`;
+    const report = plainTaskReport(raw, 'zh-CN')!;
+    expect(report.text).toContain('当时记录的原因：在工程师完成这一轮之前，工作因为模型服务当前不接受调用而暂停，这一轮没有评判；会从保存的进度继续。');
+    expect(report.text).not.toMatch(/The work was paused|not accepting calls/);
+    expect(report.technical).toBe('Technical record: stop_kind=provider_fence; error=HTTP 403');
+    // The clause comes from the code, not the sentence it was written in.
+    const cooled = plainTaskReport(raw.replace('provider_fence', 'provider_cooldown'), 'zh-CN')!;
+    expect(cooled.text).toContain('工作因为模型服务要求 Argus 稍后再调用而暂停');
+    expect(plainTaskReport(raw, 'en')!.text).toContain(`Reason recorded at the time: ${reason}`);
+    // The oldest wording named its code inline.
+    const legacy = plainTaskReport('Could not complete the current task.\nReason: Backend call paused before a trustworthy completed turn (stop_kind=daemon_shutdown); reviewer skipped. error=SIGTERM', 'zh-CN')!;
+    expect(legacy.text).toContain('当时记录的原因：在工程师完成这一轮之前，工作因为Argus 后台服务停止或重启了而暂停，这一轮没有评判；会从保存的进度继续。');
+    expect(legacy.text).not.toMatch(/Backend call paused|reviewer skipped/);
+  });
+
+  it('localizes a stored pause receipt’s reason and advice by the stop it records, and leaves other receipts alone', () => {
+    // Hosted trial: "原因：The work was paused before the Engineer finished this round because …" in a Chinese UI.
+    const raw = '模型服务限制了调用，「调研」先停下了。\n原因：The work was paused before the Engineer finished this round because the model provider is not accepting calls right now, so this round was not judged; it resumes from the saved progress.\n建议：Resume from the saved progress once the budget or model-service condition that paused the work has cleared.\n问题解决后点「继续运行」就能接着做；在那之前不会自动重试。';
+    const report = plainTaskReport(raw, 'zh-CN')!;
+    expect(report.text).toBe('模型服务限制了调用，「调研」先停下了。\n原因：在工程师完成这一轮之前，工作因为模型服务当前不接受调用而暂停，这一轮没有评判；会从保存的进度继续。\n建议：等预算或模型服务的限制解除后，从保存的进度继续。\n问题解决后点「继续运行」就能接着做；在那之前不会自动重试。');
+    expect(plainTaskReport(raw.replace('the model provider is not accepting calls right now', 'the Argus background service stopped or restarted'), 'zh-CN')!.text)
+      .toContain('工作因为Argus 后台服务停止或重启了而暂停');
+    // English readers already read it as written; a clause no stop kind says stays as recorded.
+    expect(plainTaskReport(raw.replace(/^.*\n/, 'Stuck for now: Survey.\n'), 'en')).toBeNull();
+    expect(plainTaskReport(raw.replace('the model provider is not accepting calls right now', 'something new happened'), 'zh-CN')!.text)
+      .toContain('原因：The work was paused before the Engineer finished this round because something new happened');
+    expect(plainTaskReport('「调研」暂时做不下去了。\n原因：数据集下载失败。', 'zh-CN')).toBeNull();
+  });
 });

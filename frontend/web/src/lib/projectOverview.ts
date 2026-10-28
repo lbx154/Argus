@@ -12,8 +12,12 @@ export interface ProjectOverview {
   done: number;
   total: number;
   active: number;
-  /** Seconds since the project's first task was queued, up to now or its last finished task. */
-  elapsedSeconds: number | null;
+  /** Seconds the roles actually worked: the settled calls, plus the running
+   * task's time since then; idle hours and days add nothing. Null when the
+   * ledger records no call durations. */
+  workedSeconds: number | null;
+  /** When the project's first task was queued. */
+  startedAt: number | null;
   spendUsd: number | null;
   spendStatus: Snapshot['spend_status'];
   latestDelivery: DeliveryReceipt | null;
@@ -26,8 +30,14 @@ export function projectOverview(snapshot: Snapshot, view: MissionView | null | u
   const done = items.filter((item) => item.status === 'done').length;
   const active = items.filter((item) => ACTIVE.has(item.status)).length;
   const started = Math.min(...items.map((item) => Number(item.ts) || Number(item.started_ts) || Infinity));
-  const finished = Math.max(0, ...items.map((item) => Number(item.finished_ts) || 0));
-  const end = active || snapshot.daemon.alive ? now : finished || now;
+  const settled = typeof snapshot.worked_seconds === 'number' && snapshot.worked_seconds > 0 ? snapshot.worked_seconds : null;
+  // The call under way is not in the ledger until it ends: count the running
+  // task from its start or the last settled call, whichever is later.
+  const running = snapshot.daemon.alive ? Math.min(Infinity, ...items
+    .filter((item) => ['running', 'in_progress', 'claimed'].includes(item.status) && Number(item.started_ts) > 0)
+    .map((item) => Number(item.started_ts))) : Infinity;
+  const since = Math.max(running, Number(snapshot.worked_until) || 0);
+  const inFlight = Number.isFinite(running) && now > since ? now - since : 0;
   const committed = stripLaunchNote(String(snapshot.goal || snapshot.continuous?.objective || snapshot.session.objective || ''));
   const goal = committed || String(view?.mission.title || items[0].title || '').trim();
   return {
@@ -36,7 +46,8 @@ export function projectOverview(snapshot: Snapshot, view: MissionView | null | u
     done,
     total: items.length,
     active,
-    elapsedSeconds: Number.isFinite(started) && end > started ? end - started : null,
+    workedSeconds: settled === null ? null : settled + inFlight,
+    startedAt: Number.isFinite(started) ? started : null,
     spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null,
     spendStatus: snapshot.spend_status,
     latestDelivery: latest ?? view?.delivery ?? null,

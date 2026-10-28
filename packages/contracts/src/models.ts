@@ -400,6 +400,10 @@ export interface Snapshot {
   global_spend_usd?: number | null;
   global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   global_usage_summary?: UsageSummary;
+  /** Seconds the project's settled calls actually ran (idle gaps excluded); null for older ledgers. */
+  worked_seconds?: number | null;
+  /** When the last of those calls ended. */
+  worked_until?: number | null;
   daemon_commands?: DaemonCommandState | null;
   observability?: ObservabilitySnapshot | null;
   mission_view?: MissionView | null;
