@@ -173,7 +173,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // Outside the workdir by either separator or an absolute path; hidden, also by its Windows short name.
   const record = join(home, 'projects', sid, 'project.json');
   for (const outside of [`../../projects/${sid}/project.json`, `..\\..\\projects\\${sid}\\project.json`, record, '.hidden', 'HIDDEN~1']) {
-    assert.equal((await call(`${P}/artifact/raw?path=${encodeURIComponent(outside)}`)).status, 404);
+    assert.equal((await call(`${P}/artifact/raw?path=${encodeURIComponent(outside)}`)).status, 404, outside);
   }
 });
 
