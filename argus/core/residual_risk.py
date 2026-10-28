@@ -26,13 +26,13 @@ check from evidence it has read, and still refuses the Engineer's word alone.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
+from .atomic_replace import write_atomic
 from .model_visible_text import FIXTURE_EVIDENCE_RULE
 
 FILENAME = "accepted-residual-risks.json"
@@ -75,15 +75,11 @@ def _read(root: Path | str) -> list[dict[str, Any]]:
 def _write(root: Path | str, rows: list[dict[str, Any]]) -> None:
     path = store_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump({"version": 2, "risks": rows[-MAX_RECORDS:]}, handle, ensure_ascii=False, allow_nan=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_atomic(
+        path,
+        json.dumps({"version": 2, "risks": rows[-MAX_RECORDS:]}, ensure_ascii=False, allow_nan=False),
+        fsync=True,
+    )
 
 
 def same_check(first: Any, second: Any) -> bool:

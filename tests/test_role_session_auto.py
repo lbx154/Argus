@@ -4,7 +4,7 @@ from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core import role_session as role_session_module
+from argus.core import atomic_replace
 from argus.core.role_session import _checkpoint_open_items
 from argus.planner import Planner, PlannerConfig
 from tests.hand_off import hand_off, plan
@@ -89,14 +89,14 @@ def test_planner_result_survives_capsule_write_failure(
         ),
     )
     events: list[dict] = []
-    real_replace = role_session_module.os.replace
+    real_replace = atomic_replace.os.replace
 
     def fail_planner_capsule(source, destination):
         if str(destination).endswith("planner.json"):
             raise PermissionError("simulated planner capsule write denial")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(role_session_module.os, "replace", fail_planner_capsule)
+    monkeypatch.setattr(atomic_replace.os, "replace", fail_planner_capsule)
     verdict = Planner(backend).plan_next(
         continuous_objective="verify completion",
         planning_cycle=0,

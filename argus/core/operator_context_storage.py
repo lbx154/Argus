@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .atomic_replace import write_atomic
 
 FORMAT = "operator-context-v2"
 DELIVERY_FORMAT = "operator-context-v3"
@@ -314,21 +315,13 @@ def checkpoint_bytes(doc: ContextDocument) -> bytes:
 def write_checkpoint(path: Path, doc: ContextDocument) -> None:
     payload = checkpoint_bytes(doc)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".operator-context-", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        if os.name != "nt":
-            directory = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+    write_atomic(path, payload, fsync=True, mode=0o600)
+    if os.name != "nt":
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     doc.base_revision = doc.revision
     doc.checkpointed = True
     doc.needs_checkpoint = False

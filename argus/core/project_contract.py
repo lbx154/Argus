@@ -28,12 +28,13 @@ disciplines later edits.
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+
+from .atomic_replace import write_atomic
 
 CLAUSE_PRECISE = "precise"
 CLAUSE_SEMANTIC = "semantic"
@@ -447,9 +448,7 @@ def save_contract(
         history.append(revision.to_dict())
     payload = {"contract": contract.to_dict(), "history": history}
     path = contract_path(root)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
     return path
 
 

@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
+from .atomic_replace import write_atomic
 from .transcript import read_turns
 
 log = logging.getLogger(__name__)
@@ -23,14 +22,7 @@ _CONTEXT_LIMIT = 5
 
 
 def _write_json(path: Path, record: dict[str, Any], mode: int = 0o644) -> None:
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-", suffix=".tmp")
-    try:
-        os.chmod(temporary, mode)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(record, handle)
-        os.replace(temporary, path)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+    write_atomic(path, json.dumps(record), mode=mode)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
 import weakref
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..atomic_replace import write_atomic
 from ..event_catalog import EventType, canonical_event_type
 from ..file_lock import exclusive_file_lock
 from ..json_codec import loads_finite_json
@@ -228,23 +228,15 @@ def load_mission_view(root: Path | str) -> dict[str, Any]:
 def _write_unlocked(root: Path, view: dict[str, Any]) -> None:
     root.mkdir(parents=True, exist_ok=True)
     target = root / MISSION_VIEW_FILE
-    fd, tmp_name = tempfile.mkstemp(prefix=".mission-view-", dir=str(root))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(view, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, target)
-        from ._replay import sync_directory
+    write_atomic(
+        target,
+        json.dumps(view, ensure_ascii=False, separators=(",", ":")) + "\n",
+        fsync=True,
+        mode=0o600,
+    )
+    from ._replay import sync_directory
 
-        sync_directory(root)
-    finally:
-        try:
-            os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
+    sync_directory(root)
 
 
 _PROJECTED_EVENT_TYPES = frozenset({

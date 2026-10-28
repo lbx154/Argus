@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
+
+from .atomic_replace import write_atomic
 
 FILENAME = "stage-certificates.json"
 
@@ -87,12 +88,7 @@ def record_stage_review(
     stages[normalized_stage] = record
     payload = {"schema_version": 1, "stages": stages}
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return record
 
 

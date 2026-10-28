@@ -28,6 +28,7 @@ from ..provider_integrations.copilot_usage import (
     copilot_usage_store_signature,
     find_copilot_usage_near,
 )
+from .atomic_replace import write_atomic
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import (
     PricingQuote,
@@ -1974,17 +1975,7 @@ def _reconcile_marker_signature(
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
-            handle.write("\n")
-        os.replace(tmp_name, path)
-    finally:
-        try:
-            os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n", mode=0o600)
 
 
 def _path_signature(path: Path) -> tuple[int, int, int] | None:
