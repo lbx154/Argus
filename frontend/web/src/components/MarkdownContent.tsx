@@ -203,6 +203,14 @@ export function MarkdownContent({
     },
     code: ({ className, children: value, ...props }) => {
       const block = Boolean(className) || String(value).includes('\n');
+      // A result named in a reply, as `results/plot.png`, opens like a link to it.
+      const path = block ? null : artifactPathFromHref(String(value), live.current.artifacts, live.current.basePath);
+      if (path && live.current.onOpenArtifact) {
+        return <button type="button" data-artifact-path={path} onClick={() => live.current.onOpenArtifact?.(path)}
+          className="cursor-pointer break-all rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+          {value}
+        </button>;
+      }
       return (
         <code
           {...props}
