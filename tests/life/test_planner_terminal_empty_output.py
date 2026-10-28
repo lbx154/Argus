@@ -1001,6 +1001,85 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
     assert backend.manager_calls == 0
 
 
+def test_experiment_scale_assessment_hold_is_recorded_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """s-efe9deac (10-27 10:20-12:36): every planning pass replayed the same
+    accepted Experiment review to the gate, whose scale-assessment hold was not
+    recorded on the task, so it stayed unassessed. 17 identical holds woke the
+    Planner 22 times in two hours while it waited for an operator answer."""
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    state_path = project / ".argus" / "PIPELINE_STATE.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({
+            "vertical": "research",
+            "current_stage": "experiment",
+            "research_target_level": "publishable",
+            "workflow_mode": "staged",
+        }),
+        encoding="utf-8",
+    )
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Evaluate the initial policy on the validation split",
+            objective="Run one greedy evaluation of the step-0 policy.",
+            tags=["planner", "scope:bounded", "stage:experiment"],
+        )
+    )
+    mission_path = create_mission_context(
+        life_dir=supervisor.memory.project_root,
+        mission_id=item.id,
+        stage="experiment",
+        objective=item.objective,
+        scope="bounded",
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission_path,
+        round_index=1,
+        engineer_summary="",
+        review=SimpleNamespace(
+            status="done",
+            reason="19/38 pass on the validation split; the raw recount matches.",
+            next_action="",
+            operator_question="",
+        ),
+        checkpoint_path=None,
+    )
+    supervisor.memory.backlog.mark_done(
+        item.id,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_assessed",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    def holds() -> int:
+        return sum(
+            1 for event in sink.events
+            if event.get("type") == "life.manager.stage_decision"
+            and event.get("diagnostic") == "experiment_scale_assessment_required"
+        )
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert holds() == 1
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.outcome["stage_certification"] == "not_certified"
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert holds() == 1, "the same review is not held again"
+
+
 @pytest.mark.parametrize("second_run_accepts", [True, False])
 def test_replay_reads_only_the_latest_run_of_a_requeued_mission(
     tmp_path: Path,

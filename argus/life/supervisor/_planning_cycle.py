@@ -308,7 +308,11 @@ class PlanningCycleMixin(
                 } if final else {}),
             }):
                 return ""
-        if decision.source in {"completion_gate", "stage_completion_gate_hold"}:
+        # A deterministic gate decision is recorded on the task, or the same
+        # review is replayed and held again on every planning pass.
+        if decision.source in {
+            "completion_gate", "stage_completion_gate_hold", "planner_scale_assessment_hold",
+        }:
             self.memory.backlog.update(item.id, outcome=outcome)
         if decision.action not in {"advance", "complete", "rollback"}:
             return ""
