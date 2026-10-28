@@ -1,7 +1,7 @@
 // What the operator sets on a project: its directory, its name, the backend, model and reasoning
-// effort of all its roles, and a fresh Manager session; and across projects: the sidebar's pins and archive, kept in
-// $ARGUS_HOME/browser-state.json, and what each project has spent. A project's record is changed
-// only while nothing is under way on it, since the work under way holds the record and writes it back.
+// effort of all its roles, and a fresh Manager session; and across projects: what each has spent,
+// and the sidebar's pins and archive, kept in $ARGUS_HOME/browser-state.json. A project's record is
+// changed only while nothing is under way on it, since the work under way holds it and writes it back.
 
 import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -61,36 +61,10 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); });
       return { ok: true, workdir };
     }],
-    // The page asks every few seconds; the project list carries the same figures.
-    ['GET', /^\/api\/projects\/costs$/, () => ({
-      projects: store.list().map((work): ProjectCostRow => {
-        const { id, spend_usd = null, known_cost_usd = 0, spend_status = 'empty', usage_calls = 0, last_active } = projectRow(store, work, runs.live(work.id));
-        return { id, spend_usd, known_cost_usd, spend_status, usage_calls, premium_requests: 0, updated_at: last_active };
-      }),
-      generated_at: Date.now() / 1000,
-    })],
     ['PATCH', /^\/api\/projects\/([^/]+)$/, async ({ params: [id], body }) => {
       const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
       edit(id!, work => { if (name) work.name = name; else delete work.name; });
       return { ok: true, sid: id, name };
-    }],
-    // The Manager's next turn starts a new session; the record it reads stays as it is.
-    ['POST', /^\/api\/projects\/([^/]+)\/reset$/, ({ params: [id] }) => {
-      edit(id!, work => { delete work.sessions.manager; });
-      return { ok: true };
-    }],
-    ['GET', /^\/api\/browser-state\/organization$/, () => kept().organization ?? { value: {}, revision: 0 }],
-    ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {
-      const { sid, field, value } = await body();
-      const { id } = project(String(sid));
-      if (!MARKS.includes(String(field)) || typeof value !== 'boolean') throw new HttpError(400, `a mark is one of ${MARKS.join(', ')}, true or false`);
-      const state = kept();
-      const { value: marks, revision } = state.organization ?? { value: {}, revision: 0 };
-      marks[id] = { pinned: false, archived: false, followup: false, ...marks[id], [String(field)]: value };
-      state.organization = { value: marks, revision: revision + 1 };
-      writeFileSync(`${browserState}.tmp`, JSON.stringify(state));
-      renameSync(`${browserState}.tmp`, browserState);
-      return state.organization;
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
       const work = project(id!);
@@ -129,6 +103,33 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
           availability: { state: 'unknown', at: 0, reason: '' },
         })),
       };
+    }],
+    // The Manager's next turn starts a new session; the record it reads stays as it is.
+    ['POST', /^\/api\/projects\/([^/]+)\/reset$/, ({ params: [id] }) => {
+      edit(id!, work => { delete work.sessions.manager; });
+      return { ok: true };
+    }],
+    // The page asks every few seconds; the project list carries the same figures.
+    ['GET', /^\/api\/projects\/costs$/, () => ({
+      projects: store.list().map((work): ProjectCostRow => {
+        const { id, spend_usd = null, known_cost_usd = 0, spend_status = 'empty', usage_calls = 0, last_active } =
+          projectRow(store, work, runs.live(work.id));
+        return { id, spend_usd, known_cost_usd, spend_status, usage_calls, premium_requests: 0, updated_at: last_active };
+      }),
+      generated_at: Date.now() / 1000,
+    })],
+    ['GET', /^\/api\/browser-state\/organization$/, () => kept().organization ?? { value: {}, revision: 0 }],
+    ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {
+      const { sid, field, value } = await body();
+      const { id } = project(String(sid));
+      if (!MARKS.includes(String(field)) || typeof value !== 'boolean') throw new HttpError(400, `a mark is one of ${MARKS.join(', ')}, true or false`);
+      const state = kept();
+      const { value: marks, revision } = state.organization ?? { value: {}, revision: 0 };
+      marks[id] = { pinned: false, archived: false, followup: false, ...marks[id], [String(field)]: value };
+      state.organization = { value: marks, revision: revision + 1 };
+      writeFileSync(`${browserState}.tmp`, JSON.stringify(state));
+      renameSync(`${browserState}.tmp`, browserState);
+      return state.organization;
     }],
   ];
 }
