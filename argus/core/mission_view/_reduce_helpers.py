@@ -187,18 +187,16 @@ def _role_work(
     if technical:
         patch["technical"] = technical[:MISSION_TECHNICAL_NOTE_LIMIT]
     _upsert(rows, "id", work_id, patch)
-    keep_ids: set[str] = set()
-    for role_name in _ROLE_NAMES:
-        role_rows = [
-            row for row in rows if str(row.get("role") or "") == role_name
-        ]
-        keep_ids.update(
-            str(row.get("id") or "")
-            for row in role_rows[-MISSION_ROLE_WORK_LIMIT_PER_ROLE:]
-        )
-    view["role_work"] = [
-        row for row in rows if str(row.get("id") or "") in keep_ids
-    ]
+    # Keep each role's newest rows, in order.
+    counts = dict.fromkeys(_ROLE_NAMES, 0)
+    kept: list[dict[str, Any]] = []
+    for row in reversed(rows):
+        name = str(row.get("role") or "")
+        if name in counts and counts[name] < MISSION_ROLE_WORK_LIMIT_PER_ROLE:
+            counts[name] += 1
+            kept.append(row)
+    kept.reverse()
+    view["role_work"] = kept
 
 
 def _visible_role_work_progress(
