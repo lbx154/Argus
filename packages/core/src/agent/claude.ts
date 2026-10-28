@@ -12,9 +12,11 @@ export const claude: StartBackend = (request, { confined, schema }) => {
     '-p', '--verbose', '--output-format', 'stream-json',
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--effort', request.effort] : [],
-    // Inside bubblewrap the sandbox is bubblewrap's; outside it, edits only.
-    ...request.access === 'none' ? ['--tools', ''] : request.access === 'read' ? ['--tools', 'Read,Glob,Grep']
-      : ['--permission-mode', confined ? 'bypassPermissions' : 'acceptEdits'],
+    // Inside bubblewrap the sandbox is bubblewrap's, and a reader's workdir is mounted read-only,
+    // so it may run commands (a check) too; outside it, a reader only reads and a writer only edits.
+    ...request.access === 'none' ? ['--tools', '']
+      : request.access === 'read' && !confined ? ['--tools', 'Read,Glob,Grep']
+      : [...request.access === 'read' ? ['--tools', 'Read,Glob,Grep,Bash'] : [], '--permission-mode', confined ? 'bypassPermissions' : 'acceptEdits'],
     ...[...request.readDirs ?? [], ...request.writeDirs ?? []].flatMap(dir => ['--add-dir', dir]),
     '--json-schema', JSON.stringify(schema),
     ...request.resume ? ['--resume', request.resume] : [],
