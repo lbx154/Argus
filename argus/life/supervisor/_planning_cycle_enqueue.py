@@ -237,13 +237,20 @@ class PlanningCycleEnqueueMixin:
         return not self._item_requires_independent_review(duplicate_item)
 
     def _pc_apply_stage_request(self, state: _PlanCycleState) -> Any | None:
-        """Move to the stage the Planner proposed, before its handoff is handled.
+        """Move to the stage a plan without tasks proposes, before its handoff.
 
         A plan with no tasks may still move the stage: Idea is accepted and
         the Planner, which plans only the current stage, asks for Experiment
         before planning it. Applied after the handoff, such a request was
         dropped and the stage never moved (s-5dc7ab4a, 2026-10-27: 10 h idle).
+        A plan with tasks has its request applied with them, and a plan that
+        ends the project is judged as a completion.
         """
+        if state.verdict.new_tasks or getattr(state.verdict, "project_done", False):
+            return None
+        return self._apply_stage_request(state)
+
+    def _apply_stage_request(self, state: _PlanCycleState) -> Any | None:
         requested_stage = str(
             getattr(state.verdict, "advance_to_stage", "") or ""
         ).strip()
@@ -301,6 +308,9 @@ class PlanningCycleEnqueueMixin:
         feedback_diagnostic = str(
             manager_feedback.get("diagnostic") or ""
         ).strip()
+        stage_result = self._apply_stage_request(state)
+        if stage_result is not None:
+            return stage_result
         state_reader = getattr(self, "_artifact_root", None)
         state_root = state_reader() if callable(state_reader) else Path(self._project_workdir())
         waypoint_states = getattr(self, "_waypoint_states", None)
