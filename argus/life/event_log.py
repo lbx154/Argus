@@ -273,14 +273,10 @@ class JsonlEventSink:
                                 if fh.read(1) != b"\n":
                                     # Preserve an interrupted row without joining it.
                                     fh.write(b"\n")
-                            if index is not None:
-                                index.begin(key, fh)
                             fh.write(encoded_line)
                             fh.flush()
                             os.fsync(fh.fileno())
                         sync_directory(self._dir)
-                        if index is not None:
-                            index.finish(key)
             except Exception:  # noqa: BLE001
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in
