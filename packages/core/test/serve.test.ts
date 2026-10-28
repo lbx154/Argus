@@ -347,6 +347,29 @@ test('pausing lets the calls under way end and starts no other, until the work r
   assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer', 'reviewer', 'manager']);
 });
 
+test('a robot model opens in 3D, with the meshes it names read from beside it', async t => {
+  const { get, post, call } = await setup(t, []);
+  const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const P = `/api/projects/${sid}`;
+  await mkdir(join(workdir, 'leg', 'urdf'), { recursive: true });
+  await mkdir(join(workdir, 'leg', 'meshes'), { recursive: true });
+  await writeFile(join(workdir, 'leg', 'urdf', 'leg.urdf'), '<robot name="leg"/>');
+  await writeFile(join(workdir, 'leg', 'meshes', 'thigh.stl'), 'solid thigh');
+
+  assert.equal((await get(`${P}/artifact?path=leg/urdf/leg.urdf`)).kind, 'model');
+  // XML may carry a script: it is never sent as a document of this origin.
+  assert.equal((await call(`${P}/artifact/raw?path=leg/urdf/leg.urdf`)).headers.get('content-type'), 'text/plain; charset=utf-8');
+  const asset = (ref: string) => call(`${P}/artifact/model-asset?${new URLSearchParams({ path: 'leg/urdf/leg.urdf', ref })}`);
+  for (const ref of ['../meshes/thigh.stl', 'package://leg/meshes/thigh.stl', 'package://other/meshes/thigh.stl']) {
+    const found = await asset(ref);
+    assert.equal(found.status, 200, ref);
+    assert.equal(await found.text(), 'solid thigh');
+  }
+  for (const ref of ['../../../projects/x/project.json', '/etc/hostname', 'file:///etc/hostname', 'missing.stl']) {
+    assert.equal((await asset(ref)).status, 404, ref);
+  }
+});
+
 test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed, and plugins", async t => {
   const { home, store, get, call, post } = await setup(t, []);
   const own = join(home, 'skills');

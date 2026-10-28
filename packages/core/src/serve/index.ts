@@ -14,7 +14,7 @@ import { PROJECT_ID, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
 import { drafts } from './drafts.js';
-import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
+import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { preview } from './preview.js';
 import { CAPABILITIES, directory, projectRoutes } from './projects.js';
@@ -213,6 +213,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const found = under(project(id!).workdir, url.searchParams.get('path') ?? '');
       if (!found) throw new HttpError(404, 'no such result');
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, url.searchParams.get('download') === 'true'));
+    }],
+    // A file the 3D viewer's model names: a mesh, a texture, a glTF buffer.
+    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/model-asset$/, ({ params: [id], url, request, response }) => {
+      const { workdir } = project(id!);
+      const ref = (url.searchParams.get('ref') ?? '').replace(/\\/g, '/').split(/[?#]/)[0]!;
+      const found = modelAssets(url.searchParams.get('path') ?? '', ref).map(path => under(workdir, path)).find(found => found !== null);
+      if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
+      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, false));
     }],
     ...library(store), ...workspace(project), ...preview(project), ...records(store, project), ...resources(),
   ];
