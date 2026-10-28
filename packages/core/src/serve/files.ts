@@ -74,24 +74,29 @@ export function artifactInfo(project: Project, found: { file: string; path: stri
   return { ...info, preview: text, truncated: found.stat.size > PREVIEW_BYTES };
 }
 
-/** The workdir's files created or changed since the project began, newest first. */
-export function artifacts(project: Project): ArtifactInfo[] {
-  const since = Date.parse(project.created);
-  const found: ArtifactInfo[] = [];
+/** The files under `root` changed since `since` (epoch ms), newest first: at most LISTED, six folders
+ * deep, and none hidden or in node_modules or __pycache__. */
+export function changed(root: string, since = 0): { file: string; path: string; stat: Stats }[] {
+  const found: { file: string; path: string; stat: Stats }[] = [];
   const walk = (dir: string, depth: number): void => {
-    for (const entry of readdirSync(join(project.workdir, dir), { withFileTypes: true })) {
+    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
       if (found.length >= LISTED || entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
       const path = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.isDirectory() && depth < 6) walk(path, depth + 1);
       else if (entry.isFile()) {
-        const stat = statSync(join(project.workdir, path));
-        if (stat.mtimeMs >= since) found.push(artifactInfo(project, { file: join(project.workdir, path), path, stat }));
+        const file = join(root, path);
+        const stat = statSync(file);
+        if (stat.mtimeMs >= since) found.push({ file, path, stat });
       }
     }
   };
   walk('', 0);
-  return found.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
+  return found.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
 }
+
+/** The workdir's files created or changed since the project began, newest first. */
+export const artifacts = (project: Project): ArtifactInfo[] =>
+  changed(project.workdir, Date.parse(project.created)).map(found => artifactInfo(project, found));
 
 /** How a result is sent: never as a page of this origin, which holds the cockpit's token. */
 export function rawHeaders(path: string, download: boolean): Record<string, string> {

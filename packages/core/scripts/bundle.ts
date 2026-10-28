@@ -1,5 +1,5 @@
 // The published package: the CLI with the packages it uses in one file, dist/argus.mjs, beside
-// the prompts it reads (prompts/), the ways of working its roles read (ways/) and the web cockpit
+// the prompts it reads (prompts/), Argus's own skills (skills/) and the web cockpit
 // (web/, scripts/web.ts).
 
 import { build } from 'esbuild';

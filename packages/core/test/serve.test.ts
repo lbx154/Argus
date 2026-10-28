@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
+import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
@@ -305,4 +306,74 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
   assert.equal(requests[3]!.resume, undefined);
+});
+
+test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed, and plugins", async t => {
+  const { home, store, get, call, post } = await setup(t, []);
+  const own = join(home, 'skills');
+  // A file of the roles' skills, changed `minutes` after an hour from now: later than the folders that hold it.
+  const hour = Math.ceil(Date.now() / 1000) + 3600;
+  const at = (minutes: number): number => hour + minutes * 60;
+  const write = async (path: string, text: string, minutes: number): Promise<void> => {
+    await mkdir(join(own, path, '..'), { recursive: true });
+    await writeFile(join(own, path), text);
+    await utimes(join(own, path), at(minutes), at(minutes));
+  };
+  const { id } = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  const revision = async (): Promise<number> => {
+    const learning = await get<{ jobs: unknown[]; pending: number; revision: number }>(`/api/projects/${id}/learning`);
+    assert.deepEqual([learning.jobs, learning.pending], [[], 0]);
+    return learning.revision;
+  };
+  const before = await revision();
+
+  await write('quant/README.md', '# Backtest a trading idea without lookahead\n\nRun check.mjs.\n', 1);
+  await write('quant/check.mjs', 'console.log("no lookahead");\n', 2);
+  await write('research/README.md', '# Research as this operator wants it\n', 3);
+  const catalog = await get<{ items: Record<string, unknown>[]; errors: unknown }>('/api/skill-library?sid=p-1');
+  assert.deepEqual(catalog.errors, []);
+  const item = (name: string) => catalog.items.find(item => item.name === name);
+  assert.deepEqual(item('quant'), {
+    library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/README.md', name: 'quant',
+    description: 'Backtest a trading idea without lookahead', is_default: false, updated_at: at(1),
+  });
+  // The operator's research skill takes the place of Argus's.
+  assert.deepEqual([item('research')?.source, item('research')?.description], ['shared', 'Research as this operator wants it']);
+  assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
+    ['bundled', 'software/README.md', true, null]);
+
+  const document = (library: string, path: string) => call(`/api/skill-library/document?${new URLSearchParams({ library, path })}`);
+  assert.equal((await (await document('shared', 'quant/check.mjs')).json() as { content: string }).content, 'console.log("no lookahead");\n');
+  assert.equal((await (await document('bundled', 'software/README.md')).json() as { content: string }).content,
+    await readFile(join(SKILLS, 'software', 'README.md'), 'utf8'));
+  // Only the files of the skills can be read.
+  for (const [library, path] of [['shared', `../projects/${id}/project.json`], ['shared', join(home, 'projects', id, 'project.json')],
+    ['bundled', '../package.json'], ['shared', 'quant'], ['wiki', 'quant/README.md']]) {
+    assert.equal((await document(library!, path!)).status, 404, `${library} ${path}`);
+  }
+
+  assert.deepEqual(await get('/api/wiki'), { scopes: [], libraries: [], items: [], verticals: [], active_vertical: '', errors: [] });
+  assert.equal((await call('/api/wiki/page?scope=global&vertical=&path=x.md')).status, 404);
+  assert.ok(await revision() > before);
+  const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
+  const learned = { kind: 'learned', scope: 'global', vertical: '', source_project: '', role: '', note: '' };
+  assert.deepEqual(events, [
+    { ...learned, ts: at(3), path: 'research/README.md', title: 'Research as this operator wants it' },
+    { ...learned, ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
+  ]);
+  const changed = await revision();
+  await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
+  assert.ok(await revision() > changed);
+
+  await write('bench/README.md', '# A workbench for crystal structures\n', 4);
+  await write('bench/plugin.json', JSON.stringify({ name: 'Bench', description: 'Solve a structure', version: '1.2', url: 'http://127.0.0.1:9100/' }), 4);
+  await write('sketch/README.md', '# A plugin not ready to open\n', 5);
+  await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch' }), 5);
+  const { plugins } = await get<{ plugins: Record<string, unknown>[] }>('/api/plugins');
+  assert.deepEqual(plugins.map(plugin => [plugin.id, plugin.name, plugin.installed, plugin.enabled, plugin.supported, plugin.backends]),
+    [['bench', 'Bench', true, true, true, {}], ['sketch', 'Sketch', true, true, false, {}]]);
+  assert.deepEqual(await (await post('/api/plugins/bench/launch', {})).json(), { url: 'http://127.0.0.1:9100/' });
+  const unready = await post('/api/plugins/sketch/launch', {});
+  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no url to open.` }]);
+  assert.equal((await post('/api/plugins/quant/launch', {})).status, 404);
 });
