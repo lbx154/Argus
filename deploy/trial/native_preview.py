@@ -34,6 +34,7 @@ INPUT_CEILING = 5.0 / MICRO
 OUTPUT_CEILING = 20.0 / MICRO
 MAX_BODY = 2_000_000
 MAX_OUTPUT = 16384
+MIN_ADMIT = 10_000  # $0.01 in micro-dollars
 
 
 async def bounded_body(request: Request, maximum: int) -> bytes:
@@ -84,9 +85,16 @@ class Ledger:
             db.execute("BEGIN IMMEDIATE")
             total = db.execute("SELECT COALESCE(SUM(amount),0) FROM charges").fetchone()[0]
             used = db.execute("SELECT COALESCE(SUM(amount),0) FROM charges WHERE tenant=?", (tenant,)).fetchone()[0]
-            if total + amount > self.total or used + amount > self.user:
+            # The reservation is a ceiling far above a typical call (text bytes as
+            # tokens at twice the tariff), so a call that does not fit what is
+            # left is still admitted for what is left: it settles at its real
+            # cost, which can overdraw by at most that one call. Nothing is
+            # admitted once less than MIN_ADMIT remains.
+            left = min(self.total - total, self.user - used)
+            if left < min(amount, MIN_ADMIT):
                 db.rollback()
-                raise QuotaExceeded("试用额度不足，任务已暂停。请联系试用版管理员。")
+                raise QuotaExceeded("试用额度已用完，任务已暂停，已有文件都保留着。")
+            amount = min(amount, left)
             identity = secrets.token_hex(16)
             db.execute("INSERT INTO charges VALUES(?,?,?,?,?)", (identity, tenant, amount, "reserved", time.time()))
             db.commit()
