@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { WAYS } from '../src/prompts.js';
 
-// Each check of the research way, on a workspace that meets it and on one that does not.
+// Each check of a way of working, on a workspace that meets it and on one that does not.
 
 /** The environment without git's, so git works on the workspace and nothing else. */
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
@@ -26,8 +26,8 @@ async function workspace(t: TestContext, files: Record<string, string>): Promise
   return root;
 }
 
-function check(name: string, root: string): { status: number | null; problems: string[] } {
-  const run = spawnSync(process.execPath, [join(WAYS, 'research', 'checks', `${name}.mjs`), root], { encoding: 'utf8', env });
+function check(way: string, name: string, root: string): { status: number | null; problems: string[] } {
+  const run = spawnSync(process.execPath, [join(WAYS, way, 'checks', `${name}.mjs`), root], { encoding: 'utf8', env });
   return { status: run.status, problems: run.stdout.split('\n').filter(Boolean) };
 }
 
@@ -68,7 +68,7 @@ test('method-card: a card with its parts and tested components, committed before
   });
   commit(root, 'METHOD.md');
   commit(root, 'src', 'tests');
-  assert.deepEqual(check('method-card', root), { status: 0, problems: [] });
+  assert.deepEqual(check('research', 'method-card', root), { status: 0, problems: [] });
 });
 
 test('method-card: names each part missing, each untested component, and code committed before the card', async t => {
@@ -79,7 +79,7 @@ test('method-card: names each part missing, each untested component, and code co
   });
   commit(root, 'src');
   commit(root, 'METHOD.md', 'tests');
-  const { status, problems } = check('method-card', root);
+  const { status, problems } = check('research', 'method-card', root);
   assert.equal(status, 1);
   assert.deepEqual(problems.slice(0, 3), [
     'METHOD.md does not say what would falsify the claim',
@@ -106,7 +106,7 @@ test('paper: a current build whose citations and figures can be traced holds', a
     'paper/main.log': 'Output written on main.pdf (8 pages).\n',
   });
   age(root, { 'paper/figures/accuracy.pdf': 10, 'paper/main.pdf': 20 });
-  assert.deepEqual(check('paper', root), { status: 0, problems: [] });
+  assert.deepEqual(check('research', 'paper', root), { status: 0, problems: [] });
 });
 
 test('paper: names each citation, figure and build that cannot be traced or is out of date', async t => {
@@ -123,7 +123,7 @@ test('paper: names each citation, figure and build that cannot be traced or is o
     'paper/main.log': 'LaTeX Warning: There were undefined references.\n',
   });
   age(root, { 'paper/figures/accuracy.pdf': 10, 'paper/figures/plot.png': 10, 'results/seed1.json': 15, 'paper/main.pdf': 20, 'paper/sections/results.tex': 30 });
-  assert.deepEqual(check('paper', root), { status: 1, problems: [
+  assert.deepEqual(check('research', 'paper', root), { status: 1, problems: [
     '\\cite{missing2024} has no entry in the bibliography',
     'the bibliography entry noid2020 has no doi, url, eprint or isbn to open it by',
     'the figure gone is included but missing',
@@ -133,5 +133,40 @@ test('paper: names each citation, figure and build that cannot be traced or is o
     'paper/figures/plot.png is a matplotlib raster export: include the vector PDF',
     'paper/main.pdf is older than paper/sections/results.tex: build it again',
     'paper/main.log reports undefined citations or references',
+  ] });
+});
+
+const caller = { 'packages/core/src/cli.ts': "import { Flow } from './flow.js';\nnew Flow().run('x');\n" };
+
+test('core: a core that uses what it exports and leaves waiting, ways and digests out holds', async t => {
+  const root = await workspace(t, {
+    ...caller,
+    'packages/core/src/flow.ts': "import { wayRoots } from './prompts.js';\nexport class Flow { run(way: string) { return wayRoots(way); } }\n",
+    'packages/core/src/prompts.ts': "export const wayRoots = (home: string) => [`${home}/ways`];\n",
+    'packages/core/prompts/manager.md': 'Long research goes to the team.\n',
+    'packages/core/ways/research/README.md': '# From a research question to a reviewed paper\n',
+    'packages/core/scripts/bundle.ts': '// The published package.\n',
+  });
+  assert.deepEqual(check('argus-maintenance', 'core', root), { status: 0, problems: [] });
+});
+
+test('core: names each unused export, timer, way named in the core, machine path and digest', async t => {
+  const root = await workspace(t, {
+    ...caller,
+    'packages/core/src/flow.ts': "import { wayRoots } from './prompts.js';\nexport function stale() { return 1; }\n"
+      + "export class Flow { run(way: string) { if (way === 'research') setTimeout(() => wayRoots(), 1000); } }\n",
+    'packages/core/src/prompts.ts': "export const wayRoots = () => ['/home/alice/argus/ways'];\n",
+    'packages/core/src/store.ts': "import { createHash } from 'node:crypto';\nconst seen = (text: string) => createHash('sha256').update(text).digest('hex');\n",
+    'packages/core/prompts/manager.md': 'Follow `ways/research/README.md` for research.\n',
+    'packages/core/ways/research/README.md': '# Research\n\nReleased as e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.\n',
+  });
+  assert.deepEqual(check('argus-maintenance', 'core', root), { status: 1, problems: [
+    'packages/core/src/flow.ts:2: stale is exported, but no other file uses it',
+    'packages/core/src/flow.ts:3: setTimeout: Argus waits, polls or times out; the backend does that',
+    'packages/core/src/flow.ts:3: names the way research: what a way needs belongs in its folder',
+    'packages/core/prompts/manager.md:1: names the way research: what a way needs belongs in its folder',
+    'packages/core/src/prompts.ts:1: /home/alice is a path of one machine',
+    'packages/core/src/store.ts:2: a digest: keep and compare the thing itself',
+    'packages/core/ways/research/README.md:3: a digest: keep and compare the thing itself',
   ] });
 });
