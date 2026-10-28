@@ -79,7 +79,7 @@ export class Runs {
           if (event.type === 'message' && event.from === 'operator') replyId = `m${readEvents(this.store, id).length - 1}-argus`;
           else if (event.type === 'call.start' && !answered) send({ type: 'phase', role: 'manager', label: 'Manager' });
           else if (event.type === 'call.start') done();
-          else if (event.type === 'call.end' && event.role === 'manager') answered = true;
+          else if (event.type === 'handoff' && event.role === 'manager') answered = true;
           else if (event.type === 'message') reply = event.text;
           else if (event.type === 'task.added') kind = 'task';
           else if (event.type === 'status' && event.status === 'asking') kind = 'pending_question';

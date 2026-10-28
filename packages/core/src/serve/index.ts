@@ -83,7 +83,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     authentication: { required: Boolean(token), authenticated },
   });
   /** Server-sent events; a frame for a reader who left is dropped. */
-  const events = (response: ServerResponse): ((frame: unknown) => void) => {
+  const sse = (response: ServerResponse): ((frame: unknown) => void) => {
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' }).flushHeaders();
     return frame => { if (!response.destroyed) response.write(`data: ${JSON.stringify(frame)}\n\n`); };
   };
@@ -109,6 +109,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
 
   const routes: [string, RegExp, Handler][] = [
     ['GET', /^\/api\/application-brand$/, () => BRAND],
+    // The page asks for its pins and archive on load; this server keeps none.
+    ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],
     ['GET', /^\/api\/projects$/, () => ({
       projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
       local_cwd: process.cwd(),
@@ -125,7 +127,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       ({ events: webEvents(readEvents(store, project(id!).id)).slice(-Number(url.searchParams.get('limit') ?? 120)) })],
     ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, response }) => {
       project(id!);
-      const send = events(response);
+      const send = sse(response);
       const replay = Math.min(200, Number(url.searchParams.get('replay') ?? 40));
       let sent: number | null = null;
       const flush = (): void => {
@@ -142,7 +144,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       ({ turns: turns(webEvents(readEvents(store, project(id!).id))).slice(-Number(url.searchParams.get('n') ?? 30)) })],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/stream$/, async context => {
       const reply = await message(context);
-      const send = events(context.response);
+      const send = sse(context.response);
       send(await reply(send));
       context.response.end();
     }],

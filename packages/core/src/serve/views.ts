@@ -41,14 +41,13 @@ function jsonLines(path: string): Record<string, unknown>[] {
 export const readEvents = (store: Store, id: string): Recorded[] =>
   jsonLines(join(store.dir(id), 'events.jsonl')) as unknown as Recorded[];
 
-export const label = (project: Project): string => project.request.split('\n')[0]!.slice(0, 80) || project.id;
-
 /** The record in the cockpit's event vocabulary. `event_id` is the line, so a replay and the
  * live stream agree; a reply's message id names the operator message it answers. */
 export function webEvents(events: Recorded[]): EventMsg[] {
   const rows: EventMsg[] = [];
   let asked: number | null = null;
   let call = '';
+  let handedBy: Role | null = null;
   events.forEach((event, line) => {
     const row = (type: string, fields: Record<string, unknown>): void => {
       rows.push({ type, ts: seconds(event.ts), event_id: line, ...fields });
@@ -74,6 +73,7 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         });
         break;
       case 'handoff':
+        handedBy = event.role;
         if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: Array.isArray(event.fields.tasks) ? event.fields.tasks.length : 0 });
         } else if (event.role === 'engineer' && event.to === 'reviewer') {
@@ -85,7 +85,9 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         }
         break;
       case 'task.added':
-        row('life.planner.task_added', { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: event.task.deps });
+        // A Planner lines tasks up; the Manager's direct ticket is a task that starts at once.
+        row(handedBy === 'planner' ? 'life.planner.task_added' : 'life.mission.started',
+          { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: event.task.deps });
         break;
       case 'task.settled':
         if (event.status === 'done') row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
@@ -161,7 +163,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
-      id, display_name: label(project), objective: project.request, created: seconds(project.created),
+      id, display_name: project.request.split('\n')[0]!.slice(0, 80), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
@@ -188,7 +190,8 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   const summary = usage(store, project.id);
   const { since } = live;
   return {
-    id: project.id, label: label(project), display_name: label(project), objective: project.request,
+    // The page names an unnamed project by its objective; a label other than the id would be a name given to it.
+    id: project.id, label: project.id, display_name: '', objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     active_role: live.role ?? '', current_task: nextTask(project)?.title ?? '',

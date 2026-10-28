@@ -95,7 +95,7 @@ export function artifacts(project: Project): ArtifactInfo[] {
 /** How a result is sent: never as a page of this origin, which holds the cockpit's token. */
 export function rawHeaders(path: string, download: boolean): Record<string, string> {
   const [kind, mime] = typeOf(path);
-  const active = kind === 'html' || mime === 'image/svg+xml' || extname(path).toLowerCase() === '.xml';
+  const active = kind === 'html' || mime === 'image/svg+xml';
   return {
     'content-type': active ? 'text/plain; charset=utf-8' : mime, 'x-content-type-options': 'nosniff',
     ...(download ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}` } : {}),

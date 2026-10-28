@@ -8,7 +8,7 @@ import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
-/** One scripted turn: the role expected, its hand-off (no `to`: none), and what it does first. */
+/** One scripted turn: the role expected, its hand-off (no `to`: none; `text` is the Manager's reply), and what it does first. */
 interface Step {
   role: Role;
   to?: string;
@@ -30,16 +30,17 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     for (const [name, body] of Object.entries(step.files ?? {})) await writeFile(join(request.cwd, name), body);
     if (step.hang) {
       await new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
-      return { callId: 'c', threadId: null, completed: false, error: 'interrupted', handoff: null, text: '', model: 'fake', usage: null, ms: 1 };
+      return { callId: 'c', threadId: null, completed: false, error: 'interrupted', handoff: null, model: 'fake', usage: null, ms: 1 };
     }
+    const reply = request.role === 'manager' ? { reply: step.text ?? '' } : {};
     const handoff: HandOff | null = step.to === undefined ? null
-      : { form: request.form, to: step.to, summary: `${step.role} to ${step.to}`, fields: { assumptions: [], ...step.fields } };
+      : { form: request.form, to: step.to, summary: `${step.role} to ${step.to}`, fields: { assumptions: [], ...reply, ...step.fields } };
     if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
     await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, tokens, cost_usd: 0.01 })}\n`);
     return {
-      callId: `call-${requests.length}`, threadId: `${request.role}-${requests.length}`, completed: true, error: null, handoff,
-      text: step.text ?? '', model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
+      callId: `call-${requests.length}`, threadId: `${request.role}-${requests.length}`, completed: true,
+      error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
     };
   };
   return { callAgent, requests };
@@ -140,7 +141,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
 
   const { events } = await get<{ events: EventMsg[] }>(`${P}/events?limit=120&view=ui`);
   assert.deepEqual(events.map(event => event.type), [
-    'ui.operator', 'provider.request.started', 'provider.request.completed', 'ui.argus', 'life.planner.task_added',
+    'ui.operator', 'provider.request.started', 'provider.request.completed', 'ui.argus', 'life.mission.started',
     'provider.request.started', 'provider.request.completed', 'engineer.progress',
     'provider.request.started', 'provider.request.completed', 'round.review.completed',
   ]);
@@ -173,6 +174,14 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   for (const outside of ['../project.json', '/etc/passwd', '.hidden']) {
     assert.equal((await call(`${P}/artifact/raw?path=${encodeURIComponent(outside)}`)).status, 404);
   }
+});
+
+test('a refused form goes back to the Manager within the same message', async t => {
+  const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'manager', text: 'Hello.' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const reply = await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Hi', request_id: 'r1' }));
+  assert.deepEqual(reply.map(frame => frame.type), ['phase', 'phase', 'delta', 'done']);
+  assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
 test('the built pages are served with the shell uncached and the assets immutable', async t => {
