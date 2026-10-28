@@ -3,6 +3,7 @@
   "version": "0.1.8",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
   "scripts": { "build": "tsc -p tsconfig.json" }
 }

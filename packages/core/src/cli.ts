@@ -49,7 +49,7 @@ async function web(store: Store, backend: Backend, options: { port: string; web?
   const token = process.env.ARGUS_WEB_TOKEN || undefined;
   const served = await serve({
     store, callAgent, backend, model: options.model ?? null, port: Number(options.port), ...(token ? { token } : {}),
-    web: resolve(options.web ?? fileURLToPath(new URL('../../../frontend/web/dist', import.meta.url))),
+    web: resolve(options.web ?? fileURLToPath(new URL('../web', import.meta.url))),
   }).catch((error: unknown) => { release(); throw error; });
   write(`Argus is at ${served.url}/${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   const stop = (): void => { void served.close().finally(release); };

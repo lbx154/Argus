@@ -25,7 +25,7 @@ export interface ServeOptions {
   model: string | null;
   /** 0 picks a free port. */
   port: number;
-  /** The built web cockpit (frontend/web/dist). */
+  /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
   web: string;
   token?: string;
 }
