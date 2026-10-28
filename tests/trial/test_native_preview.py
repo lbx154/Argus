@@ -58,6 +58,20 @@ def test_two_limits_are_atomic_and_never_reset(tmp_path):
         Ledger(tmp_path / 'ledger', total_usd=500, user_usd=100)
 
 
+def test_a_call_larger_than_what_is_left_is_admitted_for_the_rest(ledger):
+    first = ledger.reserve('alice', 6.88)
+    ledger.settle(first, 6.88)
+    capped = ledger.reserve('alice', 4.5)  # a long-context ceiling above the $3.12 left
+    assert ledger.status('alice')['remaining_usd'] == 0
+    ledger.settle(capped, 0.9)  # settles at the real cost
+    assert ledger.status('alice')['remaining_usd'] == pytest.approx(2.22)
+    last = ledger.reserve('alice', 5)
+    ledger.settle(last, 2.5)  # overdraws by at most that one call
+    assert ledger.status('alice')['remaining_usd'] == 0
+    with pytest.raises(QuotaExceeded):
+        ledger.reserve('alice', 0.5)
+
+
 def test_missing_receipts_stay_charged_and_settlement_is_idempotent(ledger):
     identity = ledger.reserve('alice', 3)
     ledger.settle(identity, None)
