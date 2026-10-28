@@ -32,6 +32,7 @@ from ._constants import (
 from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
+    _reviewed_request_is_current,
     _staged_goal_completion_issue,
     clear_completion_rejection_circuit,
     completion_rejection_circuit_path,
@@ -94,6 +95,42 @@ class PlanningCycleCompletionMixin:
             else ""
         )
         return research_issue
+
+    def _bounded_request_accepted(self) -> str:
+        """The finite request's task its own Reviewer accepted, files unchanged; "" otherwise.
+
+        The Manager filed the operator's request as bounded, with the
+        acceptance criteria the Reviewer judged the whole request against. The
+        vertical's stages order work toward that request; they do not add to
+        it, so its accepted review leaves the Planner free to end the project.
+        A paper keeps its venue-bound final certification.
+        """
+        if getattr(self.config, "open_ended", False):
+            return ""
+        objective = str(getattr(self.config, "continuous_objective", "") or "").strip()
+        workdir = Path(str(self._project_workdir()))
+        if not objective or any(
+            (workdir / relative).is_file() for relative in ("paper/main.tex", "paper/main.pdf")
+        ):
+            return ""
+        requests = {
+            item.id
+            for item in self.memory.backlog.history()
+            if {"operator", "manager_direct"} & set(item.tags or ())
+            and (item.original_objective or item.objective).strip() == objective
+        }
+        for entry in reversed(self.memory.journal.all()):
+            extra = getattr(entry, "extra", None)
+            if (
+                getattr(entry, "kind", "") == "mission_complete"
+                and isinstance(extra, dict)
+                and extra.get("item_id") in requests
+                and _reviewed_request_is_current(
+                    extra, candidate_root=workdir, delivery_state_root=self._project_state_root(),
+                )
+            ):
+                return str(extra["item_id"])
+        return ""
 
     def _pc_is_certified_operator_wait(self, state: _PlanCycleState) -> bool:
         """An open-ended Planner hands a certified increment to the operator."""
@@ -496,8 +533,17 @@ class PlanningCycleCompletionMixin:
             if waypoint_issue:
                 return reject_completion(f"Project completion held: {waypoint_issue}.", "waypoints_open")
 
+        # A finite request its own Reviewer accepted is not held for the
+        # vertical's later stages, their final certification, or its packages.
+        request_accepted = bool(
+            verdict.project_done
+            and revision_request is None
+            and self._bounded_request_accepted()
+        )
+
         if (
             verdict.project_done
+            and not request_accepted
             and self._effective_final_certification_gate(self._artifact_root())
             and not self._journal_has_final_certification()
         ):
@@ -533,7 +579,7 @@ class PlanningCycleCompletionMixin:
                     "external_completion_gate_held",
                 )
 
-        if verdict.project_done and revision_request is None:
+        if verdict.project_done and revision_request is None and not request_accepted:
             goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
             if goal_gate_issue:
                 return reject_completion(
@@ -592,7 +638,7 @@ class PlanningCycleCompletionMixin:
             return PLAN_RETRY
 
         if verdict.project_done:
-            if not self._manager_final_stage_is_completed():
+            if not request_accepted and not self._manager_final_stage_is_completed():
                 stage = str(self._current_pipeline_stage() or "")
                 reason = (
                     f"Project completion is the completion gate's: final stage {stage!r} is not "

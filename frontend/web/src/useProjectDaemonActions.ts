@@ -11,6 +11,13 @@ import { errorText } from './lib/format';
 // lets the running task reach its reviewed boundary first.
 export const MANUAL_STOP_FORCE = true;
 
+type ContinuousSetting = { enabled: boolean; open_ended?: boolean; objective: string };
+
+/** Keep going is the standing campaign; a finite task's campaign ends when it is done. */
+export function keepsGoing(continuous: ContinuousSetting | null | undefined): boolean {
+  return Boolean(continuous?.enabled && continuous.open_ended);
+}
+
 interface RefetchedProjects {
   data?: {
     projects?: ProjectRow[];
@@ -24,7 +31,7 @@ interface UseProjectDaemonActionsOptions {
   setManageTargetSid: Dispatch<SetStateAction<string | null>>;
   activeSid: string | null;
   clearProjectSelection: (mode?: ProjectHistoryMode) => void;
-  continuous: { enabled: boolean; objective: string } | null | undefined;
+  continuous: ContinuousSetting | null | undefined;
   notify: (tone: NoticeTone, message: string) => void;
   refetchProjects: () => Promise<RefetchedProjects>;
   selectProject: (id: string, mode?: ProjectHistoryMode) => void;
@@ -165,7 +172,7 @@ export function useProjectDaemonActions({
 
   const toggleContinuous = useCallback(() => {
     if (!continuous) return;
-    const enabled = !continuous.enabled;
+    const enabled = !keepsGoing(continuous);
     actions.setContinuous.mutate(
       { enabled, objective: continuous.objective },
       actionFeedback(enabled ? t('campaign.enabled') : t('campaign.stopped')),
