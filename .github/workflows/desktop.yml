@@ -84,15 +84,16 @@ jobs:
         run: |
           npm --prefix desktop-tauri run ui:typecheck
           npm --prefix desktop-tauri run test:copy
-          npm --prefix desktop-tauri run test:release
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --release --lib --test core_tests
       - name: Test compatible-product storage without importing Argus state
         env:
           ARGUS_DESKTOP_PROFILE: compatibleapp
         run: cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --release --test core_tests 'settings::tests::'
-      - name: Test the desktop UI
+      - name: Test the Windows release staging and the desktop UI
         if: runner.os == 'Windows'
-        run: npm --prefix desktop-tauri run test:ui -- tests/shell.spec.ts
+        run: |
+          npm --prefix desktop-tauri run test:release
+          npm --prefix desktop-tauri run test:ui -- tests/shell.spec.ts
       - name: The installer carries Argus
         run: |
           bundle=desktop-tauri/src-tauri/target/release/bundle
