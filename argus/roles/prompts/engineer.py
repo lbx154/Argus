@@ -36,12 +36,18 @@ _WAIT_BY_BACKEND = (
     "and Copilot resumes you when it exits; elsewhere, the longest blocking calls "
     "your shell allows. Never poll in short loops."
 )
+# The bubblewrap sandbox runs on until everything started in it has exited
+# (core.sandbox), so the turn's end does not cut a detached job off.
+_JOBS_OUTLIVE_THE_CLI = (
+    " A detached job keeps running after you hand off, so stop servers you no "
+    "longer need."
+)
 _POSIX_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes, start them detached so they outlive your "
     "shell, keeping the exit code: `setsid nohup sh -c '<command>; echo $? > "
     "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Do the work that does not "
     "need the result, then wait for it on `until [ -e <run>/exit_code ]; do "
-    "sleep 30; done`" + _WAIT_BY_BACKEND
+    "sleep 30; done`" + _WAIT_BY_BACKEND + _JOBS_OUTLIVE_THE_CLI
 )
 # The Engineer ends its turn with the one action every role ends with
 # (core.handoff); what each holder means is in the action's own description.
