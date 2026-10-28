@@ -62,8 +62,8 @@ export function Landing({
           }} onCancel={() => undefined} disabled={creating} pending={false} focusSignal={focus}
           slashSelection={slashSelection} onSlashSelectionChange={setSlashSelection} />
         <p className="landing-caption">{locale === 'zh-CN'
-          ? '发送后自动建立项目；研究任务先确认计划。'
-          : 'Sending creates a project. Research starts with a plan for your approval.'}</p>
+          ? '发送后自动建立项目；团队干活时也可以随时说话。'
+          : 'Sending creates a project. You can write at any time while the team works.'}</p>
       </div>}
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">
