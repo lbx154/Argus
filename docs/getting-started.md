@@ -1,492 +1,206 @@
 # Getting started with Argus
 
-This guide takes you from an empty machine to a finished first task. It covers
-three ways to work: the command line, the web UI, and the desktop app. If you
-have a hosted-trial invitation, you can
-[start in the browser](#try-it-in-the-browser-first-hosted-trial) with no
-install. Every
-command below was checked against the `argus` CLI in this checkout
-(`argus 0.1.8`); the example runs are real projects, with their times and costs
-taken from their own logs.
-
-Companion guides: [best practices](best-practices.md) (objectives, changing
-direction mid-run, models and spend) and
-[building a vertical](building-a-vertical.md).
-
-## Try it in the browser first (hosted trial)
-
-If you have been given an invitation code for the hosted trial, you can use
-Argus without installing anything. The operator runs it on our own machines
-(deployment files in [`deploy/trial/`](../deploy/trial/), service code in
-`argus/trial/`); the address comes with your invitation. Use the address the
-operator gives you, not one copied from an old message: temporary tunnel
-addresses change when the service is restarted.
-
-What the invitation gives you:
-
-- **The same web UI as Path 2 below**, opened at `/invite` after you enter the
-  code. Each invitation is its own workspace; the same code continues the same
-  workspace from another device. A read-only option lets you browse without
-  submitting or changing tasks.
-- **A model already configured.** The server chooses the model and pays for it;
-  you need no coding-agent CLI or account login.
-- **A lifetime token allowance** shown on the entry page and at
-  `/invite/status`. The code default is 10,000,000 input-plus-output tokens per
-  invitation and it does not reset monthly; an operator may configure a
-  different allowance (`token_limit` in `argus/trial/web_portal.py`).
-- **A shared GPU queue** at `/invite/compute`, with 200 lifetime GPU-hours per
-  invitation; time spent queued does not count
-  ([hosted research trial](hosted-research-trial.md)).
-
-How it differs from a local install:
-
-- **Your work runs in an isolated container on the operator's host, not on your
-  machine.** It cannot see your local files or private network; outbound access
-  is HTTPS to public addresses only. Results are viewed and downloaded through
-  the browser.
-- **No terminal cockpit, desktop app, or choice of backend or model.** Paths 1
-  and 3 and the backend and model advice in
-  [best practices](best-practices.md) apply to local installs only.
-- **Data collection.** The entry page asks you to agree to a team-internal data
-  notice before you start: task inputs, the four roles' process records, tool
-  calls and results are recorded for internal training and product review.
-  Research records are kept for up to 30 days, and the *研究记录与反馈* page lets
-  you delete a project's research copy. Submit only material you may share on
-  those terms.
-- **Sessions and availability.** A browser sign-in lasts up to seven days.
-  Invitations are issued privately by the operator; there is no public sign-up.
-  An operator redeploy can interrupt work that is running in the foreground.
-
-When you outgrow the trial (your own data, your own agent CLI, longer
-campaigns), install locally as described below. The entry page is in
-Simplified Chinese; the workspace follows your browser language.
+This guide takes you from a machine with Node.js to a first request carried through by
+Argus's team, in the web page. For how the core works underneath, see
+[the TypeScript core](typescript-core.md).
 
 ## What you are installing
 
-Argus is a Python package plus a bundled terminal cockpit (Node.js) and a web
-UI. It does not call a model API itself; it drives one of the coding-agent CLIs
-you already use (Copilot, Codex, Claude Code, Cursor, Pi, OpenCode, Grok, Qoder,
-DeepSeek Harness) and lets four roles share it: a Manager that routes your
-message, a Planner that decides the next task, an Engineer that does the work,
-and a Reviewer, with the Engineer's tools, that decides whether the work is done.
-
-Two things follow from that design and explain most of what you will see:
-
-- **A background worker does the work.** Your cockpit, browser tab or terminal
-  can close; the project's daemon keeps running and keeps its state under
-  `~/.argus-skill/projects/<id>/`. A project started from a terminal (no
-  `--new`/`--resume`) gets a 12-hex-digit id derived from its directory (or
-  from the git remote when the directory is a clone), for example
-  `projects/6b8fe5b2f41b`; a session started with `--new`, or from the web UI
-  or API, gets an id such as `s-02d3c282`.
-  `argus --status` prints the full path on its `project` line.
-- **Nothing is "done" until the Reviewer says so.** A task usually takes
-  several Engineer rounds. Expect the first small task to take minutes, not
-  seconds.
+Argus is one npm package with no runtime dependencies. The `argus` command starts a web
+server on your machine and runs the work of every project inside that same process.
+Argus does not call a model API itself: each turn a role takes (Manager, Planner,
+Engineer, Reviewer) is a call to a coding-agent CLI you already use, with that CLI's
+login. Argus hands the work between the roles, delivers messages, records what happened
+and keeps the permission boundary; the backend runs the turn.
 
 ## Prerequisites
 
 | Requirement | Why |
 |---|---|
-| Python 3.11+ | the `argus` package (`pyproject.toml` requires `>=3.11`) |
-| Node.js 22.12+ | the terminal cockpit is an Ink app; `argus` refuses to start it on older Node (`argus: Ink TUI requires Node.js 22.12 or newer`) |
-| One authenticated agent CLI | Argus reuses its login; there is no separate Argus account |
-| bubblewrap (Linux) | each agent sees only its project; macOS uses the built-in `sandbox-exec`, and without either the agents run with your account's full access. The host must let unprivileged users create user namespaces (`bwrap --unshare-user --ro-bind / / true` succeeds) |
+| Node.js 22.12+ | the package's `engines` field; Argus is a Node program |
+| One backend CLI, installed and signed in | every role's turn is a call to it; there is no Argus account |
+| bubblewrap on Linux | each call runs in a sandbox that sees the project directory, system software and the CLI's own login. The host must let unprivileged users create user namespaces: `bwrap --ro-bind / / true` has to succeed |
 
-Install and log into one CLI first. The README's
-[Quick Install](../README.md#quick-install) table lists the install and login
-command for each backend; for example GitHub Copilot CLI is
-`npm install -g @github/copilot` then `copilot login`.
-An agent in the sandbox cannot reach the system keychain, so Copilot's login
-must be the one kept in `~/.copilot/config.json`.
+Without a working `bwrap` (and always on macOS and Windows), Argus uses the CLI's own
+sandbox or permission settings where it has them: Codex's `workspace-write` (on Windows
+its sandbox that needs no administrator), Claude Code's `acceptEdits`.
+
+| Backend | `--backend` | Install | Sign in |
+|---|---|---|---|
+| OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex@latest` | `codex login` |
+| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | run `claude`, then `/login` |
+| GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
+| Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | run `pi`, then `/login` |
+
+Under bubblewrap only the CLI's login file is brought into the sandbox (for Copilot,
+`~/.copilot/config.json`), so a login kept only in the system keychain does not reach it.
 
 ## Install
 
-The commands are the README's, repeated here so this page stands alone.
-
-Linux (isolated venv; use this on servers):
-
-```bash
-git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
-cd "$HOME/Argus"
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
-ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
-"$ARGUS_BIN" --version
-```
-
-Windows (PowerShell, no venv):
-
-```powershell
-py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
-```
-
-macOS (managed command):
+The package is not on npm yet. Once it is, this is the whole install (the name becomes
+`argus` when that name is available):
 
 ```bash
-uv tool install --force --python 3.12 "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+npm i -g @lbx154/argus
 ```
 
-On Linux, `argus` below means `$HOME/Argus/.venv/bin/argus` unless the venv is
-active (`source "$HOME/Argus/.venv/bin/activate"`; with it active, `python`
-in this guide and in [building a vertical](building-a-vertical.md) is also the
-venv's interpreter, which is the one that can import `argus`). Everywhere, `python -m argus ...` runs the same CLI without ever
-starting the Node cockpit; it is what you want in scripts and over SSH without
-a terminal.
-
-## First-time setup and a health check
+Until then, build the same package from source and install it:
 
 ```bash
-argus --setup
-argus doctor
+git clone https://github.com/microsoft/ArgusAgent.git
+cd ArgusAgent
+npm ci
+npm --prefix frontend/web ci
+npm pack -w packages/core          # builds the core and its web page, writes lbx154-argus-<version>.tgz
+npm i -g ./lbx154-argus-0.1.8.tgz
+argus --help
 ```
 
-`argus --setup` is an interactive wizard: it asks which backend to use, checks
-that the CLI is installed and logged in, runs one real model turn through it,
-and only then saves the profile. It ends with `Setup complete. Run `argus`.`
-If you would rather not answer prompts:
+`npm pack` runs the build first: the TypeScript core, bundled into one file, and the web
+page from `frontend/web`. For the development preview, clone
+`https://github.com/lbx154/Argus.git` instead. A desktop version is on the
+[Releases](https://github.com/lbx154/Argus/releases) page.
 
-```bash
-argus --setup --backend copilot --non-interactive
-```
-
-Two variants worth knowing:
-
-| Situation | Command |
-|---|---|
-| Keep Argus on its own Copilot account, separate from your interactive login | `argus --setup --backend copilot --copilot-home "$HOME/.copilot-argus" --copilot-login` |
-| Use an OpenAI-compatible endpoint (served through Pi) | `argus --setup --api-url URL --api-model MODEL` with the key in `ARGUS_SETUP_API_KEY` rather than `--api-key`, so it stays out of shell history |
-
-`argus doctor` is read-only. This is what it printed on the machine this guide
-was written on (a source checkout, Pi backend):
-
-```
-argus doctor — cross-platform diagnostics
-
-✓ ARGUS-HOST-001 [host/supported_host] Linux 6.8.0-139-generic x86_64
-✓ ARGUS-INSTALL-001 [install/source_checkout] /data/.../Argus
-✓ ARGUS-ASSET-001 [install/assets_ready] release manifest and Web/TUI assets are present
-✓ ARGUS-PYTHON-001 [cli/python_ready] 3.12.3 at /data/.../.venv/bin/python
-✓ ARGUS-NODE-001 [cli/node_ready] v22.23.2
-✓ ARGUS-WEB-001 [web/compatible] 127.0.0.1:8799 is compatible
-! ARGUS-DESKTOP-001 [desktop/tauri_dependencies_missing] Tauri Desktop sources exist but npm/Rust build dependencies are incomplete
-    fix: run `npm --prefix desktop-tauri ci` and install the Rust Windows toolchain
-✓ ARGUS-DAEMON-001 [daemon/stopped] no daemon is running
-✓ ARGUS-BACKEND-001 [backend/ready] pi 0.85.1 runnable at /home/.../argus-pi (subscription_cli; authentication checked; ...)
-
-all blocking checks passed
-```
-
-A `!` line is advice, not a failure; the desktop warning above only matters if
-you intend to build the desktop app from this checkout. A fresh source checkout
-may show other `!` lines too, for example `ARGUS-ASSET-002
-[install/assets_stale]` (the committed Web/TUI bundle predates a frontend
-source change; its fix is for maintainers, and the bundled UI still works) or
-`ARGUS-PATH-001 [install/path_memory_missing]` (no path memory recorded yet).
-Only a line that is not `✓` or `!`, and a final line other than `all blocking
-checks passed`, needs action before you continue. When something is
-wrong, `argus doctor --fix-safe` applies the repairs the doctor itself marked
-safe and reruns; `argus doctor --advisor auto` lets one of the installed agent
-CLIs inspect and repair. Without one of those two options `doctor` changes
-nothing.
-
-A note on help: `argus --help` (and `argus doctor --help`,
-`argus verticals --help`) print the same short overview. The complete flag
-reference is behind an environment variable:
-
-```bash
-ARGUS_SKILL_DEBUG_HELP=1 argus --help
-```
-
-## Path 1: the command line
-
-There are two ways to use the CLI. A bare `argus` opens the terminal cockpit,
-where you type in natural language. Everything else (`--daemon`, `--status`,
-`--notify`, ...) is a one-shot command that talks to the project's worker and
-exits; those work over SSH, in cron, and without Node.
-
-### Which project a command means
-
-Argus keys a project's state on the directory you run it from. Management
-commands attach to the newest session for the current directory, or to the
-one you name:
-
-| Flag | Meaning |
-|---|---|
-| (none) | the newest session for the current working directory |
-| `--project-root DIR` | the newest session for `DIR` |
-| `--resume ID` | a specific session id (with no id, a picker of recent sessions) |
-| `--continue` | the most recently active session |
-| `--life-dir DIR` | use `DIR` instead of `~/.argus-skill` as the state root (`ARGUS_SKILL_HOME` does the same) |
-
-### Start a task without opening the cockpit
-
-Write the objective in a file, `cd` into the directory the work should happen
-in, and start a background worker with a campaign objective:
-
-```bash
-cd ~/work/matmul-roofline
-argus --daemon --continuous --objective-file objective.txt --bounded --backend copilot
-```
-
-The pieces:
-
-| Flag | What it does and why you would set it |
-|---|---|
-| `--daemon` | start a detached worker (`--daemon-fg` keeps it in the foreground, for systemd or debugging) |
-| `--continuous` | give the worker an objective and let the Planner keep generating tasks toward it; refused without an objective (`--continuous requires a non-empty --objective`) |
-| `--objective TEXT` / `--objective-file PATH` | the objective; the file form keeps long text and quotes out of the shell (`--objective` without `--continuous` is refused too) |
-| `--bounded` | stop when the Planner certifies the project done; without it the worker keeps generating work for the same objective |
-| `--backend NAME` | the agent CLI for this daemon; it outranks the persisted setup for this launch and is exported to every role |
-| `--mission-width N` | how many tasks may run in parallel (default 2; `1` is serial) |
-
-Before the worker starts, Argus re-checks that the backend is installed and
-logged in; if not, it prints the readiness report and exits with code 3 instead
-of starting a worker that cannot call a model.
-
-### A real first campaign
-
-The objective below started the campaign that project `s-02d3c282` ran on this
-machine on 2026-09-30 (`objective-roofline.txt`, quoted in full because its
-shape is what makes the rest work):
-
-> 做一项小规模但真实的研究：在本机 4 块 NVIDIA RTX A6000 上，PyTorch 方阵乘法的实际吞吐（TFLOPS）随矩阵规模（512 到 16384）和精度（FP32、TF32、BF16、FP16）如何变化，与理论峰值的差距能否用一个简单的 roofline 式模型（计算强度与显存带宽）解释。要求：真实实验、每种配置多次重复取中位数并报告离散度，拟合模型并给出误差，画图，最后写成一篇 4 页以内的短论文（含方法、结果、讨论、复现说明），并通过内部评审。所有数字必须来自本机真实运行，不允许估算或编造。
-
-It was launched with `--backend copilot --mission-width 1` (the live process
-still shows those flags). About two hours in, `argus --status` reported:
-
-```
-  project  : .../projects/s-02d3c282
-  daemon   : alive (pid 1430124, up 1h 48m, backend live — see /roles, width 1)
-  spend    : today $30.71 across all projects
-  active   : 0 pending · 1 running · 0 paused
-  current  :
-    title    : 重绘正式数据图并完成论文稿
-  history  : 2 done
-  cost     : $29.79 cumulative
-  continuous: on
-  pipeline : vertical=research
-  lifecycle:
-    state         : writing
-```
-
-By then the work directory held `paper/main.tex`, `paper/results.tex`,
-`results/attempt-01`, `figures/` and `src/`; `paper/results.tex` reports, at
-n=16384, 22.81 / 57.01 / 121.11 / 115.96 TFLOP/s for FP32 / TF32 / BF16 / FP16
-(58.95 / 73.66 / 78.24 / 74.91 % of the spec sheet) over 17,280 samples, and a
-fitted roofline whose calibrated form has a 53.92 % mean absolute error on the
-confirmation set. The campaign was still running when this page was written
-(its log had a `paper` round returned as `replan_requested`, which is normal:
-the Reviewer sent the draft back), so treat those as a snapshot, not a result.
-
-For a small first task, a bounded objective finishes in minutes. Project
-`s-4a34a674` on the same machine was started the same way with this objective:
-
-> 用 numpy 数值求解一维阻尼谐振子 x'' + 2γx' + ω0² x = 0（取 ω0=2π, 分别取欠阻尼 γ=0.5、临界 γ=2π、过阻尼 γ=10），与解析解逐点比较给出最大误差，画出三条曲线，把方法、数值结果表和图写进本目录的 README.md。所有数字必须来自真实运行。
-
-Its log runs from 08:11:39Z to 08:23:33Z (12 minutes), one task in two
-attempts, `continuous.json` ends with `"done_reason": "planner declared project
-done"`, and it cost $0.91 (12 model calls in `usage.jsonl`). The README it
-wrote gives maximum errors of 6.0e-07, 1.6e-07 and 5.1e-07 for the three
-damping cases against the analytic solution. A newcomer dry run on
-2026-10-07 gave this objective to a fresh install (`--bounded --mission-width 1`,
-copilot backend) and the Manager routed it to `vertical=software` (the
-`pipeline` line of `argus --status`), so expect `software` for a small
-script-and-README task like this one. The research campaign above, whose
-objective asks for a short paper and an internal review, ran with
-`vertical=research`.
-
-### Watch, steer, stop
-
-| Command | What it does |
-|---|---|
-| `argus --status` | one screen: daemon, spend, current task, stage, last events |
-| `argus --follow` | stream the event log to the terminal (`tail -f` style, Ctrl-C to stop) |
-| `argus --watch` | the read-only live cockpit |
-| `argus --notify "text"` | queue guidance for the next Engineer round (`--notify-stage STAGE` holds it until that stage) |
-| `argus --answer "text"` | answer the question a paused task is waiting on (`--answer-item ID` when several wait) |
-| `argus --ask "question"` | ask the Manager something and exit; nothing is queued and no daemon is needed |
-| `argus --daemon-stop --drain` | let the current task finish at a clean boundary, then exit; the safe way to stop before upgrading |
-| `argus --daemon-stop --force` | SIGKILL if it does not exit in time (interrupts running work) |
-| `argus --daemon-runbook` | print the restart playbook for the current project |
-
-The difference between `--notify` and `--answer` matters: a nudge is read at
-the next round and does not wake a task that has stopped to ask you something;
-`--answer` does, and it also rewrites the task so the next round reads your
-answer instead of re-asking. [Best practices](best-practices.md#changing-direction-while-it-runs)
-goes into this.
-
-### The terminal cockpit
+## Start
 
 ```bash
 argus
 ```
 
-The cockpit needs a real terminal (piped or cron use gets a message pointing
-you to `--web`, `--watch`, `--status` or `--daemon`). Type what you want in
-plain language. The Manager reads every message and decides whether to answer
-it itself (a question, a status request, a small local check) or to turn it
-into a task for the Planner, Engineer and Reviewer (multi-step work, anything
-that needs an independent review). You do not choose a vertical, a model or a
-backend for the first task; the Manager picks the vertical from your text and
-the backend comes from setup.
+It prints `Argus is at http://127.0.0.1:8799/`; open that address. `argus` has no
+subcommands, and it does not open a browser by itself.
 
-`/new` (optionally `/new <objective>`) opens a two-field form, Name and
-Objective (Tab or arrows switch fields, Enter creates), and switches the
-cockpit to the new session; its worker starts when the first task arrives.
-
-Commands you will use in the first hour (`/help` lists them all):
-
-| Command | Purpose |
+| Option | |
 |---|---|
-| `/task <text>` | queue work directly, skipping the "is this a chat?" decision |
-| `/ask <question>` | answer inline; no task is queued |
-| `/plan <objective>` | preview the Planner's execution plan before committing |
-| `/status`, `/roles`, `/backlog`, `/journal` | what is running, on which backend/model, what is queued, what happened |
-| `/nudge <text>` | inject guidance into the running task |
-| `/abort` | stop the running task now |
-| `/backend [name]`, `/config [key=value]` | view or change the runner backend and runtime settings (persisted) |
-| `/resume`, `/daemons` | switch to another project |
-| `/quit` | leave; background work keeps running |
+| `--port N` | another port (default `8799`; `0` picks a free one). A port already in use is an error |
+| `--backend codex\|claude\|copilot\|pi` | the backend new projects use (default `codex`) |
+| `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
+| `--host H` | serve on another address, for example `0.0.0.0`; refused without `ARGUS_WEB_TOKEN` |
+| `--web DIR` | serve a web page built elsewhere instead of the bundled one |
+| `ARGUS_WEB_TOKEN` | the access token every project request must carry; the printed address includes it |
+| `ARGUS_HOME` | the state directory (default `~/.argus`) |
 
-## Path 2: the web UI
+One `argus` process owns a state directory. A second one on the same directory stops with
+`<directory> is in use by process <pid>`; give it its own `ARGUS_HOME` if you want two.
 
-```bash
-argus --web
-```
-
-From the `argus` command this goes through the cockpit launcher, which picks
-the first free port from 8799 and opens your browser at
-`http://127.0.0.1:8799`. With an explicit host or port, or through
-`python -m argus --web`, the Python server runs directly and does not open a
-browser:
+**On a remote server**, run `argus` there and forward the port from your computer:
 
 ```bash
-argus --web --web-port 8800
-python -m argus --web            # over SSH: then `ssh -L 8799:127.0.0.1:8799 user@server`
+ssh -L 8799:127.0.0.1:8799 user@server
 ```
 
-Binding to a LAN address (`--web-host 0.0.0.0`) always requires a bearer
-token: `ARGUS_SKILL_WEB_TOKEN` if set, otherwise one is minted for the run and
-printed with a QR code. The web assets are checked into the repository and
-packaged with the wheel, so nothing needs building first.
-
-### The first screen
-
-With no sessions yet the page shows **Start a project**, the line *No sessions
-yet. Create one to begin.*, and a **New project** button. The button creates an
-idle session (no form; the toast reads *New session ready. Say what it is for
-and the work begins.*). Then type the objective into the message box. The
-message goes to `POST /api/projects/{sid}/message`, the Manager classifies it,
-and if it is work the session's daemon is started on demand and the task is
-queued. The web UI follows your browser language (English or Simplified
-Chinese); the sidebar has a language button.
-
-### A real first task from the browser
-
-Project `s-67fb6d62` ran on a fresh local install on a four-GPU server (a
-local install, not the hosted trial above). It was created from the web UI
-(`session.json` records `origin: web`). Its first message, at 06:57:51Z:
-
-> 帮我在这台机器的 GPU 上测一下 PyTorch 矩阵乘在 fp16 和 fp32 下的 TFLOPS，写个脚本跑出真实数字，整理成表格。
-
-The reply, three minutes later at 07:02:21Z, reported an average of 121.31
-TFLOPS in FP16 and 23.96 in strict FP32 at 16384×16384 across the four GPUs,
-with a per-GPU table and the script name (`benchmark_torch_matmul.py`, seven
-timed batches, medians). A follow-up at 07:03:44Z, "现在项目里都有什么文件？把 bf16
-也补测一下，更新表格。", produced an updated table at 07:07:00Z (FP16 122.08,
-BF16 125.00, FP32 23.87 on average). The project's usage ledger shows $0.80 for
-the whole exchange, plus two early calls that were never priced (see below).
-
-That first message was actually sent twice. The first attempt (also 06:57:51Z)
-came back as `[not dispatched] Manager could not classify this message ...`:
-on a fresh Copilot install the first call's price was not yet known, and that
-release refused to spend money it could not price. Nothing is refused for that reason any more:
-such a call is recorded as unpriced and shown as such, see
-[controlling spend](best-practices.md#controlling-spend).
-
-### The endpoints behind the UI
-
-If you script against the server, these are the calls the UI itself makes
-(all need the bearer token when one is configured):
-
-| Endpoint | Body | Purpose |
-|---|---|---|
-| `POST /api/daemons` | `objective`, `name`, `workdir`, `launch_cwd` | create a session (an objective starts its worker immediately) |
-| `POST /api/projects/{sid}/message` | `text`, optional `route_override` (`auto`/`chat`/`task`), `attachments` | send a message through the Manager; `/message/stream` is the SSE twin |
-| `POST /api/projects/{sid}/tasks` | `text`, `autostart_daemon` (default true) | queue work directly |
-| `POST /api/projects/{sid}/nudge` | `text` | guidance for the next round (429 when the queue is full) |
-| `POST /api/projects/{sid}/backlog/{item_id}/answer` | `text` | answer a paused question and resume |
-| `POST /api/projects/{sid}/continuous` | `enabled`, `objective` | turn a campaign objective on or off |
-| `GET /api/projects/costs` | | spend per project |
-
-## Path 3: the desktop app
-
-The desktop app is a Tauri host around a frozen copy of the same Python
-backend; it opens the same web cockpit. It is a packaged preview channel,
-separate from source updates.
-
-- **Download:** the Releases page of
-  [lbx154/Argus](https://github.com/lbx154/Argus/releases). Windows ships as
-  an NSIS installer named `Argus-<version>-setup.exe`. The release workflow can
-  also build macOS (`.dmg`, arm64 and x86_64) and Linux (`.AppImage`, `.deb`)
-  packages, but the workflow file notes that v0.1.7 and v0.1.8 were published
-  for Windows only, so check the assets of the release you pick.
-  `microsoft/ArgusAgent` Releases is a separate channel; do not mix installers
-  or updates between the two.
-- **What it needs:** nothing else on the machine. The installer bundles the
-  backend (`argus-backend`), so no Python, Node.js or venv is required.
-- **First launch:** a setup wizard asks you to pick an installed, logged-in
-  agent CLI and confirm it; the local backend does not start until you do. If
-  you have an internal trial key instead, paste it and click **开始试用** ("start
-  trial"): the app downloads the official standalone Copilot program, checks
-  its size, runs one real model reply, and opens the workbench. That path
-  needs no CLI, Python, Node or coding-agent account of your own. Either
-  choice is remembered; **File → Settings** changes the CLI, executable or
-  port later.
-- **After that** the app is the web UI from Path 2: create a project, type the
-  objective, watch the feed.
-
-To build it from source instead (Python 3.11+, Node 22.12+, Rust stable, plus
-MSVC Build Tools on Windows or Xcode command-line tools on macOS), the
-documented sequence in [docs/desktop-trial.md](desktop-trial.md) is:
+then open `http://127.0.0.1:8799/` locally. To serve it on the network instead, set a
+token and a host:
 
 ```bash
-python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
-npm --prefix frontend/web ci
-npm --prefix frontend/tui ci
-npm --prefix desktop-tauri ci
-npm --prefix frontend/web run build && npm --prefix frontend/tui run build
-npm --prefix desktop-tauri run build:backend
-npm --prefix desktop-tauri run build:unsigned
+export ARGUS_WEB_TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))")"
+argus --host 0.0.0.0
 ```
 
-The unsigned bundle lands under `desktop-tauri/src-tauri/target/release/bundle/`.
-[docs/windows-desktop.md](windows-desktop.md) covers signing and the update
-channel.
+## Your first project
 
-## What "finished" looks like
+1. **Create a project** in the page. It works in its own folder under
+   `~/.argus/workspaces/<id>/` unless you give it an existing directory, which you can
+   also do later. Its settings hold its name, backend, model and reasoning effort; a new
+   directory or backend is refused while work is under way.
+2. **Write what you want** to the Manager, in your own words. Files you attach are
+   uploaded into the project directory's `.argus/attachments/` and named in your message,
+   so the Manager can read them.
+3. **The Manager decides how to carry it.** It answers questions and does small work
+   itself. Work one person can carry through goes whole to an Engineer, as a letter that
+   is the task's whole brief; when the Engineer is done, the Reviewer opens the result and
+   judges it as you would, sending back to the Engineer what you would send back. Work too
+   large for one task goes to the Planner, which cuts it into a few large tasks, runs the
+   independent ones side by side, an Engineer each, and decides what comes next when they
+   have ended. When the work is accepted, the Manager reports the result to you and where
+   to open it.
+4. **Keep talking.** You can write to the Manager at any time, also while the team works;
+   it answers in its next turn and the team carries on. When a role needs something only
+   you can decide, it writes to you and the work waits for your answer. You are asked one
+   question at a time.
 
-Whichever path you used, the task ends the same way. The Reviewer returns
-`done` for the last task; with `--bounded` (or a bounded objective in the
-cockpit) the Planner then declares the project done and the worker stops, and
-`argus --status` shows `history : N done` with no running task. The evidence is
-in the work directory (the oscillator task's `README.md`; the roofline
-campaign's `paper/` and `results/`), and the per-call record of what it cost is
-in `~/.argus-skill/projects/<id>/usage.jsonl`.
+For scale: in the core's first real run, Codex took one sentence to a reviewed delivery in
+3 calls, 5.7 minutes and $0.42.
 
-If instead the status shows a task `paused`, read the question with
-`argus --status` or in the cockpit and answer it with `argus --answer`.
+## Following the work
+
+- **The conversation** with the Manager, and every letter the roles wrote, in order.
+- **The progress map**: a card per task, its brief the letter that opened it, and a step
+  for each letter written about it, by whom to whom. Opening a task lists its calls, each
+  with the letter it ended with and the path of its raw output, and the error of its last
+  call if it failed.
+- **Files**: the project directory, read-only, with what `git` says about it when it is a
+  repository.
+- **Results**: the files created or changed since the project began. An HTML result is
+  previewed as a page; results download one by one.
+- **Knowledge & skills**: the bundled skills and those in `~/.argus/skills/`, newest
+  changes first, so a skill a role writes shows up while the work goes on.
+
+Stopping a project interrupts every call under way on it; starting it again resumes where
+it was. The work runs inside the `argus` process, so stopping `argus` stops it too, and
+you start the project again from the page after the restart.
+
+## Skills and plugins
+
+A skill is a folder whose `README.md` says in its first line what kind of work it is for.
+Argus's own are in the package (`research`, `software`, `argus-maintenance`, `learning`)
+and are replaced on upgrade; those in `~/.argus/skills/<name>/` are the roles' and yours,
+and one there takes the place of a bundled skill with the same name. Every role's prompt
+lists the skills; the Manager and the Engineer may write new ones and change existing ones.
+Argus does not reflect after a task, score, curate or record which skill a project used:
+what to write down is the roles' decision.
+
+A plugin is a skill folder that also holds `plugin.json`:
+
+```json
+{ "name": "...", "description": "...", "version": "...", "url": "http://..." }
+```
+
+Whoever installs a plugin starts it; the page lists it and opens its `url`.
 
 ## Where things live
 
 | Path | Contents |
 |---|---|
-| `~/.argus-skill/` | the state root (`ARGUS_SKILL_HOME` or `--life-dir` overrides it) |
-| `~/.argus-skill/config.json` | persisted settings from `--setup`, `/config`, `/backend` |
-| `~/.argus-skill/projects/<id>/` | one project's state: `events.jsonl`, `usage.jsonl`, `backlog.jsonl`, `continuous.json`, `daemon.log` |
-| `~/.argus-skill/verticals/` | verticals installed from the store |
-| `~/.argus-skill/sandbox/<key>/` | one per work directory: its own copy of the home and the state root, as its agents see them: their CLI sessions, caches and scratch files |
-| your work directory | where the roles read and write files; never inside the state root |
+| `~/.argus/` | the state directory (`ARGUS_HOME` overrides it) |
+| `~/.argus/owner.json` | the pid of the `argus` process that owns the directory |
+| `~/.argus/projects/<id>/project.json` | a project's current state: directory, request, name, backend and model, tasks, role sessions, the open question |
+| `~/.argus/projects/<id>/events.jsonl` | what happened, in order: messages, letters, calls, task changes |
+| `~/.argus/projects/<id>/usage.jsonl` | one record per backend call: tokens and cost |
+| `~/.argus/projects/<id>/calls/` | each call's raw output from the backend |
+| `~/.argus/skills/` | the roles' and your skills and plugins |
+| `~/.argus/workspaces/<id>/` | the folder of a project that was not given a directory |
+| `~/.argus/sandbox/` | under bubblewrap, a private home per project directory |
+| `~/.argus/trash/` | deleted projects' records, which the page can restore; their directories are left where they were |
+| your project directory | the work itself; attachments under `.argus/attachments/` |
+
+## When something goes wrong
+
+- **`<backend> is not installed (not found on PATH)`**: install the CLI with the command
+  the message gives, sign in, and start the project again.
+- **A call failed**: Argus records the failure as it happened and the work stops; it does
+  not retry. The task shows the error of its last call and the path of the raw output
+  under `calls/`. Fix the cause (sign-in, quota, network), then start the project again.
+- **Spend**: every call's tokens and cost are in the project's `usage.jsonl`. Argus sets no
+  spending limit of its own; your provider's limits apply.
+
+## Upgrade and uninstall
+
+Stop `argus` first; work under way is interrupted, and you start it again from the page.
+
+```bash
+npm i -g @lbx154/argus@latest      # from source: git pull, then the source steps above again
+npm rm -g @lbx154/argus
+```
+
+Uninstalling leaves `~/.argus`, which holds your projects' records, the skills, and the
+folders of projects that were not given a directory. Delete it only if you want all of
+that gone.
+
+## Projects started with the Python runtime
+
+The earlier Python runtime is still in the repository only so that projects started with
+it can finish; it will be removed after that and is not for new installations. Its state
+is in `~/.argus-skill`, separate from `~/.argus`, and its projects keep running with the
+installation that started them. Both provide a command called `argus`: on a machine with
+both, check which one runs (`type -a argus`, or `Get-Command argus -All` in PowerShell).
