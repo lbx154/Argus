@@ -8,6 +8,8 @@ export const SETTINGS_CAPABILITY = 'project.config.v1';
 export const ADVISOR_CAPABILITY = 'advisor.config.v1';
 /** The machine's CPU, memory and GPUs. */
 export const RESOURCES_CAPABILITY = 'system.resources.v1';
+/** The map's own records: the operator's notes and canvas, and the saved explanation of each card. */
+export const MAP_CAPABILITY = 'map.annotations.v1';
 /** The composer's slash commands, /doctor and /config among them. */
 export const COMMANDS_CAPABILITY = 'composer.commands.v1';
 

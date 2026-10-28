@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 import { mapCopyKey, readerPreview } from './copyMode';
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
@@ -56,6 +57,7 @@ export function useMapCopy(
       const previous = queryClient.getQueryData<MapCopy>(key);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
+    enabled: useCapability(MAP_CAPABILITY),
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnWindowFocus: false,
