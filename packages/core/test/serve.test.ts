@@ -3,7 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
+import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
@@ -111,6 +111,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const compatibility = inspectApiMeta(await metaResponse.json(), { releaseId: RELEASE_ID });
   assert.equal(compatibility.compatible, true, compatibility.reason);
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
+  // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
+  assert.deepEqual(compatibility.meta?.capabilities, [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1']);
   assert.equal((await get('/api/application-brand')).id, 'argus');
 
   const created = await (await post('/api/daemons', { objective: '', name: '', workdir: '' })).json() as { sid: string; rc: number; workdir: string };
@@ -368,7 +370,6 @@ test('attached files land in the workdir, and the message that carries them says
   const { call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);
   const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
   const P = `/api/projects/${sid}`;
-  assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.attachments.v1'));
   assert.deepEqual(await get(`${P}/attachments/limits`), { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 });
 
   // Small files in one request, as the page sends them.
