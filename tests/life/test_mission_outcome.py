@@ -42,6 +42,7 @@ class _Outcome:
     final_message: str = ""
     summary: str = ""
     final_output: str = ""
+    deliverables: tuple[str, ...] = ()
 
 
 class _FixedOutcomeRunner:
@@ -358,6 +359,7 @@ def test_a_reviewed_operator_request_is_delivered_while_the_campaign_goes_on(
         final_review_status="done",
         final_review_source="reviewer",
         final_review_reason="中文综述 survey-zh.md 已交付并通过独立复核。",
+        deliverables=("survey-zh.md",),
     ))
     supervisor.config.continuous = True
     workdir = supervisor._project_workdir()

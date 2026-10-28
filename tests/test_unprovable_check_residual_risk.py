@@ -565,6 +565,7 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
         final_message: str = ""
         summary: str = "Built ingest; the fixture run passes."
         final_output: str = ""
+        deliverables: tuple[str, ...] = ()
 
     class _Runner:
         def execute(self, **kwargs):
@@ -588,7 +589,7 @@ def test_the_mission_summary_event_and_delivery_card_name_the_residual_risk(tmp_
     supervisor.memory.backlog.add(BacklogItem.new(
         title="Ingest the feed", objective="Build dispatch.py", tags=["manager_direct", "scope:bounded", "review:required"],
     ))
-    supervisor.runner.execute = lambda **kwargs: _Outcome(final_output="Created `dispatch.py`.")
+    supervisor.runner.execute = lambda **kwargs: _Outcome(final_output="Created `dispatch.py`.", deliverables=("dispatch.py",))
     supervisor.tick()
 
     completed = next(event for event in sink.events if event.get("type") == "life.mission.completed")

@@ -49,7 +49,12 @@
       "core": ["to", "summary", "note", "ask", "assumptions"],
       "to": ["reviewer", "done", "engineer", "planner", "manager", "operator"],
       "required": ["to", "summary", "note", "assumptions"],
-      "properties": {}
+      "properties": {
+        "files": {
+          "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 1, "maxLength": 400},
+          "description": "Required with to=reviewer or done: the workspace files this work delivers, as paths relative to the workspace, the one the operator should open first leading; [] when it delivers no file. Accepting the work accepts them as what it delivers."
+        }
+      }
     },
     "review": {
       "description": "Submit your judgment of this candidate; the call ends your turn. to: done accepts it, only after you checked each requirement and symptom the task (this increment) states, and each acceptance criterion, against the deliverable: tests the Engineer wrote show the code matches its reading of the task, not that the reading is right, and a stated symptom called intended or out of scope needs support in the task text itself; engineer returns concrete in-scope repairs, named in note; planner, the task or plan is wrong; manager, the process is stuck (an environment, tool or access failure you cannot judge past) and needs the Manager to debug it; requirements of the operator's that conflict are the operator's to settle; operator, a decision only the operator can make.",

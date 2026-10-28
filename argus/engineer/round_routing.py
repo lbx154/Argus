@@ -43,12 +43,30 @@ def _handoff_record(holder: str, handoff: HandOff) -> ReviewDecision:
     )
 
 
-def engineer_actions(supervised_config: "SupervisedConfig") -> HandOffActions:
-    """The Engineer's form for one turn: it accepts its own work only where no review is required."""
+def _workspace_file(root: Path, path: str) -> bool:
+    """Whether ``path``, relative to the workspace ``root``, names a file inside it."""
+    resolved = (root / path).resolve()
+    return not Path(path).is_absolute() and resolved.is_relative_to(root) and resolved.is_file()
+
+
+def engineer_actions(supervised_config: "SupervisedConfig", workdir: Path) -> HandOffActions:
+    """The Engineer's form for one turn.
+
+    It accepts its own work only where no review is required, and work it
+    hands on as finished names the workspace files it delivers.
+    """
 
     def check(payload: dict) -> None:
         if payload["to"] == "done" and supervised_config.require_independent_review:
             raise ValueError("This task requires an independent review: hand it to=reviewer.")
+        if payload["to"] in {"reviewer", "done"}:
+            if "files" not in payload:
+                raise ValueError(
+                    "files: with to=reviewer or done, list the workspace files this work delivers, [] for none."
+                )
+            root = workdir.resolve()
+            if missing := [path for path in payload["files"] if not _workspace_file(root, path)]:
+                raise ValueError(f"files: not a file in the workspace: {', '.join(missing)}.")
 
     return HandOffActions(
         "engineer", check=check, operator_available=mission_questions_allowed(supervised_config),
@@ -242,6 +260,7 @@ class RoundRoutingMixin:
         state.backend_failure_same_cause_streak = 0
         if not climbed:
             state.review_unseen = False
+            state.deliverables = list(outcome.handoff.get("files", ())) if outcome.handoff else []
         # Work that climbed past the Engineer goes where its last turn sent it,
         # so only a handoff to the Reviewer resumes at review.
         last = state.snapshots.held_verdict("engineer") if climbed and state.snapshots else None

@@ -33,7 +33,7 @@ def test_unfinished_self_reviewed_turns_go_on_until_the_engineer_says_done(tmp_p
     backend = MemoryBackend()
     for index in (1, 2, 3):
         backend.queue(f"engineer-r{index}", CannedResponse(action=hand_off("engineer", f"Step {index} written.")))
-    backend.queue("engineer-r4", CannedResponse(action=hand_off("done", "All steps hold.")))
+    backend.queue("engineer-r4", CannedResponse(action=hand_off("done", "All steps hold.", files=[])))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",

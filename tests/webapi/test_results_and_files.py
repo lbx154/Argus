@@ -27,7 +27,10 @@ def _delivered_project(tmp_path: Path, sid: str) -> tuple[Path, Path]:
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)))
     append_turn(life, "argus", "Report is ready", metadata={"delivery": {
         "summary": "[report](study/README.md)",
-        "targets": [{"path": "study/README.md", "label": "report", "source": "solo_output"}],
+        "targets": [
+            {"path": "study/README.md", "label": "report", "source": "solo_output"},
+            {"path": "study/table.csv", "label": "data", "source": "solo_output"},
+        ],
     }})
     return life, workspace
 

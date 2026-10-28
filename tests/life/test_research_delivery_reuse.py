@@ -29,7 +29,7 @@ def _reviewed_request(tmp_path: Path, **extra):
         success=True, overall_complete=False, status="done",
         review_status="done", review_source="reviewer",
         final_submission_certified=False, workspace=workspace, state_root=state,
-        reviewer_artifacts=["survey-zh.md"], stage_package=True,
+        deliverables=[("survey-zh.md", "reviewer_accepted")], stage_package=True,
     )
     assert receipt is not None and receipt["kind"] == "stage_package"
     entry = SimpleNamespace(kind="mission_complete", ts=time.time() + 1, extra={

@@ -374,6 +374,9 @@ class RoundRecord:
     review: ReviewDecision
     fatal_error: str | None = None
     stop_kind: StopKind | None = None
+    # The files the candidate this round settled on delivers, as the
+    # Engineer's last hand_off to the Reviewer or done declared them.
+    deliverables: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -916,37 +916,14 @@ class MissionExecutionSettlementMixin:
             mission_summary = f"Verified with residual risk: {residual_risk}. {mission_summary}"[:1200].strip()
         final_output = str(getattr(outcome, "final_output", "") or "").strip()
         # A completed mission needs one durable, operator-facing receipt rather
-        # than three loosely related hints (event, chat text, and sidebar).
-        # Resolve targets only from the accepted completion message or a
-        # vertical contract; never scan or guess files. Files the Engineer
-        # handoff names are reviewer-accepted evidence and must remain openable
-        # in the UI.
+        # than three loosely related hints (event, chat text, and sidebar). Its
+        # files are the ones the accepted Engineer hand_off declared, and the
+        # vertical contract's.
         delivery: dict[str, Any] | None = None
         delivery_workspace = state.execution_workdir or self._project_workdir()
-        reviewer_artifacts: list[str] = []
+        deliverables = list(getattr(outcome, "deliverables", ())) if success else []
         try:
-            from ..delivery import referenced_delivery_paths, reviewed_change_paths
-
-            reviewer_artifacts.extend(referenced_delivery_paths(
-                delivery_workspace,
-                [
-                    raw_mission_summary,
-                    final_output,
-                    getattr(outcome, "final_message", ""),
-                ],
-                limit=12,
-            ))
-            if success and not reviewer_artifacts:
-                # A terse accepted direct handoff may omit every filename.
-                # Recover only authored files actually inspected by its final
-                # independent Reviewer, not arbitrary workspace contents.
-                reviewer_artifacts.extend(reviewed_change_paths(
-                    delivery_workspace, self.memory.root, item.id,
-                ))
-        except Exception:  # noqa: BLE001 - receipt construction remains fail-soft
-            log.debug("completion file links could not be resolved", exc_info=True)
-        try:
-            from ..delivery import build_delivery_receipt
+            from ..delivery import build_delivery_receipt, declared_source
 
             delivery = build_delivery_receipt(
                 item_id=item.id,
@@ -966,7 +943,10 @@ class MissionExecutionSettlementMixin:
                 workspace=delivery_workspace,
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
-                reviewer_artifacts=reviewer_artifacts,
+                deliverables=[
+                    (path, declared_source(getattr(outcome, "final_review_source", "")))
+                    for path in deliverables
+                ],
                 # The operator's own request is a deliverable once its
                 # Reviewer accepted it, even while the campaign goes on.
                 stage_package=bool(
@@ -1000,11 +980,7 @@ class MissionExecutionSettlementMixin:
             "review_source": str(
                 getattr(outcome, "final_review_source", "") or ""
             ),
-            "delivery_candidates": [
-                str(candidate)
-                for candidate in reviewer_artifacts
-                if str(candidate).strip()
-            ][:12],
+            "delivery_candidates": deliverables,
             "outcome_class": mission_outcome_class(status, success, state.park_reason),
             "outcome": state.outcome_dimensions,
             "plan_challenge": plan_challenge,

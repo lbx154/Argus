@@ -182,7 +182,7 @@ class RoundExecutionMixin:
 
         operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
-        actions = engineer_actions(supervised_config)
+        actions = engineer_actions(supervised_config, workdir)
         # What the agent CLI's stream reports of the Engineer's commands is kept
         # in host memory for the Reviewer, not in a project file. It is not
         # tamper-proof; the record shows conflicts and unverified results. The

@@ -30,13 +30,13 @@ const delivery: DeliveryReceipt = {
   primary_target: {
     path: 'out/final.md',
     label: 'final.md',
-    source: 'reviewer_evidence',
+    source: 'reviewer_accepted',
     why: 'Reviewer accepted the file.',
   },
   targets: [{
     path: 'out/final.md',
     label: 'final.md',
-    source: 'reviewer_evidence',
+    source: 'reviewer_accepted',
     why: 'Reviewer accepted the file.',
   }],
 };

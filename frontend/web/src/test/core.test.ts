@@ -619,7 +619,7 @@ describe('shared frontend core', () => {
     const artifacts = [
       { path: 'paper/main.tex', name: 'main.tex', why: 'draft', exists: true, kind: 'text' as const, mime: 'text/plain', size: 10, mtime: 1, source: 'manager_live' as const },
       { path: 'paper/main.pdf', name: 'main.pdf', why: 'rendered draft', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'manager_live' as const },
-      { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
+      { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'research_registered' as const },
     ];
 
     expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.tex');
@@ -638,8 +638,8 @@ describe('shared frontend core', () => {
   it('falls back to an existing reviewed artifact when the live draft is pending', () => {
     const artifacts = [
       { path: 'FINAL_REPORT.md', name: 'FINAL_REPORT.md', why: 'live', exists: false, kind: 'markdown' as const, mime: 'text/markdown', size: 0, mtime: null, source: 'manager_live' as const },
-      { path: 'research/results.jsonl', name: 'results.jsonl', why: 'rows', exists: true, kind: 'json' as const, mime: 'application/json', size: 10, mtime: 1, source: 'reviewer_evidence' as const },
-      { path: 'paper/main.pdf', name: 'main.pdf', why: 'paper', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'reviewer_evidence' as const },
+      { path: 'research/results.jsonl', name: 'results.jsonl', why: 'rows', exists: true, kind: 'json' as const, mime: 'application/json', size: 10, mtime: 1, source: 'research_registered' as const },
+      { path: 'paper/main.pdf', name: 'main.pdf', why: 'paper', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'research_registered' as const },
     ];
     expect(selectPreviewArtifacts(artifacts).map((item) => item.path)).toEqual([
       'paper/main.pdf', 'research/results.jsonl',

@@ -129,13 +129,19 @@ def test_package_reference_candidates_prefer_the_named_package_directory() -> No
     assert _model_asset_candidates(PurePosixPath("robot"), "../../x.stl") == []
 
 
-def test_a_completion_summary_naming_models_registers_them(tmp_path: Path) -> None:
-    from argus.life.delivery import referenced_delivery_paths
+def test_models_a_hand_off_names_are_delivered(tmp_path: Path) -> None:
+    from argus.life.delivery import build_delivery_receipt
 
-    for name in ("robot/arm.urdf", "meshes/arm.dae", "scene/arm.gltf", "scene/arm.glb", "meshes/a.stl"):
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text("x", encoding="utf-8")
-    summary = "Built robot/arm.urdf with meshes/arm.dae; also scene/arm.gltf, scene/arm.glb and meshes/a.stl."
-    assert referenced_delivery_paths(tmp_path, [summary]) == [
-        "robot/arm.urdf", "meshes/arm.dae", "scene/arm.gltf", "scene/arm.glb", "meshes/a.stl",
-    ]
+    names = ["robot/arm.urdf", "meshes/arm.dae", "scene/arm.gltf", "scene/arm.glb", "meshes/a.stl"]
+    for name in names:
+        (tmp_path / "workspace" / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "workspace" / name).write_text("x", encoding="utf-8")
+    (tmp_path / "state").mkdir()
+    receipt = build_delivery_receipt(
+        item_id="task-arm", title="Build the arm", summary="Built.", success=True,
+        overall_complete=True, status="done", review_status="done", final_submission_certified=False,
+        workspace=tmp_path / "workspace", state_root=tmp_path / "state",
+        deliverables=[(name, "reviewer_accepted") for name in names],
+    )
+    assert receipt is not None
+    assert [target["path"] for target in receipt["targets"]] == names

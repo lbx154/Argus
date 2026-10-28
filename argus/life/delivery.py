@@ -1,15 +1,14 @@
 """Canonical, safe delivery receipts for terminal Argus goals.
 
-A delivery exists only when the overall operator goal is complete *and* a
-reviewed or contract-declared file can actually be opened. Intermediate mission
-success, resume progress, Manager live views, and summary-only outcomes never
-become completion receipts.
+A delivery exists only when the overall operator goal is complete *and* a file
+its Engineer's hand_off named (``files``) or its vertical contract declares can
+actually be opened. Intermediate mission success, resume progress, Manager live
+views, and summary-only outcomes never become completion receipts.
 """
 
 from __future__ import annotations
 
 import difflib
-import html
 import json
 import os
 import re
@@ -17,7 +16,6 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import unquote, urlsplit
 
 from ..core.file_facts import file_facts
 from ..core.launch_settings import strip_launch_note
@@ -34,247 +32,6 @@ SNAPSHOT_DIRNAME = "delivery_snapshots"
 MAX_SNAPSHOT_DELIVERIES_PER_ITEM = 10
 _SNAPSHOT_INDEX = "index.json"
 _SNAPSHOT_VERSION = re.compile(r"[0-9a-f]{32}")
-
-_MARKDOWN_TARGET_RE = re.compile(
-    r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angled>[^>\r\n]+)>|(?P<plain>[^\s)\r\n]+))",
-)
-_INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\r\n]{1,2048})`(?!`)")
-_BOOK_TITLE_TARGET_RE = re.compile(r"《([^》\r\n]{1,2048})》")
-_WINDOWS_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
-)
-# Bare names a verdict may give for its primary visual are recognised too. The
-# 3D model suffixes still pass the live-view suffix policy before they count.
-_PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp|svg|gif|urdf|stl|obj|dae|glb|gltf))(?=$|[^\w/\\.-]|\.(?=\s|$))",
-    re.IGNORECASE,
-)
-_BRACED_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])(?P<stem>[A-Za-z0-9_./-]+)\.\{"
-    r"(?P<suffixes>[A-Za-z0-9]+(?:\s*,\s*[A-Za-z0-9]+){0,11})\}",
-)
-_TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
-_PATCH_OUTPUT_RE = re.compile(r"^\*\*\* (?:Add|Update) File: (.+)$", re.MULTILINE)
-_PRESENTATION_SUFFIXES = {".html", ".pdf", ".md", ".markdown", ".csv", ".tsv"}
-
-
-def reviewed_change_paths(
-    workspace: Path | str,
-    state_root: Path | str,
-    item_id: str,
-) -> list[str]:
-    """Recover authored presentation files inspected in the accepted review.
-
-    Some direct handoffs only contain a status footer. The normalized mission
-    trace still identifies the Engineer's file edits and the Reviewer's reads.
-    Their intersection is evidence; a directory listing or shell command is
-    not. Keep only the final accepted review in the latest mission attempt.
-    """
-    from .memory import _read_jsonl_tail
-
-    if not item_id:
-        return []
-    event_types = {
-        "life.mission.started", "round.start", "round.review.started",
-        "round.review.completed", "engineer.progress",
-    }
-    events = _read_jsonl_tail(
-        Path(state_root) / "events.jsonl",
-        600,
-        predicate=lambda row: row.get("item_id") == item_id
-        and row.get("type") in event_types
-        and (row.get("type") != "engineer.progress" or row.get("kind") == "tool_use"),
-        raw_predicate=lambda raw: item_id.encode() in raw,
-    )
-    root = Path(workspace)
-    edited: set[str] = set()
-    inspected: list[str] = []
-    reviewing = False
-    accepted = False
-    for event in events:
-        kind = event.get("type")
-        if kind == "life.mission.started":
-            edited.clear()
-        if kind in {"life.mission.started", "round.start", "round.review.started"}:
-            inspected.clear()
-            accepted = False
-            reviewing = kind == "round.review.started"
-            continue
-        if kind == "round.review.completed":
-            accepted = bool(
-                reviewing and event.get("status") == "done"
-                and event.get("review_source") == "reviewer"
-            )
-            reviewing = False
-            continue
-        if event.get("kind") != "tool_use":
-            continue
-        tool = str(event.get("tool_name") or "").casefold()
-        text = str(event.get("text") or "")
-        paths: list[object] = []
-        if tool == "apply_patch":
-            paths.extend(_PATCH_OUTPUT_RE.findall(text))
-        else:
-            try:
-                arguments = json.loads(text.partition(": ")[2])
-            except (ValueError, TypeError):
-                continue
-            if isinstance(arguments, dict):
-                paths.append(
-                    arguments.get("path") or arguments.get("file_path")
-                    or arguments.get("filePath")
-                )
-        role = str(event.get("agent_layer") or event.get("actor") or "").split("-", 1)[0]
-        for candidate in paths:
-            path = _workspace_relative_reference(root, candidate)
-            if not path or Path(path).suffix.lower() not in _PRESENTATION_SUFFIXES:
-                continue
-            # Test fixtures and scratch outputs require an explicit final-file
-            # declaration; merely editing and inspecting them is insufficient.
-            if any(
-                part.casefold() in {"tmp", "temp", "tests", "test", "fixtures", "node_modules"}
-                for part in Path(path).parts
-            ):
-                continue
-            if role == "engineer" and tool in {"apply_patch", "create", "write", "write_file", "edit"}:
-                if event.get("status") == "failed":
-                    edited.discard(path)
-                else:
-                    edited.add(path)
-                    if path in inspected:
-                        inspected.remove(path)
-            elif role == "reviewer" and reviewing and tool in {"view", "read", "read_file"}:
-                if event.get("status") == "failed":
-                    if path in inspected:
-                        inspected.remove(path)
-                elif path in edited and path not in inspected:
-                    inspected.append(path)
-    if not accepted:
-        return []
-    inspected.sort(key=lambda path: (
-        Path(path).suffix.lower() != ".html", Path(path).suffix.lower() != ".pdf",
-    ))
-    return inspected[:MAX_DELIVERY_TARGETS]
-
-
-def referenced_path_candidates(text: object) -> list[str]:
-    body = str(text or "")
-    candidates: list[str] = []
-    for match in _MARKDOWN_TARGET_RE.finditer(body):
-        candidates.append(match.group("angled") or match.group("plain") or "")
-    candidates.extend(match.group(1) for match in _INLINE_CODE_RE.finditer(body))
-    candidates.extend(match.group(1) for match in _BOOK_TITLE_TARGET_RE.finditer(body))
-    candidates.extend(match.group(0) for match in _WINDOWS_PATH_RE.finditer(body))
-    # Figure handoffs commonly name one explicit stem with several formats.
-    # Expand only literal suffix lists; each file still passes confinement and
-    # the existing suffix policy. This never invokes a shell or scans a folder.
-    for match in _BRACED_FILE_RE.finditer(body):
-        candidates.extend(
-            f"{match.group('stem')}.{suffix.strip()}"
-            for suffix in match.group("suffixes").split(",")
-        )
-    candidates.extend(match.group(1) for match in _PLAIN_FILE_RE.finditer(body))
-    return candidates
-
-
-def _workspace_relative_reference(workspace: Path, value: object) -> str | None:
-    """Resolve one explicit completion-message path inside ``workspace``."""
-    raw = html.unescape(str(value or "")).strip(_TERMINAL_PUNCTUATION)
-    if not raw or "\x00" in raw:
-        return None
-    lowered = raw.casefold()
-    if lowered.startswith("sandbox:"):
-        raw = raw[len("sandbox:"):]
-        lowered = raw.casefold()
-    if lowered.startswith(("http://", "https://", "data:", "javascript:")):
-        return None
-    if lowered.startswith("file:"):
-        try:
-            parsed = urlsplit(raw)
-        except ValueError:
-            return None
-        if parsed.netloc not in {"", "localhost"}:
-            return None
-        raw = unquote(parsed.path)
-    else:
-        raw = unquote(raw).split("#", 1)[0].split("?", 1)[0]
-    raw = raw.strip(_TERMINAL_PUNCTUATION)
-    # Markdown commonly serializes a Windows file URL as /C:/path/file.pdf.
-    if re.match(r"^/[A-Za-z]:[\\/]", raw):
-        raw = raw[1:]
-    if not raw:
-        return None
-
-    try:
-        root = workspace.expanduser().resolve(strict=True)
-        candidate = Path(raw).expanduser()
-        if candidate.is_absolute():
-            resolved = candidate.resolve(strict=True)
-            relative = resolved.relative_to(root).as_posix()
-        else:
-            relative = raw.replace("\\", "/")
-            resolved = (root / relative).resolve(strict=True)
-            relative = resolved.relative_to(root).as_posix()
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return _safe_existing_path(root, relative)
-
-
-def referenced_delivery_paths(
-    workspace: Path | str,
-    texts: Iterable[object],
-    *,
-    limit: int = MAX_DELIVERY_TARGETS,
-) -> list[str]:
-    """Return safe files explicitly linked by an accepted completion summary.
-
-    This is deliberately not a workspace scan. Only paths named in the terminal
-    message are considered, and every candidate still passes the same confined,
-    credential-aware policy as Manager live-view and artifact downloads.
-    """
-    root = Path(workspace)
-    max_paths = max(0, int(limit))
-    if max_paths == 0:
-        return []
-    paths: list[str] = []
-    for text in texts:
-        for candidate in referenced_path_candidates(text):
-            path = _workspace_relative_reference(root, candidate)
-            if path and path not in paths:
-                paths.append(path)
-            if len(paths) >= max_paths:
-                return paths
-    return paths
-
-
-def linked_report_paths(workspace: Path | str, paths: Iterable[object]) -> list[str]:
-    """Companion files explicitly referenced by delivered Markdown reports."""
-    root = Path(workspace)
-    references: list[str] = []
-    reports = list(dict.fromkeys(
-        str(path) for path in paths if Path(str(path)).suffix.lower() in {".md", ".markdown"}
-    ))
-    for path in reports[:MAX_DELIVERY_TARGETS]:
-        safe = _workspace_relative_reference(root, path)
-        if not safe or Path(safe).suffix.lower() not in {".md", ".markdown"}:
-            continue
-        try:
-            with (root / safe).open("rb") as handle:
-                text = handle.read(128 * 1024).decode("utf-8", errors="replace")
-            # Markdown links resolve against the report's directory. Still
-            # validate the resulting path against the full workspace boundary.
-            for candidate in referenced_path_candidates(text):
-                candidate_path = str(candidate)
-                if not re.match(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|[/\\])", candidate_path):
-                    candidate_path = (Path(safe).parent / candidate_path).as_posix()
-                resolved = _workspace_relative_reference(root, candidate_path)
-                if resolved is None:
-                    resolved = _workspace_relative_reference(root, candidate)
-                if resolved:
-                    references.append(resolved)
-        except OSError:
-            continue
-    return list(dict.fromkeys(references))[:MAX_DELIVERY_TARGETS]
 
 
 def _safe_existing_path(workspace: Path, value: object) -> str | None:
@@ -311,32 +68,22 @@ def _target(
     return {
         "path": safe_path,
         "label": str(label or Path(safe_path).name).strip()[:240] or Path(safe_path).name,
-        "source": str(source or "reviewed_output").strip()[:80] or "reviewed_output",
+        "source": source,
         "why": str(why or "").strip()[:500],
     }
 
 
-def _reviewed_targets(
-    workspace: Path,
-    candidates: Iterable[object],
-    *,
-    source: str = "reviewer_evidence",
-) -> list[dict[str, str]]:
-    targets: list[dict[str, str]] = []
-    for candidate in candidates:
-        result = _target(
-            workspace,
-            candidate,
-            source=source,
-            why=(
-                "Solo output for this completed task."
-                if source == "solo_output"
-                else "Reviewed evidence for this completed mission."
-            ),
-        )
-        if result is not None:
-            targets.append(result)
-    return targets
+#: Who stands behind each declared file, as its receipt says.
+_DECLARED_WHY = {
+    "reviewer_accepted": "Declared by the Engineer and accepted by the Reviewer.",
+    "engineer_declared": "Declared by the Engineer; no independent review accepted it.",
+    "solo_output": "Solo output for this completed task.",
+}
+
+
+def declared_source(review_source: object) -> str:
+    """The source of the files an Engineer's hand_off declared, by who settled the task."""
+    return "reviewer_accepted" if review_source == "reviewer" else "engineer_declared"
 
 
 def _vertical_primary_targets(
@@ -539,7 +286,7 @@ def delivery_is_current(
     return bool(rows)
 
 
-_DOC_SUFFIXES = _PRESENTATION_SUFFIXES | {".rst", ".txt"}
+_DOC_SUFFIXES = {".html", ".pdf", ".md", ".markdown", ".csv", ".tsv", ".rst", ".txt"}
 _TEST_FILE_RE = re.compile(r"^test_|_test\.[^.]+$|\.(?:test|spec)\.[^.]+$", re.IGNORECASE)
 
 
@@ -555,14 +302,11 @@ def changed_workspace_paths(
     workspace: Path | str,
     before: dict[str, Any],
     after: dict[str, Any],
-    *,
-    named: Iterable[str] = (),
 ) -> list[str] | None:
     """Files that differ between two ``workspace_facts`` of ``workspace``, deliverables first.
 
-    ``named`` files, which the caller knows changed (an ignored output the
-    facts leave out, say), join them and lead; then docs and other outputs,
-    then tests. Removed files are not deliverables and drop out.
+    Docs lead, then other outputs, then tests. Removed files are not
+    deliverables and drop out.
     ``None`` when either side is unknown, which is never evidence that nothing
     changed.
     """
@@ -575,8 +319,7 @@ def changed_workspace_paths(
         return {str(row[1]): json.dumps(row) for row in facts.get("changes") or ()}
 
     old, new = rows(before), rows(after)
-    first = set(named)
-    paths = first | {path for path in {*old, *new} if old.get(path) != new.get(path)}
+    paths = {path for path in {*old, *new} if old.get(path) != new.get(path)}
     if before.get("tree") != after.get("tree"):
         # The turn committed: what the commits changed left ``git status``.
         import subprocess
@@ -592,8 +335,7 @@ def changed_workspace_paths(
     return sorted(
         (path for path in paths if path and (root / path).is_file()),
         key=lambda path: (
-            _is_test_path(path), path not in first,
-            Path(path).suffix.lower() not in _DOC_SUFFIXES, path,
+            _is_test_path(path), Path(path).suffix.lower() not in _DOC_SUFFIXES, path,
         ),
     )
 
@@ -613,8 +355,7 @@ def build_delivery_receipt(
     workspace: Path | str | None,
     state_root: Path | str | None,
     stage: str = "",
-    reviewer_artifacts: Iterable[object] = (),
-    artifact_source: str = "reviewer_evidence",
+    deliverables: Iterable[tuple[object, str]] = (),
     stage_package: bool = False,
 ) -> dict[str, Any] | None:
     """Build a receipt only for a real, openable deliverable.
@@ -623,7 +364,8 @@ def build_delivery_receipt(
     (a reviewed interim research package, or the operator's own request while
     the campaign goes on) gets a non-terminal receipt once its own Reviewer
     accepted it; the campaign and ``overall_complete`` stay as they are, so it
-    cannot stand in for the final result.
+    cannot stand in for the final result. ``deliverables`` are the declared
+    files, each with its source (``_DECLARED_WHY``).
     """
     interim = (
         stage_package and not overall_complete
@@ -647,15 +389,12 @@ def build_delivery_receipt(
 
     candidates: list[dict[str, str]] = []
     if root is not None and manifest_root is not None and root.is_dir() and manifest_root.is_dir():
-        # Reviewer-named evidence is strongest. The vertical contract is an
-        # explicit deliverable declaration. A Manager live view is deliberately
-        # excluded: it is presentation state, not proof of a final artifact.
+        # Declared files lead, then the vertical contract's. A Manager live
+        # view is deliberately excluded: it is presentation state, not proof
+        # of a final artifact.
         candidates.extend(
-            _reviewed_targets(
-                root,
-                reviewer_artifacts,
-                source=artifact_source,
-            )
+            target for path, source in deliverables
+            if (target := _target(root, path, source=source, why=_DECLARED_WHY[source])) is not None
         )
         candidates.extend(_vertical_primary_targets(root, manifest_root, str(stage or "")))
 
@@ -716,10 +455,9 @@ __all__ = [
     "MAX_DELIVERY_TARGETS",
     "build_delivery_receipt",
     "changed_workspace_paths",
+    "declared_source",
     "delivery_is_current",
     "delivery_snapshot_diff",
     "read_delivery_snapshot",
     "snapshot_delivery_targets",
-    "referenced_delivery_paths",
-    "reviewed_change_paths",
 ]

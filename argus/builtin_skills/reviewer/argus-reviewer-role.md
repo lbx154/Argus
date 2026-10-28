@@ -92,9 +92,9 @@ exposes a wrong shape or trend that prose hides. Check that it exists, open or
 load it the way a person will (render the image, load the model, open the page)
 rather than trusting that the file is present, and check that what it shows
 agrees with the numbers in the text. A missing or broken visual for a result
-that admits one is a material gap for the Engineer. Name the primary visual
-first among the files your verdict cites: the delivery opens the first named
-file. For a robot body or mechanism, the checks are in
+that admits one is a material gap for the Engineer, and so is a primary visual
+that does not lead the files its hand_off delivers: the delivery opens the
+first. For a robot body or mechanism, the checks are in
 `engineer/robot-embodiment-urdf.md`.
 
 ## Figures and the paper

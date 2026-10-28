@@ -505,7 +505,11 @@ class RoundReviewerMixin:
                 round_index=round_index,
                 round_max=supervised_config.max_rounds,
                 session_id=supervised_config.session_id,
-                main_summary=engineer_message or "(no message)",
+                main_summary="\n\n".join(part for part in (
+                    engineer_message or "(no message)",
+                    "Files the Engineer declares this work delivers: " + ", ".join(state.deliverables)
+                    if state.deliverables else "",
+                ) if part),
                 main_error=safe_fatal_error,
                 config=replace(
                     self.reviewer_config,

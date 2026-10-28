@@ -241,34 +241,19 @@ class SelfReplyMixin:
         result: Any, reply: str, workdir: Path, state_root: Path, item_id: str,
         before: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """The files this turn changed, as one delivery; None when it changed none.
-
-        With the workspace unknown before or after the turn, only the files
-        its reply names and the turn wrote count.
-        """
+        """The files this turn changed, as one delivery; None when it changed none or they are unknown."""
         from ..core.secret_guard import redact_secrets_text
-        from ..life.delivery import (
-            build_delivery_receipt,
-            changed_workspace_paths,
-            referenced_delivery_paths,
-        )
+        from ..life.delivery import build_delivery_receipt, changed_workspace_paths
 
-        safe_reply = redact_secrets_text(reply, known_values=known_secret_values())
-        started_at = float(getattr(result, "started_at", 0.0) or 0.0)
-        named = [
-            path for path in referenced_delivery_paths(workdir, [safe_reply])
-            if started_at > 0 and (workdir / path).stat().st_mtime >= started_at
-        ]
-        changed = None if before is None else changed_workspace_paths(
-            workdir, before, SelfReplyMixin._workspace_facts(workdir, state_root), named=named,
+        paths = None if before is None else changed_workspace_paths(
+            workdir, before, SelfReplyMixin._workspace_facts(workdir, state_root),
         )
-        paths = named if changed is None else changed
         if not paths:
             return None
         return build_delivery_receipt(
             item_id=str(getattr(result, "call_id", "") or item_id),
             title=Path(paths[0]).name,
-            summary=safe_reply,
+            summary=redact_secrets_text(reply, known_values=known_secret_values()),
             success=True,
             overall_complete=True,
             status="done",
@@ -277,8 +262,7 @@ class SelfReplyMixin:
             final_submission_certified=False,
             workspace=workdir,
             state_root=state_root,
-            reviewer_artifacts=paths,
-            artifact_source="solo_output",
+            deliverables=[(path, "solo_output") for path in paths],
         )
 
 

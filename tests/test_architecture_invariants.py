@@ -1872,7 +1872,8 @@ def test_retired_names_do_not_spread() -> None:
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
 # 65 - 4: the goal.* metric rows (_core.py and settlement) went unread.
-MEMORY_ROOT_READS = 61
+# 61 - 2: the project receipt reads delivery_candidates, not task text.
+MEMORY_ROOT_READS = 59
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

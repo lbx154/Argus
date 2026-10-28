@@ -33,6 +33,7 @@ def _run(tmp_path: Path, *responses: tuple[str, CannedResponse], review: bool = 
         workdir=tmp_path,
         on_event=on_event,
     )
+    _run.prompts = {label: prompt for label, prompt, _options in backend.history}
     return status, rounds, [label for label, _prompt, _options in backend.history]
 
 
@@ -71,13 +72,26 @@ def test_a_turn_without_a_handoff_hands_nothing_on(tmp_path: Path, message: str)
     assert any(str(event.get("text", "")).startswith("review: skipped (backend failure)") for event in events)
 
 
-def test_done_is_refused_where_review_is_required() -> None:
-    actions = engineer_actions(SupervisedConfig(require_independent_review=True))
+def test_the_reviewer_reads_the_declared_files_and_its_round_keeps_them(tmp_path: Path) -> None:
+    (tmp_path / "parser.md").write_text("# Parser\n", encoding="utf-8")
+    result, rounds, labels = _run(
+        tmp_path,
+        ("engineer-r1", CannedResponse(action=hand_off("reviewer", "Repaired the parser.", files=["parser.md"]))),
+        _ACCEPTED,
+    )
+    assert (result, labels, rounds[-1].deliverables) == ("done", ["engineer-r1", "reviewer"], ["parser.md"])
+    assert "Files the Engineer declares this work delivers: parser.md" in _run.prompts["reviewer"]
+
+
+def test_done_is_refused_where_review_is_required(tmp_path: Path) -> None:
+    actions = engineer_actions(SupervisedConfig(require_independent_review=True), tmp_path)
     with pytest.raises(ValueError, match="independent review"):
-        actions.dispatch(*hand_off("done"))
+        actions.dispatch(*hand_off("done", files=[]))
     with pytest.raises(ValueError, match="to=operator goes with ask"):
         actions.dispatch(*hand_off("operator"))
-    assert engineer_actions(SupervisedConfig(require_independent_review=False)).dispatch(*hand_off("done"))
+    assert engineer_actions(SupervisedConfig(require_independent_review=False), tmp_path).dispatch(
+        *hand_off("done", files=[]),
+    )
 
 
 def test_an_operator_question_parks_with_its_options(tmp_path: Path) -> None:

@@ -1094,66 +1094,51 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - delivery presentation is optional
             latest = {}
         try:
-            from ..delivery import (
-                build_delivery_receipt,
-                linked_report_paths,
-                referenced_delivery_paths,
-                reviewed_change_paths,
-            )
+            from ..delivery import build_delivery_receipt, declared_source
 
             outcome = latest.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
-            candidates = latest.get("delivery_candidates")
-            candidates = candidates if isinstance(candidates, list) else []
             project_id = Path(self.memory.root).name
             workspace = (
                 str(latest.get("execution_workdir") or "").strip()
                 or self._project_workdir()
             )
-            # Older settlements omitted the accepted Engineer final_output
-            # from delivery_candidates. Recover named files without a directory
-            # scan, and retain outputs of earlier nodes in this same goal.
-            candidates = list(candidates)
-            candidates.extend(referenced_delivery_paths(workspace, [latest.get("final_output")], limit=12))
             objective = str(getattr(self.config, "continuous_objective", "") or "").strip()
             goal_items = {
-                item.id: item for item in self.memory.backlog.all()
+                item.id for item in self.memory.backlog.all()
                 if item.status == "done" and objective
                 and str(item.original_objective or item.objective).strip() == objective
             }
             task_delivery = latest.get("delivery")
             if (
                 isinstance(task_delivery, dict) and task_delivery.get("kind") == "task_completed"
-                and set(goal_items) <= {latest.get("item_id")}
+                and goal_items <= {latest.get("item_id")}
             ):
                 # The project was this one task: its receipt is the project's,
                 # with the same primary file and the same identity.
                 return dict(task_delivery)
+            # The files the last settlement declared, then those of earlier
+            # nodes in this same goal.
+            declared = [latest]
             for entry in reversed(settlements):
                 extra = getattr(entry, "extra", None)
-                if not isinstance(extra, dict) or extra.get("success") is not True:
-                    continue
-                if extra.get("item_id") not in goal_items:
-                    continue
-                if str(extra.get("execution_workdir") or workspace) != str(workspace):
-                    continue
-                candidates.extend(extra.get("delivery_candidates") or [])
-                candidates.extend(referenced_delivery_paths(workspace, [extra.get("final_output"), extra.get("summary")], limit=12))
-                # The reviewed node's concrete file contract still identifies
-                # its outputs when a terse handoff only says "checks passed".
-                candidates.extend(referenced_delivery_paths(workspace, [goal_items[extra["item_id"]].objective], limit=12))
-            candidates = [*linked_report_paths(workspace, candidates), *candidates]
-            if not candidates:
-                candidates.extend(reviewed_change_paths(
-                    workspace, self.memory.root, str(latest.get("item_id") or ""),
-                ))
+                if (
+                    isinstance(extra, dict) and extra.get("success") is True
+                    and extra.get("item_id") in goal_items
+                    and str(extra.get("execution_workdir") or workspace) == str(workspace)
+                ):
+                    declared.append(extra)
+            candidates = [
+                (path, declared_source(extra.get("review_source")))
+                for extra in declared for path in extra.get("delivery_candidates") or ()
+            ]
             from ...skills.vertical_select import resolve_vertical_if_decided
 
             if resolve_vertical_if_decided(self._artifact_root()) == "software":
                 # Keep the product and report ahead of implementation sources
                 # when the bounded delivery list is clipped.
                 presentation_order = {".html": 0, ".pdf": 1, ".md": 2, ".markdown": 2, ".csv": 3, ".tsv": 3}
-                candidates.sort(key=lambda path: presentation_order.get(Path(str(path)).suffix.lower(), 4))
+                candidates.sort(key=lambda row: presentation_order.get(Path(row[0]).suffix.lower(), 4))
             final_submission_certified = bool(
                 latest.get("final_submission_certified")
             )
@@ -1213,7 +1198,7 @@ class LifeSupervisor(
                 workspace=workspace,
                 state_root=self._project_state_root(),
                 stage=str(self._current_pipeline_stage() or ""),
-                reviewer_artifacts=candidates,
+                deliverables=candidates,
             )
             if review_validity_message:
                 receipt["kind"] = "submission_stale"
