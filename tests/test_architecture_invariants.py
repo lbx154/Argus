@@ -1576,15 +1576,6 @@ SUBPROCESS_REENTRY_MODULES = (
 )
 
 
-# The same names as processes started before the 2026-09-14 rename spell them
-# (``argus_skill`` was the package): trial containers and seeded
-# Skill copies still carry these on their command lines. The alias package
-# ``argus_skill/`` must resolve every one for one release.
-LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
-    "argus_skill" + dotted[len("argus"):] for dotted in SUBPROCESS_REENTRY_MODULES
-)
-
-
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
@@ -1595,23 +1586,6 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """
     missing = [
         dotted for dotted in SUBPROCESS_REENTRY_MODULES
-        if importlib.util.find_spec(dotted) is None
-    ]
-
-    assert missing == []
-
-
-def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
-    """A daemon or Skill copy from before the rename must still find its modules.
-
-    ``python -m argus_skill.tools.capability_vault`` is what an operator-edited Skill
-    copy under ``~/.argus-skill/skills`` says today, and the old daemon's
-    handoff spawns ``-c "from argus_skill.daemon.life_worker import ..."``
-    into the new tree. Resolving these through ``find_spec`` proves the
-    ``argus_skill`` alias package answers for every re-entry name.
-    """
-    missing = [
-        dotted for dotted in LEGACY_SUBPROCESS_REENTRY_MODULES
         if importlib.util.find_spec(dotted) is None
     ]
 
@@ -1642,9 +1616,8 @@ def _rename_citation_files() -> list[Path]:
 def test_no_pre_rename_module_citations_remain_in_prose() -> None:
     """Skills, prompts, plugins, integrations and current docs say ``argus``, not ``argus_skill``.
 
-    The alias keeps ``argus_skill.x`` *running* for one release; it does not
-    make it the name to teach. A citation left in a Skill or a README is copied
-    into new seeded Skills and new operator shells, and outlives the alias.
+    ``argus_skill`` no longer imports. A citation left in a Skill or a README is
+    copied into new seeded Skills and new operator shells.
     """
     offenders = []
     for path in _rename_citation_files():

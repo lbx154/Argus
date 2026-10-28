@@ -119,8 +119,6 @@ argus-trial-server = "argus.trial.admin:main"
 argus-compute = "argus.trial.compute_client:main"
 argus = "argus.apps.tui_launcher:main"
 argus-doctor = "argus_doctor:main"
-# Pre-rename command name, kept for one release; prints a deprecation line.
-argus-skill = "argus.__main__:main"
 argus-plugin-server = "argus.plugin.mcp_server:main"
 
 [project.urls]
@@ -128,8 +126,7 @@ Homepage = "https://github.com/lbx154/Argus"
 Repository = "https://github.com/lbx154/Argus"
 
 [tool.hatch.build.targets.wheel]
-# ``argus_skill`` is the two-file import alias kept for one release.
-packages = ["argus", "argus_skill"]
+packages = ["argus"]
 # Package Markdown and JSON files are runtime Skill data.
 
 [tool.hatch.build.targets.wheel.force-include]
@@ -149,7 +146,6 @@ artifacts = [
 include = [
   "argus_doctor.py",
   "argus/**",
-  "argus_skill/**",
   "packages/contracts/**",
   "packages/runtime/fixtures/**",
   "tests/**",
@@ -183,7 +179,7 @@ ignore = [
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["argus", "argus_skill"]
+known-first-party = ["argus"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -200,8 +196,7 @@ filterwarnings = [
 [tool.mypy]
 python_version = "3.11"
 exclude = '''^(?:build|dist|hosting|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
-# Type-check stable shared contracts (the argus_skill alias package is not
-# type-checked: it is an import-time shim).
+# Type-check stable shared contracts.
 files = [
   "argus/core",
   "argus/manager/config_intent.py",

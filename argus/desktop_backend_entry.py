@@ -12,20 +12,14 @@ from typing import Any
 
 _VERIFY_FROZEN_RUNTIME = "--verify-frozen-runtime"
 _PACKAGE = "argus"
-#: Import name before the 2026-09-14 rename. Seeded Skill copies and older
-#: daemons still spell ``-m argus_skill.…``; accepted for one release.
-_LEGACY_PACKAGE = "argus_skill"
 
 
 def _canonical_frozen_module(module: str, application_package: str | None = None) -> str | None:
     """``unittest`` or an in-package module under its canonical name; else ``None``."""
     if module == "unittest":
         return module
-    for package in (_PACKAGE, _LEGACY_PACKAGE):
-        if module == package:
-            return _PACKAGE
-        if module.startswith(package + "."):
-            return _PACKAGE + module[len(package):]
+    if module == _PACKAGE or module.startswith(_PACKAGE + "."):
+        return module
     if application_package and (
         module == application_package or module.startswith(application_package + ".")
     ):

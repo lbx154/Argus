@@ -644,9 +644,8 @@ git -C "$HOME/Argus" pull --ff-only
 以及其它磁盘标记(`/tmp/argus-skill-role-slots`、`~/argus-skill-tasks`、`~/.local/share/argus-skill` 等)。
 `~/.argus-skill` 下的任何内容都不需要搬。
 
-**保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
-`python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
-旧名字启动的 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+**已不再保留。** `argus_skill` 导入别名和 `argus-skill` 命令保留了一个发布周期,现已删除:请用
+`import argus`、`python -m argus ...` 和 `argus`。注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 

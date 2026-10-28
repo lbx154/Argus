@@ -724,11 +724,9 @@ service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
 `~/argus-skill-tasks`, `~/.local/share/argus-skill`, ...). Nothing under
 `~/.argus-skill` moves.
 
-**Kept for one release.** `import argus_skill` is the same package object as
-`import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
-the same modules, the `argus-skill` command still exists and prints one
-deprecation line on stderr, trial containers started under the
-old name are still recognised, and community verticals registered under the
+**No longer kept.** The `argus_skill` import alias and the `argus-skill`
+command were kept for one release and are gone: use `import argus`,
+`python -m argus ...` and `argus`. Community verticals registered under the
 pre-rename entry-point group are still discovered (with a warning).
 
 **Migrating an install.** Uninstall the old distribution before installing the
