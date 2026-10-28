@@ -9,8 +9,8 @@ slot's one card. Whatever it answered, the next pass asks the Planner again
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 from argus.life.event_log import JsonlEventSink
