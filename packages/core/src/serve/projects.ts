@@ -1,7 +1,8 @@
 // What the operator sets on a project: its directory, its name, the backend, model and reasoning
 // effort of all its roles, and a fresh Manager session; and across projects: what each has spent,
 // and the sidebar's pins and archive, kept in $ARGUS_HOME/browser-state.json. A project's record is
-// changed only while nothing is under way on it, since the work under way holds it and writes it back.
+// changed where it is held: by the work under way on it, or on disk. Its directory and backend
+// change only while nothing is under way, since the calls under way work in them.
 
 import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -42,11 +43,10 @@ export function directory(asked: string): string {
 const MARKS = ['pinned', 'archived', 'followup'];
 
 export function projectRoutes(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
-  const edit = (id: string, change: (work: Project) => void): void => {
-    const work = project(id);
-    if (runs.live(work.id).since !== null) throw new HttpError(409, 'Work is under way on this project: stop it first.');
-    change(work);
-    store.save(work);
+  const edit = (id: string, change: (work: Project) => void, idle = false): void => {
+    const { id: sid } = project(id);
+    if (idle && runs.live(sid).since !== null) throw new HttpError(409, 'Work is under way on this project: stop it first.');
+    runs.edit(sid, change);
   };
   const browserState = join(store.home, 'browser-state.json');
   const kept = (): { organization?: { value: Record<string, Record<string, boolean>>; revision: number } } => {
@@ -58,7 +58,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       const workdir = directory(String((await body()).workdir ?? ''));
       if (!workdir) throw new HttpError(400, 'workdir must be an existing directory');
       // A backend session belongs to the directory it worked in: every role starts afresh in the new one.
-      edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); });
+      edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); }, true);
       return { ok: true, workdir };
     }],
     ['PATCH', /^\/api\/projects\/([^/]+)$/, async ({ params: [id], body }) => {
@@ -90,7 +90,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
       if (word && !/^\w[\w.:/@+[\]-]*$/.test(word)) throw new HttpError(400, `not a name a backend takes: ${given}`);
-      edit(id!, work => set(work, word));
+      edit(id!, work => set(work, word), set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
       return { name, value: word };
     }],
     // The models to choose from are the backend's; the page offers the one set, and takes any other by name.

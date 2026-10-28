@@ -3,7 +3,7 @@
 // call under way on it, and its work stays where it was, to be resumed.
 
 import { Flow } from '../flow.js';
-import type { Store } from '../store.js';
+import type { Project, Store } from '../store.js';
 import type { CallAgent, Role } from '../types.js';
 import { readEvents, webEvents, type Live } from './views.js';
 
@@ -29,6 +29,15 @@ export class Runs {
   answer(id: string, text: string): void { void this.start(id, flow => flow.answer(id, text)); }
 
   resume(id: string): void { void this.start(id, flow => flow.resume(id)); }
+
+  /** Change the project's record where it is held: by its flow while anything is under way, or on disk. */
+  edit(id: string, change: (project: Project) => void): void {
+    const active = this.active.get(id);
+    if (active) return active.flow.edit(id, change);
+    const project = this.store.load(id);
+    change(project);
+    this.store.save(project);
+  }
 
   stop(id: string): void { this.active.get(id)?.controller.abort(); }
 

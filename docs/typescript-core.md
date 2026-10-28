@@ -131,8 +131,9 @@ call uses, written by the Python runtime's setting names, a per-role model refus
 applied. A model or effort is the backend's own word for it, passed to its command line as one
 argument; the model chooser offers the one set and takes any other by name. A new workdir or
 backend clears the role sessions, which belong to the directory and the backend that started them,
-and resetting the conversation clears the Manager's. These changes are refused while work is under
-way on the project: that work holds the record and would write it back. The sidebar's pins, archive
+and resetting the conversation clears the Manager's. While work is under way, a change is made in
+the record that work holds, for the calls after it; a new workdir or backend is refused until the
+work stops, since the calls under way work in them. The sidebar's pins, archive
 and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`, and `/api/projects/costs` gives
 each project's spend from the same figures as the project list.
 

@@ -66,6 +66,13 @@ export class Flow {
     this.run(project);
   }
 
+  /** A change to the project's record from outside its turns, such as its name, kept with the rest. */
+  edit(id: string, change: (project: Project) => void): void {
+    const project = this.project(id);
+    change(project);
+    this.store.save(project);
+  }
+
   /** The project once nothing is under way on it: no Manager turn, no work. */
   async settled(id: string): Promise<Project> {
     for (let busy = this.busy(id); busy.length; busy = this.busy(id)) await Promise.all(busy);

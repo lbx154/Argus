@@ -121,14 +121,16 @@ test('a project has its own backend, model and effort, which the settings change
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
   assert.deepEqual([requests[1]!.model, requests[1]!.effort], [undefined, undefined]);
 
+  // While work is under way the model changes in the record the work holds, for the calls after.
   const cancel = await busy(sid);
-  assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-sonnet-4-5')).status, 409);
+  assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-sonnet-4-5')).status, 200);
+  assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'codex')).status, 409);
   await cancel();
-  assert.equal(store.load(sid).model, null);
+  assert.deepEqual([store.load(sid).model, store.load(sid).backend], ['claude-sonnet-4-5', 'claude']);
 });
 
 test('a project is named by the operator, marked in the sidebar, and restored from the trash', async t => {
-  const { home, send, get, create, busy } = await setup(t);
+  const { home, store, send, get, create, busy } = await setup(t);
   const sid = await create();
   type Rows = { projects: { id: string; label: string; display_name: string }[] };
   const row = async () => (await get<Rows>('/api/projects')).projects.find(project => project.id === sid);
@@ -139,8 +141,10 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   // Unnamed again, the page names it by its request.
   assert.deepEqual([(await row())?.label, (await row())?.display_name], [sid, '']);
   const cancel = await busy(sid);
-  assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 409);
+  assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 200);
+  assert.equal((await row())?.label, 'Later');
   await cancel();
+  assert.equal(store.load(sid).name, 'Later');
 
   assert.deepEqual(await get('/api/browser-state/organization'), { value: {}, revision: 0 });
   const organize = (body: unknown) => send('POST', '/api/browser-state/organization', body);
@@ -206,9 +210,8 @@ test('resetting the conversation gives the Manager a new session, and keeps the 
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
   assert.equal(store.load(sid).sessions.manager, 'thread');
   const cancel = await busy(sid);
-  assert.equal((await send('POST', `${P}/reset`)).status, 409);
-  await cancel();
   assert.deepEqual(await (await send('POST', `${P}/reset`)).json(), { ok: true });
+  await cancel();
   assert.deepEqual(store.load(sid).sessions, {});
   assert.equal(store.load(sid).request, 'Hi');
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
