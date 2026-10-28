@@ -837,3 +837,39 @@ def test_a_plan_task_handed_to_the_planner_waits_for_the_revision_unclaimed(
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows["arm"].status == "superseded"
     assert supervisor.memory.backlog.next_pending().title == "Repair the shared metadata path"
+
+
+def test_a_plan_task_whose_revision_starts_nothing_goes_back_to_the_queue(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Parked only while its revision is written: when the Planner answers the
+    revision without replacement tasks, the task is queued again as it was
+    before parking, not left waiting for a later turn to retire it."""
+
+    class _HandsToPlanner:
+        def execute(self, **_kwargs):  # noqa: ANN003
+            return SimpleNamespace(
+                success=False, status="planner", rounds=1,
+                stop_reason="the shared runner rejects the official metadata",
+                final_review_status="planner",
+                final_review_reason="Schedule the shared repair, then rerun this arm.",
+                stage_transition={},
+            )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    planner = _PlannerBackend([plan(to="engineer", summary="the arm goes on as it is", tasks=[])])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    supervisor.runner = _HandsToPlanner()
+    arm = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Paired-credit arm", objective="Run the paired-credit arm.",
+        item_id="arm", plan_id="plan-arms", plan_version=1, node_key="arm",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+
+    outcome = supervisor._run_one(arm)
+    supervisor._plan_next_work(revision_request=outcome)
+
+    assert supervisor.memory.backlog.next_pending().id == "arm"

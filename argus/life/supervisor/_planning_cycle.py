@@ -417,6 +417,15 @@ class PlanningCycleMixin(
             release = getattr(self, "_release_operator_inbox", None)
             if callable(release):
                 release()
+            if revision_request is not None:
+                # A plan task handed to the Planner parks while its revision is
+                # written; one the revision did not retire is queued again.
+                from ..memory import park_reason
+
+                item_id = str(revision_request.get("item_id") or "")
+                row = next((row for row in self.memory.backlog.active() if row.id == item_id), None)
+                if row is not None and row.plan_id and park_reason(row) == "research_open":
+                    self.memory.backlog.resume_one(item_id)
 
     def _plan_next_work_with_delivery(
         self,
