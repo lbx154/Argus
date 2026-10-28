@@ -148,6 +148,59 @@ def token_cost(event: dict) -> float | None:
     return quote.cost_usd if quote.status == "priced" else None
 
 
+def admit(payload: dict, *, priced_by_usage: bool) -> tuple[str, set[str]]:
+    """Make a request billable or say why it cannot be.
+
+    The reservation is bounded by the request's bytes, so content those bytes
+    carry is admissible when the upstream bills it in its reported usage:
+    inline (data:) images and files. Remote media and hosted tools are billed
+    outside that usage and are refused or dropped; item references cannot be
+    resolved with ``store=False`` and are dropped. Copilot's receipts cover
+    text and function tools only, so without a usage-priced upstream media is
+    refused. Returns the refusal reason ("" to proceed) and what was dropped."""
+    dropped: set[str] = set()
+    tools = payload.get("tools") or []
+    kept = [tool for tool in tools if tool.get("type") in ("function", "custom")]
+    dropped.update(f"tool:{tool.get('type')}" for tool in tools if tool not in kept)
+    if tools:
+        payload["tools"] = kept
+        choice = payload.get("tool_choice")
+        if isinstance(choice, dict) and choice.get("type") not in (None, "function", "custom"):
+            payload.pop("tool_choice")
+
+    def walk(value):
+        if isinstance(value, list):
+            kept_items = []
+            for item in value:
+                if isinstance(item, dict) and item.get("type") == "item_reference":
+                    dropped.add("item_reference")
+                    continue
+                reason = walk(item)
+                if reason:
+                    return reason
+                kept_items.append(item)
+            value[:] = kept_items
+            return ""
+        if not isinstance(value, dict):
+            return ""
+        kind = value.get("type")
+        if kind in ("input_image", "input_file", "input_audio"):
+            if not priced_by_usage:
+                return kind
+            source = value.get("image_url") or value.get("file_url") or ""
+            if isinstance(source, dict):
+                source = source.get("url", "")
+            if kind == "input_audio" or (source and not str(source).startswith("data:")) or value.get("file_id"):
+                return f"{kind} without inline data"
+        for child in value.values():
+            reason = walk(child)
+            if reason:
+                return reason
+        return ""
+
+    return walk(payload), dropped
+
+
 def upstream_request(config: dict) -> tuple[str, dict, object]:
     """Where the meter sends a tenant's request, with which headers, and how a
     terminal event is charged. ``upstream`` names an OpenAI-compatible
@@ -218,15 +271,11 @@ def model_app(config: dict, ledger: Ledger) -> FastAPI:
         was_streaming = payload.get("stream", False)
         payload.update(stream=True, max_output_tokens=output_limit, store=False, background=False)
         payload.pop("previous_response_id", None)
-        # The byte-based reservation covers text/function tools only. Hosted
-        # tools and remote media have different billing and cannot bypass it.
-        def supported(value):
-            if isinstance(value, dict):
-                if value.get("type") in ("input_image", "input_file", "input_audio", "item_reference"):
-                    return False
-                return all(supported(child) for child in value.values())
-            return not isinstance(value, list) or all(supported(child) for child in value)
-        if not supported(payload) or any(tool.get("type") not in ("function", "custom") for tool in payload.get("tools", [])):
+        refusal, dropped = admit(payload, priced_by_usage=bool(config.get("upstream")))
+        if dropped:
+            print(f"meter: {tenant} request without {', '.join(sorted(dropped))}", flush=True)
+        if refusal:
+            print(f"meter: {tenant} refused: {refusal}", flush=True)
             return JSONResponse({"error": {"message": "试用版支持文字和代码任务，请把附件内容粘贴为文字。"}}, 400)
         await slots.acquire()
         reservation = None
