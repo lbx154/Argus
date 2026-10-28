@@ -29,6 +29,10 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node --import tsx --test "packages/core/test/*.test.ts"
+      - name: Build the web cockpit the package carries
+        run: |
+          npm --prefix frontend/web ci
+          npm run web -w packages/core
       - name: Install the package with npm, and a scripted codex beside it, and run a project to its report
         shell: bash
         run: |

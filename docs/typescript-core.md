@@ -154,8 +154,9 @@ Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
 (`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the CLI with
 `@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
 dependencies. Beside it the package carries the prompts the CLI reads, the ways of working its
-roles read, and `web/`, the built web cockpit: only the files `frontend/web/dist/index.html`
-reaches (6 MB), since that directory keeps every earlier release's chunks for open tabs (479 MB).
+roles read, and `web/`, the web cockpit, built from `frontend/web`'s source when the package is
+packed (`npm run web`, 6 MB): not the committed `frontend/web/dist`, which keeps every earlier
+release's files for open tabs (482 MB) and was once older than the source it came from.
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
 with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
