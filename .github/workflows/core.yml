@@ -34,7 +34,7 @@ jobs:
         run: |
           mkdir -p e2e/fake && cp packages/core/test/fixtures/fake-codex.mjs e2e/fake/
           echo '{ "name": "fake-codex", "version": "0.0.0", "bin": { "codex": "fake-codex.mjs" } }' > e2e/fake/package.json
-          npm pack -w packages/core --ignore-scripts --pack-destination e2e
-          npm i -g e2e/*.tgz ./e2e/fake
+          npm pack -w packages/core --ignore-scripts --loglevel warn --pack-destination e2e
+          npm i -g ./e2e/*.tgz ./e2e/fake
           argus run "Write hello.txt that says hello" --dir e2e/work
           argus status | grep "^p-[0-9a-f]*  done "
