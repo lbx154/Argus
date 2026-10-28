@@ -1,4 +1,4 @@
-// Each role's prompt: its rules (prompts/<role>.md and prompts/common.md) first, the same for
+// Each role's prompt: its rules (prompts/<role>.md) first, the same for
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
@@ -20,8 +20,7 @@ const ways = (roots: string[]): string => roots.flatMap(root => readdirSync(root
   .filter(readme => existsSync(readme))
   .map(readme => `- ${basename(dirname(readme))}: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^#\s*/, '')} (${readme})`)).join('\n');
 
-const rules = (role: Role): string =>
-  [role, 'common'].map(name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim()).join('\n\n');
+const rules = (role: Role): string => readFileSync(new URL(`../prompts/${role}.md`, import.meta.url), 'utf8').trim();
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 

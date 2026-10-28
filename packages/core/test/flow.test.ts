@@ -66,7 +66,7 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs], ['manager', 'write', [store.dir(id), WAYS]]);
-  assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Writing for people[\s\S]*## Message\nWhat is 6 times 7\?$/);
+  assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Where things are[\s\S]*## Message\nWhat is 6 times 7\?$/);
   const readme = join(WAYS, 'research', 'README.md');
   const research = `- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})`;
   assert.ok(request?.prompt.split('Ways of working, which every role can read:\n')[1]?.includes(`${research}\n`));
