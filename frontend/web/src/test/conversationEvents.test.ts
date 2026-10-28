@@ -195,6 +195,20 @@ describe('task receipt replay and live deduplication', () => {
     expect(merged[1]).not.toHaveProperty('mission_result');
   });
 
+  it('shows a streamed dispatch acknowledgement once when its transcript row carries the same id', () => {
+    // 2026-10-28 trial: "收到，马上开始：…" twice — the local row was made at the
+    // first fragment, long before the acknowledgement was journaled.
+    const text = '收到，马上开始：CartPole 三算法样本效率与稳定性研究。';
+    const local = mergeOptimisticManagerDelta(
+      [optimisticOperatorEvent('s', 1, '做一个研究')], 's', 1, text, 'dispatch-0f3a', 1_000_000, 'snapshot',
+    );
+    const merged = mergeConversationEvents([], [
+      { role: 'operator', text: '做一个研究', ts: 1_000, message_id: 'web-1-operator' },
+      { role: 'argus', text, ts: 1_038, message_id: 'dispatch-0f3a' },
+    ], local);
+    expect(merged.filter(event => event.type === 'ui.argus' && event.text === text)).toHaveLength(1);
+  });
+
   it('keeps the existing content fallback for ordinary dispatch acknowledgements', () => {
     const live = { type: 'ui.argus', text: 'Scheduled.', ts: 20, message_id: 'dispatch-a' };
     expect(mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19, message_id: 'journal-a' }], [])).toEqual([live]);

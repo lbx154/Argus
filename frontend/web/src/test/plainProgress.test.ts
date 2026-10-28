@@ -39,3 +39,15 @@ describe('the progress feed in the reader’s words', () => {
     expect(roleHeadline(rows([command], 'en'), 'en')).toBe('Ran 1 command');
   });
 });
+
+describe('a host record in a role’s line', () => {
+  it('keeps the sentence in the line and folds the technical record away', () => {
+    const reason = '审阅者的会话在得出结论前就结束了，这一轮没有评审意见。 技术记录：exit=1; fatal_error=query: HTTP 402: 402 试用额度不足';
+    const [row] = rows([{ type: 'round.review.completed', review_skipped: true, status: 'blocked', reason, round_index: 2, ts: 1 }]);
+    const said = plainRowText(row.ev, row.r, 'zh-CN');
+    expect(said.text).toBe('这一轮没有审阅 · 审阅者的会话在得出结论前就结束了，这一轮没有评审意见。');
+    expect(said.technical).toContain('技术记录：exit=1; fatal_error=query: HTTP 402');
+    expect(said.full).toContain('技术记录：exit=1');
+    expect(roleHeadline([row], 'zh-CN')).not.toContain('技术记录');
+  });
+});

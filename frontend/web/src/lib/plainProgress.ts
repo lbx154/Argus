@@ -4,6 +4,7 @@ import type { Locale } from '../i18n';
 import { readableRecord } from '../map/submap';
 import { plainToolLabel } from './feedSteps';
 import { plainDetail, type PlainDetail } from './plainStatus';
+import { splitHarnessRecord } from './harnessNotes';
 import { STATUS_TAIL } from '../../../core/src/plainWords';
 
 /**
@@ -89,6 +90,13 @@ export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, task
   const statusOnly = MESSAGE_KINDS.has(kind) && STATUS_TAIL.test(said) && !said.replace(STATUS_TAIL, '').trim();
   // A bare status ending a message is the verdict, which its own row says in words.
   const cleaned = (statusOnly ? said : said.replace(STATUS_TAIL, '')).trim();
+  // A host record's technical tail ("技术记录：exit=1; fatal_error=…") is not
+  // words for the reader: the line keeps the sentence, the record folds away.
+  const { prose, receipt } = splitHarnessRecord(cleaned);
+  if (prose && receipt) {
+    const detail = plainDetail(prose, locale);
+    return { ...detail, technical: [detail.technical, receipt].filter(Boolean).join(' '), full: cleaned };
+  }
   return plainDetail(cleaned, locale);
 }
 

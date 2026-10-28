@@ -1,6 +1,7 @@
 """Structured reasons a backend call stopped without a usable result."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
@@ -170,6 +171,20 @@ def stop_kind_clause(value: Any, *, chinese: bool = False, neutral: bool = False
     return zh if chinese else english
 
 
+# The hosted trial's meter answers HTTP 402 in its own words once an
+# invitation's allowance is spent (deploy/trial, argus/trial/store.py). The
+# model service is fine; the allowance is not, and only a top-up ends it.
+TRIAL_ALLOWANCE_RE = re.compile(
+    r"trial_budget_exhausted|trial_quota_exceeded|insufficient trial tokens|试用额度",
+    re.IGNORECASE,
+)
+
+
+def trial_allowance_exhausted(text: Any) -> bool:
+    """Whether a stop record says the trial allowance ran out."""
+    return bool(TRIAL_ALLOWANCE_RE.search(str(text or "")))
+
+
 @dataclass(frozen=True)
 class ParkRule:
     """Who ends a park."""
@@ -274,6 +289,7 @@ __all__ = [
     "RECOVERABLE_STOP_KINDS",
     "RUNTIME_RESUMED_PARKS",
     "STOP_KINDS",
+    "TRIAL_ALLOWANCE_RE",
     "ParkRule",
     "StopKind",
     "interrupt_outcome",
@@ -287,4 +303,5 @@ __all__ = [
     "stop_kind_from_external_interrupt",
     "stop_kind_is_recoverable",
     "stop_park_reason",
+    "trial_allowance_exhausted",
 ]

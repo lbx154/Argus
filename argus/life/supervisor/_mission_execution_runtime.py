@@ -1059,19 +1059,20 @@ class MissionExecutionRuntimeMixin:
             last_error=state.stop_reason,
             outcome=pause_outcome,
         )
-        if reason == "provider_fence":
-            # The model service turned this task away past its automatic
-            # retries; it would turn every other call away too.
-            from ..runtime_failure_circuit import provider_outage_failure
-
-            self._record_runtime_failure(
-                provider_outage_failure(state.stop_reason), item_id=item.id,
-            )
         from ...engineer.round_stop_signals import backend_failure_cause
 
         # When the pause is the model service being out of reach, the record
         # names the cause so the task's closing row can say so.
         failure = backend_failure_cause(state.stop_reason)
+        if reason == "provider_fence" and failure.kind != "allowance_exhausted":
+            # The model service turned this task away past its automatic
+            # retries; it would turn every other call away too. A spent trial
+            # allowance is not an outage: the service is up, the account is not.
+            from ..runtime_failure_circuit import provider_outage_failure
+
+            self._record_runtime_failure(
+                provider_outage_failure(state.stop_reason), item_id=item.id,
+            )
         self._emit({
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,

@@ -1520,6 +1520,7 @@ export default function App() {
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
                     onPauseWork={snap.daemon.alive && !kiosk ? requestPauseDaemon : undefined}
+                    onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     filter={eventFilter}
