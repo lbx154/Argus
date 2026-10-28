@@ -14,12 +14,12 @@ const OPERATOR = 'only for what the operator alone can decide: the letter is you
  * acts on it: the work is never sent to a state such as done. */
 const TO: Record<Form, Record<string, string>> = {
   manager: {
-    engineer: 'the work, whole, when one person can carry it through; it opens a task, and the letter is its whole brief',
+    engineer: 'the work, whole, when one person can carry it through; it opens a task, named by the letter\'s first line, a short title, and the letter is its whole brief',
     planner: 'work too large for one task, whose later parts depend on what the earlier ones find, for the Planner to divide; or word on the work it runs. The letter is its whole brief',
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, and its letter is its whole brief; they run side by side',
+    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; they run side by side',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
   },
