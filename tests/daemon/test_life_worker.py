@@ -2055,31 +2055,53 @@ def test_runner_namespace_propagates_open_ended_and_continuous_objective(
     assert ns.continuous_objective == "keep proving X"
 
 
-def test_idle_helper_keeps_polling_while_primary_mission_runs(tmp_path: Path) -> None:
+def _run_primary_pass(worker: LifeWorker, supervisors: list[Any]) -> dict:
+    """One primary pass beside the helpers, then the worker's stop."""
+    run_primary, helpers = worker._start_helpers(supervisors)
+    try:
+        return run_primary()
+    finally:
+        worker._stop.set()
+        for helper in helpers:
+            helper.join(5.0)
+        assert not any(helper.is_alive() for helper in helpers)
+
+
+def test_idle_helper_polls_while_a_primary_pass_runs_and_sleeps_between(tmp_path: Path) -> None:
     """A helper that finds nothing to claim must look again while the primary
     worker is still busy, so work the primary plans mid-pass is picked up in
-    parallel instead of waiting for the primary's whole pass to end."""
+    parallel instead of waiting for the primary's whole pass to end. Between
+    primary passes it does not spin; the next pass wakes it."""
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
-    primary_release = threading.Event()
     helper_calls: list[int] = []
 
     def primary_run() -> dict:
-        assert primary_release.wait(5.0)
+        wanted = len(helper_calls) + 3
+        deadline = time.monotonic() + 5.0
+        while len(helper_calls) < wanted:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
         return {"stopped_by": "backlog_empty"}
 
     def helper_run() -> dict:
         helper_calls.append(1)
-        if len(helper_calls) >= 3:
-            primary_release.set()
         return {"stopped_by": "backlog_empty", "suggested_sleep": 0.01}
 
     primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
     helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
-
-    summary = worker._run_supervisor_passes([primary, helper])
-
-    assert summary == {"stopped_by": "backlog_empty"}
-    assert len(helper_calls) >= 3
+    run_primary, helpers = worker._start_helpers([primary, helper])
+    try:
+        assert run_primary() == {"stopped_by": "backlog_empty"}
+        after_pass = len(helper_calls)
+        time.sleep(0.3)
+        # At most the pass that was in flight as the primary pass ended.
+        assert len(helper_calls) - after_pass <= 1
+        assert run_primary() == {"stopped_by": "backlog_empty"}
+    finally:
+        worker._stop.set()
+        for thread in helpers:
+            thread.join(5.0)
+    assert not any(thread.is_alive() for thread in helpers)
     assert worker._supervisor_execution_threads == {}
 
 
@@ -2116,7 +2138,7 @@ def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Pa
     )
 
     started = time.monotonic()
-    summary = worker._run_supervisor_passes([primary, helper])
+    summary = _run_primary_pass(worker, [primary, helper])
 
     assert summary == {"stopped_by": "backlog_empty"}
     assert ready_item_claimed.is_set()
@@ -2124,6 +2146,31 @@ def test_idle_helper_honours_backoff_but_wakes_when_backlog_changes(tmp_path: Pa
     assert len(helper_calls) == 2
     assert time.monotonic() - started < 5.0
     assert worker._supervisor_execution_threads == {}
+
+
+def test_helper_pass_that_raises_is_retried(tmp_path: Path) -> None:
+    """A helper's loop outlives a pass that raises, as the main loop outlives
+    a failed primary pass: nothing else would start the helper again."""
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
+    retried = threading.Event()
+    helper_calls: list[int] = []
+
+    def helper_run() -> dict:
+        helper_calls.append(1)
+        if len(helper_calls) == 1:
+            raise RuntimeError("peer inbox unreadable")
+        retried.set()
+        return {"stopped_by": "backlog_empty"}
+
+    def primary_run() -> dict:
+        assert retried.wait(5.0)
+        return {"stopped_by": "backlog_empty"}
+
+    primary = SimpleNamespace(config=SimpleNamespace(worker_id="primary"), run=primary_run)
+    helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
+
+    assert _run_primary_pass(worker, [primary, helper]) == {"stopped_by": "backlog_empty"}
+    assert len(helper_calls) >= 2
 
 
 def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_path: Path) -> None:
@@ -2151,7 +2198,7 @@ def test_dispatcher_resumes_paused_missions_once_before_any_worker_claims(tmp_pa
     )
     helper = SimpleNamespace(config=SimpleNamespace(worker_id="parallel-1"), run=helper_run)
 
-    worker._run_supervisor_passes([primary, helper])
+    _run_primary_pass(worker, [primary, helper])
 
     assert order[0] == "resume"
     assert order.count("resume") == 1

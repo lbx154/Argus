@@ -7,8 +7,8 @@ claimed method. Then the first negative result was treated as a finding and
 written up as a restricted-case paper instead of being iterated on. These
 tests pin the playbooks, the prompt fragments, the checklist and the two
 handoff skills that keep the claim out of reach of whoever implements it,
-turn a negative result into a diagnosis ladder, and give the Engineer a
-complete brief and the Reviewer a packet built from code anchors.
+turn a negative result into a diagnosis ladder, and point the Reviewer at
+the entry point each card row names.
 
 Ownership follows who chose the idea. Project s-a43d1018 asked for "a general
 method"; Argus chose the route itself and then treated its pick as
@@ -52,7 +52,6 @@ def test_experiment_playbook_replaces_thesis_rederivation_with_a_diagnosis_ladde
     assert "only the operator changes the claim" in lowered
     assert "working hypothesis" in lowered
     assert "development data, never as independent confirmation" in lowered
-    assert "idea selection is not reopened" in lowered
     assert "not when a count of tries is reached" in lowered
     assert "operator_options" in text
     assert "never a narrowed claim" in lowered
@@ -65,9 +64,10 @@ def test_experiment_playbook_replaces_thesis_rederivation_with_a_diagnosis_ladde
         "scale and data", "baseline fairness", "method variants that still satisfy",
     )]
     assert order == sorted(order)
-    # The brief and the review anchors are part of the implementation step.
+    # The entry points the Reviewer reads are part of the implementation step.
     assert "engineer/method-card.md" in text
-    assert "# @component <name>" in text
+    assert "each card row names its entry point as `path:Symbol`" in text
+    assert "@component" not in text
 
 
 def test_no_research_skill_re_derives_the_thesis_or_scopes_the_claim_to_the_code() -> None:
@@ -99,7 +99,7 @@ def test_reviewer_skill_treats_claim_drift_and_early_negatives_as_repairs() -> N
     assert "never accept claim drift" in review
     assert "the number of attempts is not the test" in review
     assert "is a repair request" in review
-    assert "# @component" in review
+    assert "@component" not in review
     assert "re-deriving the thesis" not in review
 
 
@@ -122,35 +122,12 @@ def test_checklist_and_banners_fix_the_claim_and_hold_narrowed_acceptances() -> 
     assert "changes only as the experiment.repair item allows" in role_banner("planner")
 
 
-def test_method_card_keeps_the_brief_headings_and_review_anchors() -> None:
-    brief = _text(ENGINEER / "method-card.md")
-    for heading in (
-        "## Claim",
-        "## Components to implement this task",
-        "## Interfaces",
-        "## Tests that must pass",
-        "## Data and scale",
-        "## Commands",
-        "## Environment prerequisites",
-        "## Definition of done",
-        "## Out of scope",
-    ):
-        assert heading in brief, heading
-    assert "verbatim" in brief
-    assert "path/to/file.py:Symbol" in brief
-    assert '"e.g." is not a dataset list' in brief
-    assert "No adjectives" in brief
-
-    review = brief
-    for heading in ("## Anchors", "## Configuration", "## Shape of the code"):
-        assert heading in review, heading
-    for anchor in (
-        "`# @component <name>`",
-        "`# @simplified <name>: <why>`",
-        "`# @reuses <library> <symbol>`",
-        "`# why: <reason>`",
-    ):
-        assert anchor in review, anchor
-    assert "imported" in review and "never copied" in review
-    assert "review packet" in review
-    assert "cannot locate cannot be credited" in review
+def test_method_card_rows_name_the_entry_points_the_reviewer_reads() -> None:
+    card = _text(ENGINEER / "method-card.md")
+    for heading in ("## Entry points", "## Configuration", "## Shape of the code"):
+        assert heading in card, heading
+    assert "it starts reading at the `path:Symbol` each component's row names" in card
+    assert "`# why: <reason>`" in card
+    assert "imported" in card and "never copied" in card
+    for anchor in ("@component", "@simplified", "@reuses"):
+        assert anchor not in card, anchor

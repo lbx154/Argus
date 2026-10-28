@@ -70,7 +70,7 @@ def _delivered(tmp_path: Path) -> None:
     """Task ddeb85499e56: the survey is written and its Reviewer accepts it."""
     (tmp_path / "work").mkdir()
     backend = MemoryBackend()
-    backend.queue("engineer-r1", _edit(tmp_path / "work", SURVEY, "v1"))
+    backend.queue("engineer-r1-ddeb85499e56", _edit(tmp_path / "work", SURVEY, "v1"))
     backend.queue("reviewer", _review("done"))
     assert _run(tmp_path, backend, _task(tmp_path, "ddeb85499e56", closing=False))[0] == "done"
 
@@ -108,25 +108,25 @@ def test_a_closing_step_reviews_a_changed_deliverable(tmp_path: Path) -> None:
     _delivered(tmp_path)
     (tmp_path / "work" / SURVEY).write_text("v2, four method corrections", encoding="utf-8")
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
+    backend.queue("engineer-r1-9e5992dac968", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
     backend.queue("reviewer", _review("done"))
 
     status, _rounds, labels = _run(tmp_path, backend, _task(tmp_path, "9e5992dac968", closing=True))
 
-    assert labels == ["engineer-r1", "reviewer"]
+    assert labels == ["engineer-r1-9e5992dac968", "reviewer"]
     assert status == "done"
 
 
 def test_an_ordinary_task_on_accepted_files_still_gets_its_review(tmp_path: Path) -> None:
     _delivered(tmp_path)
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Checked a claim; nothing to change.")))
+    backend.queue("engineer-r1-5a1e0c0ffee0", CannedResponse(action=hand_off("reviewer", "Checked a claim; nothing to change.")))
     backend.queue("reviewer", _review("done"))
 
     # A task that is not a closing step judges its own objective.
     status, _rounds, labels = _run(tmp_path, backend, _task(tmp_path, "5a1e0c0ffee0", closing=False))
 
-    assert labels == ["engineer-r1", "reviewer"]
+    assert labels == ["engineer-r1-5a1e0c0ffee0", "reviewer"]
     assert status == "done"
 
 
@@ -135,23 +135,23 @@ def test_a_second_closing_step_on_unchanged_files_is_not_reviewed_or_replanned(t
     work = tmp_path / "work"
     (work / SURVEY).write_text("v2, four method corrections", encoding="utf-8")
     first = MemoryBackend()
-    first.queue("engineer-r1", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
+    first.queue("engineer-r1-9e5992dac968", CannedResponse(action=hand_off("reviewer", "Ready for acceptance.")))
     first.queue("reviewer", _review("engineer", "Fix the misattribution in source-verification.md line 55."))
-    first.queue("engineer-r2", _edit(work, ".argus/evidence/source-verification.md", "corrected"))
+    first.queue("engineer-r2-9e5992dac968", _edit(work, ".argus/evidence/source-verification.md", "corrected"))
 
     # 01:32: the fix is in Argus's records, so the survey is unchanged and the
     # work goes one rung up, to the Planner, which replans once.
     status, _rounds, labels = _run(tmp_path, first, _task(tmp_path, "9e5992dac968", closing=True))
-    assert (labels, status) == (["engineer-r1", "reviewer", "engineer-r2"], "planner")
+    assert (labels, status) == (["engineer-r1-9e5992dac968", "reviewer", "engineer-r2-9e5992dac968"], "planner")
 
     second = MemoryBackend()
-    second.queue("engineer-r1", _edit(work, ".argus/evidence/final-certification.md", "confirmed"))
+    second.queue("engineer-r1-67c874f26b5e", _edit(work, ".argus/evidence/final-certification.md", "confirmed"))
     status, rounds, labels = _run(tmp_path, second, _task(tmp_path, "67c874f26b5e", closing=True))
 
     # The next closing step on the same files gets no second review and no
     # second replan: the Reviewer and the Planner already held these files,
     # so the work reaches the Manager.
-    assert labels == ["engineer-r1"]
+    assert labels == ["engineer-r1-67c874f26b5e"]
     assert status == "manager"
     assert rounds[-1].review.review_source == "unchanged_return"
 

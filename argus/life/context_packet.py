@@ -206,8 +206,8 @@ def render_mission_brief(
     if owns_paths:
         lines.append(
             "- Owned paths (authoritative write boundary; Reviewer must not "
-            "request edits outside it; Argus's Skill and Wiki directories are "
-            "always writable): " + "; ".join(owns_paths)
+            "request edits outside it; Argus's Skill and Wiki directories and "
+            "`.argus/evidence/` are always writable): " + "; ".join(owns_paths)
         )
 
     resources: list[str] = []

@@ -13,10 +13,10 @@ Argus's ``RunnerOptions``/``RunnerResult`` to and from the bundled
 runner's own shapes. Field names are mostly 1:1, so only the slim subset
 argus needs gets carried across the boundary.
 
-Token usage is best-effort — codex's JSON event stream emits
-``token_count.input_tokens`` / ``output_tokens`` in some events; we sum
-them across the run when present. When unavailable we leave them at 0
-(the loop never branches on token counts).
+Token usage: a codex call is the requests codex recorded in its session
+files, its subagents' included (``provider_integrations.codex_usage``);
+other CLIs report usage in their event streams. A count no source
+reported stays missing (the loop never branches on token counts).
 
 Split into small internal modules by responsibility so no single file
 mixes concerns:

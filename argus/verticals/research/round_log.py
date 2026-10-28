@@ -5,8 +5,7 @@ then re-read the tree to check it: in one control project 61 of its 105 file
 reads were files the Engineer had just read, and it still never opened the
 script that computed a "perplexity" by formula. The host sees every command
 and file the Engineer's CLI reports, so the packet can simply say what
-happened: how many commands, which ran longest (the time to the next action
-bounds a command's runtime), which tests and checks ran with every run's exit
+happened: how many commands, which tests and checks ran with every run's exit
 code in order, which other commands failed, and which paths lay outside the
 workspace.
 
@@ -21,8 +20,8 @@ Reviewer reads what a check does before weighing its result or rerunning it.
 
 The calls come from host memory (:mod:`argus.core.command_record`), fed by the
 agent CLI's stream rather than by any project file. Without a capture the provider reads only
-the exact event log the host writes for the mission, never a file found by
-walking up from the mission packet, with the same conflict handling.
+the task's rows of the exact event log the host writes for the project, never a
+file found by walking up from the mission packet, with the same conflict handling.
 
 Evidence, not a gate: :func:`round_log_evidence`, registered as a round-evidence
 provider when the research vertical is imported, renders text into the
@@ -47,7 +46,6 @@ from ...engineer.round_evidence import (
 )
 
 MAX_EVENTS_SCAN = 200_000
-LONGEST_COMMANDS = 4
 OUTSIDE_PATHS = 4
 CHECKS_SHOWN = 6
 LAST_COMMANDS = 3
@@ -355,14 +353,6 @@ def _one_line(text: str, limit: int = 110) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def _duration(seconds: float) -> str:
-    if seconds < 90:
-        return f"{seconds:.0f} s"
-    if seconds < 5400:
-        return f"{seconds / 60.0:.1f} min"
-    return f"{seconds / 3600.0:.1f} h"
-
-
 def _result_word(exit_code: int | None) -> str:
     return "failed (no exit code)" if exit_code is None else f"exit {exit_code}"
 
@@ -425,7 +415,7 @@ def _grouped(commands: list[CommandRun], keep) -> dict[str, list[CommandRun]]:
 
 
 def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
-    """Lines for the Reviewer: counts, longest commands, checks, last commands, failures, outside paths."""
+    """Lines for the Reviewer: counts, checks, last commands, failures, outside paths."""
     if not runs:
         return []
     runs = sorted(runs, key=lambda run: run.started_at)
@@ -435,13 +425,6 @@ def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
     writes = [run for run in tools if run.text.startswith(_WRITE_PREFIXES)]
     span = (runs[-1].started_at - runs[0].started_at) / 60.0
     lines = [f"{len(commands)} shell commands, {len(reads)} file reads, {len(writes)} writes over {span:.1f} min."]
-    gaps = {
-        id(run): runs[index + 1].started_at - run.started_at
-        for index, run in enumerate(runs[:-1])
-    }
-    timed = [run for run in commands if id(run) in gaps]
-    for run in sorted(timed, key=lambda run: -gaps[id(run)])[:LONGEST_COMMANDS]:
-        lines.append(f"- ran ≤{_duration(gaps[id(run)])} (time to the next action): `{_one_line(run.text)}`")
     edited = _edited_paths(runs)
     groups = _grouped(commands, is_check)
     if groups:
@@ -585,17 +568,19 @@ def render_round_log(
     *,
     runs: Iterable[CommandRun] = (),
     events_path: Path | None = None,
+    item_id: str = "",
     dropped: int = 0,
 ) -> str:
     """The packet text, or '' when there is nothing to show.
 
     ``runs`` (host memory) wins; otherwise only ``events_path`` is read, the
-    exact log the host writes for this mission. ``dropped`` counts earlier
-    calls the record no longer holds.
+    exact log the host writes for the project, and only task ``item_id``'s
+    rows in it: parallel tasks share the log and the round numbers.
+    ``dropped`` counts earlier calls the record no longer holds.
     """
     runs = list(runs)
     if not runs and events_path is not None and Path(events_path).is_file():
-        events = list(_iter_events(Path(events_path)))
+        events = [e for e in _iter_events(Path(events_path)) if not item_id or e.get("item_id") == item_id]
         since = round_window_start(events, round_index)
         if since is None:
             return ""
@@ -618,14 +603,15 @@ def render_round_log(
 def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
     """What the host saw of the Engineer's round, in the Reviewer's slot.
 
-    The calls come from host memory; without them only the host's own event
-    log for the mission is read, never a file near the mission packet.
+    The calls come from host memory; without them only the task's rows of the
+    host's own event log are read, never a file near the mission packet.
     """
     try:
         text = render_round_log(
             request.workdir, request.round_index,
             runs=request.command_runs,
             events_path=request.events_path,
+            item_id=request.item_id,
             dropped=request.command_runs_dropped,
         )
     except Exception:  # noqa: BLE001 - evidence must never break a round

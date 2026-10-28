@@ -7,10 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
-from ...core.model_visible_text import (
-    MODEL_INTEGRITY_BOUNDARY,
-    sanitize_model_visible_text,
-)
 from ...core.role_reply import decision_footer_instruction
 from ..task_contract import argus_command
 from .voice import RESEARCHER_VOICE
@@ -350,36 +346,6 @@ def build_skill_placements_prompt(
     )
 
 
-def assemble_manager_prompt(
-    prompt: str,
-    *,
-    role_banner: str = "",
-    role_skill_block: str = "",
-    role_context: str = "",
-) -> str:
-    """Wrap the decision prompt in the Manager's vertical policy and Skills.
-
-    The vertical banner holds for every decision of the campaign, so it leads
-    and extends the cacheable prefix; the vertical's live facts
-    (``role_context``) and the Skill block, whose recalled bodies follow the
-    decision at hand, close the prompt.
-    """
-    context = sanitize_model_visible_text(str(role_banner or "").strip())
-    with_vertical = (
-        f"## Active vertical Manager skill\n{context}\n\n{prompt}"
-        if context
-        else prompt
-    )
-    live = sanitize_model_visible_text(str(role_context or "").strip())
-    with_live = f"{with_vertical}\n\n{live}" if live else with_vertical
-    with_skill = (
-        f"{with_live}\n\n{role_skill_block}"
-        if role_skill_block
-        else with_live
-    )
-    return MODEL_INTEGRITY_BOUNDARY + "\n\n" + with_skill
-
-
 __all__ = [
     "GROUNDED_VERTICAL_DECISION",
     "LIVE_VIEW",
@@ -389,7 +355,6 @@ __all__ = [
     "RESEARCH_TARGET",
     "SKILL_PLACEMENT_BATCH",
     "STAGE_DECISION",
-    "assemble_manager_prompt",
     "build_manager_prompt",
     "build_plan_prompt",
     "build_prompt_completion_prompt",

@@ -953,10 +953,11 @@ def _target_package(module: str) -> str:
 
 
 def _every_python_file() -> list[Path]:
-    # Every ``.py`` under the package on purpose, including the two
-    # directories with no ``__init__.py`` (research's ``figure_spec_scripts``
-    # and ``research_visual_scripts``): they ship in the wheel and run as
-    # scripts, so what they import is a coupling the tree still pays for.
+    # Every ``.py`` under the package on purpose, including the directories
+    # with no ``__init__.py`` (research's ``figure_spec_scripts``,
+    # ``research_visual_scripts`` and ``training_scripts``): they ship in the
+    # wheel and run as scripts, so what they import is a coupling the tree
+    # still pays for.
     return sorted(ARGUS.rglob("*.py"))
 
 
@@ -1870,7 +1871,8 @@ def test_retired_names_do_not_spread() -> None:
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
 # 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
-MEMORY_ROOT_READS = 65
+# 65 - 4: the goal.* metric rows (_core.py and settlement) went unread.
+MEMORY_ROOT_READS = 61
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 
@@ -1900,9 +1902,9 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "apps": 41,
     "cli": 1,
     "core": 58,
-    "daemon": 36,
+    "daemon": 37,  # +1: a helper thread's failed pass retries like the primary's
     "engineer": 19,
-    "life": 183,
+    "life": 181,
     "maintenance": 2,
     "manager": 66,
     "messaging": 1,
@@ -1914,7 +1916,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "skills": 30,
     "tools": 3,
     "trial": 15,
-    "verticals": 60,
+    "verticals": 59,
     "webapi": 125,
     "wiki": 6,
 }

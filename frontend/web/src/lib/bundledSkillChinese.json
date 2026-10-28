@@ -116,7 +116,7 @@
     "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明；有可视形式的成果要实际打开图、模型或页面，核对它能渲染且与文中数字一致。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 6593
+    "sourceBytes": 6084
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
@@ -644,11 +644,11 @@
     "sourceBytes": 1321
   },
   "vertical/research/engineer/method-card.md": {
-    "title": "方法卡、可执行规范与审阅锚点",
-    "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；用代码锚点让不在场的审阅者找到机制；规划者据此写实现简报。",
-    "originalName": "Method card (METHOD.md), executable spec and review anchors",
+    "title": "方法卡与可执行规范",
+    "summary": "在 METHOD.md 中写清方法、组件、已知先例、协议（含这个实验能否回答问题）和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；在卡中写明每个组件的入口 path:Symbol，让不在场的审阅者找到机制。",
+    "originalName": "Method card (METHOD.md) and executable spec",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceBytes": 20082
+    "sourceBytes": 17202
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -690,7 +690,7 @@
     "summary": "把首次实现当作草稿，在当前声明下沿诊断阶梯逐级排查；结果异常先怀疑设置；从原始逐种子行算数；依据证据而非尝试次数判断何时足够。",
     "originalName": "Working a research result into shape",
     "source": "argus/verticals/research/skills/engineer/research-grind.md",
-    "sourceBytes": 19184
+    "sourceBytes": 19169
   },
   "vertical/research/engineer/rl-training-collapse-diagnosis.md": {
     "title": "强化学习训练健康诊断",
@@ -711,7 +711,7 @@
     "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 12351
+    "sourceBytes": 12620
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -739,7 +739,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34557
+    "sourceBytes": 32783
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
@@ -781,7 +781,7 @@
     "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10445
+    "sourceBytes": 10086
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

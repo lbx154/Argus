@@ -1143,23 +1143,6 @@ class MissionExecutionSettlementMixin:
         success = state.success
         status = state.status
         try:
-            from ...core.metrics import metrics_root_for_project, record_metric
-
-            record_metric(
-                metrics_root_for_project(self.memory.root),
-                "goal.mission",
-                labels={"status": status},
-                fields={
-                    "project_id": self.memory.root.name,
-                    "item_id": item.id,
-                    "accepted": bool(success),
-                    "replan_requested": bool(state.to_planner),
-                    "elapsed_seconds": float(state.elapsed or 0.0),
-                },
-            )
-        except Exception:  # noqa: BLE001 - metrics never own settlement
-            log.debug("goal mission metric skipped", exc_info=True)
-        try:
             research_result = getattr(outcome, "research_result", None)
             reviewed_evidence = list(
                 research_result.get("evidence") or []

@@ -478,12 +478,15 @@ class AgentCliBackend:
         *,
         resume_thread_id: str | None = None,
         copilot_usage=None,
+        codex_requests=(),
     ) -> RunnerResult:
         return translate_result(
             cli_result,
             resume_thread_id=resume_thread_id,
             copilot_usage=copilot_usage,
             usage_accumulator=self._usage,
+            codex_requests=codex_requests,
+            is_codex=self._is_codex,
         )
 
 # --- Convenience factory ---------------------------------------------------

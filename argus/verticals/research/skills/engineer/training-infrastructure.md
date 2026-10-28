@@ -103,17 +103,19 @@ shortlisted candidate:
   wall time, not fixed indefinitely: the point is to compare candidates, and a
   stack that resists standing up has already said something about itself.
 
-For the first real training step after warmup, record a phase table: wall time
-in startup and compile, generation, environment or tool execution, log-prob
-scoring, backward, weight sync and idle, alongside rollout and end-to-end
-tokens per second, time to first valid update, device-level peak memory
-counting colocated engine processes, utilization, truncation fraction, the
-fraction of groups with reward contrast, and a flag when another workload
-overlapped the measurement. The table exists because the dominant phase decides
-the architecture: a generation-dominated step is the case for a separate
-rollout engine, a backward- or sync-dominated step is not, and an
-environment-dominated step asks for tool parallelism before anything else.
-Deciding engine use before seeing where the time goes is guessing.
+For the first real training steps after warmup, log each phase with `phase()`
+from `training_scripts/phase_table.py`, or keep the framework's own
+`timing_s/<phase>` lines, and run
+`python training_scripts/phase_table.py <log> --engine <engine or native>`. It
+prints each phase's share of the step, generation tokens per second and how much
+faster the step could be if one phase took no time. Record beside it the time to
+first valid update, device-level peak memory counting colocated engine
+processes, the truncation fraction and the fraction of groups with reward
+contrast. The dominant phase decides the architecture: a generation-dominated
+step is the case for a separate rollout engine, a backward- or sync-dominated
+step is not, and an environment-dominated step asks for tool parallelism before
+anything else. Deciding engine use before seeing where the time goes is
+guessing.
 
 When an inference engine is a candidate, run the same shrunk example with the
 engine on and off on identical prompts, seeds and device. Engine correctness is
@@ -122,11 +124,14 @@ sampled tokens: report the importance-ratio distribution and the fraction
 outside the clip range. Identical rewards are not the test, because two engines
 can agree on rewards while disagreeing on the probabilities the gradient is
 computed from, and that disagreement is what makes an off-policy correction
-silently wrong.
+silently wrong. An engine that does not install into the pinned versions only
+says the versions must change or the engine needs its own environment; it is
+not a reason to stay on native generation.
 
 From the measured step time derive GPU-hours per valid update and steps per day
 under the allocated budget, record one row per candidate with the runner task
-id, run directory and device, choose, and state what would change the choice.
+id, run directory, device and the `phase_table.py` command that re-measures it,
+and choose.
 
 ## Tune from the official recipe, one factor at a time
 

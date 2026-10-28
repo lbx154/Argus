@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from argus.core.pricing import usd_for_tokens
 from argus.core.token_usage import TokenUsage
 from argus.core.usage import UsageLedger, build_usage_record
@@ -33,14 +35,14 @@ def _util_event(inp: int, out: int, *, model: str = "gpt-5.5") -> dict:
 
 def test_util_buckets_by_model() -> None:
     sink = _sink()
-    sink.handle_event(_util_event(1000, 100, model="gpt-5.5"))
+    sink.handle_event({**_util_event(1000, 100, model="gpt-5.5"), "reasoning_output_tokens": 25})
     sink.handle_event(_util_event(200, 20, model="haiku-4-5"))
-    assert set(sink.util_usage_by_model) == {"gpt-5.5", "haiku-4-5"}
-    assert sink.util_usage_by_model["gpt-5.5"][0] == 1000
-    assert sink.util_usage_by_model["haiku-4-5"][0] == 200
+    # Buckets hold only what is priced; reasoning is billed inside output.
+    assert sink.util_usage_by_model == {"gpt-5.5": [1000, 0, 100], "haiku-4-5": [200, 0, 20]}
+    assert sink.util_reasoning_output_tokens == 25
 
 
-def test_scientist_reasoning_tokens_increase_usd() -> None:
+def test_scientist_reasoning_tokens_are_billed_inside_output() -> None:
     sink = _sink()
     base = usd_for_tokens("gpt-5.5", 1000, 0, 100)
     sink.handle_event({
@@ -64,7 +66,7 @@ def test_scientist_reasoning_tokens_increase_usd() -> None:
         "usage_scope": "delta",
     })
     assert sink.scientist_reasoning_output_tokens == 25
-    assert sink.completion_usage()[1]["scientist_cost_usd"] > base
+    assert sink.completion_usage()[1]["scientist_cost_usd"] == pytest.approx(base)
 
 
 def test_completion_totals_and_details_share_one_ledger_read(tmp_path, monkeypatch):

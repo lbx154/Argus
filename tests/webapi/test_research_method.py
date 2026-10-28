@@ -74,8 +74,6 @@ DERIVED = {
             "value": "65536",
             "file": "configs/pretrain.yaml",
             "why": "matches the route",
-            "changed": True,
-            "previous": "32768",
         }
     ],
     "change_log": [{"when": "2026-09-16", "summary": "Add the queue", "files": ["src/queue.py"]}],

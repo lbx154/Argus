@@ -35,11 +35,12 @@ Plan from the mission workspace only; never read sibling or parent directories.
 
 - Reuse settled/Manager decisions; name each task's decision, inputs and check,
   not who does or reviews it; handoffs decide.
+  A task's text carries only what is new for it and the operator's own acceptance words
+  for it: never restate a playbook or Skill rule, nor add a bar the operator did not set.
   Emit items that differ only in inputs or config, with disjoint outputs,
   together up to the free slots; a shared code change goes first as their dep.
-- At the digest's measured throughput, can this plan reach its first held-out
-  number in time? If not, start a smaller end-to-end version. What independent
-  work can start this cycle?
+- From the digest's times, what would shorten the time to the first held-out
+  number? What independent work can start this cycle?
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify a task with `vertical: "argus_maintenance"`.
   Require a harness hypothesis, executable check, exclusions, isolated reviewed
@@ -49,8 +50,7 @@ Plan from the mission workspace only; never read sibling or parent directories.
   Add no cleanup, docs, rechecks or optional hardening to completed finite work.
 - Ground external algorithms beyond Wiki/Skills in primary sources. Consult papers,
   source, issues, or hardware when consequential. Repeated failures require rereading
-  primary papers and official code. Performance claims need code-path evidence plus
-  timing, profiling, or controlled comparison.
+  primary papers and official code.
 - Only a complete operator goal is `to=done`. Reviewer `done` closes
   direct work; re-review only on request or a gap. Integrity/reproducibility are
   prerequisites, not directions.

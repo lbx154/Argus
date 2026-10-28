@@ -55,7 +55,7 @@ def _expected_task_cost(model):
     def cost(tokens):
         return quote_token_usage(
             model, input_tokens=tokens[0], cached_input_tokens=tokens[1],
-            output_tokens=tokens[2], reasoning_output_tokens=100, cache_write_tokens=None,
+            output_tokens=tokens[2], cache_write_tokens=None,
         ).cost_usd
     m1 = cost((100_000, 90_000, 2_000)) + cost((300_000, 200_000, 5_000))
     m2 = cost((100_000, 90_000, 2_000))

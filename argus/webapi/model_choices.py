@@ -130,7 +130,6 @@ def _task_estimate(model: str, tasks: list[list[dict[str, Any]]]) -> float | Non
                 cached_input_tokens=call.get("cached_input_tokens"),
                 cache_write_tokens=call.get("cache_write_tokens"),
                 output_tokens=call.get("output_tokens"),
-                reasoning_output_tokens=call.get("reasoning_output_tokens"),
             )
             if quote.cost_usd is None:
                 return None

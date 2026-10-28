@@ -155,8 +155,8 @@ class RunnerResult:
     cached_input_tokens: int = 0
     cache_write_tokens: int = 0
     output_tokens: int = 0
-    # Additional hidden reasoning tokens billed at the output rate; real usage not
-    # shown in visible completion text. 额外的隐藏 reasoning token 按输出单价计费，真实计费但不显示在可见回复文本里。
+    # The hidden reasoning part of ``output_tokens``, already billed with it.
+    # 输出 token 里隐藏的推理部分，已随输出计费，不再另计。
     reasoning_output_tokens: int = 0
     # Copilot bills in PREMIUM REQUESTS, not tokens (it reports no input tokens),
     # so this is copilot's native cost unit — this call's DELTA (already

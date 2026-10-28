@@ -7,7 +7,7 @@ type Five<T> = [T, T, T, T, T];
 const aliases: Five<readonly string[]> = [
   ['input_tokens', 'prompt_tokens', 'inputTokens', 'promptTokens'],
   ['cached_input_tokens', 'cache_read_input_tokens', 'cachedInputTokens', 'cacheReadInputTokens'],
-  ['cache_write_tokens', 'cache_creation_input_tokens', 'cacheWriteTokens', 'cacheCreationInputTokens'],
+  ['cache_write_tokens', 'cache_creation_input_tokens', 'cache_write_input_tokens', 'cacheWriteTokens', 'cacheCreationInputTokens'],
   ['output_tokens', 'completion_tokens', 'outputTokens', 'completionTokens'],
   ['reasoning_output_tokens', 'reasoning_tokens', 'reasoningOutputTokens', 'reasoningTokens'],
 ];

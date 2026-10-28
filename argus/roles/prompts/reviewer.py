@@ -5,12 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from ...core.model_visible_text import (
-    MODEL_INTEGRITY_BOUNDARY,
-    REVIEW_EVIDENCE_RULE,
-    sanitize_model_visible_text,
-)
-from ...core.workspace_snapshot import WorkspaceSnapshots
+from ...core.model_visible_text import REVIEW_EVIDENCE_RULE, sanitize_model_visible_text
+from ...core.workspace_snapshot import Change, WorkspaceSnapshots
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     EXPERIMENT_EVIDENCE_CONTRACT,
@@ -121,42 +117,17 @@ _PRODUCT_ACCEPTANCE_DIRECTIVE = (
 )
 
 
-def _audit_integrity_directive(context: str) -> str:
-    lowered = str(context or "").lower()
-    if not any(
-        marker in lowered
-        for marker in (
-            "audit",
-            "ledger",
-            "append-only",
-            "command_log",
-            "process_trace",
-            "审计",
-            "账本",
-            "只追加",
-            "命令日志",
-        )
-    ):
-        return ""
-    return (
-        "## Integrity of the historical record\n"
-        "Treat an operator mutation freeze or append-only requirement as a hard temporal "
-        "boundary. When continuity of the record matters, compare directive order with file-write, "
-        "install, and command events. A later archive, correction, or successful rerun "
-        "cannot make an overwritten or reconstructed record contemporaneous. Do not credit any "
-        "fact attributed to the objective unless the cited objective text states it, and "
-        "do not treat a summarized command log as the missing byte-faithful command. "
-        "Preserve useful corrections, but do not hand off `to=done` when the required "
-        "historical integrity is irrecoverable.\n\n"
-    )
-
-
 # The Reviewer starts from the diff instead of re-reading the workspace to find
 # what moved. Past these bounds a file is listed by name and line counts only.
 _DIFF_FILE_LINES = 60
 _DIFF_TOTAL_LINES = 300
 _DIFF_LINE_CHARS = 240
 _DIFF_LISTED_FILES = 80
+# Never excerpted: the research notes, whose current text the prompt carries
+# whole, and run outputs, which are counted per directory three levels into
+# results/ (the method card dates and sums them).
+_NOT_EXCERPTED = "RESEARCH_NOTES.md"
+_OUTPUTS, _OUTPUT_DEPTH = "results/", 4
 
 
 def _change_block(snapshots: WorkspaceSnapshots | None) -> str:
@@ -171,10 +142,18 @@ def _change_block(snapshots: WorkspaceSnapshots | None) -> str:
     )
     if not changes:
         return block + "Nothing in it has changed.\n"
-    budget, chosen = _DIFF_TOTAL_LINES, []
+    listed: dict[str, list[Change]] = {}
     for change in changes:
+        parts = change.path.split("/")
+        key = (
+            "/".join(parts[: min(_OUTPUT_DEPTH, len(parts) - 1)]) + "/"
+            if change.path.startswith(_OUTPUTS) else change.path
+        )
+        listed.setdefault(key, []).append(change)
+    budget, chosen = _DIFF_TOTAL_LINES, []
+    for key, (change, *_) in listed.items():
         lines = (change.added or 0) + (change.deleted or 0)
-        if lines and budget > 0:
+        if lines and budget > 0 and key == change.path and key != _NOT_EXCERPTED:
             chosen.append(change.path)
             budget -= min(lines, _DIFF_FILE_LINES)
     excerpt, shown, budget = [], {}, _DIFF_TOTAL_LINES
@@ -185,8 +164,14 @@ def _change_block(snapshots: WorkspaceSnapshots | None) -> str:
             shown[path] = len(hunk) <= room
             budget -= min(room, len(hunk))
     rows = []
-    for change in changes[:_DIFF_LISTED_FILES]:
-        if change.sizes is not None:
+    for key, group in list(listed.items())[:_DIFF_LISTED_FILES]:
+        change = group[0]
+        if key != change.path:
+            rows.append(
+                f"- {key}: {len(group)} file{'s' * (len(group) > 1)}, "
+                f"+{sum(item.added or 0 for item in group)} -{sum(item.deleted or 0 for item in group)}"
+            )
+        elif change.sizes is not None:
             before, after = (
                 "absent" if size is None else f"{size:,} bytes" for size in change.sizes
             )
@@ -199,7 +184,7 @@ def _change_block(snapshots: WorkspaceSnapshots | None) -> str:
                 else ", excerpt cut" if change.path in shown else ", not excerpted"
             )
             rows.append(f"- {change.path}: +{change.added} -{change.deleted}{note}")
-    rest = changes[_DIFF_LISTED_FILES:]
+    rest = [change for group in list(listed.values())[_DIFF_LISTED_FILES:] for change in group]
     if rest:
         rows.append(
             f"- and {len(rest)} more files: +{sum(change.added or 0 for change in rest)} "
@@ -304,10 +289,7 @@ def render_reviewer_prompt(
     replacing the shorter ``prev_review_summary`` line beside it.
     """
     from ...core.project import resolve_project_root
-    from ...core.research_contract import (
-        RESULT_FIELD_CHOICES,
-        resolve_research_target_level,
-    )
+    from ...core.research_contract import resolve_research_target_level
     from ...skills.vertical_select import (
         _persisted_vertical,
         resolve_workflow_mode,
@@ -475,18 +457,8 @@ def render_reviewer_prompt(
         if _research_target_level is not None and not prose_final_review:
             verification_instruction += (
                 "If the direction cannot reach the target, hand the work to the "
-                "Planner: `to=planner`.\n"
-                "Supply the research assessment in hand_off's research_result "
-                "using evidence you inspected; never append a data block to your reply. A survey is "
-                "`literature_review` with `novelty_status` `known` or "
-                "`not_applicable`. Use one listed value per field so the record "
-                "stays comparable across campaigns; hand_off summarizes your "
-                "judgment and never replaces it:\n"
-                + "".join(
-                    f"{_field}: {' '.join(_choices)}\n"
-                    for _field, _choices in RESULT_FIELD_CHOICES
-                )
-                + "\n"
+                "Planner: `to=planner`. Supply the research assessment in hand_off's "
+                "research_result; never append a data block to your reply.\n\n"
             )
     surprise_judgment_block = (
         "What observed result or pattern most changed your belief — including a "
@@ -531,9 +503,8 @@ def render_reviewer_prompt(
         rollback_block = (
             "## Upstream defects\n"
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "Research moves forward only. Name repairs here in `next_action` for earlier "
-            "method, experiment, or paper defects affecting this work. Never "
-            "request rollback, reopen idea selection, or edit `.argus/PIPELINE_STATE.json`."
+            "Name repairs here in `next_action` for earlier method, experiment, or paper "
+            "defects affecting this work. Never edit `.argus/PIPELINE_STATE.json`."
         )
     else:
         rollback_block = (
@@ -614,23 +585,10 @@ def render_reviewer_prompt(
         engineer_call_id=engineer_call_id,
         round_index=round_index,
     )
-    engineer_log_audit_block = sanitize_model_visible_text(
-        engineer_log_audit_block
-    )
     if direct_workflow:
         rollback_block = ""
     # Byte-stable static policy; every fresh Reviewer receives it in full.
     shell_contract = native_shell_summary()
-    audit_integrity_block = _audit_integrity_directive(
-        "\n".join(
-            (
-                objective,
-                original_objective,
-                planner_review_instruction,
-                *operator_messages,
-            )
-        )
-    )
     handoff_policy = (
         "Hand off `to=done` when a direct task meets its requirements and decisive "
         "check, `to=planner` only to change the plan, and `to=engineer` naming the next "
@@ -641,7 +599,7 @@ def render_reviewer_prompt(
             "Only claim-essential evidence gaps warrant `to=engineer`; optional "
             "evidence and minor weaknesses are advice. A timeout or failed attempt "
             "proves no impossibility; a missed threshold describes only that run. "
-            "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
+            "Root-cause, bottleneck, or replacement claims need code-path "
             "evidence plus profiling, timing, or a controlled comparison. Integrity is "
             "required, not scientific value. Ask only for operator-owned authority/facts. "
             "`to=done` closes a task; final-submission may close the project."
@@ -656,8 +614,7 @@ def render_reviewer_prompt(
         "Before accepting, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "
-        "Chat cannot replace the tool. A plan challenge names the failed assumption "
-        "and an alternative; a commitment of the Manager or the operator goes to them. "
+        "Chat cannot replace the tool. "
         "Give Engineer instructions in the review; neither "
         "read nor edit checkpoint or context records.\n\n"
     )
@@ -694,8 +651,6 @@ def render_reviewer_prompt(
         EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
-        + MODEL_INTEGRITY_BOUNDARY
-        + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
         "`to=done` meets this profile; check relevant uncertainty. "
@@ -707,6 +662,13 @@ def render_reviewer_prompt(
         "Judge against the task's acceptance criteria and this profile only: a check "
         "they do not ask for (a packaged build, future-proofing) is a suggestion in note "
         "and never withholds `to=done`. "
+        "Judge the deliverable the operator asked for. Argus's own records (files under "
+        "`.argus/`, evidence logs, certification notes) are not it: a slip in them is a note "
+        "in your review, fixed in passing where the task owns that record, and never a reason "
+        "to hold a deliverable that meets its acceptance. "
+        "Judge the files as they are now. An earlier review's text is not a precondition: "
+        "when it is not in front of you, reach your own judgment from the current files "
+        "instead of blocking or asking for it. "
         "In `explore`/`develop`, require experimental or research feedback. "
         "Ground negatives, hedging, limitations and reruns in consequences; "
         "all claims share one evidence standard. "
@@ -735,15 +697,14 @@ def render_reviewer_prompt(
     )
     # Per-round DELTA — everything that varies with the mission or the round.
     # Fresh Reviewers receive this after the full static rubric every time.
-    # The objective, the Planner's guidance, and the record-integrity note its
-    # text can call for are necessary context every round; they open the delta
-    # so a resumed session still reads the mission before the round's facts.
+    # The objective and the Planner's guidance are necessary context every
+    # round; they open the delta so a resumed session still reads the mission
+    # before the round's facts.
     delta = (
         (_REEVALUATE_HEADER if resumed else "")
         + objective_block
         + "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
-        + audit_integrity_block
         + research_context_block
         + ("\n\n" if research_context_block else "")
         + review_validity_block

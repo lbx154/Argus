@@ -13,12 +13,11 @@ hand-written card in the Atlas web UI and to the Reviewer:
   mapped to ``third_party/`` clones (pinned revision, remote) and installed
   packages (version);
 * hyperparameters, from the YAML/JSON/TOML config files the runs use, with the
-  ``# why: ...`` comment the Engineer leaves beside a value and a diff against
-  the previous snapshot;
-* a change log, from ``git log``;
-* code anchors, from ``# @component <name>``, ``# @simplified <name>: <reason>``
-  and ``# @reuses <what> <note>`` comments the Engineer leaves in the code, so
-  a card row points at the def that implements it.
+  ``# why: ...`` comment the Engineer leaves beside a value;
+* a change log, from ``git log``.
+
+A card row names its component's entry point as ``path:Symbol``
+(experiment.fidelity), so nothing here scans the code for it.
 
 Nothing here gates a stage or admits a task. Everything is fail-soft: a
 missing piece yields an empty value, never an exception.
@@ -32,7 +31,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from importlib import metadata
@@ -45,14 +43,12 @@ METHOD_FILENAME = "METHOD.md"
 MARKDOWN_LIMIT = 64 * 1024
 
 SPEC_COMPONENTS_PATH = Path(".argus") / "spec_components.json"
-HYPERPARAMETER_SNAPSHOT_PATH = Path(".argus") / "method-card" / "hyperparameters.json"
 
 COMPONENTS_HEADING = "components"
 PROTOCOL_HEADING = "protocol"
 FALSIFIERS_HEADING = "what would falsify the claim"
 
-PROJECT_SCAN_ROOTS = ("src", "scripts")
-SKIPPED_DIR_NAMES = frozenset({"tests", "test", "third_party", "node_modules", "__pycache__"})
+SKIPPED_DIR_NAMES = frozenset({"tests", "test", "third_party", "node_modules", "__pycache__", "venv"})
 MAX_PROJECT_FILES = 400
 MAX_CONFIG_FILES = 20
 MAX_HYPERPARAMETERS = 400
@@ -62,10 +58,7 @@ CHANGE_LOG_PATHS = ("METHOD.md", "src", "configs", "tests/spec", "third_party")
 GIT_TIMEOUT_S = 5.0
 #: Hard cap on the review packet ``render_for_reviewer`` returns.
 REVIEWER_MAX_LINES = 120
-ANCHOR_EXCERPT_LINES = 30
-REVIEWER_EXCERPT_LINES = 20
 REVIEWER_CHANGED_FILES = 20
-MAX_ANCHORS = 200
 
 _COLUMN_ALIASES = {
     "component": "component",
@@ -80,9 +73,6 @@ _YAML_KEY_LINE = re.compile(r"^(?P<indent>\s*)(?P<key>[^\s#\-][^:#]*?):(?P<rest>
 _WHY_COMMENT = re.compile(r"#\s*why:\s*(?P<why>.+?)\s*$", re.IGNORECASE)
 _CONFIG_REFERENCE = re.compile(r"[\w][\w./-]*\.(?:ya?ml|json|toml)\b")
 _CHANGE_LOG_HEAD = re.compile(r"^(?P<when>\d{4}-\d{2}-\d{2})\t(?P<summary>.*)$")
-_ANCHOR_COMPONENT = re.compile(r"#\s*@component\s+(?P<component>.+?)\s*$")
-_ANCHOR_SIMPLIFIED = re.compile(r"#\s*@simplified\s+(?P<component>[^:]+):\s*(?P<reason>.+?)\s*$")
-_ANCHOR_REUSES = re.compile(r"#\s*@reuses\s+(?P<what>\S+)\s+(?P<note>.+?)\s*$")
 _DEF_OR_CLASS = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(?P<name>\w+)")
 _PORCELAIN_LINE = re.compile(r"^(?P<status>[ MADRCU?!]{2}) (?P<path>.+)$")
 
@@ -350,36 +340,23 @@ def _git(args: list[str], cwd: Path) -> str:
 
 
 def _iter_project_files(workdir: Path) -> list[Path]:
-    roots: list[Path] = []
-    for name in PROJECT_SCAN_ROOTS:
-        candidate = workdir / name
-        if candidate.is_dir():
-            roots.append(candidate)
-    try:
-        for child in sorted(workdir.iterdir()):
-            if (
-                child.is_dir()
-                and not child.name.startswith(".")
-                and child.name not in SKIPPED_DIR_NAMES
-                and child.name not in PROJECT_SCAN_ROOTS
-                and (child / "__init__.py").is_file()
-            ):
-                roots.append(child)
-    except OSError:
-        pass
+    """The project's own Python files: the whole workspace but tests, clones,
+    environments, run outputs, and another workspace or repository inside it."""
     files: list[Path] = []
-    for root in roots:
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(
-                name
-                for name in dirnames
-                if not name.startswith(".") and name not in SKIPPED_DIR_NAMES
-            )
-            for filename in sorted(filenames):
-                if filename.endswith(".py"):
-                    files.append(Path(dirpath) / filename)
-                    if len(files) >= MAX_PROJECT_FILES:
-                        return files
+    for dirpath, dirnames, filenames in os.walk(workdir):
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if not name.startswith(".")
+            and name not in SKIPPED_DIR_NAMES
+            and name not in RESULT_DIRS
+            and not any(os.path.exists(os.path.join(dirpath, name, own)) for own in (".argus", ".git"))
+        )
+        for filename in sorted(filenames):
+            if filename.endswith(".py"):
+                files.append(Path(dirpath) / filename)
+                if len(files) >= MAX_PROJECT_FILES:
+                    return files
     return files
 
 
@@ -398,7 +375,7 @@ def _project_module_roots(workdir: Path, files: list[Path]) -> set[str]:
         except OSError:
             continue
     for path in files:
-        roots.add(path.stem)
+        roots.update((path.stem, path.relative_to(workdir).parts[0]))
     return roots
 
 
@@ -451,10 +428,9 @@ def _clone_for_root(root: str, clones: list[Path]) -> Path | None:
     return None
 
 
-def _package_version(root: str) -> str:
+def _package_version(root: str, distributions: dict[str, list[str]]) -> str:
     try:
-        distributions = metadata.packages_distributions().get(root) or []
-        for distribution in distributions:
+        for distribution in distributions.get(root) or []:
             return metadata.version(distribution)
         return metadata.version(root)
     except Exception:  # noqa: BLE001 - fail-soft on any metadata oddity
@@ -506,6 +482,13 @@ def reused_code(workdir: Path) -> list[dict[str, Any]]:
             else:
                 _record("package", root, module, path)
 
+    # One scan of the installed distributions serves every package (~0.7 s each).
+    distributions: dict[str, list[str]] = {}
+    if any(kind == "package" for kind, _name in entries):
+        try:
+            distributions = metadata.packages_distributions()
+        except Exception:  # noqa: BLE001 - fail-soft on any metadata oddity
+            pass
     result: list[dict[str, Any]] = []
     for (kind, name), entry in sorted(entries.items(), key=lambda item: (item[0][0] != "third_party", item[0][1])):
         if kind == "third_party":
@@ -513,7 +496,7 @@ def reused_code(workdir: Path) -> list[dict[str, Any]]:
             entry["revision_or_version"] = _git(["rev-parse", "--short", "HEAD"], clone)
             entry["remote"] = _git(["config", "--get", "remote.origin.url"], clone)
         else:
-            entry["revision_or_version"] = _package_version(name)
+            entry["revision_or_version"] = _package_version(name, distributions)
         entry["modules"] = sorted(entry["modules"])
         entry["imported_from"] = sorted(entry["imported_from"])
         result.append(entry)
@@ -1055,8 +1038,7 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
     if definitions or notes:
         lines.append(
             "Possible stand-ins in the project's own code (mock/fake/stub/synthetic/oracle "
-            "names outside tests; a result produced through one is not evidence for the claim "
-            "unless METHOD.md Deviations names it):"
+            "names outside tests; experiment.stand_ins):"
         )
         protocol = str(card.get("protocol") or "").lower()
         for entry in definitions[:limit]:
@@ -1096,132 +1078,6 @@ def render_run_reality(card: dict[str, Any], *, limit: int = 6) -> list[str]:
             )
     lines.extend(render_result_tables(card))
     return lines
-
-
-# --------------------------------------------------------------------------
-# Code anchors: ``# @component``, ``# @simplified``, ``# @reuses`` comments
-# --------------------------------------------------------------------------
-
-
-def _symbol_after(lines: list[str], index: int) -> str:
-    """Name of the def/class the anchor at ``index`` sits above, or ''."""
-    for line in lines[index + 1 : index + 12]:
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "@")):
-            continue
-        match = _DEF_OR_CLASS.match(line)
-        return match.group("name") if match else ""
-    return ""
-
-
-def _anchor_excerpt(lines: list[str], index: int) -> str:
-    """Up to ``ANCHOR_EXCERPT_LINES`` lines from the anchor, stopping before the
-    next component's anchor once this one's code has begun."""
-    chosen: list[str] = []
-    in_code = False
-    for line in lines[index : index + ANCHOR_EXCERPT_LINES]:
-        stripped = line.strip()
-        is_anchor = bool(_ANCHOR_COMPONENT.search(line) or _ANCHOR_SIMPLIFIED.search(line))
-        if in_code and is_anchor:
-            break
-        if stripped and not stripped.startswith("#"):
-            in_code = True
-        chosen.append(line.rstrip())
-    while chosen and not chosen[-1].strip():
-        chosen.pop()
-    return "\n".join(chosen)
-
-
-def code_anchors(workdir: Path) -> dict[str, list[dict[str, Any]]]:
-    """Anchor comments in the project's own Python files, grouped by kind.
-
-    ``{"component": [...], "simplified": [...], "reuses": [...]}``; each entry
-    carries ``file`` (project-relative), ``line`` (1-based) and, for component
-    and simplified anchors, ``component``, ``symbol`` and ``excerpt`` (up to
-    ``ANCHOR_EXCERPT_LINES`` lines from the anchor). Fail-soft: an unreadable
-    file contributes nothing.
-    """
-    workdir = Path(workdir)
-    found: dict[str, list[dict[str, Any]]] = {"component": [], "simplified": [], "reuses": []}
-    total = 0
-    for path in _iter_project_files(workdir):
-        text = _read_text(path)
-        if "@component" not in text and "@simplified" not in text and "@reuses" not in text:
-            continue
-        try:
-            relative = path.relative_to(workdir).as_posix()
-        except ValueError:
-            relative = path.as_posix()
-        lines = text.splitlines()
-        for index, line in enumerate(lines):
-            if "#" not in line:
-                continue
-            component = _ANCHOR_COMPONENT.search(line)
-            simplified = _ANCHOR_SIMPLIFIED.search(line)
-            reuses = _ANCHOR_REUSES.search(line)
-            if component is None and simplified is None and reuses is None:
-                continue
-            total += 1
-            if total > MAX_ANCHORS:
-                return found
-            base = {"file": relative, "line": index + 1}
-            if reuses is not None:
-                found["reuses"].append({**base, "what": reuses.group("what"), "note": reuses.group("note")})
-                continue
-            match = component if component is not None else simplified
-            assert match is not None
-            entry = {
-                **base,
-                "component": _strip_markup(match.group("component")),
-                "symbol": _symbol_after(lines, index),
-                "excerpt": _anchor_excerpt(lines, index),
-            }
-            if simplified is not None:
-                entry["reason"] = simplified.group("reason").strip()
-                found["simplified"].append(entry)
-            else:
-                found["component"].append(entry)
-    return found
-
-
-def _attach_anchors(
-    components: list[dict[str, Any]],
-    unlisted: list[dict[str, Any]],
-    anchors: dict[str, list[dict[str, Any]]],
-) -> None:
-    """Add ``anchors``/``simplified`` to every row and list anchor-only components."""
-    by_key: dict[str, list[dict[str, Any]]] = {}
-    simplified_by_key: dict[str, list[dict[str, Any]]] = {}
-    display: dict[str, str] = {}
-    for entry in anchors.get("component", []):
-        key = normalize_component_name(entry["component"])
-        display.setdefault(key, entry["component"])
-        by_key.setdefault(key, []).append(
-            {k: entry[k] for k in ("file", "line", "symbol", "excerpt")}
-        )
-    for entry in anchors.get("simplified", []):
-        key = normalize_component_name(entry["component"])
-        display.setdefault(key, entry["component"])
-        simplified_by_key.setdefault(key, []).append(
-            {"reason": entry["reason"], "file": entry["file"], "line": entry["line"]}
-        )
-    seen: set[str] = set()
-    for row in [*components, *unlisted]:
-        key = normalize_component_name(row["component"])
-        seen.add(key)
-        row["anchors"] = by_key.get(key, [])
-        row["simplified"] = simplified_by_key.get(key, [])
-    for key in sorted(set(by_key) | set(simplified_by_key)):
-        if key in seen:
-            continue
-        unlisted.append(
-            {
-                "component": display.get(key) or key,
-                "tests": [],
-                "anchors": by_key.get(key, []),
-                "simplified": simplified_by_key.get(key, []),
-            }
-        )
 
 
 # --------------------------------------------------------------------------
@@ -1329,32 +1185,10 @@ def yaml_why_comments(text: str) -> dict[str, str]:
     return whys
 
 
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=str(path.parent), prefix=".tmp-", suffix=".json", delete=False
-    )
-    try:
-        with handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-        os.replace(handle.name, path)
-    except OSError:
-        try:
-            os.unlink(handle.name)
-        except OSError:
-            pass
-
-
 def hyperparameters(workdir: Path, protocol: str = "") -> list[dict[str, Any]]:
-    """Flattened scalar config values with ``why`` and a diff against the previous snapshot.
-
-    The snapshot under ``.argus/method-card/hyperparameters.json`` keeps the
-    current values and the last *different* values, so repeated derivations
-    (Atlas polling, the Reviewer's context) report the same ``changed`` flags
-    until a value actually moves again.
-    """
+    """Flattened scalar config values, each with the ``why`` written beside it."""
     workdir = Path(workdir)
-    current: dict[str, dict[str, Any]] = {}
+    result: list[dict[str, Any]] = []
     for path in _config_files(workdir, protocol):
         parsed = _parse_config(path)
         if not isinstance(parsed, dict):
@@ -1367,47 +1201,9 @@ def hyperparameters(workdir: Path, protocol: str = "") -> list[dict[str, Any]]:
         except ValueError:
             relative = path.as_posix()
         for key, value in flat.items():
-            if len(current) >= MAX_HYPERPARAMETERS:
+            if len(result) >= MAX_HYPERPARAMETERS:
                 break
-            current[f"{relative}::{key}"] = {
-                "key": key,
-                "value": value,
-                "file": relative,
-                "why": whys.get(key, ""),
-            }
-
-    snapshot_path = workdir / HYPERPARAMETER_SNAPSHOT_PATH
-    snapshot = _load_json(snapshot_path) or {}
-    stored = snapshot.get("values") if isinstance(snapshot.get("values"), dict) else {}
-    previous = snapshot.get("previous") if isinstance(snapshot.get("previous"), dict) else {}
-    current_values = {ident: entry["value"] for ident, entry in current.items()}
-    if not snapshot:
-        previous = {}
-    elif current_values != stored:
-        previous = dict(stored)
-    if not snapshot or current_values != stored:
-        try:
-            _write_json_atomic(
-                snapshot_path,
-                {"generated_at": time.time(), "values": current_values, "previous": previous},
-            )
-        except Exception:  # noqa: BLE001 - the snapshot is a convenience
-            log.debug("method card: hyperparameter snapshot not written", exc_info=True)
-
-    result: list[dict[str, Any]] = []
-    for ident, entry in current.items():
-        before = previous.get(ident) if previous else None
-        changed = bool(previous) and before != entry["value"]
-        result.append(
-            {
-                "key": entry["key"],
-                "value": entry["value"],
-                "file": entry["file"],
-                "why": entry["why"],
-                "changed": changed,
-                "previous": str(before) if changed and before is not None else None,
-            }
-        )
+            result.append({"key": key, "value": value, "file": relative, "why": whys.get(key, "")})
     return result
 
 
@@ -1493,7 +1289,6 @@ def _empty_card() -> dict[str, Any]:
         "protocol": "",
         "falsifiers": "",
         "reused_code": [],
-        "reuse_anchors": [],
         "hyperparameters": [],
         "change_log": [],
         "stand_ins": [],
@@ -1539,15 +1334,6 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         card["components"], card["unlisted_components"] = components, unlisted
     except Exception:  # noqa: BLE001
         log.debug("method card: component join failed", exc_info=True)
-    try:
-        anchors = code_anchors(workdir)
-        _attach_anchors(card["components"], card["unlisted_components"], anchors)
-        card["reuse_anchors"] = anchors.get("reuses", [])
-    except Exception:  # noqa: BLE001
-        log.debug("method card: anchor scan failed", exc_info=True)
-        for row in [*card["components"], *card["unlisted_components"]]:
-            row.setdefault("anchors", [])
-            row.setdefault("simplified", [])
     for key, derive in (
         ("reused_code", lambda: reused_code(workdir)),
         ("hyperparameters", lambda: hyperparameters(workdir, card["protocol"])),
@@ -1573,36 +1359,12 @@ def kinds_summary(tests: list[dict[str, Any]]) -> str:
     return ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items()))
 
 
-def anchor_location(entry: dict[str, Any]) -> str:
-    """``file:line (symbol)`` of a row's first anchor, or '' when it has none."""
-    anchors = entry.get("anchors") or []
-    if not anchors:
-        return ""
-    first = anchors[0]
-    symbol = f" ({first['symbol']})" if first.get("symbol") else ""
-    more = f" +{len(anchors) - 1} more" if len(anchors) > 1 else ""
-    return f"{first['file']}:{first['line']}{symbol}{more}"
-
-
-def _excerpt_lines(entry: dict[str, Any], budget: int) -> list[str]:
-    anchors = entry.get("anchors") or []
-    if not anchors or budget <= 0:
-        return []
-    raw = str(anchors[0].get("excerpt") or "").splitlines()
-    shown = raw[: min(budget, REVIEWER_EXCERPT_LINES)]
-    lines = [f"    {line.rstrip()}" for line in shown]
-    if len(raw) > len(shown):
-        lines.append("    ...")
-    return lines
-
-
 def render_for_reviewer(workdir: Path) -> str:
     """The review packet: at most ``REVIEWER_MAX_LINES`` lines beside ``METHOD.md``.
 
-    Per component its marked tests and anchor, then the code excerpt
-    at the anchor (trimmed to fit), then what changed this round: files from
-    ``git status``, hyperparameters against the previous snapshot, anchors
-    without a card row and card rows without an anchor. '' without a card.
+    Per component its marked tests, then the claim attainment, the run
+    reality, the files ``git status`` names and the reused code. '' without a
+    card.
     """
     try:
         card = derive_method_card(Path(workdir))
@@ -1612,24 +1374,11 @@ def render_for_reviewer(workdir: Path) -> str:
         return ""
     lines: list[str] = ["## Method card, derived by the host (evidence, not a gate)"]
     components = card["components"]
-    excerpt_slots: list[tuple[int, dict[str, Any]]] = []
     if components:
-        lines.append(
-            "Components with the tests/spec tests that carry their marker; "
-            "the anchor is the `# @component` comment in the code:"
-        )
+        lines.append("Components with the tests/spec tests that carry their marker:")
         for entry in components[:12]:
             tests = entry["tests"]
-            detail = f" ({kinds_summary(tests)})" if tests else ""
-            where = anchor_location(entry)
-            lines.append(
-                f"- {entry['component']}{detail}"
-                + (f" — {where}" if where else " — no code anchor")
-            )
-            for note in (entry.get("simplified") or [])[:2]:
-                lines.append(f"  simplified: {note['reason']} ({note['file']}:{note['line']})")
-            if entry.get("anchors"):
-                excerpt_slots.append((len(lines), entry))
+            lines.append(f"- {entry['component']}" + (f" ({kinds_summary(tests)})" if tests else ""))
         if len(components) > 12:
             lines.append(f"- ... {len(components) - 12} more components in METHOD.md")
     else:
@@ -1637,21 +1386,9 @@ def render_for_reviewer(workdir: Path) -> str:
     untested = [entry["component"] for entry in components if not entry["tests"]]
     if untested:
         lines.append("Named in the card, no test carries its marker: " + ", ".join(untested[:10]))
-    without_anchor = [entry["component"] for entry in components if not entry.get("anchors")]
-    if without_anchor:
-        lines.append("Named in the card, no `# @component` anchor in the code: " + ", ".join(without_anchor[:10]))
-    unlisted_markers = [
-        entry["component"] for entry in card["unlisted_components"] if entry.get("tests")
-    ]
+    unlisted_markers = [entry["component"] for entry in card["unlisted_components"]]
     if unlisted_markers:
         lines.append("Markers without a card row: " + ", ".join(unlisted_markers[:10]))
-    unlisted_anchors = [
-        f"{entry['component']} ({anchor_location(entry)})"
-        for entry in card["unlisted_components"]
-        if entry.get("anchors") and not entry.get("tests")
-    ]
-    if unlisted_anchors:
-        lines.append("Anchors without a card row: " + ", ".join(unlisted_anchors[:10]))
     attainment = render_claim_attainment(card)
     if attainment:
         lines.extend(attainment)
@@ -1684,27 +1421,4 @@ def render_for_reviewer(workdir: Path) -> str:
                 remote = ""
             modules = ", ".join(entry["modules"][:4])
             lines.append(f"- {where} @ {pin}{remote}: {modules}")
-    changed = [entry for entry in card["hyperparameters"] if entry["changed"]]
-    if changed:
-        lines.append("Hyperparameters changed since the previous snapshot:")
-        for entry in changed[:8]:
-            why = f" (why: {entry['why']})" if entry["why"] else " (no '# why' comment)"
-            lines.append(
-                f"- {entry['file']}:{entry['key']} {entry['previous']} -> {entry['value']}{why}"
-            )
-    lines = lines[:REVIEWER_MAX_LINES]
-    # Code excerpts fill what the cap leaves, in card order, inserted under
-    # their own component line (later slots first so indices hold).
-    remaining = REVIEWER_MAX_LINES - len(lines)
-    granted: list[tuple[int, list[str]]] = []
-    for position, entry in excerpt_slots:
-        if remaining <= 2:
-            break
-        share = max(3, remaining // max(1, len(excerpt_slots) - len(granted)))
-        excerpt = _excerpt_lines(entry, min(share, remaining) - 1)
-        if excerpt:
-            granted.append((position, excerpt))
-            remaining -= len(excerpt)
-    for position, excerpt in sorted(granted, key=lambda item: item[0], reverse=True):
-        lines[position:position] = excerpt
     return "\n".join(lines[:REVIEWER_MAX_LINES])

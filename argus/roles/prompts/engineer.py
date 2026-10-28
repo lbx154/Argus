@@ -76,12 +76,11 @@ def engineer_handoff_rule() -> str:
 
 
 _PERFORMANCE_DIAGNOSTIC_RULE = (
-    "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
-    "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
-    "share hardware, but latency evidence needs an uncontended device or an "
-    "explicitly matched concurrent load. Check actual device identity and other "
-    "processes; free memory or a zero-utilization snapshot does not prove isolation. "
-    "Independent process repetitions can run sequentially on a released device."
+    "Timings compared across runs or devices keep each run's device identity and "
+    "concurrent load, matched or uncontended where the comparison turns on it; "
+    "correctness smoke tests can share hardware, and repetitions can run one after "
+    "another on a released device. A phase's share of one run's own time is read "
+    "inside that run and needs none of this."
 )
 _EXPERIMENT_PREREQUISITE_RULE = (
     "Block dependents on failed readiness; keep each attempt's outputs separate."
@@ -346,10 +345,7 @@ def build_mission_prompt(
             "lower-authority guidance may not silently change it.\n\n"
             + unique_original_request
         )
-    # A Planner's implementation brief carries its own '## Claim', '## Tests
-    # that must pass' headings; one level down they read as parts of this
-    # section instead of siblings of it.
-    sections.append("## Current mission task\n" + re.sub(r"(?m)^(#{2,5})(?=\s)", r"#\1", task))
+    sections.append("## Current mission task\n" + task)
     # The Engineer is the role that can most easily satisfy a task while
     # missing the requirement the task exists to serve — the mission text
     # describes this increment, not what the operator agreed "done" means.

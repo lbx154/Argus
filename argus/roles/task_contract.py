@@ -43,7 +43,10 @@ EXPERIMENT_EVIDENCE_CONTRACT = (
     "mechanism, an interactive page) is delivered with that visual as its primary "
     "output, named first, because people judge such results by seeing them and "
     "prose hides a wrong shape or trend; the review opens it and checks it renders "
-    "and matches the reported numbers."
+    "and matches the reported numbers. "
+    "Never fabricate results, numbers, citations or literature, fake credentials or "
+    "services, or misreport progress, completion or retries; a reconstructed or "
+    "overwritten record is never the contemporaneous one."
 )
 
 

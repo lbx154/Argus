@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -16,6 +17,7 @@ _TOKEN_ALIASES: tuple[tuple[str, ...], ...] = (
     (
         "cache_write_tokens",
         "cache_creation_input_tokens",
+        "cache_write_input_tokens",
         "cacheWriteTokens",
         "cacheCreationInputTokens",
     ),
@@ -112,6 +114,29 @@ class TokenUsage:
             self.output_tokens,
             self.reasoning_output_tokens,
         )
+
+
+COUNT_FIELDS = (
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_write_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+)
+
+
+def summed_usage(rows: Iterable[TokenUsage], *, source: str) -> TokenUsage:
+    """Several requests' usage as one call's: counts add, and a count is
+    present when any request reported it."""
+    rows = tuple(rows)
+    return TokenUsage(
+        **{name: sum(getattr(row, name) for row in rows) for name in COUNT_FIELDS},
+        **{
+            f"{name}_present": any(getattr(row, f"{name}_present") for row in rows)
+            for name in COUNT_FIELDS
+        },
+        source=source,
+    )
 
 
 def sum_token_counts(
@@ -460,4 +485,4 @@ def _coerce_nonnegative_float(value: Any) -> float | None:
     return parsed
 
 
-__all__ = ["TokenUsage", "extract_token_usage", "sum_token_counts"]
+__all__ = ["COUNT_FIELDS", "TokenUsage", "extract_token_usage", "sum_token_counts", "summed_usage"]

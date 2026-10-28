@@ -1,0 +1,92 @@
+{"phase": "startup_and_model_load", "seconds": 2.0707}
+{"phase": "generation", "seconds": 16.7109, "generated_tokens": 1502}
+{"phase": "base_execution", "seconds": 0.1746}
+{"phase": "selection_and_strict_execution", "seconds": 0.1957}
+{"phase": "generation", "seconds": 16.0899, "generated_tokens": 1412}
+{"phase": "base_execution", "seconds": 0.1707}
+{"phase": "selection_and_strict_execution", "seconds": 0.1739}
+{"phase": "logprob", "seconds": 1.1698}
+{"phase": "training_step_including_collection_if_any", "seconds": 35.4764}
+{"phase": "logprob", "seconds": 0.143}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3971}
+{"phase": "logprob", "seconds": 0.1056}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3594}
+{"phase": "logprob", "seconds": 0.1058}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3615}
+{"phase": "logprob", "seconds": 0.1044}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3478}
+{"phase": "logprob", "seconds": 0.1107}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3719}
+{"phase": "logprob", "seconds": 0.1005}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3531}
+{"phase": "logprob", "seconds": 0.1026}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3715}
+{"phase": "optimizer_update_total", "seconds": 38.2379}
+{"phase": "generation", "seconds": 16.0748, "generated_tokens": 1738}
+{"phase": "base_execution", "seconds": 0.1773}
+{"phase": "selection_and_strict_execution", "seconds": 0.2617}
+{"phase": "generation", "seconds": 15.6492, "generated_tokens": 1428}
+{"phase": "base_execution", "seconds": 0.1776}
+{"phase": "selection_and_strict_execution", "seconds": 0.3735}
+{"phase": "logprob", "seconds": 0.128}
+{"phase": "training_step_including_collection_if_any", "seconds": 33.107}
+{"phase": "logprob", "seconds": 0.1018}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.336}
+{"phase": "logprob", "seconds": 0.1003}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3372}
+{"phase": "logprob", "seconds": 0.1063}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.346}
+{"phase": "logprob", "seconds": 0.0992}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3363}
+{"phase": "logprob", "seconds": 0.0988}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3401}
+{"phase": "logprob", "seconds": 0.1113}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3378}
+{"phase": "logprob", "seconds": 0.2519}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.4804}
+{"phase": "optimizer_update_total", "seconds": 35.7006}
+{"phase": "generation", "seconds": 16.0304, "generated_tokens": 1400}
+{"phase": "base_execution", "seconds": 0.192}
+{"phase": "selection_and_strict_execution", "seconds": 0.1683}
+{"phase": "generation", "seconds": 15.7198, "generated_tokens": 1712}
+{"phase": "base_execution", "seconds": 0.1559}
+{"phase": "selection_and_strict_execution", "seconds": 0.1763}
+{"phase": "logprob", "seconds": 0.1081}
+{"phase": "training_step_including_collection_if_any", "seconds": 32.8182}
+{"phase": "logprob", "seconds": 0.0912}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3191}
+{"phase": "logprob", "seconds": 0.099}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3311}
+{"phase": "logprob", "seconds": 0.1032}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.342}
+{"phase": "logprob", "seconds": 0.0998}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3669}
+{"phase": "logprob", "seconds": 0.0982}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3708}
+{"phase": "logprob", "seconds": 0.096}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.3383}
+{"phase": "logprob", "seconds": 0.1022}
+{"phase": "training_step_including_collection_if_any", "seconds": 0.4171}
+{"phase": "optimizer_update_total", "seconds": 35.3805}
+{"phase": "generation", "seconds": 16.1136, "generated_tokens": 1965}
+{"phase": "base_execution", "seconds": 0.1749}
+{"phase": "selection_and_strict_execution", "seconds": 0.0001}
+{"phase": "generation", "seconds": 15.9155, "generated_tokens": 1718}
+{"phase": "base_execution", "seconds": 0.1938}
+{"phase": "selection_and_strict_execution", "seconds": 0.0001}
+{"phase": "generation", "seconds": 16.0354, "generated_tokens": 1890}
+{"phase": "base_execution", "seconds": 0.1831}
+{"phase": "selection_and_strict_execution", "seconds": 0.0001}
+{"phase": "generation", "seconds": 15.912, "generated_tokens": 1938}
+{"phase": "base_execution", "seconds": 0.1573}
+{"phase": "selection_and_strict_execution", "seconds": 0.0002}
+{"phase": "generation", "seconds": 16.0391, "generated_tokens": 2048}
+{"phase": "base_execution", "seconds": 0.1847}
+{"phase": "selection_and_strict_execution", "seconds": 0.0002}
+{"phase": "generation", "seconds": 15.9593, "generated_tokens": 1829}
+{"phase": "base_execution", "seconds": 0.188}
+{"phase": "selection_and_strict_execution", "seconds": 0.0001}
+{"phase": "generation", "seconds": 16.0335, "generated_tokens": 1952}
+{"phase": "base_execution", "seconds": 0.2066}
+{"phase": "selection_and_strict_execution", "seconds": 0.0002}
+{"phase": "generation", "seconds": 16.0419, "generated_tokens": 2048}

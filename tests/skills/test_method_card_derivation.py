@@ -163,13 +163,6 @@ def test_old_five_column_component_table_still_parses(project: Path) -> None:
 
 
 def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> None:
-    (project / "configs" / "base.yaml").write_text(
-        BASE_YAML.replace("rank: 64", "rank: 128"), encoding="utf-8"
-    )
-    derive_method_card(project)
-    (project / "configs" / "base.yaml").write_text(
-        BASE_YAML.replace("rank: 64", "rank: 256"), encoding="utf-8"
-    )
     text = render_for_reviewer(project)
     lines = text.splitlines()
 
@@ -182,7 +175,6 @@ def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> Non
     assert any("Markers without a card row: positional bias" in line for line in lines)
     assert any(line.startswith("- third_party/rpc @ ") and "example.invalid" in line for line in lines)
     assert any(line.startswith("- numpy @ ") for line in lines)
-    assert any("configs/base.yaml:model.rank 128 -> 256" in line for line in lines)
 
 
 def test_derivation_survives_broken_inputs(project: Path) -> None:
@@ -237,29 +229,19 @@ def anchored(project: Path) -> Path:
     return project
 
 
-def test_review_packet_shows_anchor_excerpt_changes_and_gaps(anchored: Path) -> None:
+def test_review_packet_names_tests_and_changes_and_leaves_the_code_to_the_card(anchored: Path) -> None:
+    # The card's rows name each entry point; comments in the code add nothing
+    # to the packet, so a component the code leaves unmarked is no gap.
     (anchored / "src" / "new_module.py").write_text("x = 1\n", encoding="utf-8")
     text = render_for_reviewer(anchored)
     lines = text.splitlines()
 
     assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
-    gate_index = next(i for i, line in enumerate(lines) if line.startswith("- residual gate (1 differential"))
-    assert "src/model.py:7 (gate)" in lines[gate_index]
-    # The excerpt sits under its own component line, indented, at most 20 lines.
-    excerpt = []
-    for line in lines[gate_index + 1 :]:
-        if not line.startswith("    "):
-            break
-        excerpt.append(line)
-    assert excerpt and excerpt[0].strip() == "# @component residual gate"
-    assert excerpt[1].strip() == "def gate(x):"
-    assert len(excerpt) <= method_card.REVIEWER_EXCERPT_LINES + 1
-    sparse = next(line for line in lines if line.startswith("- sparse attention (1 differential"))
-    assert "src/model.py:13 (sparse)" in sparse
-    assert any(line.strip().startswith("simplified: fixed k instead of learned k") for line in lines)
-    assert any("no `# @component` anchor in the code: curriculum warmup" in line for line in lines)
-    assert any("Anchors without a card row: rotary cache (src/model.py:19 (RotaryCache))" in line for line in lines)
-    assert any("Markers without a card row: positional bias" in line for line in lines)
+    assert "- residual gate (1 differential, 1 knockout)" in lines
+    assert "- sparse attention (1 differential, 1 knockout)" in lines
+    assert "- curriculum warmup" in lines
+    assert "Markers without a card row: positional bias" in lines
+    assert "anchor" not in text.lower() and "@component" not in text and "def gate" not in text
     changed = next(i for i, line in enumerate(lines) if line.startswith("Files changed this round"))
     assert any("src/new_module.py" in line for line in lines[changed : changed + method_card.REVIEWER_CHANGED_FILES + 1])
     assert any("src/model.py" in line for line in lines[changed : changed + method_card.REVIEWER_CHANGED_FILES + 1])

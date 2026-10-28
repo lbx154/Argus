@@ -33,7 +33,7 @@ diagnosis ladder in order, one rung per attempt, and write down each rung's
 evidence in the run records before moving to the next:
 
 - implementation fidelity: the code does not do what the card describes
-  (the anchors, knockouts and differential tests of `engineer/method-card.md`);
+  (the entry points, knockouts and differential tests of `engineer/method-card.md`);
 - setup and evaluator: the positive control, the data pipeline, leakage, a
   pilot too small to resolve the margin (the next section);
 - hyperparameters and recipe: the optimizer never found the regime the
@@ -198,9 +198,8 @@ the strongest same-information baseline with relevant wins clearly exceeding
 losses.
 
 If the claim as stated is not yet supported, keep working the ladder and record
-each attempt's rung and evidence. Do not reopen Idea selection, do not
-restate the claim to match what the code did, and do not turn failed attempts
-into a negative-result paper. When the claim is supported, rewrite the research notes
+each attempt's rung and evidence. Do not restate the claim to match what the
+code did, and do not turn failed attempts into a negative-result paper. When the claim is supported, rewrite the research notes
 in `RESEARCH_NOTES.md` with the claim as stated, the decisive comparisons, the
 essential contrary evidence and the direct sources Paper needs.
 
@@ -272,7 +271,7 @@ Engineer never edits the claim on its own.
 So when the number finally lands, stop and look at what you are holding:
 
 - Is the mechanism in the card still the mechanism in the code? Read the code
-  as though someone else wrote it, anchor by anchor.
+  as though someone else wrote it, entry point by entry point.
 - Did the thing that made the difference belong to a component the card
   names? If not, the result is an operator question, not a paper.
 - Does the protocol that produced the number match the card's protocol at the

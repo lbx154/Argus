@@ -231,14 +231,12 @@ export interface ResearchMethodReusedCode {
   modules: string[];
   imported_from: string[];
 }
-/** A value read from a run config file; `why` is the Engineer's `# why:` comment, `previous` the last snapshot when changed. */
+/** A value read from a run config file; `why` is the Engineer's `# why:` comment. */
 export interface ResearchMethodHyperparameter {
   key: string;
   value: string;
   file: string;
   why: string;
-  changed: boolean;
-  previous: string | null;
 }
 /** One git history entry touching the method. */
 export interface ResearchMethodChange {
