@@ -3,7 +3,7 @@
 
 import { createReadStream, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import type { ArtifactInfo, ArtifactKind } from '@argus/contracts';
 import type { Project } from '../store.js';
 
@@ -16,7 +16,10 @@ const TYPES: Record<string, [ArtifactKind, string]> = {
   '.svg': ['image', 'image/svg+xml'], '.png': ['image', 'image/png'], '.jpg': ['image', 'image/jpeg'], '.jpeg': ['image', 'image/jpeg'],
   '.gif': ['image', 'image/gif'], '.webp': ['image', 'image/webp'], '.ico': ['image', 'image/x-icon'],
   '.pdf': ['pdf', 'application/pdf'], '.mp3': ['audio', 'audio/mpeg'], '.wav': ['audio', 'audio/wav'],
-  '.mp4': ['video', 'video/mp4'], '.webm': ['video', 'video/webm'], '.glb': ['model', 'model/gltf-binary'], '.stl': ['model', 'model/stl'],
+  '.mp4': ['video', 'video/mp4'], '.webm': ['video', 'video/webm'],
+  // A robot or a mesh, which the cockpit opens in 3D; the files it names are read by modelAssets.
+  '.urdf': ['model', 'application/xml'], '.stl': ['model', 'model/stl'], '.obj': ['model', 'model/obj'],
+  '.dae': ['model', 'model/vnd.collada+xml'], '.glb': ['model', 'model/gltf-binary'], '.gltf': ['model', 'model/gltf+json'],
   '.woff2': ['binary', 'font/woff2'], '.woff': ['binary', 'font/woff'], '.ttf': ['binary', 'font/ttf'], '.wasm': ['binary', 'application/wasm'],
 };
 const TEXT = new Set(['.txt', '.log', '.py', '.ts', '.tsx', '.sh', '.yaml', '.yml', '.toml', '.tex', '.bib', '.ipynb', '.r', '.sql', '.xml']);
@@ -98,10 +101,29 @@ export function changed(root: string, since = 0): { file: string; path: string; 
 export const artifacts = (project: Project): ArtifactInfo[] =>
   changed(project.workdir, Date.parse(project.created)).map(found => artifactInfo(project, found));
 
+/** Where a file a model names may be, from the model's folder: a relative path from there; a ROS
+ * `package://name/rest` from the nearest enclosing folder named `name`, then `name/rest` or `rest`
+ * beside the model or above it. Nothing outside the workdir is found by `under`. */
+export function modelAssets(model: string, ref: string): string[] {
+  const dirs: string[] = [];
+  for (let dir = posix.dirname(model); ; dir = posix.dirname(dir)) {
+    dirs.push(dir);
+    if (dir === '.' || dir === '/') break;
+  }
+  const pkg = /^package:\/\/([^/]+)\/(.+)$/.exec(ref);
+  if (!pkg) return /^(?:[a-z][\w+.-]*:|\/|~)/i.test(ref) ? [] : [posix.join(dirs[0]!, ref)];
+  const [, name, rest] = pkg;
+  return [
+    ...dirs.filter(dir => posix.basename(dir) === name).map(dir => posix.join(dir, rest!)),
+    ...dirs.map(dir => posix.join(dir, name!, rest!)), ...dirs.map(dir => posix.join(dir, rest!)),
+  ];
+}
+
 /** How a result is sent: never as a page of this origin, which holds the cockpit's token. */
 export function rawHeaders(path: string, download: boolean): Record<string, string> {
   const [kind, mime] = typeOf(path);
-  const active = kind === 'html' || mime === 'image/svg+xml';
+  // XML, an SVG or a URDF among them, may carry a script as a page does.
+  const active = kind === 'html' || mime.includes('xml');
   return {
     'content-type': active ? 'text/plain; charset=utf-8' : mime, 'x-content-type-options': 'nosniff',
     ...(download ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}` } : {}),

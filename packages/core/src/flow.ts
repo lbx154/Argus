@@ -59,9 +59,13 @@ export class Flow {
     this.run(project);
   }
 
-  /** Carry on where the work stopped: after an interruption, or a failed call the operator retries. */
+  /** No turn starts after those under way, until the work resumes. */
+  paused = false;
+
+  /** Carry on where the work stopped: after an interruption, a pause, or a failed call the operator retries. */
   resume(id: string): void {
     const project = this.project(id);
+    this.paused = false;
     this.retry(project);
     this.run(project);
   }
@@ -126,7 +130,7 @@ export class Flow {
   }
 
   private going(project: Project): boolean {
-    return project.status === 'working' && !this.options.signal?.aborted;
+    return project.status === 'working' && !this.paused && !this.options.signal?.aborted;
   }
 
   private async carry(project: Project, task: Task): Promise<void> {

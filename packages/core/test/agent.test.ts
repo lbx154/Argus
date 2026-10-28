@@ -49,6 +49,8 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required']);
   // The Planner's letters to the Engineer open a task each.
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
+  // A letter that opens a task names it in its first line, the title the progress map shows.
+  for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /opens a task, [^;]*first line, a short title/);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.
   for (const form of ['manager', 'plan', 'engineer', 'review'] as const) {
     const { properties, required, additionalProperties } = formSchema(form);

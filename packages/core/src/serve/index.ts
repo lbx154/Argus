@@ -14,7 +14,7 @@ import { PROJECT_ID, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
 import { drafts } from './drafts.js';
-import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
+import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { preview } from './preview.js';
 import { CAPABILITIES, directory, projectRoutes } from './projects.js';
@@ -197,11 +197,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/daemon\/stop$/, async ({ params: [id], body }) => {
       const asked = await body();
-      if (asked.after_current || asked.drain) {
-        return { rc: 1, command_status: 'rejected', error: 'Stopping after the current step is not available; stop now instead.' };
-      }
-      runs.stop(project(id!).id);
-      return command(id!, asked);
+      const { id: sid } = project(id!);
+      if (asked.after_current || asked.drain) return { ...command(sid, asked), draining: runs.pause(sid) };
+      runs.stop(sid);
+      return command(sid, asked);
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifacts$/, ({ params: [id] }) => ({ artifacts: artifacts(project(id!)) })],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact$/, ({ params: [id], url }) => {
@@ -214,6 +213,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const found = under(project(id!).workdir, url.searchParams.get('path') ?? '');
       if (!found) throw new HttpError(404, 'no such result');
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, url.searchParams.get('download') === 'true'));
+    }],
+    // A file the 3D viewer's model names: a mesh, a texture, a glTF buffer.
+    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/model-asset$/, ({ params: [id], url, request, response }) => {
+      const { workdir } = project(id!);
+      const ref = (url.searchParams.get('ref') ?? '').replace(/\\/g, '/').split(/[?#]/)[0]!;
+      const found = modelAssets(url.searchParams.get('path') ?? '', ref).map(path => under(workdir, path)).find(found => found !== null);
+      if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
+      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, false));
     }],
     ...library(store), ...workspace(project), ...preview(project), ...records(store, project), ...resources(),
   ];

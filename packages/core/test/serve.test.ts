@@ -19,6 +19,8 @@ interface Step {
   files?: Record<string, string>;
   /** The turn lasts until it is interrupted. */
   hang?: boolean;
+  /** The turn ends once this settles, or it is interrupted. */
+  until?: Promise<unknown>;
 }
 
 function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -29,8 +31,10 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     assert.ok(step, `no turn scripted for the ${request.role}`);
     assert.equal(request.role, step.role);
     for (const [name, body] of Object.entries(step.files ?? {})) await writeFile(join(request.cwd, name), body);
+    const interrupted = new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
+    await Promise.race([step.until, interrupted]);
     if (step.hang) {
-      await new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
+      await interrupted;
       return { callId: 'c', threadId: null, completed: false, error: 'interrupted', handoff: null, model: 'fake', usage: null, ms: 1 };
     }
     const handoff: HandOff | null = step.to === undefined ? null
@@ -137,6 +141,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot?compact=true&events_limit=1`),
     snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
   requireSnapshotContract(asking);
+  // No continuous campaign here: the page shows no switch for one.
+  assert.equal(asking.continuous, undefined);
   assert.equal(asking.session.objective, 'Total the columns of data.csv');
   assert.deepEqual(asking.backlog.map(item => [item.id, item.status]), [['t1', 'blocked']]);
   assert.equal(asking.usage_summary?.call_count, 3);
@@ -304,13 +310,64 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.equal(stopped.rc, 0);
   const paused = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
-  assert.equal((await (await post(`${P}/daemon/stop`, { after_current: true })).json() as { rc: number }).rc, 1);
 
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
   assert.equal(requests[3]!.resume, undefined);
+});
+
+test('pausing lets the calls under way end and starts no other, until the work resumes', async t => {
+  let release = (): void => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const { get, post, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', to: 'reviewer', until: gate },
+    { role: 'reviewer', to: 'manager' },
+    { role: 'manager', to: 'operator' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'go', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+
+  const pausing = await (await post(`${P}/daemon/stop`, { after_current: true, command_id: 'c1' })).json() as { rc: number; draining: boolean };
+  assert.deepEqual([pausing.rc, pausing.draining], [0, true]);
+  assert.equal((await get<Snapshot>(`${P}/snapshot`)).daemon.draining, true);
+  release();
+  const paused = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  // The Engineer's turn ended and its letter was kept; the Reviewer waits for the work to resume.
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer']);
+  assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
+  assert.equal(paused.daemon.draining, false);
+
+  await post(`${P}/daemon/start`, { command_id: 'c2' });
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer', 'reviewer', 'manager']);
+});
+
+test('a robot model opens in 3D, with the meshes it names read from beside it', async t => {
+  const { get, post, call } = await setup(t, []);
+  const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
+  const P = `/api/projects/${sid}`;
+  await mkdir(join(workdir, 'leg', 'urdf'), { recursive: true });
+  await mkdir(join(workdir, 'leg', 'meshes'), { recursive: true });
+  await writeFile(join(workdir, 'leg', 'urdf', 'leg.urdf'), '<robot name="leg"/>');
+  await writeFile(join(workdir, 'leg', 'meshes', 'thigh.stl'), 'solid thigh');
+
+  assert.equal((await get(`${P}/artifact?path=leg/urdf/leg.urdf`)).kind, 'model');
+  // XML may carry a script: it is never sent as a document of this origin.
+  assert.equal((await call(`${P}/artifact/raw?path=leg/urdf/leg.urdf`)).headers.get('content-type'), 'text/plain; charset=utf-8');
+  const asset = (ref: string) => call(`${P}/artifact/model-asset?${new URLSearchParams({ path: 'leg/urdf/leg.urdf', ref })}`);
+  for (const ref of ['../meshes/thigh.stl', 'package://leg/meshes/thigh.stl', 'package://other/meshes/thigh.stl']) {
+    const found = await asset(ref);
+    assert.equal(found.status, 200, ref);
+    assert.equal(await found.text(), 'solid thigh');
+  }
+  for (const ref of ['../../../projects/x/project.json', '/etc/hostname', 'file:///etc/hostname', 'missing.stl']) {
+    assert.equal((await asset(ref)).status, 404, ref);
+  }
 });
 
 test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed, and plugins", async t => {
