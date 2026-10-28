@@ -2,29 +2,11 @@
 export const API_SERVICE = "argus-skill-webapi";
 export const API_PROTOCOL = { name: "argus.webapi", major: 1, minServerMinor: 16 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 7;
+/** What a client may rely on; a server declares API_OPTIONAL_CAPABILITIES only for the features it has. */
 export const REQUIRED_API_CAPABILITIES = [
-  "daemon.admission.v1",
-  "daemon.status.protocol.v1",
   "daemon.command.v1",
-  "daemon.upgrade-schedule.v1",
-  "cost.admission.v1",
-  "event.catalog.v1",
-  "event.payload-schema.v1",
   "manager.sse.v1",
   "manager.request-cancel.v1",
-  "advisor.config.v1",
-  "metrics.slo.v2",
-  "mission.view.v1",
-  "mission.abort.v1",
-  "project.attachments.v1",
-  "project.git-diff.v1",
-  "project.cost-feed.v1",
-  "project.counterexamples.v1",
-  "project.workdir.v1",
-  "research.events.v1",
   "release.identity.v1",
-  "snapshot.schema.v1",
-  "source.update.v1",
-  "usage.recorded.v2",
-  "verticals.store.v1"
+  "snapshot.schema.v1"
 ] as const;

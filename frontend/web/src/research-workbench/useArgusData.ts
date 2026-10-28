@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, openEventStream } from './api';
+import { openStream } from '../api';
+import { api } from './api';
 import type { EventMsg } from './types';
 
 function eventKey(event: EventMsg): string {
@@ -85,7 +86,7 @@ export function useArgusData(sid: string | null, active = true) {
       setConnected(false);
       return;
     }
-    const stream = openEventStream(
+    const close = openStream(
       sid,
       (event) => {
         setEvents((current) => mergeEvents(current, [event]));
@@ -97,10 +98,10 @@ export function useArgusData(sid: string | null, active = true) {
           }, 900);
         }
       },
-      setConnected,
+      { replay: 40, onOpen: () => setConnected(true), onClose: () => setConnected(false) },
     );
     return () => {
-      stream.close();
+      close();
       setConnected(false);
       if (refreshTimer.current != null) {
         window.clearTimeout(refreshTimer.current);

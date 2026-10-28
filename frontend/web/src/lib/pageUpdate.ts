@@ -1,4 +1,4 @@
-import { RELEASE_ID } from '../../../core/src/release.generated';
+import { RELEASE_ID } from '../../../core/src/protocol';
 
 // Responses already carry this identity. Observe normal polling instead of
 // adding another timer; the one-time API handshake cannot detect deployments.

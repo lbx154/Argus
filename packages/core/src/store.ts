@@ -92,12 +92,15 @@ export class Store {
     }
   }
 
+  /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
   create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model'>): Project {
+    const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
-      id: `p-${randomBytes(4).toString('hex')}`, created: new Date().toISOString(), ...init,
+      id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
       status: 'working', error: null, question: null, ticket: null, tasks: [], inbox: [], sessions: {},
     };
-    mkdirSync(join(this.dir(project.id), 'calls'), { recursive: true });
+    mkdirSync(project.workdir, { recursive: true });
+    mkdirSync(join(this.dir(id), 'calls'), { recursive: true });
     this.save(project);
     return project;
   }

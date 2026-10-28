@@ -259,7 +259,8 @@ def test_frontend_protocol_constants_match_backend_contract() -> None:
     capabilities_block = source.split("REQUIRED_API_CAPABILITIES = [", 1)[1].split("] as const", 1)[
         0
     ]
-    assert tuple(json.loads(f"[{capabilities_block}]")) == API_CAPABILITIES
+    required = json.loads(f"[{capabilities_block}]")
+    assert required == list(API_CAPABILITIES[: len(required)])
 
 
 def test_build_snapshot_marks_failsoft_sections_partial(

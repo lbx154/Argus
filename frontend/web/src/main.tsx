@@ -10,7 +10,7 @@ import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
-import { RELEASE_ID } from '../../core/src/release.generated';
+import { RELEASE_ID } from '../../core/src/protocol';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';

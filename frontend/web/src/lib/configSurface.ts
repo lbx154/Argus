@@ -83,11 +83,9 @@ export function compactConfigSource(source: string): string {
 
 export function connectionTopology(origin: string, sid: string): ConnectionTopology {
   const url = new URL(origin);
-  const streamProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const project = encodeURIComponent(sid);
   return {
     webApi: `${url.origin}/api`,
-    eventStream: `${streamProtocol}//${url.host}/api/projects/${project}/stream`,
+    eventStream: `${url.origin}/api/projects/${encodeURIComponent(sid)}/stream`,
   };
 }
 

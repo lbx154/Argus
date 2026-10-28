@@ -13,7 +13,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/protocol.js';
 
 import { ApiClient } from '../src/api.js';
 import {
@@ -90,7 +90,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
   assert.equal(inspectApiMeta(meta()).compatible, true);
   const incompatible = inspectApiMeta(meta({ capabilities: ['manager.sse.v1'] }));
   assert.equal(incompatible.compatible, false);
-  assert.match(incompatible.reason, /missing capabilities: daemon\.admission\.v1/);
+  assert.match(incompatible.reason, /missing capabilities: daemon\.command\.v1/);
   const oldMinor = inspectApiMeta(meta({
     protocol: { name: 'argus.webapi', major: 1, minor: 5 },
   }));

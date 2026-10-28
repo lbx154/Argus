@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { callAgent } from './agent/call.js';
 import { Flow } from './flow.js';
+import { serve } from './serve/index.js';
 import { Store, type FlowEvent, type Project } from './store.js';
+import type { Backend } from './types.js';
 
 const USAGE = `Usage:
   argus run "<request>" [--dir DIR] [--backend codex|claude] [--model M]
   argus say <project> "<text>"
   argus answer <project> "<text>"
   argus status [project]
+  argus serve [--port N] [--web DIR] [--backend codex|claude] [--model M]   (ARGUS_WEB_TOKEN: require this bearer token)
 `;
 
 const write = (line: string): void => { process.stdout.write(line + '\n'); };
@@ -39,19 +43,34 @@ function status(store: Store, id: string | undefined): void {
   if (error) write(`error: ${error}`);
 }
 
+/** Serve the web cockpit until interrupted; the work of its projects runs in this process. */
+async function web(store: Store, backend: Backend, options: { port: string; web?: string; model?: string }): Promise<void> {
+  const release = store.own();
+  const token = process.env.ARGUS_WEB_TOKEN || undefined;
+  const served = await serve({
+    store, callAgent, backend, model: options.model ?? null, port: Number(options.port), ...(token ? { token } : {}),
+    web: resolve(options.web ?? fileURLToPath(new URL('../../../frontend/web/dist', import.meta.url))),
+  }).catch((error: unknown) => { release(); throw error; });
+  write(`Argus is at ${served.url}/${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  const stop = (): void => { void served.close().finally(release); };
+  process.once('SIGINT', stop).once('SIGTERM', stop);
+}
+
 async function main(): Promise<void> {
   const { values, positionals: [command, ...args] } = parseArgs({ allowPositionals: true, options: {
     dir: { type: 'string' }, backend: { type: 'string', default: 'codex' }, model: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+    port: { type: 'string', default: '8799' }, web: { type: 'string' },
   } });
   const store = new Store();
   if (command === 'status' && !values.help) return status(store, args[0]);
   const [first, text] = args;
+  const backend = values.backend;
+  if (backend !== 'codex' && backend !== 'claude') throw new Error('--backend must be codex or claude');
+  if (command === 'serve' && !values.help && !args.length) return web(store, backend, values);
   if (values.help || !first || !(command === 'run' ? args.length === 1 : (command === 'say' || command === 'answer') && text !== undefined)) {
     process.stdout.write(USAGE);
     return;
   }
-  const backend = values.backend;
-  if (backend !== 'codex' && backend !== 'claude') throw new Error('--backend must be codex or claude');
   const release = store.own();
   const controller = new AbortController();
   process.once('SIGINT', () => controller.abort());

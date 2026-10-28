@@ -16,7 +16,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 |---|---|---|
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
-| M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | |
+| M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
@@ -64,6 +64,17 @@ which the Engineer runs side by side. There are no stages: what a research proje
 stages is the order of the tasks the Planner writes. A project is done when the Reviewer
 accepts the task of a ticket the Manager gave the Engineer, or when the Planner writes `done`.
 The Manager may finish a small request in its own turn.
+
+## The web cockpit
+
+`argus serve` (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that bearer) runs
+the work of its projects in its own process: one Flow call at a time per project, in the order
+asked for, projects side by side. The page reads files as they are: the snapshot from
+`project.json` and `usage.jsonl`, events and the conversation from `events.jsonl` in the
+cockpit's event vocabulary, results from the workdir's files created or changed since the
+project began. A message's stream follows the Manager's turn and ends with its reply; the team's
+work goes on after it. A message sent while work runs waits until it stops; Stop interrupts the
+call under way and Start resumes. The live event stream is server-sent events, in both runtimes.
 
 ## The agent call
 

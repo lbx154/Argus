@@ -28,6 +28,7 @@ export class Flow {
   /** The operator's message: the Manager's turn, then the team's work until it stops. */
   async say(id: string, text: string): Promise<Project> {
     const project = this.store.load(id);
+    project.request ||= text;
     this.record(project, { type: 'message', from: 'operator', text });
     if (project.status === 'failed') this.status(project, 'working');
     await this.manager(project, text);
@@ -51,9 +52,17 @@ export class Flow {
     return project;
   }
 
+  /** Carry on where the work stopped: after an interruption, or a failed call the operator retries. */
+  async resume(id: string): Promise<Project> {
+    const project = this.store.load(id);
+    if (project.status === 'failed') this.status(project, 'working');
+    await this.run(project);
+    return project;
+  }
+
   private async run(project: Project): Promise<void> {
     while (project.status === 'working' && !this.options.signal?.aborted) {
-      const task = project.tasks.find(task => task.status === 'open');
+      const task = nextTask(project);
       if (task) await this.work(project, task);
       else if (complete(project)) this.finish(project);
       else if (project.inbox.length) await this.plan(project);
@@ -195,6 +204,11 @@ export class Flow {
     this.store.append(project.id, event);
     this.options.onEvent?.(event);
   }
+}
+
+/** The open task, the one worked next: there is at most one. */
+export function nextTask({ tasks }: Project): Task | undefined {
+  return tasks.find(task => task.status === 'open');
 }
 
 /** A ticket for the Engineer is complete when its task is accepted and no other task is open. */

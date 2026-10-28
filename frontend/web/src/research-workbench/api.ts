@@ -1,5 +1,5 @@
 import type { EventMsg, ProjectIndex, Snapshot, StatusView } from './types';
-import { authHeaders, compatibleApiMeta, requestWithTimeout, requireDaemonCommand, streamProtocols } from '../api';
+import { authHeaders, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
 import type { TimelineEntry, TimelineInput, TimelineReport } from './timeline/types';
 
 const LOCAL_READ_TIMEOUT_MS = 12_000;
@@ -82,54 +82,3 @@ export const api = {
       }),
     }).then(requireDaemonCommand),
 };
-
-export interface StreamState {
-  close: () => void;
-}
-
-export function openEventStream(
-  sid: string,
-  onEvent: (event: EventMsg) => void,
-  onConnection: (connected: boolean) => void,
-): StreamState {
-  let closed = false;
-  let socket: WebSocket | null = null;
-  let retry: number | undefined;
-  let delay = 800;
-
-  const connect = () => {
-    if (closed) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    socket = new WebSocket(
-      `${protocol}//${window.location.host}${projectPath(sid, '/stream')}?replay=40&view=ui`,
-      streamProtocols(),
-    );
-    socket.onopen = () => {
-      delay = 800;
-      onConnection(true);
-    };
-    socket.onmessage = (message) => {
-      try {
-        onEvent(JSON.parse(String(message.data)) as EventMsg);
-      } catch {
-        // Ignore malformed event frames.
-      }
-    };
-    socket.onerror = () => socket?.close();
-    socket.onclose = (event) => {
-      onConnection(false);
-      if (closed || event.code === 4401 || event.code === 4404) return;
-      retry = window.setTimeout(connect, delay);
-      delay = Math.min(delay * 1.7, 8_000);
-    };
-  };
-
-  connect();
-  return {
-    close: () => {
-      closed = true;
-      if (retry) window.clearTimeout(retry);
-      socket?.close();
-    },
-  };
-}

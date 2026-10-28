@@ -4,7 +4,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
-import { RELEASE_ID } from '../../../core/src/release.generated';
+import { RELEASE_ID } from '../../../core/src/protocol';
 
 const SOURCE_SUMMARY = '2 files, 10 bytes';
 
