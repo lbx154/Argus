@@ -14,6 +14,7 @@ import {
 } from '@argus/contracts';
 import type { Project, Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
+import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { Runs, type Frame } from './runs.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
@@ -37,7 +38,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const STARTED = new Date().toISOString();
 const BODY_LIMIT = 1 << 20;
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
@@ -50,7 +51,7 @@ interface Context {
   body(): Promise<Record<string, unknown>>;
 }
 
-type Handler = (context: Context) => unknown;
+export type Handler = (context: Context) => unknown;
 
 export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token } = options;
@@ -105,6 +106,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });
 
   const routes: [string, RegExp, Handler][] = [
+    ...drafts(store, project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The page asks for its pins and archive on load; this server keeps none.
     ['GET', /^\/api\/browser-state\/organization$/, () => ({ value: {}, revision: 0 })],

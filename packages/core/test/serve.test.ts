@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectApiMeta, RELEASE_ID, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
@@ -303,4 +303,21 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
   assert.equal(requests[3]!.resume, undefined);
+});
+
+test('each project keeps the composer draft, and a save over a revision it never saw is refused', async t => {
+  const { home, call, get, post } = await setup(t, []);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const D = `/api/projects/${sid}/browser-draft`;
+  assert.deepEqual(await get(D), { value: {}, revision: 0 });
+  const value = { text: 'Total the columns', attachments: ['data.csv'], uploaded: [] };
+  assert.deepEqual(await (await post(D, { value, revision: 0 })).json(), { value, revision: 1 });
+  assert.deepEqual(await get(D), { value, revision: 1 });
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'projects', sid, 'draft.json'), 'utf8')), { value, revision: 1 });
+  // Another device's save over revision 0, which it saw before this one.
+  assert.equal((await post(D, { value: { text: 'Other' }, revision: 0 })).status, 409);
+  assert.equal((await post(D, { value: { text: 'x'.repeat(130 * 1024) }, revision: 1 })).status, 413);
+  assert.equal((await post(D, { value: 'Total', revision: 1 })).status, 400);
+  assert.deepEqual(await get(D), { value, revision: 1 });
+  assert.equal((await call('/api/projects/p-00000000/browser-draft')).status, 404);
 });
