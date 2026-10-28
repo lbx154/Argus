@@ -14,6 +14,7 @@ import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
 import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
+import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 
 const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
 
@@ -126,6 +127,7 @@ export function Sidebar({
   const [syncingOrganization, setSyncingOrganization] = useState(true);
   const [syncAttempt, setSyncAttempt] = useState(0);
   const [settingsHint, setSettingsHint] = useState(false);
+  const settings = useCapability(SETTINGS_CAPABILITY);
   const zh = locale === 'zh-CN';
   // Plugins, the knowledge library and the domain store are for experienced users.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
@@ -471,9 +473,9 @@ export function Sidebar({
 
           {/* Settings stay one click away; rarer tools fold into one quiet menu. */}
           <div className="sidebar-footer">
-            <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
+            {settings && <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
               <Settings size={15} />{zh ? '设置' : 'Settings'}
-            </button>
+            </button>}
             <details className="sidebar-more">
               <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '设备、语言与外观' : 'Devices, language and appearance'}>
                 <span aria-hidden="true" className="tracking-[0.12em]">···</span>

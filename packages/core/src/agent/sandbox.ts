@@ -41,6 +41,18 @@ function which(name: string): string | null {
   return null;
 }
 
+const INSTALL: Record<Backend, string> = {
+  codex: 'npm install -g @openai/codex@latest',
+  claude: 'npm install -g @anthropic-ai/claude-code',
+  copilot: 'npm install -g @github/copilot',
+  pi: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent',
+};
+
+/** Why a call could not start its CLI, when it is not on PATH: with how to install it. */
+export function notInstalled(backend: Backend): string | null {
+  return which(backend) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;
+}
+
 /** How to start the CLI `name` with no shell. On Windows npm installs it as a .cmd shim, which only
  * cmd.exe runs, reparsing every argument: the shim's target is run instead, a script by this node. */
 export function launcher(name: string): string[] {

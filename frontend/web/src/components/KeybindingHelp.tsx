@@ -2,6 +2,7 @@ import { Modal, ModalHeader } from './Modal';
 import { COMMANDS } from '../../../core/src/commands';
 import { useI18n } from '../i18n';
 import { localizedHelpGroups } from '../lib/commandI18n';
+import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
 
 const BINDINGS: { keys: string; desc: string }[] = [
   { keys: '⌘K / Ctrl+K', desc: 'help.palette' },
@@ -19,9 +20,10 @@ const BINDINGS: { keys: string; desc: string }[] = [
   { keys: 'Esc', desc: 'help.escape' },
 ];
 
-/** ? keybinding help overlay — keyboard shortcuts at top, full command reference below. */
+/** ? keybinding help overlay — keyboard shortcuts at top, the command reference below where the server has the commands. */
 export function KeybindingHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { locale, t } = useI18n();
+  const commands = useCapability(COMMANDS_CAPABILITY);
   const groups = localizedHelpGroups(COMMANDS, locale);
   return (
     <Modal open={open} onClose={onClose} label={t('help.title')} width="max-w-2xl">
@@ -37,7 +39,7 @@ export function KeybindingHelp({ open, onClose }: { open: boolean; onClose: () =
             </div>
           ))}
         </div>
-        <div className="border-t border-line px-4 pb-4 pt-3">
+        {commands && <div className="border-t border-line px-4 pb-4 pt-3">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-faint">{t('help.commands')}</p>
           {groups.map((group) => (
             <div key={group.group} className="mb-4">
@@ -50,7 +52,7 @@ export function KeybindingHelp({ open, onClose }: { open: boolean; onClose: () =
               ))}
             </div>
           ))}
-        </div>
+        </div>}
       </div>
     </Modal>
   );
