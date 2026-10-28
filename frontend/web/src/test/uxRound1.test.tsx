@@ -138,12 +138,29 @@ describe('project overview', () => {
 
   it('counts tasks, elapsed time and cost', () => {
     const overview = projectOverview(busy, view, 1000 + 7200)!;
-    expect(overview).toMatchObject({ done: 1, total: 2, active: 1, elapsedSeconds: 7200, goal: '研究视频去噪' });
+    expect(overview).toMatchObject({ done: 1, total: 2, active: 1, workedSeconds: null, startedAt: 1000, goal: '研究视频去噪' });
     expect(durationLabel(7200, true)).toBe('2 小时');
     expect(durationLabel(90000, true)).toBe('1 天 1 小时');
     expect(spendEstimateLabel(overview, true)).toBe('估算 ≈$12.3（按 API 价）');
     expect(spendEstimateLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('估算 ≥$3.00（按 API 价）');
     expect(projectOverview(snapshot(), view, 0)).toBeNull();
+  });
+
+  it('counts the time actually worked, not the idle days since the first task', () => {
+    // Hosted trial: "已用时 11 小时" was wall time since the goal began, idle hours included.
+    const now = 1000 + 11 * 3600;
+    const worked = snapshot({ ...busy, worked_seconds: 1200, worked_until: now - 600,
+      backlog: busy.backlog.map(item => item.id === 'b' ? { ...item, started_ts: now - 300 } : item) });
+    // The running task's current call adds its time so far.
+    expect(projectOverview(worked, view, now)!.workedSeconds).toBe(1500);
+    // With the team stopped nothing is under way: only the settled calls count.
+    const html = renderToStaticMarkup(<ProjectOverviewStrip snapshot={{ ...worked, daemon: { ...worked.daemon, alive: false } }} view={view} />);
+    expect(html).toContain('已工作 20 分钟');
+    expect(html).not.toContain('已用时');
+    // An older ledger without call durations says when the work began instead.
+    const legacy = renderToStaticMarkup(<ProjectOverviewStrip snapshot={busy} view={view} />);
+    expect(legacy).toContain('开始于');
+    expect(legacy).not.toMatch(/已用时|已工作/);
   });
 
   it('renders the newest result with its real kind and the alert toggle', () => {

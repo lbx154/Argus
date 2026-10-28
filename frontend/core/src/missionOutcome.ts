@@ -159,6 +159,14 @@ export function stopClause(kind: unknown, zh: boolean): string {
   return Object.hasOwn(CLAUSES, key) ? CLAUSES[key][zh ? 1 : 0] : '';
 }
 
+/** The stop kind or park reason a clause was written from, in either
+ * language; empty when no kind says it. Reads records that kept the clause
+ * but not the code. */
+export function stopKindOfClause(clause: unknown): string {
+  const said = normalizedString(clause);
+  return Object.keys(CLAUSES).find((key) => CLAUSES[key].some((text) => text.toLowerCase() === said)) ?? '';
+}
+
 function pauseClause(status: string, recorded: unknown, stopKind: string, zh: boolean): string {
   const reason = parkReason(status, recorded);
   return stopClause(reason, zh) || stopClause(stopKind, zh) ||

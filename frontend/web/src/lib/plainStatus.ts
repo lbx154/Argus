@@ -8,7 +8,7 @@
 // separately so it can live in a tooltip instead of the page.
 
 import type { Locale } from '../i18n';
-import { parkReason, stopClause } from '../../../core/src/missionOutcome';
+import { parkReason, stopClause, stopKindOfClause } from '../../../core/src/missionOutcome';
 import { stageName } from '../../../core/src/eventRender';
 import { splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
@@ -382,10 +382,44 @@ export interface PlainDetail {
   technical: string;
 }
 
-type DetailRender = Pair | ((match: RegExpMatchArray, locale: Locale) => string | PlainDetail);
+type DetailRender = Pair | ((match: RegExpMatchArray, locale: Locale, stopKind: string) => string | PlainDetail);
+
+/** The stop kind a record names in its technical tail ("stop_kind=provider_fence"). */
+const RECORDED_STOP_KIND = /\bstop_kind=([a-z_]+)/i;
+
+/** A stored stop record rebuilt from its stop kind, so an English record
+ * reads in the reader's language: the code the record names, else the code
+ * its clause was written from; as recorded when neither is known. */
+function pausedRound(match: RegExpMatchArray, stopKind: string, locale: Locale): string {
+  const why = stopClause(stopKind || stopKindOfClause(match[1]), locale === 'zh-CN');
+  if (!why) return match[0];
+  return locale === 'zh-CN'
+    ? `在工程师完成这一轮之前，工作因为${why}而暂停，这一轮没有评判；会从保存的进度继续。`
+    : `The work was paused before the Engineer finished this round because ${why}, so this round was not judged; it resumes from the saved progress.`;
+}
+
+// Stop records argus/engineer/round_stop_signals.py writes in English: the
+// sentence is rebuilt from the stop kind, the advice is said as it means.
+const STOP_RECORDS: Array<[RegExp, DetailRender]> = [
+  [/^The work was paused before the Engineer finished this round because (.+?), so this round was not judged; it resumes from the saved progress\./i,
+    (match, locale, stopKind) => pausedRound(match, stopKind, locale)],
+  [/^Backend call paused before a trustworthy completed turn \(stop_kind=([a-z_]+)\); reviewer skipped\./i,
+    (match, locale) => ({ text: pausedRound(match, match[1], locale), technical: `stop_kind=${match[1]}` })],
+  [/^The task stopped because ([^.]+)\./i, (match, locale, stopKind) => {
+    const why = stopClause(stopKind || stopKindOfClause(match[1]), locale === 'zh-CN');
+    return !why ? match[0] : locale === 'zh-CN' ? `任务停了下来，因为${why}。` : `The task stopped because ${why}.`;
+  }],
+  [/^Start Argus again to resume this task from its saved progress\./i,
+    ['重新启动 Argus，这项任务会从保存的进度继续。', 'Start Argus again to resume this task from its saved progress.']],
+  [/^Resume this task when the operator is ready\./i,
+    ['你准备好后再继续这项任务。', 'Resume this task when the operator is ready.']],
+  [/^Resume from the saved progress once the budget or model-service condition that paused the work has cleared\./i,
+    ['等预算或模型服务的限制解除后，从保存的进度继续。', 'Resume from the saved progress once the budget or model-service condition that paused the work has cleared.']],
+];
 
 /** Sentence openers the backend writes into reasons and details, matched at the start of a paragraph. */
 const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
+  ...STOP_RECORDS,
   [/^Next action:\s*/i, ['下一步：', 'Next: ']],
   [/^(?:原因：|Reason:)\s*/i, ['原因：', 'Reason: ']],
   [/^The backend has failed the same way (\d+) times in a row \(([^)]*)\)\. Waiting ([\d.]+)s before the next attempt[^\n]*/i,
@@ -432,7 +466,7 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
 /** Text that reads as a counter, a receipt or an exit code rather than a sentence. */
 const TECHNICAL_TAIL = /^(?:[\w.]+_(?:streak|code|error|kind)=|error=|exit=|fatal_error=|Runner receipt:|stop_kind=|backend_)/i;
 
-function plainParagraph(paragraph: string, locale: Locale): PlainDetail {
+function plainParagraph(paragraph: string, locale: Locale, stopKind = ''): PlainDetail {
   let rest = paragraph.trim();
   const out: string[] = [];
   const technical: string[] = [];
@@ -442,7 +476,7 @@ function plainParagraph(paragraph: string, locale: Locale): PlainDetail {
     for (const [pattern, render] of DETAIL_SENTENCES) {
       const match = rest.match(pattern);
       if (!match) continue;
-      const rendered = typeof render === 'function' ? render(match, locale) : pick(render, locale);
+      const rendered = typeof render === 'function' ? render(match, locale, stopKind) : pick(render, locale);
       if (typeof rendered === 'string') out.push(rendered);
       else {
         out.push(rendered.text);
@@ -473,6 +507,8 @@ function plainParagraph(paragraph: string, locale: Locale): PlainDetail {
 export interface PlainDetailSource extends PlainSource {
   cause?: string | null;
   technical?: string | null;
+  /** The stop kind the record names, when its technical tail was split off first. */
+  stopKind?: string | null;
 }
 
 export function plainDetail(raw: string | null | undefined, locale: Locale, source?: PlainDetailSource): PlainDetail {
@@ -489,6 +525,7 @@ export function plainDetail(raw: string | null | undefined, locale: Locale, sour
   if (!text) return { text: '', technical: '' };
   // Each line is read on its own so an opener such as "原因：" can introduce
   // a known sentence; the original line breaks are kept.
+  const stopKind = String(source?.stopKind || RECORDED_STOP_KIND.exec(text)?.[1] || '').toLowerCase();
   const parts = text.split(/(\n[ \t]*\n|\n)/);
   const rendered: string[] = [];
   const technical: string[] = [];
@@ -497,7 +534,7 @@ export function plainDetail(raw: string | null | undefined, locale: Locale, sour
       rendered.push(part.includes('\n\n') || /\n[ \t]*\n/.test(part) ? '\n\n' : '\n');
       return;
     }
-    const paragraph = plainParagraph(part, locale);
+    const paragraph = plainParagraph(part, locale, stopKind);
     rendered.push(paragraph.text);
     if (paragraph.technical) technical.push(paragraph.technical);
   });
@@ -505,6 +542,38 @@ export function plainDetail(raw: string | null | undefined, locale: Locale, sour
     text: rendered.join('').replace(/\n{3,}/g, '\n\n').trim(),
     technical: technical.join(' '),
   };
+}
+
+/** A stop record said in the reader's language, or null when it is none. */
+function plainStopRecord(prose: string, locale: Locale, stopKind: string): PlainDetail | null {
+  for (const [pattern, render] of STOP_RECORDS) {
+    const match = prose.match(pattern);
+    if (!match) continue;
+    const rendered = typeof render === 'function' ? render(match, locale, stopKind) : pick(render, locale);
+    const said = typeof rendered === 'string' ? { text: rendered, technical: '' } : rendered;
+    return { text: `${said.text}${prose.slice(match[0].length)}`, technical: said.technical };
+  }
+  return null;
+}
+
+/** Any other receipt (a pause, a stuck task) keeps its words; only a reason
+ * or advice line holding a known stop record is said in the reader's
+ * language, its technical record moved aside. Null when nothing changed. */
+function plainStopReceipt(parts: string[], locale: Locale): PlainDetail | null {
+  const technical: string[] = [];
+  let changed = false;
+  const rendered = parts.map((part, index) => {
+    const line = index % 2 === 0 ? part.match(/^(\s*(?:Reason|Next(?: action)?|原因|建议|接下来|下一步)\s*[:：]\s*)(.+)$/i) : null;
+    if (!line) return part;
+    const record = splitHarnessRecord(line[2]);
+    const said = plainStopRecord(record.prose, locale, RECORDED_STOP_KIND.exec(record.receipt)?.[1] ?? '');
+    if (!said || (said.text === record.prose && !record.receipt)) return part;
+    changed = true;
+    const aside = [record.receipt, said.technical].filter(Boolean).join(' ');
+    if (aside) technical.push(aside);
+    return `${line[1]}${said.text}`;
+  });
+  return changed ? { text: rendered.join(''), technical: technical.join('\n') } : null;
 }
 
 /** Presentation of known supervisor report templates, called only for mission_result
@@ -515,7 +584,7 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
   const opening = parts[first]?.trim() ?? '';
   const continued = opening.match(/^(?:Task continued|任务已继续)(?: · (.+))?$/);
   const incomplete = opening.match(/^Could not complete (.+)\.$/) ?? opening.match(/^未能完成：(.+)。$/);
-  if (!continued && !incomplete) return null;
+  if (!continued && !incomplete) return plainStopReceipt(parts, locale);
 
   const zh = locale === 'zh-CN';
   const technical: string[] = [];
@@ -567,7 +636,7 @@ export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null
     if (reason) {
       // The runtime's receipt goes aside; the reason is said as recorded.
       const record = splitHarnessRecord(reason[1]);
-      const detail = plainDetail(record.prose, locale);
+      const detail = plainDetail(record.prose, locale, { stopKind: RECORDED_STOP_KIND.exec(record.receipt)?.[1] });
       const receipt = [record.receipt, detail.technical].filter(Boolean).join(' ');
       if (detail.text !== reason[1].trim() || receipt) {
         if (receipt) technical.push(receipt);

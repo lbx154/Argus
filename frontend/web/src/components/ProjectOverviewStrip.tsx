@@ -31,7 +31,12 @@ export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notificat
   const overview = projectOverview(snapshot, view, now, latestDelivery);
   if (!overview) return null;
   const disk = diskView(snapshot.storage, zh, formatBytes);
-  const elapsed = durationLabel(overview.elapsedSeconds, zh);
+  // Time actually worked, idle days excluded; without recorded call
+  // durations, say when the work began rather than a wall-clock "elapsed".
+  const worked = durationLabel(overview.workedSeconds, zh);
+  const began = overview.startedAt === null ? '' : new Date(overview.startedAt * 1000).toLocaleString(locale, {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
   // Free disk space is noise until it runs short.
   const diskWarning = disk?.warn ? disk : null;
   const delivery = overview.latestDelivery;
@@ -41,7 +46,8 @@ export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notificat
     </div> : null}
     <div className="project-overview-meta">
       <span>{zh ? `任务 ${overview.done}/${overview.total} 已完成` : `${overview.done}/${overview.total} tasks done`}{overview.active ? (zh ? ` · ${overview.active} 项进行中` : ` · ${overview.active} open`) : ''}</span>
-      {elapsed ? <span>{zh ? `已用时 ${elapsed}` : `${elapsed} elapsed`}</span> : null}
+      {worked ? <span title={zh ? `只算各角色实际在做事的时间，不含空闲${began ? `；开始于 ${began}` : ''}` : `Only the time the roles were actually working, idle time excluded${began ? `; started ${began}` : ''}`}>{zh ? `已工作 ${worked}` : `${worked} worked`}</span>
+        : began ? <span>{zh ? `开始于 ${began}` : `Started ${began}`}</span> : null}
       {diskWarning ? <span className="font-medium text-warn" title={diskWarning.warn ? (zh ? '建议清理不需要的中间文件，或让 Argus 只保留可复现所需的数据' : 'Consider removing intermediate files or keeping only what reproduction needs') : undefined}>{diskWarning.text}</span> : null}
       {delivery ? <span className="flex min-w-0 items-center gap-1">
         <span className="shrink-0">{t(deliveryHeadingKey(delivery))}：</span>

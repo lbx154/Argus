@@ -255,3 +255,24 @@ describe('the Manager at work', () => {
     expect(workStatusLabel(status, 'en')).toBe('Summarizing progress');
   });
 });
+
+describe('how long ago something moved', () => {
+  it('counts the Manager’s own turns and solo deliveries, not only team events', () => {
+    // Hosted trial: the Manager answered and delivered files a minute ago,
+    // yet the bar said "16 小时前有进展" from the last Engineer event.
+    const now = 100_000;
+    const snapshot = fixture(false), view = emptyMissionView();
+    Object.assign(view.mission, { id: 'old', status: 'complete', started_at: now - 60_000 });
+    snapshot.backlog = [{ id: 'old', title: 'Old', objective: '', status: 'done', priority: 1, started_ts: now - 60_000, finished_ts: now - 57_600 }];
+    const team = { type: 'life.mission.completed', item_id: 'old', ts: now - 57_600 };
+    expect(currentWorkStatus(snapshot, view, [team], now).activityAgeSeconds).toBe(57_600);
+    const reply = {
+      type: 'ui.argus', ts: now - 60, text: 'Delivered.', mission_result: true, success: true,
+      steps: [{ kind: 'tool_use', label: 'write', status: 'completed', started_ts: now - 200, ended_ts: now - 70 }],
+    };
+    expect(currentWorkStatus(snapshot, view, [team, { type: 'ui.operator', ts: now - 300, text: 'Go' }, reply], now).activityAgeSeconds).toBe(60);
+    // A turn still working counts by its newest step.
+    const live = { type: 'ui.argus', ts: now - 400, live: true, in_progress: true, text: '', steps: [{ kind: 'tool_use', label: 'read', status: 'running', started_ts: now - 30, ended_ts: 0 }] };
+    expect(currentWorkStatus(snapshot, view, [team, live], now).activityAgeSeconds).toBe(30);
+  });
+});

@@ -1395,6 +1395,30 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
     )
 
 
+def worked_span(
+    records: Iterable[UsageRecord], *, skip_labels: tuple[str, ...] = (),
+) -> tuple[float, float]:
+    """Seconds at least one call was running, and when the last one ended.
+
+    Overlapping calls count once and the gaps between them not at all, so an
+    idle day adds nothing. Calls whose run label starts with ``skip_labels``
+    and rows without a recorded duration are left out.
+    """
+    spans = sorted(
+        (record.started_at, record.completed_at)
+        for record in records
+        if 0 < record.started_at < record.completed_at
+        and not (skip_labels and record.run_label.startswith(skip_labels))
+    )
+    total = end = 0.0
+    for started, completed in spans:
+        if completed <= end:
+            continue
+        total += completed - max(started, end)
+        end = completed
+    return total, end
+
+
 def _deduplicated_usage_contributions(
     records: Iterable[UsageRecord],
 ) -> list[dict[str, Any]]:
@@ -2175,6 +2199,7 @@ __all__ = [
     "format_usage_cost",
     "project_usage_summary",
     "summarize_usage",
+    "worked_span",
 ]
 
 

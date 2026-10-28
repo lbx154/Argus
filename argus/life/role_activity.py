@@ -32,7 +32,7 @@ def _tail_jsonl(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
     return _read_jsonl_tail_history(path, limit)
 
 
-_BACKGROUND_RUN_LABELS = (
+BACKGROUND_RUN_LABELS = (
     "observer",
     "map-summary",
     "reflection",
@@ -52,7 +52,7 @@ def _event_role(event: dict[str, Any]) -> str | None:
             # Post-mission library housekeeping is not Engineer work. The TUI
             # presents it separately as Maintenance activity.
             return None
-        if label.startswith(_BACKGROUND_RUN_LABELS):
+        if label.startswith(BACKGROUND_RUN_LABELS):
             # Map summaries, curation, learning reviews and typing suggestions
             # describe the project rather than advance its step. Counted as
             # Engineer work, a finished map summary hid the Engineer's own open

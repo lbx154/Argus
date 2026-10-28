@@ -72,6 +72,22 @@ export function activeProviderRequest(events: EventMsg[], notBefore = 0): EventM
   return [...calls.values()].at(-1) ?? null;
 }
 
+/** When the Manager's own turns moved: each reply (live or final), its steps,
+ * and a turn starting. Task-bound receipts belong to the team's work. */
+function managerActivityTimes(events: EventMsg[]): Array<number | null> {
+  const times: Array<number | null> = [];
+  for (const event of events) {
+    const type = String(event.type || '');
+    if (type === 'manager.turn.started' || type === 'manager.turn.cancelled') times.push(timestamp(event.ts));
+    if (type !== 'ui.argus' || event.item_id) continue;
+    times.push(timestamp(event.ts));
+    for (const step of Array.isArray(event.steps) ? event.steps : []) {
+      times.push(timestamp(step?.ended_ts) ?? timestamp(step?.started_ts));
+    }
+  }
+  return times;
+}
+
 /** Runtime status is separate from progress toward the user's research goal. */
 export function currentWorkStatus(
   snapshot: Snapshot | undefined,
@@ -104,6 +120,10 @@ export function currentWorkStatus(
     if ((!taskId || id === taskId) && item.ts >= started
       && item.kind !== 'waiting' && !['waiting', 'idle'].includes(item.status)) times.push(timestamp(item.ts));
   }
+  // The Manager's own turns are progress too: its replies, their steps and a
+  // solo delivery (the hosted trial said "16 小时前有进展" a minute after the
+  // Manager delivered files, counting only the Engineer's events).
+  times.push(...managerActivityTimes(events));
   const known = times.filter((time): time is number => time !== null && time <= nowSeconds + 5);
   const activityAt = known.length ? Math.max(...known) : null;
   const result: WorkStatus = {

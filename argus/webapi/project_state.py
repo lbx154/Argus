@@ -27,7 +27,7 @@ from ..core.session import (
     list_sessions,
     read_session_meta,
 )
-from ..core.usage import UsageLedger, UsageSummary
+from ..core.usage import UsageLedger, UsageSummary, worked_span
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
@@ -40,7 +40,12 @@ from ..daemon.protocol import (
 )
 from ..daemon.state import DAEMON_UPGRADE_REQUEST_FILE
 from ..life.memory import LifeMemory
-from ..life.role_activity import RoleActivity, latest_call_runtime, role_activity
+from ..life.role_activity import (
+    BACKGROUND_RUN_LABELS,
+    RoleActivity,
+    latest_call_runtime,
+    role_activity,
+)
 from .daemon_liveness import web_daemon_liveness
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
@@ -51,6 +56,7 @@ _HOST_CACHE_MAX_ENTRIES = 64
 _PROJECT_CACHE_MAX_ENTRIES = 256
 
 _SPEND_CACHE: dict[str, tuple[tuple[int, int, int] | None, UsageSummary]] = {}
+_WORK_TIME_CACHE: dict[str, tuple[tuple[int, int, int] | None, tuple[float, float] | None]] = {}
 _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
@@ -570,6 +576,37 @@ def settled_spend(
     return total
 
 
+def settled_work_time(
+    life_dir: Path, *, diagnostics: list[dict[str, str]] | None = None,
+) -> tuple[float, float] | None:
+    """How long the project's settled calls actually ran, and when the last ended.
+
+    Only the time a role's call was running counts: idle hours and days
+    between them do not, nor background narration and housekeeping. ``None``
+    when the ledger records no call duration (older ledgers).
+    """
+    key = str(life_dir.resolve())
+    signature = stat_signature(life_dir / "usage.jsonl")
+    with _SPEND_CACHE_LOCK:
+        cached = _WORK_TIME_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    try:
+        records = UsageLedger(life_dir, migrate_legacy=False).records()
+        seconds, until = worked_span(records, skip_labels=(*BACKGROUND_RUN_LABELS, "map-"))
+        worked = (seconds, until) if seconds > 0 else None
+    except Exception as exc:  # noqa: BLE001 - snapshot remains available
+        if diagnostics is not None:
+            diagnostics.append(diagnostic("work_time", exc))
+        return None
+    with _SPEND_CACHE_LOCK:
+        _store_bounded_cache_entry(
+            _WORK_TIME_CACHE, key, (signature, worked),
+            max_entries=_PROJECT_CACHE_MAX_ENTRIES,
+        )
+    return worked
+
+
 def stat_signature(path: Path) -> tuple[int, int, int] | None:
     try:
         stat = path.stat()
@@ -677,6 +714,7 @@ def build_snapshot(
         diagnostics.append(diagnostic("backlog", exc))
 
     spend = settled_spend(memory, life_dir, diagnostics=diagnostics)
+    worked = settled_work_time(life_dir, diagnostics=diagnostics)
 
     try:
         recent = _read_recent_project_events(life_dir, limit=events_limit)
@@ -771,6 +809,8 @@ def build_snapshot(
         "global_spend_usd": global_spend.cost_usd,
         "global_spend_status": global_spend.pricing_status,
         "global_usage_summary": global_spend.to_jsonable(),
+        "worked_seconds": worked[0] if worked else None,
+        "worked_until": worked[1] if worked else None,
         "daemon_commands": daemon_commands,
         "observability": observability,
         "mission_view": mission_view,

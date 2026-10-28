@@ -112,6 +112,31 @@ def test_compact_snapshot_never_reports_global_usage_below_project_usage(
     assert calls >= 1
 
 
+def test_snapshot_reports_worked_time_without_idle_gaps(tmp_path: Path) -> None:
+    # Hosted trial: "已用时 11 小时" counted idle hours since the goal began.
+    life = _make_project(tmp_path, "s-worked")
+    day = 86_400.0
+    rows = [
+        # Two overlapping calls count once; the idle day between them not at all.
+        {"call_id": "a", "run_label": "engineer-r1", "started_at": 1_000.0, "completed_at": 1_600.0},
+        {"call_id": "b", "run_label": "reviewer", "started_at": 1_300.0, "completed_at": 1_900.0},
+        {"call_id": "c", "run_label": "manager-frontdoor", "started_at": 1_900.0 + day, "completed_at": 2_200.0 + day},
+        # Background narration is not work on the project.
+        {"call_id": "d", "run_label": "observer", "started_at": 3_000.0 + day, "completed_at": 9_000.0 + day},
+    ]
+    (life / "usage.jsonl").write_text(
+        "".join(json.dumps({**row, "status": "completed", "provider": "pi"}) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    snap = project_state.build_snapshot("s-worked", global_root=tmp_path, compact=True)
+    assert snap is not None
+    assert snap["worked_seconds"] == pytest.approx(1_200.0)
+    assert snap["worked_until"] == pytest.approx(2_200.0 + day)
+    (life / "usage.jsonl").write_text("", encoding="utf-8")
+    snap = project_state.build_snapshot("s-worked", global_root=tmp_path, compact=True)
+    assert snap["worked_seconds"] is None
+
+
 def test_project_index_and_routes_span_machine_session_roots(
     tmp_path: Path,
 ) -> None:
