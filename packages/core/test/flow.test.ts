@@ -3,7 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
@@ -72,6 +72,16 @@ test('the Manager answers directly', async t => {
   assert.ok(request?.prompt.includes(`Ways of working, which every role can read:\n${research}\n`));
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'status']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
+});
+
+test("the operator's ways of working, under the state root, are listed and read beside Argus's own", async t => {
+  const { home, store, flow, id, requests } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'ok' }]);
+  const mine = join(home, 'ways', 'quant');
+  mkdirSync(mine, { recursive: true });
+  writeFileSync(join(mine, 'README.md'), '# Backtest a trading idea without lookahead\n');
+  await flow.say(id, 'hello');
+  assert.deepEqual(requests[0]?.readDirs, [store.dir(id), WAYS, join(home, 'ways')]);
+  assert.ok(requests[0]?.prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(mine, 'README.md')})\n`));
 });
 
 test("the Manager's letter opens a task, whose Reviewer writes its judgment back for the Manager to report", async t => {

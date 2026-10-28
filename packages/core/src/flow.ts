@@ -9,7 +9,7 @@
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Status, Store, Task } from './store.js';
-import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, WAYS } from './prompts.js';
+import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, wayRoots } from './prompts.js';
 
 const ROLES: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
@@ -72,7 +72,7 @@ export class Flow {
 
   private async manager(project: Project, message: string): Promise<void> {
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(project, this.store.dir(project.id), message, resumed), checkManager(project)))?.handoff;
+      resumed => managerPrompt(project, this.store.dir(project.id), wayRoots(this.store.home), message, resumed), checkManager(project)))?.handoff;
     if (!handoff) return;
     // A letter to the operator is the Manager's reply; one to the team sets it working.
     const { to, letter } = handoff;
@@ -130,7 +130,7 @@ export class Flow {
         backend: project.backend, role, ...ROLES[role], cwd: project.workdir,
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the ways of working.
-        readDirs: [dir, WAYS], ...(project.model ? { model: project.model } : {}),
+        readDirs: [dir, ...wayRoots(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(formCheck ? { check: formCheck } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });

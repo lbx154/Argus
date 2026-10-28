@@ -2,8 +2,8 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Role } from './types.js';
 import type { Note, Project, Task } from './store.js';
@@ -12,12 +12,13 @@ const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
 };
 
-/** The ways of working: a folder each, whose README.md says how such work goes, starting with what it is for. */
+/** The ways of working: a folder each, whose README.md says how such work goes, starting with what
+ * it is for. Argus's own are in the package; the operator's, under the state root's ways/. */
 export const WAYS = fileURLToPath(new URL('../ways', import.meta.url));
-const ways = (): string => readdirSync(WAYS).map(name => {
-  const readme = resolve(WAYS, name, 'README.md');
-  return `- ${name}: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^#\s*/, '')} (${readme})`;
-}).join('\n');
+export const wayRoots = (home: string): string[] => [WAYS, resolve(home, 'ways')].filter(root => existsSync(root));
+const ways = (roots: string[]): string => roots.flatMap(root => readdirSync(root).map(name => resolve(root, name, 'README.md'))
+  .filter(readme => existsSync(readme))
+  .map(readme => `- ${basename(dirname(readme))}: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^#\s*/, '')} (${readme})`)).join('\n');
 
 const rules = (role: Role): string =>
   [role, 'common'].map(name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim()).join('\n\n');
@@ -32,9 +33,9 @@ const where = (project: Project, record: string, more: string[] = []): string =>
   `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
 ].join('\n'));
 
-export function managerPrompt(project: Project, record: string, message: string, resumed: boolean): string {
+export function managerPrompt(project: Project, record: string, roots: string[], message: string, resumed: boolean): string {
   if (resumed) return message;
-  return join(rules('manager'), where(project, record, [`Ways of working, which every role can read:\n${ways()}`]), section('Message', message));
+  return join(rules('manager'), where(project, record, [`Ways of working, which every role can read:\n${ways(roots)}`]), section('Message', message));
 }
 
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
