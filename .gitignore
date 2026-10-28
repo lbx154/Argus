@@ -11,6 +11,8 @@ node_modules/
 # The production Web bundle is intentionally checked in and release-verified.
 !/frontend/web/dist/
 !/frontend/web/dist/**
+# Its files of this release, which the npm package carries (packages/core/scripts/bundle.ts).
+/packages/core/web/
 .venv/
 venv/
 env/

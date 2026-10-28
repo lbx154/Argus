@@ -1,10 +1,14 @@
 {
-  "name": "@argus/core",
+  "name": "@lbx154/argus",
   "version": "0.1.8",
-  "private": true,
+  "license": "MIT",
   "type": "module",
-  "bin": { "argus": "dist/cli.js" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@argus/contracts": "0.1.8", "@argus/runtime": "0.1.8" }
+  "bin": { "argus": "dist/argus.mjs" },
+  "files": ["dist/argus.mjs", "prompts", "web"],
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node --experimental-strip-types scripts/bundle.ts",
+    "prepack": "npm --prefix ../.. run build"
+  },
+  "devDependencies": { "@argus/contracts": "0.1.8", "@argus/runtime": "0.1.8" }
 }

@@ -17,7 +17,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex) |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -84,6 +84,19 @@ read-only, the workdir and the task's write directories writable, a private home
 with the CLI's login file passed through, and only the environment the CLI needs to sign in.
 A shell waits after the CLI until everything it started has ended, so a detached job is not
 killed when the turn ends. Without `bwrap` the CLI's own sandbox mode is used.
+
+## The package
+
+`packages/core` is the npm package, `@lbx154/argus` until the name `argus` is free. Its build
+(`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the CLI with
+`@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
+dependencies. Beside it the package carries the prompts the CLI reads and `web/`, the built
+web cockpit: only the files `frontend/web/dist/index.html` reaches (6 MB), since that
+directory keeps every earlier release's chunks for open tabs (479 MB).
+
+`packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
+with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
+from one sentence to done, with `test/fixtures/fake-codex.mjs` in place of codex.
 
 ## Left out
 
