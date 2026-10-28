@@ -100,7 +100,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    actual device mapping with the run command before a long execution.
    A prompt's machine inventory is a snapshot, not a reservation. Inspect
    unmanaged device processes too.
-4. Measure the starting point first: before building the method, run the
+4. Measure the starting point before building the method: run the
    unmodified model or system through the real evaluator on the development
    split and record the number with its command. Every arm is compared with
    it, and a score at the evaluator's ceiling or floor means this evaluation

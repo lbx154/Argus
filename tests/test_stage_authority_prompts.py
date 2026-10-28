@@ -51,7 +51,7 @@ def test_experiment_measures_the_unmodified_model_before_building_the_method() -
     from argus.verticals.research.prompt_policy import _method_card_planner_block
 
     md = _src("verticals/research/skills/research-experiment-playbook.md")
-    assert "Measure the starting point first" in md
+    assert "Measure the starting point before building the method" in md
     assert "unmodified model or system through the real evaluator" in md
     assert "first number is the unmodified model" in _method_card_planner_block("experiment")
 
