@@ -10,14 +10,43 @@ const FAILED = new Set(['failed', 'error']);
 const STOPPED = new Set(['cancelled', 'canceled', 'stopped']);
 const LEADING_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
 const LEGACY_TOOL_LABEL = /^⚙\s*([\w.-]+)\s*·\s*(.*)$/su;
+const HAND_OFF_LABELS = new Set(['交出工作', 'Hand the work on']);
+
+/** A `hand_off` Argus refused: the form the model filed did not pass its checks. */
+export function isRejectedHandOff(step: TurnStep): boolean {
+  if (!FAILED.has(step.status)) return false;
+  const tool = (step.tool ?? '').trim();
+  if (tool) return /(?:^|[-_.])hand_off$/.test(tool);
+  const label = step.label.replace(LEADING_GLYPH, '').trim();
+  return HAND_OFF_LABELS.has(label) || /^hand_off\b/.test(label);
+}
+
+/**
+ * The refused hand_offs the model went on from, by index. Refusing a form is
+ * how the model learns to correct it, and it files again in the same turn:
+ * that is an adjustment, not a failure. Only a turn that ended on the refusal
+ * failed there (the last-step rule).
+ */
+export function adjustedHandOffs(steps: readonly TurnStep[]): Set<number> {
+  const adjusted = new Set<number>();
+  steps.forEach((step, index) => {
+    if (index < steps.length - 1 && isRejectedHandOff(step)) adjusted.add(index);
+  });
+  return adjusted;
+}
 
 /**
  * The plain "verb + object" label is what a step says; the raw command or
- * arguments it ran with are `secondary`, folded away until asked for.
+ * arguments it ran with are `secondary`, folded away until asked for. An
+ * `adjusted` hand_off says so plainly and keeps its refusal there too.
  */
-export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: string; secondary: string } {
+export function stepText(step: TurnStep, locale: Locale = 'zh-CN', adjusted = false): { primary: string; secondary: string } {
   const tool = (step.tool ?? '').trim();
   const detail = (step.detail ?? '').trim();
+  if (adjusted) {
+    const raw = [(step.output ?? '').trim(), detail].filter(Boolean).join('\n');
+    return { primary: locale === 'zh-CN' ? '调整了交接参数' : 'Adjusted the handoff', secondary: raw };
+  }
   // Turns saved before plain labels stored `⚙ name · {json args}`; say them
   // the same way new turns do instead of showing the raw call.
   const legacy = step.label.match(LEGACY_TOOL_LABEL);
@@ -56,7 +85,8 @@ export function TurnSteps({ steps, live, startedTs, status = '', replied = false
   // ordinary work); the turn failed when its status says so or it ended on
   // the failure.
   const failed = FAILED.has(status) || FAILED.has(steps[steps.length - 1]?.status ?? '');
-  const failedSteps = steps.filter((step) => FAILED.has(step.status)).length;
+  const adjusted = adjustedHandOffs(steps);
+  const failedSteps = steps.filter((step, index) => FAILED.has(step.status) && !adjusted.has(index)).length;
   const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
   const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
   const active = [...steps].reverse().find(step => step.status === 'running');
@@ -89,9 +119,9 @@ export function TurnSteps({ steps, live, startedTs, status = '', replied = false
         <ol className="space-y-1 border-t border-line/40 px-3 py-2">
           {!steps.length && <li className="text-ink-faint">{locale === 'zh-CN' ? '尚未记录工具操作。' : 'No tool operations recorded yet.'}</li>}
           {steps.map((step, index) => {
-            const { primary, secondary } = stepText(step, locale);
+            const { primary, secondary } = stepText(step, locale, adjusted.has(index));
             const isRunning = step.status === 'running';
-            const isFailed = FAILED.has(step.status);
+            const isFailed = FAILED.has(step.status) && !adjusted.has(index);
             const isStopped = STOPPED.has(step.status);
             const Icon = step.kind === 'command_execution' ? STEP_ICONS.command_execution
               : step.kind === 'file_change' ? STEP_ICONS.file_change : STEP_ICONS.tool_use;
@@ -100,7 +130,7 @@ export function TurnSteps({ steps, live, startedTs, status = '', replied = false
               <li key={step.call_id || `${index}:${step.started_ts}`} className="flex min-w-0 items-baseline gap-2">
                 <Icon size={13} aria-hidden="true" className={`shrink-0 self-start mt-0.5 ${isFailed ? 'text-err' : 'text-ink-faint'}`} />
                 <span className="min-w-0 flex-1">
-                  <span className={`${isRunning && live ? 'text-ink' : isFailed ? 'text-err' : 'text-ink-dim'}`} title={secondary || primary}>
+                  <span className={`${isRunning && live ? 'text-ink' : isFailed ? 'text-err' : 'text-ink-dim'}`} title={adjusted.has(index) ? primary : secondary || primary}>
                     {primary}
                   </span>
                   {secondary ? (

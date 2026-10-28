@@ -46,6 +46,35 @@ describe('one compact work-progress area', () => {
     expect(renderToStaticMarkup(<TurnSteps steps={[{ ...step, status: 'completed' }]} live={false} status="failed" />)).toContain('An issue occurred');
   });
 
+  it('tells a refused hand_off the Manager filed again as an adjustment, its refusal kept in the details', () => {
+    // Trial s-dacac579: two refused hand_offs showed their raw MCP refusal and "failed" before the third went through.
+    const refusal = "MCP server 'argus_actions': research_target_level must stay exploratory: the active route contract fixes it for this vertical.";
+    const handOff = { kind: 'tool_use', label: '交出工作', tool: 'argus_actions-hand_off', detail: '{"to":"team"}', started_ts: 1, ended_ts: 2 };
+    const steps = [
+      { ...handOff, status: 'failed', output: refusal },
+      { ...handOff, status: 'failed', output: "MCP server 'argus_actions': No mission is running, so there is nothing to steer: leave control out." },
+      { ...handOff, status: 'completed' },
+    ];
+    let view: ReactTestRenderer;
+    act(() => { view = create(<TurnSteps steps={steps} live={false} />); });
+    try {
+      const button = view!.root.findByType('button');
+      expect(JSON.stringify(view!.toJSON())).not.toContain('An issue occurred');
+      expect(JSON.stringify(view!.toJSON())).not.toContain('retried or worked around');
+      act(() => button.props.onClick());
+      const rows = view!.root.findAllByType('li');
+      expect(rows).toHaveLength(3);
+      const [adjusted] = rows;
+      const main = adjusted.find((node) => node.type === 'span' && node.props.title === 'Adjusted the handoff');
+      expect(main.children).toEqual(['Adjusted the handoff']);
+      expect(adjusted.findAll((node) => String(node.props.className ?? '').includes('text-err'))).toHaveLength(0);
+      expect(adjusted.findByType('details').findAllByType('span')[0].children.join('')).toContain(refusal);
+      expect(JSON.stringify(view!.toJSON())).not.toContain('"failed"');
+    } finally { act(() => view!.unmount()); }
+    // A turn that ended on the refusal still failed there.
+    expect(renderToStaticMarkup(<TurnSteps steps={steps.slice(0, 2)} live={false} />)).toContain('An issue occurred');
+  });
+
   it('keeps waiting, streaming and cancellation in the same request row', () => {
     const waiting = mergeOptimisticManagerSteps([], 's-A', 1, [], 1000);
     expect(waiting).toHaveLength(1);
