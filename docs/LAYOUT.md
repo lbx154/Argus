@@ -118,7 +118,7 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 
 - `.agents/` - agent-host marketplace manifest plus the `minimal-rigorous-work` Skill for agents working on this repository.
 - `.claude-plugin/` - Claude Code marketplace manifest pointing at `plugins/argus`.
-- `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/desktop checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop-trial`; plus Copilot instructions.
+- `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/Windows checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop` (the desktop app and the Argus it ships, on Windows/macOS/Linux), `core` (the TypeScript core); plus Copilot instructions.
 - `argus/` - the Python package; everything above. Also carries `plugin_catalog.json`.
 - `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
