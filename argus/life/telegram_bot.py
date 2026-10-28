@@ -28,27 +28,18 @@ from typing import Any
 
 from ..apps._life_actions import DEFAULT_LIFE_CONFIG
 from .chat.render import TELEGRAM_LIMIT, chunk_html
-from .chat.router import COMMAND_MENU, CommandRouter, _esc, _fmt_duration, help_text
+from .chat.router import COMMAND_MENU, CommandRouter
 from .chat.transport import ChatTransport
 
 log = logging.getLogger(__name__)
 
-# ``_esc`` / ``_fmt_duration`` are re-exported for callers that imported them
-# from this module before the command surface moved into ``.chat``.
 __all__ = [
     "TelegramPoller",
     "TelegramTransport",
     "_CommandRouter",
-    "_esc",
-    "_fmt_duration",
     "publish_command_menu",
     "telegram_enabled",
 ]
-
-#: Kept as a module attribute for callers that imported it before the command
-#: surface moved to :mod:`argus.life.chat.router`.
-_HELP_TEXT = help_text("Telegram")
-
 
 def telegram_enabled() -> bool:
     """Whether the optional Telegram command interface is explicitly enabled."""

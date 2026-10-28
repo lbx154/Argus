@@ -19,9 +19,8 @@ CAS pending→running on the on-disk JSONL file.
 This module is a thin facade: the actual lifecycle-phase implementations live
 in sibling ``_life_worker_*`` modules (identity/vault preflight, runtime
 context, boot phases, run phases, admission) so no single module here exceeds
-the maintainability line-count target. Every name previously importable from
-this module (public or private) remains importable from here via explicit
-re-export.
+the maintainability line-count target. Names the tests patch or import from
+this module are re-exported here.
 """
 from __future__ import annotations
 
@@ -48,14 +47,11 @@ from ..life.supervisor import (
 from ._life_worker_admission import (  # noqa: F401 — re-exported, see __all__
     _acquire_daemon_lock_with_timeout,
     _acquire_daemon_spawn_lock,
-    _acquire_daemon_workspace_lease,
     _active_daemon_count,
     _active_workspace_owner,
-    _daemon_global_root,
     _launcher_failure_message,
     _max_active_daemons,
     _release_daemon_spawn_lock,
-    _release_daemon_workspace_lease,
     _workspace_start_error,
     run_foreground,
     run_handoff_child,
@@ -71,17 +67,10 @@ from ._life_worker_boot import (
 
 # -- re-exports: manager-handoff identity + vault/backend preflight ---------
 from ._life_worker_identity import (  # noqa: F401 — re-exported, see __all__
-    _MANAGER_HANDOFF_IDENTITY_FILE,
     _apply_continuous_suppression,
     _daemon_objective_requires_stage_reset,
-    _effective_runner_backend,
-    _legacy_manager_handoff_identity,
-    _manager_handoff_identity_matches,
-    _manager_handoff_identity_path,
     _preflight_route_on_codex,
-    _read_manager_handoff_identity,
     _rearm_operator_drain_for_resume,
-    _resume_matches_manager_handoff,
     _worker_vault_preflight_routes,
     _write_manager_handoff_identity,
     required_codex_routes,
@@ -96,16 +85,13 @@ from ._life_worker_runtime_context import (  # noqa: F401 — re-exported, see _
     _worker_runtime_context,
 )
 from .config import LifeWorkerConfig
-from .config import config_from_payload as _config_from_payload
 from .config import config_payload as _config_payload
 from .handoff import (
     _HANDOFF_CONFIG_ENV,
-    _HANDOFF_LOG_ENV,
     _HANDOFF_READY_ENV,
     _HANDOFF_TOKEN_ENV,
     _spawn_handoff_candidate,
     _strip_git_config_injection,
-    _truthy_env,
 )
 from .state import (
     ContinuousConfigState,
@@ -113,7 +99,6 @@ from .state import (
     DaemonStopRequest,
     _daemon_log_path,
     _daemon_pid_path,
-    _daemon_status_path,
     _daemon_status_payload,
     _new_boot_id,
     _point_active_daemon_log,
@@ -128,7 +113,6 @@ from .state import (
     read_daemon_control_stop,
     read_daemon_status,
     stop_daemon,
-    wait_for_daemon_status,
     write_continuous_config,
 )
 
@@ -145,7 +129,6 @@ __all__ = [
     "format_spend_status",
     "read_daemon_status",
     "stop_daemon",
-    "wait_for_daemon_status",
     "spawn_detached_daemon",
     "spawn_detached_daemon_clean",
     "run_handoff_child",
@@ -156,20 +139,16 @@ __all__ = [
     "_redirect_std_to_log",
     "_daemon_log_path",
     "_daemon_pid_path",
-    "_daemon_status_path",
     "_daemon_status_payload",
     "_new_boot_id",
     "_point_active_daemon_log",
-    "_config_from_payload",
     "_config_payload",
     "_HANDOFF_CONFIG_ENV",
-    "_HANDOFF_LOG_ENV",
     "_HANDOFF_READY_ENV",
     "_HANDOFF_TOKEN_ENV",
     "_acquire_daemon_lock_with_timeout",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
-    "_truthy_env",
     "DaemonAlreadyRunning",
 ]
 

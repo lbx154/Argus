@@ -15,12 +15,7 @@ from ._constants import (
 from ._planner_failure_backoff import PlannerFailureBackoffMixin, planner_failure_kind
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
 from ._planning_cycle_enqueue import PlanningCycleEnqueueMixin
-from ._planning_cycle_helpers import (
-    _PlanCycleState,
-    _render_revision_request,
-    _research_project_done_issue,
-    _revision_reason,
-)
+from ._planning_cycle_helpers import _PlanCycleState
 from ._planning_cycle_intake import PlanningCycleIntakeMixin
 from ._planning_cycle_verdict import PlanningCycleVerdictMixin
 
@@ -611,7 +606,4 @@ class PlanningCycleMixin(
 
 __all__ = [
     "PlanningCycleMixin",
-    "_render_revision_request",
-    "_research_project_done_issue",
-    "_revision_reason",
 ]
