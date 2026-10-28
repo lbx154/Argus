@@ -10,12 +10,12 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from argus.core.mission_view import update_mission_view_event
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import Backlog, BacklogItem
 from argus.webapi import reader_foundation as foundation
 from argus.webapi.artifacts import get_project_artifact, list_project_artifacts
 from argus.webapi.server import create_app
+from tests.mission_view_events import project_event
 
 
 @pytest.fixture
@@ -68,8 +68,8 @@ def test_fixed_workspace_survives_campaign_change_and_registration_remains_sessi
     other = "s-other"
     write_session_meta(tmp_path, SessionMeta(id=other, workdir=str(workspace)))
     assert get_project_artifact(other, artifact["path"], global_root=tmp_path) is None
-    update_mission_view_event(life, {
-        "type": "life.mission.completed", "item_id": "task-one", "success": True,
+    project_event(life, {
+        "type": "life.mission.completed", "item_id": "task-one", "success": True, "status": "done",
         "delivery": {"targets": [{"path": artifact["path"]}]},
     })
     assert list_project_artifacts(sid, global_root=tmp_path) == []

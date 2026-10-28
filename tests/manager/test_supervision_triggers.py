@@ -95,7 +95,7 @@ def test_a_mission_end_or_a_planner_verdict_only_delivers_an_issued_decision(adm
     Backlog(tmp_path / "backlog.jsonl").update("grouped", pending_question="Which column holds the group?")
     for event in (SUCCESS, FAILURE, VERDICT, _review(1)):
         assert admitted(event) is None
-    supervision._write(tmp_path / "manager-supervision" / "latest.json", {"status": "issued"})
+    supervision._write(tmp_path / "manager-supervision" / f"{'1' * 32}.json", {"status": "issued"})
     for event in (SUCCESS, FAILURE, VERDICT, _review(1)):
         assert "consult_reason" not in admitted(event)
 

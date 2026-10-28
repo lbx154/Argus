@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -58,22 +59,34 @@ def _write(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(path, json.dumps(record, ensure_ascii=False, allow_nan=False), fsync=True)
     _fsync_directory(path.parent)
-    if path.name != "latest.json":
-        _write(path.parent / "latest.json", record)
 
 
 def _read(path: Path) -> dict[str, Any]:
     return _read_object(path)
 
 
+def latest_record_path(root: Path) -> Path | None:
+    """The supervision record written last: one ``<id>.json`` per decision."""
+    newest: tuple[int, str] | None = None
+    try:
+        entries = list(os.scandir(Path(root) / "manager-supervision"))
+    except OSError:
+        return None
+    for entry in entries:
+        if not re.fullmatch(r"[0-9a-f]{32}\.json", entry.name):
+            continue
+        try:
+            key = (entry.stat().st_mtime_ns, entry.name)
+        except OSError:
+            continue
+        if newest is None or key > newest:
+            newest = key
+    return Path(root) / "manager-supervision" / newest[1] if newest else None
+
+
 def _latest_record(root: Path) -> dict[str, Any]:
-    latest = _read(root / "manager-supervision" / "latest.json")
-    identity = str(latest.get("id") or "")
-    if re.fullmatch(r"[0-9a-f]{32}", identity):
-        durable = _read(root / "manager-supervision" / f"{identity}.json")
-        if durable.get("id") == identity:
-            return durable
-    return latest
+    path = latest_record_path(root)
+    return _read(path) if path is not None else {}
 
 
 def _short_error(exc: BaseException) -> str:

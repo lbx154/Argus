@@ -81,7 +81,9 @@ def test_the_manager_can_hand_a_remark_to_the_planner(tmp_path, monkeypatch):
     write_pipeline_state(tmp_path, CONTROL["pipeline"])
     (tmp_path / "active_manager_directive.json").write_text(json.dumps(CONTROL["directive"], ensure_ascii=False), encoding="utf-8")
     remark = RECORD["remark"]
-    model = _Model({**remark["hand_off"], "to": "planner"})
+    # The recorded reply also cited mission-view.json, a file the host no longer
+    # writes or lists; the evidence it cites is the project's backlog.
+    model = _Model({**remark["hand_off"], "to": "planner", "evidence_refs": ["backlog.jsonl"]})
     manager = Manager(tmp_path, runner=model)
     supervision.start_supervision(tmp_path)
 

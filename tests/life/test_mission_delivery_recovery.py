@@ -16,11 +16,7 @@ from argus.core.jsonl_reader import MAX_JSONL_RECORD_BYTES
 from argus.life.event_log import JsonlEventSink, event_log_paths
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.mission_delivery import drain_mission_deliveries, prepare_mission_delivery
-from argus.life.mission_event_index import (
-    MAX_INDEX_RECORD_BYTES,
-    MissionEventIndex,
-    mission_event_index,
-)
+from argus.life.mission_event_index import MissionEventIndex, mission_event_index
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.skills.vertical_select import persist_vertical
 
@@ -124,26 +120,38 @@ def test_v2_commit_rejects_delivery_not_bound_to_its_result(tmp_path, monkeypatc
         Backlog(backlog.path).claim_next()
 
 
-def test_index_ack_failure_recovers_by_offset_even_after_rotation(tmp_path, monkeypatch):
+def test_a_completion_whose_acknowledgement_failed_is_found_after_rotation(tmp_path, monkeypatch):
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item, record = _claimed(backlog)
     backlog.update(item.id, status="done", _mission_delivery=record)
     sink = JsonlEventSink(None, life_dir=tmp_path)
-    finish = MissionEventIndex.finish
 
     with monkeypatch.context() as fault:
-        fault.setattr(MissionEventIndex, "finish", lambda *_args: (_ for _ in ()).throw(OSError("index ack lost")))
+        fault.setattr(backlog, "acknowledge_mission_delivery", lambda _key: (_ for _ in ()).throw(OSError("ack lost")))
         assert not drain_mission_deliveries(backlog, sink.handle_event)
     assert len(_rows(tmp_path)) == 1
     sink._roll_bytes = 1
     assert sink.append({"type": "life.status", "text": "after completion"})
     assert (tmp_path / "events.jsonl.1").exists()
     mission_event_index.cache_clear()
-    monkeypatch.setattr(MissionEventIndex, "finish", finish)
-    monkeypatch.setattr(MissionEventIndex, "_rebuild", lambda _self: pytest.fail("retry scanned full history"))
     _require_bounded_receipt_reads(monkeypatch, tmp_path)
     assert drain_mission_deliveries(backlog, sink.handle_event)
     assert len(_rows(tmp_path)) == 1
+    assert not list(tmp_path.glob("mission-events*"))
+
+
+def test_later_lookups_read_only_appended_bytes(tmp_path, monkeypatch):
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    assert sink.append({"type": "life.status", "text": "before"})
+    index = mission_event_index(str(tmp_path.resolve()))
+    index.refresh()
+    starts = []
+    scan = MissionEventIndex._scan
+    monkeypatch.setattr(MissionEventIndex, "_scan", lambda self, path, start: starts.append(start) or scan(self, path, start))
+    size = (tmp_path / "events.jsonl").stat().st_size
+    assert sink.append({"type": "life.status", "text": "after"})
+    index.refresh()
+    assert starts == [size]
 
 
 @pytest.mark.parametrize("invalid", [
@@ -159,12 +167,8 @@ def test_index_ack_failure_recovers_by_offset_even_after_rotation(tmp_path, monk
 def test_invalid_delivery_envelope_cannot_poison_later_completion(tmp_path, invalid):
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item, record = _claimed(backlog)
-    index = mission_event_index(str(tmp_path.resolve()))
-    index.refresh()
-    before = index.path.read_bytes()
     sink = JsonlEventSink(None, life_dir=tmp_path)
     assert not sink.append({**record["event"], **invalid})
-    assert index.path.read_bytes() == before
     assert not (tmp_path / "events.jsonl").exists()
     backlog.update(item.id, status="done", _mission_delivery=record)
     assert drain_mission_deliveries(backlog, sink.handle_event)
@@ -186,7 +190,7 @@ def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypat
         assert not drain_mission_deliveries(backlog, sink.handle_event)
     canonical = event_path.read_bytes()
     index = mission_event_index(str(tmp_path.resolve()))
-    assert index.rows[record["id"]]["state"] == "written"
+    assert index.contains(record["id"])
     if restoration == "partial":
         event_path.write_bytes(canonical[:-10])
     elif restoration == "earlier":
@@ -199,20 +203,11 @@ def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypat
         event_path.write_bytes(canonical.replace(record["id"].encode(), b"c" * len(record["id"])))
         assert event_path.stat().st_size == len(canonical)
     assert not [row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]
-    rebuild = MissionEventIndex._rebuild
-    rebuilds = []
-
-    def counted_rebuild(current):
-        rebuilds.append(current.root)
-        return rebuild(current)
-
-    monkeypatch.setattr(MissionEventIndex, "_rebuild", counted_rebuild)
     assert drain_mission_deliveries(backlog, sink.handle_event)
     assert backlog.pending_mission_deliveries() == []
     assert backlog.claim_next() is None
     assert len(backlog.history()) == 1
     assert len([row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]) == 1
-    assert rebuilds == [tmp_path]
 
 
 def _require_bounded_receipt_reads(monkeypatch, root):
@@ -239,8 +234,7 @@ def _require_bounded_receipt_reads(monkeypatch, root):
     def checked_open(path, mode="r", *args, **kwargs):
         handle = open_file(path, mode, *args, **kwargs)
         if path.parent == root and mode in {"rb", "r+b"}:
-            limit = MAX_INDEX_RECORD_BYTES if path.name == "mission-events.index.jsonl" else MAX_JSONL_RECORD_BYTES
-            return CheckedRead(handle, limit)
+            return CheckedRead(handle, MAX_JSONL_RECORD_BYTES)
         return handle
 
     monkeypatch.setattr(Path, "open", checked_open)
@@ -262,17 +256,6 @@ def test_receipt_rebuild_skips_oversized_rows_in_bounded_chunks(tmp_path, monkey
     assert index.contains(key)
     assert not index.contains(fake_key)
     assert index.rows[key]["offset"] == len(oversized)
-
-
-@pytest.mark.parametrize("terminated", [False, True])
-def test_oversized_receipt_index_is_corruption_and_is_not_truncated(tmp_path, monkeypatch, terminated):
-    index = MissionEventIndex(tmp_path)
-    content = b"x" * (MAX_INDEX_RECORD_BYTES + 9) + (b"\n" if terminated else b"")
-    index.path.write_bytes(content)
-    _require_bounded_receipt_reads(monkeypatch, tmp_path)
-    with pytest.raises(ValueError, match="oversized mission event receipt index row"):
-        index.refresh()
-    assert index.path.read_bytes() == content
 
 
 def test_oversized_completion_stays_pending_without_unrecoverable_canonical_row(tmp_path):

@@ -14,7 +14,6 @@ exactly one branch.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..event_catalog import EventType, canonical_event_type
@@ -23,13 +22,6 @@ from ._reduce_mission import reduce_mission_lifecycle_event, reduce_round_event
 from ._reduce_research import reduce_achievement_event
 from ._reduce_skill import reduce_skill_event
 from ._reduce_wiki import reduce_wiki_event
-from ._view_state import (
-    _locked,
-    _read_unlocked,
-    _write_unlocked,
-    load_mission_view,
-    mission_view_handles_event,
-)
 
 _FamilyReducer = Callable[..., None]
 
@@ -115,29 +107,3 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
     view["updated_at"] = time.time()
     return view
 
-
-def update_mission_view_event(
-    root: Path | str, event: Mapping[str, Any], *, logged: bool = False,
-) -> dict[str, Any]:
-    """Reconcile logged events, or update an explicitly unlogged read model.
-
-    The canonical sink calls this only after releasing events.lock. A logged
-    event is consumed from its physical log position, never applied a second
-    time from this argument. Direct callers retain the legacy projection-only
-    API; their events are not represented as durable log progress.
-    """
-    from ._replay import events_locked, load_reconciled_view, log_checkpoint
-
-    path = Path(root).expanduser()
-    if logged:
-        return load_reconciled_view(path, force_logged=True)
-    if not mission_view_handles_event(event.get("type")):
-        return load_mission_view(path)
-    with events_locked(path), _locked(path):
-        view = reduce_mission_view_event(_read_unlocked(path), event)
-        view.pop("_event_cursor", None)
-        view["projection_sync"] = {"status": "unlogged"}
-        view["_unlogged_log_cursor"] = log_checkpoint(path)
-        view["bootstrapped"] = True
-        _write_unlocked(path, view)
-        return view

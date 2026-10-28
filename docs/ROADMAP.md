@@ -128,10 +128,10 @@ status on screen is derived from it; deleting a derived file and rebuilding it g
 
 | ID | Task | Ver | Status | Absorbs |
 | --- | --- | --- | --- | --- |
-| L3.1 | State model; `latest.json`, the task brief and backlog result fields derived from records | 0.3 | todo | HO-14 |
+| L3.1 | State model; `latest.json`, the task brief and backlog result fields derived from records | 0.3 | partly done: [state-model.md](state-model.md); the Mission View, the delivered-completion index and the newest supervision and handoff records are computed from their records, not stored [282a3896] [30d33269] [cbbcd2d7]; backlog result fields todo | HO-14 |
 | L3.2 | The backend computes status, the frontend only shows it: remove frontend copies of status logic and text stripping | 0.3 | todo | — |
 | L3.3 | One meaning per name: `MemoryBundle.root`; one record of what the Planner has seen | 0.3 | todo | CO-5 |
-| L3.4 | Storage decision (files, SQLite/WAL or a mix), written as an ADR; the TS kernel is built on it | 0.3 | todo | CO-17 |
+| L3.4 | Storage decision (files, SQLite/WAL or a mix), written as an ADR; the TS kernel is built on it | 0.3 | done: plain files, see [state-model.md](state-model.md) [95d3afd2] | CO-17 |
 | L3.5 | A verdict names the snapshot it reviewed; the baseline moves only on a pass | 0.3 | partly: snapshots and real diff done [247b432c] [9c042dda]; binding todo | HO-7 |
 | L3.6 | Old-data upgrade test with anonymized 0.1.x projects | 0.3 | todo | RL-2 |
 

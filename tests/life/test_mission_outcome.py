@@ -196,7 +196,8 @@ def test_promotion_write_failure_does_not_undo_successful_mission(
 
 
 def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> None:
-    from argus.core.mission_view import load_mission_view, update_mission_view_event
+    from argus.core.mission_view import load_mission_view
+    from argus.life.event_log import JsonlEventSink
 
     body = "# Complete report\n\n" + "\n\n".join(
         f"Section {index}: verified result with supporting detail."
@@ -238,8 +239,9 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
     assert runtime_outcome.final_output == body
     assert _completed_event(sink)["summary"] == "The report is complete."
     assert _completed_event(sink)["final_output"] == body
+    projected = JsonlEventSink(None, life_dir=tmp_path / "projected")
     for event in sink.events:
-        update_mission_view_event(tmp_path / "projected", event)
+        projected.append(event)
     mission = load_mission_view(tmp_path / "projected")["mission"]
     assert mission["summary"] == "The report is complete."
     assert mission["final_output"] == body

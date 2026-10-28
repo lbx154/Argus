@@ -150,9 +150,10 @@ Watch 读取 `active()`，Follow 为开始/完成事件补上下文时读取 `hi
 
 普通 mission 结算现在使用 v2 提交：任务状态、独立的 `mission_result` 和待发完成事件绑定保存，
 恢复仍兼容 v1。`mission-deliveries/` 仅保存未确认事件，属于完整备份集合；
-`mission-events.index.jsonl` 是可重建的投递索引。稳定 delivery ID 防止写入成功、确认失败后重复完成。
-已确认索引也会核对原日志行，避免日志截断或恢复旧快照后错误省略补发。
-缺失索引或备份 inode 失配时需要冷扫描保留日志；事件行缓冲有上限，索引内存仍随完成数量增长。
+已投递的完成事件从事件日志本身查找（`life/mission_event_index.py`，每个进程内存里一份，不落盘）。
+稳定 delivery ID 防止写入成功、确认失败后重复完成；查到的记录会核对原日志行，
+日志被截断、替换或改写时从头重读，避免恢复旧快照后错误省略补发。
+每个进程第一次查找要冷扫描保留日志；事件行缓冲有上限，内存随完成数量增长。
 
 完成事件和最小 transcript 回执先于可选学习交付。失败的 sink/确认可在后续 tick 或重启后重试，
 不重新执行已经结算的任务；实际学习费用仍以 UsageLedger 为准。该保证覆盖普通结算与持久回执，
@@ -244,30 +245,19 @@ Web Manager 请求在打开项目之前记录控制版本；停止或更新目�
 磁盘 generation，避免停止后被迟到的旧启用请求重新启动。目标仍在安全任务边界应用，未拆除上述粗锁。
 外部工作心跳拒绝非有限数值；等待直接观察进程 stop 事件，不再等完轮询 sleep 才响应停止。（外部工作登记及其心跳已于 2026-10-20 随 `argus.tools.subagent` 删除，见 `b88b67b6`。）
 
-### 事件投影恢复
+### 事件投影（Mission View）
 
-恢复实现集中在 [`core/mission_view/_replay.py`](../argus/core/mission_view/_replay.py)。
-`JsonlEventSink` 先追加并同步日志，释放日志锁，再请求投影读取已落盘事件；回调参数不会被重复应用。
-reader 和 writer 都遵循 `events.lock` → `mission-view.lock` 的顺序。
-
-`mission-view.json` 内部同时保存视图和 `_event_cursor`。只有这次 checkpoint 成功，
-才算消费了对应日志前缀；失败后从上一次 checkpoint 重放，因此不会在半完成状态上再次累计拒绝次数。
-游标追踪文件身份、位置和边界内容指纹，能跨轮转定位 retained generation，并适应正常备份复制后的 inode 变化。
-
-旧视图初始化、截断后的重建和落后追赶按字节预算分批；快照的 `projection_sync` 标明
-`current`、`catching_up` 或 `waiting_for_line`。未变化的完整快照只检查当前日志元数据，
-不打开日志、不枚举历史目录、不重写 checkpoint。API 返回移除内部 `_event_cursor`，保留同步状态供诊断。
-直接调用 `update_mission_view_event` 而不写日志的兼容模式标为 `unlogged`，不伪造可恢复日志进度。
-直接投影会记录当时日志位置。后续 canonical writer 在每行末尾写 `log_writer_version`，
-reader 从基准位置有界查找这个 Host 标记，并能跨分块、轮转继续查找；接管不依赖投影回调成功，
-也不依赖最后一行恰好来自 canonical writer。纯旧格式人工 review tail 保留原兼容行为。
+Mission View 只从事件日志推出，不落盘，实现在 [`core/mission_view/_replay.py`](../argus/core/mission_view/_replay.py)。
+每个进程在有上限的内存缓存里保存算好的视图和已消费的日志位置（`_event_cursor`），下次读取只消费新追加的字节；
+缓存里没有的项目从最早的保留世代重算。读取时持有 `events.lock`，因此不会读到写了一半的事件。
+单次读取按字节预算分批，直到读完日志；一批中途失败时缓存里的视图和游标保持不变，下次读取重试。
+游标追踪文件身份、位置和边界内容指纹，能跨轮转定位 retained generation，并适应正常备份复制后的 inode 变化；
+日志被截断或替换时从头重算。快照的 `projection_sync` 标明 `current` 或 `waiting_for_line`。
 
 回放统一复用 `validate_event_envelope`：生产写入保持默认严格校验，旧日志允许缺失较新的必需字段，
 已提供字段仍检查类型和值。损坏 JSON、无效记录和超大行计入 `skipped_rows` / `oversized_rows`，
-原始日志保持完整；超大行的跳过进度也持久保存，不能阻塞后续有效事件。
-
-日志和 checkpoint 的同步写入增加了写路径成本；正常读路径因此可以增量对账。
-这项保证覆盖日志到视图的恢复，不改变外部任务操作的幂等责任。
+原始日志保持完整，不能阻塞后续有效事件。旧版本留下的 `mission-view.json` 不再读写。
+状态归属见 [state-model.md](state-model.md)。
 
 Web 实时 tail 与地图历史现在共用 `core/jsonl_reader.py` 的有界读取器。
 tail 保留旧日志句柄，先排空未读数据再跟进保留世代；超长行分批跳过，普通半行等待补齐。

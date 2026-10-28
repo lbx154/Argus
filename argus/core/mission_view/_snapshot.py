@@ -1,7 +1,7 @@
 """Mission-view snapshot assembly: reconciled view plus live daemon/session state.
 
 ``snapshot_mission_view`` is the read path used by the webapi/cockpit: it
-incrementally reconciles the persisted event-sourced view with its log, merges
+takes the view computed from the event log, merges
 in live, non-event-sourced session/daemon/backlog state that
 does not go through the event log, and enriches learned-skill rows with
 their current file content for display.
@@ -10,112 +10,18 @@ from __future__ import annotations
 
 import json
 import time
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ..event_catalog import EventType, canonical_event_type
 from ..paths import NATIVE_SKILLS_DIR
-from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
     _PIPELINE_ROLE_NAMES,
     _ROLE_NAMES,
-    MISSION_BOOTSTRAP_MAX_BYTES,
     MISSION_SKILL_CONTENT_MAX_BYTES,
-    _tail_jsonl,
-    empty_mission_view,
     load_mission_view,
 )
 from ._wording import say, session_is_chinese, stage_label
-
-
-def _bootstrap_view(root: Path) -> dict[str, Any]:
-    view = empty_mission_view()
-    for path in (root / "events.jsonl.1", root / "events.jsonl"):
-        for event in _tail_jsonl(path):
-            reduce_mission_view_event(view, event)
-    view["bootstrapped"] = True
-    return view
-
-
-@lru_cache(maxsize=8)
-def _review_projection(root: Path, fingerprints: tuple, language: str = "") -> dict[str, Any]:
-    """Replay only review ownership/judgments; the source logs remain untouched."""
-    view = empty_mission_view()
-    # The replay sees no Manager intent, so it inherits the language the full
-    # view already settled on; otherwise its sentences could switch language.
-    view["language"] = language
-    # Never join a start from the rotated log across an omitted current prefix.
-    names = ("events.jsonl",) if fingerprints[1] and fingerprints[1][2] > MISSION_BOOTSTRAP_MAX_BYTES else ("events.jsonl.1", "events.jsonl")
-    for name in names:
-        for event in _tail_jsonl(root / name):
-            kind = canonical_event_type(event.get("type"))
-            if kind in {
-                EventType.LIFE_MISSION_STARTED,
-                EventType.ROUND_REVIEW_STARTED,
-                EventType.ROUND_REVIEW_COMPLETED,
-            }:
-                if kind != EventType.LIFE_MISSION_STARTED and event.get("item_id") not in {None, "", view["mission"]["id"]}:
-                    continue
-                reduce_mission_view_event(view, event)
-    return view
-
-
-def _refresh_review_projection(root: Path, view: dict[str, Any]) -> None:
-    # A still-running daemon can keep writing the older reducer's projection.
-    # Correct the response copy, without changing its file/schema under that writer.
-    fingerprints = []
-    for name in ("events.jsonl.1", "events.jsonl"):
-        try:
-            stat = (root / name).stat()
-            fingerprints.append((stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
-        except OSError:
-            fingerprints.append(None)
-    replay = _review_projection(
-        root,
-        tuple(fingerprints),
-        str(view.get("language") or ""),
-    )
-    mission = view.get("mission", {})
-    if (
-        not replay["mission"]["id"]
-        or replay["mission"]["id"] != mission.get("id")
-        or replay["mission"]["started_at"] != mission.get("started_at")
-    ):
-        # A bounded tail that omits this mission's start cannot establish its
-        # rejection count. Do not replace it with another mission's projection.
-        return
-    view["review"] = dict(replay["review"])
-    # Rows are matched by code, never by their sentence, which varies with the
-    # session's language.
-    corrected = {
-        row["id"]: row
-        for row in replay["timeline"]
-        if row.get("kind") == "round_not_judged"
-    }
-    view["timeline"] = [
-        {**row, **corrected.get(row["id"], {})} for row in view.get("timeline", [])
-    ]
-    corrected = {
-        row["id"]: row
-        for row in replay["role_work"]
-        if row.get("kind") == "review" and row.get("status") == "skipped"
-    }
-    view["role_work"] = [
-        {**row, **corrected.get(row["id"], {})} for row in view.get("role_work", [])
-    ]
-    reviewer = next(role for role in replay["roles"] if role["role"] == "reviewer")
-    for role in view.get("roles", []):
-        if (
-            replay["review"]["status"] == "skipped"
-            and role["role"] == "reviewer"
-            and role.get("status") == "rejected"
-            and role.get("updated_at") == reviewer["updated_at"]
-        ):
-            role.update(reviewer)
-            if role["status"] != "active" and view.get("active_role") == "reviewer":
-                view["active_role"] = ""
 
 
 def operator_objective(row: Mapping[str, Any]) -> str:
@@ -553,12 +459,6 @@ def snapshot_mission_view(
     # handoff state when a temporary Manager activity later goes idle.
     response = json.loads(json.dumps(view))
     response.pop("_event_cursor", None)
-    response.pop("_projection_legacy", None)
-    response.pop("_unlogged_log_cursor", None)
-    if view.get("projection_sync", {}).get("status") == "unlogged":
-        # Compatibility for direct projection-only producers. Canonical views
-        # already reduced these rows and must not scan a review tail each poll.
-        _refresh_review_projection(path, response)
     response = merge_mission_view_snapshot(
         response,
         **kwargs,

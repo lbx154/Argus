@@ -230,10 +230,6 @@ class JsonlEventSink:
                 # The delivery namespace is reserved for validated completion
                 # envelopes. Reject before touching its durable receipt index.
                 return False
-            # A fixed final envelope field lets an unlogged compatibility view
-            # notice canonical ownership even if its projection callback fails.
-            payload.pop("log_writer_version", None)
-            payload["log_writer_version"] = 1
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             encoded_line = (line + "\n").encode("utf-8")
             if payload.get("mission_delivery_id") and len(encoded_line) > MAX_JSONL_RECORD_BYTES:
@@ -277,32 +273,15 @@ class JsonlEventSink:
                                 if fh.read(1) != b"\n":
                                     # Preserve an interrupted row without joining it.
                                     fh.write(b"\n")
-                            if index is not None:
-                                index.begin(key, fh)
                             fh.write(encoded_line)
                             fh.flush()
                             os.fsync(fh.fileno())
                         sync_directory(self._dir)
-                        if index is not None:
-                            index.finish(key)
             except Exception:  # noqa: BLE001
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in
                 # the daemon log via _DaemonSink.handle_event downstream.
                 return False
-        # Never invoke the projection API or downstream callbacks while owning
-        # the append lock. Another writer may win first; reconciliation consumes
-        # the durable stream order, independently of callback arrival order.
-        try:
-            from ..core.mission_view import (
-                mission_view_handles_event,
-                update_mission_view_event,
-            )
-
-            if mission_view_handles_event(payload.get("type")):
-                update_mission_view_event(self._dir, payload, logged=True)
-        except Exception:  # noqa: BLE001 - canonical append remains successful
-            log.warning("Mission View projection deferred to log replay", exc_info=True)
         return valid
 
     @staticmethod

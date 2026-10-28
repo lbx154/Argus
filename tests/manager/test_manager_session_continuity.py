@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import os
 import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -132,14 +133,13 @@ def test_new_manager_thread_rehydrates_current_controls_questions_and_issued_dec
                                             source="manager.supervision.fixture")
     receipt_dir = tmp_path / "manager-supervision"
     receipt_dir.mkdir()
-    issued = {"id": "a" * 64, "status": "issued", "decision": {
+    issued = {"id": "a" * 32, "status": "issued", "decision": {
         "action": "steer", "reason": "ISSUED_NOT_APPLIED: await the operator's unit answer."}, "effects": {}}
     (receipt_dir / (issued["id"] + ".json")).write_text(json.dumps(issued))
-    (receipt_dir / "latest.json").write_text(json.dumps(issued))
     permission = append_directive(tmp_path, "LATEST_AUTHORITY: inspect only; do not change source files.",
                                   expected_revision=0, applies_to_roles=("manager",))
     canonical_paths = [tmp_path / "continuous.json", tmp_path / "backlog.jsonl",
-                       tmp_path / "active_manager_directive.json", receipt_dir / "latest.json",
+                       tmp_path / "active_manager_directive.json",
                        receipt_dir / (issued["id"] + ".json"), tmp_path / "operator_context.jsonl"]
     before = {path: path.read_bytes() for path in canonical_paths}
     backend = Backend()
@@ -167,8 +167,7 @@ def test_new_threads_keep_active_steer_after_a_newer_continue_and_refresh_resolv
     directive = set_active_manager_directive(tmp_path, "STILL_ACTIVE_STEER: use groups separately.", source="manager.supervision.old")
     directory = tmp_path / "manager-supervision"
     directory.mkdir()
-    latest = {"id": "b" * 64, "status": "applied", "decision": {"action": "continue", "reason": "A newer observation retained course."}}
-    (directory / "latest.json").write_text(json.dumps(latest))
+    latest = {"id": "b" * 32, "status": "applied", "decision": {"action": "continue", "reason": "A newer observation retained course."}}
     (directory / (latest["id"] + ".json")).write_text(json.dumps(latest))
     backend = Backend()
     turn(tmp_path, backend)
@@ -186,11 +185,13 @@ def test_new_threads_keep_active_steer_after_a_newer_continue_and_refresh_resolv
     assert state(tmp_path)["provider_generation"] == 3
 
 
-def test_new_thread_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_path):
+def test_new_thread_uses_the_newest_receipt_record(tmp_path):
     directory = tmp_path / "manager-supervision"
     directory.mkdir()
+    older = directory / ("d" * 32 + ".json")
+    older.write_text(json.dumps({"id": "d" * 32, "status": "applied", "decision": {"reason": "STALE_APPLIED"}}))
+    os.utime(older, ns=(1_000_000_000, 1_000_000_000))
     identity = "c" * 32
-    (directory / "latest.json").write_text(json.dumps({"id": identity, "status": "applied", "decision": {"reason": "STALE_APPLIED"}}))
     canonical = {"id": identity, "status": "issued", "decision": {"action": "steer", "reason": "PENDING_DELIVERY"}, "effects": {}}
     path = directory / (identity + ".json")
     path.write_text(json.dumps(canonical))

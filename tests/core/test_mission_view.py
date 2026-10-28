@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -8,12 +7,12 @@ import pytest
 from argus.core.mission_view import (
     load_mission_view,
     snapshot_mission_view,
-    update_mission_view_event,
 )
+from tests.mission_view_events import project_event
 
 
 def emit(root: Path, event_type: str, ts: float, **payload) -> dict:
-    return update_mission_view_event(root, {"type": event_type, "ts": ts, **payload})
+    return project_event(root, {"type": event_type, "ts": ts, **payload})
 
 
 def test_planner_left_waiting_on_a_question_says_it_waits_for_the_answer(tmp_path: Path) -> None:
@@ -27,7 +26,7 @@ def test_planner_left_waiting_on_a_question_says_it_waits_for_the_answer(tmp_pat
 
 
 def test_a_deterministic_stage_decision_keeps_the_runtime_record_apart(tmp_path: Path) -> None:
-    emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数")
+    emit(tmp_path, "life.manager.intent.completed", 1, item_id="t", objective="给 strtools 加一个函数", vertical="software", stages=[])
     reason = "Reviewer accepted the direct task and deterministic completion checks passed"
     view = emit(
         tmp_path, "life.manager.stage_decision", 2,
@@ -38,24 +37,6 @@ def test_a_deterministic_stage_decision_keeps_the_runtime_record_apart(tmp_path:
     # A stage without a Chinese name reads as itself, set off by the sentence, not by stray spaces.
     view = emit(tmp_path, "life.manager.stage_decision", 3, action="complete", target_stage="field_trial")
     assert view["timeline"][-1]["title"] == "field trial 阶段已完成。"
-
-
-def test_load_normalizes_persisted_legacy_manager_failure_label(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "mission-view.json").write_text(
-        '{"schema_version":3,"bootstrapped":true,'
-        '"roles":[{"role":"manager","status":"error","label":"Grounding failed"}],'
-        '"timeline":[{"type":"life.manager.intent.failed","title":"Grounding failed"}],'
-        '"role_work":[{"role":"manager","status":"error","title":"Grounding failed"}]}',
-        encoding="utf-8",
-    )
-
-    view = load_mission_view(tmp_path)
-
-    assert view["roles"][0]["label"] == "Manager routing failed"
-    assert view["timeline"][0]["title"] == "Manager routing failed"
-    assert view["role_work"][0]["title"] == "Manager routing failed"
 
 
 def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) -> None:
@@ -181,6 +162,11 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         tmp_path,
         "skill.evolution.completed",
         9.5,
+        ops_proposed=0,
+        created=0,
+        updated=0,
+        archived=0,
+        rejected=0,
         project_skill_dir=str(tmp_path / "skills"),
         global_skill_dir=str(tmp_path / "global-skills"),
         project_skill_count=1,
@@ -250,16 +236,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     persisted = load_mission_view(tmp_path)
     assert persisted["achievement"] == view["achievement"]
     assert "content" not in persisted["learned_skills"][0]
-
-
-def test_load_discards_legacy_derived_certification(tmp_path: Path) -> None:
-    (tmp_path / "mission-view.json").write_text(
-        '{"schema_version":1,"bootstrapped":true,'
-        '"achievement":{"id":"derived-old","reviewer_certified":true}}',
-        encoding="utf-8",
-    )
-
-    assert load_mission_view(tmp_path)["achievement"] is None
 
 
 def test_snapshot_discovers_project_skill_and_attributes_mission(
@@ -376,117 +352,6 @@ def test_new_review_clears_prior_verdict_without_erasing_history(tmp_path: Path)
     assert view["active_role"] == "reviewer"
     assert any(item["detail"] == "Add a control." for item in view["timeline"])
     assert any(item["detail"] == "Add a control." for item in view["role_work"])
-
-
-def test_snapshot_corrects_old_review_projection_without_rewriting_it(tmp_path: Path) -> None:
-    events = [
-        {"type": "life.mission.started", "ts": 1, "item_id": "current"},
-        {"type": "round.review.completed", "ts": 2, "event_id": "skipped",
-         "status": "continue", "reason": "Turn allowance reached.", "review_skipped": True},
-        {"type": "round.review.started", "ts": 3, "round_index": 2},
-    ]
-    for event in events:
-        view = update_mission_view_event(tmp_path, event)
-    view["bootstrapped"] = True
-    view["review"] = {"status": "continue", "reason": "Turn allowance reached.", "rejected_attempts": 1}
-    for row in view["timeline"]:
-        if row["kind"] == "round_not_judged":
-            row.update(
-                kind="another_attempt_requested",
-                title="The results were not accepted; another attempt was requested.",
-                tone="error",
-            )
-    for row in view["role_work"]:
-        if row["kind"] == "review" and row["status"] == "skipped":
-            row.update(
-                title="The results were not accepted; another attempt was requested.",
-                status="continue",
-                kind="verdict",
-            )
-    view_file = tmp_path / "mission-view.json"
-    event_file = tmp_path / "events.jsonl"
-    view_file.write_text(json.dumps(view))
-    event_file.write_text("".join(json.dumps(event) + "\n" for event in events))
-    before = view_file.read_bytes()
-
-    def snapshot():
-        return snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[], continuous={})
-
-    result = snapshot()
-    assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
-    assert any(
-        row["kind"] == "round_not_judged"
-        and row["title"] == "This round was not judged."
-        and row["tone"] == "info"
-        for row in result["timeline"]
-    )
-    assert any(
-        row["kind"] == "review"
-        and row["status"] == "skipped"
-        and row["title"] == "This round was not judged."
-        for row in result["role_work"]
-    )
-    assert view_file.read_bytes() == before
-
-    # A later real rejection invalidates the read cache while the older writer
-    # still incorrectly includes its earlier skipped attempt in the counter.
-    event_file.write_text(event_file.read_text() + json.dumps({
-        "type": "round.review.completed", "ts": 4, "status": "continue", "reason": "Add a control.",
-    }) + "\n")
-    view["review"] = {"status": "continue", "reason": "Add a control.", "rejected_attempts": 2}
-    view_file.write_text(json.dumps(view))
-    before = view_file.read_bytes()
-    result = snapshot()
-    assert result["review"]["rejected_attempts"] == 1
-    assert result["review"]["reason"] == "Add a control."
-    assert view_file.read_bytes() == before
-
-    # A tail that belongs to another mission must not overwrite this snapshot.
-    view["mission"].update(id="new-mission", started_at=5)
-    view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
-    view_file.write_text(json.dumps(view))
-    assert snapshot()["review"] == view["review"]
-
-    # Live ownership can advance before the old daemon writes its projection.
-    view["mission"].update(id="current", started_at=1)
-    view["review"] = {"status": "continue", "reason": "Old verdict.", "rejected_attempts": 2}
-    view_file.write_text(json.dumps(view))
-    event_file.write_text(event_file.read_text() + json.dumps({
-        "type": "life.mission.started", "ts": 5, "item_id": "new-mission",
-    }) + "\n" + json.dumps({
-        "type": "round.review.completed", "ts": 6, "item_id": "current",
-        "status": "continue", "reason": "Late event from the prior task.",
-    }) + "\n")
-    before = view_file.read_bytes()
-    result = snapshot_mission_view(
-        tmp_path, session={}, daemon={"alive": True},
-        roles=[{"role": "engineer", "active": True}],
-        backlog=[{"id": "new-mission", "status": "running", "started_ts": 5}],
-        continuous={},
-    )
-    assert result["mission"]["id"] == "new-mission"
-    assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
-    assert result["active_role"] == "engineer"
-    assert view_file.read_bytes() == before
-
-
-def test_review_replay_does_not_bridge_a_truncated_current_log(tmp_path: Path, monkeypatch) -> None:
-    from argus.core.mission_view import _snapshot
-
-    view = emit(tmp_path, "life.mission.started", 1, item_id="current")
-    view["bootstrapped"] = True
-    view["review"] = {"status": "continue", "reason": "Retained verdict", "rejected_attempts": 3}
-    (tmp_path / "mission-view.json").write_text(json.dumps(view))
-    (tmp_path / "events.jsonl.1").write_text(json.dumps({
-        "type": "life.mission.started", "ts": 1, "item_id": "current",
-    }) + "\n")
-    (tmp_path / "events.jsonl").write_text(" " * 100 + "\n" + json.dumps({
-        "type": "round.review.completed", "ts": 4, "item_id": "current",
-        "status": "continue", "reason": "Latest verdict",
-    }) + "\n")
-    monkeypatch.setattr(_snapshot, "MISSION_BOOTSTRAP_MAX_BYTES", 64)
-    result = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[], continuous={})
-    assert result["review"] == view["review"]
 
 
 def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
@@ -680,7 +545,10 @@ def test_a_review_handing_the_choice_to_the_operator_waits_on_them(tmp_path: Pat
 def test_a_stage_closed_on_one_task_is_not_the_project_while_a_question_waits(tmp_path: Path) -> None:
     """Trial s-934a4569: char_count closed the delivery stage while the truncate
     task waited on the operator, and the Manager read "交付阶段已完成"."""
-    emit(tmp_path, "life.manager.intent.completed", 1, item_id="c", objective="新增字符计数函数", current_stage="delivery")
+    emit(
+        tmp_path, "life.manager.intent.completed", 1, item_id="c", objective="新增字符计数函数",
+        current_stage="delivery", vertical="software", stages=[],
+    )
     emit(tmp_path, "life.manager.stage_decision", 2, item_id="c", action="complete", target_stage="delivery")
     asked = {"id": "t", "title": "截断取舍", "status": "parked", "pending_question": "选 A 还是 B？"}
     done = {"id": "c", "title": "新增字符计数函数", "status": "done"}
@@ -704,6 +572,8 @@ def test_round_the_model_service_dropped_is_explained_without_runtime_words(
         1,
         item_id="task-1",
         objective="给我写一篇iclr的论文",
+        vertical="research",
+        stages=[],
     )
     emit(tmp_path, "life.mission.started", 2, item_id="task-1", title="Portfolio")
     raw = (
@@ -818,6 +688,8 @@ def test_round_skipped_for_an_unreachable_model_service_names_the_cause(
         1,
         item_id="task-1",
         objective="给我写一篇iclr的论文",
+        vertical="research",
+        stages=[],
     )
     raw = (
         "The model service could not be reached: connect ECONNREFUSED "
@@ -871,7 +743,10 @@ def test_direct_turn_steps_are_named_in_the_operators_language(tmp_path: Path) -
 def test_a_spent_trial_allowance_reads_as_the_allowance_not_the_model_service(tmp_path: Path) -> None:
     """The hosted meter's 402 parked a task as a provider fence; its row said
     the model service refused calls and carried the raw record in the line."""
-    emit(tmp_path, "life.manager.intent.completed", 1, item_id="task-1", objective="比较三种算法的样本效率")
+    emit(
+        tmp_path, "life.manager.intent.completed", 1, item_id="task-1", objective="比较三种算法的样本效率",
+        vertical="research", stages=[],
+    )
     stop = (
         "审阅者的会话在得出结论前就结束了，这一轮没有评审意见。 技术记录：exit=1; "
         "fatal_error=query: HTTP 402: 402 试用额度不足，任务已暂停。请联系试用版管理员。"
