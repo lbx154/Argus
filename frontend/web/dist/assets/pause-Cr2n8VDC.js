@@ -1,0 +1,1 @@
+import{R as e}from"./downloadBlob-BYYYajY5.js";var t=e(`Pause`,[[`rect`,{x:`14`,y:`4`,width:`4`,height:`16`,rx:`1`,key:`zuxfzm`}],[`rect`,{x:`6`,y:`4`,width:`4`,height:`16`,rx:`1`,key:`1okwgv`}]]);export{t};
