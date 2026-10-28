@@ -52,6 +52,7 @@ def test_native_windows_rule_waits_with_wait_process(
     assert "Windows PowerShell 5.1 syntax" in prompt
     assert "Start-Process -PassThru" in prompt
     assert "`Wait-Process -Id <pid>`" in prompt
+    assert "keeps running after you hand off" in prompt
     assert "-Timeout" not in prompt
     assert "setsid" not in prompt
     assert "argus.tools.subagent" not in prompt

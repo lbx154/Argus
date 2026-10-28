@@ -12,6 +12,7 @@ import subprocess
 import time
 from typing import Any
 
+from ..core import turn_jobs
 from ..core.daemon_lock import is_process_group_running
 from ..core.windows_job import terminate_owned_process
 
@@ -115,6 +116,28 @@ class ProcessControlMixin:
         groups.discard(os.getpgrp())
         return groups
 
+    @staticmethod
+    def _turn_jobs(process: subprocess.Popen[str]) -> list[int]:
+        """Pids of what the turn's exited CLI started that still runs.
+
+        On Windows the turn's Job Object holds them; on POSIX they carry the
+        turn's tag or stay in its process group (``core.turn_jobs``).
+        """
+        job = getattr(process, "_argus_windows_job", None)
+        if job is not None:
+            if not job.active_processes():
+                return []
+            # 0 stands for a member the Job did not list.
+            return job.process_ids() or [0]
+        if os.name == "nt":
+            return []
+        return [
+            job.pid
+            for job in turn_jobs.running(
+                getattr(process, "_argus_turn", None), group=int(getattr(process, "pid", 0) or 0),
+            )
+        ]
+
     @classmethod
     def _terminate_process(
         cls,
@@ -125,6 +148,10 @@ class ProcessControlMixin:
         if terminate_owned_process(process) is not None:
             return
         if os.name != "nt":
+            # Stopping a turn stops the jobs it started, including those that
+            # left its process group (``setsid``); its group follows below.
+            if token := getattr(process, "_argus_turn", None):
+                turn_jobs.stop(turn_jobs.running(token))
             process_group_id = process.pid
             child_groups: set[int] = set()
             if include_detached_children:

@@ -78,15 +78,18 @@ def test_opencode_interrupt_stops_detached_tool_group(tmp_path) -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
-def test_provider_exit_cleans_descendants_before_waiting_for_pipe_eof() -> None:
+def test_provider_exit_waits_for_descendants_left_in_its_group(tmp_path) -> None:
+    """A descendant left in the provider's group is a job the turn started:
+    the turn ends once it has ended, not by killing it (core.turn_jobs)."""
     runner = AgentCliRunner(agent_bin=sys.executable)
+    flag = tmp_path / "flag"
     command = [
         sys.executable,
         "-c",
         (
             "import subprocess, sys; "
             "subprocess.Popen([sys.executable, '-c', "
-            "\"import time; time.sleep(30)\"])"
+            f"\"import pathlib, time; time.sleep(2); pathlib.Path({str(flag)!r}).write_text('done')\"])"
         ),
     ]
     provider = subprocess.Popen(
@@ -96,7 +99,6 @@ def test_provider_exit_cleans_descendants_before_waiting_for_pipe_eof() -> None:
         text=True,
         start_new_session=True,
     )
-    started = time.monotonic()
 
     state = runner._stream_turn_output(
         process=provider,
@@ -106,9 +108,9 @@ def test_provider_exit_cleans_descendants_before_waiting_for_pipe_eof() -> None:
         thread_id=None,
     )
 
-    assert time.monotonic() - started < 5
-    assert state.orphan_process_group_id == provider.pid
-    assert state.orphan_process_group_cleanup_succeeded is True
+    assert flag.read_text() == "done"
+    assert not state.watchdog_terminated
+    assert state.orphan_process_group_id == 0
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX process-group isolation")

@@ -36,8 +36,9 @@ _WAIT_BY_BACKEND = (
     "and Copilot resumes you when it exits; elsewhere, the longest blocking calls "
     "your shell allows. Never poll in short loops."
 )
-# The bubblewrap sandbox runs on until everything started in it has exited
-# (core.sandbox), so the turn's end does not cut a detached job off.
+# A turn runs on until everything its CLI started has exited (the bubblewrap
+# sandbox, elsewhere the runner: core.turn_jobs), so the turn's end does not
+# cut a detached job off.
 _JOBS_OUTLIVE_THE_CLI = (
     " A detached job keeps running after you hand off, so stop servers you no "
     "longer need."
@@ -99,7 +100,7 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
     "-FilePath <exe> -ArgumentList <args> -RedirectStandardOutput <run>\\log.txt "
     "-RedirectStandardError <run>\\err.txt`, "
     "keep the process id, do the work that does not need the result, then wait "
-    "for it on `Wait-Process -Id <pid>`" + _WAIT_BY_BACKEND
+    "for it on `Wait-Process -Id <pid>`" + _WAIT_BY_BACKEND + _JOBS_OUTLIVE_THE_CLI
 )
 
 def _long_experiment_rule() -> str:

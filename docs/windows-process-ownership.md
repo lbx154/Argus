@@ -5,9 +5,11 @@ created with `CREATE_SUSPENDED`, assigned to the Job, then resumed. Ordinary
 children and grandchildren inherit that Job even if their immediate parent
 exits first. `CREATE_NEW_PROCESS_GROUP` alone does not detach Windows work.
 
-Argus retains the Job handle and the `Popen` process handle. Stop, watchdog,
-natural provider exit and exceptional runner exit terminate remaining Job
-members. The Job handle is non-inheritable and uses `KILL_ON_JOB_CLOSE`, so an
+Argus retains the Job handle and the `Popen` process handle. When the provider
+exits, the turn runs on until the Job has no active process: a job the role
+started is waited for, not cut off (the same rule as the bubblewrap sandbox and
+the POSIX runner, `argus/core/turn_jobs.py`). Stop, watchdog and exceptional
+runner exit terminate remaining Job members, and the stop reason names them. The Job handle is non-inheritable and uses `KILL_ON_JOB_CLOSE`, so an
 abrupt host exit also cleans up an assigned turn. No process-name matching or
 unqualified `taskkill /T` is involved; PID reuse cannot retarget cleanup.
 
@@ -26,8 +28,7 @@ does not claim to be a security sandbox. Deliberately cooperating children can
 request breakaway because the Job allows explicit `BREAKAWAY_OK`.
 
 Argus has no durable launcher of its own. A job a role starts with
-`Start-Process` stays in the turn Job and ends with the turn, which is where the
-role waits for it (`Wait-Process`).
+`Start-Process` stays in the turn Job, and the turn ends when it has ended.
 
 Prompt stdin uses a finite temporary file so startup output cannot deadlock a
 synchronous prompt write before watchdog monitoring begins. Output reader
