@@ -76,3 +76,36 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   git('add', 'big.txt');
   assert.equal((await get<{ truncated: boolean }>(W('git'))).truncated, true);
 });
+
+test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
+  const { project, call, get } = await setup(t, {
+    'site/index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css?v=1"><script src="app.js"></script>'
+      + '<style>h1 { background: url("img/dot.png") }</style></head><body><img src="img/dot.png"><a href="next.html">next</a>'
+      + '<img src="../../secret.png"><img src="https://example.com/x.png"><div style="background:url(\'/img/dot.png\')"></div></body></html>',
+    'site/style.css': 'body { background: url(img/dot.png) }',
+    'site/app.js': 'document.title = "ok";',
+    'site/img/dot.png': 'PNG',
+  });
+  const P = `/api/projects/${project.id}`;
+  const shown = await get<{ html: string; warnings: string[]; file_count: number; served_page: boolean }>(`${P}/artifact/preview?path=site/index.html`);
+  const data = (type: string, text: string) => `data:${type};base64,${Buffer.from(text).toString('base64')}`;
+  const dot = data('image/png', 'PNG');
+  assert.equal(shown.html, '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
+    + 'script-src \'unsafe-inline\' data: blob:; style-src \'unsafe-inline\' data:; img-src data: blob:; font-src data:; media-src data: blob:; '
+    + 'base-uri \'none\'; form-action \'none\'">'
+    + `<html><head><link rel="stylesheet" href="${data('text/css', `body { background: url(${dot}) }`)}">`
+    + `<script src="${data('text/javascript', 'document.title = "ok";')}"></script><style>h1 { background: url(${dot}) }</style></head>`
+    + `<body><img src="${dot}"><a href="next.html">next</a><img src="data:,"><img src="https://example.com/x.png">`
+    + `<div style="background:url(${dot})"></div></body></html>`);
+  assert.deepEqual(shown.warnings, ['Could not include local resource: ../../secret.png']);
+  assert.equal(shown.file_count, 4);
+  assert.equal(shown.served_page, false);
+  assert.equal((await call(`${P}/artifact/preview?path=site/style.css`)).status, 404);
+
+  // Results are downloaded one by one: a zip is refused, and says why.
+  for (const response of [await call(`${P}/artifact/bundle?path=site/index.html`),
+    await call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify({ paths: ['site/app.js'] }) })]) {
+    assert.equal(response.status, 501);
+    assert.match((await response.json() as { detail: string }).detail, /download each file by itself/);
+  }
+});
