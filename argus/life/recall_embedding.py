@@ -6,12 +6,12 @@ import logging
 import math
 import os
 import re
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from ..core.atomic_replace import write_atomic
 from ..core.file_lock import exclusive_file_lock
 from ..core.json_codec import loads_finite_json
 from ..core.scoped_file import open_regular_file
@@ -122,18 +122,12 @@ def save_embedding_config(state_root: Path | str, values: RecallEmbeddingConfig 
             **load_embedding_config(state_root).to_dict(), **values,
         }
         config = _validated(document)
-        descriptor, temporary = tempfile.mkstemp(prefix=".config-", dir=directory)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(config.to_dict(), handle, allow_nan=False)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, directory / "config.json")
-            from ..daemon.state import _fsync_directory
+        write_atomic(
+            directory / "config.json", json.dumps(config.to_dict(), allow_nan=False), fsync=True, mode=0o600,
+        )
+        from ..daemon.state import _fsync_directory
 
-            _fsync_directory(directory)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        _fsync_directory(directory)
         return config
 
 

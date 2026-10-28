@@ -19,11 +19,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from ...core.atomic_replace import write_atomic
 from ...core.event_catalog import EventType
 from ...core.operator_decision import build_operator_decision
 
@@ -63,26 +63,12 @@ def _record_sent(life_dir: Path, item_id: str, question: str) -> None:
     sent = _load_sent(life_dir)
     sent[item_id] = question
     path = _sent_path(life_dir)
-    tmp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-        tmp = Path(name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(sent, handle)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-        tmp = None
+        write_atomic(path, json.dumps(sent), fsync=True, mode=0o600)
     except OSError:
         # Losing the ledger costs a duplicate message, never a missed one.
         log.debug("pending-question notify: could not persist the sent ledger")
-    finally:
-        if tmp is not None:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def should_report_pending_wait(
@@ -126,35 +112,18 @@ def should_report_pending_wait(
     ):
         return False
 
-    tmp: Path | None = None
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(
-            dir=directory,
-            prefix=f".{_WAIT_RELPATH}.",
-            suffix=".tmp",
+        write_atomic(
+            path,
+            json.dumps({"signature": signature, "reported_at": timestamp}, ensure_ascii=False),
+            fsync=True,
+            mode=0o600,
         )
-        tmp = Path(name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(
-                {"signature": signature, "reported_at": timestamp},
-                handle,
-                ensure_ascii=False,
-            )
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-        tmp = None
     except OSError:
         # If state cannot be persisted, prefer one duplicate status over
         # suppressing the only visible explanation for an idle daemon.
         log.debug("pending-question wait: could not persist dedup state")
-    finally:
-        if tmp is not None:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
     return True
 
 

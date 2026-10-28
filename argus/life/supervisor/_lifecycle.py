@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ...core.atomic_replace import write_atomic
 from ...core.event_catalog import EventType
 from ..memory import BacklogItem
 from ..project_lifecycle import (
@@ -87,9 +87,7 @@ class LifecycleMixin:
                 return
             per_root.mkdir(parents=True, exist_ok=True)
             data = global_file.read_text(encoding="utf-8")
-            tmp = per_file.with_name(per_file.name + ".tmp")
-            tmp.write_text(data, encoding="utf-8")
-            os.replace(tmp, per_file)
+            write_atomic(per_file, data)
             try:
                 global_file.replace(
                     global_file.with_name(global_file.name + ".migrated")

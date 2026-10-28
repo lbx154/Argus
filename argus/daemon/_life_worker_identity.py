@@ -21,6 +21,7 @@ try:
 except ImportError:  # pragma: no cover - detached daemon is POSIX-only
     _fcntl = None
 
+from ..core.atomic_replace import write_atomic
 from .config import LifeWorkerConfig
 from .state import (
     RESUMABLE_STOP_REASONS,
@@ -50,7 +51,6 @@ def _write_manager_handoff_identity(
     source_objective_path: str = "",
 ) -> bool:
     path = _manager_handoff_identity_path(runtime_root)
-    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     payload = {
         "version": 4,
         "objective": str(objective).strip(),
@@ -67,20 +67,11 @@ def _write_manager_handoff_identity(
         )
         payload["source_objective"] = str(source_objective).strip()
     try:
-        tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
+        write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         return True
     except OSError:
         log.exception("failed to persist Manager handoff identity: %s", path)
         return False
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _read_manager_handoff_identity(runtime_root: Path) -> dict[str, Any] | None:

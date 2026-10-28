@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
+from ..core.atomic_replace import write_atomic
 from ..core.daemon_lock import (
     DaemonAlreadyRunning,
     acquire_global_daemon_lock,
@@ -113,13 +114,10 @@ def _handoff_config_path(life_dir: Path, token: str) -> Path:
 def request_deployment_handoff(receipt_dir: Path, candidate_source_root: Path) -> None:
     """Offer one fully deployed runtime to the daemon at its next boundary."""
     receipt_dir.mkdir(parents=True, exist_ok=True)
-    target = receipt_dir / _DEPLOYMENT_ROLL_FILE
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(
+    write_atomic(
+        receipt_dir / _DEPLOYMENT_ROLL_FILE,
         json.dumps({"candidate_source_root": str(candidate_source_root.resolve())}),
-        encoding="utf-8",
     )
-    temporary.replace(target)
 
 
 def _consume_deployment_handoff(life_dir: Path) -> Path | None:

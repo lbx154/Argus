@@ -40,6 +40,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from ...core.atomic_replace import write_atomic
 from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_HOURS, AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.event_catalog import EventType
 from ...core.file_facts import file_facts
@@ -223,8 +224,8 @@ class PlannerFailureBackoffMixin:
             if not payload.get("streak"):
                 path.unlink(missing_ok=True)
                 return
-            temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-            temporary.write_text(
+            write_atomic(
+                path,
                 json.dumps(
                     {
                         **payload,
@@ -233,9 +234,7 @@ class PlannerFailureBackoffMixin:
                     },
                     sort_keys=True,
                 ),
-                encoding="utf-8",
             )
-            os.replace(temporary, path)
         except OSError:
             log.warning("could not persist the planner failure streak", exc_info=True)
 

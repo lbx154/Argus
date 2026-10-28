@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ...core.atomic_replace import write_atomic
 from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
@@ -504,15 +504,7 @@ class PlanningContextMixin:
         if not unchanged_since or not current_signature:
             return False
         payload[key] = current_signature
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-        try:
-            tmp.write_text(
-                json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(tmp, path)
-        finally:
-            tmp.unlink(missing_ok=True)
+        write_atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
         return True
 
     def _operator_only_external_blocker_wait_reason(self) -> str:
@@ -812,22 +804,12 @@ class PlanningContextMixin:
     def _write_manager_planner_feedback(self, payload: dict[str, Any]) -> bool:
         path = self._manager_planner_feedback_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
         try:
-            tmp.write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(tmp, path)
+            write_atomic(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
             return True
         except OSError:
             log.exception("failed to persist Manager feedback: %s", path)
             return False
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
 
     def _manager_directive_signature(self) -> list[str]:
         """The newest Manager directive handed to the Planner, not one for the team."""

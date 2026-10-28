@@ -13,11 +13,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, TypeGuard
 
+from ..core.atomic_replace import write_atomic
 from ..core.event_catalog import EventType
 from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
 
@@ -119,16 +119,11 @@ class MissionEventIndex:
                 # recovered event durable before installing its written row.
                 os.fsync(handle.fileno())
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            with temporary.open("wb") as handle:
-                for row in recovered.values():
-                    handle.write((json.dumps(row, sort_keys=True) + "\n").encode())
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self.path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        write_atomic(
+            self.path,
+            b"".join((json.dumps(row, sort_keys=True) + "\n").encode() for row in recovered.values()),
+            fsync=True,
+        )
         sync_directory(self.root)
 
     def append(self, row: dict[str, Any]) -> None:

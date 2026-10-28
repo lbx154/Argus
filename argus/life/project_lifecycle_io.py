@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
 import weakref
 from contextlib import contextmanager
@@ -37,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..core.atomic_replace import write_atomic
 from .project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -201,24 +201,7 @@ def _write_persisted_unlocked(
         ),
         "history": [e.to_dict() for e in history],
     }
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    write_atomic(path, json.dumps(payload, indent=2) + "\n", fsync=True, mode=0o600)
     return path
 
 

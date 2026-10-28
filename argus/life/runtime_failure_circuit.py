@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import time
 import traceback
@@ -23,6 +22,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..core.atomic_replace import write_atomic
 from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -66,18 +66,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
-    finally:
-        try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 @contextmanager
