@@ -182,3 +182,33 @@ def test_the_planning_slot_s_open_question_stays_as_asked_beside_other_tasks_que
 
     asked = {row.title: row.pending_question for row in backlog.active()}
     assert asked == {"Adopt reviewed change": "Adopt it?", "keep improving the solver": "Keep A or B?"}
+
+
+def test_a_stage_the_planner_moves_to_without_new_tasks_is_applied(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """s-5dc7ab4a (2026-10-27): Idea passed review and the Planner answered
+    advance_to_stage=experiment with no tasks yet, to=engineer. The handoff
+    phase returned before the phase that applies a stage request, so the move
+    was dropped without a word; the stage stayed Idea, the Planner may only
+    plan the current stage, and the project sat 10 h with nothing to run."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _install_planner(monkeypatch, [
+        PlannerVerdict(
+            project_done=False,
+            summary="Idea passed review; measure deployment cost next.",
+            handoff="engineer",
+            advance_to_stage="experiment",
+        ),
+    ])
+    applied: list[str] = []
+    monkeypatch.setattr(
+        "argus.life.supervisor._planning_cycle_enqueue._apply_planner_stage_request",
+        lambda **kwargs: applied.append(kwargs["requested_stage"]),
+    )
+    supervisor = _supervisor(project, tmp_path / "life")
+
+    supervisor._plan_next_work()
+
+    assert applied == ["experiment"]
