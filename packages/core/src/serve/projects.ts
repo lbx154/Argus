@@ -1,5 +1,5 @@
-// What the operator sets on a project: its directory, its name, and the backend, model and
-// reasoning effort of all its roles; and across projects: the sidebar's pins and archive, kept in
+// What the operator sets on a project: its directory, its name, the backend, model and reasoning
+// effort of all its roles, and a fresh Manager session; and across projects: the sidebar's pins and archive, kept in
 // $ARGUS_HOME/browser-state.json, and what each project has spent. A project's record is changed
 // only while nothing is under way on it, since the work under way holds the record and writes it back.
 
@@ -73,6 +73,11 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
       edit(id!, work => { if (name) work.name = name; else delete work.name; });
       return { ok: true, sid: id, name };
+    }],
+    // The Manager's next turn starts a new session; the record it reads stays as it is.
+    ['POST', /^\/api\/projects\/([^/]+)\/reset$/, ({ params: [id] }) => {
+      edit(id!, work => { delete work.sessions.manager; });
+      return { ok: true };
     }],
     ['GET', /^\/api\/browser-state\/organization$/, () => kept().organization ?? { value: {}, revision: 0 }],
     ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {

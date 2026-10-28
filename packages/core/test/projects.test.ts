@@ -198,3 +198,19 @@ test('the manifest that makes the cockpit installable is the built one, and need
   assert.deepEqual(await manifest.json(), { name: 'Argus' });
   assert.equal((await call('/api/projects', { headers: { authorization: '' } })).status, 401);
 });
+
+test('resetting the conversation gives the Manager a new session, and keeps the record', async t => {
+  const { store, requests, send, create, busy } = await setup(t);
+  const sid = await create();
+  const P = `/api/projects/${sid}`;
+  await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
+  assert.equal(store.load(sid).sessions.manager, 'thread');
+  const cancel = await busy(sid);
+  assert.equal((await send('POST', `${P}/reset`)).status, 409);
+  await cancel();
+  assert.deepEqual(await (await send('POST', `${P}/reset`)).json(), { ok: true });
+  assert.deepEqual(store.load(sid).sessions, {});
+  assert.equal(store.load(sid).request, 'Hi');
+  await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
+  assert.deepEqual(requests.map(request => request.resume), [undefined, 'thread', undefined]);
+});
