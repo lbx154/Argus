@@ -109,7 +109,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
   const routes: [string, RegExp, Handler][] = [
     ...drafts(store, project), ...trash(store, runs, project), ...attachments(project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
-    // And for the saved maps it may open beside a project's.
+    // The brand is Argus's own, so its manifest is the one the page was built with.
+    ['GET', /^\/api\/application-brand\/manifest\.webmanifest$/, ({ request, response }) => {
+      if (!sendStatic(request, response, options.web, '/manifest.webmanifest')) throw new HttpError(404, 'Not Found');
+    }],
+    // The page asks for the saved maps it may open beside a project's; this server keeps none.
     ['GET', /^\/api\/map-datasets$/, () => ({ datasets: [] })],
     ['GET', /^\/api\/projects$/, () => ({
       projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
@@ -214,7 +218,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       response.setHeader('cache-control', 'no-store');
       return json(response, 200, meta(authorized(request)));
     }
-    if (url.pathname !== '/api/application-brand' && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
+    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
     for (const [verb, pattern, handler] of routes) {
       const match = pattern.exec(url.pathname);
       if (!match || verb !== method) continue;

@@ -9,7 +9,7 @@ import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
 /** A cockpit whose Manager answers at once, or, to a message that says `<hang>`, once it is cancelled. */
-async function setup(t: TestContext) {
+async function setup(t: TestContext, token?: string) {
   const home = await mkdtemp(join(tmpdir(), 'argus-projects-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const web = join(home, 'web');
@@ -23,9 +23,10 @@ async function setup(t: TestContext) {
     return { callId: 'c', threadId: 'thread', completed: Boolean(handoff), error: handoff ? null : 'interrupted', handoff, model: null, usage: null, ms: 1 };
   };
   const store = new Store(home);
-  const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web });
+  const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web, ...(token ? { token } : {}) });
   t.after(() => served.close());
-  const call = (path: string, init: RequestInit = {}) => fetch(served.url + path, init);
+  const call = (path: string, init: RequestInit = {}) =>
+    fetch(served.url + path, { ...init, headers: { ...token ? { authorization: `Bearer ${token}` } : {}, ...init.headers } });
   const send = (method: string, path: string, body?: unknown) =>
     call(path, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
   const get = async <T = Record<string, unknown>>(path: string): Promise<T> => {
@@ -187,4 +188,13 @@ test('the spend of every project, which the page asks for every few seconds', as
   assert.deepEqual(cost, { id: spent, spend_usd: 0.75, known_cost_usd: 0.75, spend_status: 'priced', usage_calls: 2, premium_requests: 0 });
   assert.ok(Number(updated_at) > 0);
   assert.deepEqual([rows[idle]!.usage_calls, rows[idle]!.known_cost_usd], [0, 0]);
+});
+
+test('the manifest that makes the cockpit installable is the built one, and needs no token', async t => {
+  const { call } = await setup(t, 'secret');
+  const manifest = await call('/api/application-brand/manifest.webmanifest', { headers: { authorization: '' } });
+  assert.equal(manifest.status, 200);
+  assert.equal(manifest.headers.get('content-type'), 'application/manifest+json');
+  assert.deepEqual(await manifest.json(), { name: 'Argus' });
+  assert.equal((await call('/api/projects', { headers: { authorization: '' } })).status, 401);
 });
