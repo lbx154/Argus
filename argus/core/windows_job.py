@@ -14,8 +14,6 @@ import uuid
 
 _JOB_ENV = "ARGUS_WINDOWS_TURN_JOB"
 _CREATE_SUSPENDED = 0x00000004
-_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-_JOB_OBJECT_QUERY = 0x0004
 
 
 def _kernel():
@@ -25,15 +23,12 @@ def _kernel():
     api = ctypes.WinDLL("kernel32", use_last_error=True)
     signatures = {
         "CreateJobObjectW": ([w.LPVOID, w.LPCWSTR], w.HANDLE),
-        "OpenJobObjectW": ([w.DWORD, w.BOOL, w.LPCWSTR], w.HANDLE),
         "SetInformationJobObject": ([w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD], w.BOOL),
         "QueryInformationJobObject": (
             [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD, w.LPVOID], w.BOOL,
         ),
         "AssignProcessToJobObject": ([w.HANDLE, w.HANDLE], w.BOOL),
         "TerminateJobObject": ([w.HANDLE, w.UINT], w.BOOL),
-        "IsProcessInJob": ([w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)], w.BOOL),
-        "GetCurrentProcess": ([], w.HANDLE),
         "CreateToolhelp32Snapshot": ([w.DWORD, w.DWORD], w.HANDLE),
         "Thread32First": ([w.HANDLE, w.LPVOID], w.BOOL),
         "Thread32Next": ([w.HANDLE, w.LPVOID], w.BOOL),
@@ -252,29 +247,3 @@ def terminate_owned_process(process) -> bool | None:
         return False
     return result
 
-
-def durable_windows_creationflags() -> int:
-    """Allow only an explicit durable launcher to leave its current turn Job.
-
-    An inherited name alone is insufficient: check actual membership before
-    requesting breakaway. An outer host Job can refuse breakaway; the launcher
-    then fails visibly rather than silently creating a falsely durable child.
-    """
-    if os.name != "nt" or not (name := os.environ.get(_JOB_ENV, "")):
-        return 0
-    import ctypes
-    from ctypes import wintypes as w
-
-    api = _kernel()
-    handle = api.OpenJobObjectW(_JOB_OBJECT_QUERY, False, name)
-    if not handle:
-        if ctypes.get_last_error() == 2:
-            return 0  # A former turn ended after this worker already detached.
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        member = w.BOOL()
-        if not api.IsProcessInJob(api.GetCurrentProcess(), handle, ctypes.byref(member)):
-            raise ctypes.WinError(ctypes.get_last_error())
-        return _CREATE_BREAKAWAY_FROM_JOB if member.value else 0
-    finally:
-        api.CloseHandle(handle)

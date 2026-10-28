@@ -16,7 +16,7 @@ from urllib.parse import quote
 import pytest
 
 from argus.core import runtime_identity as runtime_identity_module
-from argus.core.session import SessionMeta, touch_session, write_session_meta
+from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon import commands as daemon_commands
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon import protocol as daemon_protocol
@@ -1088,8 +1088,6 @@ def test_project_delete_moves_stopped_session_to_trash(ctx) -> None:
     assert r.json()["workdir"] == str(workdir)
     assert r.json()["workdir_preserved"] is True
     assert (workdir / "result.txt").read_text(encoding="utf-8") == "operator result"
-    touch_session(root, sid, display_name="must not resurrect")
-    assert not life.exists()
 
 
 def test_project_trash_can_be_listed_and_restored(ctx) -> None:

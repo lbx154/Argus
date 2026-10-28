@@ -15,9 +15,7 @@ from argus.core.session import (
     SessionResolutionError,
     list_sessions,
     new_session_id,
-    read_session_meta,
     resolve_session,
-    touch_session,
 )
 from argus.life.memory import MemoryBundle
 
@@ -60,16 +58,6 @@ def test_list_sessions_newest_first_and_includes_legacy(tmp_path):
     assert "07197071cf43" in ids  # legacy still listed (resumable)
     legacy_meta = next(s for s in sessions if s.id == "07197071cf43")
     assert legacy_meta.objective == "old work"
-
-
-def test_touch_creates_missing_metadata_with_requested_timestamp(tmp_path):
-    (tmp_path / "projects" / "s-missing").mkdir(parents=True)
-    touch_session(tmp_path, "s-missing", display_name="Recovered", now=123)
-    meta = read_session_meta(tmp_path, "s-missing")
-    assert meta is not None
-    assert meta.created == 123
-    assert meta.last_active == 123
-    assert meta.display_name == "Recovered"
 
 
 def test_memory_bundle_keys_by_session_id_not_cwd(tmp_path):

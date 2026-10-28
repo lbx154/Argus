@@ -10,10 +10,10 @@ import pytest
 from argus.core import secret_guard
 from argus.core.secret_guard import (
     ArtifactChangedDuringScrubError,
+    _redact_text_with_count,
     _write_redacted,
     redact_secrets_record,
     redact_secrets_text,
-    redact_secrets_text_with_count,
     scrub_recent_text_artifacts,
 )
 from argus.engineer.runner import _apply_round_secret_guard
@@ -93,7 +93,7 @@ def test_git_scrub_ignores_recent_but_unchanged_fixture(tmp_path: Path) -> None:
 
 
 def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> None:
-    redacted, count = redact_secrets_text_with_count(
+    redacted, count = _redact_text_with_count(
         "Cookie: response-secret-value\r\nstatus: 200\r\n"
     )
     assert "response-secret-value" not in redacted
@@ -101,7 +101,7 @@ def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> No
     assert "\r\nstatus: 200\r\n" in redacted
     assert count == 1
 
-    same, second_count = redact_secrets_text_with_count(redacted)
+    same, second_count = _redact_text_with_count(redacted)
     assert same == redacted
     assert second_count == 0
 
@@ -596,7 +596,6 @@ def test_redaction_is_off_by_default(redaction_default) -> None:
     record = {"token": "live-abcdef1234567890", "nested": [line]}
 
     assert redact_secrets_text(line, known_values=("abcdefghijklmnopqrstu",)) == line
-    assert redact_secrets_text_with_count(line) == (line, 0)
     assert redact_secrets_record(record) is record
 
 

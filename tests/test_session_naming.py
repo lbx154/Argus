@@ -53,10 +53,10 @@ def test_maybe_name_session_uses_concise_manager_title(tmp_path):
 
 
 def test_maybe_name_session_never_overwrites_persisted_name(tmp_path):
-    from argus.core.session import read_session_meta, resolve_session, touch_session
+    from argus.core.session import read_session_meta, resolve_session, update_session_meta
 
     sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=1)
-    touch_session(tmp_path, sid, display_name="已有名称")
+    update_session_meta(tmp_path, sid, lambda meta: setattr(meta, "display_name", "已有名称"), create=True)
     cs = {"session_named": False, "session_id": sid, "global_root": tmp_path}
     _maybe_name_session(cs, "新任务", suggested_name="新名称")
     assert read_session_meta(tmp_path, sid).display_name == "已有名称"

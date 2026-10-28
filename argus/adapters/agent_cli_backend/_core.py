@@ -198,11 +198,6 @@ class AgentCliBackend:
         """Effective CLI backend after executable-availability fallback."""
         return str(self._backend_name)
 
-    @property
-    def tool_activity_observation_supported(self) -> bool:
-        """DSH has no structured stream from which to observe tool use."""
-        return self._backend_name != "dsh"
-
     def set_usage_context(
         self,
         *,

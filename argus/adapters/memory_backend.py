@@ -88,10 +88,6 @@ class MemoryBackend:
 
     backend = "memory"
 
-    @property
-    def tool_activity_observation_supported(self) -> bool:
-        return False
-
     def queue(self, run_label: str, *responses: CannedResponse) -> None:
         bucket = self._queues.setdefault(run_label, [])
         bucket.extend(responses)

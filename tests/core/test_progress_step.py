@@ -69,7 +69,7 @@ def test_completion_echo_of_one_call_renders_once() -> None:
     start = {"kind": "tool_use", "call_id": "c-1", "status": "running", "text": 'view: {"path": "a.py"}'}
     done = {**start, "status": "completed"}
     assert dedupe.classify(start, describe_progress_step(start)[0]) == "new"
-    assert dedupe.is_repeat(done, describe_progress_step(done)[0]) is True
+    assert dedupe.classify(done, describe_progress_step(done)[0]) == "repeat"
 
 
 @pytest.mark.parametrize(
