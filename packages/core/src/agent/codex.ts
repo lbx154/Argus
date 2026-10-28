@@ -21,11 +21,12 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
     '-c', 'notify=[]', '-c', 'background_terminal_max_timeout=9223372036854775807',
     ...request.model ? ['-m', request.model] : [],
     ...request.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(request.effort)}`] : [],
-    // Inside bubblewrap the sandbox is bubblewrap's; outside it, codex's own. On Windows that is off,
-    // and every command refused, until one is chosen: this one needs no administrator.
+    // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
+    // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
+    // command refused, until one is chosen: this one needs no administrator.
     '-c', 'windows.sandbox="unelevated"',
-    ...request.access !== 'write' ? ['-c', 'sandbox_mode="read-only"']
-      : confined ? ['--dangerously-bypass-approvals-and-sandbox']
+    ...confined ? ['--dangerously-bypass-approvals-and-sandbox']
+      : request.access !== 'write' ? ['-c', 'sandbox_mode="read-only"']
       : ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true',
         '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(request.writeDirs ?? [])}`],
     ...request.access === 'none' ? ['-c', 'features.shell_tool=false'] : [],

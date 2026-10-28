@@ -27,7 +27,7 @@ export type Recorded = FlowEvent & { ts: string };
 const ROLES: Role[] = ['manager', 'planner', 'engineer', 'reviewer'];
 const NAMES: Record<Role, string> = { manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer' };
 const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
-const SETTLED: Record<Exclude<TaskStatus, 'open'>, string> = { done: 'done', returned: 'skipped' };
+const SETTLED: Record<Exclude<TaskStatus, 'open'>, string> = { closed: 'done' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
@@ -46,7 +46,6 @@ export function webEvents(events: Recorded[]): EventMsg[] {
   const rows: EventMsg[] = [];
   let asked: number | null = null;
   let call = '';
-  let handedBy: Role | null = null;
   events.forEach((event, line) => {
     const row = (type: string, fields: Record<string, unknown>): void => {
       rows.push({ type, ts: seconds(event.ts), event_id: line, ...fields });
@@ -67,7 +66,6 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         });
         break;
       case 'handoff':
-        handedBy = event.role;
         // The Manager's letter is its reply, unless it asks: the decision card carries a question.
         if (event.role === 'manager' && event.to !== 'operator') {
           row('ui.argus', { agent_layer: 'manager', text: event.letter, message_id: `m${asked ?? line}-argus` });
@@ -83,12 +81,12 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         }
         break;
       case 'task.added':
-        // A Planner lines tasks up; the Manager's direct ticket is a task that starts at once.
-        row(handedBy === 'planner' ? 'life.planner.task_added' : 'life.mission.started',
+        // A Planner's task joins its plan; a task from the Manager starts at once.
+        row(event.task.from === 'planner' ? 'life.planner.task_added' : 'life.mission.started',
           { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: [] });
         break;
-      case 'task.settled':
-        if (event.status === 'done') row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
+      case 'task.closed':
+        row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
         break;
       case 'status':
         if (event.status === 'failed') row('life.status', { operator_alert: true, text: event.error ?? 'The work stopped.' });
@@ -134,7 +132,7 @@ export function daemon(project: Project, live: Live): Daemon {
 function backlog(project: Project): BacklogItem[] {
   const next = nextTask(project);
   return project.tasks.map(task => ({
-    id: task.id, title: task.title, objective: task.objective || (project.ticket?.brief ?? ''), priority: 0, deps: [],
+    id: task.id, title: task.title, objective: task.objective, priority: 0, deps: [],
     status: task.status !== 'open' ? SETTLED[task.status] : project.question?.task === task.id ? 'blocked' : task === next ? 'in_progress' : 'pending',
   }));
 }
@@ -178,7 +176,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     pending_questions: questions(project),
     manager_requests: live.requests.map(request_id => ({ request_id, status: 'running' as const })),
     launch_hold: null,
-    goal: project.ticket?.brief ?? project.request,
+    goal: project.request,
     partial: false,
     diagnostics: [],
   };

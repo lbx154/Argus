@@ -8,34 +8,32 @@ import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts
 import type { AgentRequest, Form, HandOff } from '../types.js';
 
 const STUCK = 'the process is stuck (an environment, tool, access, credential or quota failure, or the same error repeating) and needs the Manager to debug it';
-const OPERATOR = 'only for what the operator alone can decide (a choice they reserved, requirements of theirs that conflict, words of theirs that read two ways where the reading changes the result): the letter is your question';
+const OPERATOR = 'only for what the operator alone can decide (a choice they reserved, requirements of theirs that conflict, words of theirs that read two ways where the reading changes the result): the letter is your question, and the work waits for the answer';
 
-/** Whom each role can write to, and what that letter means. */
+/** Whom each role can write to, and what such a letter is for. Every addressee is someone who
+ * acts on it: the work is never sent to a state such as done. */
 const TO: Record<Form, Record<string, string>> = {
   manager: {
-    engineer: 'one coherent piece of work; the letter is its whole brief',
-    planner: 'work in several dependent steps for the Planner to divide; the letter is its whole brief',
-    operator: OPERATOR,
-    manager: 'nothing for the team: the letter is your answer to the operator',
+    engineer: 'one coherent piece of work, opened as a task; the letter is its whole brief',
+    planner: 'work in several dependent steps for the Planner to divide, or word on the work it runs; the letter is its whole brief',
+    operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next task starts; the letter is its whole brief: the decision, its inputs and its check',
-    manager: STUCK,
+    engineer: 'the next task; the letter is its whole brief: the decision, its inputs and its check',
+    manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
-    done: 'the operator\'s complete goal is met',
   },
   engineer: {
     reviewer: 'the work is ready for the independent review (do not start one yourself or through a subagent)',
     engineer: 'you keep working next turn',
-    planner: 'the task is mis-scoped',
-    manager: STUCK,
+    planner: 'a task the Planner gave cannot go on as briefed',
+    manager: `a task the Manager gave cannot go on as briefed; or ${STUCK}`,
     operator: OPERATOR,
   },
   review: {
-    done: 'you accept it, only after checking each requirement and check of the task against the deliverable: tests the Engineer wrote show the code matches its reading of the task, not that the reading is right',
     engineer: 'concrete in-scope repairs, named in the letter',
-    planner: 'the task or the plan is wrong',
-    manager: STUCK,
+    planner: 'your judgment on a task the Planner gave: accepted, only after checking each requirement and check of the task against the deliverable (tests the Engineer wrote show the code matches its reading of the task, not that the reading is right), or why the task or the plan is wrong',
+    manager: `your judgment on a task the Manager gave, as for the Planner's; or ${STUCK}`,
     operator: OPERATOR,
   },
 };

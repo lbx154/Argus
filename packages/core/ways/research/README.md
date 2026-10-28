@@ -141,7 +141,7 @@ it could not run; its first lines say what it checks.
 | `paper.mjs` | paper/main.pdf is newer than everything it shows and its log names no undefined reference; every citation is in the bibliography with a doi, url, eprint or isbn; every figure exists, has its source record, is newer than its source and data, and has no Type 3 font or matplotlib raster | a Paper or Review task |
 
 The Engineer runs the checks for its step before handing the work to the Reviewer, and puts their
-output in `.argus/evidence/`. The Reviewer runs them again before writing to=done or, where its
+output in `.argus/evidence/`. The Reviewer runs them again before it accepts the work or, where its
 sandbox cannot run them, reads that output. A failure is a repair to return, unless the letter
 says why it does not apply to this work.
 

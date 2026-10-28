@@ -1,13 +1,14 @@
-// The flow: every turn ends in a letter and its addressee. The operator writes to the Manager;
-// the Manager's brief becomes one task, or goes to the Planner, who hands out one task at a
-// time; the Engineer and the Reviewer write to each other about a task. The Planner is called
-// when no task is open and something came to it. Where work goes next is the addressee and
-// nothing else; the letter is passed on as written. A failed turn is recorded and the flow
-// stops, without a retry; a hand-off Argus refuses goes back to its writer once.
+// The flow: every turn ends in a letter to someone. The operator writes to the Manager. A letter
+// to the Engineer opens a task, whose brief it is; the Engineer and the Reviewer write to each
+// other about it, and their letter to anyone else closes it. The Planner reads its letters when
+// no task is open; a letter to the Manager is answered at once. Nothing is done or finished:
+// the work rests when no letter waits for anyone but the operator. Where work goes is the
+// addressee and nothing else; the letter is passed on as written. A failed turn is recorded and
+// the flow stops, without a retry; a hand-off Argus refuses goes back to its writer once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Project, Status, Store, Task, TaskStatus } from './store.js';
+import type { FlowEvent, Project, Status, Store, Task } from './store.js';
 import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt, WAYS } from './prompts.js';
 
 const ROLES: Record<Role, { form: Form; access: Access }> = {
@@ -45,8 +46,7 @@ export class Flow {
     project.question = null;
     this.status(project, 'working');
     const note = answered(question.question, text);
-    if (question.role === 'manager') await this.manager(project, text);
-    else if (question.role === 'planner') project.inbox.push(note);
+    if (question.role === 'planner') project.inbox.push(note);
     else Object.assign(this.task(project, question.task), { holder: question.role, note: { from: 'operator', text: note } });
     await this.run(project);
     return project;
@@ -64,7 +64,6 @@ export class Flow {
     while (project.status === 'working' && !this.options.signal?.aborted) {
       const task = nextTask(project);
       if (task) await this.work(project, task);
-      else if (complete(project)) this.finish(project);
       else if (project.inbox.length) await this.plan(project);
       else this.status(project, 'idle');
     }
@@ -75,35 +74,29 @@ export class Flow {
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(project, this.store.dir(project.id), message, resumed), checkManager(project)))?.handoff;
     if (!handoff) return;
-    if (handoff.to === 'operator') this.ask(project, 'manager', null, handoff.letter);
-    else if (handoff.to === 'engineer' || handoff.to === 'planner') this.file(project, handoff.to, handoff.letter);
-  }
-
-  /** A ticket, the Manager's brief: one task for the Engineer, or the Planner's to divide. */
-  private file(project: Project, to: 'engineer' | 'planner', brief: string): void {
-    project.ticket = { brief, task: null };
-    if (to === 'planner') project.inbox.push('The Manager filed the ticket above: plan its work.');
-    else project.ticket.task = this.add(project, title(brief), '').id;
-    this.status(project, 'working');
+    // A letter to the operator is the Manager's reply; one to the team sets it working.
+    const { to, letter } = handoff;
+    if (to === 'operator') return;
+    if (to === 'engineer') this.open(project, 'manager', letter);
+    else project.inbox.push(handedTo('manager', null, letter));
+    if (!project.question) this.status(project, 'working');
   }
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed)))?.handoff;
+    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store.dir(project.id), task, resumed)))?.handoff;
     if (!handoff) return;
     const { to, letter } = handoff;
     switch (to) {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
         break;
-      case 'done':
-        this.settle(project, task, 'done', handedTo(role, task, letter));
-        break;
       case 'planner':
-        this.settle(project, task, 'returned', handedTo(role, task, letter));
+        this.close(project, task, role, letter);
+        project.inbox.push(handedTo(role, task, letter));
         break;
       case 'manager':
-        this.settle(project, task, 'returned');
+        this.close(project, task, role, letter);
         await this.manager(project, handedTo(role, task, letter));
         break;
       case 'operator':
@@ -112,12 +105,11 @@ export class Flow {
   }
 
   private async plan(project: Project): Promise<void> {
-    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, resumed)))?.handoff;
+    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, this.store.dir(project.id), resumed)))?.handoff;
     if (!handoff) return;
     project.inbox = [];
     const { to, letter } = handoff;
-    if (to === 'engineer') this.add(project, title(letter), letter);
-    else if (to === 'done') this.finish(project);
+    if (to === 'engineer') this.open(project, 'planner', letter);
     else if (to === 'operator') this.ask(project, 'planner', null, letter);
     else await this.manager(project, handedTo('planner', null, letter));
   }
@@ -137,8 +129,8 @@ export class Flow {
       result = await this.callAgent({
         backend: project.backend, role, ...ROLES[role], cwd: project.workdir,
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
-        // Every role reads the ways of working; the Manager and the Planner, Argus's record too.
-        readDirs: task ? [WAYS] : [dir, WAYS], ...(project.model ? { model: project.model } : {}),
+        // Every role reads Argus's record of the project and the ways of working.
+        readDirs: [dir, WAYS], ...(project.model ? { model: project.model } : {}),
         ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
         ...(formCheck ? { check: formCheck } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
@@ -161,28 +153,23 @@ export class Flow {
     return null;
   }
 
-  private add(project: Project, title: string, objective: string): Task {
-    const task: Task = { id: `t${project.tasks.length + 1}`, title, objective, status: 'open', holder: 'engineer', note: null };
+  /** A letter to the Engineer opens a task; its first line names it. */
+  private open(project: Project, from: Task['from'], letter: string): void {
+    const title = letter.split('\n')[0]!.slice(0, 100);
+    const task: Task = { id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
-    return task;
   }
 
-  /** Close a task; `notice` tells the Planner. */
-  private settle(project: Project, task: Task, status: TaskStatus, notice?: string): void {
-    Object.assign(task, { status, note: null });
-    if (notice) project.inbox.push(notice);
-    this.record(project, { type: 'task.settled', task: task.id, status });
+  /** A letter out of the task closes it, and stays on it as its last word. */
+  private close(project: Project, task: Task, from: Role, letter: string): void {
+    Object.assign(task, { status: 'closed', note: { from, text: letter } });
+    this.record(project, { type: 'task.closed', task: task.id });
   }
 
   private ask(project: Project, role: Role, task: Task | null, question: string): void {
     project.question = { role, task: task?.id ?? null, question };
     this.status(project, 'asking');
-  }
-
-  private finish(project: Project): void {
-    project.inbox = [];
-    this.status(project, 'done');
   }
 
   private status(project: Project, status: Status, error: string | null = null): void {
@@ -212,20 +199,12 @@ export function nextTask({ tasks }: Project): Task | undefined {
   return tasks.find(task => task.status === 'open');
 }
 
-/** A ticket for the Engineer is complete when its task is accepted and no other task is open. */
-function complete({ ticket, tasks }: Project): boolean {
-  return !!ticket && tasks.some(task => task.id === ticket.task && task.status === 'done') && tasks.every(task => task.status !== 'open');
-}
-
-/** A brief's first line names its task. */
-function title(brief: string): string {
-  return brief.trim().split('\n')[0]!.slice(0, 100);
-}
-
 type Check = (handoff: HandOff) => string | null;
 
-/** The rule the Manager's form cannot say: the team works one ticket at a time. A returned string
+/** The rule the Manager's form cannot say: the Engineer works one task at a time. A returned string
  * refuses the hand-off, and the Manager corrects it in one more turn of its session. */
-const checkManager = (project: Project): Check => ({ to }) =>
-  (to === 'engineer' || to === 'planner') && (project.question || project.tasks.some(task => task.status === 'open'))
-    ? 'The team is still on the current ticket: write to=manager now, and hand on new work once that ticket is done.' : null;
+const checkManager = (project: Project): Check => ({ to }) => {
+  const open = nextTask(project);
+  return to === 'engineer' && open
+    ? `The Engineer is still on ${open.id} (${open.title}): write to the Planner to steer the work, or to the operator.` : null;
+};

@@ -22,9 +22,9 @@ const firstLine = (text: string): string => text.split('\n')[0]!;
 
 function show(event: FlowEvent): void {
   const who = 'role' in event ? [event.role, event.task].filter(Boolean).join(' ') : '';
-  // The Manager's letter to the operator is read in full, as is a question; other letters by their first line.
+  // A letter to the operator is read in full (a question when the work waits on it); others by their first line.
   if (event.type === 'call.start') write(`${who} ...`);
-  else if (event.type === 'handoff') write(event.to === 'manager' && event.role === 'manager' ? `\n${event.letter}\n` : `${who} -> ${event.to}: ${firstLine(event.letter)}`);
+  else if (event.type === 'handoff') write(event.to === 'operator' ? `\n${event.letter}\n` : `${who} -> ${event.to}: ${firstLine(event.letter)}`);
   else if (event.type === 'task.added') write(`+ ${event.task.id} ${event.task.title}`);
   else if (event.type === 'status' && event.question) write(`\n${event.question.question}\n`);
   else if (event.type === 'status' && event.status !== 'working') write(event.error ? `failed: ${event.error}` : event.status);
@@ -35,9 +35,8 @@ function status(store: Store, id: string | undefined): void {
     for (const project of store.list()) write(`${project.id}  ${project.status.padEnd(7)}  ${project.request.split('\n')[0]!.slice(0, 60)}  (${project.workdir})`);
     return;
   }
-  const { status, workdir, request, ticket, tasks, question, error } = store.load(id);
+  const { status, workdir, request, tasks, question, error } = store.load(id);
   write(`${id}  ${status}  ${workdir}\nrequest: ${request}`);
-  if (ticket) write(`ticket: ${firstLine(ticket.brief)}`);
   for (const task of tasks) write(`  ${task.id}  ${(task.status === 'open' ? `open, ${task.holder}` : task.status).padEnd(15)}  ${task.title}`);
   if (question) write(`question: ${question.question}`);
   if (error) write(`error: ${error}`);

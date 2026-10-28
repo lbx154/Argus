@@ -8,28 +8,24 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Backend, Role, Usage } from './types.js';
 
-export type Status = 'working' | 'asking' | 'failed' | 'idle' | 'done';
-/** `returned`: handed to the Planner or Manager, closed for the team. */
-export type TaskStatus = 'open' | 'done' | 'returned';
+/** `idle`: no letter is waiting for anyone but the operator. */
+export type Status = 'working' | 'asking' | 'failed' | 'idle';
+/** A task opens with a letter to the Engineer and closes with a letter from it, or from its
+ * Reviewer, to anyone but the two of them. */
+export type TaskStatus = 'open' | 'closed';
 export type Holder = 'engineer' | 'reviewer';
-
-export interface Ticket {
-  /** The Manager's brief, the team's whole account of the work. */
-  brief: string;
-  /** The one task a ticket for the Engineer became; its acceptance completes the ticket. */
-  task: string | null;
-}
 
 export interface Note { from: Role | 'operator'; text: string }
 
 export interface Task {
   id: string;
   title: string;
-  /** The Planner's brief; empty for a ticket's own task, whose brief is the ticket. */
+  /** Who gave it, the Manager or the Planner, and the letter that did: its whole brief. */
+  from: 'manager' | 'planner';
   objective: string;
   status: TaskStatus;
   holder: Holder;
-  /** What the holder reads next: the last hand-off's note, or the operator's answer. */
+  /** The last letter on it: what the holder reads next, or for a closed task, its last word. */
   note: Note | null;
 }
 
@@ -52,9 +48,8 @@ export interface Project {
   error: string | null;
   /** The open question, with status 'asking'. */
   question: Question | null;
-  ticket: Ticket | null;
   tasks: Task[];
-  /** What the Planner reads at its next turn; it is called when no task is open and this is not empty. */
+  /** Letters to the Planner; it is called when no task is open and one is waiting. */
   inbox: string[];
   /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
   sessions: Record<string, string>;
@@ -67,7 +62,7 @@ export type FlowEvent =
       error: string | null; model: string | null; usage: Usage | null; ms: number }
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string }
   | { type: 'task.added'; task: Task }
-  | { type: 'task.settled'; task: string; status: TaskStatus }
+  | { type: 'task.closed'; task: string }
   | { type: 'status'; status: Status; error?: string; question?: Question };
 
 /** The state root: $ARGUS_HOME, absolute, or ~/.argus. */
@@ -100,7 +95,7 @@ export class Store {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
-      status: 'working', error: null, question: null, ticket: null, tasks: [], inbox: [], sessions: {},
+      status: 'working', error: null, question: null, tasks: [], inbox: [], sessions: {},
     };
     mkdirSync(project.workdir, { recursive: true });
     mkdirSync(join(this.dir(id), 'calls'), { recursive: true });

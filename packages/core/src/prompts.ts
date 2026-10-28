@@ -24,34 +24,37 @@ const rules = (role: Role): string =>
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
+/** What every role is told once: where the work and Argus's record of it are, and the date. */
+const where = (project: Project, record: string, more: string[] = []): string => section('Where things are', [
+  `Workspace: ${project.workdir}`,
+  `Argus's record of this project: ${record} (project.json holds the tasks and their state; events.jsonl every letter)`,
+  ...more,
+  `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
+].join('\n'));
+
 export function managerPrompt(project: Project, record: string, message: string, resumed: boolean): string {
   if (resumed) return message;
-  return join(rules('manager'), section('Where things are', [
-    `Workspace: ${project.workdir}`,
-    `Argus's record of this project: ${record} (project.json holds the ticket, the tasks and their state; events.jsonl what happened)`,
-    `Ways of working, which every role can read:\n${ways()}`,
-    `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
-  ].join('\n')), section('Message', message));
+  return join(rules('manager'), where(project, record, [`Ways of working, which every role can read:\n${ways()}`]), section('Message', message));
 }
 
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
-export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
+export function taskPrompt(project: Project, record: string, task: Task, resumed: boolean): string {
   const note = task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text);
   if (resumed) {
     const again = task.holder === 'reviewer' && task.note?.from === 'engineer'
       && 'The Engineer has worked on the task since your last judgment. Judge the current files afresh: your earlier judgment is not a fact.';
     return join(again, note || 'Continue the task.');
   }
-  // What the task builds on is settled in Argus's record, which the workdir may not say.
-  const before = project.tasks.filter(other => other.status === 'done').map(other => `- ${other.id} ${other.title}`);
-  return join(rules(task.holder), project.ticket && section('Ticket', project.ticket.brief),
-    before.length > 0 && section('Done before this task', `${before.join('\n')}\nEach is finished, and accepted by its review where it needed one.`),
-    task.objective && section(`Task ${task.id}: ${task.title}`, task.objective), note);
+  // How each earlier task ended is in Argus's record, which the workspace may not say.
+  const earlier = project.tasks.filter(other => other.status === 'closed')
+    .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);
+  return join(rules(task.holder), where(project, record), earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
+    section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note);
 }
 
-export function plannerPrompt(project: Project, resumed: boolean): string {
-  const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : task.status}] ${task.title}`);
-  return join(!resumed && rules('planner'), project.ticket && section('Ticket', project.ticket.brief),
+export function plannerPrompt(project: Project, record: string, resumed: boolean): string {
+  const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : 'closed'}] ${task.title}`);
+  return join(!resumed && rules('planner'), !resumed && where(project, record),
     section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
 }
 

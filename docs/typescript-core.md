@@ -14,10 +14,10 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 
 | | What works | Status |
 |---|---|---|
-| M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
+| M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -45,26 +45,29 @@ A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "le
 as its final answer, and the backend CLI holds the model to that shape (Codex
 `--output-schema`, Claude `--json-schema`), or, with no such answer, takes it as the arguments
 of a `hand_off` tool whose call ends the turn (Copilot, Pi), so a turn cannot end in prose that
-only reads like a hand-off. The addressee is the one thing the host reads: it is one of the
-places the role can write to, and routing is that and nothing else. The letter is free text,
-passed to its reader as written: they see the workspace and the letter, not the writer's
+only reads like a hand-off. The addressee is the one thing the host reads, and it is always
+someone who acts on the letter: never a state such as done. The letter is free text, passed to
+its reader as written: they see the workspace, Argus's record and the letter, not the writer's
 conversation, so a letter that hands on new work is that work's whole brief. The operator reads
 every letter, so the letters are the project's timeline. A hand-off Argus refuses goes back to
-its writer once, in the same session, with the reason; refused again, or a turn that fails, is a
-failed call, recorded as such.
+its writer once, in the same session, with the reason; refused again, or a turn that fails, is
+a failed call, recorded as such.
 
 | Role | Writes to |
 |---|---|
-| Manager | `engineer`: one coherent piece of work, the letter its brief (the ticket); `planner`: work in dependent steps, the letter its brief; `operator`: a question; `manager`: the letter is the answer |
-| Planner | `engineer`: the next task, the letter its brief; `manager`: the process is stuck; `operator`: a question; `done` |
-| Engineer | `reviewer`; `engineer` (keeps working); `planner`: the task is mis-scoped; `manager`: the process is stuck; `operator` |
-| Reviewer | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
+| Manager | `engineer`: one coherent piece of work, opened as a task, the letter its brief; `planner`: work in dependent steps, or word on the work it runs; `operator`: the answer, report or question |
+| Planner | `engineer`: the next task, the letter its brief; `manager`: the goal is met, to report, or the process is stuck; `operator`: a question the work waits on |
+| Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the process is stuck; `operator` |
+| Reviewer | `engineer`: repairs; `planner` or `manager`: its judgment, to whoever gave the task; `operator` |
 
-The Planner hands out one task at a time; work that only differs in its inputs is one task,
-which the Engineer runs side by side. There are no stages: what a research project calls its
-stages is the order of the tasks the Planner writes. A project is done when the Reviewer
-accepts the task of a ticket the Manager gave the Engineer, or when the Planner writes `done`.
-The Manager may finish a small request in its own turn.
+A letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
+the two of them closes it, and stays on it as its last word. Nothing is done or finished: the
+host never decides whether a task succeeded, the letter says so. The Planner hands out one task
+at a time; work that only differs in its inputs is one task, which the Engineer runs side by
+side. There are no stages: what a research project calls its stages is the order of the tasks
+the Planner writes. The work rests (`idle`) when no letter waits for anyone but the operator,
+which is after the Manager's report; the Manager may also finish a small request in its own
+turn.
 
 ## Ways of working
 
@@ -144,7 +147,7 @@ reaches (6 MB), since that directory keeps every earlier release's chunks for op
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
 with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
-from one sentence to done, with `test/fixtures/fake-codex.mjs` in place of codex.
+from one sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place of codex.
 
 ## Left out
 

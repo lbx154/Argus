@@ -29,12 +29,13 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node --import tsx --test "packages/core/test/*.test.ts"
-      - name: Install the package with npm, and a scripted codex beside it, and run a project to done
+      - name: Install the package with npm, and a scripted codex beside it, and run a project to its report
         shell: bash
         run: |
           mkdir -p e2e/fake && cp packages/core/test/fixtures/fake-codex.mjs e2e/fake/
           echo '{ "name": "fake-codex", "version": "0.0.0", "bin": { "codex": "fake-codex.mjs" } }' > e2e/fake/package.json
           npm pack -w packages/core --ignore-scripts --loglevel warn --pack-destination e2e
           npm i -g ./e2e/*.tgz ./e2e/fake
-          argus run "Write hello.txt that says hello" --dir e2e/work
-          argus status | grep "^p-[0-9a-f]*  done "
+          argus run "Write hello.txt that says hello" --dir e2e/work | tee e2e/run.log
+          grep -q "^The work is done.$" e2e/run.log
+          argus status | grep "^p-[0-9a-f]*  idle "

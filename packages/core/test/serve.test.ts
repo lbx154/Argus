@@ -102,7 +102,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
     { role: 'engineer', to: 'reviewer', letter: 'report.md written',
       files: { 'report.md': '# Totals\n\n| a | b |\n', 'page.html': '<script>alert(1)</script>', 'data.bin': '0123456789', '.hidden': 'secret' } },
     { role: 'reviewer', to: 'operator', letter: 'Ship it as is?' },
-    { role: 'reviewer', to: 'done', letter: 'accepted' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    { role: 'manager', to: 'operator', letter: 'report.md gives the totals.' },
   ]);
 
   const metaResponse = await call('/api/meta');
@@ -151,7 +152,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(await (await post(`${P}/decisions/${card.id}/resolve`, { option_id: 'custom', note: 'Ship it today' })).json(), { resolved: true });
   const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
   assert.deepEqual(done.pending_questions, []);
-  assert.match(requests.at(-1)!.prompt, /They answered: Ship it today/);
+  assert.match(requests.at(-2)!.prompt, /They answered: Ship it today/);
 
   const streamed = await stream;
   live.abort();
@@ -217,7 +218,8 @@ test('a message can be cancelled during the Manager turn, and stop and start int
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', hang: true },
     { role: 'engineer', to: 'reviewer' },
-    { role: 'reviewer', to: 'done' },
+    { role: 'reviewer', to: 'manager' },
+    { role: 'manager', to: 'operator' },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
@@ -239,7 +241,7 @@ test('a message can be cancelled during the Manager turn, and stop and start int
 
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
-  assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer']);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
   assert.equal(requests[3]!.resume, undefined);
 });
