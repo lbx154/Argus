@@ -16,8 +16,8 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 |---|---|---|
 | M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
 | M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
-| M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | |
-| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | macOS and Windows: the core's tests pass on all three systems in CI (`core.yml`) |
+| M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | built; the cockpit ran a scripted project end to end and two real Codex Manager turns in a headless browser |
+| M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to done (with a scripted codex); macOS and Windows: the core's tests pass on all three systems in CI (`core.yml`) |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
 ## Process and state
@@ -39,27 +39,42 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 `project.json` is the only place a fact lives; events record changes and are never folded
 back into state. The work itself stays in the workdir.
 
-## Roles and hand-offs
+## Roles and letters
 
-Every role's turn ends with its form as the final answer. The backend CLI holds the model to
-the form's schema (Codex `--output-schema`, Claude `--json-schema`), so a turn cannot end in
-prose that only reads like a hand-off. The form takes its fields and their descriptions from
-`packages/contracts/schemas/handoff_forms.json`, only those the flow reads, and the Manager's
-form adds `reply`, what the operator reads. Where the work goes next is the form's `to`, and
-nothing else: the host reads no prose. A form Argus refuses (its schema or its own check) goes
-back to the role once, in the same session, with the reason; refused again, or a turn that
-fails, is a failed call, recorded as such.
+A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "letter": ... }`
+as its final answer, and the backend CLI holds the model to that shape (Codex
+`--output-schema`, Claude `--json-schema`), so a turn cannot end in prose that only reads like
+a hand-off. The addressee is the one thing the host reads: it is one of the places the role
+can write to, and routing is that and nothing else. The letter is free text, passed to its
+reader as written: they see the workspace and the letter, not the writer's conversation, so a
+letter that hands on new work is that work's whole brief. The operator reads every letter, so
+the letters are the project's timeline. A hand-off Argus refuses goes back to its writer once,
+in the same session, with the reason; refused again, or a turn that fails, is a failed call,
+recorded as such.
 
-| Role | Form | `to` |
-|---|---|---|
-| Manager | `manager` | `team` files the request as a ticket; `operator` asks; `manager`, the reply is the whole answer |
-| Planner (M2) | `plan` | `engineer` with tasks; `done`; `operator`; `manager` |
-| Engineer | `engineer` | `reviewer`; `done` (no review needed); `engineer` (keeps working); `planner`; `manager`; `operator` |
-| Reviewer | `review` | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
+| Role | Writes to |
+|---|---|
+| Manager | `engineer`: one coherent piece of work, the letter its brief (the ticket); `planner`: work in dependent steps, the letter its brief; `operator`: a question; `manager`: the letter is the answer |
+| Planner | `engineer`: the next task, the letter its brief; `manager`: the process is stuck; `operator`: a question; `done` |
+| Engineer | `reviewer`; `engineer` (keeps working); `planner`: the task is mis-scoped; `manager`: the process is stuck; `operator` |
+| Reviewer | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
 
-A project is done when the Reviewer accepts a bounded ticket's task and no other task is
-open, or when the Planner hands off `to: done`. The Manager may finish a small request in its
-own turn.
+The Planner hands out one task at a time; work that only differs in its inputs is one task,
+which the Engineer runs side by side. There are no stages: what a research project calls its
+stages is the order of the tasks the Planner writes. A project is done when the Reviewer
+accepts the task of a ticket the Manager gave the Engineer, or when the Planner writes `done`.
+The Manager may finish a small request in its own turn.
+
+## The web cockpit
+
+`argus serve` (127.0.0.1 only; `ARGUS_WEB_TOKEN` makes project requests need that bearer) runs
+the work of its projects in its own process: one Flow call at a time per project, in the order
+asked for, projects side by side. The page reads files as they are: the snapshot from
+`project.json` and `usage.jsonl`, events and the conversation from `events.jsonl` in the
+cockpit's event vocabulary, results from the workdir's files created or changed since the
+project began. A message's stream follows the Manager's turn and ends with its reply; the team's
+work goes on after it. A message sent while work runs waits until it stops; Stop interrupts the
+call under way and Start resumes. The live event stream is server-sent events, in both runtimes.
 
 ## The agent call
 
@@ -72,9 +87,9 @@ callAgent(request: AgentRequest): Promise<AgentResult>
 (`packages/core/src/types.ts`). The agent layer runs the CLI with the prompt on stdin and
 the form's schema for its final answer, reads its JSON event stream, takes only the
 backend's own completion event as success (Codex `turn.completed`, Claude `result` with
-`subtype: success`), and judges the form the turn ended with: Codex's last message, in the
-strict shape OpenAI's structured outputs take (every field required, an optional one
-nullable, a null read as left out), or Claude's `structured_output`.
+`subtype: success`), and judges the hand-off the turn ended with: Codex's last message or
+Claude's `structured_output`. The shape is already the strict one OpenAI's structured outputs
+take: both fields required, no other allowed.
 
 Usage: Codex from the session's rollout file (`token_usage_record`, per request); Claude from
 `result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost.
@@ -91,6 +106,19 @@ Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd
 only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
 Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
 `taskkill /T` on Windows.
+
+## The package
+
+`packages/core` is the npm package, `@lbx154/argus` until the name `argus` is free. Its build
+(`npm run build`, and `npm pack` before packing) makes `dist/argus.mjs`, the CLI with
+`@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
+dependencies. Beside it the package carries the prompts the CLI reads and `web/`, the built
+web cockpit: only the files `frontend/web/dist/index.html` reaches (6 MB), since that
+directory keeps every earlier release's chunks for open tabs (479 MB).
+
+`packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
+with `npm i -g` in a `node:22-slim` container with no Python and no network, and runs a project
+from one sentence to done, with `test/fixtures/fake-codex.mjs` in place of codex.
 
 ## Left out
 

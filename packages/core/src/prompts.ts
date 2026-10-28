@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import type { Role } from './types.js';
-import type { Note, Project, Task, Ticket } from './store.js';
+import type { Note, Project, Task } from './store.js';
 
 const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
@@ -14,11 +14,6 @@ const rules = (role: Role): string =>
   [role, 'common'].map(name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim()).join('\n\n');
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
-const bullets = (title: string, items: string[]): string => items.length ? `${title}:\n${items.map(item => `- ${item}`).join('\n')}` : '';
-
-export function ticketText({ goal, acceptance, constraints, context }: Ticket): string {
-  return join(goal, bullets('Acceptance', acceptance), bullets('Constraints', constraints), bullets('Read first', context));
-}
 
 export function managerPrompt(project: Project, record: string, message: string, resumed: boolean): string {
   if (resumed) return message;
@@ -37,22 +32,22 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
       && 'The Engineer has worked on the task since your last judgment. Judge the current files afresh: your earlier judgment is not a fact.';
     return join(again, note || 'Continue the task.');
   }
-  return join(rules(task.holder), project.ticket && section('Ticket', ticketText(project.ticket)),
+  // What the task builds on is settled in Argus's record, which the workdir may not say.
+  const before = project.tasks.filter(other => other.status === 'done').map(other => `- ${other.id} ${other.title}`);
+  return join(rules(task.holder), project.ticket && section('Ticket', project.ticket.brief),
+    before.length > 0 && section('Done before this task', `${before.join('\n')}\nEach is finished, and accepted by its review where it needed one.`),
     task.objective && section(`Task ${task.id}: ${task.title}`, task.objective), note);
 }
 
 export function plannerPrompt(project: Project, resumed: boolean): string {
-  const tasks = project.tasks.map(task => `- ${task.id} [${[
-    task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : task.status,
-    task.deps.length && `after ${task.deps.join(', ')}`,
-  ].filter(Boolean).join(', ')}] ${task.title}`);
-  return join(!resumed && rules('planner'), project.ticket && section('Ticket', ticketText(project.ticket)),
+  const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : task.status}] ${task.title}`);
+  return join(!resumed && rules('planner'), project.ticket && section('Ticket', project.ticket.brief),
     section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
 }
 
-/** What a role that hands the work to the Planner or Manager tells it. */
-export function handedTo(role: Role, task: Task | null, summary: string, note: string): string {
-  return join(`The ${NAMES[role]} handed ${task ? `task ${task.id} (${task.title})` : 'the work'} to you: ${summary}`, note);
+/** A letter that reaches the Planner or the Manager from another role. */
+export function handedTo(role: Role, task: Task | null, letter: string): string {
+  return `From the ${NAMES[role]}${task ? `, on task ${task.id} (${task.title})` : ''}:\n${letter}`;
 }
 
 export function refusedPrompt(reason: string): string {

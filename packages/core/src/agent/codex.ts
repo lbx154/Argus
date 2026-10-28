@@ -1,10 +1,10 @@
-// `codex exec --json`: the prompt on stdin, the final answer held to the form's schema (in the
-// strict shape OpenAI's structured outputs take), usage from the session's rollout files.
+// `codex exec --json`: the prompt on stdin, the final answer held to the form's schema, usage
+// from the session's rollout files.
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { isJsonObject, type PayloadSchema } from '@argus/contracts';
+import { isJsonObject } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import type { Usage } from '../types.js';
 import type { StartBackend } from './call.js';
@@ -14,7 +14,7 @@ const count = (value: unknown): number => typeof value === 'number' && Number.is
 
 export const codex: StartBackend = (request, { confined, started, schema, stem }) => {
   const schemaFile = `${stem}.schema.json`;
-  writeFileSync(schemaFile, JSON.stringify(strict(schema)));
+  writeFileSync(schemaFile, JSON.stringify(schema));
   const args = [
     'exec', ...request.resume ? ['resume'] : [], '--json', '--skip-git-repo-check',
     // An inherited desktop notify hook would hold every turn; a background terminal waits as long as its turn.
@@ -59,27 +59,9 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
   };
 };
 
-/** OpenAI's strict form of `schema`: every field required, an optional one nullable. */
-function strict(schema: PayloadSchema): PayloadSchema {
-  if (schema.properties) {
-    const required = new Set(schema.required);
-    const properties = Object.fromEntries(Object.entries(schema.properties).map(([name, field]) => {
-      const held = strict(field);
-      return [name, required.has(name) ? held : {
-        ...held, ...held.type ? { type: [held.type, 'null'].flat() } : {}, ...held.enum ? { enum: [...held.enum, null] } : {},
-      }];
-    }));
-    return { ...schema, properties, required: Object.keys(properties), additionalProperties: false };
-  }
-  return schema.items ? { ...schema, items: strict(schema.items) } : schema;
-}
-
-/** The form in the turn's last message, a null field read as one left out. */
+/** The form in the turn's last message. */
 function form(text: string): unknown {
-  const absent = (value: unknown): unknown => Array.isArray(value) ? value.map(absent)
-    : isJsonObject(value) ? Object.fromEntries(Object.entries(value).filter(([, field]) => field !== null).map(([name, field]) => [name, absent(field)]))
-    : value;
-  try { return absent(JSON.parse(text)); } catch { return undefined; }
+  try { return JSON.parse(text); } catch { return undefined; }
 }
 
 /** Codex keeps a thread in YYYY/MM/DD/rollout-<time>-<id>.jsonl of the day it began, which its

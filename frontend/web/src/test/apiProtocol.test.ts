@@ -4,7 +4,7 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
-import { RELEASE_ID } from '../../../core/src/release.generated';
+import { RELEASE_ID } from '../../../core/src/protocol';
 
 const SOURCE_SUMMARY = '2 files, 10 bytes';
 
@@ -62,105 +62,66 @@ describe('web API protocol handshake', () => {
 
   it('does not reconnect a stream after the server rejects an unknown project', async () => {
     vi.useFakeTimers();
-    const sockets: MockWebSocket[] = [];
-
-    class MockWebSocket {
-      onopen: (() => void) | null = null;
-      onmessage: ((event: { data: string }) => void) | null = null;
-      onclose: ((event: { code: number; reason: string }) => void) | null = null;
-      onerror: (() => void) | null = null;
-
-      constructor(readonly url: string) {
-        sockets.push(this);
-      }
-
-      close() {}
-    }
-
-    vi.stubGlobal('window', {
-      location: { protocol: 'http:', host: '127.0.0.1:8801', search: '' },
-    });
-    vi.stubGlobal('WebSocket', MockWebSocket);
+    const fetchMock = vi.fn(async () => new Response('unknown project', { status: 404, statusText: 'Not Found' }));
+    vi.stubGlobal('fetch', fetchMock);
     const { openStream } = await import('../api');
     const onClose = vi.fn();
     const close = openStream('s-missing', () => undefined, { onClose });
 
-    expect(sockets).toHaveLength(1);
-    sockets[0].onclose?.({ code: 4404, reason: 'unknown project' });
     await vi.advanceTimersByTimeAsync(1_001);
-
-    expect(sockets).toHaveLength(1);
-    expect(onClose).toHaveBeenCalledWith({
-      code: 4404,
-      reason: 'unknown project',
-      retryable: false,
-    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith({ code: 404, reason: 'Not Found', retryable: false });
     close();
   });
 
-  it('still reconnects a stream after a transient network close', async () => {
+  it('delivers each event frame and reconnects after the connection ends', async () => {
     vi.useFakeTimers();
-    const sockets: MockWebSocket[] = [];
+    const body = 'data: {"type":"ui.argus","text":"hi"}\n\n: comment\n\ndata: {"type":"life.planner.task_added","item_id":"t1"}\n\n';
+    const fetchMock = vi.fn(async () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { openStream } = await import('../api');
+    const events: unknown[] = [];
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    const close = openStream('s-live', (event) => events.push(event), { onOpen, onClose });
 
-    class MockWebSocket {
-      onopen: (() => void) | null = null;
-      onmessage: ((event: { data: string }) => void) | null = null;
-      onclose: ((event: { code: number; reason: string }) => void) | null = null;
-      onerror: (() => void) | null = null;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events).toEqual([{ type: 'ui.argus', text: 'hi' }, { type: 'life.planner.task_added', item_id: 't1' }]);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 0, retryable: true }));
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    close();
+  });
 
-      constructor(readonly url: string) {
-        sockets.push(this);
-      }
-
-      close() {}
-    }
-
-    vi.stubGlobal('window', {
-      location: { protocol: 'http:', host: '127.0.0.1:8801', search: '' },
-    });
-    vi.stubGlobal('WebSocket', MockWebSocket);
+  it('still reconnects a stream after a transient network failure', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => { throw new TypeError('network down'); });
+    vi.stubGlobal('fetch', fetchMock);
     const { openStream } = await import('../api');
     const close = openStream('s-live', () => undefined);
 
-    sockets[0].onclose?.({ code: 1006, reason: '' });
     await vi.advanceTimersByTimeAsync(1_001);
-
-    expect(sockets).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     close();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps the paired token out of stream URLs and offers it as a subprotocol', async () => {
-    const sockets: Array<{ url: string; protocols: string[] }> = [];
-
-    class MockWebSocket {
-      onopen = null;
-      onmessage = null;
-      onclose = null;
-      onerror = null;
-
-      constructor(readonly url: string, readonly protocols: string[]) {
-        sockets.push(this);
-      }
-
-      close() {}
-    }
-
-    vi.stubGlobal('window', {
-      location: { protocol: 'http:', host: '127.0.0.1:8801', search: '' },
-    });
+  it('keeps the paired token out of stream URLs and sends it as the bearer header', async () => {
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response('', { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('localStorage', { getItem: () => 'fake-token' });
-    vi.stubGlobal('WebSocket', MockWebSocket);
     const { openStream } = await import('../api');
-    const { openEventStream } = await import('../research-workbench/api');
     openStream('s-live', () => undefined)();
-    openEventStream('s-live', () => undefined, () => undefined).close();
+    openStream('s-live', () => undefined, { replay: 40 })();
 
-    expect(sockets.map(({ url }) => url)).toEqual([
-      'ws://127.0.0.1:8801/api/projects/s-live/stream?view=ui',
-      'ws://127.0.0.1:8801/api/projects/s-live/stream?replay=40&view=ui',
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/projects/s-live/stream?view=ui',
+      '/api/projects/s-live/stream?replay=40&view=ui',
     ]);
-    for (const { protocols } of sockets) {
-      expect(protocols).toEqual(['argus', 'argus.bearer.66616b652d746f6b656e']);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.headers).toEqual({ Authorization: 'Bearer fake-token' });
     }
   });
 

@@ -45,8 +45,10 @@ def test_api_protocol_comes_from_the_shared_contract() -> None:
         "API_PROTOCOL_MAJOR": API_PROTOCOL_MAJOR,
         "API_PROTOCOL_MINOR": API_PROTOCOL_MINOR,
         "SNAPSHOT_SCHEMA_VERSION": SNAPSHOT_SCHEMA_VERSION,
-        "API_CAPABILITIES": list(API_CAPABILITIES),
+        "API_REQUIRED_CAPABILITIES": contract["API_REQUIRED_CAPABILITIES"],
+        "API_OPTIONAL_CAPABILITIES": contract["API_OPTIONAL_CAPABILITIES"],
     }
+    assert API_CAPABILITIES == tuple(contract["API_REQUIRED_CAPABILITIES"] + contract["API_OPTIONAL_CAPABILITIES"])
 
 
 @pytest.mark.parametrize("name", ["api_protocol.json", "model_pricing.json"])

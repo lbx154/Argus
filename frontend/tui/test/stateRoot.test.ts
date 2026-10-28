@@ -6,7 +6,7 @@ import {
   API_SERVICE, API_PROTOCOL, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION,
   type ApiMeta,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/protocol.js';
 import { apiStateRootError, ensureApi, probeApi } from '../src/ensureApi.js';
 import { selectApiPort } from '../src/portSelection.js';
 
